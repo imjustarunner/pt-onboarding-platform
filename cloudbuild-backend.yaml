@@ -1,0 +1,55 @@
+# Cloud Build configuration for Backend
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/onboarding-backend:$SHORT_SHA', '-t', 'gcr.io/$PROJECT_ID/onboarding-backend:latest', './backend']
+
+  # Push the container image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/onboarding-backend:$SHORT_SHA']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/onboarding-backend:latest']
+
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'onboarding-backend'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/onboarding-backend:$SHORT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--service-account'
+      - 'cloud-run-sa@$PROJECT_ID.iam.gserviceaccount.com'
+      - '--add-cloudsql-instances'
+      - '${_CLOUD_SQL_CONNECTION_NAME}'
+      - '--set-env-vars'
+      - 'NODE_ENV=production,DB_HOST=/cloudsql/${_CLOUD_SQL_CONNECTION_NAME},DB_PORT=3306,DB_NAME=onboarding_db,STORAGE_TYPE=gcs,GCS_PROJECT_ID=$PROJECT_ID,GCS_BUCKET_NAME=${_GCS_BUCKET_NAME}'
+      - '--set-secrets'
+      - 'JWT_SECRET=JWT_SECRET:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_USER=DB_USER:latest,GCS_CREDENTIALS=GCS_CREDENTIALS:latest'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--timeout'
+      - '300'
+      - '--max-instances'
+      - '10'
+      - '--min-instances'
+      - '0'
+
+substitutions:
+  _CLOUD_SQL_CONNECTION_NAME: 'PROJECT_ID:REGION:INSTANCE_NAME'  # Replace with your actual connection name
+  _GCS_BUCKET_NAME: 'your-bucket-name'  # Replace with your bucket name
+
+images:
+  - 'gcr.io/$PROJECT_ID/onboarding-backend:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/onboarding-backend:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

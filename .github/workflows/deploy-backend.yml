@@ -1,0 +1,69 @@
+name: Deploy Backend to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: onboarding-backend
+  REGION: us-central1
+  IMAGE_NAME: gcr.io/${{ secrets.GCP_PROJECT_ID }}/onboarding-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker
+
+      - name: Build and push Docker image
+        run: |
+          cd backend
+          docker build -t $IMAGE_NAME:$GITHUB_SHA -t $IMAGE_NAME:latest .
+          docker push $IMAGE_NAME:$GITHUB_SHA
+          docker push $IMAGE_NAME:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy $SERVICE_NAME \
+            --image $IMAGE_NAME:$GITHUB_SHA \
+            --platform managed \
+            --region $REGION \
+            --allow-unauthenticated \
+            --service-account ${{ secrets.CLOUD_RUN_SA_EMAIL }} \
+            --add-cloudsql-instances=${{ secrets.CLOUD_SQL_CONNECTION_NAME }} \
+            --set-env-vars="NODE_ENV=production,DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }},DB_PORT=3306,DB_NAME=onboarding_db,STORAGE_TYPE=gcs,GCS_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}" \
+            --set-secrets="JWT_SECRET=JWT_SECRET:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_USER=DB_USER:latest,GCS_CREDENTIALS=GCS_CREDENTIALS:latest" \
+            --memory=512Mi \
+            --cpu=1 \
+            --timeout=300 \
+            --max-instances=10 \
+            --min-instances=0
+
+      - name: Get service URL
+        id: get-url
+        run: |
+          SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')
+          echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
+          echo "Backend deployed to: $SERVICE_URL"

@@ -1,0 +1,41 @@
+{
+  "name": "onboarding-backend",
+  "version": "1.0.0",
+  "description": "PlotTwistCo People Operations Platform Backend API",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "create-admin": "node src/scripts/createAdmin.js",
+    "create-super-admin": "node src/scripts/createSuperAdmin.js",
+    "migrate": "node src/scripts/runMigrations.js",
+    "seed": "node src/scripts/seedData.js",
+    "seed-documents": "node src/scripts/seedDocuments.js",
+    "update-admin": "node src/scripts/updateAdminToSuperAdmin.js",
+    "check-roles": "node src/scripts/checkUserRoles.js",
+    "fix-roles": "node src/scripts/fixAdminRoles.js",
+    "set-test-passwords": "node src/scripts/setTestPasswords.js",
+    "restore-superadmin": "node src/scripts/restoreSuperAdmin.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/storage": "^7.7.0",
+    "archiver": "^7.0.1",
+    "axios": "^1.13.2",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "csv-parse": "^6.1.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "express-validator": "^7.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.6.5",
+    "pdf-lib": "^1.17.1",
+    "puppeteer": "^21.11.0"
+  }
+}
