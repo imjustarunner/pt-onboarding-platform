@@ -1,28 +1,26 @@
-# Backend Dockerfile for Google Cloud Run
+# Multi-stage Dockerfile for Google Cloud Run
 # Stage 1: Build frontend
 FROM node:20-alpine AS frontend-builder
 
-WORKDIR /app/frontend
+WORKDIR /app
 
-# Copy frontend package files (build context is repo root)
-# Use explicit files to avoid glob pattern issues in Cloud Build
-COPY frontend/package.json ./
-COPY frontend/package-lock.json* ./
+# Copy frontend package files
+COPY frontend/package*.json ./
 
-# Install frontend dependencies
+# Install frontend dependencies (including devDependencies for Vite build)
 RUN npm ci
 
 # Copy frontend source code
-COPY frontend/ .
+COPY frontend/ ./
 
-# Build argument for API URL (set at build time)
-ARG VITE_API_URL
+# Build argument for API URL (relative path since frontend and backend are same origin)
+ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
 
-# Build the frontend application
+# Build the frontend
 RUN npm run build
 
-# Stage 2: Backend with frontend
+# Stage 2: Backend with embedded frontend
 FROM node:18-alpine
 
 WORKDIR /app
@@ -49,17 +47,25 @@ RUN which chromium-browser || which chromium || echo "Warning: Chromium executab
 # If chromium-browser doesn't exist, the code will fall back to checking chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
-# Copy frontend build from builder stage
-COPY --from=frontend-builder /app/frontend/dist ./public
-
-# Copy package files
+# Copy backend package files
 COPY backend/package*.json ./
 
-# Install dependencies
+# Install backend dependencies (production only)
 RUN npm ci --only=production
 
-# Copy application code
-COPY backend/ .
+# Copy backend source code
+COPY backend/src ./src
+
+# Copy built frontend from builder stage to public directory
+COPY --from=frontend-builder /app/dist ./public
+
+# Verify public directory and index.html exist (fail build if missing)
+RUN echo "Verifying public directory..." && \
+    ls -la public/ || (echo "ERROR: public/ directory not found!" && exit 1) && \
+    echo "=== Contents of public/ ===" && \
+    find public -type f || echo "No files found in public/" && \
+    test -f public/index.html || (echo "ERROR: public/index.html not found!" && ls -la public/ && exit 1) && \
+    echo "Verified: public/index.html exists"
 
 # Expose port (Cloud Run will set PORT env var)
 EXPOSE 3000

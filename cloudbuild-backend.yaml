@@ -1,20 +1,131 @@
 # Cloud Build configuration for Backend
 steps:
-  # Build the container image
-  # Build context is repository root (.) to access both frontend/ and backend/ directories
-  # Dockerfile is in backend/ directory
+  # Step 1: Build frontend
+  - name: 'node:20'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cd frontend
+        echo "Building frontend..."
+        npm ci
+        VITE_API_URL=${_BACKEND_URL}/api npm run build
+        echo "Frontend build complete"
+        
+        # Verify dist/ exists and has files
+        if [ ! -d "dist" ]; then
+          echo "ERROR: dist directory does not exist!"
+          exit 1
+        fi
+        if [ -z "$(ls -A dist)" ]; then
+          echo "ERROR: dist directory is empty!"
+          ls -la dist/
+          exit 1
+        fi
+        echo "Verified: dist/ directory exists and has files"
+        ls -la dist/
+        
+        # Copy built frontend to backend/public using explicit copy method
+        # Remove existing public directory if it exists (from previous failed builds)
+        rm -rf ../backend/public
+        mkdir -p ../backend/public
+        echo "Copying files from dist/ to backend/public/..."
+        echo "Contents of dist/ before copy:"
+        ls -la dist/
+        
+        # Copy index.html explicitly first
+        if [ -f "dist/index.html" ]; then
+          cp dist/index.html ../backend/public/index.html
+          echo "Copied index.html"
+        else
+          echo "ERROR: dist/index.html does not exist!"
+          ls -la dist/
+          exit 1
+        fi
+        
+        # Copy assets directory if it exists
+        if [ -d "dist/assets" ]; then
+          cp -r dist/assets ../backend/public/
+          echo "Copied assets directory"
+        fi
+        
+        # Copy any other files/directories from dist
+        for item in dist/*; do
+          if [ "$item" != "dist/index.html" ] && [ "$item" != "dist/assets" ]; then
+            if [ -f "$item" ]; then
+              cp "$item" ../backend/public/
+              echo "Copied $(basename $item)"
+            elif [ -d "$item" ]; then
+              cp -r "$item" ../backend/public/
+              echo "Copied directory $(basename $item)"
+            fi
+          fi
+        done
+        
+        echo "Frontend copied to backend/public/"
+        
+        # Verify files were copied
+        echo "=== Contents of backend/public/ after copy ==="
+        ls -la ../backend/public/
+        echo "=== File count ==="
+        find ../backend/public -type f | wc -l
+        
+        if [ -z "$(ls -A ../backend/public)" ]; then
+          echo "ERROR: backend/public/ is empty after copy!"
+          echo "Contents of dist/:"
+          ls -la dist/
+          exit 1
+        fi
+        if [ ! -f "../backend/public/index.html" ]; then
+          echo "ERROR: index.html not found in backend/public/"
+          ls -la ../backend/public/
+          exit 1
+        fi
+        echo "Verified: index.html exists in backend/public/"
+        
+        # Create a test file to verify directory is writable and files persist
+        echo "test-persistence" > ../backend/public/.test-file
+        echo "Created test file to verify persistence"
+  
+  # Step 1.5: Verify files exist before Docker build
+  # This confirms files persist between Cloud Build steps
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=== Verifying files exist before Docker build ==="
+        pwd
+        echo "=== Checking backend/public/ directory ==="
+        ls -la backend/public/ || echo "ERROR: backend/public/ not found"
+        echo "=== File count in backend/public/ ==="
+        find backend/public -type f 2>/dev/null | wc -l
+        echo "=== All files in backend/public/ ==="
+        find backend/public -type f 2>/dev/null || echo "No files found"
+        echo "=== Checking for index.html ==="
+        test -f backend/public/index.html && echo "SUCCESS: index.html exists" || echo "ERROR: index.html missing"
+        echo "=== Checking for test file ==="
+        test -f backend/public/.test-file && echo "SUCCESS: Test file exists (files persist)" || echo "WARNING: Test file missing (files may not persist)"
+        if [ ! -f "backend/public/index.html" ]; then
+          echo "FATAL: Files not found - cannot proceed with Docker build"
+          echo "Contents of backend/public/:"
+          ls -la backend/public/ || echo "Directory doesn't exist"
+          echo "=== Full directory tree ==="
+          find backend/public -type f -o -type d 2>/dev/null || echo "Directory empty or doesn't exist"
+          exit 1
+        fi
+        echo "=== Verification passed - files exist ==="
+  
+  # Step 2: Build backend Docker image
+  # Build context is backend/ directory (frontend already copied to backend/public/)
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
-      - '--build-arg'
-      - 'VITE_API_URL=${_BACKEND_URL}/api'
       - '-t'
       - 'gcr.io/$PROJECT_ID/onboarding-backend:$SHORT_SHA'
       - '-t'
       - 'gcr.io/$PROJECT_ID/onboarding-backend:latest'
-      - '-f'
-      - 'backend/Dockerfile'
-      - '.'
+      - './backend'
 
   # Push the container image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
@@ -58,7 +169,6 @@ steps:
 substitutions:
   _CLOUD_SQL_CONNECTION_NAME: 'PROJECT_ID:REGION:INSTANCE_NAME'  # Replace with your actual connection name
   _GCS_BUCKET_NAME: 'your-bucket-name'  # Replace with your bucket name
-  _BACKEND_URL: 'https://onboarding-backend-xxxxx.run.app'  # Backend service URL for frontend API calls
 
 images:
   - 'gcr.io/$PROJECT_ID/onboarding-backend:$SHORT_SHA'

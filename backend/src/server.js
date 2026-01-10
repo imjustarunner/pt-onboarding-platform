@@ -169,14 +169,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Serve built frontend
-app.use(express.static(path.join(__dirname, '../public')));
-
-// SPA fallback for frontend routes
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../public/index.html'));
-});
-
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: { message: 'Route not found' } });
