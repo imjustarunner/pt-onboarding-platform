@@ -1,6 +1,10 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import config from './config/config.js';
+import requestLoggingMiddleware from './middleware/requestLogging.middleware.js';
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 import moduleRoutes from './routes/module.routes.js';
@@ -40,6 +44,9 @@ import fontRoutes from './routes/font.routes.js';
 import activityLogRoutes from './routes/activityLog.routes.js';
 import supervisorAssignmentRoutes from './routes/supervisorAssignment.routes.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 
 // Trust proxy for accurate IP addresses (important for production behind load balancers/proxies)
@@ -51,15 +58,47 @@ app.use(cors({
   origin: config.cors.origin,
   credentials: true
 }));
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files from uploads directory
-import path from 'path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Request logging middleware with body sanitization
+// Must be after body parsing middleware (express.json, express.urlencoded)
+// This ensures req.body is available for sanitization
+app.use(requestLoggingMiddleware);
+
+// File serving for GCS - redirects to signed URLs
+// 
+// Why signed URLs instead of proxying:
+// 1. Better performance - files served directly from GCS, not through Cloud Run
+// 2. Reduced Cloud Run costs - no bandwidth/CPU usage for file serving
+// 3. Better scalability - GCS handles file serving, Cloud Run handles API requests
+// 4. CDN-friendly - GCS can be fronted by Cloud CDN for global distribution
+//
+// Note: For public files (icons, fonts), consider making them public in GCS
+// and serving directly without signed URLs for even better performance
+app.use('/uploads', async (req, res, next) => {
+  try {
+    const StorageService = (await import('./services/storage.service.js')).default;
+    
+    // Extract file path from request (e.g., /uploads/icons/filename.png -> icons/filename.png)
+    const filePath = req.path.replace(/^\/uploads\//, '');
+    
+    if (!filePath || filePath === '/') {
+      return res.status(404).json({ error: { message: 'File not found' } });
+    }
+    
+    // Generate signed URL for direct GCS access
+    // Signed URLs expire after 1 hour by default
+    const signedUrl = await StorageService.getSignedUrl(filePath, 60);
+    
+    // Redirect to signed URL for direct access
+    res.redirect(302, signedUrl);
+  } catch (error) {
+    console.error('Error generating signed URL for file:', error);
+    res.status(404).json({ error: { message: 'File not found' } });
+  }
+});
 
 // Health check
 app.get('/health', (req, res) => {
@@ -130,15 +169,26 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Serve built frontend
+app.use(express.static(path.join(__dirname, '../public')));
+
+// SPA fallback for frontend routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: { message: 'Route not found' } });
 });
 
-const PORT = config.port;
+const PORT = process.env.PORT || config.port || 3000;
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📝 Environment: ${config.nodeEnv}`);
+});
+
   
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived
@@ -222,5 +272,4 @@ app.listen(PORT, () => {
       }
     }
   })();
-});
 

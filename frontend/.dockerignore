@@ -35,7 +35,6 @@ README.md
 # Development files
 .eslintrc*
 .prettierrc*
-vite.config.js
 
 # Source maps (optional, can include for debugging)
 *.map

@@ -908,13 +908,20 @@ class DocumentTemplate {
       console.error('Error checking for archived_by_agency_id column:', err);
     }
 
-    // Delete file if exists
+    // Delete file using StorageService (handles both local and GCS)
     if (template.file_path) {
       try {
-        const filePath = path.join(__dirname, '../../uploads/templates', template.file_path);
-        await fs.unlink(filePath);
+        // Extract filename from path (handles both "templates/filename" and full paths)
+        const filename = template.file_path.includes('/') 
+          ? template.file_path.split('/').pop() 
+          : template.file_path.replace('templates/', '');
+        
+        const StorageService = (await import('../services/storage.service.js')).default;
+        await StorageService.deleteTemplate(filename);
+        console.log('Template file deleted successfully:', filename);
       } catch (err) {
         console.error('Error deleting template file:', err);
+        // Continue with database deletion even if file deletion fails
       }
     }
 

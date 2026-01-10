@@ -1,4 +1,28 @@
 # Backend Dockerfile for Google Cloud Run
+# Stage 1: Build frontend
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app/frontend
+
+# Copy frontend package files (build context is repo root)
+# Use explicit files to avoid glob pattern issues in Cloud Build
+COPY frontend/package.json ./
+COPY frontend/package-lock.json* ./
+
+# Install frontend dependencies
+RUN npm ci
+
+# Copy frontend source code
+COPY frontend/ .
+
+# Build argument for API URL (set at build time)
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+
+# Build the frontend application
+RUN npm run build
+
+# Stage 2: Backend with frontend
 FROM node:18-alpine
 
 WORKDIR /app
@@ -25,14 +49,17 @@ RUN which chromium-browser || which chromium || echo "Warning: Chromium executab
 # If chromium-browser doesn't exist, the code will fall back to checking chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
+# Copy frontend build from builder stage
+COPY --from=frontend-builder /app/frontend/dist ./public
+
 # Copy package files
-COPY package*.json ./
+COPY backend/package*.json ./
 
 # Install dependencies
 RUN npm ci --only=production
 
 # Copy application code
-COPY . .
+COPY backend/ .
 
 # Expose port (Cloud Run will set PORT env var)
 EXPOSE 3000

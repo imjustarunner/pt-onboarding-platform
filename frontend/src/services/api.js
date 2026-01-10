@@ -4,16 +4,15 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  withCredentials: true // Enable sending cookies and Authorization headers in CORS requests
 });
 
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+    // Token is now in HttpOnly cookie, so we don't need to set Authorization header
+    // Cookies are sent automatically with withCredentials: true
     
     // If data is FormData, remove Content-Type header to let browser set it with boundary
     if (config.data instanceof FormData) {
@@ -33,9 +32,9 @@ api.interceptors.response.use(
   (error) => {
     // Don't redirect on 401 if we're already on the login page
     if (error.response?.status === 401 && !window.location.pathname.includes('/login')) {
-      localStorage.removeItem('token');
+      // Token is in HttpOnly cookie, so we only clear user state
       localStorage.removeItem('user');
-      localStorage.removeItem('sessionId');
+      // Keep sessionId for activity logging
       window.location.href = '/login';
     }
     return Promise.reject(error);

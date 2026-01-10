@@ -1,6 +1,22 @@
 import pool from '../config/database.js';
 
 class Notification {
+  // Valid notification types - enforced at application layer
+  // This replaces ENUM validation which caused migration issues in Cloud SQL
+  static VALID_TYPES = [
+    'status_expired',
+    'temp_password_expired',
+    'task_overdue',
+    'onboarding_completed',
+    'invitation_expired',
+    'first_login_pending',
+    'first_login',
+    'password_changed',
+    'passwordless_token_expired',
+    'pending_completed',
+    'checklist_incomplete'
+  ];
+
   static async create(notificationData) {
     const {
       type,
@@ -12,6 +28,17 @@ class Notification {
       relatedEntityType,
       relatedEntityId
     } = notificationData;
+
+    // Validate notification type at application layer
+    if (!type) {
+      throw new Error('Notification type is required');
+    }
+
+    if (!this.VALID_TYPES.includes(type)) {
+      throw new Error(
+        `Invalid notification type: ${type}. Valid types are: ${this.VALID_TYPES.join(', ')}`
+      );
+    }
 
     const [result] = await pool.execute(
       `INSERT INTO notifications 

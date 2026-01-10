@@ -4,28 +4,14 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
+import StorageService from '../services/storage.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configure multer for font uploads
-const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../../uploads/fonts');
-    try {
-      await fs.mkdir(uploadDir, { recursive: true });
-      cb(null, uploadDir);
-    } catch (error) {
-      cb(error);
-    }
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `font-${uniqueSuffix}-${sanitizedName}`);
-  }
-});
+// Configure multer for font uploads - use memory storage for GCS
+// Files are uploaded directly to GCS, not saved to local filesystem
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   const allowedMimes = [
@@ -138,7 +124,7 @@ export const uploadFont = async (req, res, next) => {
     if (!name || !familyName) {
       // Delete uploaded file if validation fails
       try {
-        await fs.unlink(req.file.path);
+        // No cleanup needed - file is in memory
       } catch (e) {
         console.error('Error deleting file after validation failure:', e);
       }
@@ -163,7 +149,7 @@ export const uploadFont = async (req, res, next) => {
     } else {
       // Delete uploaded file
       try {
-        await fs.unlink(req.file.path);
+        // No cleanup needed - file is in memory
       } catch (e) {
         console.error('Error deleting file:', e);
       }
@@ -177,8 +163,27 @@ export const uploadFont = async (req, res, next) => {
     else if (ext === '.ttf') fileType = 'ttf';
     else if (ext === '.otf') fileType = 'otf';
     
-    // Create relative path
-    const relativePath = `fonts/${req.file.filename}`;
+    // Upload directly to GCS from memory buffer
+    const fileBuffer = req.file.buffer;
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const sanitizedName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const filename = `font-${uniqueSuffix}-${sanitizedName}`;
+    
+    // Determine content type based on file type
+    const contentType = fileType === 'woff2' ? 'font/woff2' :
+                       fileType === 'woff' ? 'font/woff' :
+                       fileType === 'ttf' ? 'font/ttf' :
+                       'font/otf';
+    
+    // Upload to GCS using StorageService
+    const storageResult = await StorageService.saveFont(
+      fileBuffer,
+      filename,
+      contentType
+    );
+    
+    const relativePath = storageResult.relativePath;
+    console.log('Font uploaded to GCS:', relativePath);
     
     const font = await Font.create({
       name: name.trim(),
@@ -196,7 +201,7 @@ export const uploadFont = async (req, res, next) => {
     // Delete uploaded file on error
     if (req.file) {
       try {
-        await fs.unlink(req.file.path);
+        // No cleanup needed - file is in memory
       } catch (e) {
         console.error('Error deleting file after upload error:', e);
       }
@@ -228,16 +233,6 @@ export const updateFont = async (req, res, next) => {
     // Handle file upload if provided
     let newFilePath = null;
     if (req.file) {
-      // Delete old file
-      if (font.file_path) {
-        try {
-          const oldPath = path.join(__dirname, '../../uploads/fonts', path.basename(font.file_path));
-          await fs.unlink(oldPath);
-        } catch (e) {
-          console.error('Error deleting old font file:', e);
-        }
-      }
-      
       // Determine file type from extension
       const ext = path.extname(req.file.originalname).toLowerCase();
       const fileType = ext.replace('.', '');
@@ -245,14 +240,46 @@ export const updateFont = async (req, res, next) => {
       if (!['woff2', 'woff', 'ttf', 'otf'].includes(fileType)) {
         // Delete uploaded file
         try {
-          await fs.unlink(req.file.path);
+          // No cleanup needed - file is in memory
         } catch (e) {
           console.error('Error deleting invalid file:', e);
         }
         return res.status(400).json({ error: { message: 'Invalid file type. Only WOFF2, WOFF, TTF, and OTF files are allowed.' } });
       }
       
-      newFilePath = `fonts/${req.file.filename}`;
+      // Upload directly to GCS from memory buffer
+      const fileBuffer = req.file.buffer;
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      const sanitizedName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const filename = `font-${uniqueSuffix}-${sanitizedName}`;
+      
+      const contentType = fileType === 'woff2' ? 'font/woff2' :
+                         fileType === 'woff' ? 'font/woff' :
+                         fileType === 'ttf' ? 'font/ttf' :
+                         'font/otf';
+      
+      const storageResult = await StorageService.saveFont(
+        fileBuffer,
+        filename,
+        contentType
+      );
+      
+      newFilePath = storageResult.relativePath;
+      console.log('Font updated and uploaded to GCS:', newFilePath);
+      
+      // Delete old file if it exists (works for both local and GCS)
+      if (font.file_path) {
+        try {
+          const oldFilename = font.file_path.includes('/') 
+            ? font.file_path.split('/').pop() 
+            : font.file_path.replace('fonts/', '');
+          
+          await StorageService.deleteFont(oldFilename);
+          console.log('Deleted old font file:', font.file_path);
+        } catch (e) {
+          console.warn('Could not delete old font file (may not exist):', e.message);
+        }
+      }
     }
     
     // Determine agency assignment (only for super_admin)
@@ -286,7 +313,7 @@ export const updateFont = async (req, res, next) => {
     // Clean up uploaded file on error
     if (req.file) {
       try {
-        await fs.unlink(req.file.path);
+        // No cleanup needed - file is in memory
       } catch (e) {
         console.error('Error deleting file after upload error:', e);
       }

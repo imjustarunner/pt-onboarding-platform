@@ -570,9 +570,8 @@ export const signDocument = async (req, res, next) => {
         if (templateType === 'html') {
           htmlContent = template.html_content;
         } else if (templateType === 'pdf') {
-          templatePath = template.file_path 
-            ? path.join(__dirname, '../../uploads/templates', template.file_path)
-            : null;
+          // Use relative path - StorageService will handle GCS vs local
+          templatePath = template.file_path || null;
         }
         
         signatureCoords = {

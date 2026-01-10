@@ -128,15 +128,21 @@ class TaskAssignmentService {
                   taskData
                 );
               } else if (template.template_type === 'pdf' && template.file_path) {
-                const templatePath = path.join(__dirname, '../../uploads/templates', template.file_path);
-                const outputDir = path.join(__dirname, '../../uploads/user_documents');
-                await fs.mkdir(outputDir, { recursive: true });
+                const StorageService = (await import('./storage.service.js')).default;
                 
+                // Extract filename from path
+                const templateFilename = template.file_path.includes('/') 
+                  ? template.file_path.split('/').pop() 
+                  : template.file_path.replace('templates/', '');
+                
+                // Read template file (works for both local and GCS)
+                const templateBuffer = await StorageService.readTemplate(templateFilename);
+                
+                // Save personalized copy using StorageService
                 const outputFilename = `user-doc-${assignedToUserId}-${task.id}-${Date.now()}.pdf`;
-                const outputPath = path.join(outputDir, outputFilename);
+                const storageResult = await StorageService.saveUserDocument(templateBuffer, outputFilename);
                 
-                await fs.copyFile(templatePath, outputPath);
-                personalizedFilePath = `user_documents/${outputFilename}`;
+                personalizedFilePath = storageResult.relativePath;
               }
 
               // Create user document

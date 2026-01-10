@@ -14,13 +14,13 @@ export const requireAdminOrFirstUser = async (req, res, next) => {
     }
     
     // Otherwise, require admin authentication
-    const authHeader = req.headers.authorization;
+    // Try cookie first (new method), then fall back to Authorization header (for backward compatibility)
+    const token = req.cookies?.authToken || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.substring(7) : null);
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
       return res.status(401).json({ error: { message: 'No token provided' } });
     }
     
-    const token = authHeader.substring(7);
     const decoded = jwt.verify(token, config.jwt.secret);
     
     if (decoded.role !== 'admin' && decoded.role !== 'super_admin' && decoded.role !== 'support') {

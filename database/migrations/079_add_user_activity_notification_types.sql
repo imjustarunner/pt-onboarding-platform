@@ -1,15 +1,14 @@
--- Migration: Add user activity notification types
--- Description: Add notification types for first login (pending and regular) and password changes
+-- Migration: Add user activity notification types (NO-OP)
+-- Description: This migration originally attempted to add 'first_login_pending', 'first_login', and 
+-- 'password_changed' to the notifications.type ENUM. However, ENUM modifications cause 
+-- WARN_DATA_TRUNCATED errors in Cloud SQL when legacy values exist.
+-- 
+-- Instead, notification types are now managed as VARCHAR(50) starting from migration 080,
+-- and validation is enforced at the application layer in backend/src/models/Notification.model.js
+--
+-- This migration is a no-op to maintain migration sequence integrity.
+-- The types 'first_login_pending', 'first_login', and 'password_changed' are included in 
+-- the application-layer validation.
 
--- Add new notification types to the enum
-ALTER TABLE notifications
-MODIFY COLUMN type ENUM(
-    'status_expired', 
-    'temp_password_expired', 
-    'task_overdue', 
-    'onboarding_completed', 
-    'invitation_expired',
-    'first_login_pending',
-    'first_login',
-    'password_changed'
-) NOT NULL;
+-- No SQL statements - this migration intentionally does nothing
+SELECT 1;

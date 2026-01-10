@@ -1,0 +1,5 @@
+name: projects/ptonboard-dev/policies/run.managed.requireInvokerIam
+spec:
+  rules:
+    - enforce: false
+

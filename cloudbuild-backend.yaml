@@ -1,8 +1,20 @@
 # Cloud Build configuration for Backend
 steps:
   # Build the container image
+  # Build context is repository root (.) to access both frontend/ and backend/ directories
+  # Dockerfile is in backend/ directory
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/onboarding-backend:$SHORT_SHA', '-t', 'gcr.io/$PROJECT_ID/onboarding-backend:latest', './backend']
+    args:
+      - 'build'
+      - '--build-arg'
+      - 'VITE_API_URL=${_BACKEND_URL}/api'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/onboarding-backend:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/onboarding-backend:latest'
+      - '-f'
+      - 'backend/Dockerfile'
+      - '.'
 
   # Push the container image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
@@ -46,6 +58,7 @@ steps:
 substitutions:
   _CLOUD_SQL_CONNECTION_NAME: 'PROJECT_ID:REGION:INSTANCE_NAME'  # Replace with your actual connection name
   _GCS_BUCKET_NAME: 'your-bucket-name'  # Replace with your bucket name
+  _BACKEND_URL: 'https://onboarding-backend-xxxxx.run.app'  # Backend service URL for frontend API calls
 
 images:
   - 'gcr.io/$PROJECT_ID/onboarding-backend:$SHORT_SHA'

@@ -1,7 +1,7 @@
 -- Migration: Add archive fields to training_tracks, modules, and users tables
 -- Description: Add is_archived and archived_at fields to support soft deletion
 -- Rewritten to use plain SQL compatible with mysql2 prepared statements (no PREPARE/EXECUTE)
--- The migration runner will catch "Duplicate column" and "Duplicate key" errors and skip them
+-- The migration runner will catch "Duplicate column", "Duplicate key", and "Duplicate foreign key" errors and skip them
 
 -- Add archive fields to training_tracks
 ALTER TABLE training_tracks
@@ -31,6 +31,7 @@ ADD COLUMN archived_by_user_id INT NULL DEFAULT NULL AFTER archived_at;
 CREATE INDEX idx_users_is_archived ON users(is_archived);
 
 -- Add foreign key constraints for archived_by_user_id
+-- Note: If these constraints already exist, the migration runner will catch ER_FK_DUP_NAME and skip them
 ALTER TABLE training_tracks
 ADD CONSTRAINT fk_training_tracks_archived_by
 FOREIGN KEY (archived_by_user_id) REFERENCES users(id) ON DELETE SET NULL;

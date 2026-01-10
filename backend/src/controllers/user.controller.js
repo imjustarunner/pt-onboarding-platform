@@ -477,12 +477,23 @@ export const updateUser = async (req, res, next) => {
         return res.status(400).json({ error: { message: `Invalid role. Must be one of: ${validRoles.join(', ')}` } });
       }
       
-      // Protect superadmin account from role changes
+      // Application-layer protection for superadmin account
+      // This replaces database triggers which require SUPER privilege in Cloud SQL
       const targetUser = await User.findById(id);
-      if (targetUser && targetUser.email === 'superadmin@plottwistco.com' && role !== 'super_admin') {
-        return res.status(403).json({ 
-          error: { message: 'Cannot change role of superadmin@plottwistco.com - this account must remain super_admin' } 
-        });
+      if (targetUser) {
+        // Protect superadmin@plottwistco.com from role changes
+        if (targetUser.email === 'superadmin@plottwistco.com' && role !== undefined && role !== 'super_admin') {
+          return res.status(403).json({ 
+            error: { message: 'Cannot change role of superadmin@plottwistco.com - this account must remain super_admin' } 
+          });
+        }
+        
+        // Additional protection: Prevent removing super_admin role from any user who currently has it
+        if (role !== undefined && targetUser.role === 'super_admin' && role !== 'super_admin') {
+          return res.status(403).json({ 
+            error: { message: 'Cannot remove super_admin role from a user who currently has it' } 
+          });
+        }
       }
       
       // Enforce role assignment permissions

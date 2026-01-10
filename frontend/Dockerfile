@@ -2,14 +2,15 @@
 # Multi-stage build for optimized production image
 
 # Stage 1: Build
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
+# Install all dependencies including devDependencies (needed for Vite build)
+# Ensure NODE_ENV is not set to production so devDependencies are installed
 RUN npm ci
 
 # Copy application code
@@ -18,6 +19,8 @@ COPY . .
 # Build argument for API URL (set at build time)
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
+
+RUN node -v && npm -v && ls -la && ls -la node_modules/@vitejs || true
 
 # Build the application
 RUN npm run build

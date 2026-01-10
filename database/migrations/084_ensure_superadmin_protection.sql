@@ -1,20 +1,16 @@
--- Migration: Ensure superadmin protection trigger exists
--- Description: Recreate the superadmin protection trigger to ensure it's always active
--- This migration can be run safely multiple times
--- Rewritten to be compatible with mysql2 prepared statements
--- Note: This file is executed as a raw query (not prepared statement) due to CREATE TRIGGER
+-- Migration: Ensure superadmin protection (NO-OP)
+-- Description: This migration was originally intended to recreate a database trigger to protect
+-- the superadmin account. However, database triggers require SUPER privilege which is not
+-- available in Cloud SQL (error 1419: ER_BINLOG_CREATE_ROUTINE_NEED_SUPER).
+-- 
+-- Instead, we use application-layer protection in:
+--   - backend/src/models/User.model.js (User.update method)
+--   - backend/src/controllers/user.controller.js (updateUser controller)
+--
+-- This migration ensures the superadmin account has the correct role, but does not create
+-- a database trigger. The UPDATE statement is safe to run multiple times.
 
-DROP TRIGGER IF EXISTS protect_superadmin_role;
-
-CREATE TRIGGER protect_superadmin_role
-BEFORE UPDATE ON users
-FOR EACH ROW
-BEGIN
-  IF OLD.email = 'superadmin@plottwistco.com' AND NEW.role != 'super_admin' THEN
-    SET NEW.role = 'super_admin';
-  END IF;
-END;
-
+-- Ensure superadmin account has the correct role
 UPDATE users 
 SET role = 'super_admin' 
 WHERE email = 'superadmin@plottwistco.com' AND role != 'super_admin';

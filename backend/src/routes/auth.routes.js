@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { login, register, approvedEmployeeLogin, logout, logActivity, passwordlessTokenLogin, verifyPendingIdentity } from '../controllers/auth.controller.js';
+import { login, register, approvedEmployeeLogin, logout, logActivity, passwordlessTokenLogin, passwordlessTokenLoginFromBody, verifyPendingIdentity } from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
 import { authLimiter } from '../middleware/rateLimiter.middleware.js';
@@ -115,7 +115,24 @@ router.post('/approved-employee-login', [
 router.post('/logout', authenticate, logout);
 router.post('/activity-log', authenticate, logActivity);
 router.post('/register', requireAdminOrFirstUser, validateRegister, register);
+// Old route: token in URL (kept for backward compatibility)
 router.post('/passwordless-login/:token', passwordlessTokenLogin);
+
+// New route: token in request body (preferred, more secure - tokens not in URLs)
+router.post('/passwordless-login', [
+  body('token')
+    .notEmpty()
+    .withMessage('Token is required')
+    .isString()
+    .withMessage('Token must be a string')
+    .trim(),
+  body('lastName')
+    .optional()
+    .trim()
+    .isString()
+    .withMessage('Last name must be a string')
+], passwordlessTokenLoginFromBody);
+
 router.post('/pending/verify-identity/:token', verifyPendingIdentity);
 
 export default router;

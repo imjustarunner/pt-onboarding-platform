@@ -10,7 +10,7 @@ backend/node_modules/
 frontend/.env
 backend/.env
 
-# Build outputs
+# Build outputs (we build these in Dockerfile, so exclude pre-built versions)
 dist/
 frontend/dist/
 backend/dist/
@@ -43,10 +43,11 @@ README.md
 DEPLOYMENT.md
 *.md
 
-# Docker
+# Docker files (exclude root and frontend Dockerfiles, but NOT backend/Dockerfile)
 docker-compose.yml
 docker-compose.override.yml
-Dockerfile*
+Dockerfile
+frontend/Dockerfile
 .dockerignore
 
 # CI/CD

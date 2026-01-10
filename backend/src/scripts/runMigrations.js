@@ -141,9 +141,12 @@ async function runMigrations() {
           // Some errors are expected
           if (!error.message.includes('already exists') && 
               !error.message.includes('Duplicate') &&
+              !error.message.includes('duplicate foreign key') &&
               !error.message.includes('doesn\'t exist') &&
               !error.message.includes('Unknown') &&
-              !error.message.includes('check that it exists')) {
+              !error.message.includes('check that it exists') &&
+              error.code !== 'ER_FK_DUP_NAME' &&
+              error.errno !== 1022) {
             
             const errorInfo = {
               filename: file,
@@ -199,6 +202,8 @@ async function runMigrations() {
             if (!error.message.includes('already exists') && 
                 !error.message.includes('Duplicate key') &&
                 !error.message.includes('Duplicate column') &&
+                !error.message.includes('Duplicate foreign key') &&
+                !error.message.includes('duplicate foreign key') &&
                 !error.message.includes('doesn\'t exist') &&
                 !error.message.includes('Unknown') &&
                 !error.message.includes('check that it exists') &&
@@ -206,7 +211,9 @@ async function runMigrations() {
                 !error.message.includes('needed in a foreign key constraint') &&
                 !error.message.includes('ER_FK_COLUMN_CANNOT_DROP') &&
                 error.code !== 'ER_UNSUPPORTED_PS' &&
-                error.errno !== 1295) {
+                error.code !== 'ER_FK_DUP_NAME' &&
+                error.errno !== 1295 &&
+                error.errno !== 1022) {
               
               // This is an unexpected error
               const errorInfo = {

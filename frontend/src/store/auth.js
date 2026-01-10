@@ -3,40 +3,39 @@ import { ref, computed } from 'vue';
 import api from '../services/api';
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref(localStorage.getItem('token') || null);
+  // Token is now stored in HttpOnly cookie, not localStorage
+  const token = ref(null); // Keep for backward compatibility check, but not used
   const storedUser = localStorage.getItem('user');
   const user = ref(storedUser ? JSON.parse(storedUser) : null);
 
   const isAuthenticated = computed(() => {
-    const hasToken = !!token.value;
+    // Token is in HttpOnly cookie, so we check user object only
     const hasUser = !!user.value;
-    // Debug logging
-    if (hasToken && !hasUser) {
-      console.warn('Auth: Token exists but no user object found');
-    }
     if (hasUser && !user.value.role) {
       console.warn('Auth: User object exists but no role property:', user.value);
     }
-    return hasToken && hasUser;
+    return hasUser;
   });
 
   const setAuth = (newToken, newUser, sessionId = null) => {
-    token.value = newToken;
+    // Token is now in HttpOnly cookie (set by backend), so we don't store it
+    // newToken can be null since it's in the cookie
+    token.value = null; // Not used anymore, but keep for compatibility
     user.value = newUser;
-    localStorage.setItem('token', newToken);
+    // Store user in localStorage (not sensitive, used for UI state)
     localStorage.setItem('user', JSON.stringify(newUser));
     if (sessionId) {
       localStorage.setItem('sessionId', sessionId);
     }
-    api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+    // Don't set Authorization header - cookies are sent automatically with withCredentials: true
   };
 
   const clearAuth = () => {
     token.value = null;
     user.value = null;
-    localStorage.removeItem('token');
     localStorage.removeItem('user');
-    delete api.defaults.headers.common['Authorization'];
+    // Don't remove sessionId - it's used for activity logging
+    // Cookie is cleared by backend on logout
   };
 
   const login = async (email, password) => {
@@ -87,7 +86,8 @@ export const useAuthStore = defineStore('auth', () => {
         response.data.user.agencyIds = response.data.agencies;
       }
       
-      setAuth(response.data.token, response.data.user, response.data.sessionId);
+      // Token is in HttpOnly cookie (set by backend), so pass null
+      setAuth(null, response.data.user, response.data.sessionId);
       return { success: true, agencies: response.data.agencies };
     } catch (error) {
       // Log full error for debugging
@@ -108,7 +108,8 @@ export const useAuthStore = defineStore('auth', () => {
   const passwordlessLogin = async (email) => {
     try {
       const response = await api.post('/auth/passwordless-login', { email });
-      setAuth(response.data.token, response.data.user, response.data.sessionId);
+      // Token is in HttpOnly cookie (set by backend), so pass null
+      setAuth(null, response.data.user, response.data.sessionId);
       return { success: true };
     } catch (error) {
       return {
@@ -159,10 +160,8 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
-  // Initialize API header if token exists
-  if (token.value) {
-    api.defaults.headers.common['Authorization'] = `Bearer ${token.value}`;
-  }
+  // Token is now in HttpOnly cookie, so no need to set Authorization header
+  // Cookies are sent automatically with withCredentials: true in api.js
 
   return {
     token,

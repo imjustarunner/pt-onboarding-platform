@@ -378,8 +378,9 @@ class User {
       throw new Error('User not found');
     }
     
-    // CRITICAL: Protect superadmin account from ANY role changes
-    // This protection happens BEFORE any update, even if role is not in the update
+    // CRITICAL: Application-layer protection for superadmin account
+    // This replaces database triggers which require SUPER privilege in Cloud SQL
+    // Protection happens BEFORE any update, even if role is not in the update
     if (currentUser.email === 'superadmin@plottwistco.com') {
       // If trying to change role away from super_admin, block it
       if (role !== undefined && role !== 'super_admin') {
@@ -392,6 +393,12 @@ class User {
         // Force role to super_admin
         userData.role = 'super_admin';
       }
+    }
+    
+    // Additional protection: Prevent removing super_admin role from any user who currently has it
+    // This provides an extra safety layer to prevent accidental demotion of super admins
+    if (role !== undefined && currentUser.role === 'super_admin' && role !== 'super_admin') {
+      throw new Error('Cannot remove super_admin role from a user who currently has it');
     }
     
     const updates = [];
@@ -537,13 +544,14 @@ class User {
 
     values.push(id);
     
-    // Execute update - the database trigger will also protect the role
+    // Execute update - application-layer protection already enforced above
     await pool.execute(
       `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
       values
     );
     
     // Verify the role after update (double-check protection)
+    // This is a safety net in case of direct database access or other bypasses
     const updatedUser = await this.findById(id);
     if (updatedUser.email === 'superadmin@plottwistco.com' && updatedUser.role !== 'super_admin') {
       console.error(`❌ CRITICAL: Superadmin role was changed! Restoring immediately...`);

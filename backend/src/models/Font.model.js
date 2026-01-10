@@ -141,11 +141,17 @@ class Font {
       return false;
     }
 
-    // Delete file from filesystem
+    // Delete file using StorageService (handles both local and GCS)
     if (font.file_path) {
       try {
-        const fullPath = path.join(__dirname, '../../uploads', font.file_path.replace(/^\//, ''));
-        await fs.unlink(fullPath);
+        // Extract filename from path (handles both "fonts/filename" and full paths)
+        const filename = font.file_path.includes('/') 
+          ? font.file_path.split('/').pop() 
+          : font.file_path.replace('fonts/', '');
+        
+        const StorageService = (await import('../services/storage.service.js')).default;
+        await StorageService.deleteFont(filename);
+        console.log('Font file deleted successfully:', filename);
       } catch (error) {
         console.error(`Error deleting font file ${font.file_path}:`, error);
         // Continue with database deletion even if file deletion fails

@@ -429,22 +429,17 @@ class Icon {
 
       console.log('Deleting icon:', icon.name, 'file_path:', icon.file_path);
 
-      // Delete the file from filesystem
+      // Delete the file using StorageService (handles both local and GCS)
       if (icon.file_path) {
         try {
-          // Handle both relative and absolute paths
-          let filePath;
-          if (icon.file_path.startsWith('/')) {
-            // Absolute path
-            filePath = icon.file_path;
-          } else {
-            // Relative path - construct full path
-            filePath = path.join(__dirname, '../../uploads', icon.file_path);
-          }
+          // Extract filename from path (handles both "icons/filename" and full paths)
+          const filename = icon.file_path.includes('/') 
+            ? icon.file_path.split('/').pop() 
+            : icon.file_path.replace('icons/', '');
           
-          console.log('Attempting to delete file at:', filePath);
-          await fs.unlink(filePath);
-          console.log('File deleted successfully');
+          const StorageService = (await import('../services/storage.service.js')).default;
+          await StorageService.deleteIcon(filename);
+          console.log('Icon file deleted successfully:', filename);
         } catch (err) {
           console.error(`Failed to delete icon file: ${err.message}`);
           console.error('File path attempted:', icon.file_path);

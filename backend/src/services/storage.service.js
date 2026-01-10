@@ -1,239 +1,180 @@
 /**
- * Storage Service - Abstracted file storage layer
- * Currently uses local filesystem, but designed for easy migration to Google Cloud Storage
+ * Storage Service - Google Cloud Storage (GCS) file storage layer
  * 
- * Storage Structure:
+ * IMPORTANT: This service uses Google Cloud Storage (GCS) instead of local filesystem.
+ * 
+ * Why GCS is required for Cloud Run:
+ * 1. Cloud Run containers are stateless and ephemeral - local filesystem is not persistent
+ * 2. Multiple container instances cannot share local filesystem - files uploaded to one instance
+ *    won't be available to other instances
+ * 3. Container restarts/deployments lose all local files - GCS provides persistent storage
+ * 4. Cloud Run scales horizontally - GCS ensures all instances can access the same files
+ * 5. Local filesystem has limited space - GCS provides unlimited scalable storage
+ * 
+ * Storage Structure (single bucket with folders):
+ * - Icons: icons/{filename}
+ * - Fonts: fonts/{filename}
+ * - Templates: templates/{filename}
  * - Signed Documents: signed/{userId}/{documentId}/{filename}
- * - Templates: templates/{templateId}/{filename}
- * - User-specific: users/{userId}/{type}/{filename}
+ * - User-Specific Documents: user_specific_documents/{filename}
+ * - User Documents: user_documents/{filename}
+ * 
+ * Authentication: Uses Cloud Run's service account IAM credentials (no JSON key needed)
+ * Bucket: Configured via PTONBOARDFILES environment variable
+ * 
+ * Database: Only metadata (file paths/keys) are stored in MySQL, not the actual files
  */
 
-import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Storage configuration
-const STORAGE_TYPE = process.env.STORAGE_TYPE || 'local'; // 'local' or 'gcs' (future)
-const BASE_UPLOAD_DIR = path.join(__dirname, '../../uploads');
+// Cache for GCS storage instance
+let gcsStorage = null;
 
 class StorageService {
   /**
-   * Get the storage path for a signed document
-   * Structure: signed/{userId}/{documentId}/{filename}
+   * Get GCS storage instance (cached)
+   * Uses Cloud Run's service account IAM credentials automatically
+   * @returns {Promise<Storage>}
    */
-  static getSignedDocumentPath(userId, documentId, filename) {
-    if (STORAGE_TYPE === 'gcs') {
-      // Future: Return GCS path
-      return `signed/${userId}/${documentId}/${filename}`;
+  static async getGCSStorage() {
+    if (gcsStorage) {
+      return gcsStorage;
     }
-    // Local filesystem
-    return path.join(BASE_UPLOAD_DIR, 'signed', String(userId), String(documentId), filename);
+    
+    const { Storage } = await import('@google-cloud/storage');
+    
+    // Cloud Run automatically provides IAM credentials via the service account
+    // No need for keyFilename or credentials JSON - the @google-cloud/storage
+    // library automatically detects and uses the service account attached to Cloud Run
+    gcsStorage = new Storage({
+      // projectId is optional - GCS can infer it from the service account
+      projectId: process.env.GCS_PROJECT_ID
+    });
+    
+    return gcsStorage;
   }
 
   /**
-   * Get the storage key/path for a signed document (for GCS compatibility)
+   * Get GCS bucket instance
+   * Bucket name comes from PTONBOARDFILES environment variable
+   * @returns {Promise<Bucket>}
+   */
+  static async getGCSBucket() {
+    const storage = await this.getGCSStorage();
+    const bucketName = process.env.PTONBOARDFILES;
+    
+    if (!bucketName) {
+      throw new Error('PTONBOARDFILES environment variable is required for GCS bucket name');
+    }
+    
+    return storage.bucket(bucketName);
+  }
+
+  /**
+   * Get the storage key/path for a signed document in GCS
+   * Structure: signed/{userId}/{documentId}/{filename}
    */
   static getSignedDocumentKey(userId, documentId, filename) {
     return `signed/${userId}/${documentId}/${filename}`;
   }
 
   /**
-   * Save a signed document
+   * Save a signed document to GCS
+   * Only metadata is stored in MySQL - the actual file is in GCS
    * @param {number} userId - User ID
    * @param {number} documentId - Signed document ID
    * @param {Buffer} fileBuffer - File content as buffer
    * @param {string} filename - Filename (will be sanitized)
-   * @returns {Promise<{path: string, key: string, filename: string}>}
+   * @returns {Promise<{path: string, key: string, filename: string, relativePath: string}>}
    */
   static async saveSignedDocument(userId, documentId, fileBuffer, filename) {
     // Sanitize filename
     const sanitizedFilename = this.sanitizeFilename(filename || `signed-${documentId}-${Date.now()}.pdf`);
     
-    if (STORAGE_TYPE === 'gcs') {
-      // Upload to Google Cloud Storage
-      try {
-        const { Storage } = await import('@google-cloud/storage');
-        const storage = new Storage({
-          projectId: process.env.GCS_PROJECT_ID,
-          keyFilename: process.env.GCS_KEY_FILENAME, // Path to service account key file
-          // Or use credentials object if provided
-          credentials: process.env.GCS_CREDENTIALS ? JSON.parse(process.env.GCS_CREDENTIALS) : undefined
-        });
-        const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
-        const key = this.getSignedDocumentKey(userId, documentId, sanitizedFilename);
-        const file = bucket.file(key);
-        
-        // Upload file with proper metadata
-        await file.save(fileBuffer, {
-          contentType: 'application/pdf',
-          metadata: {
-            userId: String(userId),
-            documentId: String(documentId),
-            uploadedAt: new Date().toISOString()
-          }
-        });
-        
-        // Make file publicly readable if needed (or use signed URLs)
-        // await file.makePublic(); // Uncomment if public access is needed
-        
-        return {
-          path: key,
-          key: key,
-          filename: sanitizedFilename,
-          relativePath: key // For GCS, the key is the relative path
-        };
-      } catch (gcsError) {
-        console.error('GCS upload error:', gcsError);
-        throw new Error(`Failed to upload to Google Cloud Storage: ${gcsError.message}`);
+    // Upload to Google Cloud Storage
+    const bucket = await this.getGCSBucket();
+    const key = this.getSignedDocumentKey(userId, documentId, sanitizedFilename);
+    const file = bucket.file(key);
+    
+    // Upload file with proper metadata
+    await file.save(fileBuffer, {
+      contentType: 'application/pdf',
+      metadata: {
+        userId: String(userId),
+        documentId: String(documentId),
+        uploadedAt: new Date().toISOString()
       }
-    }
-
-    // Local filesystem storage
-    const filePath = this.getSignedDocumentPath(userId, documentId, sanitizedFilename);
-    const dirPath = path.dirname(filePath);
+    });
     
-    // Ensure directory exists
-    await fs.mkdir(dirPath, { recursive: true });
-    
-    // Write file
-    await fs.writeFile(filePath, fileBuffer);
-    
-    // Return relative path for database storage
-    const relativePath = path.relative(BASE_UPLOAD_DIR, filePath);
-    
+    // Return GCS key/path - this is what gets stored in MySQL (metadata only)
     return {
-      path: filePath,
-      key: this.getSignedDocumentKey(userId, documentId, sanitizedFilename),
+      path: key,
+      key: key,
       filename: sanitizedFilename,
-      relativePath: relativePath.replace(/\\/g, '/') // Normalize path separators
+      relativePath: key // GCS key is the relative path stored in database
     };
   }
 
   /**
-   * Read a signed document
+   * Read a signed document from GCS
    * @param {number} userId - User ID
    * @param {number} documentId - Signed document ID
    * @param {string} filename - Filename
    * @returns {Promise<Buffer>}
    */
   static async readSignedDocument(userId, documentId, filename) {
-    if (STORAGE_TYPE === 'gcs') {
-      // Read from Google Cloud Storage
-      try {
-        const { Storage } = await import('@google-cloud/storage');
-        const storage = new Storage({
-          projectId: process.env.GCS_PROJECT_ID,
-          keyFilename: process.env.GCS_KEY_FILENAME, // Path to service account key file
-          // Or use credentials object if provided
-          credentials: process.env.GCS_CREDENTIALS ? JSON.parse(process.env.GCS_CREDENTIALS) : undefined
-        });
-        const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
-        const key = this.getSignedDocumentKey(userId, documentId, filename);
-        const file = bucket.file(key);
-        
-        // Check if file exists
-        const [exists] = await file.exists();
-        if (!exists) {
-          throw new Error(`File not found in GCS: ${key}`);
-        }
-        
-        const [buffer] = await file.download();
-        return buffer;
-      } catch (gcsError) {
-        console.error('GCS read error:', gcsError);
-        throw new Error(`Failed to read from Google Cloud Storage: ${gcsError.message}`);
-      }
-    }
-
-    // Local filesystem
-    const filePath = this.getSignedDocumentPath(userId, documentId, filename);
+    const bucket = await this.getGCSBucket();
+    const key = this.getSignedDocumentKey(userId, documentId, filename);
+    const file = bucket.file(key);
     
-    // Verify file exists
-    try {
-      await fs.access(filePath);
-    } catch (err) {
-      throw new Error(`File not found: ${filename} at path: ${filePath}`);
+    // Check if file exists
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error(`File not found in GCS: ${key}`);
     }
     
-    return await fs.readFile(filePath);
+    const [buffer] = await file.download();
+    return buffer;
   }
 
   /**
-   * Check if a signed document exists
+   * Check if a signed document exists in GCS
    * @param {number} userId - User ID
    * @param {number} documentId - Signed document ID
    * @param {string} filename - Filename
    * @returns {Promise<boolean>}
    */
   static async signedDocumentExists(userId, documentId, filename) {
-    if (STORAGE_TYPE === 'gcs') {
-      try {
-        const { Storage } = await import('@google-cloud/storage');
-        const storage = new Storage({
-          projectId: process.env.GCS_PROJECT_ID,
-          keyFilename: process.env.GCS_KEY_FILENAME,
-          credentials: process.env.GCS_CREDENTIALS ? JSON.parse(process.env.GCS_CREDENTIALS) : undefined
-        });
-        const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
-        const key = this.getSignedDocumentKey(userId, documentId, filename);
-        const file = bucket.file(key);
-        const [exists] = await file.exists();
-        return exists;
-      } catch (gcsError) {
-        console.error('GCS exists check error:', gcsError);
-        return false;
-      }
-    }
-
-    const filePath = this.getSignedDocumentPath(userId, documentId, filename);
     try {
-      await fs.access(filePath);
-      return true;
-    } catch {
+      const bucket = await this.getGCSBucket();
+      const key = this.getSignedDocumentKey(userId, documentId, filename);
+      const file = bucket.file(key);
+      const [exists] = await file.exists();
+      return exists;
+    } catch (gcsError) {
+      console.error('GCS exists check error:', gcsError);
       return false;
     }
   }
 
   /**
-   * Delete a signed document
+   * Delete a signed document from GCS
    * @param {number} userId - User ID
    * @param {number} documentId - Signed document ID
    * @param {string} filename - Filename
    * @returns {Promise<void>}
    */
   static async deleteSignedDocument(userId, documentId, filename) {
-    if (STORAGE_TYPE === 'gcs') {
-      try {
-        const { Storage } = await import('@google-cloud/storage');
-        const storage = new Storage({
-          projectId: process.env.GCS_PROJECT_ID,
-          keyFilename: process.env.GCS_KEY_FILENAME,
-          credentials: process.env.GCS_CREDENTIALS ? JSON.parse(process.env.GCS_CREDENTIALS) : undefined
-        });
-        const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
-        const key = this.getSignedDocumentKey(userId, documentId, filename);
-        const file = bucket.file(key);
-        await file.delete();
-      } catch (gcsError) {
-        // Ignore if file doesn't exist (404)
-        if (gcsError.code !== 404) {
-          throw new Error(`Failed to delete from GCS: ${gcsError.message}`);
-        }
-      }
-      return;
-    }
-
-    const filePath = this.getSignedDocumentPath(userId, documentId, filename);
     try {
-      await fs.unlink(filePath);
-    } catch (err) {
-      // Ignore if file doesn't exist
-      if (err.code !== 'ENOENT') {
-        throw err;
+      const bucket = await this.getGCSBucket();
+      const key = this.getSignedDocumentKey(userId, documentId, filename);
+      const file = bucket.file(key);
+      await file.delete();
+    } catch (gcsError) {
+      // Ignore if file doesn't exist (404)
+      if (gcsError.code !== 404) {
+        throw new Error(`Failed to delete from GCS: ${gcsError.message}`);
       }
     }
   }
@@ -274,38 +215,6 @@ class StorageService {
   }
 
   /**
-   * Migrate old format path to new format
-   * This is a helper for backward compatibility
-   */
-  static async migrateOldPathToNew(storedPath, userId, documentId) {
-    const parsed = this.parseSignedDocumentPath(storedPath);
-    if (!parsed || parsed.format === 'new') {
-      return storedPath; // Already in new format or invalid
-    }
-
-    // Read from old location
-    const oldPath = path.join(BASE_UPLOAD_DIR, storedPath);
-    try {
-      const fileBuffer = await fs.readFile(oldPath);
-      
-      // Save to new location
-      const result = await this.saveSignedDocument(userId, documentId, fileBuffer, parsed.filename);
-      
-      // Delete old file
-      try {
-        await fs.unlink(oldPath);
-      } catch (err) {
-        console.warn(`Failed to delete old file ${oldPath}:`, err);
-      }
-      
-      return result.relativePath;
-    } catch (err) {
-      console.error(`Failed to migrate file ${storedPath}:`, err);
-      return storedPath; // Return original if migration fails
-    }
-  }
-
-  /**
    * Sanitize filename to prevent directory traversal and other security issues
    */
   static sanitizeFilename(filename) {
@@ -333,19 +242,381 @@ class StorageService {
   }
 
   /**
-   * Get file size
+   * Get file size from GCS
    */
   static async getFileSize(userId, documentId, filename) {
-    if (STORAGE_TYPE === 'gcs') {
-      // Future: Get from GCS metadata
-      throw new Error('Google Cloud Storage not yet implemented');
-    }
+    const bucket = await this.getGCSBucket();
+    const key = this.getSignedDocumentKey(userId, documentId, filename);
+    const file = bucket.file(key);
+    const [metadata] = await file.getMetadata();
+    return parseInt(metadata.size || 0);
+  }
 
-    const filePath = this.getSignedDocumentPath(userId, documentId, filename);
-    const stats = await fs.stat(filePath);
-    return stats.size;
+  /**
+   * Save an icon file to GCS
+   * Only metadata (file path) is stored in MySQL - the actual file is in GCS
+   * @param {Buffer} fileBuffer - File content as buffer
+   * @param {string} filename - Filename (will be sanitized)
+   * @param {string} contentType - MIME type (e.g., 'image/png', 'image/svg+xml')
+   * @returns {Promise<{path: string, key: string, filename: string, relativePath: string}>}
+   */
+  static async saveIcon(fileBuffer, filename, contentType = 'image/png') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `icons/${sanitizedFilename}`;
+    
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    await file.save(fileBuffer, {
+      contentType: contentType,
+      metadata: {
+        uploadedAt: new Date().toISOString()
+      }
+    });
+    
+    // Return GCS key - this is what gets stored in MySQL (metadata only)
+    return {
+      path: key,
+      key: key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
+   * Read an icon file from GCS
+   * @param {string} filename - Filename
+   * @returns {Promise<Buffer>}
+   */
+  static async readIcon(filename) {
+    const bucket = await this.getGCSBucket();
+    const key = `icons/${filename}`;
+    const file = bucket.file(key);
+    
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error(`Icon not found in GCS: ${key}`);
+    }
+    
+    const [buffer] = await file.download();
+    return buffer;
+  }
+
+  /**
+   * Delete an icon file from GCS
+   * @param {string} filename - Filename
+   * @returns {Promise<void>}
+   */
+  static async deleteIcon(filename) {
+    const key = `icons/${filename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      // Ignore if file doesn't exist (404)
+      if (gcsError.code !== 404) {
+        throw new Error(`Failed to delete icon from GCS: ${gcsError.message}`);
+      }
+    }
+  }
+
+  /**
+   * Save a font file to GCS
+   * Only metadata (file path) is stored in MySQL - the actual file is in GCS
+   * @param {Buffer} fileBuffer - File content as buffer
+   * @param {string} filename - Filename (will be sanitized)
+   * @param {string} contentType - MIME type (e.g., 'font/woff2')
+   * @returns {Promise<{path: string, key: string, filename: string, relativePath: string}>}
+   */
+  static async saveFont(fileBuffer, filename, contentType = 'font/woff2') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `fonts/${sanitizedFilename}`;
+    
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    await file.save(fileBuffer, {
+      contentType: contentType,
+      metadata: {
+        uploadedAt: new Date().toISOString()
+      }
+    });
+    
+    // Return GCS key - this is what gets stored in MySQL (metadata only)
+    return {
+      path: key,
+      key: key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
+   * Read a font file from GCS
+   * @param {string} filename - Filename
+   * @returns {Promise<Buffer>}
+   */
+  static async readFont(filename) {
+    const bucket = await this.getGCSBucket();
+    const key = `fonts/${filename}`;
+    const file = bucket.file(key);
+    
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error(`Font not found in GCS: ${key}`);
+    }
+    
+    const [buffer] = await file.download();
+    return buffer;
+  }
+
+  /**
+   * Delete a font file from GCS
+   * @param {string} filename - Filename
+   * @returns {Promise<void>}
+   */
+  static async deleteFont(filename) {
+    const key = `fonts/${filename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      // Ignore if file doesn't exist (404)
+      if (gcsError.code !== 404) {
+        throw new Error(`Failed to delete font from GCS: ${gcsError.message}`);
+      }
+    }
+  }
+
+  /**
+   * Save a document template file to GCS
+   * Only metadata (file path) is stored in MySQL - the actual file is in GCS
+   * @param {Buffer} fileBuffer - File content as buffer
+   * @param {string} filename - Filename (will be sanitized)
+   * @returns {Promise<{path: string, key: string, filename: string, relativePath: string}>}
+   */
+  static async saveTemplate(fileBuffer, filename) {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `templates/${sanitizedFilename}`;
+    
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    await file.save(fileBuffer, {
+      contentType: 'application/pdf',
+      metadata: {
+        uploadedAt: new Date().toISOString()
+      }
+    });
+    
+    // Return GCS key - this is what gets stored in MySQL (metadata only)
+    return {
+      path: key,
+      key: key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
+   * Read a document template file from GCS
+   * @param {string} filename - Filename
+   * @returns {Promise<Buffer>}
+   */
+  static async readTemplate(filename) {
+    const bucket = await this.getGCSBucket();
+    const key = `templates/${filename}`;
+    const file = bucket.file(key);
+    
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error(`Template not found in GCS: ${key}`);
+    }
+    
+    const [buffer] = await file.download();
+    return buffer;
+  }
+
+  /**
+   * Delete a document template file from GCS
+   * @param {string} filename - Filename
+   * @returns {Promise<void>}
+   */
+  static async deleteTemplate(filename) {
+    const key = `templates/${filename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      // Ignore if file doesn't exist (404)
+      if (gcsError.code !== 404) {
+        throw new Error(`Failed to delete template from GCS: ${gcsError.message}`);
+      }
+    }
+  }
+
+  /**
+   * Save a user-specific document file to GCS
+   * Only metadata (file path) is stored in MySQL - the actual file is in GCS
+   * @param {Buffer} fileBuffer - File content as buffer
+   * @param {string} filename - Filename (will be sanitized)
+   * @returns {Promise<{path: string, key: string, filename: string, relativePath: string}>}
+   */
+  static async saveUserSpecificDocument(fileBuffer, filename) {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `user_specific_documents/${sanitizedFilename}`;
+    
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    await file.save(fileBuffer, {
+      contentType: 'application/pdf',
+      metadata: {
+        uploadedAt: new Date().toISOString()
+      }
+    });
+    
+    // Return GCS key - this is what gets stored in MySQL (metadata only)
+    return {
+      path: key,
+      key: key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
+   * Read a user-specific document file from GCS
+   * @param {string} filename - Filename
+   * @returns {Promise<Buffer>}
+   */
+  static async readUserSpecificDocument(filename) {
+    const bucket = await this.getGCSBucket();
+    const key = `user_specific_documents/${filename}`;
+    const file = bucket.file(key);
+    
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error(`User-specific document not found in GCS: ${key}`);
+    }
+    
+    const [buffer] = await file.download();
+    return buffer;
+  }
+
+  /**
+   * Delete a user-specific document file from GCS
+   * @param {string} filename - Filename
+   * @returns {Promise<void>}
+   */
+  static async deleteUserSpecificDocument(filename) {
+    const key = `user_specific_documents/${filename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      // Ignore if file doesn't exist (404)
+      if (gcsError.code !== 404) {
+        throw new Error(`Failed to delete user-specific document from GCS: ${gcsError.message}`);
+      }
+    }
+  }
+
+  /**
+   * Save a user document (personalized document copy) to GCS
+   * Only metadata (file path) is stored in MySQL - the actual file is in GCS
+   * @param {Buffer} fileBuffer - File content as buffer
+   * @param {string} filename - Filename (will be sanitized)
+   * @returns {Promise<{path: string, key: string, filename: string, relativePath: string}>}
+   */
+  static async saveUserDocument(fileBuffer, filename) {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `user_documents/${sanitizedFilename}`;
+    
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    await file.save(fileBuffer, {
+      contentType: 'application/pdf',
+      metadata: {
+        uploadedAt: new Date().toISOString()
+      }
+    });
+    
+    // Return GCS key - this is what gets stored in MySQL (metadata only)
+    return {
+      path: key,
+      key: key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
+   * Read a user document file from GCS
+   * @param {string} filename - Filename
+   * @returns {Promise<Buffer>}
+   */
+  static async readUserDocument(filename) {
+    const bucket = await this.getGCSBucket();
+    const key = `user_documents/${filename}`;
+    const file = bucket.file(key);
+    
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error(`User document not found in GCS: ${key}`);
+    }
+    
+    const [buffer] = await file.download();
+    return buffer;
+  }
+
+  /**
+   * Delete a user document file from GCS
+   * @param {string} filename - Filename
+   * @returns {Promise<void>}
+   */
+  static async deleteUserDocument(filename) {
+    const key = `user_documents/${filename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      // Ignore if file doesn't exist (404)
+      if (gcsError.code !== 404) {
+        throw new Error(`Failed to delete user document from GCS: ${gcsError.message}`);
+      }
+    }
+  }
+
+  /**
+   * Get a signed URL for a file in GCS (for direct access)
+   * Signed URLs allow temporary direct access to files without proxying through the backend
+   * @param {string} key - GCS object key/path
+   * @param {number} expirationMinutes - URL expiration time in minutes (default: 60)
+   * @returns {Promise<string>}
+   */
+  static async getSignedUrl(key, expirationMinutes = 60) {
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    const [url] = await file.getSignedUrl({
+      action: 'read',
+      expires: Date.now() + (expirationMinutes * 60 * 1000)
+    });
+    
+    return url;
   }
 }
 
 export default StorageService;
-

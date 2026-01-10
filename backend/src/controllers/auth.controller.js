@@ -128,6 +128,11 @@ export const approvedEmployeeLogin = async (req, res, next) => {
       { expiresIn: '24h' }
     );
 
+    // Set secure HttpOnly cookie for authentication
+    // Use shared cookie options to ensure consistency with logout
+    const cookieOptions = config.authCookie.set();
+    res.cookie('authToken', sessionToken, cookieOptions);
+
     // Log login activity for each agency using centralized service
     for (const employee of activeEmployees) {
       ActivityLogService.logActivity({
@@ -257,6 +262,11 @@ export const login = async (req, res, next) => {
       { expiresIn: config.jwt.expiresIn }
     );
 
+    // Set secure HttpOnly cookie for authentication
+    // Use shared cookie options to ensure consistency with logout
+    const cookieOptions = config.authCookie.set();
+    res.cookie('authToken', token, cookieOptions);
+
     // Check if this is the first login
     const isFirstLogin = await UserActivityLog.isFirstLogin(user.id);
 
@@ -385,6 +395,13 @@ export const logout = async (req, res, next) => {
         }
       }, req);
     }
+    
+    // Clear authentication cookie
+    // Use shared cookie options to ensure exact match with cookie setting options
+    // This is critical: clearCookie must use the same path, secure, sameSite, and domain
+    // as the original cookie, otherwise the cookie won't be cleared properly
+    const clearCookieOptions = config.authCookie.clear();
+    res.clearCookie('authToken', clearCookieOptions);
     
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
@@ -556,6 +573,187 @@ export const passwordlessTokenLogin = async (req, res, next) => {
   }
 };
 
+/**
+ * Passwordless login using token from request body
+ * Alternative to URL param-based login for better security (tokens not in URLs)
+ */
+export const passwordlessTokenLoginFromBody = async (req, res, next) => {
+  try {
+    const { token, lastName } = req.body; // Token and optional last name from body
+
+    console.log('[passwordlessTokenLoginFromBody] Received token:', token ? `${token.substring(0, 20)}...` : 'null', 'Length:', token?.length);
+
+    if (!token) {
+      return res.status(400).json({ error: { message: 'Token is required in request body' } });
+    }
+
+    // Reuse the same validation logic as URL param version
+    // Validate token
+    let user = await User.validatePasswordlessToken(token);
+    if (!user) {
+      console.log('[passwordlessTokenLoginFromBody] Token validation failed, checking if token exists in DB...');
+      // Check if token exists but expired
+      const pool = (await import('../config/database.js')).default;
+      const [tokenRows] = await pool.execute(
+        'SELECT id, passwordless_token, passwordless_token_expires_at, status FROM users WHERE passwordless_token = ?',
+        [token.trim()]
+      );
+      
+      if (tokenRows.length > 0) {
+        const tokenUser = tokenRows[0];
+        console.log('[passwordlessTokenLoginFromBody] Token found in DB:', {
+          userId: tokenUser.id,
+          status: tokenUser.status,
+          expiresAt: tokenUser.passwordless_token_expires_at,
+          tokenMatch: tokenUser.passwordless_token === token.trim()
+        });
+        
+        if (tokenUser.passwordless_token_expires_at) {
+          const expiresAt = new Date(tokenUser.passwordless_token_expires_at);
+          const now = new Date();
+          if (expiresAt < now) {
+            console.log('[passwordlessTokenLoginFromBody] Token expired. Expires:', expiresAt.toISOString(), 'Now:', now.toISOString());
+            return res.status(401).json({ 
+              error: { 
+                message: 'Token has expired. Please request a new login link.',
+                code: 'TOKEN_EXPIRED',
+                expiredAt: tokenUser.passwordless_token_expires_at
+              } 
+            });
+          } else {
+            console.log('[passwordlessTokenLoginFromBody] Token not expired but validation failed. Possible causes: access locked or other validation issue.');
+          }
+        }
+      } else {
+        console.log('[passwordlessTokenLoginFromBody] Token not found in database at all');
+        // Check if this token belongs to a different user
+        const [allTokenRows] = await pool.execute(
+          'SELECT id, first_name, last_name, status, passwordless_token_expires_at FROM users WHERE passwordless_token = ?',
+          [token.trim()]
+        );
+        if (allTokenRows.length > 0) {
+          const tokenUser = allTokenRows[0];
+          console.log('[passwordlessTokenLoginFromBody] Token belongs to different user:', tokenUser.id, tokenUser.first_name, tokenUser.last_name);
+          return res.status(401).json({ 
+            error: { 
+              message: 'This login link belongs to a different user. Please use the correct link for your account.',
+              code: 'TOKEN_USER_MISMATCH'
+            } 
+          });
+        }
+      }
+      
+      return res.status(401).json({ error: { message: 'Invalid or expired token' } });
+    }
+    
+    console.log('[passwordlessTokenLoginFromBody] Token validated, user:', user.id, 'status:', user.status);
+
+    // For pending users, ALWAYS require last name verification for security
+    if (user.status === 'pending') {
+      if (!lastName) {
+        return res.status(400).json({ 
+          error: { 
+            message: 'Last name verification required',
+            requiresIdentityVerification: true
+          } 
+        });
+      }
+      
+      // Validate last name
+      user = await User.validatePendingIdentity(token, lastName);
+      if (!user) {
+        return res.status(401).json({ error: { message: 'Last name does not match' } });
+      }
+      
+      // Mark as verified if not already
+      if (!user.pending_identity_verified) {
+        const pool = (await import('../config/database.js')).default;
+        await pool.execute(
+          'UPDATE users SET pending_identity_verified = TRUE WHERE id = ?',
+          [user.id]
+        );
+      }
+    }
+
+    // Check if user is inactive (but allow pending users)
+    const fullUser = await User.findById(user.id);
+    if (!fullUser) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+    
+    // For non-pending users, check if inactive
+    if (fullUser.status !== 'pending' && fullUser.status !== 'ready_for_review' && (fullUser.is_active === false || fullUser.is_active === 0)) {
+      return res.status(403).json({ error: { message: 'Account is inactive' } });
+    }
+
+    // Generate JWT token for session
+    try {
+      const jwtToken = jwt.sign(
+        { id: user.id, email: user.email, role: user.role, status: user.status },
+        config.jwt.secret,
+        { expiresIn: config.jwt.expiresIn }
+      );
+
+      // Set secure HttpOnly cookie for authentication
+      // Use shared cookie options to ensure consistency with logout
+      const cookieOptions = config.authCookie.set();
+      res.cookie('authToken', jwtToken, cookieOptions);
+
+      // Get user agencies
+      const userAgencies = await User.getAgencies(user.id);
+
+      // Log login activity using centralized service
+      ActivityLogService.logActivity({
+        actionType: 'login',
+        userId: user.id,
+        metadata: {
+          email: user.email,
+          role: user.role,
+          loginType: 'passwordless',
+          isPending: user.status === 'pending',
+          method: 'body' // Indicate this was body-based login
+        }
+      }, req);
+
+      console.log('[passwordlessTokenLoginFromBody] Login successful for user:', user.id, user.first_name, user.last_name);
+      
+      const response = {
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.first_name,
+          lastName: user.last_name,
+          role: user.role,
+          status: user.status
+        },
+        agencies: userAgencies,
+        requiresPasswordChange: user.status !== 'pending',
+        message: user.status === 'pending' 
+          ? 'Login successful. Complete your pre-hire checklist.' 
+          : 'Login successful. Please change your password.'
+      };
+
+      // Only include token in response if feature flag is enabled
+      // Note: Feature flag will be implemented separately, check if it exists
+      if (config.exposeTokenInResponse === true) {
+        response.token = jwtToken;
+      }
+
+      res.json(response);
+    } catch (jwtError) {
+      console.error('[passwordlessTokenLoginFromBody] Error generating JWT:', jwtError);
+      return res.status(500).json({ 
+        error: { 
+          message: 'Failed to create session. Please try again.',
+          code: 'JWT_ERROR'
+        } 
+      });
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const verifyPendingIdentity = async (req, res, next) => {
   try {
     const { token } = req.params;
@@ -601,7 +799,8 @@ export const register = async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       console.error('Validation errors:', errors.array());
-      console.error('Request body:', req.body);
+      // Use sanitized body from middleware (or sanitize if middleware not applied)
+      console.error('Request body:', req.sanitizedBody || sanitizeRequestBody(req.body));
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 

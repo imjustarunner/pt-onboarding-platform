@@ -5,27 +5,15 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import pool from '../config/database.js';
+import StorageService from '../services/storage.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configure multer for icon uploads
-const storage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    const uploadDir = path.join(__dirname, '../../uploads/icons');
-    try {
-      await fs.mkdir(uploadDir, { recursive: true });
-      cb(null, uploadDir);
-    } catch (error) {
-      cb(error);
-    }
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `icon-${uniqueSuffix}${ext}`);
-  }
-});
+// Configure multer for icon uploads - use memory storage for GCS
+// Files are uploaded directly to GCS, not saved to local filesystem
+// This is required for Cloud Run which has ephemeral filesystem
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   const allowedMimes = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg'];
@@ -175,8 +163,10 @@ export const uploadIcon = async (req, res, next) => {
     // Get and validate name field (validation already done in route middleware, but double-check)
     const { name, category, description, agencyId } = req.body;
     
+    // Use sanitized body to prevent sensitive data leakage
+    const sanitizedBody = req.sanitizedBody || (await import('../utils/sanitizeRequest.js')).sanitizeRequestBody(req.body);
     console.log('=== PARSING BODY FIELDS ===');
-    console.log('Full req.body:', JSON.stringify(req.body, null, 2));
+    console.log('Full req.body:', JSON.stringify(sanitizedBody, null, 2));
     console.log('Destructured fields:', { name, category, description, agencyId });
     console.log('agencyId value:', agencyId, 'type:', typeof agencyId);
     console.log('agencyId === "14":', agencyId === '14');
@@ -258,7 +248,7 @@ export const uploadIcon = async (req, res, next) => {
         console.log('Regular admin: Parsed agencyId:', requestedAgencyId, 'isNaN:', isNaN(requestedAgencyId));
         
         if (isNaN(requestedAgencyId)) {
-          await fs.unlink(req.file.path);
+          // No need to clean up - file is in memory, not on disk
           return res.status(400).json({ error: { message: 'Invalid agency ID' } });
         }
         
@@ -267,7 +257,7 @@ export const uploadIcon = async (req, res, next) => {
         console.log('Regular admin: Has access to agency', requestedAgencyId, ':', hasAccess);
         
         if (!hasAccess) {
-          await fs.unlink(req.file.path);
+          // No need to clean up - file is in memory, not on disk
           return res.status(403).json({ error: { message: 'You can only assign icons to agencies you are affiliated with' } });
         }
         finalAgencyId = requestedAgencyId;
@@ -283,7 +273,7 @@ export const uploadIcon = async (req, res, next) => {
     const existing = await Icon.findByName(trimmedName, finalAgencyId);
     if (existing) {
       // If findByName found a match, it means there's a conflict (same name and same agency)
-      await fs.unlink(req.file.path);
+      // No need to clean up - file is in memory, not on disk
       return res.status(400).json({ 
         error: { 
           message: `Icon with name "${trimmedName}" already exists${finalAgencyId ? ' for this agency' : ' for platform'}` 
@@ -293,9 +283,27 @@ export const uploadIcon = async (req, res, next) => {
 
     console.log('=== CREATING ICON ===');
     console.log('finalAgencyId value:', finalAgencyId, 'type:', typeof finalAgencyId);
+    
+    // Upload directly to GCS from memory buffer
+    // req.file.buffer contains the file data (multer.memoryStorage)
+    const fileBuffer = req.file.buffer;
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(req.file.originalname);
+    const filename = `icon-${uniqueSuffix}${ext}`;
+    
+    // Upload to GCS using StorageService
+    const storageResult = await StorageService.saveIcon(
+      fileBuffer,
+      filename,
+      req.file.mimetype
+    );
+    
+    const filePath = storageResult.relativePath;
+    console.log('Icon uploaded to GCS:', filePath);
+    
     console.log('Creating icon with data:', {
       name,
-      filePath: `icons/${req.file.filename}`,
+      filePath: filePath,
       fileName: req.file.originalname,
       fileSize: req.file.size,
       mimeType: req.file.mimetype,
@@ -308,7 +316,7 @@ export const uploadIcon = async (req, res, next) => {
 
     const createData = {
       name: trimmedName,
-      filePath: `icons/${req.file.filename}`,
+      filePath: filePath,
       fileName: req.file.originalname,
       fileSize: req.file.size,
       mimeType: req.file.mimetype,
@@ -359,7 +367,7 @@ export const uploadIcon = async (req, res, next) => {
     // Clean up uploaded file on error
     if (req.file) {
       try {
-        await fs.unlink(req.file.path);
+        // No cleanup needed - file is in memory
       } catch (err) {
         console.error('Failed to clean up uploaded file:', err);
       }
@@ -396,7 +404,7 @@ export const updateIcon = async (req, res, next) => {
       // Clean up uploaded file if icon not found
       if (req.file) {
         try {
-          await fs.unlink(req.file.path);
+          // No cleanup needed - file is in memory
         } catch (err) {
           console.error('Failed to clean up uploaded file:', err);
         }
@@ -409,7 +417,7 @@ export const updateIcon = async (req, res, next) => {
       // Clean up uploaded file if provided
       if (req.file) {
         try {
-          await fs.unlink(req.file.path);
+          // No cleanup needed - file is in memory
         } catch (err) {
           console.error('Failed to clean up uploaded file:', err);
         }
@@ -424,7 +432,7 @@ export const updateIcon = async (req, res, next) => {
         // Clean up uploaded file if provided
         if (req.file) {
           try {
-            await fs.unlink(req.file.path);
+            // No cleanup needed - file is in memory
           } catch (err) {
             console.error('Failed to clean up uploaded file:', err);
           }
@@ -441,7 +449,7 @@ export const updateIcon = async (req, res, next) => {
         // Clean up uploaded file if provided
         if (req.file) {
           try {
-            await fs.unlink(req.file.path);
+            // No cleanup needed - file is in memory
           } catch (err) {
             console.error('Failed to clean up uploaded file:', err);
           }
@@ -477,7 +485,7 @@ export const updateIcon = async (req, res, next) => {
             // Clean up uploaded file if provided
             if (req.file) {
               try {
-                await fs.unlink(req.file.path);
+                // No cleanup needed - file is in memory
               } catch (err) {
                 console.error('Failed to clean up uploaded file:', err);
               }
@@ -493,7 +501,7 @@ export const updateIcon = async (req, res, next) => {
             // Clean up uploaded file if provided
             if (req.file) {
               try {
-                await fs.unlink(req.file.path);
+                // No cleanup needed - file is in memory
               } catch (err) {
                 console.error('Failed to clean up uploaded file:', err);
               }
@@ -506,7 +514,7 @@ export const updateIcon = async (req, res, next) => {
             // Clean up uploaded file if provided
             if (req.file) {
               try {
-                await fs.unlink(req.file.path);
+                // No cleanup needed - file is in memory
               } catch (err) {
                 console.error('Failed to clean up uploaded file:', err);
               }
@@ -529,7 +537,7 @@ export const updateIcon = async (req, res, next) => {
         // Clean up uploaded file if provided
         if (req.file) {
           try {
-            await fs.unlink(req.file.path);
+            // No cleanup needed - file is in memory
           } catch (err) {
             console.error('Failed to clean up uploaded file:', err);
           }
@@ -542,16 +550,34 @@ export const updateIcon = async (req, res, next) => {
     let newFilePath = null;
     let oldFilePath = null;
     if (req.file) {
-      // New file uploaded - update file path and delete old file
-      newFilePath = `icons/${req.file.filename}`;
+      // New file uploaded - upload directly to GCS from memory buffer
+      const fileBuffer = req.file.buffer;
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      const ext = path.extname(req.file.originalname);
+      const filename = `icon-${uniqueSuffix}${ext}`;
+      
+      // Upload to GCS using StorageService
+      const storageResult = await StorageService.saveIcon(
+        fileBuffer,
+        filename,
+        req.file.mimetype
+      );
+      
+      newFilePath = storageResult.relativePath;
+      console.log('Icon updated and uploaded to GCS:', newFilePath);
+      
       oldFilePath = icon.file_path;
       
-      // Delete old file if it exists
+      // Delete old file from GCS if it exists
       if (oldFilePath) {
         try {
-          const oldFileFullPath = path.join(__dirname, '../../uploads', oldFilePath);
-          await fs.unlink(oldFileFullPath);
-          console.log('Deleted old icon file:', oldFileFullPath);
+          // Extract filename from path (handles both "icons/filename" and full paths)
+          const oldFilename = oldFilePath.includes('/') 
+            ? oldFilePath.split('/').pop() 
+            : oldFilePath.replace('icons/', '');
+          
+          await StorageService.deleteIcon(oldFilename);
+          console.log('Deleted old icon file:', oldFilePath);
         } catch (err) {
           console.warn('Could not delete old icon file (may not exist):', err.message);
         }
@@ -851,7 +877,7 @@ export const bulkUploadIcons = async (req, res, next) => {
           // Clean up all uploaded files
           for (const file of req.files) {
             try {
-              await fs.unlink(file.path);
+              // No cleanup needed - file is in memory
             } catch (err) {
               console.error('Failed to clean up file:', err);
             }
@@ -864,7 +890,7 @@ export const bulkUploadIcons = async (req, res, next) => {
           // Clean up all uploaded files
           for (const file of req.files) {
             try {
-              await fs.unlink(file.path);
+              // No cleanup needed - file is in memory
             } catch (err) {
               console.error('Failed to clean up file:', err);
             }
@@ -891,13 +917,27 @@ export const bulkUploadIcons = async (req, res, next) => {
             file: file.originalname,
             error: `Icon with name "${iconName}" already exists${finalAgencyId ? ' for this agency' : ' for platform'}`
           });
-          await fs.unlink(file.path);
+          // No cleanup needed - file is in memory
           continue;
         }
 
+        // Upload directly to GCS from memory buffer
+        const fileBuffer = file.buffer;
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        const filename = `icon-${uniqueSuffix}${ext}`;
+        
+        const storageResult = await StorageService.saveIcon(
+          fileBuffer,
+          filename,
+          file.mimetype
+        );
+        
+        const filePath = storageResult.relativePath;
+
         const createData = {
           name: iconName,
-          filePath: `icons/${file.filename}`,
+          filePath: filePath,
           fileName: file.originalname,
           fileSize: file.size,
           mimeType: file.mimetype,
@@ -921,7 +961,7 @@ export const bulkUploadIcons = async (req, res, next) => {
         });
         // Clean up file on error
         try {
-          await fs.unlink(file.path);
+          // No cleanup needed - file is in memory
         } catch (err) {
           console.error('Failed to clean up file:', err);
         }
@@ -941,7 +981,7 @@ export const bulkUploadIcons = async (req, res, next) => {
     if (req.files) {
       for (const file of req.files) {
         try {
-          await fs.unlink(file.path);
+          // No cleanup needed - file is in memory
         } catch (err) {
           console.error('Failed to clean up file:', err);
         }

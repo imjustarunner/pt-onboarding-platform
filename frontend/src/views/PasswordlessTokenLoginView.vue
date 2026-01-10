@@ -75,8 +75,8 @@ const attemptLogin = async (lastNameValue = null) => {
       lastName: lastNameValue
     });
     
-    // Set auth token and user
-    authStore.setAuth(response.data.token, response.data.user, response.data.sessionId);
+    // Set auth user (token is in HttpOnly cookie, set by backend)
+    authStore.setAuth(null, response.data.user, response.data.sessionId);
     
     // If user has agencies, set the first one as current
     if (response.data.agencies && response.data.agencies.length > 0) {
