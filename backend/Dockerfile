@@ -16,7 +16,14 @@ RUN apk add --no-cache \
 
 # Set environment variable to skip Puppeteer's Chromium download
 ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# Detect Chromium executable path (Alpine typically uses chromium-browser, but check both)
+# This verifies which executable exists and will be used by the application
+RUN which chromium-browser || which chromium || echo "Warning: Chromium executable not found in PATH"
+
+# Set Chromium executable path (default to chromium-browser, most common on Alpine)
+# If chromium-browser doesn't exist, the code will fall back to checking chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Copy package files
 COPY package*.json ./

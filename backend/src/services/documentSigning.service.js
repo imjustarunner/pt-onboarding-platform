@@ -80,7 +80,22 @@ class DocumentSigningService {
       try {
         console.log(`DocumentSigningService.convertHTMLToPDF: Attempting to launch browser (${3 - retries}/2)...`);
         // Use system Chromium if available (set via PUPPETEER_EXECUTABLE_PATH env var)
-        const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+        // Fallback to common Alpine paths if env var not set
+        let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+        if (!executablePath) {
+          // Try common Alpine Chromium paths (chromium-browser is most common)
+          const chromiumPaths = ['/usr/bin/chromium-browser', '/usr/bin/chromium'];
+          for (const chromiumPath of chromiumPaths) {
+            try {
+              await fs.stat(chromiumPath);
+              executablePath = chromiumPath;
+              console.log(`DocumentSigningService.convertHTMLToPDF: Found Chromium at ${chromiumPath}`);
+              break;
+            } catch (e) {
+              // Path doesn't exist, try next
+            }
+          }
+        }
         browser = await puppeteer.launch({
           executablePath, // Use system Chromium in production (Alpine Linux)
           headless: 'new', // Use new headless mode
