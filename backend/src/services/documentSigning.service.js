@@ -22,12 +22,14 @@ class DocumentSigningService {
       // Load or create base PDF
       if (templateType === 'pdf' && templatePath) {
         console.log(`DocumentSigningService.generateFinalizedPDF: Loading PDF template from ${templatePath}`);
-        try {
-          await fs.access(templatePath);
-        } catch (accessError) {
-          throw new Error(`Template file not found at ${templatePath}`);
-        }
-        const templateBuffer = await fs.readFile(templatePath);
+        
+        // templatePath is the GCS key (e.g., "templates/filename.pdf")
+        const StorageService = (await import('./storage.service.js')).default;
+        const templateFilename = templatePath.includes('/') 
+          ? templatePath.split('/').pop() 
+          : templatePath.replace('templates/', '');
+        const templateBuffer = await StorageService.readTemplate(templateFilename);
+        
         pdfDoc = await PDFDocument.load(templateBuffer);
         console.log(`DocumentSigningService.generateFinalizedPDF: PDF template loaded successfully`);
       } else if (templateType === 'html' && htmlContent) {
@@ -77,7 +79,10 @@ class DocumentSigningService {
     while (retries > 0) {
       try {
         console.log(`DocumentSigningService.convertHTMLToPDF: Attempting to launch browser (${3 - retries}/2)...`);
+        // Use system Chromium if available (set via PUPPETEER_EXECUTABLE_PATH env var)
+        const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
         browser = await puppeteer.launch({
+          executablePath, // Use system Chromium in production (Alpine Linux)
           headless: 'new', // Use new headless mode
           args: [
             '--no-sandbox',
