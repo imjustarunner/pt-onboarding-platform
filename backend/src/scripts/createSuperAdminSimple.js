@@ -14,7 +14,14 @@ async function createSuperAdmin() {
 
   try {
     const email = 'superadmin@plottwistco.com';
-    const password = 'superadmin123';
+    // Get password from environment variable or prompt user
+    const password = process.env.SUPERADMIN_PASSWORD || process.argv[2];
+    if (!password) {
+      console.error('❌ Error: Password required. Set SUPERADMIN_PASSWORD environment variable or pass as argument.');
+      console.error('Usage: SUPERADMIN_PASSWORD=yourpassword node createSuperAdminSimple.js');
+      console.error('   or: node createSuperAdminSimple.js yourpassword');
+      process.exit(1);
+    }
     const passwordHash = await bcrypt.hash(password, 10);
 
     const [existing] = await connection.execute(
@@ -41,7 +48,7 @@ async function createSuperAdmin() {
         );
         console.log('✅ Super admin user updated successfully!');
         console.log('Email: superadmin@plottwistco.com');
-        console.log('Password: superadmin123');
+        console.log('Password: [REDACTED]');
       }
     } else {
       await connection.execute(
@@ -50,7 +57,7 @@ async function createSuperAdmin() {
       );
       console.log('✅ Super admin user created successfully!');
       console.log('Email: superadmin@plottwistco.com');
-      console.log('Password: superadmin123');
+      console.log('Password: [REDACTED]');
     }
   } catch (error) {
     console.error('❌ Error creating super admin user:', error);

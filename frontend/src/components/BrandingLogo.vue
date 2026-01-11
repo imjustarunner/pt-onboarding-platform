@@ -44,10 +44,11 @@ const displayName = computed(() => brandingStore.displayName);
 const sizeClass = computed(() => `logo-${props.size}`);
 
 const defaultAltText = computed(() => {
+  const orgName = brandingStore.platformBranding?.organization_name || displayName.value || 'Platform';
   if (brandingStore.isSuperAdmin) {
-    return 'PlotTwistCo Logo';
+    return orgName ? `${orgName} Logo` : 'Platform Logo';
   }
-  return `${displayName.value} Logo`;
+  return `${displayName.value || orgName || 'Platform'} Logo`;
 });
 
 const finalAltText = computed(() => props.altText || defaultAltText.value);

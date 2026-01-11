@@ -1921,6 +1921,7 @@ const savePlatformBranding = async () => {
     
     const response = await api.put('/platform-branding', brandingData);
     await brandingStore.fetchPlatformBranding();
+    // Fonts will be reloaded automatically via fetchPlatformBranding
     
     // If a template is currently applied, update it with the new branding values
     if (currentlyAppliedTemplate.value && selectedBrandingScope.value === 'platform') {

@@ -5,10 +5,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
+import { loadAndApplyPlatformFonts } from '../utils/fontLoader';
 
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
@@ -16,6 +17,8 @@ const authStore = useAuthStore();
 
 onMounted(async () => {
   await brandingStore.fetchPlatformBranding();
+  
+  // Fonts are loaded automatically in fetchPlatformBranding, no need to load again here
   
   // Only fetch agencies if user is authenticated and not a super admin
   // This prevents agency colors from affecting the login page
@@ -28,6 +31,15 @@ onMounted(async () => {
     }
   }
 });
+
+// Watch for platform branding changes and reload fonts
+// This handles cases where branding is updated outside of fetchPlatformBranding
+watch(() => brandingStore.platformBranding, async (newBranding, oldBranding) => {
+  // Only reload if branding actually changed (not just initial load)
+  if (newBranding && oldBranding && newBranding.id !== oldBranding.id) {
+    await loadAndApplyPlatformFonts(newBranding);
+  }
+}, { deep: true });
 
 const brandingStyles = computed(() => {
   const platform = brandingStore.platformBranding;

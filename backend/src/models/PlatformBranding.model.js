@@ -58,6 +58,17 @@ class PlatformBranding {
         hasFontIds = false;
       }
 
+      // Check if organization fields exist
+      let hasOrgFields = false;
+      try {
+        const [orgColumns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'organization_name'"
+        );
+        hasOrgFields = orgColumns.length > 0;
+      } catch (e) {
+        hasOrgFields = false;
+      }
+
       let query;
       if (hasDashboardIcons) {
         // Join with icons table to get icon file paths

@@ -245,15 +245,15 @@ export const useBrandingStore = defineStore('branding', () => {
   });
 
   const agencyName = computed(() => {
-    return agencyStore.currentAgency?.name || 'PlotTwistCo';
+    return agencyStore.currentAgency?.name || platformBranding.value?.organization_name || '';
   });
   
   // Display name for branding
   const displayName = computed(() => {
     if (isSuperAdmin.value) {
-      return 'PlotTwistCo';
+      return platformBranding.value?.organization_name || '';
     }
-    return agencyStore.currentAgency?.name || 'PlotTwistCo';
+    return agencyStore.currentAgency?.name || platformBranding.value?.organization_name || '';
   });
 
   // Get terminology setting (e.g., "People Operations", "Human Resources", etc.)
@@ -296,14 +296,17 @@ export const useBrandingStore = defineStore('branding', () => {
   // Navigation title: "Company Name People Operations" or "Company Name Human Resources", etc.
   const navigationTitle = computed(() => {
     try {
-      const name = displayName.value || 'PlotTwistCo';
+      const name = displayName.value || platformBranding.value?.organization_name || '';
       const term = peopleOpsTerm.value || 'People Operations';
+      if (!name) {
+        return term; // Just return the term if no organization name is set
+      }
       const title = `${name} ${term}`;
       // Ensure we always return a non-empty string
-      return title.trim() || 'PlotTwistCo People Operations';
+      return title.trim() || term;
     } catch (error) {
       console.error('Error computing navigation title:', error);
-      return 'PlotTwistCo People Operations';
+      return peopleOpsTerm.value || 'People Operations';
     }
   });
 
@@ -326,6 +329,7 @@ export const useBrandingStore = defineStore('branding', () => {
     tagline,
     platformBranding,
     fetchPlatformBranding,
+    reloadFonts,
     portalAgency,
     portalTheme,
     themeSettings,

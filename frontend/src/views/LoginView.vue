@@ -69,15 +69,7 @@
         </div>
       </div>
       
-      <div class="login-info">
-        <p><strong>Super Admin (for editing):</strong></p>
-        <p>Email: superadmin@plottwistco.com</p>
-        <p>Password: superadmin123</p>
-        <hr style="margin: 15px 0; border: none; border-top: 1px solid #dee2e6;" />
-        <p><strong>Default Admin:</strong></p>
-        <p>Email: admin@company.com</p>
-        <p>Password: admin123</p>
-      </div>
+      <!-- Removed hardcoded credentials for security -->
     </div>
   </div>
   </BrandingProvider>
@@ -137,7 +129,7 @@ const platformOrgName = computed(() => {
   if (isAgencyLogin.value && loginTheme.value?.platform?.organizationName) {
     return loginTheme.value.platform.organizationName;
   }
-  return brandingStore.platformBranding?.organization_name || 'PlotTwistCo';
+  return brandingStore.platformBranding?.organization_name || '';
 });
 
 const platformLogoUrl = computed(() => {
