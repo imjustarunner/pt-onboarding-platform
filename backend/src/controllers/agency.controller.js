@@ -361,7 +361,7 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
         themeSettings: themeSettings || {}
       },
       platform: {
-        organizationName: platformBranding.organization_name || 'PlotTwistCo',
+        organizationName: platformBranding.organization_name || '',
         logoUrl: platformLogoUrl,
         tagline: platformBranding.tagline
       }

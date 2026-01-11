@@ -130,7 +130,7 @@
         </div>
         <div class="form-group">
           <label>Organization Name</label>
-          <input v-model="platformForm.organizationName" type="text" placeholder="PlotTwistCo" />
+          <input v-model="platformForm.organizationName" type="text" placeholder="Enter platform organization name" />
           <small>This name appears in "Powered by" footer on agency login pages</small>
         </div>
         <div class="form-group">

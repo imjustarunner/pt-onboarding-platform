@@ -23,7 +23,7 @@ const showPoweredBy = computed(() => brandingStore.showPoweredBy);
 
 // Get platform organization name and logo from branding store
 const platformOrgName = computed(() => {
-  return brandingStore.platformBranding?.organization_name || 'PlotTwistCo';
+  return brandingStore.platformBranding?.organization_name || '';
 });
 
 const platformLogoUrl = computed(() => {
