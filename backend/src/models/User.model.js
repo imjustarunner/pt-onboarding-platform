@@ -8,8 +8,12 @@ class User {
     let query = 'SELECT id, email, phone_number, role, status, completed_at, terminated_at, status_expires_at, password_hash, first_name, last_name, invitation_token, invitation_token_expires_at, temporary_password_hash, temporary_password_expires_at, created_at';
     
     try {
+      // Use explicit database name from environment variable instead of DATABASE() function
+      // This is more reliable, especially with connection pooling and Unix sockets
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')",
+        [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
       if (existingColumns.includes('work_email')) query += ', work_email';
@@ -33,8 +37,11 @@ class User {
     let query = 'SELECT id, email, phone_number, role, status, completed_at, terminated_at, status_expires_at, password_hash, first_name, last_name, invitation_token, invitation_token_expires_at, temporary_password_hash, temporary_password_expires_at, created_at';
     
     try {
+      // Use explicit database name from environment variable instead of DATABASE() function
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')",
+        [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
       if (existingColumns.includes('work_email')) query += ', work_email';

@@ -175,7 +175,37 @@ export const login = async (req, res, next) => {
 
     const { email, password } = req.body;
 
-    const user = await User.findByEmail(email);
+    let user;
+    try {
+      user = await User.findByEmail(email);
+    } catch (dbError) {
+      console.error('Database error during login:', {
+        message: dbError.message,
+        code: dbError.code,
+        errno: dbError.errno,
+        sqlState: dbError.sqlState,
+        sqlMessage: dbError.sqlMessage,
+        stack: dbError.stack
+      });
+      
+      // Check if it's a database connection/auth error
+      if (dbError.code === 'ER_ACCESS_DENIED_ERROR' || dbError.code === 'ECONNREFUSED' || dbError.code === 'ETIMEDOUT') {
+        return res.status(503).json({ 
+          error: { 
+            message: 'Database connection error. Please contact support if this persists.',
+            code: 'DATABASE_ERROR'
+          } 
+        });
+      }
+      
+      // For other database errors, log and return generic error
+      return res.status(500).json({ 
+        error: { 
+          message: 'An error occurred during login. Please try again.',
+          code: 'INTERNAL_ERROR'
+        } 
+      });
+    }
     if (!user) {
       // User not found in system at all
       return res.status(401).json({ 

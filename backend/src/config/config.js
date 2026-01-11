@@ -36,10 +36,11 @@ const getCorsOrigin = () => {
  * @returns {Object} Cookie options object
  */
 const getAuthCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,        // Prevent XSS - JavaScript cannot access
-    secure: process.env.NODE_ENV === 'production',  // HTTPS only in production
-    sameSite: 'strict',   // CSRF protection - strict mode (will be updated to 'none' for cross-origin)
+    secure: isProduction,  // HTTPS only in production (required for sameSite: 'none')
+    sameSite: isProduction ? 'none' : 'strict',  // 'none' for cross-origin in production, 'strict' for same-origin in dev
     maxAge: 24 * 60 * 60 * 1000,  // 24 hours (match JWT expiration) - only used for setting, not clearing
     path: '/',
     // For Cloud Run behind proxy, domain should not be set (uses request domain)
@@ -53,10 +54,11 @@ const getAuthCookieOptions = () => {
  * @returns {Object} Cookie options for clearCookie()
  */
 const getAuthCookieClearOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
+    secure: isProduction,  // HTTPS only in production (required for sameSite: 'none')
+    sameSite: isProduction ? 'none' : 'strict',  // Must match getAuthCookieOptions()
     path: '/',
     // Note: maxAge is not needed for clearCookie
     // Note: domain should not be set (matches setting options)

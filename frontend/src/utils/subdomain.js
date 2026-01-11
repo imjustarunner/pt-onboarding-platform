@@ -10,6 +10,7 @@
  * - nextleveluplcc.app.plottwistco.com -> "nextleveluplcc"
  * - app.plottwistco.com -> null
  * - localhost -> null
+ * - onboarding-frontend-378990906760.us-west3.run.app -> null (Cloud Run URL)
  * 
  * @returns {string|null} The subdomain identifier or null if no subdomain
  */
@@ -18,6 +19,12 @@ export function getSubdomain() {
   
   // Handle localhost and IP addresses
   if (hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+    return null;
+  }
+  
+  // Exclude Cloud Run URLs (service.region.run.app pattern)
+  // These are not agency subdomains and should not be treated as such
+  if (hostname.endsWith('.run.app')) {
     return null;
   }
   

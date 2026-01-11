@@ -132,8 +132,15 @@ export const useAuthStore = defineStore('auth', () => {
       }
     } catch (err) {
       console.error('Failed to refresh user data:', err);
-      // If refresh fails, force logout to get fresh token
-      await logout('token_refresh_failed');
+      // Only logout on authentication errors (401), not network/server errors
+      // This prevents false logouts from temporary issues
+      if (err.response?.status === 401) {
+        await logout('token_refresh_failed');
+      } else {
+        // For other errors (network, 500, etc.), just log and continue
+        // The user remains logged in and can retry later
+        console.warn('User data refresh failed but user remains authenticated:', err.message);
+      }
     }
   };
 
