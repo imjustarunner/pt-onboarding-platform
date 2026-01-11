@@ -128,10 +128,16 @@
           <input v-model="platformForm.peopleOpsTerm" type="text" placeholder="People Operations" />
           <small>This term appears in the navigation bar (e.g., "Human Resources", "People Operations")</small>
         </div>
+        
+        <div class="form-section-divider">
+          <h4>Platform Organization</h4>
+          <p class="section-description">Configure the platform organization name and logo that appears in "Powered by" footers on agency login pages.</p>
+        </div>
+        
         <div class="form-group">
           <label>Organization Name</label>
           <input v-model="platformForm.organizationName" type="text" placeholder="Enter platform organization name" />
-          <small>This name appears in "Powered by" footer on agency login pages</small>
+          <small>This name appears in "Powered by" footer on agency login pages and throughout the platform</small>
         </div>
         <div class="form-group">
           <label>Organization Logo</label>
@@ -146,7 +152,7 @@
               Clear
             </button>
           </div>
-          <small>Logo displayed in "Powered by" footer on agency login pages</small>
+          <small>Logo displayed in "Powered by" footer on agency login pages. Select an icon from the Icon Library.</small>
         </div>
         
         <div class="form-section-divider">
