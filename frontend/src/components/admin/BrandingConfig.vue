@@ -1675,7 +1675,9 @@ const applySelectedTemplate = async (event) => {
           manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,
           platformSettingsIconId: brandingStore.platformBranding.platform_settings_icon_id ?? null,
           viewAllProgressIconId: brandingStore.platformBranding.view_all_progress_icon_id ?? null,
-          allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null
+          allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
+          organizationName: brandingStore.platformBranding.organization_name ?? null,
+          organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null
         };
       }
     } else {
@@ -2154,7 +2156,9 @@ onMounted(async () => {
         manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,
         platformSettingsIconId: brandingStore.platformBranding.platform_settings_icon_id ?? null,
         viewAllProgressIconId: brandingStore.platformBranding.view_all_progress_icon_id ?? null,
-        allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null
+        allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
+        organizationName: brandingStore.platformBranding.organization_name ?? null,
+        organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null
       };
       
       // After loading branding, detect which template is currently applied
