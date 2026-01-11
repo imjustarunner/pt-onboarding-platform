@@ -108,9 +108,7 @@ export const updatePlatformBranding = async (req, res, next) => {
       viewAllProgressIconId,
       progressDashboardIconId,
       settingsIconId,
-      allAgenciesNotificationsIconId,
-      organizationName,
-      organizationLogoIconId
+      allAgenciesNotificationsIconId
     }, req.user.id);
 
     res.json(branding);

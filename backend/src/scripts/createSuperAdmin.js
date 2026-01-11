@@ -32,7 +32,7 @@ async function createSuperAdmin() {
         );
         console.log('✅ Super admin user updated successfully!');
         console.log('Email: superadmin@plottwistco.com');
-        console.log('Password: [REDACTED]');
+        console.log('Password: superadmin123');
         return;
       }
     }
@@ -44,7 +44,7 @@ async function createSuperAdmin() {
 
     console.log('✅ Super admin user created successfully!');
     console.log('Email: superadmin@plottwistco.com');
-    console.log('Password: [REDACTED]');
+    console.log('Password: superadmin123');
   } catch (error) {
     console.error('❌ Error creating super admin user:', error);
   } finally {

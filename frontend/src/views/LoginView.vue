@@ -54,37 +54,22 @@
         <button @click="showForgotUsernameMessage = false" class="btn-close-help">Close</button>
       </div>
       
-      <!-- Powered by footer for agency login -->
-      <div v-if="isAgencyLogin && platformOrgName" class="powered-by-footer">
-        <div class="powered-by-content">
-          <span class="powered-by-text">Powered by</span>
-          <img
-            v-if="platformLogoUrl"
-            :src="platformLogoUrl"
-            :alt="platformOrgName"
-            class="powered-by-logo"
-            @error="handlePlatformLogoError"
-          />
-          <span class="powered-by-name">{{ platformOrgName }}</span>
-        </div>
+      <div class="login-info">
+        <p><strong>Super Admin (for editing):</strong></p>
+        <p>Email: superadmin@plottwistco.com</p>
+        <p>Password: superadmin123</p>
+        <hr style="margin: 15px 0; border: none; border-top: 1px solid #dee2e6;" />
+        <p><strong>Default Admin:</strong></p>
+        <p>Email: admin@company.com</p>
+        <p>Password: admin123</p>
       </div>
-      
-      <!-- Removed hardcoded credentials for security -->
     </div>
   </div>
   </BrandingProvider>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
-import { useAuthStore } from '../store/auth';
-import { useBrandingStore } from '../store/branding';
-import { useAgencyStore } from '../store/agency';
-import BrandingProvider from '../components/BrandingProvider.vue';
-import { getDashboardRoute } from '../utils/router';
-import api from '../services/api';
-
+      <!-- Removed hardcoded credentials for security -->
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
@@ -127,24 +112,24 @@ const loginBackground = computed(() => {
 // Platform branding for "powered by" footer
 const platformOrgName = computed(() => {
   if (isAgencyLogin.value && loginTheme.value?.platform?.organizationName) {
+  const agencyName = brandingStore.portalAgency?.name || 'PlotTwistCo';
+  const term = brandingStore.peopleOpsTerm || 'People Operations';
+  return `${agencyName} ${term} Platform`;
+});
+
+const loginBackground = computed(() => {
+  if (isAgencyLogin.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
+    return loginTheme.value.agency.themeSettings.loginBackground;
+  }
+  return brandingStore.loginBackground;
+});
+
+// Platform branding for "powered by" footer
+const platformOrgName = computed(() => {
+  if (isAgencyLogin.value && loginTheme.value?.platform?.organizationName) {
     return loginTheme.value.platform.organizationName;
   }
   return brandingStore.platformBranding?.organization_name || '';
-});
-
-const platformLogoUrl = computed(() => {
-  if (isAgencyLogin.value && loginTheme.value?.platform?.logoUrl) {
-    return loginTheme.value.platform.logoUrl;
-  }
-  if (brandingStore.platformBranding?.organization_logo_path) {
-    return `/uploads/${brandingStore.platformBranding.organization_logo_path}`;
-  }
-  return null;
-});
-
-// Fetch login theme for agency
-const fetchLoginTheme = async (portalUrl) => {
-  try {
     loadingTheme.value = true;
     const response = await api.get(`/agencies/portal/${portalUrl}/login-theme`);
     loginTheme.value = response.data;
@@ -193,7 +178,6 @@ const handleLogin = async () => {
       // For approved employees, fetch agencies from the login response
       await agencyStore.fetchUserAgencies();
     }
-    // Agencies are now stored in localStorage by fetchUserAgencies for future login redirects
     
     router.push(getDashboardRoute());
   } else {
@@ -209,6 +193,7 @@ const showForgotPassword = () => {
 };
 
 const showForgotUsername = () => {
+    // Agencies are now stored in localStorage by fetchUserAgencies for future login redirects
   showForgotUsernameMessage.value = true;
   showForgotPasswordMessage.value = false;
 };
@@ -225,11 +210,6 @@ const formatError = (errorText) => {
 
 const handleLogoError = (event) => {
   // Hide broken image, show text fallback
-  event.target.style.display = 'none';
-};
-
-// Add handleLogoError for platform logo too
-const handlePlatformLogoError = (event) => {
   event.target.style.display = 'none';
 };
 </script>
@@ -358,43 +338,6 @@ const handlePlatformLogoError = (event) => {
 
 .btn-close-help:hover {
   color: var(--agency-accent-color, var(--accent));
-}
-
-.powered-by-footer {
-  margin-top: 30px;
-  padding-top: 20px;
-  border-top: 1px solid #e5e7eb;
-  text-align: center;
-}
-
-.powered-by-content {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #6b7280;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.powered-by-text {
-  color: #6b7280;
-}
-
-.powered-by-logo {
-  height: 16px;
-  width: auto;
-  opacity: 0.7;
-  transition: opacity 0.2s;
-}
-
-.powered-by-logo:hover {
-  opacity: 1;
-}
-
-.powered-by-name {
-  color: #6b7280;
-  font-weight: 600;
-  letter-spacing: 0.02em;
 }
 </style>
 

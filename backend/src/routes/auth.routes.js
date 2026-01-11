@@ -144,6 +144,3 @@ router.post('/initial-setup/:token', [
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters')
 ], initialSetup);
-
-export default router;
-

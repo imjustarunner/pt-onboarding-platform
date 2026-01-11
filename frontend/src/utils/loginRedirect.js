@@ -2,13 +2,9 @@
  * Utility to determine the appropriate login URL based on user's agency membership
  * 
  * Rules:
- * - Users with exactly 1 agency that has a portal_url → redirect to /{portal_url}/login (agency branding)
- * - Users with multiple agencies → redirect to /login (platform branding) - per user requirement
+ * - Users with exactly 1 agency that has a portal_url → redirect to /{portal_url}/login
+ * - Users with multiple agencies or no portal_url → redirect to /login (platform branding)
  * - Super admins → always use /login (platform branding)
- * - Users with no agencies → redirect to /login (platform branding)
- * 
- * Note: Agencies are stored in localStorage when user logs in, so this works even after logout.
- * For completely new users who haven't logged in yet, they'll default to /login (platform branding).
  */
 
 /**
@@ -48,7 +44,7 @@ export function getLoginUrl(user = null, userAgencies = null) {
     return '/login';
   }
 
-  // If user has multiple agencies, use platform login (per user requirement)
+  // If user has multiple agencies, use platform login
   if (agencies.length > 1) {
     return '/login';
   }

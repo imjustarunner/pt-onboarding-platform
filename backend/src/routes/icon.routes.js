@@ -85,9 +85,5 @@ router.put(
 
 router.delete('/:id', deleteIcon);
 
-// Bulk operations (Super Admin only)
-router.put('/bulk-edit', requireSuperAdmin, bulkEditIcons);
-router.post('/bulk-delete', requireSuperAdmin, bulkDeleteIcons); // Use POST for DELETE with body
-
 export default router;
 

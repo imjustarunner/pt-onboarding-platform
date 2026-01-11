@@ -3,13 +3,12 @@
     <div class="powered-by-content">
       <span class="powered-by-text">Platform powered by</span>
       <img
-        v-if="platformLogoUrl"
-        :src="platformLogoUrl"
-        :alt="platformOrgName"
+        :src="plotTwistCoLogoUrl"
+        alt="PlotTwistCo"
         class="powered-by-logo"
         @error="handleLogoError"
       />
-      <span class="powered-by-name">{{ platformOrgName }}</span>
+      <span class="powered-by-name">PlotTwistCo</span>
     </div>
   </div>
 </template>
@@ -23,15 +22,15 @@ const showPoweredBy = computed(() => brandingStore.showPoweredBy);
 
 // Get platform organization name and logo from branding store
 const platformOrgName = computed(() => {
+  return brandingStore.platformBranding?.organization_name || 'PlotTwistCo';
   return brandingStore.platformBranding?.organization_name || '';
-});
 
 const platformLogoUrl = computed(() => {
   if (brandingStore.platformBranding?.organization_logo_path) {
     return `/uploads/${brandingStore.platformBranding.organization_logo_path}`;
   }
+  return brandingStore.plotTwistCoLogoUrl;
   return null; // No fallback - platform logo must be set in branding config
-});
 
 const handleLogoError = (event) => {
   // Hide logo if it fails to load, show text only

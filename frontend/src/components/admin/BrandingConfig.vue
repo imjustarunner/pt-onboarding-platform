@@ -153,26 +153,6 @@
             </button>
           </div>
           <small>Logo displayed in "Powered by" footer on agency login pages. Select an icon from the Icon Library.</small>
-        </div>
-        
-        <div class="form-section-divider">
-          <h4>Fonts</h4>
-          <p class="section-description">Select fonts for different text elements. Upload fonts in the <a href="#" @click.prevent="router.push('/admin/settings?tab=fonts')">Font Library</a>.</p>
-        </div>
-        
-        <div class="fonts-grid">
-          <div class="font-input-item">
-            <label>Header Font</label>
-            <FontSelector 
-              v-model="platformForm.headerFontId" 
-              placeholder="Select header font..."
-              font-type="header"
-            />
-            <small>Font used for headings and titles</small>
-          </div>
-          <div class="font-input-item">
-            <label>Body Font</label>
-            <FontSelector 
               v-model="platformForm.bodyFontId" 
               placeholder="Select body font..."
               font-type="body"
@@ -1681,9 +1661,7 @@ const applySelectedTemplate = async (event) => {
           manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,
           platformSettingsIconId: brandingStore.platformBranding.platform_settings_icon_id ?? null,
           viewAllProgressIconId: brandingStore.platformBranding.view_all_progress_icon_id ?? null,
-          allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
-          organizationName: brandingStore.platformBranding.organization_name ?? null,
-          organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null
+          allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null
         };
       }
     } else {
@@ -1703,7 +1681,9 @@ const applySelectedTemplate = async (event) => {
               certificateTemplateUrl: agency.certificate_template_url || '',
               masterIconId: agency.icon_id ?? null,
               trainingFocusDefaultIconId: agency.training_focus_default_icon_id ?? null,
-              moduleDefaultIconId: agency.module_default_icon_id ?? null,
+          allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
+          organizationName: brandingStore.platformBranding.organization_name ?? null,
+          organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null
               userDefaultIconId: agency.user_default_icon_id ?? null,
               documentDefaultIconId: agency.document_default_icon_id ?? null,
               progressDashboardIconId: agency.progress_dashboard_icon_id ?? null,
@@ -1922,14 +1902,11 @@ const savePlatformBranding = async () => {
       manageUsersIconId: platformForm.value.manageUsersIconId ?? null,
       platformSettingsIconId: platformForm.value.platformSettingsIconId ?? null,
       viewAllProgressIconId: platformForm.value.viewAllProgressIconId ?? null,
-      allAgenciesNotificationsIconId: platformForm.value.allAgenciesNotificationsIconId ?? null,
-      organizationName: platformForm.value.organizationName || null,
-      organizationLogoIconId: platformForm.value.organizationLogoIconId ?? null
+      allAgenciesNotificationsIconId: platformForm.value.allAgenciesNotificationsIconId ?? null
     };
     
     const response = await api.put('/platform-branding', brandingData);
     await brandingStore.fetchPlatformBranding();
-    // Fonts will be reloaded automatically via fetchPlatformBranding
     
     // If a template is currently applied, update it with the new branding values
     if (currentlyAppliedTemplate.value && selectedBrandingScope.value === 'platform') {
@@ -1952,6 +1929,7 @@ const savePlatformBranding = async () => {
           errorColor: hasProperty(templateData, 'error_color'),
           warningColor: hasProperty(templateData, 'warning_color'),
           backgroundColor: hasProperty(templateData, 'background_color'),
+    // Fonts will be reloaded automatically via fetchPlatformBranding
           fonts: !!(templateData.header_font_id || templateData.header_font || templateData.body_font_id || 
                     templateData.body_font || templateData.numeric_font_id || templateData.numeric_font || 
                     templateData.display_font_id || templateData.display_font),
@@ -2063,8 +2041,6 @@ const savePlatformBranding = async () => {
       platformForm.value.platformSettingsIconId = response.data.platform_settings_icon_id ?? platformForm.value.platformSettingsIconId ?? null;
       platformForm.value.viewAllProgressIconId = response.data.view_all_progress_icon_id ?? platformForm.value.viewAllProgressIconId ?? null;
       platformForm.value.allAgenciesNotificationsIconId = response.data.all_agencies_notifications_icon_id ?? platformForm.value.allAgenciesNotificationsIconId ?? null;
-      platformForm.value.organizationName = response.data.organization_name ?? platformForm.value.organizationName ?? null;
-      platformForm.value.organizationLogoIconId = response.data.organization_logo_icon_id ?? platformForm.value.organizationLogoIconId ?? null;
       
       // Update other fields
       platformForm.value.tagline = response.data.tagline ?? platformForm.value.tagline;
@@ -2162,9 +2138,7 @@ onMounted(async () => {
         manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,
         platformSettingsIconId: brandingStore.platformBranding.platform_settings_icon_id ?? null,
         viewAllProgressIconId: brandingStore.platformBranding.view_all_progress_icon_id ?? null,
-        allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
-        organizationName: brandingStore.platformBranding.organization_name ?? null,
-        organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null
+        allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null
       };
       
       // After loading branding, detect which template is currently applied
@@ -2187,10 +2161,10 @@ onActivated(async () => {
       platformForm.value.manageUsersIconId = brandingStore.platformBranding.manage_users_icon_id ?? null;
       platformForm.value.viewAllProgressIconId = brandingStore.platformBranding.view_all_progress_icon_id ?? null;
       platformForm.value.allAgenciesNotificationsIconId = brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null;
-      platformForm.value.organizationName = brandingStore.platformBranding.organization_name ?? null;
-      platformForm.value.organizationLogoIconId = brandingStore.platformBranding.organization_logo_icon_id ?? null;
       
-      // Detect which template is currently applied
+        allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
+        organizationName: brandingStore.platformBranding.organization_name ?? null,
+        organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null
       if (selectedBrandingScope.value === 'platform') {
         await detectCurrentlyAppliedTemplate();
       }
