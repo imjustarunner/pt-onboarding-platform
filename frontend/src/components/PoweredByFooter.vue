@@ -30,7 +30,7 @@ const platformLogoUrl = computed(() => {
   if (brandingStore.platformBranding?.organization_logo_path) {
     return `/uploads/${brandingStore.platformBranding.organization_logo_path}`;
   }
-  return brandingStore.plotTwistCoLogoUrl;
+  return null; // No fallback - platform logo must be set in branding config
 });
 
 const handleLogoError = (event) => {
