@@ -25,10 +25,11 @@ export const authenticate = (req, res, next) => {
       return next();
     }
     
-    // Regular user tokens
+    // Regular user tokens - support both email and username for login
+    // The token contains email field which may be username or email
     req.user = {
       id: decoded.id,
-      email: decoded.email,
+      email: decoded.email, // This may be username or email
       role: decoded.role,
       type: decoded.type || 'regular',
       agencyId: decoded.agencyId

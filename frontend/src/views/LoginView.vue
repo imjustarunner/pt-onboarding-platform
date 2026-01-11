@@ -54,6 +54,21 @@
         <button @click="showForgotUsernameMessage = false" class="btn-close-help">Close</button>
       </div>
       
+      <!-- Powered by footer for agency login -->
+      <div v-if="isAgencyLogin && platformOrgName" class="powered-by-footer">
+        <div class="powered-by-content">
+          <span class="powered-by-text">Powered by</span>
+          <img
+            v-if="platformLogoUrl"
+            :src="platformLogoUrl"
+            :alt="platformOrgName"
+            class="powered-by-logo"
+            @error="handlePlatformLogoError"
+          />
+          <span class="powered-by-name">{{ platformOrgName }}</span>
+        </div>
+      </div>
+      
       <div class="login-info">
         <p><strong>Super Admin (for editing):</strong></p>
         <p>Email: superadmin@plottwistco.com</p>
@@ -70,30 +85,97 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
 import BrandingProvider from '../components/BrandingProvider.vue';
 import { getDashboardRoute } from '../utils/router';
+import api from '../services/api';
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 
-const displayLogoUrl = computed(() => brandingStore.displayLogoUrl || brandingStore.plotTwistCoLogoUrl);
+// Check if this is an agency-specific login page
+const isAgencyLogin = computed(() => route.params.agencySlug && route.meta.agencySlug);
+const agencySlug = computed(() => route.params.agencySlug);
+
+// Agency login theme data
+const loginTheme = ref(null);
+const loadingTheme = ref(false);
+
+// Logo and title for agency login
+const displayLogoUrl = computed(() => {
+  if (isAgencyLogin.value && loginTheme.value?.agency?.logoUrl) {
+    return loginTheme.value.agency.logoUrl;
+  }
+  return brandingStore.displayLogoUrl || brandingStore.plotTwistCoLogoUrl;
+});
+
 const displayTitle = computed(() => {
+  if (isAgencyLogin.value && loginTheme.value?.agency?.name) {
+    const term = brandingStore.peopleOpsTerm || 'People Operations';
+    return `${loginTheme.value.agency.name} ${term} Platform`;
+  }
   const agencyName = brandingStore.portalAgency?.name || 'PlotTwistCo';
   const term = brandingStore.peopleOpsTerm || 'People Operations';
   return `${agencyName} ${term} Platform`;
 });
-const loginBackground = computed(() => brandingStore.loginBackground);
+
+const loginBackground = computed(() => {
+  if (isAgencyLogin.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
+    return loginTheme.value.agency.themeSettings.loginBackground;
+  }
+  return brandingStore.loginBackground;
+});
+
+// Platform branding for "powered by" footer
+const platformOrgName = computed(() => {
+  if (isAgencyLogin.value && loginTheme.value?.platform?.organizationName) {
+    return loginTheme.value.platform.organizationName;
+  }
+  return brandingStore.platformBranding?.organization_name || 'PlotTwistCo';
+});
+
+const platformLogoUrl = computed(() => {
+  if (isAgencyLogin.value && loginTheme.value?.platform?.logoUrl) {
+    return loginTheme.value.platform.logoUrl;
+  }
+  if (brandingStore.platformBranding?.organization_logo_path) {
+    return `/uploads/${brandingStore.platformBranding.organization_logo_path}`;
+  }
+  return null;
+});
+
+// Fetch login theme for agency
+const fetchLoginTheme = async (portalUrl) => {
+  try {
+    loadingTheme.value = true;
+    const response = await api.get(`/agencies/portal/${portalUrl}/login-theme`);
+    loginTheme.value = response.data;
+  } catch (error) {
+    console.error('Failed to fetch login theme:', error);
+    // If agency not found, redirect to default login
+    if (error.response?.status === 404) {
+      router.replace('/login');
+    }
+  } finally {
+    loadingTheme.value = false;
+  }
+};
 
 // Ensure branding is loaded before rendering
 onMounted(async () => {
-  // Initialize portal theme if on subdomain
-  await brandingStore.initializePortalTheme();
+  if (isAgencyLogin.value && agencySlug.value) {
+    // Fetch agency-specific login theme
+    await fetchLoginTheme(agencySlug.value);
+  } else {
+    // Initialize portal theme if on subdomain
+    await brandingStore.initializePortalTheme();
+  }
   // Fetch platform branding as fallback
   await brandingStore.fetchPlatformBranding();
 });
@@ -119,6 +201,7 @@ const handleLogin = async () => {
       // For approved employees, fetch agencies from the login response
       await agencyStore.fetchUserAgencies();
     }
+    // Agencies are now stored in localStorage by fetchUserAgencies for future login redirects
     
     router.push(getDashboardRoute());
   } else {
@@ -150,6 +233,11 @@ const formatError = (errorText) => {
 
 const handleLogoError = (event) => {
   // Hide broken image, show text fallback
+  event.target.style.display = 'none';
+};
+
+// Add handleLogoError for platform logo too
+const handlePlatformLogoError = (event) => {
   event.target.style.display = 'none';
 };
 </script>
@@ -278,6 +366,43 @@ const handleLogoError = (event) => {
 
 .btn-close-help:hover {
   color: var(--agency-accent-color, var(--accent));
+}
+
+.powered-by-footer {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
+  text-align: center;
+}
+
+.powered-by-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.powered-by-text {
+  color: #6b7280;
+}
+
+.powered-by-logo {
+  height: 16px;
+  width: auto;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.powered-by-logo:hover {
+  opacity: 1;
+}
+
+.powered-by-name {
+  color: #6b7280;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 </style>
 

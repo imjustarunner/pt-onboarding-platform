@@ -6,10 +6,12 @@ import {
   bulkUploadIcons,
   updateIcon,
   deleteIcon,
+  bulkEditIcons,
+  bulkDeleteIcons,
   upload,
   uploadMultiple
 } from '../controllers/icon.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
 
 const router = express.Router();
@@ -82,6 +84,10 @@ router.put(
 );
 
 router.delete('/:id', deleteIcon);
+
+// Bulk operations (Super Admin only)
+router.put('/bulk-edit', requireSuperAdmin, bulkEditIcons);
+router.post('/bulk-delete', requireSuperAdmin, bulkDeleteIcons); // Use POST for DELETE with body
 
 export default router;
 

@@ -1296,7 +1296,7 @@ export const markUserTerminated = async (req, res, next) => {
 export const markUserActive = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { workEmail } = req.body; // Optional work email for pending/ready_for_review users
+    const { workEmail } = req.body; // Required corporate email/username when moving from ready_for_review to active
     
     // Only admins/super_admins/support can activate users
     if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
@@ -1330,31 +1330,32 @@ export const markUserActive = async (req, res, next) => {
       }
       
       // Now handle ready_for_review -> active transition
-      // Work email is required
-      const finalWorkEmail = workEmail || currentUser.work_email || currentUser.email;
-      if (!finalWorkEmail) {
+      // Username (corporate email) is required - this changes from personal email to corporate email
+      const newUsername = workEmail; // workEmail parameter is now the new corporate username
+      if (!newUsername || !newUsername.trim()) {
         return res.status(400).json({ 
           error: { 
-            message: 'Work email is required to activate this user. Please provide a work email.',
-            requiresWorkEmail: true
+            message: 'Corporate email (username) is required to activate this user. Please provide a corporate email.',
+            requiresUsername: true
           } 
         });
       }
       
-      // Check if work email already exists
-      const existingUserWithWorkEmail = await User.findByWorkEmail(finalWorkEmail.trim());
-      if (existingUserWithWorkEmail && existingUserWithWorkEmail.id !== parseInt(id)) {
-        return res.status(400).json({ error: { message: 'Work email is already in use' } });
+      // Check if new username already exists
+      const existingUserWithUsername = await User.findByUsername(newUsername.trim());
+      if (existingUserWithUsername && existingUserWithUsername.id !== parseInt(id)) {
+        return res.status(400).json({ error: { message: 'This username is already in use' } });
       }
-      const existingUserWithEmail = await User.findByEmail(finalWorkEmail.trim());
+      const existingUserWithEmail = await User.findByEmail(newUsername.trim());
       if (existingUserWithEmail && existingUserWithEmail.id !== parseInt(id)) {
         return res.status(400).json({ error: { message: 'This email is already in use' } });
       }
       
-      // Set work email and update primary email
-      await User.setWorkEmail(parseInt(id), finalWorkEmail.trim());
-      const pool = (await import('../config/database.js')).default;
-      await pool.execute('UPDATE users SET email = ? WHERE id = ?', [finalWorkEmail.trim(), parseInt(id)]);
+      // Update username to corporate email (preserves personal_email, preserves user ID)
+      await User.updateUsername(parseInt(id), newUsername.trim());
+      
+      // Also set work_email for backward compatibility
+      await User.setWorkEmail(parseInt(id), newUsername.trim());
       
       // Generate temporary password (48 hours expiration)
       const bcrypt = (await import('bcrypt')).default;

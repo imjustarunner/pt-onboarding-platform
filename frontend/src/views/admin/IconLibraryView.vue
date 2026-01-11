@@ -35,6 +35,13 @@
           <option value="agency_name">Sort by Agency</option>
         </select>
       </div>
+      <!-- Bulk Actions Toolbar (Super Admin Only) -->
+      <div v-if="isSelectMode && selectedIcons.length > 0" class="bulk-actions-toolbar">
+        <span class="selected-count">{{ selectedIcons.length }} icon(s) selected</span>
+        <button @click="showBulkEditModal = true" class="btn btn-primary btn-sm">Edit Selected</button>
+        <button @click="showBulkDeleteConfirm = true" class="btn btn-danger btn-sm">Delete Selected</button>
+        <button @click="clearSelection" class="btn btn-secondary btn-sm">Clear Selection</button>
+      </div>
     </div>
 
     <div v-if="loading" class="loading">Loading icons...</div>
@@ -43,7 +50,27 @@
       <p>No icons found. Upload your first icon to get started.</p>
     </div>
     <div v-else class="icon-grid">
-      <div v-for="icon in filteredIcons" :key="icon.id" class="icon-card">
+      <!-- Select All Header (Super Admin Only) -->
+      <div v-if="isSelectMode" class="select-all-header">
+        <label class="select-all-checkbox">
+          <input
+            type="checkbox"
+            :checked="selectedIcons.length === filteredIcons.length && filteredIcons.length > 0"
+            :indeterminate="selectedIcons.length > 0 && selectedIcons.length < filteredIcons.length"
+            @change="toggleSelectAll"
+          />
+          <span>Select All</span>
+        </label>
+      </div>
+      <div v-for="icon in filteredIcons" :key="icon.id" class="icon-card" :class="{ 'selected': isSelected(icon.id) }">
+        <!-- Checkbox (Super Admin Only) -->
+        <div v-if="isSelectMode" class="icon-checkbox">
+          <input
+            type="checkbox"
+            :checked="isSelected(icon.id)"
+            @change="toggleIconSelection(icon.id)"
+          />
+        </div>
         <div class="icon-preview">
           <img :src="getIconUrl(icon)" :alt="icon.name" class="icon-img" />
         </div>
@@ -127,7 +154,7 @@
             </div>
             <small class="form-help">Icons assigned to Platform are available to all agencies. Icons assigned to a specific agency are only available to that agency.</small>
             <small v-if="iconForm.agencyId" style="display: block; margin-top: 4px; color: var(--primary);">
-              Selected: {{ availableAgencies.find(a => a.id === iconForm.agencyId)?.name || 'Unknown' }} (ID: {{ iconForm.agencyId }})
+              Selected: {{ availableAgencies.find(a => a.id === iconForm.agencyId)?.name || 'Unknown' }}
             </small>
             <small v-else style="display: block; margin-top: 4px; color: var(--text-secondary);">
               Selected: Platform (Default)
@@ -318,6 +345,68 @@
         </div>
       </div>
     </div>
+
+    <!-- Bulk Edit Modal -->
+    <div v-if="showBulkEditModal" class="modal-overlay" @click="showBulkEditModal = false">
+      <div class="modal-content" @click.stop>
+        <h2>Bulk Edit Icons</h2>
+        <p class="modal-description">Update {{ selectedIcons.length }} selected icon(s). Leave fields empty to keep current values.</p>
+        <form @submit.prevent="saveBulkEdit">
+          <div class="form-group">
+            <label>Name</label>
+            <input v-model="bulkEditForm.name" type="text" placeholder="Leave empty to keep current names" />
+            <small>If provided, will update all selected icons to this name</small>
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <input v-model="bulkEditForm.category" type="text" placeholder="Leave empty to keep current categories" />
+            <small>If provided, will update all selected icons to this category</small>
+          </div>
+          <div class="form-group">
+            <label>Agency</label>
+            <select v-model="bulkEditForm.agencyId">
+              <option :value="undefined">Keep current agency</option>
+              <option :value="null">Platform (No Agency)</option>
+              <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
+                {{ agency.name }}
+              </option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea v-model="bulkEditForm.description" rows="3" placeholder="Leave empty to keep current descriptions"></textarea>
+            <small>If provided, will update all selected icons to this description</small>
+          </div>
+          <div v-if="error" class="error-message">{{ error }}</div>
+          <div class="modal-actions">
+            <button type="button" @click="showBulkEditModal = false" class="btn btn-secondary">Cancel</button>
+            <button type="submit" class="btn btn-primary">Update Icons</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Bulk Delete Confirmation Modal -->
+    <div v-if="showBulkDeleteConfirm" class="modal-overlay" @click="showBulkDeleteConfirm = false">
+      <div class="modal-content" @click.stop>
+        <h2>Confirm Bulk Delete</h2>
+        <p class="modal-description">Are you sure you want to delete {{ selectedIcons.length }} icon(s)? This action cannot be undone.</p>
+        <div class="icons-to-delete">
+          <p><strong>Icons to be deleted:</strong></p>
+          <ul class="icon-list">
+            <li v-for="iconId in selectedIcons.slice(0, 10)" :key="iconId">
+              {{ icons.find(i => i.id === iconId)?.name || `Icon #${iconId}` }}
+            </li>
+            <li v-if="selectedIcons.length > 10">... and {{ selectedIcons.length - 10 }} more</li>
+          </ul>
+        </div>
+        <div v-if="error" class="error-message">{{ error }}</div>
+        <div class="modal-actions">
+          <button type="button" @click="showBulkDeleteConfirm = false" class="btn btn-secondary">Cancel</button>
+          <button type="button" @click="confirmBulkDelete" class="btn btn-danger">Delete {{ selectedIcons.length }} Icon(s)</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -356,6 +445,12 @@ const defaultAgencyId = ref(null);
 const defaultCategory = ref('');
 const uploadedIconIds = ref(new Set()); // Track successfully uploaded icons
 const failedIcons = ref([]); // Track failed icons with error messages
+
+// Bulk selection state (Super Admin only)
+const selectedIcons = ref([]);
+const showBulkEditModal = ref(false);
+const showBulkDeleteConfirm = ref(false);
+const isSelectMode = computed(() => authStore.user?.role === 'super_admin');
 
 const iconForm = ref({
   name: '',
@@ -680,6 +775,94 @@ const deleteIcon = async (id) => {
     fetchIcons();
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to delete icon';
+  }
+};
+
+// Bulk selection methods
+const isSelected = (iconId) => {
+  return selectedIcons.value.includes(iconId);
+};
+
+const toggleIconSelection = (iconId) => {
+  const index = selectedIcons.value.indexOf(iconId);
+  if (index > -1) {
+    selectedIcons.value.splice(index, 1);
+  } else {
+    selectedIcons.value.push(iconId);
+  }
+};
+
+const toggleSelectAll = (event) => {
+  if (event.target.checked) {
+    selectedIcons.value = filteredIcons.value.map(icon => icon.id);
+  } else {
+    selectedIcons.value = [];
+  }
+};
+
+const clearSelection = () => {
+  selectedIcons.value = [];
+};
+
+// Bulk edit
+const bulkEditForm = ref({
+  name: '',
+  category: '',
+  agencyId: undefined,
+  description: ''
+});
+
+const saveBulkEdit = async () => {
+  try {
+    error.value = '';
+    const updateData = {};
+    if (bulkEditForm.value.name && bulkEditForm.value.name.trim()) {
+      updateData.name = bulkEditForm.value.name.trim();
+    }
+    if (bulkEditForm.value.category !== undefined) {
+      updateData.category = bulkEditForm.value.category || null;
+    }
+    if (bulkEditForm.value.agencyId !== undefined) {
+      updateData.agencyId = bulkEditForm.value.agencyId || null;
+    }
+    if (bulkEditForm.value.description !== undefined) {
+      updateData.description = bulkEditForm.value.description || null;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      error.value = 'Please provide at least one field to update';
+      return;
+    }
+
+    await api.put('/icons/bulk-edit', {
+      iconIds: selectedIcons.value,
+      ...updateData
+    });
+
+    showBulkEditModal.value = false;
+    bulkEditForm.value = { name: '', category: '', agencyId: undefined, description: '' };
+    clearSelection();
+    fetchIcons();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to update icons';
+  }
+};
+
+// Bulk delete
+const confirmBulkDelete = async () => {
+  try {
+    error.value = '';
+    // Use POST method for DELETE with body (some servers don't support DELETE with body)
+    await api.post('/icons/bulk-delete', {
+      iconIds: selectedIcons.value
+    });
+
+    showBulkDeleteConfirm.value = false;
+    clearSelection();
+    fetchIcons();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to delete icons';
+    showBulkDeleteConfirm.value = false;
   }
 };
 
@@ -1035,6 +1218,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 8px;
   transition: transform 0.2s, box-shadow 0.2s;
+  position: relative;
 }
 
 .icon-card:hover {

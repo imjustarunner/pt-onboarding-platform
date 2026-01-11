@@ -991,4 +991,77 @@ export const bulkUploadIcons = async (req, res, next) => {
   }
 };
 
+export const bulkEditIcons = async (req, res, next) => {
+  try {
+    const { iconIds, name, category, agencyId, description } = req.body;
+
+    if (!iconIds || !Array.isArray(iconIds) || iconIds.length === 0) {
+      return res.status(400).json({ error: { message: 'iconIds array is required and must not be empty' } });
+    }
+
+    // Build update data object (only include fields that are provided)
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (category !== undefined) updateData.category = category || null;
+    if (agencyId !== undefined) updateData.agencyId = agencyId || null;
+    if (description !== undefined) updateData.description = description || null;
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ error: { message: 'At least one field must be provided for update' } });
+    }
+
+    // Validate all icons exist
+    const Icon = (await import('../models/Icon.model.js')).default;
+    for (const iconId of iconIds) {
+      const icon = await Icon.findById(iconId);
+      if (!icon) {
+        return res.status(404).json({ error: { message: `Icon with ID ${iconId} not found` } });
+      }
+    }
+
+    // Perform bulk update
+    const updatedIcons = await Icon.bulkUpdate(iconIds, updateData);
+
+    res.json({
+      message: `Successfully updated ${updatedIcons.length} icon(s)`,
+      updatedCount: updatedIcons.length,
+      icons: updatedIcons
+    });
+  } catch (error) {
+    console.error('Error in bulk icon edit:', error);
+    next(error);
+  }
+};
+
+export const bulkDeleteIcons = async (req, res, next) => {
+  try {
+    const { iconIds } = req.body;
+
+    if (!iconIds || !Array.isArray(iconIds) || iconIds.length === 0) {
+      return res.status(400).json({ error: { message: 'iconIds array is required and must not be empty' } });
+    }
+
+    const Icon = (await import('../models/Icon.model.js')).default;
+
+    // Validate all icons exist
+    for (const iconId of iconIds) {
+      const icon = await Icon.findById(iconId);
+      if (!icon) {
+        return res.status(404).json({ error: { message: `Icon with ID ${iconId} not found` } });
+      }
+    }
+
+    // Perform bulk delete (this will also delete files from GCS)
+    const deletedCount = await Icon.bulkDelete(iconIds);
+
+    res.json({
+      message: `Successfully deleted ${deletedCount} icon(s)`,
+      deletedCount: deletedCount
+    });
+  } catch (error) {
+    console.error('Error in bulk icon delete:', error);
+    next(error);
+  }
+};
+
 

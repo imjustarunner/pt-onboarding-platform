@@ -319,3 +319,55 @@ export const getThemeByPortalUrl = async (req, res, next) => {
   }
 };
 
+export const getLoginThemeByPortalUrl = async (req, res, next) => {
+  try {
+    const { portalUrl } = req.params;
+    const agency = await Agency.findByPortalUrl(portalUrl);
+    
+    if (!agency) {
+      return res.status(404).json({ error: { message: 'Agency not found' } });
+    }
+
+    // Get platform branding (includes organization name and logo)
+    const PlatformBranding = (await import('../models/PlatformBranding.model.js')).default;
+    const platformBranding = await PlatformBranding.get();
+
+    // Parse JSON fields if they're strings
+    const colorPalette = typeof agency.color_palette === 'string' 
+      ? JSON.parse(agency.color_palette) 
+      : agency.color_palette;
+    const themeSettings = typeof agency.theme_settings === 'string'
+      ? JSON.parse(agency.theme_settings)
+      : agency.theme_settings;
+
+    // Get agency logo URL (from icon if available, otherwise logo_url)
+    let agencyLogoUrl = agency.logo_url;
+    if (agency.icon_file_path) {
+      agencyLogoUrl = `/uploads/${agency.icon_file_path}`;
+    }
+
+    // Get platform logo URL
+    let platformLogoUrl = null;
+    if (platformBranding.organization_logo_path) {
+      platformLogoUrl = `/uploads/${platformBranding.organization_logo_path}`;
+    }
+
+    // Return combined theme data for login page
+    res.json({
+      agency: {
+        name: agency.name,
+        logoUrl: agencyLogoUrl,
+        colorPalette: colorPalette || {},
+        themeSettings: themeSettings || {}
+      },
+      platform: {
+        organizationName: platformBranding.organization_name || 'PlotTwistCo',
+        logoUrl: platformLogoUrl,
+        tagline: platformBranding.tagline
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

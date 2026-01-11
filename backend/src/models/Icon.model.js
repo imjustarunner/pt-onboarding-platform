@@ -467,6 +467,91 @@ class Icon {
     }
   }
 
+  static async bulkUpdate(iconIds, updateData) {
+    if (!iconIds || iconIds.length === 0) {
+      throw new Error('iconIds array is required and must not be empty');
+    }
+
+    if (!updateData || Object.keys(updateData).length === 0) {
+      throw new Error('updateData must contain at least one field to update');
+    }
+
+    const updates = [];
+    const values = [];
+
+    // Build update query dynamically
+    if (updateData.name !== undefined) {
+      updates.push('name = ?');
+      values.push(updateData.name);
+    }
+    if (updateData.category !== undefined) {
+      updates.push('category = ?');
+      values.push(updateData.category);
+    }
+    if (updateData.description !== undefined) {
+      updates.push('description = ?');
+      values.push(updateData.description);
+    }
+    if (updateData.agencyId !== undefined) {
+      updates.push('agency_id = ?');
+      values.push(updateData.agencyId);
+    }
+
+    if (updates.length === 0) {
+      throw new Error('No valid fields to update');
+    }
+
+    // Build WHERE clause for all icon IDs
+    const placeholders = iconIds.map(() => '?').join(',');
+    const query = `UPDATE icons SET ${updates.join(', ')} WHERE id IN (${placeholders})`;
+    values.push(...iconIds);
+
+    await pool.execute(query, values);
+
+    // Fetch and return updated icons
+    const [rows] = await pool.execute(
+      `SELECT * FROM icons WHERE id IN (${placeholders})`,
+      iconIds
+    );
+
+    return rows;
+  }
+
+  static async bulkDelete(iconIds) {
+    if (!iconIds || iconIds.length === 0) {
+      throw new Error('iconIds array is required and must not be empty');
+    }
+
+    const StorageService = (await import('../services/storage.service.js')).default;
+
+    // Fetch icons to get file paths before deletion
+    const placeholders = iconIds.map(() => '?').join(',');
+    const [icons] = await pool.execute(
+      `SELECT id, file_path FROM icons WHERE id IN (${placeholders})`,
+      iconIds
+    );
+
+    // Delete files from GCS
+    for (const icon of icons) {
+      if (icon.file_path) {
+        try {
+          await StorageService.deleteIcon(icon.file_path.replace('icons/', ''));
+        } catch (error) {
+          console.error(`Failed to delete icon file ${icon.file_path} from GCS:`, error);
+          // Continue with database deletion even if file deletion fails
+        }
+      }
+    }
+
+    // Delete from database
+    const [result] = await pool.execute(
+      `DELETE FROM icons WHERE id IN (${placeholders})`,
+      iconIds
+    );
+
+    return result.affectedRows;
+  }
+
   static getIconUrl(icon) {
     if (!icon || !icon.file_path) {
       return null;

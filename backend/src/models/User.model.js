@@ -12,12 +12,14 @@ class User {
       // This is more reliable, especially with connection pooling and Unix sockets
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
       if (existingColumns.includes('work_email')) query += ', work_email';
       if (existingColumns.includes('personal_email')) query += ', personal_email';
+      // Only add username to SELECT if column exists (migration has been run)
+      if (existingColumns.includes('username')) query += ', username';
       if (existingColumns.includes('has_supervisor_privileges')) query += ', has_supervisor_privileges';
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
@@ -27,8 +29,56 @@ class User {
       console.warn('Could not check for email columns:', err.message);
     }
     
-    query += ' FROM users WHERE email = ? OR work_email = ?';
-    const [rows] = await pool.execute(query, [email, email]);
+    // Check if username column exists before querying it
+    let hasUsernameColumn = false;
+    try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      const [usernameColumns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'username'",
+        [dbName]
+      );
+      hasUsernameColumn = usernameColumns.length > 0;
+    } catch (err) {
+      // If we can't check, assume it doesn't exist
+      console.warn('Could not check for username column:', err.message);
+    }
+    
+    if (hasUsernameColumn) {
+      query += ' FROM users WHERE email = ? OR work_email = ? OR username = ?';
+      const [rows] = await pool.execute(query, [email, email, email]);
+      return rows[0] || null;
+    } else {
+      // Username column doesn't exist yet (migration not run)
+      query += ' FROM users WHERE email = ? OR work_email = ?';
+      const [rows] = await pool.execute(query, [email, email]);
+      return rows[0] || null;
+    }
+  }
+
+  static async findByUsername(username) {
+    // Check which columns exist
+    let query = 'SELECT id, email, phone_number, role, status, completed_at, terminated_at, status_expires_at, password_hash, first_name, last_name, invitation_token, invitation_token_expires_at, temporary_password_hash, temporary_password_expires_at, created_at';
+    
+    try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      const [columns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')",
+        [dbName]
+      );
+      const existingColumns = columns.map(c => c.COLUMN_NAME);
+      if (existingColumns.includes('work_email')) query += ', work_email';
+      if (existingColumns.includes('personal_email')) query += ', personal_email';
+      if (existingColumns.includes('username')) query += ', username';
+      if (existingColumns.includes('has_supervisor_privileges')) query += ', has_supervisor_privileges';
+      if (existingColumns.includes('personal_phone')) query += ', personal_phone';
+      if (existingColumns.includes('work_phone')) query += ', work_phone';
+      if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
+    } catch (err) {
+      console.warn('Could not check for columns:', err.message);
+    }
+    
+    query += ' FROM users WHERE username = ?';
+    const [rows] = await pool.execute(query, [username]);
     return rows[0] || null;
   }
 
@@ -105,8 +155,10 @@ class User {
     
     // Try to include pending fields if they exist (will be added by migrations)
     try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')",
+        [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
       if (existingColumns.includes('pending_completed_at')) query += ', pending_completed_at';
@@ -116,6 +168,7 @@ class User {
       if (existingColumns.includes('pending_completion_notified')) query += ', pending_completion_notified';
       if (existingColumns.includes('work_email')) query += ', work_email';
       if (existingColumns.includes('personal_email')) query += ', personal_email';
+      if (existingColumns.includes('username')) query += ', username';
       if (existingColumns.includes('has_supervisor_privileges')) query += ', has_supervisor_privileges';
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
@@ -150,6 +203,9 @@ class User {
       hasSupervisorPrivileges = true;
     }
     
+    // Username starts as personal_email (or email if personal_email not provided)
+    const initialUsername = personalEmail || email;
+    
     // Build query dynamically to handle optional email fields
     let query = 'INSERT INTO users (role, status, first_name, last_name';
     let values = [finalRole, userStatus, firstName, lastName];
@@ -183,6 +239,22 @@ class User {
           query += ', personal_email';
           placeholders.push('?');
           values.push(personalEmail);
+        }
+      } catch (err) {
+        // Column doesn't exist yet, skip it
+      }
+    }
+    
+    // Add username if column exists (set to personal_email initially)
+    if (initialUsername) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'username'"
+        );
+        if (columns.length > 0) {
+          query += ', username';
+          placeholders.push('?');
+          values.push(initialUsername);
         }
       } catch (err) {
         // Column doesn't exist yet, skip it
@@ -688,6 +760,29 @@ class User {
     return { token, expiresAt };
   }
 
+  static async markTokenAsUsed(userId) {
+    // Mark token as used by setting passwordless_token to NULL
+    // This makes the token single-use
+    await pool.execute(
+      'UPDATE users SET passwordless_token = NULL, passwordless_token_expires_at = NULL WHERE id = ?',
+      [userId]
+    );
+  }
+
+  static async updateUsername(userId, newUsername) {
+    // Update username field
+    await pool.execute(
+      'UPDATE users SET username = ? WHERE id = ?',
+      [newUsername, userId]
+    );
+    // Also update email field for login compatibility
+    await pool.execute(
+      'UPDATE users SET email = ? WHERE id = ?',
+      [newUsername, userId]
+    );
+    return this.findById(userId);
+  }
+
   static async setWorkEmail(userId, workEmail) {
     await pool.execute(
       'UPDATE users SET work_email = ? WHERE id = ?',
@@ -715,15 +810,19 @@ class User {
     }
     
     // Build query dynamically to handle missing columns
-    let query = 'SELECT id, email, first_name, last_name, role, status, passwordless_token_expires_at';
+    let query = 'SELECT id, email, first_name, last_name, role, status, passwordless_token_expires_at, password_hash, passwordless_token';
     
     try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_access_locked', 'pending_identity_verified')"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_access_locked', 'pending_identity_verified', 'username', 'personal_email')",
+        [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
       if (existingColumns.includes('pending_access_locked')) query += ', pending_access_locked';
       if (existingColumns.includes('pending_identity_verified')) query += ', pending_identity_verified';
+      if (existingColumns.includes('username')) query += ', username';
+      if (existingColumns.includes('personal_email')) query += ', personal_email';
     } catch (err) {
       // If we can't check columns, just use the base query
     }
@@ -732,11 +831,19 @@ class User {
     const [rows] = await pool.execute(query, [token.trim()]);
     
     if (rows.length === 0) {
-      console.log('[validatePasswordlessToken] Token not found in database');
-      return null; // Token not found
+      console.log('[validatePasswordlessToken] Token not found in database (may have been used)');
+      return null; // Token not found (either invalid or already used and set to NULL)
     }
     
     const user = rows[0];
+    
+    // Note: If token was used, passwordless_token would be NULL and the WHERE clause wouldn't match
+    // So if we get here, the token exists and hasn't been used yet
+    // But we can double-check by verifying passwordless_token matches
+    if (!user.passwordless_token || user.passwordless_token !== token.trim()) {
+      console.log('[validatePasswordlessToken] Token mismatch or already used');
+      return null;
+    }
     
     // Check if token expired (with a small buffer to account for clock skew)
     if (user.passwordless_token_expires_at) {

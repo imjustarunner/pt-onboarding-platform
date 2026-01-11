@@ -44,6 +44,8 @@ const getAuthCookieOptions = () => {
     maxAge: 24 * 60 * 60 * 1000,  // 24 hours (match JWT expiration) - only used for setting, not clearing
     path: '/',
     // For Cloud Run behind proxy, domain should not be set (uses request domain)
+    // Note: Mobile browsers require secure: true when using sameSite: 'none'
+    // Some older mobile browsers may not support sameSite: 'none' properly
   };
 };
 

@@ -35,6 +35,22 @@
           </span>
         </div>
         
+        <!-- Agency Login URL (if portal_url is set) -->
+        <div v-if="agency.portal_url" class="agency-login-url">
+          <strong>Login URL:</strong>
+          <div class="login-url-container">
+            <code class="login-url">{{ getAgencyLoginUrl(agency.portal_url) }}</code>
+            <button 
+              @click="copyLoginUrl(agency.portal_url)" 
+              class="btn-copy-url"
+              :title="copiedUrl === agency.portal_url ? 'Copied!' : 'Copy login URL'"
+            >
+              {{ copiedUrl === agency.portal_url ? '✓ Copied' : 'Copy' }}
+            </button>
+          </div>
+          <small class="login-url-help">Share this link with users for agency-branded login</small>
+        </div>
+        
         <div v-if="agency.color_palette" class="agency-colors">
           <span
             v-for="(color, key) in getColorPalette(agency.color_palette)"
@@ -557,6 +573,8 @@ const logoError = ref(false);
 const logoErrors = ref({}); // Track logo errors per agency
 const customParamKeys = ref([]);
 const customParameters = ref({});
+const copiedUrl = ref(null); // Track which URL was copied
+const copiedUrl = ref(null); // Track which URL was copied
 
 const agencyForm = ref({
   name: '',
@@ -1249,6 +1267,43 @@ const closeModal = () => {
   };
 };
 
+// Get agency login URL
+const getAgencyLoginUrl = (portalUrl) => {
+  if (!portalUrl) return '';
+  const baseUrl = window.location.origin;
+  return `${baseUrl}/${portalUrl}/login`;
+};
+
+// Copy login URL to clipboard
+const copyLoginUrl = async (portalUrl) => {
+  const url = getAgencyLoginUrl(portalUrl);
+  try {
+    await navigator.clipboard.writeText(url);
+    copiedUrl.value = portalUrl;
+    // Reset after 2 seconds
+    setTimeout(() => {
+      copiedUrl.value = null;
+    }, 2000);
+  } catch (err) {
+    console.error('Failed to copy URL:', err);
+    // Fallback: select text
+    const textArea = document.createElement('textarea');
+    textArea.value = url;
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      copiedUrl.value = portalUrl;
+      setTimeout(() => {
+        copiedUrl.value = null;
+      }, 2000);
+    } catch (fallbackErr) {
+      console.error('Fallback copy failed:', fallbackErr);
+    }
+    document.body.removeChild(textArea);
+  }
+};
+
 onMounted(async () => {
   await fetchAgencies();
   if (userRole.value === 'super_admin') {
@@ -1625,6 +1680,69 @@ small {
   color: var(--text-secondary);
   margin-top: 4px;
   margin-bottom: 0;
+}
+
+.agency-login-url {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--bg, #f8fafc);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.agency-login-url strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.login-url-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.login-url {
+  flex: 1;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.btn-copy-url {
+  padding: 8px 16px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.btn-copy-url:hover {
+  background: var(--primary-dark, #3a8c5f);
+}
+
+.btn-copy-url:active {
+  transform: scale(0.98);
+}
+
+.login-url-help {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-style: italic;
 }
 
 .btn-support {

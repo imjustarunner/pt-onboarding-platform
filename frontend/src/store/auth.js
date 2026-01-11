@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
+import { storeUserAgencies } from '../utils/loginRedirect';
 
 export const useAuthStore = defineStore('auth', () => {
   // Token is now stored in HttpOnly cookie, not localStorage
@@ -23,6 +24,10 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = null; // Not used anymore, but keep for compatibility
     user.value = newUser;
     // Store user in localStorage (not sensitive, used for UI state)
+    // Include username in stored user object
+    if (newUser && !newUser.username) {
+      newUser.username = newUser.email; // Fallback to email if username not provided
+    }
     localStorage.setItem('user', JSON.stringify(newUser));
     if (sessionId) {
       localStorage.setItem('sessionId', sessionId);
@@ -88,6 +93,10 @@ export const useAuthStore = defineStore('auth', () => {
       
       // Token is in HttpOnly cookie (set by backend), so pass null
       setAuth(null, response.data.user, response.data.sessionId);
+      
+      // Mark that we just logged in to help with cookie timing issues
+      sessionStorage.setItem('justLoggedIn', 'true');
+      
       return { success: true, agencies: response.data.agencies };
     } catch (error) {
       // Log full error for debugging
@@ -149,6 +158,9 @@ export const useAuthStore = defineStore('auth', () => {
       // Get session ID from localStorage if available
       const sessionId = localStorage.getItem('sessionId');
       
+      // Get user info before clearing to determine login redirect
+      const currentUser = user.value;
+      
       // Log logout event to backend (don't wait for response)
       if (sessionId || token.value) {
         api.post('/auth/logout', {
@@ -158,12 +170,23 @@ export const useAuthStore = defineStore('auth', () => {
           console.error('Failed to log logout event:', err);
         });
       }
-    } catch (err) {
-      console.error('Error during logout:', err);
-    } finally {
+      
       // Always clear auth even if logging fails
       localStorage.removeItem('sessionId');
       clearAuth();
+      
+      // Redirect to appropriate login page based on user's agency
+      // Get agencies from localStorage before clearing (they're cleared in clearStoredAgencies)
+      const { getLoginUrl, clearStoredAgencies } = await import('../utils/loginRedirect');
+      const loginUrl = getLoginUrl(currentUser);
+      clearStoredAgencies(); // Clear stored agencies on logout
+      
+      // Use window.location for logout to ensure clean state
+      window.location.href = loginUrl;
+    } catch (err) {
+      console.error('Error during logout:', err);
+      // Fallback to default login
+      window.location.href = '/login';
     }
   };
 

@@ -30,12 +30,49 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Don't redirect on 401 if we're already on the login page
-    if (error.response?.status === 401 && !window.location.pathname.includes('/login')) {
+    // Don't redirect on 401 if we're already on the login page or setup pages
+    // Also don't redirect immediately after login (give cookie time to be available)
+    const isLoginPage = window.location.pathname.includes('/login');
+    const isPasswordlessLogin = window.location.pathname.includes('/passwordless-login');
+    const isInitialSetup = window.location.pathname.includes('/initial-setup');
+    const justLoggedIn = sessionStorage.getItem('justLoggedIn') === 'true';
+    
+    if (error.response?.status === 401 && !isLoginPage && !isPasswordlessLogin && !isInitialSetup) {
+      // If we just logged in, this might be a cookie timing issue
+      // Give it one retry before logging out
+      if (justLoggedIn && !error.config._retry) {
+        error.config._retry = true;
+        // Clear the flag after a delay
+        setTimeout(() => {
+          sessionStorage.removeItem('justLoggedIn');
+        }, 5000);
+        // Retry the request after a short delay to allow cookie to be available
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            resolve(api.request(error.config));
+          }, 500);
+        });
+      }
+      
       // Token is in HttpOnly cookie, so we only clear user state
+      // Get user info before clearing to determine login redirect
+      const storedUser = localStorage.getItem('user');
+      let user = null;
+      try {
+        user = storedUser ? JSON.parse(storedUser) : null;
+      } catch (e) {
+        // Ignore parse errors
+      }
+      
       localStorage.removeItem('user');
+      sessionStorage.removeItem('justLoggedIn');
+      
+      // Determine appropriate login URL based on user's agency
+      const { getLoginUrl } = await import('../utils/loginRedirect');
+      const loginUrl = getLoginUrl(user);
+      
       // Keep sessionId for activity logging
-      window.location.href = '/login';
+      window.location.href = loginUrl;
     }
     return Promise.reject(error);
   }

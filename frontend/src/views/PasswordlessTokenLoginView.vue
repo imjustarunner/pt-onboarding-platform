@@ -78,14 +78,33 @@ const attemptLogin = async (lastNameValue = null) => {
     // Set auth user (token is in HttpOnly cookie, set by backend)
     authStore.setAuth(null, response.data.user, response.data.sessionId);
     
-    // If user has agencies, set the first one as current
-    if (response.data.agencies && response.data.agencies.length > 0) {
+    // Mark that we just logged in to help with cookie timing issues
+    sessionStorage.setItem('justLoggedIn', 'true');
+    
+    // Fetch user's agencies before redirecting (similar to regular login)
+    // This ensures the cookie is available and agencies are loaded
+    if (response.data.user.role !== 'super_admin' && response.data.user.type !== 'approved_employee') {
+      try {
+        const { useAgencyStore } = await import('../store/agency');
+        const agencyStore = useAgencyStore();
+        await agencyStore.fetchUserAgencies();
+        // Agencies are now stored in localStorage by fetchUserAgencies
+      } catch (err) {
+        console.error('Failed to fetch user agencies after passwordless login:', err);
+        // Don't block redirect on agency fetch failure
+      }
+    } else if (response.data.agencies && response.data.agencies.length > 0) {
+      // For approved employees or if agencies are in response, set the first one
       const { useAgencyStore } = await import('../store/agency');
       const agencyStore = useAgencyStore();
       agencyStore.setCurrentAgency(response.data.agencies[0]);
+      // Store agencies for future login redirects
+      const { storeUserAgencies } = await import('../utils/loginRedirect');
+      storeUserAgencies(response.data.agencies);
     }
     
-    // Redirect based on user status
+    // Wait a bit longer to ensure cookie is available for subsequent requests
+    // Also gives time for any agency fetching to complete
     setTimeout(() => {
       if (response.data.user.status === 'pending') {
         // Pending users go to dashboard
@@ -94,8 +113,15 @@ const attemptLogin = async (lastNameValue = null) => {
         // Other users go to password change
         router.push('/change-password?token=' + cleanToken + '&requireChange=true');
       }
-    }, 1000);
+    }, 1500);
   } catch (err) {
+    // Check if setup is required (no password set)
+    if (err.response?.data?.error?.requiresSetup) {
+      // Redirect to initial setup page
+      router.push(`/initial-setup/${cleanToken}`);
+      return;
+    }
+    
     // Check if identity verification is required
     if (err.response?.data?.error?.requiresIdentityVerification) {
       needsIdentityVerification.value = true;

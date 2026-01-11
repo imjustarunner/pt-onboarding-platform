@@ -58,6 +58,10 @@ export const useAgencyStore = defineStore('agency', () => {
         userAgencies.value = agencies;
         agencies.value = agencies;
         
+        // Store agencies in localStorage for login redirect after logout
+        const { storeUserAgencies } = await import('../utils/loginRedirect');
+        storeUserAgencies(agencies);
+        
         // If no current agency is set and user has agencies, set the first one
         if (!currentAgency.value && userAgencies.value.length > 0) {
           setCurrentAgency(userAgencies.value[0]);
@@ -69,6 +73,10 @@ export const useAgencyStore = defineStore('agency', () => {
         const response = await api.get('/users/me/agencies');
         userAgencies.value = response.data;
         agencies.value = response.data;
+        
+        // Store agencies in localStorage for login redirect after logout
+        const { storeUserAgencies } = await import('../utils/loginRedirect');
+        storeUserAgencies(response.data);
         
         // If no current agency is set and user has agencies, set the first one
         if (!currentAgency.value && userAgencies.value.length > 0) {

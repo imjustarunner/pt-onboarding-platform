@@ -610,12 +610,23 @@ class StorageService {
     const bucket = await this.getGCSBucket();
     const file = bucket.file(key);
     
-    const [url] = await file.getSignedUrl({
-      action: 'read',
-      expires: Date.now() + (expirationMinutes * 60 * 1000)
-    });
+    // Verify file exists
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error(`File not found in GCS: ${key}`);
+    }
     
-    return url;
+    try {
+      const [url] = await file.getSignedUrl({
+        action: 'read',
+        expires: Date.now() + (expirationMinutes * 60 * 1000)
+      });
+      
+      return url;
+    } catch (error) {
+      console.error(`[StorageService] Error generating signed URL for ${key}:`, error);
+      throw new Error(`Failed to generate signed URL: ${error.message}`);
+    }
   }
 }
 

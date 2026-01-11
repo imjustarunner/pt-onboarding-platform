@@ -4,9 +4,21 @@ import { getDashboardRoute } from '../utils/router';
 
 const routes = [
   {
+    path: '/:agencySlug/login',
+    name: 'AgencyLogin',
+    component: () => import('../views/LoginView.vue'),
+    meta: { requiresGuest: true, agencySlug: true }
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('../views/LoginView.vue'),
+    meta: { requiresGuest: true }
+  },
+  {
+    path: '/initial-setup/:token',
+    name: 'InitialSetup',
+    component: () => import('../views/InitialSetupView.vue'),
     meta: { requiresGuest: true }
   },
   {
@@ -188,7 +200,9 @@ router.beforeEach((to, from, next) => {
   }
   
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    next('/login');
+    // Redirect to appropriate login page based on user's agency
+    const loginUrl = getLoginUrl(authStore.user);
+    next(loginUrl);
   } else if (to.meta.requiresGuest && authStore.isAuthenticated) {
     // Redirect to appropriate dashboard based on user role
     next(getDashboardRoute());

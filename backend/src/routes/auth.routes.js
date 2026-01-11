@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { login, register, approvedEmployeeLogin, logout, logActivity, passwordlessTokenLogin, passwordlessTokenLoginFromBody, verifyPendingIdentity } from '../controllers/auth.controller.js';
+import { login, register, approvedEmployeeLogin, logout, logActivity, passwordlessTokenLogin, passwordlessTokenLoginFromBody, verifyPendingIdentity, validateSetupToken, initialSetup } from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
 import { authLimiter } from '../middleware/rateLimiter.middleware.js';
@@ -134,6 +134,16 @@ router.post('/passwordless-login', [
 ], passwordlessTokenLoginFromBody);
 
 router.post('/pending/verify-identity/:token', verifyPendingIdentity);
+
+// Initial setup routes (for first-time password creation)
+router.get('/validate-setup-token/:token', validateSetupToken);
+router.post('/initial-setup/:token', [
+  body('password')
+    .notEmpty()
+    .withMessage('Password is required')
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters')
+], initialSetup);
 
 export default router;
 

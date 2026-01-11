@@ -128,6 +128,26 @@
           <input v-model="platformForm.peopleOpsTerm" type="text" placeholder="People Operations" />
           <small>This term appears in the navigation bar (e.g., "Human Resources", "People Operations")</small>
         </div>
+        <div class="form-group">
+          <label>Organization Name</label>
+          <input v-model="platformForm.organizationName" type="text" placeholder="PlotTwistCo" />
+          <small>This name appears in "Powered by" footer on agency login pages</small>
+        </div>
+        <div class="form-group">
+          <label>Organization Logo</label>
+          <div class="icon-selector-wrapper">
+            <IconSelector v-model="platformForm.organizationLogoIconId" />
+            <button
+              v-if="platformForm.organizationLogoIconId"
+              type="button"
+              class="btn btn-sm btn-danger"
+              @click="platformForm.organizationLogoIconId = null"
+            >
+              Clear
+            </button>
+          </div>
+          <small>Logo displayed in "Powered by" footer on agency login pages</small>
+        </div>
         
         <div class="form-section-divider">
           <h4>Fonts</h4>
@@ -1101,8 +1121,10 @@ const platformForm = ref({
   manageUsersIconId: null,
   platformSettingsIconId: null,
   viewAllProgressIconId: null,
-  allAgenciesNotificationsIconId: null
-});
+      allAgenciesNotificationsIconId: null,
+      organizationName: null,
+      organizationLogoIconId: null
+    });
 
 const agencyBrandingForm = ref({
   logoUrl: '',
@@ -1892,7 +1914,9 @@ const savePlatformBranding = async () => {
       manageUsersIconId: platformForm.value.manageUsersIconId ?? null,
       platformSettingsIconId: platformForm.value.platformSettingsIconId ?? null,
       viewAllProgressIconId: platformForm.value.viewAllProgressIconId ?? null,
-      allAgenciesNotificationsIconId: platformForm.value.allAgenciesNotificationsIconId ?? null
+      allAgenciesNotificationsIconId: platformForm.value.allAgenciesNotificationsIconId ?? null,
+      organizationName: platformForm.value.organizationName || null,
+      organizationLogoIconId: platformForm.value.organizationLogoIconId ?? null
     };
     
     const response = await api.put('/platform-branding', brandingData);
@@ -2030,6 +2054,8 @@ const savePlatformBranding = async () => {
       platformForm.value.platformSettingsIconId = response.data.platform_settings_icon_id ?? platformForm.value.platformSettingsIconId ?? null;
       platformForm.value.viewAllProgressIconId = response.data.view_all_progress_icon_id ?? platformForm.value.viewAllProgressIconId ?? null;
       platformForm.value.allAgenciesNotificationsIconId = response.data.all_agencies_notifications_icon_id ?? platformForm.value.allAgenciesNotificationsIconId ?? null;
+      platformForm.value.organizationName = response.data.organization_name ?? platformForm.value.organizationName ?? null;
+      platformForm.value.organizationLogoIconId = response.data.organization_logo_icon_id ?? platformForm.value.organizationLogoIconId ?? null;
       
       // Update other fields
       platformForm.value.tagline = response.data.tagline ?? platformForm.value.tagline;
@@ -2150,6 +2176,8 @@ onActivated(async () => {
       platformForm.value.manageUsersIconId = brandingStore.platformBranding.manage_users_icon_id ?? null;
       platformForm.value.viewAllProgressIconId = brandingStore.platformBranding.view_all_progress_icon_id ?? null;
       platformForm.value.allAgenciesNotificationsIconId = brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null;
+      platformForm.value.organizationName = brandingStore.platformBranding.organization_name ?? null;
+      platformForm.value.organizationLogoIconId = brandingStore.platformBranding.organization_logo_icon_id ?? null;
       
       // Detect which template is currently applied
       if (selectedBrandingScope.value === 'platform') {

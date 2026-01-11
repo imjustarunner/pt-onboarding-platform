@@ -177,7 +177,12 @@ export const login = async (req, res, next) => {
 
     let user;
     try {
+      // Try to find by email first (which also checks username now)
       user = await User.findByEmail(email);
+      // If not found by email, try username field specifically
+      if (!user) {
+        user = await User.findByUsername(email);
+      }
     } catch (dbError) {
       console.error('Database error during login:', {
         message: dbError.message,
@@ -510,6 +515,18 @@ export const passwordlessTokenLogin = async (req, res, next) => {
     
     console.log('[passwordlessTokenLogin] Token validated, user:', user.id, 'status:', user.status);
 
+    // Check if user needs initial setup (no password set)
+    if (!user.password_hash) {
+      // User needs to set password first
+      return res.status(400).json({ 
+        error: { 
+          message: 'Password setup required',
+          requiresSetup: true,
+          firstName: user.first_name
+        } 
+      });
+    }
+
     // For pending users, ALWAYS require last name verification for security
     if (user.status === 'pending') {
       if (!lastName) {
@@ -548,13 +565,21 @@ export const passwordlessTokenLogin = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Account is inactive' } });
     }
 
+    // Generate session ID
+    const sessionId = crypto.randomUUID();
+
     // Generate JWT token for session
     try {
       const jwtToken = jwt.sign(
-        { id: user.id, email: user.email, role: user.role, status: user.status },
+        { id: user.id, email: user.email, role: user.role, status: user.status, sessionId },
         config.jwt.secret,
         { expiresIn: config.jwt.expiresIn }
       );
+
+      // Set secure HttpOnly cookie for authentication
+      // Use shared cookie options to ensure consistency with logout
+      const cookieOptions = config.authCookie.set();
+      res.cookie('authToken', jwtToken, cookieOptions);
 
       // Get user agencies
       const userAgencies = await User.getAgencies(user.id);
@@ -564,6 +589,7 @@ export const passwordlessTokenLogin = async (req, res, next) => {
       ActivityLogService.logActivity({
         actionType: 'login',
         userId: user.id,
+        sessionId,
         metadata: {
           email: user.email,
           role: user.role,
@@ -583,6 +609,7 @@ export const passwordlessTokenLogin = async (req, res, next) => {
           role: user.role,
           status: user.status
         },
+        sessionId,
         agencies: userAgencies,
         requiresPasswordChange: user.status !== 'pending', // Pending users don't need password change
         message: user.status === 'pending' 
@@ -716,10 +743,13 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Account is inactive' } });
     }
 
+    // Generate session ID
+    const sessionId = crypto.randomUUID();
+
     // Generate JWT token for session
     try {
       const jwtToken = jwt.sign(
-        { id: user.id, email: user.email, role: user.role, status: user.status },
+        { id: user.id, email: user.email, role: user.role, status: user.status, sessionId },
         config.jwt.secret,
         { expiresIn: config.jwt.expiresIn }
       );
@@ -736,6 +766,7 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
       ActivityLogService.logActivity({
         actionType: 'login',
         userId: user.id,
+        sessionId,
         metadata: {
           email: user.email,
           role: user.role,
@@ -756,6 +787,7 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
           role: user.role,
           status: user.status
         },
+        sessionId,
         agencies: userAgencies,
         requiresPasswordChange: user.status !== 'pending',
         message: user.status === 'pending' 
@@ -779,6 +811,130 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
         } 
       });
     }
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Validate setup token without using it
+ * Returns user info for welcome message
+ */
+export const validateSetupToken = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+
+    if (!token) {
+      return res.status(400).json({ error: { message: 'Token is required' } });
+    }
+
+    // Validate token (but don't mark as used)
+    const user = await User.validatePasswordlessToken(token);
+    if (!user) {
+      return res.status(401).json({ error: { message: 'Invalid or expired token' } });
+    }
+
+    // Check if user already has password
+    if (user.password_hash) {
+      return res.status(400).json({ error: { message: 'Password already set' } });
+    }
+
+    // Return user info for welcome message
+    res.json({
+      firstName: user.first_name,
+      lastName: user.last_name,
+      email: user.personal_email || user.email,
+      username: user.username || user.personal_email || user.email
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Initial setup endpoint - sets password for first-time users
+ * Single-use token expires after password is set
+ */
+export const initialSetup = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: { message: 'Token is required' } });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
+    }
+
+    // Validate token
+    const user = await User.validatePasswordlessToken(token);
+    if (!user) {
+      return res.status(401).json({ error: { message: 'Invalid or expired token' } });
+    }
+
+    // Check if user already has password
+    if (user.password_hash) {
+      return res.status(400).json({ error: { message: 'Password already set. Please use regular login.' } });
+    }
+
+    // Set password
+    await User.changePassword(user.id, password);
+
+    // Mark token as used (single-use token)
+    await User.markTokenAsUsed(user.id);
+
+    // Generate session ID
+    const sessionId = crypto.randomUUID();
+
+    // Generate JWT token for session
+    const jwtToken = jwt.sign(
+      { id: user.id, email: user.username || user.email, role: user.role, status: user.status, sessionId },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
+    );
+
+    // Set secure HttpOnly cookie for authentication
+    const cookieOptions = config.authCookie.set();
+    res.cookie('authToken', jwtToken, cookieOptions);
+
+    // Get user agencies
+    const userAgencies = await User.getAgencies(user.id);
+
+    // Log login activity
+    ActivityLogService.logActivity({
+      actionType: 'login',
+      userId: user.id,
+      sessionId,
+      metadata: {
+        email: user.username || user.email,
+        role: user.role,
+        loginType: 'passwordless_initial_setup',
+        isPending: user.status === 'pending'
+      }
+    }, req);
+
+    console.log('[initialSetup] Password set successfully for user:', user.id, user.first_name, user.last_name);
+    
+    // Get updated user data
+    const updatedUser = await User.findById(user.id);
+    
+    res.json({
+      token: jwtToken,
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.username || updatedUser.email,
+        firstName: updatedUser.first_name,
+        lastName: updatedUser.last_name,
+        role: updatedUser.role,
+        status: updatedUser.status,
+        username: updatedUser.username || updatedUser.personal_email || updatedUser.email
+      },
+      sessionId,
+      agencies: userAgencies,
+      message: 'Password set successfully. Welcome!'
+    });
   } catch (error) {
     next(error);
   }
@@ -912,20 +1068,23 @@ export const register = async (req, res, next) => {
     
     // For pending users: NO temporary password, only passwordless token
     // Create user without password (pending users use passwordless access only)
+    // Email is set to personalEmail initially (username will also be personalEmail)
     const user = await User.create({
-      email: email || null, // Email is optional
-      passwordHash: null, // No password for pending users
+      email: personalEmail, // Set email to personalEmail initially (for login compatibility)
+      passwordHash: null, // No password for pending users - they'll set it via initial setup
       firstName,
       lastName,
       phoneNumber,
-      personalEmail: personalEmail || null,
+      personalEmail: personalEmail, // Required - this is the personal email
       role: finalRole,
       status: 'pending' // New users start in pending status for pre-hire process
     });
     
     // Do NOT set temporary password for pending users
     // Generate passwordless login token (7 days expiration for pending users)
+    // This token will be used for initial setup (password creation)
     const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 7 * 24); // 7 days in hours
+    // Link goes to passwordless-login which will redirect to initial-setup if password not set
     const passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
     
     console.log('User created:', { id: user.id, email: user.email, workEmail: user.work_email });
@@ -1004,7 +1163,7 @@ export const register = async (req, res, next) => {
           AGENCY_NAME: agencyName,
           PORTAL_LOGIN_LINK: passwordlessTokenLink,
           PORTAL_URL: config.frontendUrl,
-          USERNAME: email || 'N/A (Work email will be set when moved to active)',
+          USERNAME: personalEmail || email || 'N/A (Work email will be set when moved to active)',
           PEOPLE_OPS_EMAIL: peopleOpsEmail,
           SENDER_NAME: req.user?.firstName || 'Administrator'
         };

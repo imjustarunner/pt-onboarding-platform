@@ -30,7 +30,9 @@ class PlatformBranding {
           body_font: 'Source Sans 3',
           numeric_font: 'IBM Plex Mono',
           display_font: 'Montserrat',
-          people_ops_term: 'People Operations'
+          people_ops_term: 'People Operations',
+          organization_name: null,
+          organization_logo_icon_id: null
         };
       }
 
@@ -73,6 +75,14 @@ class PlatformBranding {
           nf.name as numeric_font_name, nf.family_name as numeric_font_family, nf.file_path as numeric_font_path,
           df.name as display_font_name, df.family_name as display_font_family, df.file_path as display_font_path`;
         }
+        let orgSelects = '';
+        let orgJoins = '';
+        if (hasOrgFields) {
+          orgSelects = `,
+          org_i.file_path as organization_logo_path, org_i.name as organization_logo_name`;
+          orgJoins = `
+          LEFT JOIN icons org_i ON pb.organization_logo_icon_id = org_i.id`;
+        }
         query = `SELECT pb.*,
           ma_i.file_path as manage_agencies_icon_path, ma_i.name as manage_agencies_icon_name,
           mm_i.file_path as manage_modules_icon_path, mm_i.name as manage_modules_icon_name,
@@ -83,7 +93,7 @@ class PlatformBranding {
           pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
           s_i.file_path as settings_icon_path, s_i.name as settings_icon_name,
           mb_i.file_path as master_brand_icon_path, mb_i.name as master_brand_icon_name,
-          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${fontSelects}
+          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${fontSelects}${orgSelects}
           FROM platform_branding pb
           LEFT JOIN icons ma_i ON pb.manage_agencies_icon_id = ma_i.id
           LEFT JOIN icons mm_i ON pb.manage_modules_icon_id = mm_i.id
@@ -94,7 +104,7 @@ class PlatformBranding {
           LEFT JOIN icons pd_i ON pb.progress_dashboard_icon_id = pd_i.id
           LEFT JOIN icons s_i ON pb.settings_icon_id = s_i.id
           LEFT JOIN icons mb_i ON pb.master_brand_icon_id = mb_i.id
-          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${fontJoins}
+          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${orgJoins}${fontJoins}
           ORDER BY pb.id DESC LIMIT 1`;
       } else {
         // Even if dashboard icons don't exist, try to include master brand icon if column exists
@@ -173,7 +183,9 @@ class PlatformBranding {
           body_font: 'Source Sans 3',
           numeric_font: 'IBM Plex Mono',
           display_font: 'Montserrat',
-          people_ops_term: 'People Operations'
+          people_ops_term: 'People Operations',
+          organization_name: null,
+          organization_logo_icon_id: null
         };
       }
       
@@ -217,7 +229,9 @@ class PlatformBranding {
           body_font: 'Source Sans 3',
           numeric_font: 'IBM Plex Mono',
           display_font: 'Montserrat',
-          people_ops_term: 'People Operations'
+          people_ops_term: 'People Operations',
+          organization_name: null,
+          organization_logo_icon_id: null
         };
       }
       throw error;
@@ -256,7 +270,9 @@ class PlatformBranding {
       viewAllProgressIconId,
       progressDashboardIconId,
       settingsIconId,
-      allAgenciesNotificationsIconId
+      allAgenciesNotificationsIconId,
+      organizationName,
+      organizationLogoIconId
     } = brandingData;
 
     // Check if branding exists
@@ -440,6 +456,29 @@ class PlatformBranding {
         }
       } else {
         console.warn('PlatformBranding.update: Dashboard icon columns do not exist. Migration 047 may not have run.');
+      }
+      
+      // Check if organization fields exist and update them
+      if (organizationName !== undefined || organizationLogoIconId !== undefined) {
+        try {
+          const [orgColumns] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'organization_name'"
+          );
+          if (orgColumns.length > 0) {
+            if (organizationName !== undefined) {
+              updates.push('organization_name = ?');
+              values.push(organizationName || null);
+            }
+            if (organizationLogoIconId !== undefined) {
+              updates.push('organization_logo_icon_id = ?');
+              values.push(organizationLogoIconId || null);
+            }
+          } else {
+            console.warn('PlatformBranding.update: organization_name column does not exist. Migration 092 may not have run.');
+          }
+        } catch (e) {
+          console.warn('PlatformBranding.update: Error checking for organization fields:', e.message);
+        }
       }
       
       updates.push('updated_by_user_id = ?');

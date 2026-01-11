@@ -54,9 +54,16 @@ const app = express();
 app.set('trust proxy', true);
 
 // Middleware
+// CORS configuration with explicit headers for mobile browser compatibility
 app.use(cors({
   origin: config.cors.origin,
-  credentials: true
+  credentials: true,
+  // Explicitly set allowed headers for mobile browser compatibility
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  // Explicitly set exposed headers (cookies are automatically exposed)
+  exposedHeaders: ['Set-Cookie'],
+  // Ensure preflight requests work correctly on mobile
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
 }));
 app.use(cookieParser());
 app.use(express.json());
@@ -81,22 +88,61 @@ app.use('/uploads', async (req, res, next) => {
   try {
     const StorageService = (await import('./services/storage.service.js')).default;
     
-    // Extract file path from request (e.g., /uploads/icons/filename.png -> icons/filename.png)
-    const filePath = req.path.replace(/^\/uploads\//, '');
+    // Extract file path from request
+    // req.path will be like "/icons/filename.png" when route is "/uploads"
+    // We need to remove the leading "/uploads" if present, or just use req.path without leading slash
+    let filePath = req.path;
+    
+    // Remove /uploads prefix if present
+    if (filePath.startsWith('/uploads/')) {
+      filePath = filePath.replace(/^\/uploads\//, '');
+    } else if (filePath.startsWith('/uploads')) {
+      filePath = filePath.replace(/^\/uploads/, '');
+    }
+    
+    // Remove leading slash (GCS paths should not start with /)
+    filePath = filePath.replace(/^\//, '');
     
     if (!filePath || filePath === '/') {
       return res.status(404).json({ error: { message: 'File not found' } });
     }
     
+    console.log(`[File Request] Requested path: ${req.path}, Extracted: ${filePath}`);
+    
+    // Check if file exists in GCS before generating signed URL
+    const bucket = await StorageService.getGCSBucket();
+    const file = bucket.file(filePath);
+    const [exists] = await file.exists();
+    
+    if (!exists) {
+      console.error(`[File Request] File not found in GCS: ${filePath}`);
+      console.error(`[File Request] Bucket: ${process.env.PTONBOARDFILES || 'not set'}`);
+      
+      // List first few files in icons/ folder for debugging
+      try {
+        const [files] = await bucket.getFiles({ prefix: 'icons/', maxResults: 5 });
+        console.log(`[File Request] Sample files in GCS icons/ folder: ${files.map(f => f.name).join(', ')}`);
+      } catch (listErr) {
+        console.error(`[File Request] Error listing GCS files:`, listErr.message);
+      }
+      
+      return res.status(404).json({ error: { message: 'File not found in storage' } });
+    }
+    
     // Generate signed URL for direct GCS access
     // Signed URLs expire after 1 hour by default
     const signedUrl = await StorageService.getSignedUrl(filePath, 60);
+    console.log(`[File Request] Generated signed URL for: ${filePath}`);
     
     // Redirect to signed URL for direct access
     res.redirect(302, signedUrl);
   } catch (error) {
-    console.error('Error generating signed URL for file:', error);
-    res.status(404).json({ error: { message: 'File not found' } });
+    console.error('[File Request] Error generating signed URL for file:', {
+      path: req.path,
+      error: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({ error: { message: 'Failed to access file', details: error.message } });
   }
 });
 
