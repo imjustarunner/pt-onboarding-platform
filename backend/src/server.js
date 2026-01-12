@@ -222,7 +222,7 @@ app.use((req, res) => {
 });
 
 // Cloud Run sets PORT automatically - use it or default to 8080
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 8080; // Fixed for Cloud Run deployment
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
