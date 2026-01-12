@@ -54,8 +54,16 @@ jobs:
             --allow-unauthenticated \
             --service-account ${{ secrets.CLOUD_RUN_SA_EMAIL }} \
             --add-cloudsql-instances=${{ secrets.CLOUD_SQL_CONNECTION_NAME }} \
-            --set-env-vars="NODE_ENV=production,DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }},DB_PORT=3306,DB_NAME=onboarding_db,STORAGE_TYPE=gcs,GCS_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }},GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}" \
-            --set-secrets="JWT_SECRET=JWT_SECRET:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_USER=DB_USER:latest,GCS_CREDENTIALS=GCS_CREDENTIALS:latest" \
+            --set-env-vars="NODE_ENV=production" \
+            --set-env-vars="DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }}" \
+            --set-env-vars="DB_PORT=3306" \
+            --set-env-vars="DB_NAME=onboarding_db" \
+            --set-env-vars="DB_USER=${{ secrets.DB_USER }}" \
+            --set-env-vars="DB_PASSWORD=${{ secrets.DB_PASSWORD }}" \
+            --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
+            --set-env-vars="STORAGE_TYPE=gcs" \
+            --set-env-vars="GCS_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}" \
+            --set-env-vars="GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}" \
             --memory=512Mi \
             --cpu=1 \
             --timeout=300 \
