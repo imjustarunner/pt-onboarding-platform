@@ -189,9 +189,10 @@ export const requireActiveStatus = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'User not found' } });
     }
     
-    // Superadmins bypass all status checks (except ARCHIVED)
-    if (user.role === 'super_admin' && user.status !== 'ARCHIVED') {
-      // Give superadmins full access
+    // Superadmins, admins, and support bypass all status checks (except ARCHIVED)
+    // This ensures they can manage their agencies regardless of their personal status
+    if ((user.role === 'super_admin' || user.role === 'admin' || user.role === 'support') && user.status !== 'ARCHIVED') {
+      // Give full access
       req.userAccess = {
         canAccessOnDemand: true,
         canAccessDashboard: true,
