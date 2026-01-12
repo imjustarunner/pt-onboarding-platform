@@ -919,9 +919,20 @@ export const resetPasswordlessToken = async (req, res, next) => {
     
     const tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours);
     
-    // Get frontend URL for the link
-    const config = (await import('../config/config.js')).default;
-    const passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${tokenResult.token}`;
+    // Get user's agencies to determine portal URL
+    const userAgencies = await User.getAgencies(userId);
+    const agency = userAgencies && userAgencies.length > 0 ? userAgencies[0] : null;
+    
+    // Use EmailTemplateService to build link with agency context if available
+    let passwordlessTokenLink;
+    if (agency && agency.portal_url) {
+      const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
+      passwordlessTokenLink = EmailTemplateService.buildResetTokenLink(agency, tokenResult.token);
+    } else {
+      // Fallback to default frontend URL if no agency portal URL
+      const config = (await import('../config/config.js')).default;
+      passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${tokenResult.token}`;
+    }
     
     res.json({
       token: tokenResult.token,
@@ -1398,11 +1409,21 @@ export const createCurrentEmployee = async (req, res, next) => {
 
     // Generate passwordless token for password setup (48 hours expiration)
     const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 48);
-    const passwordlessTokenLink = `${(await import('../config/config.js')).default.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
-
-    // Get agency info for response
+    
+    // Get agency info for response and portal URL
     const Agency = (await import('../models/Agency.model.js')).default;
     const agency = await Agency.findById(parseInt(agencyId));
+    
+    // Use EmailTemplateService to build link with agency context if available
+    let passwordlessTokenLink;
+    if (agency && agency.portal_url) {
+      const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
+      passwordlessTokenLink = EmailTemplateService.buildResetTokenLink(agency, passwordlessTokenResult.token);
+    } else {
+      // Fallback to default frontend URL if no agency portal URL
+      const config = (await import('../config/config.js')).default;
+      passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
+    }
 
     res.status(201).json({
       message: 'Current employee created successfully',

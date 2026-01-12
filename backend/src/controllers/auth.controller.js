@@ -926,15 +926,15 @@ export const register = async (req, res, next) => {
     // Generate passwordless login token (7 days expiration for pending users)
     // This token will be used for initial setup (password creation)
     const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 7 * 24); // 7 days in hours
-    // Link goes to passwordless-login which will redirect to initial-setup if password not set
-    const passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
     
     console.log('User created:', { id: user.id, email: user.email, workEmail: user.work_email });
     
     // Assign user to agencies if provided
     const assignedAgencyIds = [];
+    let firstAgency = null;
     if (agencyIds && Array.isArray(agencyIds) && agencyIds.length > 0) {
       console.log('Assigning user to agencies:', agencyIds);
+      const Agency = (await import('../models/Agency.model.js')).default;
       for (const agencyId of agencyIds) {
         try {
           const parsedAgencyId = parseInt(agencyId);
@@ -946,6 +946,11 @@ export const register = async (req, res, next) => {
           await User.assignToAgency(user.id, parsedAgencyId);
           assignedAgencyIds.push(parsedAgencyId);
           console.log(`Successfully assigned user ${user.id} to agency ${parsedAgencyId}`);
+          
+          // Get first agency for portal URL (if not already set)
+          if (!firstAgency) {
+            firstAgency = await Agency.findById(parsedAgencyId);
+          }
         } catch (err) {
           console.error(`Failed to assign user to agency ${agencyId}:`, err);
           console.error('Error details:', {
@@ -959,6 +964,17 @@ export const register = async (req, res, next) => {
       }
     } else {
       console.log('No agencies to assign or agencyIds is not an array');
+    }
+    
+    // Build passwordless token link with agency portal URL if available
+    // Link goes to passwordless-login which will redirect to initial-setup if password not set
+    let passwordlessTokenLink;
+    if (firstAgency && firstAgency.portal_url) {
+      const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
+      passwordlessTokenLink = EmailTemplateService.buildResetTokenLink(firstAgency, passwordlessTokenResult.token);
+    } else {
+      // Fallback to default frontend URL if no agency portal URL
+      passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
     }
     
     // Initialize onboarding checklist for new user

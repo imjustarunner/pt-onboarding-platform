@@ -58,11 +58,13 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
+import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 
 const loading = ref(true);
 const error = ref('');
@@ -127,6 +129,31 @@ const handleSetup = async () => {
     // Mark that we just logged in to help with cookie timing issues
     sessionStorage.setItem('justLoggedIn', 'true');
     
+    // Wait for cookie to be available before proceeding
+    let cookieReady = false;
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    while (!cookieReady && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      // Check if we can make an authenticated request
+      try {
+        const testResponse = await api.get('/users/me');
+        if (testResponse.data && testResponse.data.id) {
+          cookieReady = true;
+          console.log('[InitialSetup] Cookie is ready, proceeding with redirect');
+        }
+      } catch (e) {
+        // Cookie not ready yet, continue waiting
+        console.log(`[InitialSetup] Cookie check attempt ${attempts + 1}/${maxAttempts} - not ready yet`);
+      }
+      attempts++;
+    }
+    
+    if (!cookieReady) {
+      console.warn('[InitialSetup] Cookie not ready after max attempts, proceeding anyway');
+    }
+    
     // Fetch user's agencies and store them for future login redirects
     if (authStore.user.role !== 'super_admin' && authStore.user.type !== 'approved_employee') {
       try {
@@ -148,10 +175,10 @@ const handleSetup = async () => {
       storeUserAgencies(response.data.agencies);
     }
     
-    // Redirect to dashboard
+    // Redirect to dashboard with additional delay to ensure everything is ready
     setTimeout(() => {
       router.push('/dashboard');
-    }, 500);
+    }, 1000);
   } catch (err) {
     const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to set password. Please try again.';
     setupError.value = errorMessage;
@@ -160,6 +187,9 @@ const handleSetup = async () => {
 };
 
 onMounted(async () => {
+  // Initialize portal theme first to get agency branding
+  await brandingStore.initializePortalTheme();
+  // Then proceed with token validation
   await validateToken();
 });
 </script>
