@@ -153,6 +153,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
 
+// Health check routes (must be before authentication middleware)
+app.use('/api/health-check', healthCheckRoutes);
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -193,7 +196,6 @@ app.use('/api/branding-templates', brandingTemplateRoutes);
 app.use('/api/fonts', fontRoutes);
 app.use('/api/activity-log', activityLogRoutes);
 app.use('/api/supervisor-assignments', supervisorAssignmentRoutes);
-app.use('/api/health-check', healthCheckRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
