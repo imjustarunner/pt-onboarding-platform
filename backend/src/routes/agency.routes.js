@@ -159,6 +159,7 @@ const validateUpdateAgency = [
 // Public routes (no auth required) - must come before /:id route
 router.get('/portal/:portalUrl', getAgencyByPortalUrl);
 router.get('/portal/:portalUrl/theme', getThemeByPortalUrl);
+router.get('/portal/:portalUrl/login-theme', getLoginThemeByPortalUrl);
 
 // Protected routes
 router.get('/', authenticate, getAllAgencies);
