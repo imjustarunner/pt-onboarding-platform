@@ -133,9 +133,7 @@ router.post('/passwordless-login', [
     .withMessage('Last name must be a string')
 ], passwordlessTokenLoginFromBody);
 
-router.post('/pending/verify-identity/:token', verifyPendingIdentity);
-
-// Initial setup routes (for first-time password creation)
+router.post('/pending/verify-identity/:token', verifyPendingIdentity);// Initial setup routes (for first-time password creation)
 router.get('/validate-setup-token/:token', validateSetupToken);
 router.post('/initial-setup/:token', [
   body('password')
@@ -144,3 +142,5 @@ router.post('/initial-setup/:token', [
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters')
 ], initialSetup);
+
+export default router;

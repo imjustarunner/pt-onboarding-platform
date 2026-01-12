@@ -12,8 +12,9 @@ COPY frontend/package*.json ./
 RUN npm ci
 
 # Copy all frontend files (including index.html)
-# Explicitly ensure index.html is copied first to verify it exists
+# Copy index.html first explicitly to ensure it's present
 COPY frontend/index.html ./
+# Copy the rest of frontend files
 COPY frontend/ ./
 
 # Build argument for API URL (relative path since frontend and backend are same origin)

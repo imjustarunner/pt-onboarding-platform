@@ -51,7 +51,8 @@ const app = express();
 
 // Trust proxy for accurate IP addresses (important for production behind load balancers/proxies)
 // This allows req.ip to use X-Forwarded-For header
-app.set('trust proxy', true);
+// Set to 1 to trust only the first hop (Google Cloud Load Balancer) - satisfies rate limiter security check
+app.set('trust proxy', 1);
 
 // Middleware
 // CORS configuration with explicit headers for mobile browser compatibility
@@ -220,7 +221,8 @@ app.use((req, res) => {
   res.status(404).json({ error: { message: 'Route not found' } });
 });
 
-const PORT = process.env.PORT || config.port || 3000;
+// Cloud Run sets PORT automatically - use it or default to 8080
+const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);

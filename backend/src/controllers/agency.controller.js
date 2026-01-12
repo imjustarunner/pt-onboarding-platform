@@ -370,4 +370,3 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
     next(error);
   }
 };
-
