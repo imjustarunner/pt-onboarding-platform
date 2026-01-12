@@ -48,28 +48,8 @@ export const useAuthStore = defineStore('auth', () => {
       console.log('Attempting login for:', email);
       let response;
       
-      // Try regular login first
-      try {
-        response = await api.post('/auth/login', { email, password });
-      } catch (regularLoginError) {
-        // If regular login fails, try approved employee login
-        if (regularLoginError.response?.status === 401) {
-          console.log('Regular login failed, trying approved employee login...');
-          try {
-            response = await api.post('/auth/approved-employee-login', { email, password });
-          } catch (approvedEmployeeError) {
-            // Both failed, return the approved employee error (more specific)
-            const errorMessage = approvedEmployeeError.response?.data?.error?.message || approvedEmployeeError.message || 'Login failed. Please check your credentials and try again.';
-            return { 
-              success: false, 
-              error: errorMessage
-            };
-          }
-        } else {
-          // Non-401 error from regular login, return it
-          throw regularLoginError;
-        }
-      }
+      // Try regular login
+      response = await api.post('/auth/login', { email, password });
       
       console.log('Login response received:', { 
         hasToken: !!response.data.token, 
@@ -86,7 +66,7 @@ export const useAuthStore = defineStore('auth', () => {
         };
       }
       
-      // Store agencies if provided (for approved employees with multiple agencies)
+      // Store agencies if provided
       if (response.data.agencies && response.data.agencies.length > 0) {
         response.data.user.agencyIds = response.data.agencies;
       }

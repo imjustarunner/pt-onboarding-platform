@@ -723,32 +723,6 @@ export const toggleSupervisorPrivileges = async (req, res, next) => {
 
 export const getUserAgencies = async (req, res, next) => {
   try {
-    // Handle approved employees (they don't have a user ID)
-    if (req.user.type === 'approved_employee') {
-      // Get agency IDs from the token
-      const agencyIds = req.user.agencyIds || (req.user.agencyId ? [req.user.agencyId] : []);
-      
-      if (agencyIds.length === 0) {
-        return res.json([]);
-      }
-      
-      // Fetch agency details for each ID
-      const Agency = (await import('../models/Agency.model.js')).default;
-      const agencies = [];
-      for (const agencyId of agencyIds) {
-        try {
-          const agency = await Agency.findById(agencyId);
-          if (agency) {
-            agencies.push(agency);
-          }
-        } catch (err) {
-          console.error(`Failed to fetch agency ${agencyId}:`, err);
-        }
-      }
-      
-      return res.json(agencies);
-    }
-    
     // Regular users
     // If route is /me/agencies, use req.user.id, otherwise use :id param
     const userId = req.params.id || req.user.id;
@@ -1552,36 +1526,8 @@ export const markUserActive = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
     
-    // Remove user from approved_employee_emails when they become active again
-    // They should use their regular user account, not the approved employee access
-    const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
-    const pool = (await import('../config/database.js')).default;
-    
-    // Get all approved employee entries for this user's email
-    const [employeeEntries] = await pool.execute(
-      'SELECT id, password_hash FROM approved_employee_emails WHERE email = ?',
-      [user.email]
-    );
-    
-    // If user doesn't have a password_hash in users table, copy it from approved_employee_emails
-    // This ensures they can login with the password they were using as an approved employee
-    if (!user.password_hash && employeeEntries.length > 0) {
-      const employeePasswordHash = employeeEntries[0].password_hash;
-      if (employeePasswordHash) {
-        await pool.execute(
-          'UPDATE users SET password_hash = ? WHERE id = ?',
-          [employeePasswordHash, id]
-        );
-      }
-    }
-    
-    // Delete all approved employee entries for this user
-    for (const entry of employeeEntries) {
-      await ApprovedEmployee.delete(entry.id);
-    }
-    
     res.json({
-      message: 'User account reactivated and removed from approved employee list',
+      message: 'User account reactivated successfully',
       user: await User.findById(id)
     });
   } catch (error) {
@@ -1604,56 +1550,6 @@ export const deactivateUser = async (req, res, next) => {
     }
     
     const user = await User.findById(parseInt(id));
-    
-    // If user is deactivated and not terminated/archived, ensure they're in approved employees list
-    if (user && user.status !== 'terminated' && (!user.is_archived || user.is_archived === 0)) {
-      const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
-      const Agency = (await import('../models/Agency.model.js')).default;
-      const pool = (await import('../config/database.js')).default;
-      
-      // Get user's agencies
-      const userAgencies = await User.getAgencies(parseInt(id));
-      
-      for (const agency of userAgencies) {
-        // Check if email already exists in approved_employee_emails for this agency (including inactive ones)
-        const [existingRows] = await pool.execute(
-          'SELECT * FROM approved_employee_emails WHERE email = ? AND agency_id = ?',
-          [user.email, agency.id]
-        );
-        
-        if (existingRows.length === 0) {
-          // Get agency to check for company default password
-          const agencyData = await Agency.findById(agency.id);
-          let passwordHash = null;
-
-          if (agencyData && agencyData.company_default_password_hash) {
-            passwordHash = agencyData.company_default_password_hash;
-          } else {
-            // Generate a temporary password hash if no company default
-            const bcrypt = (await import('bcrypt')).default;
-            const tempPassword = `temp_${user.id}_${Date.now()}`;
-            passwordHash = await bcrypt.hash(tempPassword, 10);
-          }
-
-          // Add to approved_employee_emails
-          await ApprovedEmployee.create({
-            email: user.email,
-            agencyId: agency.id,
-            requiresVerification: false,
-            passwordHash: passwordHash
-          });
-        } else {
-          // Entry already exists - just ensure it's active
-          const existing = existingRows[0];
-          if (!existing.is_active) {
-            await pool.execute(
-              'UPDATE approved_employee_emails SET is_active = TRUE WHERE id = ?',
-              [existing.id]
-            );
-          }
-        }
-      }
-    }
     
     res.json({
       message: 'User deactivated successfully',

@@ -18,33 +18,61 @@
     
     <div v-else class="dashboard-content">
       <div class="dashboard-grid">
-        <router-link v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" to="/admin/settings?tab=agencies" class="stat-card">
+        <component 
+          :is="previewMode ? 'div' : 'router-link'"
+          v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
+          :to="previewMode ? null : '/admin/settings?tab=agencies'"
+          class="stat-card"
+          :class="{ 'preview-disabled': previewMode }"
+        >
           <h3>My Agencies</h3>
           <p class="stat-value">{{ stats.myAgencies }}</p>
-        </router-link>
+        </component>
         
-        <router-link v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" to="/admin/modules?filter=templates" class="stat-card">
+        <component 
+          :is="previewMode ? 'div' : 'router-link'"
+          v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
+          :to="previewMode ? null : '/admin/modules?filter=templates'"
+          class="stat-card"
+          :class="{ 'preview-disabled': previewMode }"
+        >
           <h3>Training Focus Templates</h3>
           <p class="stat-value">{{ stats.trainingFocusTemplates }}</p>
-        </router-link>
+        </component>
         
-        <router-link v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" to="/admin/modules?view=table" class="stat-card">
+        <component 
+          :is="previewMode ? 'div' : 'router-link'"
+          v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
+          :to="previewMode ? null : '/admin/modules?view=table'"
+          class="stat-card"
+          :class="{ 'preview-disabled': previewMode }"
+        >
           <h3>Agency Modules</h3>
           <p class="stat-value">{{ stats.agencyModules }}</p>
-        </router-link>
+        </component>
         
-        <router-link to="/admin/users" class="stat-card">
+        <component 
+          :is="previewMode ? 'div' : 'router-link'"
+          :to="previewMode ? null : '/admin/users'"
+          class="stat-card"
+          :class="{ 'preview-disabled': previewMode }"
+        >
           <h3>Total Users</h3>
           <p class="stat-value">{{ stats.totalUsers }}</p>
-        </router-link>
+        </component>
       </div>
       
-      <NotificationCards />
+      <NotificationCards v-if="!previewMode" />
       
       <div class="quick-actions">
         <h2>Quick Actions</h2>
         <div class="actions-grid">
-          <router-link to="/admin/agency-progress" class="action-card">
+          <component 
+            :is="previewMode ? 'div' : 'router-link'"
+            :to="previewMode ? null : '/admin/agency-progress'"
+            class="action-card"
+            :class="{ 'preview-disabled': previewMode }"
+          >
             <img 
               v-if="getActionIcon('progress_dashboard')" 
               :src="getActionIcon('progress_dashboard')" 
@@ -57,9 +85,15 @@
               <h3>Progress Dashboard</h3>
               <p>View and manage user training progress, track completion, and quiz scores</p>
             </div>
-          </router-link>
+          </component>
           
-          <router-link v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" to="/admin/modules" class="action-card">
+          <component 
+            :is="previewMode ? 'div' : 'router-link'"
+            v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
+            :to="previewMode ? null : '/admin/modules'"
+            class="action-card"
+            :class="{ 'preview-disabled': previewMode }"
+          >
             <img 
               v-if="getActionIcon('manage_modules')" 
               :src="getActionIcon('manage_modules')" 
@@ -72,9 +106,15 @@
               <h3>Manage Modules</h3>
               <p>Create and edit training modules for your agencies</p>
             </div>
-          </router-link>
+          </component>
           
-          <router-link v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" to="/admin/documents" class="action-card">
+          <component 
+            :is="previewMode ? 'div' : 'router-link'"
+            v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
+            :to="previewMode ? null : '/admin/documents'"
+            class="action-card"
+            :class="{ 'preview-disabled': previewMode }"
+          >
             <img 
               v-if="getActionIcon('manage_documents')" 
               :src="getActionIcon('manage_documents')" 
@@ -87,9 +127,14 @@
               <h3>Manage Documents</h3>
               <p>Upload templates and assign documents for signature</p>
             </div>
-          </router-link>
+          </component>
           
-          <router-link to="/admin/users" class="action-card">
+          <component 
+            :is="previewMode ? 'div' : 'router-link'"
+            :to="previewMode ? null : '/admin/users'"
+            class="action-card"
+            :class="{ 'preview-disabled': previewMode }"
+          >
             <img 
               v-if="getActionIcon('manage_users')" 
               :src="getActionIcon('manage_users')" 
@@ -102,9 +147,15 @@
               <h3>Manage Users</h3>
               <p>View and manage user accounts in your agencies</p>
             </div>
-          </router-link>
+          </component>
           
-          <router-link v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" to="/admin/settings" class="action-card">
+          <component 
+            :is="previewMode ? 'div' : 'router-link'"
+            v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
+            :to="previewMode ? null : '/admin/settings'"
+            class="action-card"
+            :class="{ 'preview-disabled': previewMode }"
+          >
             <img 
               v-if="getActionIcon('settings')" 
               :src="getActionIcon('settings')" 
@@ -117,7 +168,7 @@
               <h3>Settings</h3>
               <p>Configure your agencies, tracks, and branding</p>
             </div>
-          </router-link>
+          </component>
         </div>
       </div>
       
@@ -137,7 +188,14 @@
                 <span v-else class="badge badge-secondary">Inactive</span>
               </p>
             </div>
-            <router-link :to="`/admin/settings?tab=agencies`" class="btn btn-primary btn-sm">Manage</router-link>
+            <component 
+              :is="previewMode ? 'button' : 'router-link'"
+              :to="previewMode ? null : `/admin/settings?tab=agencies`"
+              class="btn btn-primary btn-sm"
+              :disabled="previewMode"
+            >
+              Manage
+            </component>
           </div>
         </div>
       </div>
@@ -153,6 +211,17 @@ import { useBrandingStore } from '../../store/branding';
 import { useAuthStore } from '../../store/auth';
 import { isSupervisor } from '../../utils/helpers.js';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
+
+const props = defineProps({
+  previewMode: {
+    type: Boolean,
+    default: false
+  },
+  previewStats: {
+    type: Object,
+    default: null
+  }
+});
 
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
@@ -173,6 +242,16 @@ const branding = computed(() => brandingStore.platformBranding);
 const agencyData = ref(null);
 
 const fetchStats = async () => {
+  // In preview mode, use mock data
+  if (props.previewMode) {
+    if (props.previewStats) {
+      stats.value = { ...props.previewStats };
+    }
+    myAgencies.value = [{ id: 1, name: 'Preview Agency', is_active: true }];
+    loading.value = false;
+    return;
+  }
+  
   try {
     loading.value = true;
     
@@ -508,6 +587,23 @@ onMounted(async () => {
   margin: 0;
   display: flex;
   gap: 8px;
+}
+
+.preview-disabled {
+  pointer-events: none;
+  cursor: default;
+  opacity: 0.8;
+}
+
+.stat-card.preview-disabled:hover {
+  transform: none;
+  box-shadow: var(--shadow);
+}
+
+.action-card.preview-disabled:hover {
+  transform: none;
+  box-shadow: var(--shadow);
+  border-color: var(--border);
 }
 </style>
 

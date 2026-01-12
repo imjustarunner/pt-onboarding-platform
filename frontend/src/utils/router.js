@@ -17,11 +17,6 @@ export function getDashboardRoute() {
   // Debug logging
   console.log('getDashboardRoute - User role:', user.role, 'Type:', user.type, 'Status:', user.status);
   
-  // Approved employees go to on-demand training
-  if (user.type === 'approved_employee') {
-    return '/on-demand-training';
-  }
-  
   // Admins, super admins, support, supervisors, and CPAs go to admin dashboard
   // Check role with case-insensitive comparison and handle variations
   const userRole = user.role?.toLowerCase();

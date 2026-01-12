@@ -38,53 +38,21 @@ export const useAgencyStore = defineStore('agency', () => {
 
   const fetchUserAgencies = async () => {
     try {
-      const { useAuthStore } = await import('./auth');
-      const authStore = useAuthStore();
+      // Regular users - use the API endpoint
+      const response = await api.get('/users/me/agencies');
+      userAgencies.value = response.data;
+      agencies.value = response.data;
       
-      // For approved employees, use agencyIds from the user object
-      if (authStore.user?.type === 'approved_employee' && authStore.user?.agencyIds) {
-        // Fetch agency details for each agency ID
-        const agencyPromises = authStore.user.agencyIds.map(async (agencyId) => {
-          try {
-            const response = await api.get(`/agencies/${agencyId}`);
-            return response.data;
-          } catch (err) {
-            console.error(`Failed to fetch agency ${agencyId}:`, err);
-            return null;
-          }
-        });
-        
-        const agencies = (await Promise.all(agencyPromises)).filter(a => a !== null);
-        userAgencies.value = agencies;
-        agencies.value = agencies;
-        
-        // Store agencies in localStorage for login redirect after logout
-        const { storeUserAgencies } = await import('../utils/loginRedirect');
-        storeUserAgencies(agencies);
-        
-        // If no current agency is set and user has agencies, set the first one
-        if (!currentAgency.value && userAgencies.value.length > 0) {
-          setCurrentAgency(userAgencies.value[0]);
-        }
-        
-        return agencies;
-      } else {
-        // Regular users - use the API endpoint
-        const response = await api.get('/users/me/agencies');
-        userAgencies.value = response.data;
-        agencies.value = response.data;
-        
-        // Store agencies in localStorage for login redirect after logout
-        const { storeUserAgencies } = await import('../utils/loginRedirect');
-        storeUserAgencies(response.data);
-        
-        // If no current agency is set and user has agencies, set the first one
-        if (!currentAgency.value && userAgencies.value.length > 0) {
-          setCurrentAgency(userAgencies.value[0]);
-        }
-        
-        return response.data;
+      // Store agencies in localStorage for login redirect after logout
+      const { storeUserAgencies } = await import('../utils/loginRedirect');
+      storeUserAgencies(response.data);
+      
+      // If no current agency is set and user has agencies, set the first one
+      if (!currentAgency.value && userAgencies.value.length > 0) {
+        setCurrentAgency(userAgencies.value[0]);
       }
+      
+      return response.data;
     } catch (error) {
       console.error('Failed to fetch user agencies:', error);
       return [];

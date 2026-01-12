@@ -7,7 +7,7 @@
       <div class="completion-content">
         <strong>✓ All Items Complete</strong>
         <p>You have completed all required pre-hire tasks. Mark the hiring process as complete when you're ready.</p>
-        <PendingCompletionButton @completed="handlePendingCompleted" />
+        <PendingCompletionButton v-if="!previewMode" @completed="handlePendingCompleted" />
       </div>
     </div>
     
@@ -44,9 +44,9 @@
       </div>
       <button 
         v-if="daysRemaining > 0"
-        @click="downloadOnboardingDocument" 
+        @click="!previewMode && downloadOnboardingDocument()" 
         class="btn btn-primary"
-        :disabled="downloading"
+        :disabled="downloading || previewMode"
       >
         {{ downloading ? 'Generating...' : 'Download Onboarding Document' }}
       </button>
@@ -64,7 +64,8 @@
         </div>
       </div>
       <p class="onboarding-description">Complete your onboarding tasks to get started.</p>
-      <router-link to="/onboarding" class="btn btn-primary">View Checklist</router-link>
+      <router-link v-if="!previewMode" to="/onboarding" class="btn btn-primary">View Checklist</router-link>
+      <button v-else class="btn btn-primary" disabled>View Checklist</button>
     </div>
     
     <!-- Tab Navigation -->
@@ -72,8 +73,9 @@
       <button
         v-for="tab in filteredTabs"
         :key="tab.id"
-        @click="activeTab = tab.id"
+        @click="!previewMode && (activeTab = tab.id)"
         :class="['tab-button', { active: activeTab === tab.id }]"
+        :disabled="previewMode"
       >
         {{ tab.label }}
         <span v-if="tab.badgeCount > 0" class="tab-badge">{{ tab.badgeCount }}</span>
@@ -83,19 +85,29 @@
     <!-- Tab Content -->
     <div class="tab-content">
       <TrainingFocusTab
+        v-if="!previewMode"
         v-show="activeTab === 'training' && !isPending"
         @update-count="updateTrainingCount"
       />
       
       <DocumentsTab
+        v-if="!previewMode"
         v-show="activeTab === 'documents'"
         @update-count="updateDocumentsCount"
       />
       
       <UnifiedChecklistTab
+        v-if="!previewMode"
         v-show="activeTab === 'checklist'"
         @update-count="updateChecklistCount"
       />
+      
+      <!-- Preview mode placeholder content -->
+      <div v-if="previewMode" class="preview-tab-content">
+        <p v-if="activeTab === 'checklist'" class="preview-text">Checklist content preview</p>
+        <p v-if="activeTab === 'training'" class="preview-text">Training content preview</p>
+        <p v-if="activeTab === 'documents'" class="preview-text">Documents content preview</p>
+      </div>
     </div>
   </div>
 </template>
@@ -108,6 +120,21 @@ import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
 import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue';
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
+
+const props = defineProps({
+  previewMode: {
+    type: Boolean,
+    default: false
+  },
+  previewStatus: {
+    type: String,
+    default: null
+  },
+  previewData: {
+    type: Object,
+    default: null
+  }
+});
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -152,6 +179,23 @@ const updateChecklistCount = (count) => {
 };
 
 const fetchOnboardingStatus = async () => {
+  // In preview mode, use mock data
+  if (props.previewMode) {
+    if (props.previewData) {
+      onboardingCompletion.value = props.previewData.onboardingCompletion || 0;
+      trainingCount.value = props.previewData.trainingCount || 0;
+      documentsCount.value = props.previewData.documentsCount || 0;
+      checklistCount.value = props.previewData.checklistCount || 0;
+      daysRemaining.value = props.previewData.daysRemaining || null;
+      pendingCompletionStatus.value = props.previewData.pendingCompletionStatus || null;
+    }
+    if (props.previewStatus) {
+      userStatus.value = props.previewStatus;
+      isPending.value = props.previewStatus === 'PREHIRE_OPEN' || props.previewStatus === 'PENDING_SETUP';
+    }
+    return;
+  }
+  
   try {
     const api = (await import('../services/api')).default;
     const userId = authStore.user?.id;
@@ -196,6 +240,7 @@ const fetchOnboardingStatus = async () => {
 };
 
 const handlePendingCompleted = () => {
+  if (props.previewMode) return; // Disable in preview mode
   // Redirect to completion view
   router.push('/pending-completion');
 };
@@ -433,5 +478,21 @@ h1 {
 .review-content em {
   color: #64748b;
   font-size: 14px;
+}
+
+.preview-tab-content {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.preview-text {
+  font-size: 16px;
+  margin: 0;
+}
+
+.tab-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 </style>

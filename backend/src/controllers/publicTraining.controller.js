@@ -4,21 +4,9 @@ import AgencyPublicTraining from '../models/AgencyPublicTraining.model.js';
 
 export const getPublicModules = async (req, res, next) => {
   try {
-    // Check if user is archived (for approved employees)
+    // Get user's agency
     let agencyId = null;
-    if (req.user.type === 'approved_employee') {
-      const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
-      const employee = await ApprovedEmployee.findByEmail(req.user.email);
-      
-      if (employee && employee.user_id) {
-        const User = (await import('../models/User.model.js')).default;
-        const user = await User.findById(employee.user_id);
-        if (user && (user.is_archived === true || user.is_archived === 1)) {
-          return res.status(403).json({ error: { message: 'Account has been archived. Access denied.' } });
-        }
-      }
-      agencyId = employee?.agency_id || null;
-    } else if (req.user.role && req.user.role !== 'super_admin') {
+    if (req.user.role && req.user.role !== 'super_admin' && req.user.id) {
       // For regular users, get their agency
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
@@ -90,21 +78,9 @@ export const getPublicModules = async (req, res, next) => {
 
 export const getPublicTrainingFocuses = async (req, res, next) => {
   try {
-    // Check if user is archived (for approved employees)
+    // Get user's agency
     let agencyId = null;
-    if (req.user.type === 'approved_employee') {
-      const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
-      const employee = await ApprovedEmployee.findByEmail(req.user.email);
-      
-      if (employee && employee.user_id) {
-        const User = (await import('../models/User.model.js')).default;
-        const user = await User.findById(employee.user_id);
-        if (user && (user.is_archived === true || user.is_archived === 1)) {
-          return res.status(403).json({ error: { message: 'Account has been archived. Access denied.' } });
-        }
-      }
-      agencyId = employee?.agency_id || null;
-    } else if (req.user.role && req.user.role !== 'super_admin') {
+    if (req.user.role && req.user.role !== 'super_admin' && req.user.id) {
       // For regular users, get their agency
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
@@ -141,19 +117,6 @@ export const getPublicTrainingFocuses = async (req, res, next) => {
 
 export const getPublicModule = async (req, res, next) => {
   try {
-    // Check if user is archived (for approved employees)
-    if (req.user.type === 'approved_employee') {
-      const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
-      const employee = await ApprovedEmployee.findByEmail(req.user.email);
-      
-      if (employee && employee.user_id) {
-        const User = (await import('../models/User.model.js')).default;
-        const user = await User.findById(employee.user_id);
-        if (user && (user.is_archived === true || user.is_archived === 1)) {
-          return res.status(403).json({ error: { message: 'Account has been archived. Access denied.' } });
-        }
-      }
-    }
 
     const { id } = req.params;
     const module = await Module.findById(id);

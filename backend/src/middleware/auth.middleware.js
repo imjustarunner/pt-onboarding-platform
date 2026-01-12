@@ -13,14 +13,14 @@ export const authenticate = (req, res, next) => {
 
     const decoded = jwt.verify(token, config.jwt.secret);
     
-    // Handle approved employee tokens
-    if (decoded.type === 'approved_employee' || decoded.type === 'passwordless') {
+    // Handle passwordless tokens
+    if (decoded.type === 'passwordless') {
       req.user = {
         email: decoded.email,
-        role: 'approved_employee',
-        type: decoded.type || 'approved_employee',
-        agencyId: decoded.agencyId, // Default agency
-        agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : []) // All agencies
+        role: decoded.role || 'user',
+        type: 'passwordless',
+        agencyId: decoded.agencyId,
+        agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : [])
       };
       return next();
     }

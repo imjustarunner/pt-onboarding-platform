@@ -534,7 +534,7 @@
             <button 
               v-if="editingAgency && userRole === 'super_admin'" 
               type="button" 
-              @click="previewAgencyDashboard(editingAgency.id)" 
+              @click="openPreviewModal(editingAgency.id)" 
               class="btn btn-info"
             >
               Preview Dashboard
@@ -547,6 +547,14 @@
         </form>
       </div>
     </div>
+    
+    <!-- Dashboard Preview Modal -->
+    <DashboardPreviewModal 
+      v-if="showPreviewModal"
+      :agency-id="previewAgencyId"
+      :show="showPreviewModal"
+      @close="closePreviewModal"
+    />
   </div>
 </template>
 
@@ -556,6 +564,7 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import IconSelector from './IconSelector.vue';
+import DashboardPreviewModal from './DashboardPreviewModal.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -571,6 +580,8 @@ const showCreateModal = ref(false);
 const editingAgency = ref(null);
 const showAssignAdminModal = ref(false);
 const showAssignSupportModal = ref(false);
+const showPreviewModal = ref(false);
+const previewAgencyId = ref(null);
 const selectedAgency = ref(null);
 const selectedUserId = ref('');
 const selectedSupportUserId = ref('');
@@ -1238,10 +1249,14 @@ const addCustomParameter = () => {
   customParameters.value[newKey] = '';
 };
 
-const previewAgencyDashboard = (agencyId) => {
-  // Open agency dashboard in a new window/tab for preview
-  const url = `/admin/agencies/${agencyId}/progress`;
-  window.open(url, '_blank', 'noopener,noreferrer');
+const openPreviewModal = (agencyId) => {
+  previewAgencyId.value = agencyId;
+  showPreviewModal.value = true;
+};
+
+const closePreviewModal = () => {
+  showPreviewModal.value = false;
+  previewAgencyId.value = null;
 };
 
 const closeModal = () => {
