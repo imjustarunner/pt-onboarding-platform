@@ -38,13 +38,14 @@ class OnboardingPackage {
       description,
       agencyId,
       createdByUserId,
-      isActive = true
+      isActive = true,
+      packageType = 'onboarding'
     } = packageData;
 
     const [result] = await pool.execute(
-      `INSERT INTO onboarding_packages (name, description, agency_id, created_by_user_id, is_active)
-       VALUES (?, ?, ?, ?, ?)`,
-      [name, description || null, agencyId || null, createdByUserId, isActive]
+      `INSERT INTO onboarding_packages (name, description, agency_id, created_by_user_id, is_active, package_type)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [name, description || null, agencyId || null, createdByUserId, isActive, packageType]
     );
 
     return this.findById(result.insertId);
@@ -65,6 +66,10 @@ class OnboardingPackage {
     if (packageData.isActive !== undefined) {
       updates.push('is_active = ?');
       values.push(packageData.isActive);
+    }
+    if (packageData.packageType !== undefined) {
+      updates.push('package_type = ?');
+      values.push(packageData.packageType);
     }
 
     if (updates.length === 0) {

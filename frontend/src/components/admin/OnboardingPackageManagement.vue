@@ -39,9 +39,14 @@
             <strong>{{ pkg.document_count || 0 }}</strong>
             <span>Documents</span>
           </div>
+          <div class="stat-item" v-if="pkg.package_type">
+            <strong>{{ getPackageTypeLabel(pkg.package_type) }}</strong>
+            <span>Type</span>
+          </div>
         </div>
         <div class="package-actions">
-          <button @click="viewPackage(pkg.id)" class="btn btn-primary btn-sm">View/Edit</button>
+          <button @click="viewPackage(pkg.id)" class="btn btn-primary btn-sm">View Details</button>
+          <button @click="editPackage(pkg)" class="btn btn-secondary btn-sm">Edit</button>
           <button @click="assignPackage(pkg)" class="btn btn-success btn-sm">Assign to Users</button>
           <button 
             @click="togglePackageStatus(pkg)" 
@@ -69,6 +74,21 @@
           <div class="form-group">
             <label>Description</label>
             <textarea v-model="packageForm.description" rows="3" placeholder="Describe what this package includes..."></textarea>
+          </div>
+          <div class="form-group">
+            <label>Package Type *</label>
+            <select v-model="packageForm.packageType" class="form-control" required>
+              <option value="pre_hire">Pre-Hire</option>
+              <option value="onboarding">Onboarding</option>
+              <option value="training">Training</option>
+              <option value="other">Other</option>
+            </select>
+            <small>
+              <strong>Pre-Hire:</strong> Assigns to PENDING_SETUP users, sets status to PREHIRE_OPEN<br>
+              <strong>Onboarding:</strong> Assigns to PREHIRE_REVIEW users, sets status to ONBOARDING<br>
+              <strong>Training:</strong> Assigns to ACTIVE_EMPLOYEE users, does not change status<br>
+              <strong>Other:</strong> General purpose, does not change status
+            </small>
           </div>
           <div class="form-group">
             <label>Agency</label>
@@ -412,7 +432,8 @@ const packageForm = ref({
   name: '',
   description: '',
   agencyId: null,
-  isActive: true
+  isActive: true,
+  packageType: 'onboarding'
 });
 
 const selectedPackage = ref(null);
@@ -702,6 +723,18 @@ const fetchChecklistItems = async (packageAgencyId = null) => {
   }
 };
 
+const editPackage = (pkg) => {
+  editingPackage.value = pkg;
+  packageForm.value = {
+    name: pkg.name || '',
+    description: pkg.description || '',
+    agencyId: pkg.agency_id || null,
+    isActive: pkg.is_active !== false,
+    packageType: pkg.package_type || 'onboarding'
+  };
+  showCreateModal.value = false;
+};
+
 const viewPackage = async (id, preserveTab = false) => {
   try {
     const response = await api.get(`/onboarding-packages/${id}`);
@@ -790,7 +823,8 @@ const closeModal = () => {
     name: '',
     description: '',
     agencyId: null,
-    isActive: true
+    isActive: true,
+    packageType: 'onboarding'
   };
 };
 
@@ -1031,6 +1065,16 @@ const executeAssignPackage = async () => {
 const getAgencyName = (agencyId) => {
   const agency = availableAgencies.value.find(a => a.id === agencyId);
   return agency ? agency.name : 'Unknown';
+};
+
+const getPackageTypeLabel = (packageType) => {
+  const typeMap = {
+    'pre_hire': 'Pre-Hire',
+    'onboarding': 'Onboarding',
+    'training': 'Training',
+    'other': 'Other'
+  };
+  return typeMap[packageType] || packageType || 'Onboarding';
 };
 
 onMounted(async () => {

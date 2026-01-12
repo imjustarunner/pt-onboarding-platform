@@ -188,7 +188,17 @@
                 </div>
                 
                 <div class="status-actions">
-                  <!-- For ready_for_review users: Show "Mark as Reviewed and Activate" button -->
+                  <!-- For PREHIRE_REVIEW users: Show "Promote to Onboarding" button -->
+                  <button 
+                    v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    @click="promoteToOnboarding" 
+                    class="btn btn-primary btn-sm"
+                    :disabled="updatingStatus"
+                  >
+                    {{ updatingStatus ? 'Processing...' : 'Promote to Onboarding' }}
+                  </button>
+                  
+                  <!-- Legacy: For ready_for_review users: Show "Mark as Reviewed and Activate" button -->
                   <button 
                     v-if="user.status === 'ready_for_review' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
                     @click="handleMarkAsReviewedAndActivate" 
@@ -198,19 +208,19 @@
                     {{ updatingStatus ? 'Processing...' : 'Mark as Reviewed and Activate' }}
                   </button>
                   
-                  <!-- Admins can mark pending or active users as completed -->
+                  <!-- Admins can mark ONBOARDING users as ACTIVE_EMPLOYEE -->
                   <button 
-                    v-if="(user.status === 'pending' || user.status === 'active') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    v-if="(user.status === 'ONBOARDING' || user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'active') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
                     @click="markComplete" 
                     class="btn btn-success btn-sm"
                     :disabled="updatingStatus"
                   >
-                    {{ updatingStatus ? 'Processing...' : 'Mark Complete' }}
+                    {{ updatingStatus ? 'Processing...' : 'Mark as Active Employee' }}
                   </button>
                   
-                  <!-- Mark Terminated: Only for active users (terminated is a process only for active users) -->
+                  <!-- Mark Terminated: Only for ACTIVE_EMPLOYEE users -->
                   <button 
-                    v-if="user.status === 'active' && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    v-if="(user.status === 'ACTIVE_EMPLOYEE' || user.status === 'active') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
                     @click="markTerminated" 
                     class="btn btn-danger btn-sm"
                     :disabled="updatingStatus"
@@ -218,9 +228,9 @@
                     {{ updatingStatus ? 'Updating...' : 'Mark Terminated' }}
                   </button>
                   
-                  <!-- Archive: Available for pending, ready_for_review, and other non-active statuses -->
+                  <!-- Archive: Available for most statuses except ARCHIVED -->
                   <button 
-                    v-if="(user.status === 'pending' || user.status === 'ready_for_review' || (user.status !== 'active' && user.status !== 'terminated')) && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    v-if="user.status !== 'ARCHIVED' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
                     @click="archiveUser" 
                     class="btn btn-warning btn-sm"
                     :disabled="updatingStatus"
@@ -228,14 +238,14 @@
                     {{ updatingStatus ? 'Archiving...' : 'Archive' }}
                   </button>
                   
-                  <!-- Show "Activate" for other non-active statuses (completed, terminated, etc.) -->
+                  <!-- Show "Reactivate" for ARCHIVED users -->
                   <button 
-                    v-if="user.status !== 'active' && user.status !== 'ready_for_review' && user.status !== 'pending' && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    v-if="user.status === 'ARCHIVED' && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
                     @click="markActive" 
                     class="btn btn-secondary btn-sm"
                     :disabled="updatingStatus"
                   >
-                    {{ updatingStatus ? 'Updating...' : 'Reactivate' }}
+                    {{ updatingStatus ? 'Updating...' : 'Restore' }}
                   </button>
                   
                   <!-- Show "Activate" for pending users (admin can activate directly) -->
@@ -1139,6 +1149,24 @@ const markComplete = async () => {
   }
 };
 
+const promoteToOnboarding = async () => {
+  if (!confirm('Are you sure you want to promote this user to onboarding? This will change their status to ONBOARDING.')) {
+    return;
+  }
+  
+  try {
+    updatingStatus.value = true;
+    await api.post(`/users/${userId.value}/promote-to-onboarding`);
+    await fetchUser();
+    alert('User promoted to onboarding status successfully.');
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to promote user to onboarding';
+    alert(error.value);
+  } finally {
+    updatingStatus.value = false;
+  }
+};
+
 const handleMarkAsReviewedAndActivate = async () => {
   try {
     updatingStatus.value = true;
@@ -1218,17 +1246,22 @@ const handleMoveToActive = async (data) => {
 };
 
 const markTerminated = async () => {
-  if (!confirm('Are you sure you want to mark this user as terminated? Their access will expire in 7 days.')) {
+  if (!confirm('Are you sure you want to mark this user as terminated? They will have 7 days of access before being archived.')) {
     return;
   }
   
   try {
     updatingStatus.value = true;
-    await api.post(`/users/${userId.value}/mark-terminated`);
+    const response = await api.post(`/users/${userId.value}/mark-terminated`);
     await fetchUser();
-    alert('User marked as terminated. Access will expire in 7 days.');
+    const terminationDate = response.data.terminationDate ? new Date(response.data.terminationDate) : null;
+    const message = terminationDate 
+      ? `User marked as terminated. Access will expire on ${terminationDate.toLocaleDateString()}.`
+      : 'User marked as terminated. Access will expire in 7 days.';
+    alert(message);
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to mark user as terminated';
+    alert(error.value);
   } finally {
     updatingStatus.value = false;
   }

@@ -19,6 +19,7 @@ DELETE FROM email_templates
 WHERE agency_id IS NULL
   AND platform_branding_id = @platform_branding_id
   AND type IN (
+    'pending_welcome',
     'onboarding_portal_welcome',
     'password_expired_pre_activation',
     'admin_initiated_password_reset',
@@ -28,6 +29,7 @@ WHERE agency_id IS NULL
     'pre_hire_authorization_request',
     'pre_hire_hold_status',
     'pre_hire_not_moving_forward',
+    'pre_hire_review_waiting',
 
     'conditional_offer_warm',
     'conditional_offer_formal',
@@ -45,6 +47,19 @@ WHERE agency_id IS NULL
 INSERT INTO email_templates
   (name, type, subject, body, agency_id, platform_branding_id, created_by_user_id)
 VALUES
+
+-- =========================================================
+-- PENDING SETUP (NEW USER CREATION - PENDING_SETUP STATUS)
+-- =========================================================
+(
+  'Pending Welcome: Initial Account Setup',
+  'pending_welcome',
+  'Welcome to {{AGENCY_NAME}} — Complete Your Account Setup',
+  'Hello {{FIRST_NAME}},\n\nWelcome to {{AGENCY_NAME}}! We''re excited to have you join our team.\n\nTo get started, please complete your account setup by creating your password using the secure link below:\n\n{{PORTAL_LOGIN_LINK}}\n\nThis link will allow you to:\n- Set your password\n- Access your pre-hire portal\n- Begin completing required pre-hire materials\n\n**Important:** This link will expire in 7 days. Please complete your account setup as soon as possible.\n\nIf you have any questions or need assistance, please contact {{TERMINOLOGY_SETTINGS}} at {{PEOPLE_OPS_EMAIL}}.\n\nWe look forward to working with you!\n\nBest regards,\n{{TERMINOLOGY_SETTINGS}}\n{{AGENCY_NAME}}\n',
+  NULL,
+  @platform_branding_id,
+  NULL
+),
 
 -- =========================================================
 -- ONBOARDING (WELCOME + DEADLINES + CREDENTIALS)
@@ -125,6 +140,15 @@ VALUES
   'pre_hire_not_moving_forward',
   'Update Regarding Your Application with {{AGENCY_NAME}}',
   'Hello {{FIRST_NAME}},\n\nThank you for your time and for completing the requested pre-hire materials.\n\nAt this time, we will not be moving forward to the next stage of the process. This decision is based on internal considerations and does not reflect a single factor or submission.\n\nWe appreciate your interest in {{AGENCY_NAME}} and wish you the best in your future endeavors.\n\nKind regards,\n{{TERMINOLOGY_SETTINGS}}\n{{AGENCY_NAME}}\n',
+  NULL,
+  @platform_branding_id,
+  NULL
+),
+(
+  'Pre-Hire: Waiting for Review (PREHIRE_REVIEW Status)',
+  'pre_hire_review_waiting',
+  'Pre-Hire Materials Submitted — Awaiting Review',
+  'Hello {{FIRST_NAME}},\n\nThank you for completing all required pre-hire materials with {{AGENCY_NAME}}.\n\nYour submission has been received and is now being reviewed by our team. This review process typically takes a few business days.\n\n**What happens next:**\n- Our team will review your submitted materials\n- We will contact your references\n- A background check will be initiated if applicable\n- You will be notified once the review is complete\n\n**Your access:**\nYour portal access has been temporarily locked during this review period. You will receive an email notification once your account is activated and you can proceed to the next steps.\n\nIf you have any questions or need to provide additional information, please contact {{TERMINOLOGY_SETTINGS}} at {{PEOPLE_OPS_EMAIL}}.\n\nThank you for your patience during this process.\n\nBest regards,\n{{TERMINOLOGY_SETTINGS}}\n{{AGENCY_NAME}}\n',
   NULL,
   @platform_branding_id,
   NULL

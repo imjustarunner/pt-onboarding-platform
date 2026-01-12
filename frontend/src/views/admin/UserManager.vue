@@ -27,12 +27,19 @@
           <label for="statusSort">Filter by Status:</label>
           <select id="statusSort" v-model="statusSort" @change="applySorting">
             <option value="">All</option>
-            <option value="pending">Pending</option>
-            <option value="ready_for_review">Ready for Review</option>
-            <option value="completed">Completed</option>
-            <option value="terminated">Terminated</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
+            <option value="PENDING_SETUP">Pending Setup</option>
+            <option value="PREHIRE_OPEN">Pre-Hire</option>
+            <option value="PREHIRE_REVIEW">Ready for Review</option>
+            <option value="ONBOARDING">Onboarding</option>
+            <option value="ACTIVE_EMPLOYEE">Active Employee</option>
+            <option value="TERMINATED_PENDING">Terminated (Grace Period)</option>
+            <option value="ARCHIVED">Archived</option>
+            <!-- Legacy statuses for backward compatibility -->
+            <option value="pending">Pre-Hire (Legacy)</option>
+            <option value="ready_for_review">Ready for Review (Legacy)</option>
+            <option value="active">Active (Legacy)</option>
+            <option value="completed">Completed (Legacy)</option>
+            <option value="terminated">Terminated (Legacy)</option>
           </select>
         </div>
       </div>
@@ -60,8 +67,8 @@
               </span>
             </td>
             <td>
-              <span :class="['badge', getStatusBadgeClass(user.status, user.is_active)]">
-                {{ getStatusLabel(user.status, user.is_active) }}
+              <span :class="['badge', getStatusBadgeClassWrapper(user.status, user.is_active)]">
+                {{ getStatusLabelWrapper(user.status, user.is_active) }}
               </span>
             </td>
             <td>{{ formatDate(user.created_at) }}</td>
@@ -70,21 +77,21 @@
                 <router-link :to="`/admin/users/${user.id}`" class="btn btn-primary btn-sm">View Profile</router-link>
                 <button v-if="!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'" @click="editUser(user)" class="btn btn-secondary btn-sm">Edit</button>
                 <button 
-                  v-if="user.status === 'pending' && !user.pending_access_locked && !isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'" 
+                  v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'pending') && !user.pending_access_locked && !isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'" 
                   @click="showPendingCompleteModal(user)" 
                   class="btn btn-success btn-sm"
                 >
                   Mark Hiring Process Complete
                 </button>
                 <button 
-                  v-if="user.status === 'ready_for_review' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)" 
+                  v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)" 
                   @click="moveToActive(user)" 
                   class="btn btn-primary btn-sm"
                 >
                   Mark as Reviewed and Activate
                 </button>
                 <button 
-                  v-if="(user.status === 'pending' || user.status === 'ready_for_review') && (canArchiveDelete || user.role === 'admin' || user.role === 'super_admin') && !isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'" 
+                  v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'ready_for_review') && (canArchiveDelete || user.role === 'admin' || user.role === 'super_admin') && !isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'" 
                   @click="downloadAndWipeUserData(user)" 
                   class="btn btn-sm btn-danger"
                   title="Download completion summary and wipe training/document data"
@@ -661,6 +668,7 @@ import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { isSupervisor } from '../../utils/helpers.js';
+import { getStatusLabel, getStatusBadgeClass } from '../../utils/statusUtils.js';
 import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumentAssignmentDialog.vue';
 
 const router = useRouter();
@@ -1493,32 +1501,19 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString();
 };
 
-const getStatusLabel = (status, isActive = true) => {
-  if (!isActive) {
-    return 'Inactive';
+// Status label and badge class functions are now imported from statusUtils.js
+// Keeping wrapper functions for backward compatibility with isActive parameter
+const getStatusLabelWrapper = (status, isActive = true) => {
+  // isActive is deprecated but kept for backward compatibility
+  if (status === 'ARCHIVED') {
+    return 'Archived';
   }
-  const labels = {
-    'pending': 'Pending',
-    'ready_for_review': 'Ready for Review',
-    'active': 'Active',
-    'completed': 'Completed',
-    'terminated': 'Terminated'
-  };
-  return labels[status] || 'Active';
+  return getStatusLabel(status);
 };
 
-const getStatusBadgeClass = (status, isActive = true) => {
-  if (!isActive) {
-    return 'badge-secondary';
-  }
-  const classes = {
-    'pending': 'badge-warning',
-    'ready_for_review': 'badge-info',
-    'active': 'badge-success',
-    'completed': 'badge-info',
-    'terminated': 'badge-danger'
-  };
-  return classes[status] || 'badge-secondary';
+const getStatusBadgeClassWrapper = (status, isActive = true) => {
+  // isActive is deprecated but kept for backward compatibility
+  return getStatusBadgeClass(status, isActive);
 };
 
 const sortedUsers = computed(() => {
@@ -1537,10 +1532,11 @@ const sortedUsers = computed(() => {
   // Filter by status
   if (statusSort.value) {
     if (statusSort.value === 'inactive') {
-      filtered = filtered.filter(user => !user.is_active);
+      // Legacy inactive filter - map to ARCHIVED status
+      filtered = filtered.filter(user => user.status === 'ARCHIVED');
     } else {
       filtered = filtered.filter(user => {
-        return user.status === statusSort.value && (user.is_active !== false);
+        return user.status === statusSort.value;
       });
     }
   }

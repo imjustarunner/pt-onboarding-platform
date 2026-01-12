@@ -53,16 +53,6 @@
         <p>Use your company work email to log in. If you don't have one, please contact your administrator.</p>
         <button @click="showForgotUsernameMessage = false" class="btn-close-help">Close</button>
       </div>
-      
-      <div class="login-info">
-        <p><strong>Super Admin (for editing):</strong></p>
-        <p>Email: superadmin@plottwistco.com</p>
-        <p>Password: superadmin123</p>
-        <hr style="margin: 15px 0; border: none; border-top: 1px solid #dee2e6;" />
-        <p><strong>Default Admin:</strong></p>
-        <p>Email: admin@company.com</p>
-        <p>Password: admin123</p>
-      </div>
     </div>
   </div>
   </BrandingProvider>
@@ -105,8 +95,11 @@ const displayTitle = computed(() => {
     const term = brandingStore.peopleOpsTerm || 'People Operations';
     return `${loginTheme.value.agency.name} ${term} Platform`;
   }
-  const agencyName = brandingStore.portalAgency?.name || 'PlotTwistCo';
+  const agencyName = brandingStore.portalAgency?.name || brandingStore.platformBranding?.organization_name || '';
   const term = brandingStore.peopleOpsTerm || 'People Operations';
+  if (!agencyName) {
+    return `${term} Platform`;
+  }
   return `${agencyName} ${term} Platform`;
 });
 

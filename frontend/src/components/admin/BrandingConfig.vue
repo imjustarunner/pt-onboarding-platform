@@ -140,7 +140,16 @@
           <small>This name appears in "Powered by" footer on agency login pages and throughout the platform</small>
         </div>
         <div class="form-group">
-          <label>Organization Logo</label>
+          <label>Organization Logo URL</label>
+          <input v-model="platformForm.organizationLogoUrl" type="url" placeholder="https://example.com/logo.png" />
+          <p class="form-help">Enter the full URL to your platform organization logo image (PNG, JPG, or SVG)</p>
+          <div v-if="platformForm.organizationLogoUrl" class="logo-preview">
+            <img :src="platformForm.organizationLogoUrl" alt="Logo preview" @error="handleLogoError" />
+            <p v-if="logoError" class="logo-error">Failed to load logo. Please check the URL.</p>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Organization Logo Icon (Alternative)</label>
           <div class="icon-selector-wrapper">
             <IconSelector v-model="platformForm.organizationLogoIconId" />
             <button
@@ -152,7 +161,7 @@
               Clear
             </button>
           </div>
-          <small>Logo displayed in "Powered by" footer on agency login pages. Select an icon from the Icon Library.</small>
+          <small>Alternative: Select an icon from the Icon Library if you prefer to use an icon instead of a logo URL.</small>
         </div>
         <div class="form-section-divider">
           <h4>Fonts</h4>
@@ -1118,7 +1127,8 @@ const platformForm = ref({
   viewAllProgressIconId: null,
       allAgenciesNotificationsIconId: null,
       organizationName: null,
-      organizationLogoIconId: null
+      organizationLogoIconId: null,
+      organizationLogoUrl: null
     });
 
 const agencyBrandingForm = ref({
@@ -1908,7 +1918,10 @@ const savePlatformBranding = async () => {
       manageUsersIconId: platformForm.value.manageUsersIconId ?? null,
       platformSettingsIconId: platformForm.value.platformSettingsIconId ?? null,
       viewAllProgressIconId: platformForm.value.viewAllProgressIconId ?? null,
-      allAgenciesNotificationsIconId: platformForm.value.allAgenciesNotificationsIconId ?? null
+      allAgenciesNotificationsIconId: platformForm.value.allAgenciesNotificationsIconId ?? null,
+      organizationName: platformForm.value.organizationName?.trim() || null,
+      organizationLogoIconId: platformForm.value.organizationLogoIconId ?? null,
+      organizationLogoUrl: platformForm.value.organizationLogoUrl?.trim() || null
     };
     
     const response = await api.put('/platform-branding', brandingData);
@@ -2169,6 +2182,7 @@ onActivated(async () => {
       platformForm.value.allAgenciesNotificationsIconId = brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null;
       platformForm.value.organizationName = brandingStore.platformBranding.organization_name ?? null;
       platformForm.value.organizationLogoIconId = brandingStore.platformBranding.organization_logo_icon_id ?? null;
+      platformForm.value.organizationLogoUrl = brandingStore.platformBranding.organization_logo_url ?? null;
       
       if (selectedBrandingScope.value === 'platform') {
         await detectCurrentlyAppliedTemplate();

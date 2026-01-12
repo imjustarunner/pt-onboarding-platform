@@ -341,15 +341,20 @@ class User {
       console.error('Error checking for archived_by_agency_id column:', err);
     }
 
+    // Immediately set status to ARCHIVED (no 7-day waiting period)
     if (hasAgencyColumn) {
       const [result] = await pool.execute(
-        'UPDATE users SET is_archived = TRUE, archived_at = NOW(), archived_by_user_id = ?, archived_by_agency_id = ? WHERE id = ?',
+        `UPDATE users 
+         SET status = 'ARCHIVED', is_archived = TRUE, archived_at = NOW(), archived_by_user_id = ?, archived_by_agency_id = ? 
+         WHERE id = ?`,
         [archivedByUserId, archivedByAgencyId, id]
       );
       return result.affectedRows > 0;
     } else {
       const [result] = await pool.execute(
-        'UPDATE users SET is_archived = TRUE, archived_at = NOW(), archived_by_user_id = ? WHERE id = ?',
+        `UPDATE users 
+         SET status = 'ARCHIVED', is_archived = TRUE, archived_at = NOW(), archived_by_user_id = ? 
+         WHERE id = ?`,
         [archivedByUserId, id]
       );
       return result.affectedRows > 0;
@@ -943,48 +948,73 @@ class User {
     let updates = [];
     let values = [];
 
-    if (status === 'completed') {
+    // Handle new status lifecycle values
+    if (status === 'ACTIVE_EMPLOYEE') {
       updates.push('status = ?');
       updates.push('completed_at = ?');
-      updates.push('status_expires_at = ?');
-      values.push('completed', now, expiresAt);
-    } else if (status === 'terminated') {
+      updates.push('status_expires_at = NULL');
+      updates.push('terminated_at = NULL');
+      updates.push('termination_date = NULL');
+      // Clear pending fields when moving to active employee
+      updates.push('pending_completed_at = NULL');
+      updates.push('pending_auto_complete_at = NULL');
+      updates.push('pending_identity_verified = FALSE');
+      updates.push('pending_access_locked = FALSE');
+      updates.push('pending_completion_notified = FALSE');
+      values.push('ACTIVE_EMPLOYEE', now);
+    } else if (status === 'TERMINATED_PENDING') {
       updates.push('status = ?');
       updates.push('terminated_at = ?');
+      updates.push('termination_date = ?');
       updates.push('status_expires_at = ?');
-      // Terminated users will be auto-marked as inactive after 7 days
-      values.push('terminated', now, expiresAt);
-    } else if (status === 'active') {
+      values.push('TERMINATED_PENDING', now, now, expiresAt);
+    } else if (status === 'ARCHIVED') {
+      updates.push('status = ?');
+      updates.push('is_archived = TRUE');
+      updates.push('archived_at = NOW()');
+      values.push('ARCHIVED');
+    } else if (status === 'PENDING_SETUP') {
       updates.push('status = ?');
       updates.push('completed_at = NULL');
       updates.push('terminated_at = NULL');
-      updates.push('status_expires_at = NULL');
-      updates.push('is_active = TRUE');
-      // Clear pending fields when moving to active
-      updates.push('pending_completed_at = NULL');
-      updates.push('pending_auto_complete_at = NULL');
-      updates.push('pending_identity_verified = FALSE');
-      updates.push('pending_access_locked = FALSE');
-      updates.push('pending_completion_notified = FALSE');
-      values.push('active');
-    } else if (status === 'pending') {
-      updates.push('status = ?');
-      updates.push('completed_at = NULL');
-      updates.push('terminated_at = NULL');
+      updates.push('termination_date = NULL');
       updates.push('status_expires_at = NULL');
       updates.push('pending_completed_at = NULL');
       updates.push('pending_auto_complete_at = NULL');
       updates.push('pending_identity_verified = FALSE');
       updates.push('pending_access_locked = FALSE');
       updates.push('pending_completion_notified = FALSE');
-      values.push('pending');
-    } else if (status === 'ready_for_review') {
+      values.push('PENDING_SETUP');
+    } else if (status === 'PREHIRE_OPEN') {
       updates.push('status = ?');
       updates.push('completed_at = NULL');
       updates.push('terminated_at = NULL');
+      updates.push('termination_date = NULL');
       updates.push('status_expires_at = NULL');
-      // Keep pending_completed_at if it was set
-      values.push('ready_for_review');
+      // Keep pending fields for tracking
+      values.push('PREHIRE_OPEN');
+    } else if (status === 'PREHIRE_REVIEW') {
+      updates.push('status = ?');
+      updates.push('pending_completed_at = ?');
+      // Keep other pending fields
+      values.push('PREHIRE_REVIEW', now);
+    } else if (status === 'ONBOARDING') {
+      updates.push('status = ?');
+      updates.push('completed_at = NULL');
+      updates.push('terminated_at = NULL');
+      updates.push('termination_date = NULL');
+      updates.push('status_expires_at = NULL');
+      // Clear pending fields when moving to onboarding
+      updates.push('pending_completed_at = NULL');
+      updates.push('pending_auto_complete_at = NULL');
+      updates.push('pending_identity_verified = FALSE');
+      updates.push('pending_access_locked = FALSE');
+      updates.push('pending_completion_notified = FALSE');
+      values.push('ONBOARDING');
+    } else {
+      // Fallback for any other status value
+      updates.push('status = ?');
+      values.push(status);
     }
 
     values.push(userId);
@@ -995,101 +1025,35 @@ class User {
     return this.findById(userId);
   }
 
-  // Auto-process terminated users: mark inactive after 7 days, archive after 14 days
+  // Auto-process terminated users: archive TERMINATED_PENDING users after 7 days
   static async processTerminatedUsers() {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
-    // Mark terminated users as inactive if terminated_at is 7+ days ago and still active
-    const [inactiveResult] = await pool.execute(
+    // Archive TERMINATED_PENDING users if termination_date is 7+ days ago
+    const [archiveResult] = await pool.execute(
       `UPDATE users 
-       SET is_active = FALSE 
-       WHERE status = 'terminated' 
-       AND terminated_at <= ? 
-       AND (is_active IS NULL OR is_active = TRUE)
+       SET status = 'ARCHIVED', is_archived = TRUE, archived_at = NOW() 
+       WHERE status = 'TERMINATED_PENDING' 
+       AND termination_date <= ? 
        AND (is_archived IS NULL OR is_archived = FALSE)`,
       [sevenDaysAgo]
     );
 
-    // Archive terminated users if terminated_at is 14+ days ago and not already archived
-    const [archiveResult] = await pool.execute(
-      `UPDATE users 
-       SET is_archived = TRUE, archived_at = NOW() 
-       WHERE status = 'terminated' 
-       AND terminated_at <= ? 
-       AND (is_archived IS NULL OR is_archived = FALSE)`,
-      [fourteenDaysAgo]
-    );
-
     return {
-      markedInactive: inactiveResult.affectedRows,
       archived: archiveResult.affectedRows
     };
   }
 
-  // Auto-process completed users: mark inactive after 7 days and add to approved employee list
+  // Auto-process completed users: This method is now deprecated with new status lifecycle
+  // Users are set to ACTIVE_EMPLOYEE when onboarding is complete, no processing needed
   static async processCompletedUsers() {
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    // Find completed users who completed 7+ days ago and are still active
-    const [completedUsers] = await pool.execute(
-      `SELECT u.id, u.email, u.first_name, u.last_name, ua.agency_id
-       FROM users u
-       INNER JOIN user_agencies ua ON u.id = ua.user_id
-       WHERE u.status = 'completed'
-       AND u.completed_at <= ?
-       AND (u.is_active IS NULL OR u.is_active = TRUE)
-       AND (u.is_archived IS NULL OR u.is_archived = FALSE)`,
-      [sevenDaysAgo]
-    );
-
-    let markedInactive = 0;
-    let addedToApproved = 0;
-
-    const ApprovedEmployee = (await import('./ApprovedEmployee.model.js')).default;
-    const Agency = (await import('./Agency.model.js')).default;
-    const bcrypt = (await import('bcrypt')).default;
-
-    for (const user of completedUsers) {
-      // Mark user as inactive
-      await pool.execute(
-        'UPDATE users SET is_active = FALSE WHERE id = ?',
-        [user.id]
-      );
-      markedInactive++;
-
-      // Check if email already exists in approved_employee_emails for this agency
-      const existing = await ApprovedEmployee.findByEmail(user.email, user.agency_id);
-      
-      if (!existing) {
-        // Get agency to check for company default password
-        const agency = await Agency.findById(user.agency_id);
-        let passwordHash = null;
-
-        if (agency && agency.company_default_password_hash) {
-          passwordHash = agency.company_default_password_hash;
-        } else {
-          // Generate a temporary password hash if no company default
-          const tempPassword = `temp_${user.id}_${Date.now()}`;
-          passwordHash = await bcrypt.hash(tempPassword, 10);
-        }
-
-        // Add to approved_employee_emails
-        await ApprovedEmployee.create({
-          email: user.email,
-          agencyId: user.agency_id,
-          requiresVerification: false,
-          passwordHash: passwordHash
-        });
-        addedToApproved++;
-      }
-    }
-
+    // With new status lifecycle, users are set to ACTIVE_EMPLOYEE directly
+    // No need to process "completed" status users anymore
+    // Keeping method for backward compatibility but it does nothing
     return {
-      markedInactive,
-      addedToApproved
+      markedInactive: 0,
+      addedToApproved: 0
     };
   }
 

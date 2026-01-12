@@ -129,8 +129,8 @@ export const checkPendingAccess = async (req, res, next) => {
     // Get full user details to check status
     const fullUser = await User.findById(req.user.id);
     
-    if (!fullUser || fullUser.status !== 'pending') {
-      // Not a pending user, allow access
+    if (!fullUser || fullUser.status !== 'PREHIRE_OPEN') {
+      // Not a pre-hire open user, allow access
       return next();
     }
     
@@ -141,7 +141,7 @@ export const checkPendingAccess = async (req, res, next) => {
       });
     }
     
-    // Pending users can only access specific routes
+    // PREHIRE_OPEN users can only access specific routes
     const allowedPaths = [
       '/api/users/me',
       '/api/users/onboarding-checklist',
@@ -174,6 +174,72 @@ export const checkPendingAccess = async (req, res, next) => {
     
     // For document access, we'll filter in the controller
     // For now, allow the request to proceed
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const requireActiveStatus = async (req, res, next) => {
+  try {
+    const { checkAccess, canLogin, isAccessExpired } = await import('../utils/accessControl.js');
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(401).json({ error: { message: 'User not found' } });
+    }
+    
+    // Check if user can login
+    if (!canLogin(user)) {
+      return res.status(403).json({ 
+        error: { message: 'Your account is not accessible. Please contact your administrator.' } 
+      });
+    }
+    
+    // Check if access has expired (for TERMINATED_PENDING users)
+    if (isAccessExpired(user)) {
+      return res.status(403).json({ 
+        error: { message: 'Your account access has expired. Please contact your administrator.' } 
+      });
+    }
+    
+    // Block ARCHIVED users from all routes
+    if (user.status === 'ARCHIVED') {
+      return res.status(403).json({ 
+        error: { message: 'Your account has been archived. Please contact your administrator.' } 
+      });
+    }
+    
+    // Block PENDING_SETUP users who haven't set password yet
+    if (user.status === 'PENDING_SETUP' && (!user.password_hash || user.password_hash === null)) {
+      return res.status(403).json({ 
+        error: { message: 'Please complete your account setup first.' } 
+      });
+    }
+    
+    // Check access permissions for the route
+    const access = checkAccess(user);
+    const requestPath = req.path;
+    
+    // Check if this is an on-demand training route
+    const isOnDemandRoute = requestPath.startsWith('/api/public-training') || 
+                            requestPath.startsWith('/api/modules') && req.query?.onDemand === 'true';
+    
+    // Allow on-demand routes for users with on-demand access
+    if (isOnDemandRoute && access.canAccessOnDemand) {
+      return next();
+    }
+    
+    // Block users without dashboard access from most routes
+    if (!access.canAccessDashboard && !isOnDemandRoute) {
+      return res.status(403).json({ 
+        error: { message: 'You do not have access to this resource based on your account status.' } 
+      });
+    }
+    
+    // Store access permissions in request for use in controllers
+    req.userAccess = access;
+    
     next();
   } catch (error) {
     next(error);

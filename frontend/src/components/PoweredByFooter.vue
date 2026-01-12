@@ -1,14 +1,15 @@
 <template>
-  <div v-if="showPoweredBy" class="powered-by-footer">
+  <div v-if="showPoweredBy && (platformOrgName || platformLogoUrl)" class="powered-by-footer">
     <div class="powered-by-content">
       <span class="powered-by-text">Platform powered by</span>
       <img
-        :src="plotTwistCoLogoUrl"
-        alt="PlotTwistCo"
+        v-if="platformLogoUrl"
+        :src="platformLogoUrl"
+        :alt="platformOrgName || 'Platform'"
         class="powered-by-logo"
         @error="handleLogoError"
       />
-      <span class="powered-by-name">PlotTwistCo</span>
+      <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
     </div>
   </div>
 </template>
@@ -22,18 +23,31 @@ const showPoweredBy = computed(() => brandingStore.showPoweredBy);
 
 // Get platform organization name and logo from branding store
 const platformOrgName = computed(() => {
-  return brandingStore.platformBranding?.organization_name || 'PlotTwistCo';
+  return brandingStore.platformBranding?.organization_name?.trim() || '';
 });
 
 const platformLogoUrl = computed(() => {
-  if (brandingStore.platformBranding?.organization_logo_path) {
-    return `/uploads/${brandingStore.platformBranding.organization_logo_path}`;
+  // Priority 1: Platform organization_logo_url (if set)
+  if (brandingStore.platformBranding?.organization_logo_url) {
+    return brandingStore.platformBranding.organization_logo_url;
   }
-  return brandingStore.plotTwistCoLogoUrl;
-});
-
-const plotTwistCoLogoUrl = computed(() => {
-  return brandingStore.plotTwistCoLogoUrl;
+  // Priority 2: Platform organization_logo_path (from icon library)
+  if (brandingStore.platformBranding?.organization_logo_path) {
+    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+    let iconPath = brandingStore.platformBranding.organization_logo_path;
+    if (iconPath.startsWith('/uploads/')) {
+      iconPath = iconPath.substring('/uploads/'.length);
+    } else if (iconPath.startsWith('/')) {
+      iconPath = iconPath.substring(1);
+    }
+    return `${apiBase}/uploads/${iconPath}`;
+  }
+  // Priority 3: Fallback to PlotTwistCo logo (only if organization name is set)
+  if (platformOrgName.value) {
+    return brandingStore.plotTwistCoLogoUrl;
+  }
+  return null;
 });
 
 const handleLogoError = (event) => {

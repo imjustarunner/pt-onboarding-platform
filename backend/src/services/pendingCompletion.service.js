@@ -72,8 +72,8 @@ class PendingCompletionService {
   static async processPendingCompletion(userId, isAutoComplete = false) {
     const user = await User.findById(userId);
     
-    if (!user || user.status !== 'pending') {
-      throw new Error('User is not in pending status');
+    if (!user || user.status !== 'PREHIRE_OPEN') {
+      throw new Error('User is not in PREHIRE_OPEN status');
     }
     
     // Verify all items are complete
@@ -86,11 +86,11 @@ class PendingCompletionService {
     
     // Update user status and lock access
     // Do NOT generate temporary password or new passwordless token
-    // Status changes to ready_for_review, admin will input work email and move to active
+    // Status changes to PREHIRE_REVIEW, admin will promote to ONBOARDING
+    await User.updateStatus(userId, 'PREHIRE_REVIEW', userId);
     await pool.execute(
       `UPDATE users 
-       SET status = 'ready_for_review',
-           pending_completed_at = ?,
+       SET pending_completed_at = ?,
            pending_access_locked = TRUE,
            passwordless_token = NULL,
            passwordless_token_expires_at = NULL
@@ -103,7 +103,7 @@ class PendingCompletionService {
     
     return {
       success: true,
-      status: 'ready_for_review',
+      status: 'PREHIRE_REVIEW',
       completedAt: now,
       isAutoComplete
     };
@@ -158,6 +158,47 @@ class PendingCompletionService {
       'UPDATE users SET pending_completion_notified = TRUE WHERE id = ?',
       [userId]
     );
+    
+    // Send email notification to user about PREHIRE_REVIEW status
+    try {
+      const EmailTemplateService = (await import('./emailTemplate.service.js')).default;
+      const config = (await import('../config/config.js')).default;
+      const Agency = (await import('../models/Agency.model.js')).default;
+      
+      // Get agency info for email
+      let agencyName = 'Your Agency';
+      let peopleOpsEmail = 'support@example.com';
+      if (userAgencies.length > 0) {
+        const agency = await Agency.findById(userAgencies[0].id);
+        if (agency) {
+          agencyName = agency.name;
+          peopleOpsEmail = agency.people_ops_email || peopleOpsEmail;
+        }
+      }
+      
+      // Try to get the pre_hire_review_waiting template
+      const template = await EmailTemplateService.getTemplateForAgency(
+        userAgencies.length > 0 ? userAgencies[0].id : null,
+        'pre_hire_review_waiting'
+      );
+      
+      if (template && template.body) {
+        const parameters = {
+          FIRST_NAME: user.first_name || '',
+          LAST_NAME: user.last_name || '',
+          AGENCY_NAME: agencyName,
+          PEOPLE_OPS_EMAIL: peopleOpsEmail
+        };
+        
+        const rendered = EmailTemplateService.renderTemplate(template, parameters);
+        // Note: Email sending would be handled by your email service
+        // This template is now available for use when sending notifications
+        console.log(`[PendingCompletion] PREHIRE_REVIEW email template ready for user ${userId}`);
+      }
+    } catch (emailErr) {
+      // Don't fail the notification if email template lookup fails
+      console.warn('Could not get pre_hire_review_waiting email template:', emailErr.message);
+    }
   }
 
   /**
@@ -165,7 +206,7 @@ class PendingCompletionService {
    */
   static async sendAutoCompleteNotification(userId) {
     const user = await User.findById(userId);
-    if (!user || user.status !== 'pending') return;
+    if (!user || user.status !== 'PREHIRE_OPEN') return;
     
     // Get last completion time
     const lastCompletion = await this.getLastCompletionTime(userId);
@@ -189,11 +230,11 @@ class PendingCompletionService {
    */
   static async checkAndAutoCompletePendingUsers() {
     try {
-      // Find all pending users
+      // Find all PREHIRE_OPEN users
       const [pendingUsers] = await pool.execute(
         `SELECT id, pending_completed_at, pending_auto_complete_at 
          FROM users 
-         WHERE status = 'pending' 
+         WHERE status = 'PREHIRE_OPEN' 
          AND pending_access_locked = FALSE`,
         []
       );

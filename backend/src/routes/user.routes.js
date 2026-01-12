@@ -1,5 +1,5 @@
 import express from 'express';
-import { getCurrentUser, getAllUsers, getUserById, updateUser, getUserAgencies, assignUserToAgency, removeUserFromAgency, generateInvitationToken, generateTemporaryPassword, resetPasswordlessToken, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges } from '../controllers/user.controller.js';
+import { getCurrentUser, getAllUsers, getUserById, updateUser, getUserAgencies, assignUserToAgency, removeUserFromAgency, generateInvitationToken, generateTemporaryPassword, resetPasswordlessToken, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee } from '../controllers/user.controller.js';
 import { getUserTrainingFocuses } from '../controllers/track.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 
@@ -31,6 +31,8 @@ router.get('/:id/training-focuses', authenticate, getUserTrainingFocuses);
 router.post('/:id/mark-complete', authenticate, requireAdmin, markUserComplete);
 router.post('/:id/mark-terminated', authenticate, requireAdmin, markUserTerminated);
 router.post('/:id/mark-active', authenticate, requireAdmin, markUserActive);
+router.post('/:id/promote-to-onboarding', authenticate, requireAdmin, promoteToOnboarding);
+router.post('/current-employee', authenticate, requireAdmin, createCurrentEmployee);
 router.post('/:id/deactivate', authenticate, requireAdmin, deactivateUser);
 router.post('/:id/archive', authenticate, requireAdmin, archiveUser);
 router.post('/:id/restore', authenticate, requireAdmin, restoreUser);

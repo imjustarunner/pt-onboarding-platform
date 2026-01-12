@@ -201,6 +201,23 @@ export const useBrandingStore = defineStore('branding', () => {
       return portalAgency.value.logoUrl;
     }
     if (isSuperAdmin.value) {
+      // Priority 1: Platform organization_logo_url (if set)
+      if (platformBranding.value?.organization_logo_url) {
+        return platformBranding.value.organization_logo_url;
+      }
+      // Priority 2: Platform organization_logo_path (from icon library)
+      if (platformBranding.value?.organization_logo_path) {
+        const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+        const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+        let iconPath = platformBranding.value.organization_logo_path;
+        if (iconPath.startsWith('/uploads/')) {
+          iconPath = iconPath.substring('/uploads/'.length);
+        } else if (iconPath.startsWith('/')) {
+          iconPath = iconPath.substring(1);
+        }
+        return `${apiBase}/uploads/${iconPath}`;
+      }
+      // Priority 3: Fallback to PlotTwistCo logo
       return plotTwistCoLogoUrl.value;
     }
     return agencyStore.currentAgency?.logo_url || null;
@@ -213,6 +230,23 @@ export const useBrandingStore = defineStore('branding', () => {
       return portalAgency.value.logoUrl;
     }
     if (isSuperAdmin.value) {
+      // Priority 1: Platform organization_logo_url (if set)
+      if (platformBranding.value?.organization_logo_url) {
+        return platformBranding.value.organization_logo_url;
+      }
+      // Priority 2: Platform organization_logo_path (from icon library)
+      if (platformBranding.value?.organization_logo_path) {
+        const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+        const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+        let iconPath = platformBranding.value.organization_logo_path;
+        if (iconPath.startsWith('/uploads/')) {
+          iconPath = iconPath.substring('/uploads/'.length);
+        } else if (iconPath.startsWith('/')) {
+          iconPath = iconPath.substring(1);
+        }
+        return `${apiBase}/uploads/${iconPath}`;
+      }
+      // Priority 3: Fallback to PlotTwistCo logo
       return plotTwistCoLogoUrl.value;
     }
     if (agencyStore.currentAgency?.logo_url) {

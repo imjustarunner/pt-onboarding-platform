@@ -220,26 +220,39 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Check if user is inactive
-    const isInactive = user.is_active === false || user.is_active === 0;
+    // Check user status and access using new lifecycle system
+    const { canLogin: canUserLogin, isAccessExpired } = await import('../utils/accessControl.js');
+    const userStatus = user.status || 'PENDING_SETUP';
     
-    // Simple status check: only block if explicitly terminated or completed+expired
-    // All other cases (active, NULL, or any errors) allow login
-    const userStatus = user.status || 'active';
-    
-    if (userStatus === 'terminated') {
+    // Block ARCHIVED users from login
+    if (userStatus === 'ARCHIVED') {
       return res.status(403).json({ 
-        error: { message: 'Account has been terminated. Please contact your administrator.' } 
+        error: { message: 'Account has been archived. Access denied.' } 
       });
     }
-
-    if (userStatus === 'completed' && user.status_expires_at) {
-      const expiresAt = new Date(user.status_expires_at);
-      if (expiresAt < new Date()) {
-        return res.status(403).json({ 
-          error: { message: 'Account access has expired. Please contact your administrator.' } 
-        });
-      }
+    
+    // Block PENDING_SETUP users who haven't set password yet
+    if (userStatus === 'PENDING_SETUP' && (!user.password_hash || user.password_hash === null)) {
+      return res.status(403).json({ 
+        error: { 
+          message: 'Please complete your account setup first. Use the passwordless login link sent to your email.',
+          requiresSetup: true
+        } 
+      });
+    }
+    
+    // Check if access has expired (for TERMINATED_PENDING users)
+    if (isAccessExpired(user)) {
+      return res.status(403).json({ 
+        error: { message: 'Account access has expired. Please contact your administrator.' } 
+      });
+    }
+    
+    // Check if user can login based on status
+    if (!canUserLogin(user)) {
+      return res.status(403).json({ 
+        error: { message: 'Account is not accessible. Please contact your administrator.' } 
+      });
     }
 
     // Verify password
@@ -326,7 +339,7 @@ export const login = async (req, res, next) => {
           // Get all user agencies and create notifications for each
           const agencies = await User.getAgencies(user.id);
           for (const agency of agencies) {
-            if (user.status === 'pending') {
+            if (user.status === 'PREHIRE_OPEN' || user.status === 'PENDING_SETUP') {
               NotificationService.createFirstLoginPendingNotification(user.id, agency.id).catch(err => {
                 console.error('Failed to create first login pending notification:', err);
               });
@@ -342,7 +355,7 @@ export const login = async (req, res, next) => {
           if (agencyId) {
             try {
               const NotificationService = (await import('../services/notification.service.js')).default;
-              if (user.status === 'pending') {
+              if (user.status === 'PREHIRE_OPEN' || user.status === 'PENDING_SETUP') {
                 NotificationService.createFirstLoginPendingNotification(user.id, agencyId).catch(err => {
                   console.error('Failed to create first login pending notification:', err);
                 });
@@ -527,8 +540,8 @@ export const passwordlessTokenLogin = async (req, res, next) => {
       });
     }
 
-    // For pending users, ALWAYS require last name verification for security
-    if (user.status === 'pending') {
+    // For PREHIRE_OPEN users, ALWAYS require last name verification for security
+    if (user.status === 'PREHIRE_OPEN' || user.status === 'PENDING_SETUP') {
       if (!lastName) {
         return res.status(400).json({ 
           error: { 
@@ -554,15 +567,21 @@ export const passwordlessTokenLogin = async (req, res, next) => {
       }
     }
 
-    // Check if user is inactive (but allow pending users)
+    // Check user status and access
     const fullUser = await User.findById(user.id);
     if (!fullUser) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
     
-    // For non-pending users, check if inactive
-    if (fullUser.status !== 'pending' && fullUser.status !== 'ready_for_review' && (fullUser.is_active === false || fullUser.is_active === 0)) {
-      return res.status(403).json({ error: { message: 'Account is inactive' } });
+    // Block ARCHIVED users
+    if (fullUser.status === 'ARCHIVED') {
+      return res.status(403).json({ error: { message: 'Account has been archived. Access denied.' } });
+    }
+    
+    // Check access expiration for TERMINATED_PENDING users
+    const { isAccessExpired } = await import('../utils/accessControl.js');
+    if (isAccessExpired(fullUser)) {
+      return res.status(403).json({ error: { message: 'Account access has expired. Please contact your administrator.' } });
     }
 
     // Generate session ID
@@ -882,6 +901,12 @@ export const initialSetup = async (req, res, next) => {
     // Set password
     await User.changePassword(user.id, password);
 
+    // Update status from PENDING_SETUP to PREHIRE_OPEN when password is first set
+    if (user.status === 'PENDING_SETUP') {
+      await User.updateStatus(user.id, 'PREHIRE_OPEN', user.id);
+      console.log(`[initialSetup] User ${user.id} status updated from PENDING_SETUP to PREHIRE_OPEN`);
+    }
+
     // Mark token as used (single-use token)
     await User.markTokenAsUsed(user.id);
 
@@ -911,7 +936,7 @@ export const initialSetup = async (req, res, next) => {
         email: user.username || user.email,
         role: user.role,
         loginType: 'passwordless_initial_setup',
-        isPending: user.status === 'pending'
+        isPending: user.status === 'PREHIRE_OPEN' || user.status === 'PENDING_SETUP'
       }
     }, req);
 
@@ -1066,18 +1091,18 @@ export const register = async (req, res, next) => {
       console.warn('⚠️  Attempted to create user with superadmin email - forcing super_admin role');
     }
     
-    // For pending users: NO temporary password, only passwordless token
-    // Create user without password (pending users use passwordless access only)
+    // For PENDING_SETUP users: NO temporary password, only passwordless token
+    // Create user without password (PENDING_SETUP users use passwordless access only)
     // Email is set to personalEmail initially (username will also be personalEmail)
     const user = await User.create({
       email: personalEmail, // Set email to personalEmail initially (for login compatibility)
-      passwordHash: null, // No password for pending users - they'll set it via initial setup
+      passwordHash: null, // No password for PENDING_SETUP users - they'll set it via initial setup
       firstName,
       lastName,
       phoneNumber,
       personalEmail: personalEmail, // Required - this is the personal email
       role: finalRole,
-      status: 'pending' // New users start in pending status for pre-hire process
+      status: 'PENDING_SETUP' // New users start in PENDING_SETUP status
     });
     
     // Do NOT set temporary password for pending users

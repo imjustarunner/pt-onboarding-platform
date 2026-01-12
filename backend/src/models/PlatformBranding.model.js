@@ -275,7 +275,10 @@ class PlatformBranding {
       viewAllProgressIconId,
       progressDashboardIconId,
       settingsIconId,
-      allAgenciesNotificationsIconId
+      allAgenciesNotificationsIconId,
+      organizationName,
+      organizationLogoIconId,
+      organizationLogoUrl
     } = brandingData;
 
     // Check if branding exists
@@ -461,6 +464,43 @@ class PlatformBranding {
         console.warn('PlatformBranding.update: Dashboard icon columns do not exist. Migration 047 may not have run.');
       }
       
+      // Check if organization fields exist
+      let hasOrgFields = false;
+      try {
+        const [orgColumns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'organization_name'"
+        );
+        hasOrgFields = orgColumns.length > 0;
+      } catch (e) {
+        hasOrgFields = false;
+      }
+      
+      if (hasOrgFields) {
+        if (organizationName !== undefined) {
+          updates.push('organization_name = ?');
+          values.push(organizationName?.trim() || null);
+          console.log('PlatformBranding.update: Setting organization_name to:', organizationName?.trim() || null);
+        }
+        if (organizationLogoIconId !== undefined) {
+          updates.push('organization_logo_icon_id = ?');
+          values.push(organizationLogoIconId || null);
+          console.log('PlatformBranding.update: Setting organization_logo_icon_id to:', organizationLogoIconId || null);
+        }
+        // Check if organization_logo_url column exists
+        try {
+          const [logoUrlColumns] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'organization_logo_url'"
+          );
+          if (logoUrlColumns.length > 0 && organizationLogoUrl !== undefined) {
+            updates.push('organization_logo_url = ?');
+            values.push(organizationLogoUrl?.trim() || null);
+            console.log('PlatformBranding.update: Setting organization_logo_url to:', organizationLogoUrl?.trim() || null);
+          }
+        } catch (e) {
+          console.warn('PlatformBranding.update: Error checking for organization_logo_url column:', e.message);
+        }
+      }
+      
       updates.push('updated_by_user_id = ?');
       values.push(userId);
       values.push(existing.id);
@@ -579,6 +619,38 @@ class PlatformBranding {
           if (notificationsIconColumns.length > 0) {
             insertFields.push('all_agencies_notifications_icon_id');
             insertValues.push(allAgenciesNotificationsIconId || null);
+          }
+        } catch (e) {
+          // Column doesn't exist, skip
+        }
+      }
+      
+      // Check if organization fields exist for INSERT
+      let hasOrgFieldsForInsert = false;
+      try {
+        const [orgColumns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'organization_name'"
+        );
+        hasOrgFieldsForInsert = orgColumns.length > 0;
+      } catch (e) {
+        hasOrgFieldsForInsert = false;
+      }
+      
+      if (hasOrgFieldsForInsert) {
+        insertFields.push('organization_name');
+        insertValues.push(organizationName?.trim() || null);
+        
+        insertFields.push('organization_logo_icon_id');
+        insertValues.push(organizationLogoIconId || null);
+        
+        // Check if organization_logo_url column exists
+        try {
+          const [logoUrlColumns] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'organization_logo_url'"
+          );
+          if (logoUrlColumns.length > 0) {
+            insertFields.push('organization_logo_url');
+            insertValues.push(organizationLogoUrl?.trim() || null);
           }
         } catch (e) {
           // Column doesn't exist, skip

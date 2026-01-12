@@ -278,6 +278,32 @@ export const assignPackage = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Onboarding package not found' } });
     }
 
+    const packageType = pkg.package_type || 'onboarding';
+    const User = (await import('../models/User.model.js')).default;
+
+    // Update user statuses based on package type before assigning
+    for (const userId of userIds) {
+      const user = await User.findById(parseInt(userId));
+      if (!user) continue;
+
+      // Check package type and update status accordingly
+      if (packageType === 'pre_hire' && user.status === 'PENDING_SETUP') {
+        // Pre-hire package assigned to PENDING_SETUP user → move to PREHIRE_OPEN
+        await User.updateStatus(parseInt(userId), 'PREHIRE_OPEN', assignedByUserId);
+        console.log(`User ${userId} status updated from PENDING_SETUP to PREHIRE_OPEN (pre-hire package assigned)`);
+      } else if (packageType === 'onboarding' && user.status === 'PREHIRE_REVIEW') {
+        // Onboarding package assigned to PREHIRE_REVIEW user → move to ONBOARDING
+        await User.updateStatus(parseInt(userId), 'ONBOARDING', assignedByUserId);
+        console.log(`User ${userId} status updated from PREHIRE_REVIEW to ONBOARDING (onboarding package assigned)`);
+      } else if (packageType === 'training' && user.status === 'ACTIVE_EMPLOYEE') {
+        // Training package assigned to ACTIVE_EMPLOYEE → no status change, just assign
+        console.log(`Training package assigned to ACTIVE_EMPLOYEE ${userId} - no status change`);
+      } else if (packageType === 'other') {
+        // Other package type → no status change
+        console.log(`Other package type assigned to user ${userId} - no status change`);
+      }
+    }
+
     const trainingFocuses = await OnboardingPackage.getTrainingFocuses(id);
     const modules = await OnboardingPackage.getModules(id);
     const documents = await OnboardingPackage.getDocuments(id);

@@ -262,6 +262,42 @@ export const archiveUser = async (req, res, next) => {
       }
     }
     
+    // Archive user - this will immediately set status to ARCHIVED
+    const archived = await User.archive(parseInt(id), req.user.id, archivedByAgencyId);
+    
+    if (!archived) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    const user = await User.findById(parseInt(id));
+    
+    res.json({ 
+      message: 'User archived successfully. Access revoked immediately.',
+      user
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const archiveUserOld = async (req, res, next) => {
+  try {
+    // Support users cannot archive users
+    if (req.user.role === 'support') {
+      return res.status(403).json({ error: { message: 'Support users cannot archive users' } });
+    }
+    
+    const { id } = req.params;
+    
+    // Get user's agency ID (use first agency for admins, null for super_admin)
+    let archivedByAgencyId = null;
+    if (req.user.role !== 'super_admin' && req.user.id) {
+      const userAgencies = await User.getAgencies(req.user.id);
+      if (userAgencies.length > 0) {
+        archivedByAgencyId = userAgencies[0].id;
+      }
+    }
+    
     const archived = await User.archive(parseInt(id), req.user.id, archivedByAgencyId);
     
     if (!archived) {
@@ -1178,14 +1214,14 @@ export const markUserComplete = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
     
-    // Admins can mark pending, ready_for_review, or active users as completed
-    // If pending or ready_for_review, we'll move them through the flow automatically
-    if (user.status === 'pending' || user.status === 'ready_for_review') {
-      // For pending users, first move to ready_for_review, then to active, then to completed
-      // For ready_for_review users, move to active, then to completed
+    // Admins can mark PREHIRE_OPEN, PREHIRE_REVIEW, ONBOARDING, or ACTIVE_EMPLOYEE users as ACTIVE_EMPLOYEE
+    // If in earlier statuses, we'll move them through the flow automatically
+    if (user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW') {
+      // For PREHIRE_OPEN users, first move to PREHIRE_REVIEW, then to ONBOARDING, then to ACTIVE_EMPLOYEE
+      // For PREHIRE_REVIEW users, move to ONBOARDING, then to ACTIVE_EMPLOYEE
       
-      // If pending, we need to complete the pending process first
-      if (user.status === 'pending') {
+      // If PREHIRE_OPEN, we need to complete the pre-hire process first
+      if (user.status === 'PREHIRE_OPEN') {
         // Check if all items are complete
         const PendingCompletionService = (await import('../services/pendingCompletion.service.js')).default;
         const completionCheck = await PendingCompletionService.checkAllChecklistItemsComplete(parseInt(id));
@@ -1198,52 +1234,48 @@ export const markUserComplete = async (req, res, next) => {
           });
         }
         
-        // Mark pending as complete (sets to ready_for_review)
+        // Mark pre-hire as complete (sets to PREHIRE_REVIEW)
         await PendingCompletionService.processPendingCompletion(parseInt(id), false);
       }
       
-      // Now move ready_for_review to active (requires work email)
-      // For admin-initiated completion, we'll use a default work email pattern or require it
+      // Now move PREHIRE_REVIEW to ONBOARDING (requires onboarding package assignment)
+      // For admin-initiated completion, we'll skip to ACTIVE_EMPLOYEE if work email is set
       const workEmail = user.work_email || user.email;
       if (!workEmail) {
         return res.status(400).json({ 
           error: { 
-            message: 'Work email is required to activate this user. Please use "Move to Active" to set the work email first.',
+            message: 'Work email is required. Please set the work email first.',
             requiresWorkEmail: true
           } 
         });
       }
       
-      // Move to active first
-      await User.setWorkEmail(parseInt(id), workEmail);
-      const pool = (await import('../config/database.js')).default;
-      await pool.execute('UPDATE users SET email = ? WHERE id = ?', [workEmail, parseInt(id)]);
+      // Set work email if not already set
+      if (!user.work_email) {
+        await User.setWorkEmail(parseInt(id), workEmail);
+        const pool = (await import('../config/database.js')).default;
+        await pool.execute('UPDATE users SET email = ? WHERE id = ?', [workEmail, parseInt(id)]);
+      }
       
-      // Generate temporary password and credentials
-      const bcrypt = (await import('bcrypt')).default;
-      const tempPassword = await User.generateTemporaryPassword();
-      const tempPasswordHash = await bcrypt.hash(tempPassword, 10);
-      await User.setTemporaryPassword(parseInt(id), tempPassword, 48);
-      await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [tempPasswordHash, parseInt(id)]);
-      await User.generatePasswordlessToken(parseInt(id), 48);
-      
-      // Update status to active
-      await User.updateStatus(parseInt(id), 'active', req.user.id);
+      // Move through ONBOARDING to ACTIVE_EMPLOYEE
+      // First set to ONBOARDING if in PREHIRE_REVIEW
+      if (user.status === 'PREHIRE_REVIEW') {
+        await User.updateStatus(parseInt(id), 'ONBOARDING', req.user.id);
+      }
     }
     
-    // Now mark as completed (user should be active at this point)
+    // Now mark as ACTIVE_EMPLOYEE (user should be in ONBOARDING or ACTIVE_EMPLOYEE at this point)
     const currentUser = await User.findById(id);
-    if (currentUser.status !== 'active') {
+    if (currentUser.status !== 'ONBOARDING' && currentUser.status !== 'ACTIVE_EMPLOYEE') {
       return res.status(400).json({ 
         error: { 
-          message: `User is in ${currentUser.status} status. Cannot mark as completed.`,
+          message: `User is in ${currentUser.status} status. Cannot mark as active employee. User must be in ONBOARDING status.`,
           currentStatus: currentUser.status
         } 
       });
     }
     
-    const bcrypt = (await import('bcrypt')).default;
-    const updatedUser = await User.updateStatus(id, 'completed', req.user.id);
+    const updatedUser = await User.updateStatus(id, 'ACTIVE_EMPLOYEE', req.user.id);
     if (!updatedUser) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
@@ -1260,9 +1292,135 @@ export const markUserComplete = async (req, res, next) => {
     }
     
     res.json({
-      message: 'User marked as completed',
-      user,
-      expiresAt: user.status_expires_at
+      message: 'User marked as active employee',
+      user: updatedUser
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const promoteToOnboarding = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    
+    // Only admins/super_admins can promote users
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+    
+    // Verify user exists
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+    
+    // Validate user is in PREHIRE_REVIEW status
+    if (user.status !== 'PREHIRE_REVIEW') {
+      return res.status(400).json({ 
+        error: { 
+          message: `User is in ${user.status} status. Can only promote users from PREHIRE_REVIEW status.`,
+          currentStatus: user.status
+        } 
+      });
+    }
+    
+    // Update status to ONBOARDING
+    const updatedUser = await User.updateStatus(id, 'ONBOARDING', req.user.id);
+    if (!updatedUser) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+    
+    // Note: Package assignment should be done separately via package assignment endpoint
+    // The status change will be triggered when an onboarding package is assigned
+    
+    res.json({
+      message: 'User promoted to onboarding status',
+      user: updatedUser
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createCurrentEmployee = async (req, res, next) => {
+  try {
+    // Only admins/super_admins can create current employees
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const { firstName, lastName, workEmail, agencyId, role } = req.body;
+
+    // Validate required fields
+    if (!firstName || !lastName || !workEmail || !agencyId) {
+      return res.status(400).json({ 
+        error: { message: 'First name, last name, work email, and agency ID are required' } 
+      });
+    }
+
+    // Check if user with this work email already exists
+    const existingUser = await User.findByWorkEmail(workEmail.trim());
+    if (existingUser) {
+      return res.status(400).json({ 
+        error: { message: 'A user with this work email already exists' } 
+      });
+    }
+
+    // Check if email exists in users table
+    const existingEmail = await User.findByEmail(workEmail.trim());
+    if (existingEmail) {
+      return res.status(400).json({ 
+        error: { message: 'A user with this email already exists' } 
+      });
+    }
+
+    const pool = (await import('../config/database.js')).default;
+    const bcrypt = (await import('bcrypt')).default;
+
+    // Create user directly in ACTIVE_EMPLOYEE status (skips PENDING_SETUP, PREHIRE_OPEN, PREHIRE_REVIEW, ONBOARDING)
+    const finalRole = role || 'clinician';
+    
+    // Create user with work email as username and email
+    const user = await User.create({
+      email: workEmail.trim(),
+      passwordHash: null, // Will be set via passwordless token
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      personalEmail: null, // Current employees don't need personal email
+      role: finalRole,
+      status: 'ACTIVE_EMPLOYEE' // Skip all earlier statuses
+    });
+
+    // Set work email
+    await User.setWorkEmail(user.id, workEmail.trim());
+    await pool.execute('UPDATE users SET email = ?, username = ? WHERE id = ?', [workEmail.trim(), workEmail.trim(), user.id]);
+
+    // Assign to agency
+    await User.assignToAgency(user.id, parseInt(agencyId));
+
+    // Generate passwordless token for password setup (48 hours expiration)
+    const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 48);
+    const passwordlessTokenLink = `${(await import('../config/config.js')).default.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
+
+    // Get agency info for response
+    const Agency = (await import('../models/Agency.model.js')).default;
+    const agency = await Agency.findById(parseInt(agencyId));
+
+    res.status(201).json({
+      message: 'Current employee created successfully',
+      user: {
+        id: user.id,
+        email: workEmail.trim(),
+        username: workEmail.trim(),
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role,
+        status: user.status
+      },
+      passwordlessToken: passwordlessTokenResult.token,
+      passwordlessTokenLink: passwordlessTokenLink,
+      agencyName: agency?.name || 'Unknown'
     });
   } catch (error) {
     next(error);
@@ -1278,15 +1436,31 @@ export const markUserTerminated = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
     
-    const user = await User.updateStatus(id, 'terminated', req.user.id);
+    // Set status to TERMINATED_PENDING with termination_date
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+    
+    const pool = (await import('../config/database.js')).default;
+    await pool.execute(
+      `UPDATE users 
+       SET status = 'TERMINATED_PENDING',
+           terminated_at = ?,
+           termination_date = ?,
+           status_expires_at = ?
+       WHERE id = ?`,
+      [now, now, expiresAt, id]
+    );
+    
+    const user = await User.findById(id);
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
     
     res.json({
-      message: 'User marked as terminated',
+      message: 'User marked as terminated. Access will expire in 7 days.',
       user,
-      expiresAt: user.status_expires_at
+      expiresAt: user.status_expires_at,
+      terminationDate: user.termination_date
     });
   } catch (error) {
     next(error);

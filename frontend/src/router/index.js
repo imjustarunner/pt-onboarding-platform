@@ -207,8 +207,13 @@ router.beforeEach((to, from, next) => {
     // Redirect to appropriate dashboard based on user role
     next(getDashboardRoute());
   } else if (to.meta.requiresApprovedEmployee) {
-    // Only approved employees can access on-demand training
-    if (authStore.user?.type === 'approved_employee') {
+    // Approved employees and ACTIVE_EMPLOYEE/TERMINATED_PENDING users can access on-demand training
+    const canAccessOnDemand = authStore.user?.type === 'approved_employee' || 
+                              authStore.user?.status === 'ACTIVE_EMPLOYEE' || 
+                              authStore.user?.status === 'TERMINATED_PENDING' ||
+                              authStore.user?.status === 'active' ||
+                              authStore.user?.status === 'completed';
+    if (canAccessOnDemand) {
       next();
     } else {
       // Redirect to appropriate dashboard
@@ -245,6 +250,12 @@ router.beforeEach((to, from, next) => {
       next();
     }
   } else {
+    // Block ARCHIVED users from all routes
+    if (authStore.user?.status === 'ARCHIVED') {
+      next('/login');
+      return;
+    }
+    
     // Block regular routes for approved employees - they should only access on-demand training
     if (authStore.user?.type === 'approved_employee' && to.path !== '/on-demand-training' && !to.path.startsWith('/on-demand-training/')) {
       next('/on-demand-training');

@@ -3,7 +3,7 @@
     <h1>{{ isPending ? 'Pre-Hire Checklist' : 'My Training Dashboard' }}</h1>
     
     <!-- Pending Completion Button -->
-    <div v-if="isPending && pendingCompletionStatus?.allComplete && !pendingCompletionStatus?.accessLocked && userStatus === 'pending'" class="pending-completion-banner">
+    <div v-if="isPending && pendingCompletionStatus?.allComplete && !pendingCompletionStatus?.accessLocked && (userStatus === 'PREHIRE_OPEN' || userStatus === 'pending')" class="pending-completion-banner">
       <div class="completion-content">
         <strong>✓ All Items Complete</strong>
         <p>You have completed all required pre-hire tasks. Mark the hiring process as complete when you're ready.</p>
@@ -12,7 +12,7 @@
     </div>
     
     <!-- Ready for Review Banner -->
-    <div v-if="userStatus === 'ready_for_review'" class="ready-for-review-banner">
+    <div v-if="userStatus === 'PREHIRE_REVIEW' || userStatus === 'ready_for_review'" class="ready-for-review-banner">
       <div class="review-content">
         <strong>✓ Pre-Hire Process Complete</strong>
         <p>You have completed all required pre-hire tasks. Your account is now ready for review by your administrator. You will be notified when your account is activated.</p>
@@ -20,8 +20,16 @@
       </div>
     </div>
     
-    <!-- Status Warning Banner -->
-    <div v-if="userStatus === 'completed' && daysRemaining !== null" class="status-warning-banner">
+    <!-- Onboarding Status Banner -->
+    <div v-if="userStatus === 'ONBOARDING'" class="onboarding-banner">
+      <div class="onboarding-content">
+        <strong>📚 Onboarding in Progress</strong>
+        <p>You are currently completing your onboarding training. Continue working through your assigned modules and documents.</p>
+      </div>
+    </div>
+    
+    <!-- Status Warning Banner (for legacy completed status) -->
+    <div v-if="(userStatus === 'ACTIVE_EMPLOYEE' || userStatus === 'completed') && daysRemaining !== null" class="status-warning-banner">
       <div class="warning-content">
         <strong>⚠️ Onboarding Complete</strong>
         <p v-if="daysRemaining > 0">
@@ -121,10 +129,13 @@ const tabs = computed(() => [
 ]);
 
 const filteredTabs = computed(() => {
-  if (isPending.value) {
-    // Pending users only see checklist and documents
+  // PREHIRE_OPEN, PREHIRE_REVIEW, and ONBOARDING users see limited tabs
+  if (isPending.value || userStatus.value === 'PREHIRE_REVIEW' || userStatus.value === 'ONBOARDING' || 
+      userStatus.value === 'ready_for_review') {
+    // Pre-hire and onboarding users only see checklist and documents (no training tab)
     return tabs.value.filter(tab => tab.id !== 'training');
   }
+  // ACTIVE_EMPLOYEE and TERMINATED_PENDING users see all tabs
   return tabs.value;
 });
 
@@ -150,18 +161,18 @@ const fetchOnboardingStatus = async () => {
         api.get(`/users/${userId}`)
       ]);
       onboardingCompletion.value = checklistResponse.data.completionPercentage || 100;
-      userStatus.value = userResponse.data.status || 'active';
-      isPending.value = userStatus.value === 'pending';
+      userStatus.value = userResponse.data.status || 'ACTIVE_EMPLOYEE';
+      isPending.value = userStatus.value === 'PREHIRE_OPEN' || userStatus.value === 'PENDING_SETUP' || userStatus.value === 'pending';
       
-      // Fetch pending completion status if user is pending or ready_for_review
-      if (isPending.value || userStatus.value === 'ready_for_review') {
+      // Fetch pending completion status if user is in pre-hire status
+      if (isPending.value || userStatus.value === 'PREHIRE_REVIEW' || userStatus.value === 'ready_for_review') {
         try {
           const statusResponse = await api.get(`/users/${userId}/pending/status`);
           pendingCompletionStatus.value = statusResponse.data;
         } catch (err) {
           console.error('Error fetching pending completion status:', err);
-          // If user is ready_for_review, set accessLocked to true
-          if (userStatus.value === 'ready_for_review') {
+          // If user is PREHIRE_REVIEW, set accessLocked to true
+          if (userStatus.value === 'PREHIRE_REVIEW' || userStatus.value === 'ready_for_review') {
             pendingCompletionStatus.value = { accessLocked: true, allComplete: true };
           }
         }
