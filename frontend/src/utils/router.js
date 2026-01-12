@@ -10,8 +10,12 @@ export function getDashboardRoute() {
   const user = authStore.user;
   
   if (!user) {
+    console.warn('getDashboardRoute: No user found, defaulting to /dashboard');
     return '/dashboard'; // Default fallback
   }
+  
+  // Debug logging
+  console.log('getDashboardRoute - User role:', user.role, 'Type:', user.type, 'Status:', user.status);
   
   // Approved employees go to on-demand training
   if (user.type === 'approved_employee') {
@@ -19,12 +23,16 @@ export function getDashboardRoute() {
   }
   
   // Admins, super admins, support, supervisors, and CPAs go to admin dashboard
-  if (user.role === 'admin' || user.role === 'super_admin' || user.role === 'support' || 
-      isSupervisor(user) || user.role === 'clinical_practice_assistant') {
+  // Check role with case-insensitive comparison and handle variations
+  const userRole = user.role?.toLowerCase();
+  if (userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin' || 
+      user.role === 'support' || isSupervisor(user) || user.role === 'clinical_practice_assistant') {
+    console.log('getDashboardRoute: Routing to /admin for role:', user.role);
     return '/admin';
   }
   
   // Regular users go to regular dashboard
+  console.log('getDashboardRoute: Routing to /dashboard for role:', user.role);
   return '/dashboard';
 }
 

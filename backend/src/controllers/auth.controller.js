@@ -366,8 +366,10 @@ export const login = async (req, res, next) => {
         id: user.id,
         email: user.email,
         role: user.role,
+        status: user.status,
         firstName: user.first_name,
-        lastName: user.last_name
+        lastName: user.last_name,
+        username: user.username || user.email
       },
       sessionId
     };
