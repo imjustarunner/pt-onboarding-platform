@@ -43,6 +43,7 @@ import brandingTemplateRoutes from './routes/brandingTemplate.routes.js';
 import fontRoutes from './routes/font.routes.js';
 import activityLogRoutes from './routes/activityLog.routes.js';
 import supervisorAssignmentRoutes from './routes/supervisorAssignment.routes.js';
+import healthCheckRoutes from './routes/healthCheck.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -192,6 +193,7 @@ app.use('/api/branding-templates', brandingTemplateRoutes);
 app.use('/api/fonts', fontRoutes);
 app.use('/api/activity-log', activityLogRoutes);
 app.use('/api/supervisor-assignments', supervisorAssignmentRoutes);
+app.use('/api/health-check', healthCheckRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
