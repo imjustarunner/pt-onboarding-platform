@@ -354,6 +354,32 @@
               </div>
               
               <div class="form-group">
+                <label class="toggle-label">
+                  <span>Create as Current Employee (Active User)</span>
+                  <div class="toggle-switch">
+                    <input 
+                      type="checkbox" 
+                      v-model="userForm.createAsCurrentEmployee"
+                      id="create-current-employee-toggle"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+                <small class="form-help">Creates user directly as ACTIVE_EMPLOYEE, bypassing pre-hire and onboarding. Use for admins and current employees.</small>
+              </div>
+              
+              <div v-if="userForm.createAsCurrentEmployee" class="form-group">
+                <label>Work Email *</label>
+                <input
+                  v-model="userForm.workEmail"
+                  type="email"
+                  required
+                  placeholder="employee@company.com"
+                />
+                <small class="form-help">Required for current employees. This will be their username and login email.</small>
+              </div>
+              
+              <div v-if="!userForm.createAsCurrentEmployee" class="form-group">
                 <label>Assign Onboarding Package (Optional)</label>
                 <select v-model="userForm.onboardingPackageId" class="form-select">
                   <option value="">No package (assign later)</option>
@@ -364,7 +390,7 @@
                 <small class="form-help">Select an onboarding package to automatically assign training focuses, modules, and documents</small>
               </div>
               
-              <div v-if="userForm.onboardingPackageId && selectedPackage" class="package-preview">
+              <div v-if="userForm.onboardingPackageId && selectedPackage && !userForm.createAsCurrentEmployee" class="package-preview">
                 <h4>Package Preview:</h4>
                 <p><strong>{{ selectedPackage.name }}</strong></p>
                 <p v-if="selectedPackage.description">{{ selectedPackage.description }}</p>
@@ -387,10 +413,10 @@
                 <button 
                   type="submit" 
                   class="btn btn-primary" 
-                  :disabled="saving || userForm.agencyIds.length === 0"
-                  :title="userForm.agencyIds.length === 0 ? 'Please select at least one agency' : ''"
+                  :disabled="saving || userForm.agencyIds.length === 0 || (userForm.createAsCurrentEmployee && !userForm.workEmail)"
+                  :title="userForm.agencyIds.length === 0 ? 'Please select at least one agency' : (userForm.createAsCurrentEmployee && !userForm.workEmail ? 'Work email is required for current employees' : '')"
                 >
-                  {{ saving ? 'Creating...' : 'Create User' }}
+                  {{ saving ? 'Creating...' : (userForm.createAsCurrentEmployee ? 'Create Current Employee' : 'Create User') }}
                 </button>
               </div>
               <div v-if="userForm.agencyIds.length === 0" class="form-error" style="margin-top: 10px; color: #dc3545;">
@@ -718,6 +744,7 @@ const selectedPackage = ref(null);
 const userForm = ref({
   email: '',
   personalEmail: '',
+  workEmail: '',
   password: '',
   firstName: '',
   lastName: '',
@@ -728,7 +755,8 @@ const userForm = ref({
   role: 'clinician',
   hasSupervisorPrivileges: false,
   agencyIds: [],
-  onboardingPackageId: ''
+  onboardingPackageId: '',
+  createAsCurrentEmployee: false
 });
 
 const showCredentialsModal = ref(false);
@@ -880,101 +908,143 @@ const saveUser = async () => {
       closeModal();
       fetchUsers();
     } else {
-      // Create user (password is auto-generated, not sent)
-      createData = {
-        lastName: userForm.value.lastName?.trim() || '',
-        role: userForm.value.role || 'clinician',
-        agencyIds: userForm.value.agencyIds && userForm.value.agencyIds.length > 0 
-          ? userForm.value.agencyIds.map(id => parseInt(id)).filter(id => !isNaN(id))
-          : []
-      };
-      
-      // Only include firstName if it has a value
-      if (userForm.value.firstName && userForm.value.firstName.trim()) {
-        createData.firstName = userForm.value.firstName.trim();
-      }
-      
-      // Only include phoneNumber if it has a value (for backward compatibility)
-      if (userForm.value.phoneNumber && userForm.value.phoneNumber.trim()) {
-        createData.phoneNumber = userForm.value.phoneNumber.trim();
-      }
-      
-      // Include new phone fields if they have values
-      if (userForm.value.personalPhone && userForm.value.personalPhone.trim()) {
-        createData.personalPhone = userForm.value.personalPhone.trim();
-      }
-      if (userForm.value.workPhone && userForm.value.workPhone.trim()) {
-        createData.workPhone = userForm.value.workPhone.trim();
-      }
-      if (userForm.value.workPhoneExtension && userForm.value.workPhoneExtension.trim()) {
-        createData.workPhoneExtension = userForm.value.workPhoneExtension.trim();
-      }
-      
-      // Include supervisor privileges if user has eligible role
-      if (userForm.value.role === 'admin' || userForm.value.role === 'super_admin' || userForm.value.role === 'clinical_practice_assistant') {
-        createData.hasSupervisorPrivileges = Boolean(userForm.value.hasSupervisorPrivileges);
-      }
-      
-      // Only include email fields if they have values
-      if (userForm.value.email && userForm.value.email.trim()) {
-        createData.email = userForm.value.email.trim();
-      }
-      if (userForm.value.personalEmail && userForm.value.personalEmail.trim()) {
-        createData.personalEmail = userForm.value.personalEmail.trim();
-      }
-      
-      console.log('Creating user with data:', createData);
-      console.log('Form values:', {
-        lastName: userForm.value.lastName,
-        role: userForm.value.role,
-        agencyIds: userForm.value.agencyIds,
-        firstName: userForm.value.firstName
-      });
-      // Store pending user data in case we need to retry after duplicate check
-      pendingUserData.value = createData;
-      const response = await api.post('/auth/register', createData);
-      const newUserId = response.data.user.id;
-      
-      // Assign onboarding package if selected
-      if (userForm.value.onboardingPackageId && userForm.value.agencyIds.length > 0) {
-        try {
-          // Use the first selected agency for package assignment
-          const primaryAgencyId = parseInt(userForm.value.agencyIds[0]);
-          const packageId = parseInt(userForm.value.onboardingPackageId);
-          
-          if (isNaN(primaryAgencyId) || isNaN(packageId) || isNaN(newUserId)) {
-            throw new Error('Invalid ID format');
-          }
-          
-          const assignData = {
-            userIds: [parseInt(newUserId)],
-            agencyId: primaryAgencyId
-          };
-          
-          console.log('Assigning package:', { packageId, assignData });
-          await api.post(`/onboarding-packages/${packageId}/assign`, assignData);
-          console.log('Package assigned successfully');
-        } catch (pkgErr) {
-          console.error('Failed to assign onboarding package:', pkgErr);
-          console.error('Error response:', pkgErr.response?.data);
-          // Don't fail user creation if package assignment fails
-          alert('User created successfully, but failed to assign onboarding package. You can assign it manually later.');
+      // Check if creating as current employee
+      if (userForm.value.createAsCurrentEmployee) {
+        // Validate required fields for current employee
+        if (!userForm.value.workEmail || !userForm.value.workEmail.trim()) {
+          error.value = 'Work email is required for current employees';
+          saving.value = false;
+          alert('Please enter a work email');
+          return;
         }
+        if (userForm.value.agencyIds.length === 0) {
+          error.value = 'Please select at least one agency';
+          saving.value = false;
+          alert('Please select at least one agency');
+          return;
+        }
+        
+        // Create current employee using the dedicated endpoint
+        const currentEmployeeData = {
+          firstName: userForm.value.firstName?.trim() || '',
+          lastName: userForm.value.lastName?.trim() || '',
+          workEmail: userForm.value.workEmail.trim(),
+          agencyId: parseInt(userForm.value.agencyIds[0]), // Use first agency
+          role: userForm.value.role || 'clinician'
+        };
+        
+        console.log('Creating current employee with data:', currentEmployeeData);
+        const response = await api.post('/users/current-employee', currentEmployeeData);
+        
+        // Show credentials modal
+        userCredentials.value = {
+          token: response.data.passwordlessToken,
+          tokenLink: response.data.passwordlessTokenLink,
+          username: response.data.user.email,
+          temporaryPassword: null,
+          generatedEmails: []
+        };
+        
+        closeModal();
+        showCredentialsModal.value = true;
+        fetchUsers();
+      } else {
+        // Create user (password is auto-generated, not sent)
+        createData = {
+          lastName: userForm.value.lastName?.trim() || '',
+          role: userForm.value.role || 'clinician',
+          agencyIds: userForm.value.agencyIds && userForm.value.agencyIds.length > 0 
+            ? userForm.value.agencyIds.map(id => parseInt(id)).filter(id => !isNaN(id))
+            : []
+        };
+        
+        // Only include firstName if it has a value
+        if (userForm.value.firstName && userForm.value.firstName.trim()) {
+          createData.firstName = userForm.value.firstName.trim();
+        }
+        
+        // Only include phoneNumber if it has a value (for backward compatibility)
+        if (userForm.value.phoneNumber && userForm.value.phoneNumber.trim()) {
+          createData.phoneNumber = userForm.value.phoneNumber.trim();
+        }
+        
+        // Include new phone fields if they have values
+        if (userForm.value.personalPhone && userForm.value.personalPhone.trim()) {
+          createData.personalPhone = userForm.value.personalPhone.trim();
+        }
+        if (userForm.value.workPhone && userForm.value.workPhone.trim()) {
+          createData.workPhone = userForm.value.workPhone.trim();
+        }
+        if (userForm.value.workPhoneExtension && userForm.value.workPhoneExtension.trim()) {
+          createData.workPhoneExtension = userForm.value.workPhoneExtension.trim();
+        }
+        
+        // Include supervisor privileges if user has eligible role
+        if (userForm.value.role === 'admin' || userForm.value.role === 'super_admin' || userForm.value.role === 'clinical_practice_assistant') {
+          createData.hasSupervisorPrivileges = Boolean(userForm.value.hasSupervisorPrivileges);
+        }
+        
+        // Only include email fields if they have values
+        if (userForm.value.email && userForm.value.email.trim()) {
+          createData.email = userForm.value.email.trim();
+        }
+        if (userForm.value.personalEmail && userForm.value.personalEmail.trim()) {
+          createData.personalEmail = userForm.value.personalEmail.trim();
+        }
+        
+        console.log('Creating user with data:', createData);
+        console.log('Form values:', {
+          lastName: userForm.value.lastName,
+          role: userForm.value.role,
+          agencyIds: userForm.value.agencyIds,
+          firstName: userForm.value.firstName
+        });
+        // Store pending user data in case we need to retry after duplicate check
+        pendingUserData.value = createData;
+        const response = await api.post('/auth/register', createData);
+        const newUserId = response.data.user.id;
+        
+        // Assign onboarding package if selected
+        if (userForm.value.onboardingPackageId && userForm.value.agencyIds.length > 0) {
+          try {
+            // Use the first selected agency for package assignment
+            const primaryAgencyId = parseInt(userForm.value.agencyIds[0]);
+            const packageId = parseInt(userForm.value.onboardingPackageId);
+            
+            if (isNaN(primaryAgencyId) || isNaN(packageId) || isNaN(newUserId)) {
+              throw new Error('Invalid ID format');
+            }
+            
+            const assignData = {
+              userIds: [parseInt(newUserId)],
+              agencyId: primaryAgencyId
+            };
+            
+            console.log('Assigning package:', { packageId, assignData });
+            await api.post(`/onboarding-packages/${packageId}/assign`, assignData);
+            console.log('Package assigned successfully');
+          } catch (pkgErr) {
+            console.error('Failed to assign onboarding package:', pkgErr);
+            console.error('Error response:', pkgErr.response?.data);
+            // Don't fail user creation if package assignment fails
+            alert('User created successfully, but failed to assign onboarding package. You can assign it manually later.');
+          }
+        }
+        
+        // Show credentials modal with generated email
+        // For pending users, no temporary password is generated
+        userCredentials.value = {
+          token: response.data.passwordlessToken,
+          tokenLink: response.data.passwordlessTokenLink,
+          username: userForm.value.email || 'N/A (Work email will be set when moved to active)',
+          temporaryPassword: null, // No temp password for pending users
+          generatedEmails: response.data.generatedEmails || []
+        };
+        
+        closeModal();
+        showCredentialsModal.value = true;
+        fetchUsers();
       }
-      
-      // Show credentials modal with generated email
-      // For pending users, no temporary password is generated
-      userCredentials.value = {
-        token: response.data.passwordlessToken,
-        tokenLink: response.data.passwordlessTokenLink,
-        username: userForm.value.email || 'N/A (Work email will be set when moved to active)',
-        temporaryPassword: null, // No temp password for pending users
-        generatedEmails: response.data.generatedEmails || []
-      };
-      
-      closeModal();
-      showCredentialsModal.value = true;
-      fetchUsers();
     }
   } catch (err) {
     console.error('Error creating user:', err);
@@ -1246,6 +1316,7 @@ const closeModal = () => {
   userForm.value = {
     email: '',
     personalEmail: '',
+    workEmail: '',
     firstName: '',
     lastName: '',
     phoneNumber: '',
@@ -1254,7 +1325,8 @@ const closeModal = () => {
     workPhoneExtension: '',
     role: 'clinician',
     agencyIds: [],
-    onboardingPackageId: ''
+    onboardingPackageId: '',
+    createAsCurrentEmployee: false
   };
   selectedPackage.value = null;
 };
