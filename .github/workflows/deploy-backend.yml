@@ -40,8 +40,9 @@ jobs:
 
       - name: Build and push Docker image
         run: |
+          # We hardcode the correct Backend URL here to avoid permission errors
           docker build -f backend/Dockerfile \
-            --build-arg VITE_API_URL="https://onboarding-backend-65v3jdyqba-wm.a.run.app/api" \
+            --build-arg VITE_API_URL="https://onboarding-backend-378990906760.us-west3.run.app/api" \
             -t $IMAGE_NAME:$GITHUB_SHA \
             -t $IMAGE_NAME:latest .
           docker push $IMAGE_NAME:$GITHUB_SHA
@@ -49,6 +50,7 @@ jobs:
 
       - name: Deploy to Cloud Run
         run: |
+          # We hardcode CORS_ORIGIN to the FRONTEND URL so the backend trusts it
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:$GITHUB_SHA \
             --platform managed \

@@ -69,6 +69,14 @@
 </template>
 
 <script setup>
+import { ref, computed, onMounted } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
+import { useAuthStore } from '../store/auth';
+import { useBrandingStore } from '../store/branding';
+import { useAgencyStore } from '../store/agency';
+import api from '../services/api';
+import { getDashboardRoute } from '../utils/router';
+
 // Removed hardcoded credentials for security
 const router = useRouter();
 const route = useRoute();

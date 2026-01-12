@@ -12,9 +12,7 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: onboarding-frontend
-  # Keeping everything in us-west3 to match your setup
   REGION: us-west3
-  # Direct path to the artifact registry
   IMAGE_NAME: us-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/onboarding-frontend/onboarding-frontend
 
 jobs:
@@ -37,20 +35,18 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      # Explicitly configure Docker for the us-west3 region
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-west3-docker.pkg.dev --quiet
 
       - name: Build and push Docker image
         run: |
           cd frontend
-          # We hardcode the API URL here to avoid permission errors querying it dynamically.
-          # This matches the fallback URL from your previous file.
+          # We hardcode the correct Backend URL here to avoid permission errors
+          # Note: We appended '/api' because the frontend expects it
           docker build \
-            --build-arg VITE_API_URL="https://onboarding-backend-65v3jdyqba-wm.a.run.app/api" \
+            --build-arg VITE_API_URL="https://onboarding-backend-378990906760.us-west3.run.app/api" \
             -t $IMAGE_NAME:$GITHUB_SHA \
             -t $IMAGE_NAME:latest .
-          
           docker push $IMAGE_NAME:$GITHUB_SHA
           docker push $IMAGE_NAME:latest
 
