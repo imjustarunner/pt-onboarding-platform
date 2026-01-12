@@ -63,6 +63,10 @@ RUN which chromium-browser || which chromium || echo "Warning: Chromium executab
 # If chromium-browser doesn't exist, the code will fall back to checking chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
+# Set production environment variables
+ENV NODE_ENV=production
+ENV CORS_ORIGIN=https://onboarding-frontend-378990906760.us-west3.run.app
+
 # Copy backend package files
 COPY backend/package*.json ./
 
