@@ -74,7 +74,8 @@ export const updatePlatformBranding = async (req, res, next) => {
       settingsIconId,
       allAgenciesNotificationsIconId,
       organizationName,
-      organizationLogoIconId
+      organizationLogoIconId,
+      organizationLogoUrl
     } = req.body;
 
     const branding = await PlatformBranding.update({
