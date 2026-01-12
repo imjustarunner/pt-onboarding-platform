@@ -9,12 +9,12 @@
               <h1 class="nav-title">{{ brandingStore.navigationTitle || (brandingStore.displayName + ' ' + (brandingStore.peopleOpsTerm || 'People Operations')) }}</h1>
             </div>
             <div class="nav-links">
-            <!-- Approved employees and active/terminated users see On-Demand Training -->
-            <template v-if="user?.type === 'approved_employee' || (user?.status === 'ACTIVE_EMPLOYEE' || user?.status === 'TERMINATED_PENDING' || user?.status === 'active' || user?.status === 'completed')">
+            <!-- Approved employees and active/terminated users see On-Demand Training (but NOT superadmins) -->
+            <template v-if="user?.role !== 'super_admin' && (user?.type === 'approved_employee' || (user?.status === 'ACTIVE_EMPLOYEE' || user?.status === 'TERMINATED_PENDING' || user?.status === 'active' || user?.status === 'completed'))">
               <router-link to="/on-demand-training">On-Demand Training</router-link>
             </template>
-            <!-- Regular users and admins see normal navigation -->
-            <template v-if="user?.type !== 'approved_employee' && user?.status !== 'ACTIVE_EMPLOYEE' && user?.status !== 'TERMINATED_PENDING' && user?.status !== 'active' && user?.status !== 'completed'">
+            <!-- Regular users and admins see normal navigation (superadmins always see admin nav) -->
+            <template v-if="user?.role === 'super_admin' || (user?.type !== 'approved_employee' && user?.status !== 'ACTIVE_EMPLOYEE' && user?.status !== 'TERMINATED_PENDING' && user?.status !== 'active' && user?.status !== 'completed')">
               <router-link to="/dashboard" v-if="user?.role !== 'admin' && user?.role !== 'super_admin' && user?.role !== 'support' && !isSupervisor(user) && user?.role !== 'clinical_practice_assistant'">Dashboard</router-link>
               <router-link to="/dashboard" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'">My Training</router-link>
               <router-link to="/admin" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'">Admin Dashboard</router-link>

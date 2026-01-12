@@ -22,6 +22,17 @@ export function checkAccess(user) {
   const status = user.status;
   const userRole = user.role;
 
+  // Superadmins have full access regardless of status (except ARCHIVED)
+  if (userRole === 'super_admin' && status !== 'ARCHIVED') {
+    return {
+      canAccessOnDemand: true,
+      canAccessDashboard: true,
+      canAccessTraining: true,
+      canAccessDocuments: true,
+      canAccessAdmin: true
+    };
+  }
+
   // Base access permissions based on status
   let canAccessOnDemand = false;
   let canAccessDashboard = false;
@@ -121,6 +132,12 @@ export function canLogin(user) {
   if (!user) return false;
 
   const status = user.status;
+  const userRole = user.role;
+
+  // Superadmins can always login (except if ARCHIVED)
+  if (userRole === 'super_admin' && status !== 'ARCHIVED') {
+    return true;
+  }
 
   // ARCHIVED users cannot login
   if (status === 'ARCHIVED') {
