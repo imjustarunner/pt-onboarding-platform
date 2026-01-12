@@ -16,6 +16,17 @@ RUN npm ci
 # Copy application code
 COPY . .
 
+# Verify index.html exists (required for Vite build)
+RUN if [ ! -f "index.html" ]; then \
+      echo "❌ ERROR: index.html not found in build context!" && \
+      echo "Current directory: $(pwd)" && \
+      echo "Files in current directory:" && \
+      ls -la && \
+      exit 1; \
+    else \
+      echo "✓ index.html found successfully"; \
+    fi
+
 # Build argument for API URL (set at build time)
 ARG VITE_API_URL
 ENV VITE_API_URL=${VITE_API_URL}
@@ -29,7 +40,13 @@ RUN echo "VITE_API_URL=$VITE_API_URL" && \
 RUN npm run build || ( \
     echo "❌ Build failed!" && \
     echo "VITE_API_URL=$VITE_API_URL" && \
+    echo "Current directory: $(pwd)" && \
+    echo "Checking for index.html:" && \
+    ls -la index.html || echo "index.html not found!" && \
+    echo "Files in current directory:" && \
+    ls -la && \
     echo "Checking package.json..." && \
+    cat package.json && \
     exit 1 )
 
 # Stage 2: Production

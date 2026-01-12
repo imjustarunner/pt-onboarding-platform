@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
+  root: '.', // Explicitly set root to current directory to ensure Vite finds index.html
   plugins: [vue()],
   resolve: {
     alias: {
@@ -17,6 +18,9 @@ export default defineConfig({
         changeOrigin: true
       }
     }
+  },
+  build: {
+    outDir: 'dist'
   }
 });
 

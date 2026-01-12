@@ -38,6 +38,33 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker
 
+      - name: Ensure GCR repository exists
+        run: |
+          REPO_NAME="onboarding-frontend"
+          echo "Checking if GCR repository exists..."
+          
+          # Check if repository exists by trying to list it
+          if gcloud artifacts repositories describe $REPO_NAME --location=$REGION --repository-format=docker 2>/dev/null; then
+            echo "✓ GCR repository '$REPO_NAME' already exists"
+          else
+            echo "⚠️  Repository '$REPO_NAME' does not exist. Attempting to create..."
+            if gcloud artifacts repositories create $REPO_NAME \
+              --repository-format=docker \
+              --location=$REGION \
+              --description="Docker repository for onboarding-frontend" 2>/dev/null; then
+              echo "✓ Successfully created GCR repository '$REPO_NAME'"
+            else
+              echo "❌ ERROR: Failed to create repository '$REPO_NAME'"
+              echo "This usually means the service account lacks the 'Artifact Registry Repository Admin' role."
+              echo "Please either:"
+              echo "  1. Grant the service account the 'Artifact Registry Repository Admin' role in GCP IAM, OR"
+              echo "  2. Pre-create the repository manually in GCP Console"
+              echo ""
+              echo "Repository path: gcr.io/$PROJECT_ID/$REPO_NAME"
+              exit 1
+            fi
+          fi
+
       - name: Get backend URL
         id: backend-url
         run: |
@@ -58,26 +85,72 @@ jobs:
           echo "backend_url=$BACKEND_URL" >> $GITHUB_OUTPUT
           echo "Backend URL: $BACKEND_URL"
 
+      - name: Verify frontend directory structure
+        run: |
+          cd frontend
+          echo "Verifying frontend build prerequisites..."
+          if [ ! -f "index.html" ]; then
+            echo "❌ ERROR: index.html not found in frontend directory!"
+            echo "Current directory: $(pwd)"
+            echo "Files in frontend directory:"
+            ls -la
+            exit 1
+          fi
+          if [ ! -f "package.json" ]; then
+            echo "❌ ERROR: package.json not found in frontend directory!"
+            exit 1
+          fi
+          if [ ! -f "vite.config.js" ]; then
+            echo "❌ ERROR: vite.config.js not found in frontend directory!"
+            exit 1
+          fi
+          echo "✓ All required files found"
+
       - name: Build and push Docker image
         run: |
           cd frontend
           API_URL="${{ steps.backend-url.outputs.backend_url }}/api"
           echo "Building with VITE_API_URL=$API_URL"
-          docker build \
+          
+          # Build Docker image
+          if docker build \
             --build-arg VITE_API_URL="$API_URL" \
             -t $IMAGE_NAME:$GITHUB_SHA \
-            -t $IMAGE_NAME:latest . || {
-              echo "❌ Docker build failed"
-              echo "Checking if VITE_API_URL was set correctly..."
-              exit 1
-            }
-          echo "✓ Docker build successful, pushing images..."
-          docker push $IMAGE_NAME:$GITHUB_SHA
-          docker push $IMAGE_NAME:latest
+            -t $IMAGE_NAME:latest .; then
+            echo "✓ Docker build successful"
+          else
+            echo "❌ Docker build failed"
+            echo "Build arguments:"
+            echo "  VITE_API_URL=$API_URL"
+            echo "  IMAGE_NAME=$IMAGE_NAME"
+            echo "  GITHUB_SHA=$GITHUB_SHA"
+            exit 1
+          fi
+          
+          # Push Docker images with error handling
+          echo "Pushing images to GCR..."
+          if docker push $IMAGE_NAME:$GITHUB_SHA; then
+            echo "✓ Successfully pushed $IMAGE_NAME:$GITHUB_SHA"
+          else
+            echo "❌ Failed to push $IMAGE_NAME:$GITHUB_SHA"
+            echo "This may indicate:"
+            echo "  - Repository doesn't exist (should have been created in previous step)"
+            echo "  - Service account lacks push permissions"
+            echo "  - Network connectivity issues"
+            exit 1
+          fi
+          
+          if docker push $IMAGE_NAME:latest; then
+            echo "✓ Successfully pushed $IMAGE_NAME:latest"
+          else
+            echo "❌ Failed to push $IMAGE_NAME:latest"
+            exit 1
+          fi
 
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy $SERVICE_NAME \
+          echo "Deploying $SERVICE_NAME to Cloud Run..."
+          if gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:$GITHUB_SHA \
             --platform managed \
             --region $REGION \
@@ -86,11 +159,20 @@ jobs:
             --cpu=1 \
             --timeout=60 \
             --max-instances=10 \
-            --min-instances=0
+            --min-instances=0; then
+            echo "✓ Successfully deployed to Cloud Run"
+          else
+            echo "❌ Failed to deploy to Cloud Run"
+            exit 1
+          fi
 
       - name: Get service URL
         id: get-url
         run: |
           SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')
+          if [ -z "$SERVICE_URL" ]; then
+            echo "⚠️  WARNING: Could not retrieve service URL"
+            exit 1
+          fi
           echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
           echo "Frontend deployed to: $SERVICE_URL"
