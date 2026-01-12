@@ -11,19 +11,15 @@ const getCorsOrigin = () => {
     return 'http://localhost:5173';
   }
   
-  // In production/staging, require CORS_ORIGIN from environment
-  // No fallback to localhost in production for security
+  // If the variable exists, use it
   if (process.env.CORS_ORIGIN) {
-    // Support multiple origins (comma-separated) or single origin
     const origins = process.env.CORS_ORIGIN.split(',').map(origin => origin.trim());
     return origins.length === 1 ? origins[0] : origins;
   }
   
-  // In production/staging without CORS_ORIGIN, throw error
-  throw new Error(
-    'CORS_ORIGIN environment variable is required in production/staging environments. ' +
-    'Please set CORS_ORIGIN to your frontend URL (e.g., https://yourdomain.com)'
-  );
+  // FALLBACK (The Fix): If missing, use the known production URL instead of crashing
+  console.warn('CORS_ORIGIN missing, using fallback.');
+  return 'https://onboarding-frontend-378990906760.us-west3.run.app';
 };
 
 /**
