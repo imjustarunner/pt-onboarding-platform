@@ -69,7 +69,7 @@
 </template>
 
 <script setup>
-      <!-- Removed hardcoded credentials for security -->
+// Removed hardcoded credentials for security
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
