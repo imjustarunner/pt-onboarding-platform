@@ -201,7 +201,7 @@ const handleSetup = async () => {
     
     // Wait a bit longer to ensure cookie is set and available
     // Use replace instead of push to avoid history issues
-    setTimeout(() => {
+    setTimeout(async () => {
       const { getDashboardRoute } = await import('../utils/router');
       const dashboardRoute = getDashboardRoute();
       router.replace(dashboardRoute);
