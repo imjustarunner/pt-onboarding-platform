@@ -208,11 +208,7 @@ const fetchAgencyOnDemandTrainings = async () => {
   try {
     // Get agency ID from store or user
     let agencyId = null;
-    if (authStore.user?.type === 'approved_employee') {
-      // For approved employees, we need to get agency from their email
-      // This will be handled by the backend based on the employee's agency
-      return; // Backend will handle this
-    } else if (agencyStore.currentAgency) {
+    if (agencyStore.currentAgency) {
       agencyId = agencyStore.currentAgency.id;
     } else if (agencyStore.userAgencies && agencyStore.userAgencies.length > 0) {
       agencyId = agencyStore.userAgencies[0].id;

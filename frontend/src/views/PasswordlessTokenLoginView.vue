@@ -83,7 +83,7 @@ const attemptLogin = async (lastNameValue = null) => {
     
     // Fetch user's agencies before redirecting (similar to regular login)
     // This ensures the cookie is available and agencies are loaded
-    if (response.data.user.role !== 'super_admin' && response.data.user.type !== 'approved_employee') {
+    if (response.data.user.role !== 'super_admin') {
       try {
         const { useAgencyStore } = await import('../store/agency');
         const agencyStore = useAgencyStore();
@@ -94,7 +94,7 @@ const attemptLogin = async (lastNameValue = null) => {
         // Don't block redirect on agency fetch failure
       }
     } else if (response.data.agencies && response.data.agencies.length > 0) {
-      // For approved employees or if agencies are in response, set the first one
+      // If agencies are in response, set the first one
       const { useAgencyStore } = await import('../store/agency');
       const agencyStore = useAgencyStore();
       agencyStore.setCurrentAgency(response.data.agencies[0]);
