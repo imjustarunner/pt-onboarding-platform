@@ -483,9 +483,11 @@ onMounted(async () => {
 }
 
 .agencies-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  display: flex;
+  flex-wrap: nowrap;
   gap: 20px;
+  overflow-x: auto;
+  padding-bottom: 8px;
 }
 
 .agency-card {
@@ -498,6 +500,8 @@ onMounted(async () => {
   border: 2px solid var(--border);
   transition: all 0.2s;
   cursor: pointer;
+  flex-shrink: 0;
+  min-width: 350px;
 }
 
 .agency-card:hover {
