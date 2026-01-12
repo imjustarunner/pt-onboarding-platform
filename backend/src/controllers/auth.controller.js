@@ -256,28 +256,16 @@ export const login = async (req, res, next) => {
     }
 
     // Verify password
-    const isValidPassword = await bcrypt.compare(password, user.password_hash);
-    
-    // If password is invalid and user is inactive, provide specific message about on-demand training
-    if (!isValidPassword && isInactive) {
-      // Check if user is in approved employees list
-      const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
-      const approvedEmployee = await ApprovedEmployee.findByEmail(email);
-      
-      if (approvedEmployee) {
-        return res.status(401).json({ 
-          error: { 
-            message: 'Forgot password? Please contact your administrator. Additionally, you may be attempting to login as a past user who has been set to "inactive" following the completion of your onboarding training. If this is the case and you are a current employee, on-demand training may be available to you and there may be a different password to access this training. If you are a current employee and believe this describes your current status, please email PO@itsco.health and request the on-demand credentials to access your account.' 
-          } 
-        });
-      } else {
-        return res.status(401).json({ 
-          error: { 
-            message: 'Forgot password? Please contact your administrator. Additionally, you may be attempting to login as a past user who has been set to "inactive" following the completion of your onboarding training. If this is the case and you are a current employee, on-demand training may be available to you and there may be a different password to access this training. If you are a current employee and believe this describes your current status, please email PO@itsco.health and request the on-demand credentials to access your account.' 
-          } 
-        });
-      }
+    if (!user.password_hash) {
+      return res.status(401).json({ 
+        error: { 
+          message: 'Please complete your account setup first. Use the passwordless login link sent to your email.',
+          requiresSetup: true
+        } 
+      });
     }
+    
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
     
     if (!isValidPassword) {
       return res.status(401).json({ error: { message: 'Invalid email or password' } });
