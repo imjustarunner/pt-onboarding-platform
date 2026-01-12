@@ -329,7 +329,6 @@ export const useBrandingStore = defineStore('branding', () => {
     tagline,
     platformBranding,
     fetchPlatformBranding,
-    reloadFonts,
     portalAgency,
     portalTheme,
     themeSettings,
