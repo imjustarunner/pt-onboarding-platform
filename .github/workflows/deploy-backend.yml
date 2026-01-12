@@ -12,9 +12,7 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: onboarding-backend
-  # Keeping everything in us-west3 to match your setup
   REGION: us-west3
-  # This points to the repo you manually created
   IMAGE_NAME: us-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/onboarding-backend/onboarding-backend
 
 jobs:
@@ -40,12 +38,8 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-west3-docker.pkg.dev --quiet
 
-      # --- "Safety Check" Step REMOVED ---
-      # We skip asking if it exists and just do it.
-
       - name: Build and push Docker image
         run: |
-          # We pass the VITE_API_URL so the frontend builds correctly inside the container
           docker build -f backend/Dockerfile \
             --build-arg VITE_API_URL="https://onboarding-backend-65v3jdyqba-wm.a.run.app/api" \
             -t $IMAGE_NAME:$GITHUB_SHA \
@@ -63,6 +57,7 @@ jobs:
             --service-account ${{ secrets.CLOUD_RUN_SA_EMAIL }} \
             --add-cloudsql-instances=${{ secrets.CLOUD_SQL_CONNECTION_NAME }} \
             --set-env-vars="NODE_ENV=production" \
+            --set-env-vars="CORS_ORIGIN=https://onboarding-frontend-378990906760.us-west3.run.app" \
             --set-env-vars="DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }}" \
             --set-env-vars="DB_PORT=3306" \
             --set-env-vars="DB_NAME=onboarding_db" \
@@ -77,4 +72,3 @@ jobs:
             --timeout=300 \
             --max-instances=10 \
             --min-instances=0
-            # forcing update for cors
