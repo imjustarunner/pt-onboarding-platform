@@ -2,21 +2,24 @@
 # Stage 1: Build frontend
 FROM node:20-alpine AS frontend-builder
 
-WORKDIR /app
-
-# Copy frontend package files to frontend directory
-COPY frontend/package*.json ./frontend/
-
 # Install and Build Frontend
 WORKDIR /app/frontend
+
+# Copy frontend package files first (for better layer caching)
+COPY frontend/package*.json ./
+
+# Install dependencies
 RUN npm ci
 
-# Copy frontend source code
+# Copy all frontend files (including index.html)
 COPY frontend/ ./
 
 # Build argument for API URL (relative path since frontend and backend are same origin)
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
+
+# Verify index.html exists before building
+RUN test -f index.html || (echo "ERROR: index.html not found!" && ls -la && exit 1)
 
 # Build the frontend
 RUN npm run build
