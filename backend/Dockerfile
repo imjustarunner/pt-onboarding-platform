@@ -4,10 +4,11 @@ FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app
 
-# Copy frontend package files
-COPY frontend/package*.json ./
+# Copy frontend package files to frontend directory
+COPY frontend/package*.json ./frontend/
 
-# Install frontend dependencies (including devDependencies for Vite build)
+# Install and Build Frontend
+WORKDIR /app/frontend
 RUN npm ci
 
 # Copy frontend source code
@@ -19,6 +20,9 @@ ENV VITE_API_URL=$VITE_API_URL
 
 # Build the frontend
 RUN npm run build
+
+# Switch back to app root for copying
+WORKDIR /app
 
 # Stage 2: Backend with embedded frontend
 FROM node:18-alpine
@@ -57,7 +61,7 @@ RUN npm ci --only=production
 COPY backend/src ./src
 
 # Copy built frontend from builder stage to public directory
-COPY --from=frontend-builder /app/dist ./public
+COPY --from=frontend-builder /app/frontend/dist ./public
 
 # Verify public directory and index.html exist (fail build if missing)
 RUN echo "Verifying public directory..." && \
