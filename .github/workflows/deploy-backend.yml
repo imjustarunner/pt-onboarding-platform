@@ -40,8 +40,8 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          cd backend
-          docker build -t $IMAGE_NAME:$GITHUB_SHA -t $IMAGE_NAME:latest .
+          # Backend Dockerfile expects build context from root (it builds frontend too)
+          docker build -f backend/Dockerfile -t $IMAGE_NAME:$GITHUB_SHA -t $IMAGE_NAME:latest .
           docker push $IMAGE_NAME:$GITHUB_SHA
           docker push $IMAGE_NAME:latest
 
