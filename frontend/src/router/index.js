@@ -19,7 +19,13 @@ const routes = [
     path: '/initial-setup/:token',
     name: 'InitialSetup',
     component: () => import('../views/InitialSetupView.vue'),
-    meta: { requiresGuest: true }
+    meta: { requiresGuest: false } // Allow authenticated users to complete setup
+  },
+  {
+    path: '/:agencySlug/initial-setup/:token',
+    name: 'AgencyInitialSetup',
+    component: () => import('../views/InitialSetupView.vue'),
+    meta: { requiresGuest: false, agencySlug: true } // Allow authenticated users to complete setup
   },
   {
     path: '/dashboard',
@@ -144,7 +150,13 @@ const routes = [
     path: '/passwordless-login/:token',
     name: 'PasswordlessTokenLogin',
     component: () => import('../views/PasswordlessTokenLoginView.vue'),
-    meta: { requiresGuest: true }
+    meta: { requiresGuest: false } // Allow authenticated users (they might be redirected here)
+  },
+  {
+    path: '/:agencySlug/passwordless-login/:token',
+    name: 'AgencyPasswordlessTokenLogin',
+    component: () => import('../views/PasswordlessTokenLoginView.vue'),
+    meta: { requiresGuest: false, agencySlug: true }
   },
   {
     path: '/pending-completion',
@@ -204,8 +216,14 @@ router.beforeEach((to, from, next) => {
     const loginUrl = getLoginUrl(authStore.user);
     next(loginUrl);
   } else if (to.meta.requiresGuest && authStore.isAuthenticated) {
-    // Redirect to appropriate dashboard based on user role
-    next(getDashboardRoute());
+    // Allow access to initial-setup and passwordless-login even if authenticated
+    // (user might be completing setup flow)
+    if (to.path.includes('/initial-setup/') || to.path.includes('/passwordless-login/')) {
+      next();
+    } else {
+      // Redirect to appropriate dashboard based on user role
+      next(getDashboardRoute());
+    }
   } else if (to.meta.requiresApprovedEmployee) {
     // ACTIVE_EMPLOYEE/TERMINATED_PENDING users can access on-demand training
     const canAccessOnDemand = authStore.user?.status === 'ACTIVE_EMPLOYEE' || 

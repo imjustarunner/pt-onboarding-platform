@@ -3,7 +3,7 @@
     <div class="section-header">
       <h2>Email Templates</h2>
       <p class="section-description">
-        <span v-pre>Manage email templates for user communications. Templates support variables like {{FIRST_NAME}}, {{RESET_TOKEN_LINK}}, etc. Use double curly braces to insert parameters.</span>
+        <span v-pre>Manage email templates for user communications. Templates support variables like {{FIRST_NAME}}, {{TEMP_PASSWORD}}, etc. Use double curly braces to insert parameters.</span>
       </p>
     </div>
 

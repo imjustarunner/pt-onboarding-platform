@@ -1,5 +1,5 @@
 import express from 'express';
-import { getCurrentUser, getAllUsers, getUserById, updateUser, getUserAgencies, assignUserToAgency, removeUserFromAgency, generateInvitationToken, resetPasswordlessToken, sendPasswordResetToken, generateEmailForUser, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee } from '../controllers/user.controller.js';
+import { getCurrentUser, getAllUsers, getUserById, updateUser, getUserAgencies, assignUserToAgency, removeUserFromAgency, generateInvitationToken, generateTemporaryPassword, resetPasswordlessToken, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee } from '../controllers/user.controller.js';
 import { getUserTrainingFocuses } from '../controllers/track.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 
@@ -17,9 +17,8 @@ router.post('/remove/agency', authenticate, requireAdmin, removeUserFromAgency);
 
 // New endpoints for tokens, passwords, account info, and checklist
 router.post('/:id/generate-token', authenticate, requireAdmin, generateInvitationToken);
+router.post('/:id/generate-temp-password', authenticate, requireAdmin, generateTemporaryPassword);
 router.post('/:id/reset-passwordless-token', authenticate, resetPasswordlessToken);
-router.post('/:id/send-password-reset-token', authenticate, requireAdmin, sendPasswordResetToken);
-router.post('/:id/generate-email', authenticate, requireAdmin, generateEmailForUser);
 router.post('/change-password', authenticate, changePassword); // For users to change their own password
 router.post('/:id/change-password', authenticate, changePassword); // For admins to change other users' passwords
 router.get('/:id/credentials', authenticate, requireAdmin, getUserCredentials);

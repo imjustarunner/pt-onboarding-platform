@@ -738,6 +738,19 @@ class User {
     return user;
   }
 
+  static async setTemporaryPassword(userId, password, expiresInHours = 48) {
+    const passwordHash = await bcrypt.hash(password, 10);
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + expiresInHours);
+    
+    await pool.execute(
+      'UPDATE users SET temporary_password_hash = ?, temporary_password_expires_at = ? WHERE id = ?',
+      [passwordHash, expiresAt, userId]
+    );
+    
+    return { password, expiresAt };
+  }
+
   static async generatePasswordlessToken(userId, expiresInHours = 48) {
     const crypto = (await import('crypto')).default;
     const token = crypto.randomBytes(32).toString('hex');
@@ -901,6 +914,15 @@ class User {
       [userId]
     );
     return this.findById(userId);
+  }
+
+  static async generateTemporaryPassword() {
+    const length = 16;
+    const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+    const password = Array.from(crypto.randomBytes(length))
+      .map(byte => charset[byte % charset.length])
+      .join('');
+    return password;
   }
 
   static async getAccountInfo(userId) {

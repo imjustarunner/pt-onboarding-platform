@@ -136,10 +136,41 @@
           </div>
             
             <div class="section-divider">
-              <h3>Status Management</h3>
+              <h3 v-if="user?.status === 'pending'">Status Management</h3>
+              <h3 v-else>Temporary Password & Status Management</h3>
             </div>
             
             <div class="password-status-layout">
+              <!-- Temporary Password Section - Only for active users -->
+              <div v-if="user?.status !== 'pending' && user?.status !== 'ready_for_review'" class="temp-password-section">
+                <h4>Temporary Password</h4>
+                <div v-if="tempPasswordInfo.hasTemporaryPassword" class="temp-password-status">
+                  <p><strong>Status:</strong> Temporary password is set</p>
+                  <p v-if="tempPasswordInfo.expiresAt"><strong>Expires:</strong> {{ formatDate(tempPasswordInfo.expiresAt) }}</p>
+                </div>
+                <div v-else class="temp-password-status">
+                  <p>No temporary password set</p>
+                </div>
+                
+                <div class="temp-password-actions">
+                  <button @click="generateTempPassword" type="button" class="btn btn-success btn-sm" :disabled="generatingTempPassword">
+                    {{ generatingTempPassword ? 'Generating...' : 'Generate' }}
+                  </button>
+                  <button v-if="tempPasswordInfo.hasTemporaryPassword" @click="resetTempPassword" type="button" class="btn btn-warning btn-sm" :disabled="resettingTempPassword">
+                    {{ resettingTempPassword ? 'Resetting...' : 'Reset' }}
+                  </button>
+                </div>
+                
+                <div v-if="newTempPassword" class="temp-password-display">
+                  <p><strong>New Temporary Password:</strong></p>
+                  <div class="password-display">
+                    <input type="text" :value="newTempPassword" readonly class="password-input" ref="tempPasswordInput" />
+                    <button @click="copyTempPassword" class="btn btn-secondary btn-sm">Copy</button>
+                  </div>
+                  <p class="password-warning">⚠️ Copy this password now. It will not be shown again.</p>
+                </div>
+              </div>
+              
               <div class="status-management">
                 <h4>Status Management</h4>
                 <div class="current-status">
@@ -225,16 +256,6 @@
                     :disabled="updatingStatus"
                   >
                     {{ updatingStatus ? 'Processing...' : 'Activate' }}
-                  </button>
-                  
-                  <!-- Send Password Reset Token: For users with passwords set -->
-                  <button 
-                    v-if="user?.password_hash && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
-                    @click="sendPasswordResetToken" 
-                    class="btn btn-info btn-sm"
-                    :disabled="sendingResetToken"
-                  >
-                    {{ sendingResetToken ? 'Generating...' : 'Send Password Reset Token' }}
                   </button>
                 </div>
                 
@@ -540,6 +561,14 @@
             </div>
           </div>
           
+          <div v-if="userCredentials.temporaryPassword" class="credential-item">
+            <label>Temporary Password:</label>
+            <div class="credential-value">
+              <input type="text" :value="userCredentials.temporaryPassword" readonly class="credential-input" ref="passwordInput" />
+              <button @click="copyToClipboard('password')" class="btn-copy">Copy</button>
+            </div>
+            <small>Expires in 48 hours</small>
+          </div>
         </div>
         
         <!-- Generated Emails Section -->
@@ -577,41 +606,6 @@
       </div>
     </div>
   </div>
-  
-  <!-- Password Reset Token Modal -->
-  <div v-if="showPasswordResetTokenModal" class="modal-overlay" @click="showPasswordResetTokenModal = false">
-    <div class="modal-content credentials-modal" @click.stop>
-      <h2>Password Reset Token</h2>
-      <p class="credentials-description">Copy this link to send to the user for password reset:</p>
-      
-      <div class="credentials-section">
-        <div class="credential-item">
-          <label>Password Reset Link:</label>
-          <div class="credential-value">
-            <input type="text" :value="passwordResetTokenLink || ''" readonly class="credential-input" ref="resetTokenLinkInput" />
-            <button @click="copyResetTokenLink" class="btn-copy">Copy</button>
-          </div>
-          <small>This link will expire in {{ passwordResetTokenExpiresInHours || 48 }} hours</small>
-        </div>
-      </div>
-      
-      <div class="modal-actions">
-        <button @click="showPasswordResetTokenModal = false" class="btn btn-primary">Close</button>
-      </div>
-    </div>
-  </div>
-  
-  <!-- Email Template Modal -->
-  <EmailTemplateModal
-    v-if="showEmailTemplateModal"
-    :userId="userId"
-    :templateType="emailTemplateType"
-    :defaultTemplateId="emailTemplateDefaultId"
-    :show="showEmailTemplateModal"
-    :userData="user"
-    @close="closeEmailTemplateModal"
-    @emailGenerated="handleEmailGenerated"
-  />
 </template>
 
 <script setup>
@@ -628,7 +622,6 @@ import UserCommunicationsTab from '../../components/admin/UserCommunicationsTab.
 import UserActivityLogTab from '../../components/admin/UserActivityLogTab.vue';
 import SupervisorAssignmentManager from '../../components/admin/SupervisorAssignmentManager.vue';
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
-import EmailTemplateModal from '../../components/admin/EmailTemplateModal.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -703,6 +696,14 @@ watch(() => accountForm.value.role, (newRole) => {
   }
 });
 
+const tempPasswordInfo = ref({
+  hasTemporaryPassword: false,
+  expiresAt: null
+});
+const generatingTempPassword = ref(false);
+const resettingTempPassword = ref(false);
+const newTempPassword = ref('');
+const tempPasswordInput = ref(null);
 
 const userAgencies = ref([]);
 const availableAgencies = ref([]);
@@ -720,20 +721,11 @@ const showResetTokenModal = ref(false);
 const tokenExpirationDays = ref(7);
 const showMoveToActiveModal = ref(false);
 const showCredentialsModal = ref(false);
-const showPasswordResetTokenModal = ref(false);
-const passwordResetTokenLink = ref('');
-const passwordResetTokenExpiresInHours = ref(48);
-const resetTokenLinkInput = ref(null);
-const sendingResetToken = ref(false);
-
-// Email template modal state
-const showEmailTemplateModal = ref(false);
-const emailTemplateType = ref('');
-const emailTemplateDefaultId = ref(null);
 const userCredentials = ref({
   token: '',
   tokenLink: '',
   username: '',
+  temporaryPassword: '',
   generatedEmails: []
 });
 
@@ -789,6 +781,8 @@ const fetchUser = async () => {
       hasSupervisorPrivileges: currentHasSupervisorPrivileges
     };
     
+    // Fetch temp password info
+    await fetchTempPasswordInfo();
     // Fetch user agencies
     await fetchUserAgencies();
     // Fetch available agencies
@@ -1056,6 +1050,58 @@ const saveAccount = async () => {
   }
 };
 
+const fetchTempPasswordInfo = async () => {
+  try {
+    const response = await api.get(`/users/${userId.value}/credentials`);
+    tempPasswordInfo.value = {
+      hasTemporaryPassword: response.data.hasTemporaryPassword,
+      expiresAt: response.data.temporaryPasswordExpiresAt
+    };
+  } catch (err) {
+    console.error('Failed to fetch temp password info:', err);
+  }
+};
+
+const generateTempPassword = async () => {
+  try {
+    generatingTempPassword.value = true;
+    const response = await api.post(`/users/${userId.value}/generate-temp-password`);
+    newTempPassword.value = response.data.temporaryPassword;
+    await fetchTempPasswordInfo();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to generate temporary password';
+  } finally {
+    generatingTempPassword.value = false;
+  }
+};
+
+const resetTempPassword = async () => {
+  if (!confirm('Are you sure you want to reset the temporary password? This will generate a new one.')) {
+    return;
+  }
+  
+  try {
+    resettingTempPassword.value = true;
+    const response = await api.post(`/users/${userId.value}/generate-temp-password`);
+    newTempPassword.value = response.data.temporaryPassword;
+    await fetchTempPasswordInfo();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to reset temporary password';
+  } finally {
+    resettingTempPassword.value = false;
+  }
+};
+
+const copyTempPassword = async () => {
+  if (tempPasswordInput.value) {
+    tempPasswordInput.value.select();
+    try {
+      await navigator.clipboard.writeText(newTempPassword.value);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  }
+};
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
@@ -1102,17 +1148,9 @@ const markComplete = async () => {
   
   try {
     updatingStatus.value = true;
-    const response = await api.post(`/users/${userId.value}/mark-complete`);
+    await api.post(`/users/${userId.value}/mark-complete`);
     await fetchUser();
-    
-    // Show email template modal if email was generated
-    if (response.data.generatedEmail) {
-      emailTemplateType.value = 'onboarding_complete_confirmation';
-      emailTemplateDefaultId.value = response.data.generatedEmail.templateId || null;
-      showEmailTemplateModal.value = true;
-    } else {
-      alert('User marked as complete. Access will expire in 7 days.');
-    }
+    alert('User marked as complete. Access will expire in 7 days.');
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to mark user as complete';
     alert(error.value);
@@ -1128,17 +1166,9 @@ const promoteToOnboarding = async () => {
   
   try {
     updatingStatus.value = true;
-    const response = await api.post(`/users/${userId.value}/promote-to-onboarding`);
+    await api.post(`/users/${userId.value}/promote-to-onboarding`);
     await fetchUser();
-    
-    // Show email template modal if email was generated
-    if (response.data.generatedEmail) {
-      emailTemplateType.value = 'onboarding_portal_welcome';
-      emailTemplateDefaultId.value = response.data.generatedEmail.templateId || null;
-      showEmailTemplateModal.value = true;
-    } else {
-      alert('User promoted to onboarding status.');
-    }
+    alert('User promoted to onboarding status successfully.');
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to promote user to onboarding';
     alert(error.value);
@@ -1203,6 +1233,7 @@ const handleMoveToActive = async (data) => {
         token: response.data.credentials.passwordlessToken,
         tokenLink: response.data.credentials.passwordlessTokenLink,
         username: response.data.credentials.workEmail,
+        temporaryPassword: response.data.credentials.temporaryPassword,
         generatedEmails: response.data.credentials.generatedEmail ? [{
           type: 'Welcome Active',
           subject: response.data.credentials.emailSubject || 'Your Account Credentials',
@@ -1308,12 +1339,13 @@ const downloadOnboardingDocument = async () => {
 
 const closeCredentialsModal = () => {
   showCredentialsModal.value = false;
-    userCredentials.value = {
-      token: '',
-      tokenLink: '',
-      username: '',
-      generatedEmails: []
-    };
+  userCredentials.value = {
+    token: '',
+    tokenLink: '',
+    username: '',
+    temporaryPassword: '',
+    generatedEmails: []
+  };
 };
 
 const copyToClipboard = async (type) => {
@@ -1322,14 +1354,17 @@ const copyToClipboard = async (type) => {
     text = userCredentials.value.tokenLink || '';
   } else if (type === 'username') {
     text = userCredentials.value.username;
+  } else if (type === 'password') {
+    if (!userCredentials.value.temporaryPassword) {
+      return;
+    }
+    text = userCredentials.value.temporaryPassword;
   }
   
-  if (text) {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    console.error('Failed to copy:', err);
   }
 };
 
@@ -1364,6 +1399,9 @@ const copyAllCredentials = async () => {
     parts.push(`Passwordless Login Link: ${userCredentials.value.tokenLink}`);
   }
   parts.push(`Username: ${userCredentials.value.username}`);
+  if (userCredentials.value.temporaryPassword) {
+    parts.push(`Temporary Password: ${userCredentials.value.temporaryPassword}`);
+  }
   
   const allText = parts.join('\n');
   
@@ -1372,29 +1410,6 @@ const copyAllCredentials = async () => {
   } catch (err) {
     console.error('Failed to copy:', err);
   }
-};
-
-const copyResetTokenLink = async () => {
-  if (resetTokenLinkInput.value) {
-    resetTokenLinkInput.value.select();
-    try {
-      await navigator.clipboard.writeText(passwordResetTokenLink.value);
-      alert('Password reset link copied to clipboard!');
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  }
-};
-
-const closeEmailTemplateModal = () => {
-  showEmailTemplateModal.value = false;
-  emailTemplateType.value = '';
-  emailTemplateDefaultId.value = null;
-};
-
-const handleEmailGenerated = (email) => {
-  // Email was generated and can be copied from the modal
-  // No additional action needed here
 };
 
 // Watch for tab query parameter changes

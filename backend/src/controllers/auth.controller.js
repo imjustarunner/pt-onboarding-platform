@@ -733,20 +733,28 @@ export const initialSetup = async (req, res, next) => {
     await User.changePassword(user.id, password);
 
     // Update status from PENDING_SETUP to PREHIRE_OPEN when password is first set
+    let finalStatus = user.status;
     if (user.status === 'PENDING_SETUP') {
       await User.updateStatus(user.id, 'PREHIRE_OPEN', user.id);
+      finalStatus = 'PREHIRE_OPEN';
       console.log(`[initialSetup] User ${user.id} status updated from PENDING_SETUP to PREHIRE_OPEN`);
     }
 
     // Mark token as used (single-use token)
     await User.markTokenAsUsed(user.id);
 
+    // Get updated user data before generating token to ensure we have latest status
+    const updatedUser = await User.findById(user.id);
+    if (!updatedUser) {
+      return res.status(404).json({ error: { message: 'User not found after password setup' } });
+    }
+
     // Generate session ID
     const sessionId = crypto.randomUUID();
 
-    // Generate JWT token for session
+    // Generate JWT token for session with updated user data
     const jwtToken = jwt.sign(
-      { id: user.id, email: user.username || user.email, role: user.role, status: user.status, sessionId },
+      { id: updatedUser.id, email: updatedUser.username || updatedUser.email, role: updatedUser.role, status: updatedUser.status, sessionId },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
@@ -756,25 +764,22 @@ export const initialSetup = async (req, res, next) => {
     res.cookie('authToken', jwtToken, cookieOptions);
 
     // Get user agencies
-    const userAgencies = await User.getAgencies(user.id);
+    const userAgencies = await User.getAgencies(updatedUser.id);
 
     // Log login activity
     ActivityLogService.logActivity({
       actionType: 'login',
-      userId: user.id,
+      userId: updatedUser.id,
       sessionId,
       metadata: {
-        email: user.username || user.email,
-        role: user.role,
+        email: updatedUser.username || updatedUser.email,
+        role: updatedUser.role,
         loginType: 'passwordless_initial_setup',
-        isPending: user.status === 'PREHIRE_OPEN' || user.status === 'PENDING_SETUP'
+        isPending: updatedUser.status === 'PREHIRE_OPEN' || updatedUser.status === 'PENDING_SETUP'
       }
     }, req);
 
-    console.log('[initialSetup] Password set successfully for user:', user.id, user.first_name, user.last_name);
-    
-    // Get updated user data
-    const updatedUser = await User.findById(user.id);
+    console.log('[initialSetup] Password set successfully for user:', updatedUser.id, updatedUser.first_name, updatedUser.last_name);
     
     res.json({
       token: jwtToken,
@@ -922,19 +927,10 @@ export const register = async (req, res, next) => {
       status: 'PENDING_SETUP' // New users start in PENDING_SETUP status
     });
     
-    // Do NOT set temporary password for pending users
-    // Generate passwordless login token (7 days expiration for pending users)
-    // This token will be used for initial setup (password creation)
-    const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 7 * 24); // 7 days in hours
-    
-    console.log('User created:', { id: user.id, email: user.email, workEmail: user.work_email });
-    
     // Assign user to agencies if provided
     const assignedAgencyIds = [];
-    let firstAgency = null;
     if (agencyIds && Array.isArray(agencyIds) && agencyIds.length > 0) {
       console.log('Assigning user to agencies:', agencyIds);
-      const Agency = (await import('../models/Agency.model.js')).default;
       for (const agencyId of agencyIds) {
         try {
           const parsedAgencyId = parseInt(agencyId);
@@ -946,11 +942,6 @@ export const register = async (req, res, next) => {
           await User.assignToAgency(user.id, parsedAgencyId);
           assignedAgencyIds.push(parsedAgencyId);
           console.log(`Successfully assigned user ${user.id} to agency ${parsedAgencyId}`);
-          
-          // Get first agency for portal URL (if not already set)
-          if (!firstAgency) {
-            firstAgency = await Agency.findById(parsedAgencyId);
-          }
         } catch (err) {
           console.error(`Failed to assign user to agency ${agencyId}:`, err);
           console.error('Error details:', {
@@ -966,16 +957,36 @@ export const register = async (req, res, next) => {
       console.log('No agencies to assign or agencyIds is not an array');
     }
     
-    // Build passwordless token link with agency portal URL if available
-    // Link goes to passwordless-login which will redirect to initial-setup if password not set
+    // Get agency info for branding and token link generation
+    let agencyName = 'Your Agency';
+    let peopleOpsEmail = 'support@example.com';
+    let agency = null;
+    if (assignedAgencyIds.length > 0) {
+      const Agency = (await import('../models/Agency.model.js')).default;
+      agency = await Agency.findById(assignedAgencyIds[0]);
+      if (agency) {
+        agencyName = agency.name;
+        peopleOpsEmail = agency.people_ops_email || peopleOpsEmail;
+      }
+    }
+    
+    // Do NOT set temporary password for pending users
+    // Generate passwordless login token (7 days expiration for pending users)
+    // This token will be used for initial setup (password creation)
+    const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 7 * 24); // 7 days in hours
+    
+    // Build token link with agency portal URL if available
+    const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
     let passwordlessTokenLink;
-    if (firstAgency && firstAgency.portal_url) {
-      const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
-      passwordlessTokenLink = EmailTemplateService.buildResetTokenLink(firstAgency, passwordlessTokenResult.token);
+    if (agency && agency.portal_url) {
+      // Use agency portal URL for branding
+      passwordlessTokenLink = EmailTemplateService.buildResetTokenLink(agency, passwordlessTokenResult.token);
     } else {
-      // Fallback to default frontend URL if no agency portal URL
+      // Fall back to default frontend URL
       passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
     }
+    
+    console.log('User created:', { id: user.id, email: user.email, workEmail: user.work_email });
     
     // Initialize onboarding checklist for new user
     try {
@@ -990,55 +1001,22 @@ export const register = async (req, res, next) => {
     // No need to assign them during user creation - they will appear when user views their checklist
 
     // Generate email template for admin to copy (if template exists)
-    const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
     const EmailTemplate = (await import('../models/EmailTemplate.model.js')).default;
     const generatedEmails = [];
     
-    // Get agency info for branding
-    let agencyName = 'Your Agency';
-    let peopleOpsEmail = 'support@example.com';
-    let agency = null;
-    if (assignedAgencyIds.length > 0) {
-      const Agency = (await import('../models/Agency.model.js')).default;
-      agency = await Agency.findById(assignedAgencyIds[0]);
-      if (agency) {
-        agencyName = agency.name;
-        peopleOpsEmail = agency.people_ops_email || peopleOpsEmail;
-      }
-    }
-    
-    // Generate email using selected template or default pending_welcome template
+    // Try to get the pending_welcome template (agency-specific or platform default)
     try {
-      let template = null;
-      
-      // If templateId provided, use that template
-      if (templateId) {
-        const EmailTemplate = (await import('../models/EmailTemplate.model.js')).default;
-        template = await EmailTemplate.findById(parseInt(templateId));
-        // Verify template type is pending_welcome
-        if (template && template.type !== 'pending_welcome') {
-          template = null; // Invalid template type, fall back to default
-        }
-      }
-      
-      // If no template selected or invalid, use default lookup
-      if (!template) {
-        template = await EmailTemplateService.getTemplateForAgency(
-          assignedAgencyIds.length > 0 ? assignedAgencyIds[0] : null,
-          'pending_welcome'
-        );
-      }
+      const template = await EmailTemplateService.getTemplateForAgency(
+        assignedAgencyIds.length > 0 ? assignedAgencyIds[0] : null,
+        'pending_welcome'
+      );
       
       if (template && template.body) {
-        // Build RESET_TOKEN_LINK parameter
-        const resetTokenLink = passwordlessTokenLink;
-        
         const parameters = {
           FIRST_NAME: firstName || '',
           LAST_NAME: lastName || '',
           AGENCY_NAME: agencyName,
           PORTAL_LOGIN_LINK: passwordlessTokenLink,
-          RESET_TOKEN_LINK: resetTokenLink,
           PORTAL_URL: config.frontendUrl,
           USERNAME: personalEmail || email || 'N/A (Work email will be set when moved to active)',
           PEOPLE_OPS_EMAIL: peopleOpsEmail,
@@ -1048,9 +1026,8 @@ export const register = async (req, res, next) => {
         const rendered = EmailTemplateService.renderTemplate(template, parameters);
         generatedEmails.push({
           type: 'Pending Welcome',
-          subject: rendered.subject || template.subject || 'Your Pre-Hire Access Link',
-          body: rendered.body,
-          templateId: template.id
+          subject: rendered.subject || 'Your Pre-Hire Access Link',
+          body: rendered.body
         });
       }
     } catch (err) {

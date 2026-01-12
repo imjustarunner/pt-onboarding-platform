@@ -1,6 +1,7 @@
 <template>
-  <div class="passwordless-login-container">
-    <div class="login-card">
+  <BrandingProvider>
+    <div class="passwordless-login-container" :style="{ background: loginBackground }">
+      <div class="login-card">
       <div v-if="needsIdentityVerification" class="identity-verification">
         <h2>Identity Verification</h2>
         <p>Please enter your last name to continue:</p>
@@ -30,16 +31,19 @@
       <div v-else class="success">
         <h2>Login Successful</h2>
         <p>Redirecting...</p>
+        </div>
       </div>
     </div>
-  </div>
+  </BrandingProvider>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
+import { getPortalUrl } from '../utils/subdomain';
+import BrandingProvider from '../components/BrandingProvider.vue';
 import api from '../services/api';
 
 const router = useRouter();
@@ -47,12 +51,50 @@ const route = useRoute();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
+// Check if this is an agency-specific login page
+const isAgencyLogin = computed(() => route.params.agencySlug && route.meta?.agencySlug);
+const agencySlug = computed(() => route.params.agencySlug || getPortalUrl());
+
+// Agency login theme data
+const loginTheme = ref(null);
+const loadingTheme = ref(false);
+
+// Logo and background for agency login
+const displayLogoUrl = computed(() => {
+  if (isAgencyLogin.value && loginTheme.value?.agency?.logoUrl) {
+    return loginTheme.value.agency.logoUrl;
+  }
+  return brandingStore.displayLogoUrl || brandingStore.plotTwistCoLogoUrl;
+});
+
+const loginBackground = computed(() => {
+  if (isAgencyLogin.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
+    return loginTheme.value.agency.themeSettings.loginBackground;
+  }
+  return brandingStore.loginBackground || 'linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%)';
+});
+
 const loading = ref(true);
 const error = ref('');
 const needsIdentityVerification = ref(false);
 const lastName = ref('');
 const verifying = ref(false);
 const verificationError = ref('');
+
+// Fetch agency-specific login theme
+const fetchLoginTheme = async (portalUrl) => {
+  if (!portalUrl) return;
+  try {
+    loadingTheme.value = true;
+    const response = await api.get(`/agencies/portal/${portalUrl}/login-theme`);
+    loginTheme.value = response.data;
+  } catch (error) {
+    console.error('Failed to fetch login theme:', error);
+    // Don't redirect on error, just use platform branding
+  } finally {
+    loadingTheme.value = false;
+  }
+};
 
 const attemptLogin = async (lastNameValue = null) => {
   const token = route.params.token;
@@ -152,9 +194,16 @@ const verifyAndLogin = async () => {
 };
 
 onMounted(async () => {
-  // Initialize portal theme first to get agency branding
-  await brandingStore.initializePortalTheme();
-  // Then proceed with login attempt
+  // Fetch agency branding if on agency portal
+  if (agencySlug.value) {
+    await fetchLoginTheme(agencySlug.value);
+  } else {
+    // Initialize portal theme if on subdomain
+    await brandingStore.initializePortalTheme();
+  }
+  // Fetch platform branding as fallback
+  await brandingStore.fetchPlatformBranding();
+  
   await attemptLogin();
 });
 </script>
@@ -165,7 +214,6 @@ onMounted(async () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
 }
 
 .login-card {
