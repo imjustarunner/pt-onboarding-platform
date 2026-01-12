@@ -18,12 +18,21 @@ COPY . .
 
 # Build argument for API URL (set at build time)
 ARG VITE_API_URL
-ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_API_URL=${VITE_API_URL}
 
-RUN node -v && npm -v && ls -la && ls -la node_modules/@vitejs || true
+# Debug: Show environment variables
+RUN echo "VITE_API_URL=$VITE_API_URL" && \
+    node -v && npm -v && \
+    ls -la && ls -la node_modules/@vitejs || true
 
 # Build the application
-RUN npm run build
+RUN npm run build || {
+    echo "❌ Build failed!"
+    echo "VITE_API_URL=$VITE_API_URL"
+    echo "Checking package.json..."
+    cat package.json
+    exit 1
+}
 
 # Stage 2: Production
 FROM nginx:alpine
