@@ -153,6 +153,15 @@
             </button>
           </div>
           <small>Logo displayed in "Powered by" footer on agency login pages. Select an icon from the Icon Library.</small>
+        </div>
+        <div class="form-section-divider">
+          <h4>Fonts</h4>
+          <p class="section-description">Configure default fonts for the platform.</p>
+        </div>
+        <div class="fonts-grid">
+          <div class="font-input-item">
+            <label>Body Font</label>
+            <FontSelector 
               v-model="platformForm.bodyFontId" 
               placeholder="Select body font..."
               font-type="body"
@@ -1681,9 +1690,6 @@ const applySelectedTemplate = async (event) => {
               certificateTemplateUrl: agency.certificate_template_url || '',
               masterIconId: agency.icon_id ?? null,
               trainingFocusDefaultIconId: agency.training_focus_default_icon_id ?? null,
-          allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
-          organizationName: brandingStore.platformBranding.organization_name ?? null,
-          organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null
               userDefaultIconId: agency.user_default_icon_id ?? null,
               documentDefaultIconId: agency.document_default_icon_id ?? null,
               progressDashboardIconId: agency.progress_dashboard_icon_id ?? null,
@@ -2161,10 +2167,9 @@ onActivated(async () => {
       platformForm.value.manageUsersIconId = brandingStore.platformBranding.manage_users_icon_id ?? null;
       platformForm.value.viewAllProgressIconId = brandingStore.platformBranding.view_all_progress_icon_id ?? null;
       platformForm.value.allAgenciesNotificationsIconId = brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null;
+      platformForm.value.organizationName = brandingStore.platformBranding.organization_name ?? null;
+      platformForm.value.organizationLogoIconId = brandingStore.platformBranding.organization_logo_icon_id ?? null;
       
-        allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
-        organizationName: brandingStore.platformBranding.organization_name ?? null,
-        organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null
       if (selectedBrandingScope.value === 'platform') {
         await detectCurrentlyAppliedTemplate();
       }

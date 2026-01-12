@@ -29,7 +29,7 @@ api.interceptors.request.use(
 // Response interceptor
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     // Don't redirect on 401 if we're already on the login page or setup pages
     // Also don't redirect immediately after login (give cookie time to be available)
     const isLoginPage = window.location.pathname.includes('/login');

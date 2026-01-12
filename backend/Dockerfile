@@ -12,14 +12,22 @@ COPY frontend/package*.json ./
 RUN npm ci
 
 # Copy all frontend files (including index.html)
+# Explicitly ensure index.html is copied first to verify it exists
+COPY frontend/index.html ./
 COPY frontend/ ./
 
 # Build argument for API URL (relative path since frontend and backend are same origin)
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
 
-# Verify index.html exists before building
-RUN test -f index.html || (echo "ERROR: index.html not found!" && ls -la && exit 1)
+# Verify index.html exists and show directory structure before building
+RUN echo "=== Verifying frontend structure ===" && \
+    ls -la && \
+    test -f index.html || (echo "ERROR: index.html not found!" && ls -la && exit 1) && \
+    echo "✓ index.html found" && \
+    echo "=== Frontend files ===" && \
+    ls -la src/ 2>/dev/null || echo "src/ directory check" && \
+    echo "=== Ready to build ==="
 
 # Build the frontend
 RUN npm run build

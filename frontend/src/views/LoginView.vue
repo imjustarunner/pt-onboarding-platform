@@ -112,24 +112,14 @@ const loginBackground = computed(() => {
 // Platform branding for "powered by" footer
 const platformOrgName = computed(() => {
   if (isAgencyLogin.value && loginTheme.value?.platform?.organizationName) {
-  const agencyName = brandingStore.portalAgency?.name || 'PlotTwistCo';
-  const term = brandingStore.peopleOpsTerm || 'People Operations';
-  return `${agencyName} ${term} Platform`;
-});
-
-const loginBackground = computed(() => {
-  if (isAgencyLogin.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
-    return loginTheme.value.agency.themeSettings.loginBackground;
-  }
-  return brandingStore.loginBackground;
-});
-
-// Platform branding for "powered by" footer
-const platformOrgName = computed(() => {
-  if (isAgencyLogin.value && loginTheme.value?.platform?.organizationName) {
     return loginTheme.value.platform.organizationName;
   }
   return brandingStore.platformBranding?.organization_name || '';
+});
+
+// Fetch agency-specific login theme
+const fetchLoginTheme = async (portalUrl) => {
+  try {
     loadingTheme.value = true;
     const response = await api.get(`/agencies/portal/${portalUrl}/login-theme`);
     loginTheme.value = response.data;

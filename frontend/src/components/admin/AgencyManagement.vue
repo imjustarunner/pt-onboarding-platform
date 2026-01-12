@@ -572,9 +572,8 @@ const assigningSupport = ref(false);
 const logoError = ref(false);
 const logoErrors = ref({}); // Track logo errors per agency
 const customParamKeys = ref([]);
-const customParameters = ref({});
-const copiedUrl = ref(null); // Track which URL was copied
-const copiedUrl = ref(null); // Track which URL was copied
+  const customParameters = ref({});
+  const copiedUrl = ref(null); // Track which URL was copied
 
 const agencyForm = ref({
   name: '',
