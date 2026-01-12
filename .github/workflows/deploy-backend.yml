@@ -30,11 +30,25 @@ jobs:
         env:
           GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
         run: |
+          echo "Checking GCP_SA_KEY secret..."
           if [ -z "$GCP_SA_KEY" ]; then
-            echo "ERROR: GCP_SA_KEY secret is not set or is empty"
-            echo "Please ensure the secret is set in GitHub repository settings"
+            echo "❌ ERROR: GCP_SA_KEY secret is not set or is empty"
+            echo ""
+            echo "To fix this:"
+            echo "1. Go to: https://github.com/imjustarunner/pt-onboarding-platform/settings/secrets/actions"
+            echo "2. Click 'New repository secret' (or edit existing GCP_SA_KEY)"
+            echo "3. Name: GCP_SA_KEY"
+            echo "4. Value: Paste the entire contents of your service account key.json file"
+            echo "5. The value should be a complete JSON object starting with { and ending with }"
             exit 1
           fi
+          
+          # Check if it looks like valid JSON
+          if ! echo "$GCP_SA_KEY" | jq empty 2>/dev/null; then
+            echo "⚠️  WARNING: GCP_SA_KEY does not appear to be valid JSON"
+            echo "This might still work, but please verify the secret contains valid JSON"
+          fi
+          
           echo "✓ GCP_SA_KEY secret is set and non-empty"
 
       - name: Authenticate to Google Cloud
