@@ -1374,6 +1374,29 @@ const copyAllCredentials = async () => {
   }
 };
 
+const copyResetTokenLink = async () => {
+  if (resetTokenLinkInput.value) {
+    resetTokenLinkInput.value.select();
+    try {
+      await navigator.clipboard.writeText(passwordResetTokenLink.value);
+      alert('Password reset link copied to clipboard!');
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  }
+};
+
+const closeEmailTemplateModal = () => {
+  showEmailTemplateModal.value = false;
+  emailTemplateType.value = '';
+  emailTemplateDefaultId.value = null;
+};
+
+const handleEmailGenerated = (email) => {
+  // Email was generated and can be copied from the modal
+  // No additional action needed here
+};
+
 // Watch for tab query parameter changes
 watch(() => route.query.tab, (newTab) => {
   const validTabs = ['account', 'training', 'documents', 'communications', 'activity'];
