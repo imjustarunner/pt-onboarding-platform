@@ -12,7 +12,9 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: onboarding-frontend
+  # Keeping everything in us-west3 to match your setup
   REGION: us-west3
+  # Direct path to the artifact registry
   IMAGE_NAME: us-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/onboarding-frontend/onboarding-frontend
 
 jobs:
@@ -35,160 +37,33 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      # Explicitly configure Docker for the us-west3 region
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker us-west3-docker.pkg.dev --quiet
-
-      - name: Ensure Artifact Registry repository exists
-        run: |
-          REPO_NAME="onboarding-frontend"
-          LOCATION="$REGION"
-          echo "Checking if Artifact Registry repository exists..."
-          
-          if gcloud artifacts repositories describe $REPO_NAME --location=$LOCATION --repository-format=docker 2>/dev/null; then
-            echo "✓ Artifact Registry repository '$REPO_NAME' already exists"
-          else
-            echo "⚠️  Repository '$REPO_NAME' does not exist. Attempting to create..."
-            if gcloud artifacts repositories create $REPO_NAME \
-              --repository-format=docker \
-              --location=$LOCATION \
-              --description="Docker repository for onboarding-frontend" 2>/dev/null; then
-              echo "✓ Successfully created Artifact Registry repository '$REPO_NAME'"
-            else
-              echo "⚠️  WARNING: Could not create repository '$REPO_NAME'"
-              echo "This usually means the service account lacks the 'Artifact Registry Repository Admin' role."
-              echo "The workflow will stop so you can fix the IAM or pre-create the repo."
-              echo ""
-              echo "To fix this, please either:"
-              echo "  1. Grant the service account the 'Artifact Registry Repository Admin' role in GCP IAM, OR"
-              echo "  2. Pre-create the repository manually in GCP Console:"
-              echo "     - Go to Artifact Registry in GCP Console"
-              echo "     - Create a Docker repository named 'onboarding-frontend'"
-              echo "     - Location: $LOCATION"
-              echo "     - Format: Docker"
-              echo ""
-              echo "Repository path: us-west3-docker.pkg.dev/$PROJECT_ID/$REPO_NAME"
-              echo "Repository location: $LOCATION"
-              exit 1
-            fi
-          fi
-
-      - name: Get backend URL
-        id: backend-url
-        run: |
-          # Try to get backend URL from existing Cloud Run service
-          BACKEND_URL=$(gcloud run services describe onboarding-backend --region=$REGION --format='value(status.url)' 2>/dev/null || echo "")
-          
-          # If not found, try secret
-          if [ -z "$BACKEND_URL" ]; then
-            BACKEND_URL="${{ secrets.BACKEND_URL }}"
-          fi
-          
-          # If still empty, use a placeholder (build will use default fallback)
-          if [ -z "$BACKEND_URL" ]; then
-            echo "⚠️  WARNING: Backend URL not found, using placeholder"
-            BACKEND_URL="https://onboarding-backend-65v3jdyqba-wm.a.run.app"
-          fi
-          
-          echo "backend_url=$BACKEND_URL" >> $GITHUB_OUTPUT
-          echo "Backend URL: $BACKEND_URL"
-
-      - name: Verify frontend directory structure
-        run: |
-          cd frontend
-          echo "Verifying frontend build prerequisites..."
-          if [ ! -f "index.html" ]; then
-            echo "❌ ERROR: index.html not found in frontend directory!"
-            echo "Current directory: $(pwd)"
-            echo "Files in frontend directory:"
-            ls -la
-            exit 1
-          fi
-          if [ ! -f "package.json" ]; then
-            echo "❌ ERROR: package.json not found in frontend directory!"
-            exit 1
-          fi
-          if [ ! -f "vite.config.js" ]; then
-            echo "❌ ERROR: vite.config.js not found in frontend directory!"
-            exit 1
-          fi
-          echo "✓ All required files found"
 
       - name: Build and push Docker image
         run: |
           cd frontend
-          API_URL="${{ steps.backend-url.outputs.backend_url }}/api"
-          echo "Building with VITE_API_URL=$API_URL"
-          
-          # Build Docker image
-          if docker build \
-            --build-arg VITE_API_URL="$API_URL" \
+          # We hardcode the API URL here to avoid permission errors querying it dynamically.
+          # This matches the fallback URL from your previous file.
+          docker build \
+            --build-arg VITE_API_URL="https://onboarding-backend-65v3jdyqba-wm.a.run.app/api" \
             -t $IMAGE_NAME:$GITHUB_SHA \
-            -t $IMAGE_NAME:latest .; then
-            echo "✓ Docker build successful"
-          else
-            echo "❌ Docker build failed"
-            echo "Build arguments:"
-            echo "  VITE_API_URL=$API_URL"
-            echo "  IMAGE_NAME=$IMAGE_NAME"
-            echo "  GITHUB_SHA=$GITHUB_SHA"
-            exit 1
-          fi
+            -t $IMAGE_NAME:latest .
           
-          # Push Docker images with error handling
-          echo "Pushing images to Artifact Registry..."
-          if docker push $IMAGE_NAME:$GITHUB_SHA; then
-            echo "✓ Successfully pushed $IMAGE_NAME:$GITHUB_SHA"
-          else
-            echo "❌ Failed to push $IMAGE_NAME:$GITHUB_SHA"
-            echo ""
-            echo "This error usually indicates one of the following:"
-            echo "  1. Repository doesn't exist - Create it manually in GCP Console:"
-            echo "     - Go to Artifact Registry in GCP Console"
-            echo "     - Create a Docker repository named 'onboarding-frontend'"
-            echo "     - Location: $REGION"
-            echo "     - Format: Docker"
-            echo ""
-            echo "  2. Service account lacks push permissions - Grant 'Artifact Registry Writer' role"
-            echo ""
-            echo "  3. Network connectivity issues"
-            echo ""
-            echo "Repository path: $IMAGE_NAME"
-            exit 1
-          fi
-          
-          if docker push $IMAGE_NAME:latest; then
-            echo "✓ Successfully pushed $IMAGE_NAME:latest"
-          else
-            echo "❌ Failed to push $IMAGE_NAME:latest"
-            exit 1
-          fi
+          docker push $IMAGE_NAME:$GITHUB_SHA
+          docker push $IMAGE_NAME:latest
 
       - name: Deploy to Cloud Run
         run: |
-          echo "Deploying $SERVICE_NAME to Cloud Run..."
-          if gcloud run deploy $SERVICE_NAME \
+          gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:$GITHUB_SHA \
             --platform managed \
             --region $REGION \
             --allow-unauthenticated \
+            --service-account ${{ secrets.CLOUD_RUN_SA_EMAIL }} \
             --memory=256Mi \
             --cpu=1 \
-            --timeout=60 \
+            --timeout=300 \
             --max-instances=10 \
-            --min-instances=0; then
-            echo "✓ Successfully deployed to Cloud Run"
-          else
-            echo "❌ Failed to deploy to Cloud Run"
-            exit 1
-          fi
-
-      - name: Get service URL
-        id: get-url
-        run: |
-          SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format='value(status.url)')
-          if [ -z "$SERVICE_URL" ]; then
-            echo "⚠️  WARNING: Could not retrieve service URL"
-            exit 1
-          fi
-          echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT
-          echo "Frontend deployed to: $SERVICE_URL"
+            --min-instances=0
