@@ -529,17 +529,7 @@
               <input type="text" :value="userCredentials.username" readonly class="credential-input" ref="usernameInput" />
               <button @click="copyToClipboard('username')" class="btn-copy">Copy</button>
             </div>
-            <small v-if="!userCredentials.temporaryPassword">Work email will be set when user moves to active status</small>
-          </div>
-          
-          <!-- Temporary Password - Only shown for active users, not pending users -->
-          <div v-if="userCredentials.temporaryPassword" class="credential-item">
-            <label>Temporary Password:</label>
-            <div class="credential-value">
-              <input type="text" :value="userCredentials.temporaryPassword" readonly class="credential-input" ref="passwordInput" />
-              <button @click="copyToClipboard('password')" class="btn-copy">Copy</button>
-            </div>
-            <small>Expires in 48 hours</small>
+            <small>Work email will be set when user moves to active status</small>
           </div>
         </div>
         
@@ -686,6 +676,18 @@
       </div>
     </div>
   </div>
+  
+  <!-- Email Template Modal -->
+  <EmailTemplateModal
+    v-if="showEmailTemplateModal"
+    :userId="emailTemplateUserId"
+    :templateType="emailTemplateType"
+    :defaultTemplateId="emailTemplateDefaultId"
+    :show="showEmailTemplateModal"
+    :userData="emailTemplateUserData"
+    @close="closeEmailTemplateModal"
+    @emailGenerated="handleEmailGenerated"
+  />
 </template>
 
 <script setup>
@@ -696,6 +698,7 @@ import { useAuthStore } from '../../store/auth';
 import { isSupervisor } from '../../utils/helpers.js';
 import { getStatusLabel, getStatusBadgeClass } from '../../utils/statusUtils.js';
 import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumentAssignmentDialog.vue';
+import EmailTemplateModal from '../../components/admin/EmailTemplateModal.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -764,9 +767,15 @@ const userCredentials = ref({
   token: '',
   tokenLink: '',
   username: '',
-  temporaryPassword: '',
   generatedEmails: []
 });
+
+// Email template modal state
+const showEmailTemplateModal = ref(false);
+const emailTemplateUserId = ref(null);
+const emailTemplateType = ref('pending_welcome');
+const emailTemplateDefaultId = ref(null);
+const emailTemplateUserData = ref(null);
 
 const showDuplicateNameModal = ref(false);
 const duplicateUsers = ref([]);
@@ -952,7 +961,6 @@ const saveUser = async () => {
           token: response.data.passwordlessToken,
           tokenLink: response.data.passwordlessTokenLink,
           username: response.data.user.email,
-          temporaryPassword: null,
           generatedEmails: []
         };
         
@@ -1048,13 +1056,24 @@ const saveUser = async () => {
           token: response.data.passwordlessToken,
           tokenLink: response.data.passwordlessTokenLink,
           username: userForm.value.email || 'N/A (Work email will be set when moved to active)',
-          temporaryPassword: null, // No temp password for pending users
           generatedEmails: response.data.generatedEmails || []
         };
         
         closeModal();
         showCredentialsModal.value = true;
         fetchUsers();
+        
+        // Show email template modal after credentials modal
+        if (response.data.user && response.data.user.id) {
+          emailTemplateUserId.value = response.data.user.id;
+          emailTemplateType.value = 'pending_welcome';
+          emailTemplateDefaultId.value = response.data.generatedEmails?.[0]?.templateId || null;
+          emailTemplateUserData.value = response.data.user;
+          // Show modal after a short delay to allow credentials modal to render first
+          setTimeout(() => {
+            showEmailTemplateModal.value = true;
+          }, 500);
+        }
       }
     }
   } catch (err) {
@@ -1240,7 +1259,6 @@ const confirmMoveToActive = async () => {
       token: response.data.credentials.passwordlessToken,
       tokenLink: response.data.credentials.passwordlessTokenLink,
       username: response.data.credentials.workEmail,
-      temporaryPassword: response.data.credentials.temporaryPassword,
       generatedEmails: response.data.credentials.generatedEmail ? [{
         type: 'Welcome Active',
         subject: response.data.credentials.emailSubject || 'Your Account Credentials',
@@ -1348,9 +1366,35 @@ const closeCredentialsModal = () => {
     token: '',
     tokenLink: '',
     username: '',
-    temporaryPassword: '',
     generatedEmails: []
   };
+};
+
+const closeEmailTemplateModal = () => {
+  showEmailTemplateModal.value = false;
+  emailTemplateUserId.value = null;
+  emailTemplateType.value = 'pending_welcome';
+  emailTemplateDefaultId.value = null;
+  emailTemplateUserData.value = null;
+};
+
+const handleEmailGenerated = (email) => {
+  // Update userCredentials with new generated email
+  if (userCredentials.value.generatedEmails && userCredentials.value.generatedEmails.length > 0) {
+    userCredentials.value.generatedEmails[0] = {
+      type: 'Pending Welcome',
+      subject: email.subject,
+      body: email.body,
+      templateId: email.template?.id
+    };
+  } else {
+    userCredentials.value.generatedEmails = [{
+      type: 'Pending Welcome',
+      subject: email.subject,
+      body: email.body,
+      templateId: email.template?.id
+    }];
+  }
 };
 
 const copyToClipboard = async (type) => {
@@ -1359,15 +1403,10 @@ const copyToClipboard = async (type) => {
     text = userCredentials.value.tokenLink || '';
   } else if (type === 'username') {
     text = userCredentials.value.username;
-  } else if (type === 'password') {
-    // Only copy if temporary password exists (not for pending users)
-    if (!userCredentials.value.temporaryPassword) {
-      return;
-    }
-    text = userCredentials.value.temporaryPassword;
   }
   
-  try {
+  if (text) {
+    try {
     await navigator.clipboard.writeText(text);
     // Could show a toast notification here
   } catch (err) {
@@ -1406,10 +1445,6 @@ const copyAllCredentials = async () => {
     parts.push(`Passwordless Login Link: ${userCredentials.value.tokenLink}`);
   }
   parts.push(`Username: ${userCredentials.value.username}`);
-  // Only include temporary password if it exists (not for pending users)
-  if (userCredentials.value.temporaryPassword) {
-    parts.push(`Temporary Password: ${userCredentials.value.temporaryPassword}`);
-  }
   
   const allText = parts.join('\n');
   
@@ -1678,7 +1713,6 @@ const proceedWithCreation = async () => {
       token: response.data.passwordlessToken,
       tokenLink: response.data.passwordlessTokenLink,
       username: pendingUserData.value.email || 'N/A (Work email will be set when moved to active)',
-      temporaryPassword: null,
       generatedEmails: response.data.generatedEmails || []
     };
     

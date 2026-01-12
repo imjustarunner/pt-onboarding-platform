@@ -1007,19 +1007,38 @@ export const register = async (req, res, next) => {
       }
     }
     
-    // Try to get the pending_welcome template (agency-specific or platform default)
+    // Generate email using selected template or default pending_welcome template
     try {
-      const template = await EmailTemplateService.getTemplateForAgency(
-        assignedAgencyIds.length > 0 ? assignedAgencyIds[0] : null,
-        'pending_welcome'
-      );
+      let template = null;
+      
+      // If templateId provided, use that template
+      if (templateId) {
+        const EmailTemplate = (await import('../models/EmailTemplate.model.js')).default;
+        template = await EmailTemplate.findById(parseInt(templateId));
+        // Verify template type is pending_welcome
+        if (template && template.type !== 'pending_welcome') {
+          template = null; // Invalid template type, fall back to default
+        }
+      }
+      
+      // If no template selected or invalid, use default lookup
+      if (!template) {
+        template = await EmailTemplateService.getTemplateForAgency(
+          assignedAgencyIds.length > 0 ? assignedAgencyIds[0] : null,
+          'pending_welcome'
+        );
+      }
       
       if (template && template.body) {
+        // Build RESET_TOKEN_LINK parameter
+        const resetTokenLink = passwordlessTokenLink;
+        
         const parameters = {
           FIRST_NAME: firstName || '',
           LAST_NAME: lastName || '',
           AGENCY_NAME: agencyName,
           PORTAL_LOGIN_LINK: passwordlessTokenLink,
+          RESET_TOKEN_LINK: resetTokenLink,
           PORTAL_URL: config.frontendUrl,
           USERNAME: personalEmail || email || 'N/A (Work email will be set when moved to active)',
           PEOPLE_OPS_EMAIL: peopleOpsEmail,
@@ -1029,8 +1048,9 @@ export const register = async (req, res, next) => {
         const rendered = EmailTemplateService.renderTemplate(template, parameters);
         generatedEmails.push({
           type: 'Pending Welcome',
-          subject: rendered.subject || 'Your Pre-Hire Access Link',
-          body: rendered.body
+          subject: rendered.subject || template.subject || 'Your Pre-Hire Access Link',
+          body: rendered.body,
+          templateId: template.id
         });
       }
     } catch (err) {

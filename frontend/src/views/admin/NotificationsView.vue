@@ -19,7 +19,6 @@
         <select v-model="filters.type" @change="applyFilters" class="filter-select">
           <option :value="null">All Types</option>
           <option value="status_expired">Status Expired</option>
-          <option value="temp_password_expired">Temp Password Expired</option>
           <option value="task_overdue">Task Overdue</option>
           <option value="onboarding_completed">Onboarding Completed</option>
           <option value="pending_completed">Pending Completed</option>
@@ -211,11 +210,10 @@ const groupedNotifications = computed(() => {
     
     filteredNotifications.value.forEach(notification => {
       // Only show notifications for users with tasks that need completion
-      // Focus on task_overdue, status_expired, temp_password_expired
+      // Focus on task_overdue, status_expired
       if (notification.user_id && 
           (notification.type === 'task_overdue' || 
            notification.type === 'status_expired' || 
-           notification.type === 'temp_password_expired' ||
            notification.type === 'pending_completed')) {
         const userId = notification.user_id;
         if (!userGroups[userId]) {
@@ -260,7 +258,6 @@ const groupedNotifications = computed(() => {
 const getTypeLabel = (type) => {
   const labels = {
     status_expired: 'Status Expirations',
-    temp_password_expired: 'Temporary Password Expirations',
     task_overdue: 'Overdue Tasks',
     onboarding_completed: 'Onboarding Completed',
     pending_completed: 'Pre-Hire Process Completed',
@@ -369,8 +366,8 @@ const getNotificationNavigationPath = (notification) => {
   } else if (notification.type === 'status_expired' && notification.user_id) {
     // For expired status, navigate to user's account tab
     return `/admin/users/${notification.user_id}?tab=account`;
-  } else if (notification.type === 'temp_password_expired' && notification.user_id) {
-    // For expired temp password, navigate to user's account tab
+  } else if (notification.user_id) {
+    // For user-related notifications, navigate to user's account tab
     return `/admin/users/${notification.user_id}?tab=account`;
   } else if (notification.type === 'onboarding_completed' && notification.user_id) {
     // For onboarding completed, navigate to user's profile

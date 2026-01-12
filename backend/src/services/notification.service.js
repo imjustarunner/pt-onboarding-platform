@@ -259,12 +259,10 @@ class NotificationService {
     
     // Check all notification types
     const statusNotifications = await this.checkStatusExpirations(agencyId);
-    const tempPasswordNotifications = await this.checkTempPasswordExpirations(agencyId);
     const expiredTokenNotifications = await this.checkExpiredPasswordlessTokens(agencyId);
     const taskNotifications = await this.checkOverdueTasks(agencyId);
-    
+
     allNotifications.push(...statusNotifications);
-    allNotifications.push(...tempPasswordNotifications);
     allNotifications.push(...expiredTokenNotifications);
     allNotifications.push(...taskNotifications);
     

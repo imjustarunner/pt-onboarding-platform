@@ -33,12 +33,6 @@ class EmailTemplateService {
         example: 'john.doe@example.com'
       },
       {
-        name: 'TEMP_PASSWORD',
-        description: 'Generated temporary password',
-        category: 'user',
-        example: 'Xk9mP2qR7vN4wL8t'
-      },
-      {
         name: 'AGENCY_NAME',
         description: 'Name of the agency',
         category: 'agency',
@@ -175,7 +169,6 @@ class EmailTemplateService {
    */
   static async collectParameters(user, agency, options = {}) {
     const {
-      tempPassword,
       passwordlessToken,
       documentDeadline,
       trainingDeadline,
@@ -189,11 +182,6 @@ class EmailTemplateService {
       parameters.FIRST_NAME = user.first_name || '';
       parameters.LAST_NAME = user.last_name || '';
       parameters.USERNAME = user.email || '';
-    }
-
-    // Temporary password
-    if (tempPassword) {
-      parameters.TEMP_PASSWORD = tempPassword;
     }
 
     // Agency parameters
@@ -274,7 +262,6 @@ class EmailTemplateService {
    */
   static async generateUserWelcomeEmail(user, agencyId, options = {}) {
     const {
-      tempPassword,
       passwordlessToken,
       senderName,
       generatedByUserId
@@ -294,7 +281,6 @@ class EmailTemplateService {
 
     // Collect all parameters
     const parameters = await this.collectParameters(user, agency, {
-      tempPassword,
       passwordlessToken,
       senderName
     });

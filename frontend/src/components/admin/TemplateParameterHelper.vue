@@ -53,7 +53,6 @@ const availableParameters = [
   { name: 'FIRST_NAME', description: "User's first name", category: 'user', example: 'John' },
   { name: 'LAST_NAME', description: "User's last name", category: 'user', example: 'Doe' },
   { name: 'USERNAME', description: "User's email/username", category: 'user', example: 'john.doe@example.com' },
-  { name: 'TEMP_PASSWORD', description: 'Generated temporary password', category: 'user', example: 'Xk9mP2qR7vN4wL8t' },
   { name: 'AGENCY_NAME', description: 'Name of the agency', category: 'agency', example: 'IT Solutions Co' },
   { name: 'TERMINOLOGY_SETTINGS', description: 'Agency-specific terminology', category: 'agency', example: 'People Operations' },
   { name: 'PEOPLE_OPS_EMAIL', description: 'Onboarding team/People Ops email address', category: 'agency', example: 'onboarding@agency.com' },
