@@ -175,6 +175,43 @@
           </table>
         </div>
       </div>
+
+      <!-- Agencies Archive -->
+      <div v-if="activeTab === 'agencies'" class="archive-section">
+        <h3>Archived Agencies</h3>
+        <div v-if="loadingAgencies" class="loading">Loading archived agencies...</div>
+        <div v-else-if="archivedAgencies.length === 0" class="empty-state">
+          <p>No archived agencies.</p>
+        </div>
+        <div v-else class="archive-table-container">
+          <table class="archive-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Slug</th>
+                <th>Archived Date</th>
+                <th>Archived By</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="agency in archivedAgencies" :key="agency.id">
+                <td class="name-cell">{{ agency.name }}</td>
+                <td>{{ agency.slug || '-' }}</td>
+                <td>{{ formatDate(agency.archived_at) }}</td>
+                <td>
+                  <span v-if="agency.archived_by_user_name">{{ agency.archived_by_user_name }}</span>
+                  <span v-else-if="agency.archived_by_user_id">User ID: {{ agency.archived_by_user_id }}</span>
+                  <span v-else>-</span>
+                </td>
+                <td class="actions-cell">
+                  <button @click="restoreAgency(agency.id)" class="btn btn-success btn-sm">Restore</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -193,17 +230,28 @@ const archivedTrainingFocuses = ref([]);
 const archivedModules = ref([]);
 const archivedUsers = ref([]);
 const archivedDocuments = ref([]);
+const archivedAgencies = ref([]);
 const loadingTrainingFocuses = ref(false);
 const loadingModules = ref(false);
 const loadingUsers = ref(false);
 const loadingDocuments = ref(false);
+const loadingAgencies = ref(false);
 
-const tabs = computed(() => [
-  { id: 'training-focuses', label: 'Training Focuses', count: archivedTrainingFocuses.value.length },
-  { id: 'modules', label: 'Modules', count: archivedModules.value.length },
-  { id: 'users', label: 'Users', count: archivedUsers.value.length },
-  { id: 'documents', label: 'Documents', count: archivedDocuments.value.length }
-]);
+const tabs = computed(() => {
+  const allTabs = [
+    { id: 'training-focuses', label: 'Training Focuses', count: archivedTrainingFocuses.value.length },
+    { id: 'modules', label: 'Modules', count: archivedModules.value.length },
+    { id: 'users', label: 'Users', count: archivedUsers.value.length },
+    { id: 'documents', label: 'Documents', count: archivedDocuments.value.length }
+  ];
+  
+  // Only show agencies tab for super admins
+  if (authStore.user?.role === 'super_admin') {
+    allTabs.push({ id: 'agencies', label: 'Agencies', count: archivedAgencies.value.length });
+  }
+  
+  return allTabs;
+});
 
 // Watch for agency changes and refetch archived items
 watch(() => agencyStore.currentAgency, () => {
@@ -282,13 +330,39 @@ const fetchArchivedDocuments = async () => {
   }
 };
 
+const fetchArchivedAgencies = async () => {
+  // Only super admins can view archived agencies
+  if (authStore.user?.role !== 'super_admin') {
+    archivedAgencies.value = [];
+    return;
+  }
+  
+  try {
+    loadingAgencies.value = true;
+    const response = await api.get('/agencies/archived');
+    archivedAgencies.value = response.data || [];
+  } catch (err) {
+    console.error('Failed to load archived agencies:', err);
+    archivedAgencies.value = [];
+  } finally {
+    loadingAgencies.value = false;
+  }
+};
+
 const fetchAllArchived = async () => {
-  await Promise.all([
+  const promises = [
     fetchArchivedTrainingFocuses(),
     fetchArchivedModules(),
     fetchArchivedUsers(),
     fetchArchivedDocuments()
-  ]);
+  ];
+  
+  // Only fetch agencies for super admins
+  if (authStore.user?.role === 'super_admin') {
+    promises.push(fetchArchivedAgencies());
+  }
+  
+  await Promise.all(promises);
 };
 
 const restoreTrainingFocus = async (id) => {
@@ -405,6 +479,22 @@ const permanentlyDeleteDocument = async (id) => {
     alert('Document permanently deleted');
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to delete document');
+  }
+};
+
+const restoreAgency = async (id) => {
+  if (!confirm('Are you sure you want to restore this agency? It will be set to active.')) {
+    return;
+  }
+  
+  try {
+    await api.post(`/agencies/${id}/restore`);
+    await fetchArchivedAgencies();
+    // Also refresh the agency store so the restored agency appears in the main list
+    await agencyStore.fetchAgencies();
+    alert('Agency restored successfully');
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to restore agency');
   }
 };
 
