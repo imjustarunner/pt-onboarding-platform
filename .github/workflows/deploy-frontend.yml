@@ -39,11 +39,12 @@ jobs:
         run: gcloud auth configure-docker
 
       - name: Ensure GCR repository exists
+        continue-on-error: true
         run: |
           REPO_NAME="onboarding-frontend"
           echo "Checking if GCR repository exists..."
           
-          # Check if repository exists by trying to list it
+          # Check if repository exists by trying to describe it
           if gcloud artifacts repositories describe $REPO_NAME --location=$REGION --repository-format=docker 2>/dev/null; then
             echo "✓ GCR repository '$REPO_NAME' already exists"
           else
@@ -54,14 +55,16 @@ jobs:
               --description="Docker repository for onboarding-frontend" 2>/dev/null; then
               echo "✓ Successfully created GCR repository '$REPO_NAME'"
             else
-              echo "❌ ERROR: Failed to create repository '$REPO_NAME'"
+              echo "⚠️  WARNING: Could not create repository '$REPO_NAME'"
               echo "This usually means the service account lacks the 'Artifact Registry Repository Admin' role."
-              echo "Please either:"
+              echo "The workflow will continue, but the push step will fail if the repository doesn't exist."
+              echo ""
+              echo "To fix this, please either:"
               echo "  1. Grant the service account the 'Artifact Registry Repository Admin' role in GCP IAM, OR"
               echo "  2. Pre-create the repository manually in GCP Console"
               echo ""
               echo "Repository path: gcr.io/$PROJECT_ID/$REPO_NAME"
-              exit 1
+              echo "Repository location: $REGION"
             fi
           fi
 
@@ -133,10 +136,19 @@ jobs:
             echo "✓ Successfully pushed $IMAGE_NAME:$GITHUB_SHA"
           else
             echo "❌ Failed to push $IMAGE_NAME:$GITHUB_SHA"
-            echo "This may indicate:"
-            echo "  - Repository doesn't exist (should have been created in previous step)"
-            echo "  - Service account lacks push permissions"
-            echo "  - Network connectivity issues"
+            echo ""
+            echo "This error usually indicates one of the following:"
+            echo "  1. Repository doesn't exist - Create it manually in GCP Console:"
+            echo "     - Go to Artifact Registry in GCP Console"
+            echo "     - Create a Docker repository named 'onboarding-frontend'"
+            echo "     - Location: $REGION"
+            echo "     - Format: Docker"
+            echo ""
+            echo "  2. Service account lacks push permissions - Grant 'Artifact Registry Writer' role"
+            echo ""
+            echo "  3. Network connectivity issues"
+            echo ""
+            echo "Repository path: $IMAGE_NAME"
             exit 1
           fi
           
