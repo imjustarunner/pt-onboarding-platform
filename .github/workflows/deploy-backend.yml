@@ -13,7 +13,7 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: onboarding-backend
   REGION: us-west3
-  IMAGE_NAME: us-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/onboarding-backend
+  IMAGE_NAME: us-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/onboarding-backend/onboarding-backend
 
 jobs:
   deploy:
@@ -47,15 +47,16 @@ jobs:
           if gcloud artifacts repositories describe $REPO_NAME --location=$LOCATION --repository-format=docker 2>/dev/null; then
             echo "✓ Artifact Registry repository '$REPO_NAME' already exists"
           else
-            echo "Repository '$REPO_NAME' not found. Creating..."
+            echo "⚠️  Repository '$REPO_NAME' does not exist. Attempting to create..."
             if gcloud artifacts repositories create $REPO_NAME \
               --repository-format=docker \
               --location=$LOCATION \
-              --description="Docker repository for onboarding-backend"; then
+              --description="Docker repository for onboarding-backend" 2>/dev/null; then
               echo "✓ Successfully created Artifact Registry repository '$REPO_NAME'"
             else
-              echo "❌ ERROR: Failed to create repository '$REPO_NAME'"
+              echo "⚠️  WARNING: Could not create repository '$REPO_NAME'"
               echo "This usually means the service account lacks the 'Artifact Registry Repository Admin' role."
+              echo "The workflow will stop so you can fix the IAM or pre-create the repo."
               echo ""
               echo "To fix this, please either:"
               echo "  1. Grant the service account the 'Artifact Registry Repository Admin' role in GCP IAM, OR"
@@ -65,7 +66,8 @@ jobs:
               echo "     - Location: $LOCATION"
               echo "     - Format: Docker"
               echo ""
-              echo "Repository path: $IMAGE_NAME"
+              echo "Repository path: us-west3-docker.pkg.dev/$PROJECT_ID/$REPO_NAME"
+              echo "Repository location: $LOCATION"
               exit 1
             fi
           fi
@@ -73,10 +75,9 @@ jobs:
       - name: Build frontend (fast fail)
         working-directory: frontend
         run: |
-          echo "Building frontend to catch errors early..."
+          echo "Building frontend to fail fast on Vite errors..."
           npm ci
           npm run build
-          echo "✓ Frontend build successful"
 
       - name: Build and push Docker image
         run: |
