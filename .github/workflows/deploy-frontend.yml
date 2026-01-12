@@ -12,8 +12,8 @@ on:
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   SERVICE_NAME: onboarding-frontend
-  REGION: us-central1
-  IMAGE_NAME: gcr.io/${{ secrets.GCP_PROJECT_ID }}/onboarding-frontend
+  REGION: us-west3
+  IMAGE_NAME: us-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/onboarding-frontend
 
 jobs:
   deploy:
@@ -35,36 +35,38 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-west3-docker.pkg.dev --quiet
 
-      - name: Ensure GCR repository exists
-        continue-on-error: true
+      - name: Ensure Artifact Registry repository exists
         run: |
           REPO_NAME="onboarding-frontend"
-          echo "Checking if GCR repository exists..."
+          LOCATION="$REGION"
+          echo "Checking if Artifact Registry repository exists..."
           
-          # Check if repository exists by trying to describe it
-          if gcloud artifacts repositories describe $REPO_NAME --location=$REGION --repository-format=docker 2>/dev/null; then
-            echo "✓ GCR repository '$REPO_NAME' already exists"
+          if gcloud artifacts repositories describe $REPO_NAME --location=$LOCATION --repository-format=docker 2>/dev/null; then
+            echo "✓ Artifact Registry repository '$REPO_NAME' already exists"
           else
-            echo "⚠️  Repository '$REPO_NAME' does not exist. Attempting to create..."
+            echo "Repository '$REPO_NAME' not found. Creating..."
             if gcloud artifacts repositories create $REPO_NAME \
               --repository-format=docker \
-              --location=$REGION \
-              --description="Docker repository for onboarding-frontend" 2>/dev/null; then
-              echo "✓ Successfully created GCR repository '$REPO_NAME'"
+              --location=$LOCATION \
+              --description="Docker repository for onboarding-frontend"; then
+              echo "✓ Successfully created Artifact Registry repository '$REPO_NAME'"
             else
-              echo "⚠️  WARNING: Could not create repository '$REPO_NAME'"
+              echo "❌ ERROR: Failed to create repository '$REPO_NAME'"
               echo "This usually means the service account lacks the 'Artifact Registry Repository Admin' role."
-              echo "The workflow will continue, but the push step will fail if the repository doesn't exist."
               echo ""
               echo "To fix this, please either:"
               echo "  1. Grant the service account the 'Artifact Registry Repository Admin' role in GCP IAM, OR"
-              echo "  2. Pre-create the repository manually in GCP Console"
+              echo "  2. Pre-create the repository manually in GCP Console:"
+              echo "     - Go to Artifact Registry in GCP Console"
+              echo "     - Create a Docker repository named 'onboarding-frontend'"
+              echo "     - Location: $LOCATION"
+              echo "     - Format: Docker"
               echo ""
-              echo "Repository path: gcr.io/$PROJECT_ID/$REPO_NAME"
-              echo "Repository location: $REGION"
+              echo "Repository path: $IMAGE_NAME"
+              exit 1
             fi
           fi
 
@@ -131,7 +133,7 @@ jobs:
           fi
           
           # Push Docker images with error handling
-          echo "Pushing images to GCR..."
+          echo "Pushing images to Artifact Registry..."
           if docker push $IMAGE_NAME:$GITHUB_SHA; then
             echo "✓ Successfully pushed $IMAGE_NAME:$GITHUB_SHA"
           else
