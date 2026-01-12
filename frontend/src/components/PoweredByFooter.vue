@@ -23,14 +23,18 @@ const showPoweredBy = computed(() => brandingStore.showPoweredBy);
 // Get platform organization name and logo from branding store
 const platformOrgName = computed(() => {
   return brandingStore.platformBranding?.organization_name || 'PlotTwistCo';
-  return brandingStore.platformBranding?.organization_name || '';
+});
 
 const platformLogoUrl = computed(() => {
   if (brandingStore.platformBranding?.organization_logo_path) {
     return `/uploads/${brandingStore.platformBranding.organization_logo_path}`;
   }
   return brandingStore.plotTwistCoLogoUrl;
-  return null; // No fallback - platform logo must be set in branding config
+});
+
+const plotTwistCoLogoUrl = computed(() => {
+  return brandingStore.plotTwistCoLogoUrl;
+});
 
 const handleLogoError = (event) => {
   // Hide logo if it fails to load, show text only
