@@ -26,9 +26,11 @@ RUN echo "VITE_API_URL=$VITE_API_URL" && \
     ls -la && ls -la node_modules/@vitejs || true
 
 # Build the application
-RUN set -e && \
-    echo "Building with VITE_API_URL=$VITE_API_URL" && \
-    npm run build
+RUN npm run build || ( \
+    echo "❌ Build failed!" && \
+    echo "VITE_API_URL=$VITE_API_URL" && \
+    echo "Checking package.json..." && \
+    exit 1 )
 
 # Stage 2: Production
 FROM nginx:alpine
