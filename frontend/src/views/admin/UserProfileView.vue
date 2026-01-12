@@ -1032,6 +1032,16 @@ const saveAccount = async () => {
     const response = await api.put(`/users/${userId.value}`, updateData);
     // Always fetch fresh user data to ensure all fields are up to date
     await fetchUser();
+    
+    // If role was updated and this is the current logged-in user, refresh their auth data
+    if (updateData.role !== undefined && userId.value === authStore.user?.id) {
+      console.log('Role updated for current user, refreshing auth data...');
+      await authStore.refreshUser();
+      // Force a page reload to ensure all components see the updated role
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
+    }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to save changes';
     alert(error.value);

@@ -33,18 +33,6 @@ export function checkAccess(user) {
     };
   }
 
-  // Admins and support have full admin access regardless of status (except ARCHIVED)
-  // This ensures they can manage their agencies even if they're in onboarding/prehire status
-  if ((userRole === 'admin' || userRole === 'support') && status !== 'ARCHIVED') {
-    return {
-      canAccessOnDemand: true,
-      canAccessDashboard: true,
-      canAccessTraining: true,
-      canAccessDocuments: true,
-      canAccessAdmin: true
-    };
-  }
-
   // Base access permissions based on status
   let canAccessOnDemand = false;
   let canAccessDashboard = false;
@@ -146,8 +134,8 @@ export function canLogin(user) {
   const status = user.status;
   const userRole = user.role;
 
-  // Superadmins, admins, and support can always login (except if ARCHIVED)
-  if ((userRole === 'super_admin' || userRole === 'admin' || userRole === 'support') && status !== 'ARCHIVED') {
+  // Superadmins can always login (except if ARCHIVED)
+  if (userRole === 'super_admin' && status !== 'ARCHIVED') {
     return true;
   }
 

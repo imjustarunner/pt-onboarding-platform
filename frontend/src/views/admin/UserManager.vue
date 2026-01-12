@@ -905,6 +905,17 @@ const saveUser = async () => {
         updateData.password = userForm.value.password;
       }
       await api.put(`/users/${editingUser.value.id}`, updateData);
+      
+      // If role was updated and this is the current logged-in user, refresh their auth data
+      if (updateData.role !== undefined && editingUser.value.id === authStore.user?.id) {
+        console.log('Role updated for current user, refreshing auth data...');
+        await authStore.refreshUser();
+        // Force a page reload to ensure all components see the updated role
+        setTimeout(() => {
+          window.location.reload();
+        }, 500);
+      }
+      
       closeModal();
       fetchUsers();
     } else {

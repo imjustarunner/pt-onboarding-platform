@@ -660,6 +660,29 @@ export const updateUser = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
 
+    // If role was updated and this is the current logged-in user, regenerate their token
+    if (role !== undefined && parseInt(id) === req.user.id) {
+      const jwt = (await import('jsonwebtoken')).default;
+      const crypto = (await import('crypto')).default;
+      const config = (await import('../config/config.js')).default;
+      
+      // Generate new session ID
+      const sessionId = crypto.randomUUID();
+      
+      // Generate new JWT token with updated role
+      const newToken = jwt.sign(
+        { id: user.id, email: user.email, role: user.role, status: user.status, sessionId },
+        config.jwt.secret,
+        { expiresIn: config.jwt.expiresIn }
+      );
+      
+      // Set new token in HttpOnly cookie
+      const cookieOptions = config.authCookie.set();
+      res.cookie('authToken', newToken, cookieOptions);
+      
+      console.log('Token regenerated for user after role update:', user.id, 'New role:', user.role);
+    }
+
     res.json(user);
   } catch (error) {
     // Handle MySQL enum errors more gracefully

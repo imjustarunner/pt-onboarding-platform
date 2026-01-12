@@ -47,17 +47,38 @@ export const requireAdmin = async (req, res, next) => {
   // Allow admin, super_admin, support, supervisors, and CPAs
   // Check if user is a supervisor using boolean as source of truth
   const requestingUser = await User.findById(req.user.id);
-  const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
+  if (!requestingUser) {
+    return res.status(401).json({ error: { message: 'User not found' } });
+  }
   
-  if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support' && 
-      !isSupervisor && req.user.role !== 'clinical_practice_assistant') {
+  // Use database role (most up-to-date) instead of token role
+  const userRole = requestingUser.role;
+  const isSupervisor = User.isSupervisor(requestingUser);
+  
+  // Update req.user.role to match database (for consistency)
+  req.user.role = userRole;
+  
+  if (userRole !== 'admin' && userRole !== 'super_admin' && userRole !== 'support' && 
+      !isSupervisor && userRole !== 'clinical_practice_assistant') {
     return res.status(403).json({ error: { message: 'Admin access required' } });
   }
   next();
 };
 
-export const requireSuperAdmin = (req, res, next) => {
-  if (req.user.role !== 'super_admin') {
+export const requireSuperAdmin = async (req, res, next) => {
+  // Check database role to ensure it's up-to-date
+  const requestingUser = await User.findById(req.user.id);
+  if (!requestingUser) {
+    return res.status(401).json({ error: { message: 'User not found' } });
+  }
+  
+  // Use database role (most up-to-date) instead of token role
+  const userRole = requestingUser.role;
+  
+  // Update req.user.role to match database (for consistency)
+  req.user.role = userRole;
+  
+  if (userRole !== 'super_admin') {
     return res.status(403).json({ error: { message: 'Super admin access required' } });
   }
   next();
@@ -65,13 +86,23 @@ export const requireSuperAdmin = (req, res, next) => {
 
 export const requireAgencyAdmin = async (req, res, next) => {
   try {
+    // Get fresh user data from database to ensure role is up-to-date
+    const requestingUser = await User.findById(req.user.id);
+    if (!requestingUser) {
+      return res.status(401).json({ error: { message: 'User not found' } });
+    }
+    
+    // Use database role (most up-to-date) instead of token role
+    const userRole = requestingUser.role;
+    req.user.role = userRole;
+    
     // Super Admin has access to all agencies
-    if (req.user.role === 'super_admin') {
+    if (userRole === 'super_admin') {
       return next();
     }
     
     // Must be admin or support role
-    if (req.user.role !== 'admin' && req.user.role !== 'support') {
+    if (userRole !== 'admin' && userRole !== 'support') {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
     
@@ -98,8 +129,18 @@ export const requireAgencyAdmin = async (req, res, next) => {
 
 export const requireAgencyAccess = async (req, res, next) => {
   try {
+    // Get fresh user data from database to ensure role is up-to-date
+    const requestingUser = await User.findById(req.user.id);
+    if (!requestingUser) {
+      return res.status(401).json({ error: { message: 'User not found' } });
+    }
+    
+    // Use database role (most up-to-date) instead of token role
+    const userRole = requestingUser.role;
+    req.user.role = userRole;
+    
     // Super Admin, Admin, and Support have access
-    if (req.user.role === 'super_admin' || req.user.role === 'admin' || req.user.role === 'support') {
+    if (userRole === 'super_admin' || userRole === 'admin' || userRole === 'support') {
       return next();
     }
     
@@ -189,10 +230,9 @@ export const requireActiveStatus = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'User not found' } });
     }
     
-    // Superadmins, admins, and support bypass all status checks (except ARCHIVED)
-    // This ensures they can manage their agencies regardless of their personal status
-    if ((user.role === 'super_admin' || user.role === 'admin' || user.role === 'support') && user.status !== 'ARCHIVED') {
-      // Give full access
+    // Superadmins bypass all status checks (except ARCHIVED)
+    if (user.role === 'super_admin' && user.status !== 'ARCHIVED') {
+      // Give superadmins full access
       req.userAccess = {
         canAccessOnDemand: true,
         canAccessDashboard: true,
