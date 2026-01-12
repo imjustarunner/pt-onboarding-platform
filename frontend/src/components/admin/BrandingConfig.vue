@@ -1637,7 +1637,7 @@ const applySelectedTemplate = async (event) => {
       ? parseInt(selectedBrandingScope.value.replace('agency-', ''))
       : (authStore.user?.role === 'admin' ? authStore.user.agency_id : null);
 
-    await api.post(`/branding-templates/${templateId}/apply`, {
+    const response = await api.post(`/branding-templates/${templateId}/apply`, {
       targetScope,
       targetAgencyId
     });
@@ -1647,28 +1647,32 @@ const applySelectedTemplate = async (event) => {
     
     alert('Template applied successfully!');
     
-    // Reload branding data
+    // Reload branding data and refresh templates list
+    await loadAvailableTemplates();
+    
     if (targetScope === 'platform') {
+      // Force refresh platform branding
       await brandingStore.fetchPlatformBranding();
       if (brandingStore.platformBranding) {
+        // Update form with fresh data from store
         platformForm.value = {
-          tagline: brandingStore.platformBranding.tagline || platformForm.value.tagline,
-          primaryColor: brandingStore.platformBranding.primary_color || platformForm.value.primaryColor,
-          secondaryColor: brandingStore.platformBranding.secondary_color || platformForm.value.secondaryColor,
-          accentColor: brandingStore.platformBranding.accent_color || platformForm.value.accentColor,
-          successColor: brandingStore.platformBranding.success_color || platformForm.value.successColor,
-          backgroundColor: brandingStore.platformBranding.background_color || platformForm.value.backgroundColor,
-          errorColor: brandingStore.platformBranding.error_color || platformForm.value.errorColor,
-          warningColor: brandingStore.platformBranding.warning_color || platformForm.value.warningColor,
-          headerFont: brandingStore.platformBranding.header_font || platformForm.value.headerFont,
-          bodyFont: brandingStore.platformBranding.body_font || platformForm.value.bodyFont,
-          numericFont: brandingStore.platformBranding.numeric_font || platformForm.value.numericFont,
-          displayFont: brandingStore.platformBranding.display_font || platformForm.value.displayFont,
+          tagline: brandingStore.platformBranding.tagline || '',
+          primaryColor: brandingStore.platformBranding.primary_color || '',
+          secondaryColor: brandingStore.platformBranding.secondary_color || '',
+          accentColor: brandingStore.platformBranding.accent_color || '',
+          successColor: brandingStore.platformBranding.success_color || '',
+          backgroundColor: brandingStore.platformBranding.background_color || '',
+          errorColor: brandingStore.platformBranding.error_color || '',
+          warningColor: brandingStore.platformBranding.warning_color || '',
+          headerFont: brandingStore.platformBranding.header_font || '',
+          bodyFont: brandingStore.platformBranding.body_font || '',
+          numericFont: brandingStore.platformBranding.numeric_font || '',
+          displayFont: brandingStore.platformBranding.display_font || '',
           headerFontId: brandingStore.platformBranding.header_font_id ?? null,
           bodyFontId: brandingStore.platformBranding.body_font_id ?? null,
           numericFontId: brandingStore.platformBranding.numeric_font_id ?? null,
           displayFontId: brandingStore.platformBranding.display_font_id ?? null,
-          peopleOpsTerm: brandingStore.platformBranding.people_ops_term || platformForm.value.peopleOpsTerm,
+          peopleOpsTerm: brandingStore.platformBranding.people_ops_term || '',
           trainingFocusDefaultIconId: brandingStore.platformBranding.training_focus_default_icon_id ?? null,
           moduleDefaultIconId: brandingStore.platformBranding.module_default_icon_id ?? null,
           userDefaultIconId: brandingStore.platformBranding.user_default_icon_id ?? null,
@@ -1683,7 +1687,12 @@ const applySelectedTemplate = async (event) => {
           allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null
         };
       }
+      // Force a page reload to ensure all components see the updated branding
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
     } else {
+      // For agency templates, refresh agency data
       await agencyStore.fetchAgencies();
       if (targetAgencyId) {
         const agency = agencyStore.agencies.find(a => a.id === targetAgencyId);

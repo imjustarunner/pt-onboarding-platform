@@ -189,7 +189,7 @@
     <div v-if="previewingTemplate" class="modal-overlay" @click="closePreview">
       <div class="modal-content" @click.stop>
         <h3>Template Preview: {{ previewingTemplate.name }}</h3>
-        <div class="preview-content">
+        <div class="preview-content" v-if="previewingTemplate.template_data && Object.keys(previewingTemplate.template_data).length > 0">
           <h4>This template will change:</h4>
           <ul>
             <li v-if="previewingTemplate.template_data.primary_color">
@@ -201,14 +201,74 @@
             <li v-if="previewingTemplate.template_data.accent_color">
               Accent Color: <span class="color-preview" :style="{ backgroundColor: previewingTemplate.template_data.accent_color }"></span> {{ previewingTemplate.template_data.accent_color }}
             </li>
-            <li v-for="(value, key) in previewingTemplate.template_data" :key="key" v-if="!key.includes('_color') && !key.includes('icon')">
-              {{ formatKey(key) }}: {{ value }}
+            <li v-if="previewingTemplate.template_data.success_color">
+              Success Color: <span class="color-preview" :style="{ backgroundColor: previewingTemplate.template_data.success_color }"></span> {{ previewingTemplate.template_data.success_color }}
+            </li>
+            <li v-if="previewingTemplate.template_data.error_color">
+              Error Color: <span class="color-preview" :style="{ backgroundColor: previewingTemplate.template_data.error_color }"></span> {{ previewingTemplate.template_data.error_color }}
+            </li>
+            <li v-if="previewingTemplate.template_data.warning_color">
+              Warning Color: <span class="color-preview" :style="{ backgroundColor: previewingTemplate.template_data.warning_color }"></span> {{ previewingTemplate.template_data.warning_color }}
+            </li>
+            <li v-if="previewingTemplate.template_data.background_color">
+              Background Color: <span class="color-preview" :style="{ backgroundColor: previewingTemplate.template_data.background_color }"></span> {{ previewingTemplate.template_data.background_color }}
+            </li>
+            <li v-if="previewingTemplate.template_data.tagline">
+              Tagline: {{ previewingTemplate.template_data.tagline }}
+            </li>
+            <li v-if="previewingTemplate.template_data.people_ops_term">
+              People Ops Term: {{ previewingTemplate.template_data.people_ops_term }}
+            </li>
+            <li v-if="previewingTemplate.template_data.header_font || previewingTemplate.template_data.header_font_id">
+              Header Font: {{ previewingTemplate.template_data.header_font || 'Font ID: ' + previewingTemplate.template_data.header_font_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.body_font || previewingTemplate.template_data.body_font_id">
+              Body Font: {{ previewingTemplate.template_data.body_font || 'Font ID: ' + previewingTemplate.template_data.body_font_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.numeric_font || previewingTemplate.template_data.numeric_font_id">
+              Numeric Font: {{ previewingTemplate.template_data.numeric_font || 'Font ID: ' + previewingTemplate.template_data.numeric_font_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.display_font || previewingTemplate.template_data.display_font_id">
+              Display Font: {{ previewingTemplate.template_data.display_font || 'Font ID: ' + previewingTemplate.template_data.display_font_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.manage_agencies_icon_id">
+              Manage Agencies Icon ID: {{ previewingTemplate.template_data.manage_agencies_icon_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.manage_modules_icon_id">
+              Manage Modules Icon ID: {{ previewingTemplate.template_data.manage_modules_icon_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.manage_documents_icon_id">
+              Manage Documents Icon ID: {{ previewingTemplate.template_data.manage_documents_icon_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.manage_users_icon_id">
+              Manage Users Icon ID: {{ previewingTemplate.template_data.manage_users_icon_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.platform_settings_icon_id">
+              Platform Settings Icon ID: {{ previewingTemplate.template_data.platform_settings_icon_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.view_all_progress_icon_id">
+              View All Progress Icon ID: {{ previewingTemplate.template_data.view_all_progress_icon_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.progress_dashboard_icon_id">
+              Progress Dashboard Icon ID: {{ previewingTemplate.template_data.progress_dashboard_icon_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.settings_icon_id">
+              Settings Icon ID: {{ previewingTemplate.template_data.settings_icon_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.master_brand_icon_id">
+              Master Brand Icon ID: {{ previewingTemplate.template_data.master_brand_icon_id }}
+            </li>
+            <li v-if="previewingTemplate.template_data.all_agencies_notifications_icon_id">
+              All Agencies Notifications Icon ID: {{ previewingTemplate.template_data.all_agencies_notifications_icon_id }}
             </li>
           </ul>
         </div>
+        <div v-else class="preview-content">
+          <p class="text-warning">No template data available. This template may be empty or corrupted.</p>
+        </div>
         <div class="modal-actions">
           <button @click="closePreview" class="btn btn-secondary">Close</button>
-          <button @click="applyTemplate(previewingTemplate)" class="btn btn-primary">Apply Template</button>
+          <button @click="applyTemplate(previewingTemplate)" class="btn btn-primary" :disabled="!previewingTemplate.template_data || Object.keys(previewingTemplate.template_data).length === 0">Apply Template</button>
         </div>
       </div>
     </div>
@@ -586,18 +646,26 @@ const applyTemplate = async (template) => {
     const targetScope = template.scope;
     const targetAgencyId = template.scope === 'agency' ? template.agency_id : null;
     
-    await api.post(`/branding-templates/${template.id}/apply`, {
+    const response = await api.post(`/branding-templates/${template.id}/apply`, {
       targetScope,
       targetAgencyId
     });
 
     alert('Template applied successfully!');
+    closePreview();
+    
     // Refresh branding if needed
     if (targetScope === 'platform') {
+      // Force a full page reload to ensure all branding is updated
       window.location.reload();
+    } else {
+      // For agency templates, refresh the templates list
+      await fetchTemplates();
     }
   } catch (err) {
+    console.error('Error applying template:', err);
     error.value = err.response?.data?.error?.message || 'Failed to apply template';
+    alert(`Failed to apply template: ${error.value}`);
   }
 };
 

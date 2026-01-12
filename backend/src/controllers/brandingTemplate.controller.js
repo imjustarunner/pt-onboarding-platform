@@ -167,13 +167,27 @@ export const updateTemplate = async (req, res, next) => {
       }
     }
 
-    // If templateData is not provided but includeFields is, regenerate template data from current branding
+    // If includeFields is provided, regenerate template data from current branding
+    // This ensures templates are updated with the latest branding state
     let finalTemplateData = templateData;
-    if (!finalTemplateData && includeFields) {
+    if (includeFields) {
+      // Always regenerate from current branding when includeFields is provided
       if (template.scope === 'platform') {
         const PlatformBranding = (await import('../models/PlatformBranding.model.js')).default;
         const currentBranding = await PlatformBranding.get();
         finalTemplateData = BrandingTemplateService.extractBrandingData(currentBranding, includeFields);
+        
+        // Validate that we extracted some data
+        if (!finalTemplateData || (typeof finalTemplateData === 'object' && Object.keys(finalTemplateData).length === 0)) {
+          console.error('Template update failed: No template data extracted from platform branding');
+          console.error('IncludeFields:', JSON.stringify(includeFields, null, 2));
+          console.error('Current branding keys:', Object.keys(currentBranding || {}));
+          return res.status(400).json({ 
+            error: { 
+              message: 'Could not extract template data from current platform branding with the provided include fields. Please ensure at least one field is selected and that the platform branding has values for those fields.' 
+            } 
+          });
+        }
       } else if (template.scope === 'agency' && template.agency_id) {
         const Agency = (await import('../models/Agency.model.js')).default;
         const agency = await Agency.findById(template.agency_id);
@@ -186,7 +200,30 @@ export const updateTemplate = async (req, res, next) => {
           people_ops_term: agency.onboarding_team_email
         };
         finalTemplateData = BrandingTemplateService.extractBrandingData(agencyBranding, includeFields);
+        
+        // Validate that we extracted some data
+        if (!finalTemplateData || (typeof finalTemplateData === 'object' && Object.keys(finalTemplateData).length === 0)) {
+          console.error('Template update failed: No template data extracted from agency branding');
+          console.error('IncludeFields:', JSON.stringify(includeFields, null, 2));
+          return res.status(400).json({ 
+            error: { 
+              message: 'Could not extract template data from current agency branding with the provided include fields. Please ensure at least one field is selected and that the agency branding has values for those fields.' 
+            } 
+          });
+        }
       }
+    } else if (!finalTemplateData) {
+      // If neither templateData nor includeFields provided, return error
+      return res.status(400).json({ 
+        error: { message: 'Either templateData or includeFields must be provided' } 
+      });
+    }
+    
+    // Final validation: ensure templateData is not empty
+    if (finalTemplateData && typeof finalTemplateData === 'object' && Object.keys(finalTemplateData).length === 0) {
+      return res.status(400).json({ 
+        error: { message: 'Template data cannot be empty. Please ensure at least one field is included.' } 
+      });
     }
 
     const updateData = {};

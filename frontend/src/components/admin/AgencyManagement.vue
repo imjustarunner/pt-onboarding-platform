@@ -531,6 +531,14 @@
           </div>
           
           <div class="modal-actions">
+            <button 
+              v-if="editingAgency && userRole === 'super_admin'" 
+              type="button" 
+              @click="previewAgencyDashboard(editingAgency.id)" 
+              class="btn btn-info"
+            >
+              Preview Dashboard
+            </button>
             <button type="button" @click="closeModal" class="btn btn-secondary">Cancel</button>
             <button type="submit" class="btn btn-primary" :disabled="saving">
               {{ saving ? 'Saving...' : 'Save' }}
@@ -1228,6 +1236,12 @@ const addCustomParameter = () => {
   const newKey = `param_${Date.now()}`;
   customParamKeys.value.push(newKey);
   customParameters.value[newKey] = '';
+};
+
+const previewAgencyDashboard = (agencyId) => {
+  // Open agency dashboard in a new window/tab for preview
+  const url = `/admin/agencies/${agencyId}/progress`;
+  window.open(url, '_blank', 'noopener,noreferrer');
 };
 
 const closeModal = () => {
