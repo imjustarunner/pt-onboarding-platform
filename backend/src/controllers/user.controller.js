@@ -966,8 +966,6 @@ export const getUserCredentials = async (req, res, next) => {
     
     res.json({
       username: user.email, // Username is typically the email
-      hasTemporaryPassword: !!user.temporary_password_hash,
-      temporaryPasswordExpiresAt: user.temporary_password_expires_at,
       invitationToken: user.invitation_token,
       invitationTokenExpiresAt: user.invitation_token_expires_at
     });
