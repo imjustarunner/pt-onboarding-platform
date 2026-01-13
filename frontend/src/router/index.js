@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { getDashboardRoute } from '../utils/router';
+import { getLoginUrl } from '../utils/loginRedirect';
 
 const routes = [
   {
