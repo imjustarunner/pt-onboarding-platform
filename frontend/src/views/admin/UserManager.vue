@@ -952,7 +952,7 @@ const saveUser = async () => {
         createData = {
           lastName: userForm.value.lastName?.trim() || '',
           role: userForm.value.role || 'clinician',
-          agencyIds: userForm.value.agencyIds && userForm.value.agencyIds.length > 0 
+          agencyIds: userForm.value.agencyIds && userForm.value.agencyIds.length > 0
             ? userForm.value.agencyIds.map(id => parseInt(id)).filter(id => !isNaN(id))
             : []
         };
@@ -998,6 +998,7 @@ const saveUser = async () => {
           agencyIds: userForm.value.agencyIds,
           firstName: userForm.value.firstName
         });
+        
         // Store pending user data in case we need to retry after duplicate check
         pendingUserData.value = createData;
         const response = await api.post('/auth/register', createData);
