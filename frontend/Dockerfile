@@ -2,7 +2,7 @@
 # Multi-stage build for optimized production image
 
 # Stage 1: Build
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -30,26 +30,36 @@ RUN if [ ! -f "index.html" ]; then \
 # Build argument for API URL (set at build time)
 ARG VITE_API_URL
 ENV VITE_API_URL=${VITE_API_URL}
-ENV NODE_ENV=production
 
 # Debug: Show environment variables
 RUN echo "VITE_API_URL=$VITE_API_URL" && \
-    echo "NODE_ENV=$NODE_ENV" && \
     node -v && npm -v && \
     ls -la && ls -la node_modules/@vitejs || true
 
-# Build the application with better error visibility
-RUN npm run build 2>&1 | tee build.log || ( \
-    echo "❌ Build failed! Showing build output:" && \
-    cat build.log && \
-    echo "--- Environment ---" && \
-    echo "VITE_API_URL=$VITE_API_URL" && \
-    echo "NODE_ENV=$NODE_ENV" && \
-    echo "--- Files ---" && \
-    ls -la && \
-    echo "--- index.html check ---" && \
-    [ -f index.html ] && echo "✓ index.html exists" || echo "✗ index.html missing" && \
-    exit 1 )
+# Build the application
+RUN npm run build
+
+# Verify build output exists
+RUN if [ ! -d "dist" ]; then \
+      echo "❌ ERROR: dist directory not found after build!" && \
+      echo "VITE_API_URL=$VITE_API_URL" && \
+      echo "Current directory: $(pwd)" && \
+      echo "Files in current directory:" && \
+      ls -la && \
+      echo "Checking for dist:" && \
+      ls -la dist 2>&1 || echo "dist does not exist" && \
+      exit 1; \
+    else \
+      echo "✓ dist directory found successfully" && \
+      echo "Contents of dist:" && \
+      ls -la dist && \
+      if [ ! -f "dist/index.html" ]; then \
+        echo "❌ ERROR: dist/index.html not found!" && \
+        exit 1; \
+      else \
+        echo "✓ dist/index.html found"; \
+      fi; \
+    fi
 
 # Stage 2: Production
 FROM nginx:alpine
