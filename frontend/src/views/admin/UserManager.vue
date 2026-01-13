@@ -1036,7 +1036,6 @@ const saveUser = async () => {
           token: response.data.passwordlessToken,
           tokenLink: response.data.passwordlessTokenLink,
           username: userForm.value.email || 'N/A (Work email will be set when moved to active)',
- // No temp password for pending users
           generatedEmails: response.data.generatedEmails || []
         };
         
