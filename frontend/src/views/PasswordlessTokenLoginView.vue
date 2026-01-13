@@ -1,7 +1,6 @@
 <template>
-  <BrandingProvider>
-    <div class="passwordless-login-container" :style="{ background: loginBackground }">
-      <div class="login-card">
+  <div class="passwordless-login-container">
+    <div class="login-card">
       <div v-if="needsIdentityVerification" class="identity-verification">
         <h2>Identity Verification</h2>
         <p>Please enter your last name to continue:</p>
@@ -31,48 +30,20 @@
       <div v-else class="success">
         <h2>Login Successful</h2>
         <p>Redirecting...</p>
-        </div>
       </div>
     </div>
-  </BrandingProvider>
+  </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
-import { useBrandingStore } from '../store/branding';
-import { getPortalUrl } from '../utils/subdomain';
-import BrandingProvider from '../components/BrandingProvider.vue';
 import api from '../services/api';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
-const brandingStore = useBrandingStore();
-
-// Check if this is an agency-specific login page
-const isAgencyLogin = computed(() => route.params.agencySlug && route.meta?.agencySlug);
-const agencySlug = computed(() => route.params.agencySlug || getPortalUrl());
-
-// Agency login theme data
-const loginTheme = ref(null);
-const loadingTheme = ref(false);
-
-// Logo and background for agency login
-const displayLogoUrl = computed(() => {
-  if (isAgencyLogin.value && loginTheme.value?.agency?.logoUrl) {
-    return loginTheme.value.agency.logoUrl;
-  }
-  return brandingStore.displayLogoUrl || brandingStore.plotTwistCoLogoUrl;
-});
-
-const loginBackground = computed(() => {
-  if (isAgencyLogin.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
-    return loginTheme.value.agency.themeSettings.loginBackground;
-  }
-  return brandingStore.loginBackground || 'linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%)';
-});
 
 const loading = ref(true);
 const error = ref('');
@@ -80,21 +51,6 @@ const needsIdentityVerification = ref(false);
 const lastName = ref('');
 const verifying = ref(false);
 const verificationError = ref('');
-
-// Fetch agency-specific login theme
-const fetchLoginTheme = async (portalUrl) => {
-  if (!portalUrl) return;
-  try {
-    loadingTheme.value = true;
-    const response = await api.get(`/agencies/portal/${portalUrl}/login-theme`);
-    loginTheme.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch login theme:', error);
-    // Don't redirect on error, just use platform branding
-  } finally {
-    loadingTheme.value = false;
-  }
-};
 
 const attemptLogin = async (lastNameValue = null) => {
   const token = route.params.token;
@@ -127,7 +83,7 @@ const attemptLogin = async (lastNameValue = null) => {
     
     // Fetch user's agencies before redirecting (similar to regular login)
     // This ensures the cookie is available and agencies are loaded
-    if (response.data.user.role !== 'super_admin') {
+    if (response.data.user.role !== 'super_admin' && response.data.user.type !== 'approved_employee') {
       try {
         const { useAgencyStore } = await import('../store/agency');
         const agencyStore = useAgencyStore();
@@ -138,7 +94,7 @@ const attemptLogin = async (lastNameValue = null) => {
         // Don't block redirect on agency fetch failure
       }
     } else if (response.data.agencies && response.data.agencies.length > 0) {
-      // If agencies are in response, set the first one
+      // For approved employees or if agencies are in response, set the first one
       const { useAgencyStore } = await import('../store/agency');
       const agencyStore = useAgencyStore();
       agencyStore.setCurrentAgency(response.data.agencies[0]);
@@ -194,16 +150,6 @@ const verifyAndLogin = async () => {
 };
 
 onMounted(async () => {
-  // Fetch agency branding if on agency portal
-  if (agencySlug.value) {
-    await fetchLoginTheme(agencySlug.value);
-  } else {
-    // Initialize portal theme if on subdomain
-    await brandingStore.initializePortalTheme();
-  }
-  // Fetch platform branding as fallback
-  await brandingStore.fetchPlatformBranding();
-  
   await attemptLogin();
 });
 </script>
@@ -214,6 +160,7 @@ onMounted(async () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
 }
 
 .login-card {

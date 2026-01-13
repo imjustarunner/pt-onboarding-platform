@@ -37,29 +37,17 @@ RUN echo "VITE_API_URL=$VITE_API_URL" && \
     ls -la && ls -la node_modules/@vitejs || true
 
 # Build the application
-RUN npm run build
-
-# Verify build output exists
-RUN if [ ! -d "dist" ]; then \
-      echo "❌ ERROR: dist directory not found after build!" && \
-      echo "VITE_API_URL=$VITE_API_URL" && \
-      echo "Current directory: $(pwd)" && \
-      echo "Files in current directory:" && \
-      ls -la && \
-      echo "Checking for dist:" && \
-      ls -la dist 2>&1 || echo "dist does not exist" && \
-      exit 1; \
-    else \
-      echo "✓ dist directory found successfully" && \
-      echo "Contents of dist:" && \
-      ls -la dist && \
-      if [ ! -f "dist/index.html" ]; then \
-        echo "❌ ERROR: dist/index.html not found!" && \
-        exit 1; \
-      else \
-        echo "✓ dist/index.html found"; \
-      fi; \
-    fi
+RUN npm run build || ( \
+    echo "❌ Build failed!" && \
+    echo "VITE_API_URL=$VITE_API_URL" && \
+    echo "Current directory: $(pwd)" && \
+    echo "Checking for index.html:" && \
+    ls -la index.html || echo "index.html not found!" && \
+    echo "Files in current directory:" && \
+    ls -la && \
+    echo "Checking package.json..." && \
+    cat package.json && \
+    exit 1 )
 
 # Stage 2: Production
 FROM nginx:alpine

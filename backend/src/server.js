@@ -29,6 +29,7 @@ import userInfoFieldDefinitionRoutes from './routes/userInfoFieldDefinition.rout
 import userInfoValueRoutes from './routes/userInfoValue.routes.js';
 import customChecklistItemRoutes from './routes/customChecklistItem.routes.js';
 import userChecklistAssignmentRoutes from './routes/userChecklistAssignment.routes.js';
+import approvedEmployeeRoutes from './routes/approvedEmployee.routes.js';
 import publicTrainingRoutes from './routes/publicTraining.routes.js';
 import agencyOnDemandTrainingRoutes from './routes/agencyOnDemandTraining.routes.js';
 import certificateRoutes from './routes/certificate.routes.js';
@@ -181,6 +182,7 @@ app.use('/api/user-info-fields', userInfoFieldDefinitionRoutes);
 app.use('/api', userInfoValueRoutes);
 app.use('/api/custom-checklist-items', customChecklistItemRoutes);
 app.use('/api', userChecklistAssignmentRoutes);
+app.use('/api/approved-employees', approvedEmployeeRoutes);
 app.use('/api/on-demand-training', publicTrainingRoutes);
 app.use('/api/agency-on-demand-training', agencyOnDemandTrainingRoutes);
 app.use('/api/certificates', certificateRoutes);

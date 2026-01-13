@@ -13,14 +13,14 @@ export const authenticate = (req, res, next) => {
 
     const decoded = jwt.verify(token, config.jwt.secret);
     
-    // Handle passwordless tokens
-    if (decoded.type === 'passwordless') {
+    // Handle approved employee tokens
+    if (decoded.type === 'approved_employee' || decoded.type === 'passwordless') {
       req.user = {
         email: decoded.email,
-        role: decoded.role || 'user',
-        type: 'passwordless',
-        agencyId: decoded.agencyId,
-        agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : [])
+        role: 'approved_employee',
+        type: decoded.type || 'approved_employee',
+        agencyId: decoded.agencyId, // Default agency
+        agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : []) // All agencies
       };
       return next();
     }
@@ -47,38 +47,17 @@ export const requireAdmin = async (req, res, next) => {
   // Allow admin, super_admin, support, supervisors, and CPAs
   // Check if user is a supervisor using boolean as source of truth
   const requestingUser = await User.findById(req.user.id);
-  if (!requestingUser) {
-    return res.status(401).json({ error: { message: 'User not found' } });
-  }
+  const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
   
-  // Use database role (most up-to-date) instead of token role
-  const userRole = requestingUser.role;
-  const isSupervisor = User.isSupervisor(requestingUser);
-  
-  // Update req.user.role to match database (for consistency)
-  req.user.role = userRole;
-  
-  if (userRole !== 'admin' && userRole !== 'super_admin' && userRole !== 'support' && 
-      !isSupervisor && userRole !== 'clinical_practice_assistant') {
+  if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support' && 
+      !isSupervisor && req.user.role !== 'clinical_practice_assistant') {
     return res.status(403).json({ error: { message: 'Admin access required' } });
   }
   next();
 };
 
-export const requireSuperAdmin = async (req, res, next) => {
-  // Check database role to ensure it's up-to-date
-  const requestingUser = await User.findById(req.user.id);
-  if (!requestingUser) {
-    return res.status(401).json({ error: { message: 'User not found' } });
-  }
-  
-  // Use database role (most up-to-date) instead of token role
-  const userRole = requestingUser.role;
-  
-  // Update req.user.role to match database (for consistency)
-  req.user.role = userRole;
-  
-  if (userRole !== 'super_admin') {
+export const requireSuperAdmin = (req, res, next) => {
+  if (req.user.role !== 'super_admin') {
     return res.status(403).json({ error: { message: 'Super admin access required' } });
   }
   next();
@@ -86,23 +65,13 @@ export const requireSuperAdmin = async (req, res, next) => {
 
 export const requireAgencyAdmin = async (req, res, next) => {
   try {
-    // Get fresh user data from database to ensure role is up-to-date
-    const requestingUser = await User.findById(req.user.id);
-    if (!requestingUser) {
-      return res.status(401).json({ error: { message: 'User not found' } });
-    }
-    
-    // Use database role (most up-to-date) instead of token role
-    const userRole = requestingUser.role;
-    req.user.role = userRole;
-    
     // Super Admin has access to all agencies
-    if (userRole === 'super_admin') {
+    if (req.user.role === 'super_admin') {
       return next();
     }
     
     // Must be admin or support role
-    if (userRole !== 'admin' && userRole !== 'support') {
+    if (req.user.role !== 'admin' && req.user.role !== 'support') {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
     
@@ -129,18 +98,8 @@ export const requireAgencyAdmin = async (req, res, next) => {
 
 export const requireAgencyAccess = async (req, res, next) => {
   try {
-    // Get fresh user data from database to ensure role is up-to-date
-    const requestingUser = await User.findById(req.user.id);
-    if (!requestingUser) {
-      return res.status(401).json({ error: { message: 'User not found' } });
-    }
-    
-    // Use database role (most up-to-date) instead of token role
-    const userRole = requestingUser.role;
-    req.user.role = userRole;
-    
     // Super Admin, Admin, and Support have access
-    if (userRole === 'super_admin' || userRole === 'admin' || userRole === 'support') {
+    if (req.user.role === 'super_admin' || req.user.role === 'admin' || req.user.role === 'support') {
       return next();
     }
     

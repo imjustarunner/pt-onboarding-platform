@@ -136,29 +136,38 @@
           </div>
             
             <div class="section-divider">
-              <h3 v-if="user?.status === 'pending' || user?.status === 'PENDING_SETUP' || user?.status === 'PREHIRE_OPEN' || user?.status === 'PREHIRE_REVIEW'">Status Management</h3>
-              <h3 v-else>Password & Status Management</h3>
+              <h3 v-if="user?.status === 'pending'">Status Management</h3>
+              <h3 v-else>Temporary Password & Status Management</h3>
             </div>
             
             <div class="password-status-layout">
-              <!-- Reset Password Section - For users who have set their password -->
-              <div v-if="user?.status !== 'pending' && user?.status !== 'ready_for_review' && user?.status !== 'PENDING_SETUP' && user?.status !== 'PREHIRE_OPEN'" class="reset-password-section">
-                <h4>Reset Password</h4>
-                <p class="section-description">Generate a password reset link that the user can use to set a new password.</p>
+              <!-- Temporary Password Section - Only for active users -->
+              <div v-if="user?.status !== 'pending' && user?.status !== 'ready_for_review'" class="temp-password-section">
+                <h4>Temporary Password</h4>
+                <div v-if="tempPasswordInfo.hasTemporaryPassword" class="temp-password-status">
+                  <p><strong>Status:</strong> Temporary password is set</p>
+                  <p v-if="tempPasswordInfo.expiresAt"><strong>Expires:</strong> {{ formatDate(tempPasswordInfo.expiresAt) }}</p>
+                </div>
+                <div v-else class="temp-password-status">
+                  <p>No temporary password set</p>
+                </div>
                 
-                <div class="reset-password-actions">
-                  <button @click="resetPassword" type="button" class="btn btn-primary btn-sm" :disabled="resettingPassword">
-                    {{ resettingPassword ? 'Generating...' : 'Reset Password' }}
+                <div class="temp-password-actions">
+                  <button @click="generateTempPassword" type="button" class="btn btn-success btn-sm" :disabled="generatingTempPassword">
+                    {{ generatingTempPassword ? 'Generating...' : 'Generate' }}
+                  </button>
+                  <button v-if="tempPasswordInfo.hasTemporaryPassword" @click="resetTempPassword" type="button" class="btn btn-warning btn-sm" :disabled="resettingTempPassword">
+                    {{ resettingTempPassword ? 'Resetting...' : 'Reset' }}
                   </button>
                 </div>
                 
-                <div v-if="showPasswordResetLink && passwordResetLink" class="password-reset-link-display">
-                  <p><strong>Password Reset Link:</strong></p>
-                  <div class="link-display">
-                    <input type="text" :value="passwordResetLink" readonly class="link-input" ref="passwordResetLinkInput" />
-                    <button @click="copyPasswordResetLink" class="btn btn-secondary btn-sm">Copy</button>
+                <div v-if="newTempPassword" class="temp-password-display">
+                  <p><strong>New Temporary Password:</strong></p>
+                  <div class="password-display">
+                    <input type="text" :value="newTempPassword" readonly class="password-input" ref="tempPasswordInput" />
+                    <button @click="copyTempPassword" class="btn btn-secondary btn-sm">Copy</button>
                   </div>
-                  <p class="link-warning">⚠️ Copy this link and send it to the user. It will expire in 7 days.</p>
+                  <p class="password-warning">⚠️ Copy this password now. It will not be shown again.</p>
                 </div>
               </div>
               
@@ -552,6 +561,14 @@
             </div>
           </div>
           
+          <div v-if="userCredentials.temporaryPassword" class="credential-item">
+            <label>Temporary Password:</label>
+            <div class="credential-value">
+              <input type="text" :value="userCredentials.temporaryPassword" readonly class="credential-input" ref="passwordInput" />
+              <button @click="copyToClipboard('password')" class="btn-copy">Copy</button>
+            </div>
+            <small>Expires in 48 hours</small>
+          </div>
         </div>
         
         <!-- Generated Emails Section -->
@@ -679,10 +696,14 @@ watch(() => accountForm.value.role, (newRole) => {
   }
 });
 
-const resettingPassword = ref(false);
-const passwordResetLink = ref('');
-const showPasswordResetLink = ref(false);
-const passwordResetLinkInput = ref(null);
+const tempPasswordInfo = ref({
+  hasTemporaryPassword: false,
+  expiresAt: null
+});
+const generatingTempPassword = ref(false);
+const resettingTempPassword = ref(false);
+const newTempPassword = ref('');
+const tempPasswordInput = ref(null);
 
 const userAgencies = ref([]);
 const availableAgencies = ref([]);
@@ -704,6 +725,7 @@ const userCredentials = ref({
   token: '',
   tokenLink: '',
   username: '',
+  temporaryPassword: '',
   generatedEmails: []
 });
 
@@ -759,6 +781,8 @@ const fetchUser = async () => {
       hasSupervisorPrivileges: currentHasSupervisorPrivileges
     };
     
+    // Fetch temp password info
+    await fetchTempPasswordInfo();
     // Fetch user agencies
     await fetchUserAgencies();
     // Fetch available agencies
@@ -1008,16 +1032,6 @@ const saveAccount = async () => {
     const response = await api.put(`/users/${userId.value}`, updateData);
     // Always fetch fresh user data to ensure all fields are up to date
     await fetchUser();
-    
-    // If role was updated and this is the current logged-in user, refresh their auth data
-    if (updateData.role !== undefined && userId.value === authStore.user?.id) {
-      console.log('Role updated for current user, refreshing auth data...');
-      await authStore.refreshUser();
-      // Force a page reload to ensure all components see the updated role
-      setTimeout(() => {
-        window.location.reload();
-      }, 500);
-    }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to save changes';
     alert(error.value);
@@ -1026,38 +1040,55 @@ const saveAccount = async () => {
   }
 };
 
-const resetPassword = async () => {
-  if (!confirm('This will generate a new password reset link. The user will need to use this link to set a new password. Continue?')) {
+const fetchTempPasswordInfo = async () => {
+  try {
+    const response = await api.get(`/users/${userId.value}/credentials`);
+    tempPasswordInfo.value = {
+      hasTemporaryPassword: response.data.hasTemporaryPassword,
+      expiresAt: response.data.temporaryPasswordExpiresAt
+    };
+  } catch (err) {
+    console.error('Failed to fetch temp password info:', err);
+  }
+};
+
+const generateTempPassword = async () => {
+  try {
+    generatingTempPassword.value = true;
+    const response = await api.post(`/users/${userId.value}/generate-temp-password`);
+    newTempPassword.value = response.data.temporaryPassword;
+    await fetchTempPasswordInfo();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to generate temporary password';
+  } finally {
+    generatingTempPassword.value = false;
+  }
+};
+
+const resetTempPassword = async () => {
+  if (!confirm('Are you sure you want to reset the temporary password? This will generate a new one.')) {
     return;
   }
   
   try {
-    resettingPassword.value = true;
-    error.value = '';
-    const response = await api.post(`/users/${userId.value}/reset-passwordless-token`, {
-      expiresInDays: 7 // 7 days expiration
-    });
-    
-    // Show the new link
-    passwordResetLink.value = response.data.tokenLink;
-    showPasswordResetLink.value = true;
+    resettingTempPassword.value = true;
+    const response = await api.post(`/users/${userId.value}/generate-temp-password`);
+    newTempPassword.value = response.data.temporaryPassword;
+    await fetchTempPasswordInfo();
   } catch (err) {
-    error.value = err.response?.data?.error?.message || 'Failed to reset password';
-    alert(error.value);
+    error.value = err.response?.data?.error?.message || 'Failed to reset temporary password';
   } finally {
-    resettingPassword.value = false;
+    resettingTempPassword.value = false;
   }
 };
 
-const copyPasswordResetLink = async () => {
-  if (passwordResetLinkInput.value) {
-    passwordResetLinkInput.value.select();
+const copyTempPassword = async () => {
+  if (tempPasswordInput.value) {
+    tempPasswordInput.value.select();
     try {
-      await navigator.clipboard.writeText(passwordResetLink.value);
-      alert('Password reset link copied to clipboard!');
+      await navigator.clipboard.writeText(newTempPassword.value);
     } catch (err) {
       console.error('Failed to copy:', err);
-      alert('Failed to copy link. Please select and copy manually.');
     }
   }
 };
@@ -1192,6 +1223,7 @@ const handleMoveToActive = async (data) => {
         token: response.data.credentials.passwordlessToken,
         tokenLink: response.data.credentials.passwordlessTokenLink,
         username: response.data.credentials.workEmail,
+        temporaryPassword: response.data.credentials.temporaryPassword,
         generatedEmails: response.data.credentials.generatedEmail ? [{
           type: 'Welcome Active',
           subject: response.data.credentials.emailSubject || 'Your Account Credentials',
@@ -1301,6 +1333,7 @@ const closeCredentialsModal = () => {
     token: '',
     tokenLink: '',
     username: '',
+    temporaryPassword: '',
     generatedEmails: []
   };
 };
@@ -1312,10 +1345,10 @@ const copyToClipboard = async (type) => {
   } else if (type === 'username') {
     text = userCredentials.value.username;
   } else if (type === 'password') {
-    if (!userCredentials.value.tokenLink) {
+    if (!userCredentials.value.temporaryPassword) {
       return;
     }
-    text = userCredentials.value.tokenLink;
+    text = userCredentials.value.temporaryPassword;
   }
   
   try {
@@ -1356,6 +1389,9 @@ const copyAllCredentials = async () => {
     parts.push(`Passwordless Login Link: ${userCredentials.value.tokenLink}`);
   }
   parts.push(`Username: ${userCredentials.value.username}`);
+  if (userCredentials.value.temporaryPassword) {
+    parts.push(`Temporary Password: ${userCredentials.value.temporaryPassword}`);
+  }
   
   const allText = parts.join('\n');
   
@@ -1626,7 +1662,7 @@ onMounted(async () => {
   align-items: start;
 }
 
-.reset-password-section h4,
+.temp-password-section h4,
 .status-management h4 {
   margin-top: 0;
   margin-bottom: 12px;
@@ -1634,24 +1670,30 @@ onMounted(async () => {
   font-size: 16px;
 }
 
-.reset-password-section {
+.temp-password-section {
   margin-top: 0;
 }
 
-.reset-password-section .section-description {
-  color: var(--text-secondary);
-  font-size: 13px;
+.temp-password-status {
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 6px;
   margin-bottom: 12px;
 }
 
-.reset-password-actions {
+.temp-password-status p {
+  margin: 4px 0;
+  font-size: 13px;
+}
+
+.temp-password-actions {
   display: flex;
   gap: 8px;
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
 
-.reset-password-actions .btn-sm {
+.temp-password-actions .btn-sm {
   padding: 4px 10px;
   font-size: 12px;
   white-space: nowrap;
@@ -1660,27 +1702,27 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
-.password-reset-link-display {
+.temp-password-display {
   padding: 16px;
-  background: #e3f2fd;
-  border: 2px solid #2196f3;
+  background: #fff3cd;
+  border: 2px solid #ffc107;
   border-radius: 6px;
   margin-top: 16px;
 }
 
-.password-reset-link-display p {
+.temp-password-display p {
   margin: 0 0 12px 0;
   font-size: 14px;
 }
 
-.link-display {
+.password-display {
   display: flex;
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
 }
 
-.link-input {
+.password-input {
   flex: 1;
   padding: 10px;
   border: 2px solid var(--border);
@@ -1690,10 +1732,10 @@ onMounted(async () => {
   background-color: white;
 }
 
-.link-warning {
+.password-warning {
   margin: 8px 0 0 0;
   font-size: 12px;
-  color: #1565c0;
+  color: #856404;
   font-weight: 500;
 }
 

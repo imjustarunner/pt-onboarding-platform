@@ -660,29 +660,6 @@ export const updateUser = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
 
-    // If role was updated and this is the current logged-in user, regenerate their token
-    if (role !== undefined && parseInt(id) === req.user.id) {
-      const jwt = (await import('jsonwebtoken')).default;
-      const crypto = (await import('crypto')).default;
-      const config = (await import('../config/config.js')).default;
-      
-      // Generate new session ID
-      const sessionId = crypto.randomUUID();
-      
-      // Generate new JWT token with updated role
-      const newToken = jwt.sign(
-        { id: user.id, email: user.email, role: user.role, status: user.status, sessionId },
-        config.jwt.secret,
-        { expiresIn: config.jwt.expiresIn }
-      );
-      
-      // Set new token in HttpOnly cookie
-      const cookieOptions = config.authCookie.set();
-      res.cookie('authToken', newToken, cookieOptions);
-      
-      console.log('Token regenerated for user after role update:', user.id, 'New role:', user.role);
-    }
-
     res.json(user);
   } catch (error) {
     // Handle MySQL enum errors more gracefully
@@ -746,6 +723,32 @@ export const toggleSupervisorPrivileges = async (req, res, next) => {
 
 export const getUserAgencies = async (req, res, next) => {
   try {
+    // Handle approved employees (they don't have a user ID)
+    if (req.user.type === 'approved_employee') {
+      // Get agency IDs from the token
+      const agencyIds = req.user.agencyIds || (req.user.agencyId ? [req.user.agencyId] : []);
+      
+      if (agencyIds.length === 0) {
+        return res.json([]);
+      }
+      
+      // Fetch agency details for each ID
+      const Agency = (await import('../models/Agency.model.js')).default;
+      const agencies = [];
+      for (const agencyId of agencyIds) {
+        try {
+          const agency = await Agency.findById(agencyId);
+          if (agency) {
+            agencies.push(agency);
+          }
+        } catch (err) {
+          console.error(`Failed to fetch agency ${agencyId}:`, err);
+        }
+      }
+      
+      return res.json(agencies);
+    }
+    
     // Regular users
     // If route is /me/agencies, use req.user.id, otherwise use :id param
     const userId = req.params.id || req.user.id;
@@ -921,22 +924,7 @@ export const resetPasswordlessToken = async (req, res, next) => {
     
     // Get frontend URL for the link
     const config = (await import('../config/config.js')).default;
-    
-    // Get user's agencies to build agency-specific link if available
-    const userAgencies = await User.getAgencies(userId);
-    let passwordlessTokenLink;
-    if (userAgencies.length > 0) {
-      const Agency = (await import('../models/Agency.model.js')).default;
-      const agency = await Agency.findById(userAgencies[0].id);
-      if (agency && agency.portal_url) {
-        const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
-        passwordlessTokenLink = EmailTemplateService.buildResetTokenLink(agency, tokenResult.token);
-      } else {
-        passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${tokenResult.token}`;
-      }
-    } else {
-      passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${tokenResult.token}`;
-    }
+    const passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${tokenResult.token}`;
     
     res.json({
       token: tokenResult.token,
@@ -966,6 +954,8 @@ export const getUserCredentials = async (req, res, next) => {
     
     res.json({
       username: user.email, // Username is typically the email
+      hasTemporaryPassword: !!user.temporary_password_hash,
+      temporaryPasswordExpiresAt: user.temporary_password_expires_at,
       invitationToken: user.invitation_token,
       invitationTokenExpiresAt: user.invitation_token_expires_at
     });
@@ -1411,20 +1401,11 @@ export const createCurrentEmployee = async (req, res, next) => {
 
     // Generate passwordless token for password setup (48 hours expiration)
     const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 48);
-    
-    // Get agency info for response and token link
+    const passwordlessTokenLink = `${(await import('../config/config.js')).default.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
+
+    // Get agency info for response
     const Agency = (await import('../models/Agency.model.js')).default;
     const agency = await Agency.findById(parseInt(agencyId));
-    const config = (await import('../config/config.js')).default;
-    
-    // Build token link with agency portal URL if available
-    let passwordlessTokenLink;
-    if (agency && agency.portal_url) {
-      const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
-      passwordlessTokenLink = EmailTemplateService.buildResetTokenLink(agency, passwordlessTokenResult.token);
-    } else {
-      passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
-    }
 
     res.status(201).json({
       message: 'Current employee created successfully',
@@ -1571,8 +1552,36 @@ export const markUserActive = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
     
+    // Remove user from approved_employee_emails when they become active again
+    // They should use their regular user account, not the approved employee access
+    const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
+    const pool = (await import('../config/database.js')).default;
+    
+    // Get all approved employee entries for this user's email
+    const [employeeEntries] = await pool.execute(
+      'SELECT id, password_hash FROM approved_employee_emails WHERE email = ?',
+      [user.email]
+    );
+    
+    // If user doesn't have a password_hash in users table, copy it from approved_employee_emails
+    // This ensures they can login with the password they were using as an approved employee
+    if (!user.password_hash && employeeEntries.length > 0) {
+      const employeePasswordHash = employeeEntries[0].password_hash;
+      if (employeePasswordHash) {
+        await pool.execute(
+          'UPDATE users SET password_hash = ? WHERE id = ?',
+          [employeePasswordHash, id]
+        );
+      }
+    }
+    
+    // Delete all approved employee entries for this user
+    for (const entry of employeeEntries) {
+      await ApprovedEmployee.delete(entry.id);
+    }
+    
     res.json({
-      message: 'User account reactivated successfully',
+      message: 'User account reactivated and removed from approved employee list',
       user: await User.findById(id)
     });
   } catch (error) {
@@ -1595,6 +1604,56 @@ export const deactivateUser = async (req, res, next) => {
     }
     
     const user = await User.findById(parseInt(id));
+    
+    // If user is deactivated and not terminated/archived, ensure they're in approved employees list
+    if (user && user.status !== 'terminated' && (!user.is_archived || user.is_archived === 0)) {
+      const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
+      const Agency = (await import('../models/Agency.model.js')).default;
+      const pool = (await import('../config/database.js')).default;
+      
+      // Get user's agencies
+      const userAgencies = await User.getAgencies(parseInt(id));
+      
+      for (const agency of userAgencies) {
+        // Check if email already exists in approved_employee_emails for this agency (including inactive ones)
+        const [existingRows] = await pool.execute(
+          'SELECT * FROM approved_employee_emails WHERE email = ? AND agency_id = ?',
+          [user.email, agency.id]
+        );
+        
+        if (existingRows.length === 0) {
+          // Get agency to check for company default password
+          const agencyData = await Agency.findById(agency.id);
+          let passwordHash = null;
+
+          if (agencyData && agencyData.company_default_password_hash) {
+            passwordHash = agencyData.company_default_password_hash;
+          } else {
+            // Generate a temporary password hash if no company default
+            const bcrypt = (await import('bcrypt')).default;
+            const tempPassword = `temp_${user.id}_${Date.now()}`;
+            passwordHash = await bcrypt.hash(tempPassword, 10);
+          }
+
+          // Add to approved_employee_emails
+          await ApprovedEmployee.create({
+            email: user.email,
+            agencyId: agency.id,
+            requiresVerification: false,
+            passwordHash: passwordHash
+          });
+        } else {
+          // Entry already exists - just ensure it's active
+          const existing = existingRows[0];
+          if (!existing.is_active) {
+            await pool.execute(
+              'UPDATE approved_employee_emails SET is_active = TRUE WHERE id = ?',
+              [existing.id]
+            );
+          }
+        }
+      }
+    }
     
     res.json({
       message: 'User deactivated successfully',
@@ -1917,8 +1976,8 @@ export const movePendingToActive = async (req, res, next) => {
           FIRST_NAME: user.first_name,
           LAST_NAME: user.last_name,
           AGENCY_NAME: agencyName,
-          PORTAL_LOGIN_LINK: passwordlessTokenLink,
-          RESET_TOKEN_LINK: passwordlessTokenLink,
+          PORTAL_LOGIN_LINK: `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`,
+          RESET_TOKEN_LINK: `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`,
           PORTAL_URL: config.frontendUrl,
           USERNAME: workEmail.trim(),
           TEMP_PASSWORD: tempPassword,
@@ -2028,7 +2087,7 @@ export const movePendingToActive = async (req, res, next) => {
         // Fallback if template doesn't exist
         const senderUser = await User.findById(req.user.id);
         const senderName = senderUser?.first_name || 'Administrator';
-        generatedEmail = `Hello ${user.first_name} ${user.last_name},\n\nWelcome to ${agencyName}!\n\nYour account has been activated. Here are your login credentials:\n\nUsername: ${workEmail.trim()}\nTemporary Password: ${tempPassword}\n\nYou can log in using the link below, which will allow you to set your own password:\n${passwordlessTokenLink}\n\nThis link will expire in 48 hours.\n\nIf you have any questions, please contact ${peopleOpsEmail}.\n\nBest regards,\n${senderName}`;
+        generatedEmail = `Hello ${user.first_name} ${user.last_name},\n\nWelcome to ${agencyName}!\n\nYour account has been activated. Here are your login credentials:\n\nUsername: ${workEmail.trim()}\nTemporary Password: ${tempPassword}\n\nYou can log in using the link below, which will allow you to set your own password:\n${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}\n\nThis link will expire in 48 hours.\n\nIf you have any questions, please contact ${peopleOpsEmail}.\n\nBest regards,\n${senderName}`;
         emailSubject = 'Your Account Credentials';
       }
     } catch (emailError) {
@@ -2036,7 +2095,7 @@ export const movePendingToActive = async (req, res, next) => {
       // Fallback email if template rendering fails
       const senderUser = await User.findById(req.user.id);
       const senderName = senderUser?.first_name || 'Administrator';
-      generatedEmail = `Hello ${user.first_name} ${user.last_name},\n\nWelcome to ${agencyName}!\n\nYour account has been activated. Here are your login credentials:\n\nUsername: ${workEmail.trim()}\nTemporary Password: ${tempPassword}\n\nYou can log in using the link below, which will allow you to set your own password:\n${passwordlessTokenLink}\n\nThis link will expire in 48 hours.\n\nIf you have any questions, please contact ${peopleOpsEmail}.\n\nBest regards,\n${senderName}`;
+      generatedEmail = `Hello ${user.first_name} ${user.last_name},\n\nWelcome to ${agencyName}!\n\nYour account has been activated. Here are your login credentials:\n\nUsername: ${workEmail.trim()}\nTemporary Password: ${tempPassword}\n\nYou can log in using the link below, which will allow you to set your own password:\n${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}\n\nThis link will expire in 48 hours.\n\nIf you have any questions, please contact ${peopleOpsEmail}.\n\nBest regards,\n${senderName}`;
       emailSubject = 'Your Account Credentials';
     }
     
@@ -2047,7 +2106,7 @@ export const movePendingToActive = async (req, res, next) => {
         workEmail: workEmail.trim(),
         temporaryPassword: tempPassword,
         passwordlessToken: passwordlessTokenResult.token,
-        passwordlessTokenLink: passwordlessTokenLink,
+        passwordlessTokenLink: `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`,
         generatedEmail: generatedEmail,
         emailSubject: emailSubject
       }

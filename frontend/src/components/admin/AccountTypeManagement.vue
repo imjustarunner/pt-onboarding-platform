@@ -44,6 +44,9 @@
             </div>
           </div>
           <p v-if="type.description" class="type-description">{{ type.description }}</p>
+          <div v-if="type.agency_id" class="type-meta">
+            <span>Agency ID: {{ type.agency_id }}</span>
+          </div>
         </div>
       </div>
     </div>

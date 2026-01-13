@@ -7,6 +7,165 @@ import UserActivityLog from '../models/UserActivityLog.model.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import config from '../config/config.js';
 
+export const approvedEmployeeLogin = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const { email, password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ error: { message: 'Password is required' } });
+    }
+
+    // Check if email is in approved list - find ALL entries for this email (multiple agencies)
+    const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
+    const allEmployees = await ApprovedEmployee.findAllByEmail(email);
+
+    if (!allEmployees || allEmployees.length === 0) {
+      // Check if email exists in users table but is inactive
+      const user = await User.findByEmail(email);
+      if (user && (user.is_active === false || user.is_active === 0)) {
+        return res.status(401).json({ 
+          error: { 
+            message: 'Forgot password? Please contact your administrator. Additionally, you may be attempting to login as a past user who has been set to "inactive" following the completion of your onboarding training. If this is the case and you are a current employee, on-demand training may be available to you and there may be a different password to access this training. If you are a current employee and believe this describes your current status, please email PO@itsco.health and request the on-demand credentials to access your account.' 
+          } 
+        });
+      }
+      // Email not found at all
+      return res.status(401).json({ 
+        error: { 
+          message: 'User not found. Contact PO@ITSCO.health if this is an error or if you require your credentials.' 
+        } 
+      });
+    }
+
+    // Filter to only active employees
+    const activeEmployees = allEmployees.filter(emp => emp.is_active);
+    if (activeEmployees.length === 0) {
+      return res.status(401).json({ error: { message: 'Email not approved for access' } });
+    }
+
+    // Check if verification is required and completed for any entry
+    const unverifiedEmployees = activeEmployees.filter(emp => emp.requires_verification && !emp.verified_at);
+    if (unverifiedEmployees.length > 0) {
+      return res.status(403).json({
+        error: {
+          message: 'Email verification required',
+          requiresVerification: true,
+          email: activeEmployees[0].email
+        }
+      });
+    }
+
+    // Check if user is archived (if they exist in users table)
+    const firstEmployee = activeEmployees[0];
+    if (firstEmployee.user_id) {
+      const User = (await import('../models/User.model.js')).default;
+      const user = await User.findById(firstEmployee.user_id);
+      if (user && (user.is_archived === true || user.is_archived === 1)) {
+        return res.status(403).json({ error: { message: 'Account has been archived. Access denied.' } });
+      }
+    }
+
+    // Verify password - try each employee entry until we find a match
+    // Check individual password first, then company default (if enabled)
+    let isValidPassword = false;
+    let matchedEmployee = null;
+    
+    for (const employee of activeEmployees) {
+      const useDefaultPassword = employee.use_default_password !== undefined ? employee.use_default_password : true;
+      
+      if (employee.password_hash) {
+        // Check individual password first
+        isValidPassword = await bcrypt.compare(password, employee.password_hash);
+        if (isValidPassword) {
+          matchedEmployee = employee;
+          break;
+        }
+      }
+      
+      // If individual password didn't match, try company default
+      if (!isValidPassword && useDefaultPassword && employee.company_default_password_hash) {
+        isValidPassword = await bcrypt.compare(password, employee.company_default_password_hash);
+        if (isValidPassword) {
+          matchedEmployee = employee;
+          break;
+        }
+      }
+    }
+
+    if (!isValidPassword) {
+      return res.status(401).json({ error: { message: 'Invalid email or password' } });
+    }
+
+    // Generate session ID
+    const sessionId = crypto.randomUUID();
+    
+    // Get IP address and user agent
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+
+    // Collect all agency IDs the user has access to
+    const agencyIds = activeEmployees.map(emp => emp.agency_id).filter(id => id !== null);
+
+    // Use the first agency as the default, but include all agencies in the response
+    const defaultAgencyId = matchedEmployee.agency_id || (agencyIds.length > 0 ? agencyIds[0] : null);
+
+    // Create session token (expires in 24 hours)
+    // Include all agency IDs in the token for agency switching
+    const sessionToken = jwt.sign(
+      { 
+        email: matchedEmployee.email,
+        type: 'approved_employee',
+        agencyId: defaultAgencyId, // Default agency
+        agencyIds: agencyIds, // All agencies user has access to
+        sessionId
+      },
+      config.jwt.secret,
+      { expiresIn: '24h' }
+    );
+
+    // Set secure HttpOnly cookie for authentication
+    // Use shared cookie options to ensure consistency with logout
+    const cookieOptions = config.authCookie.set();
+    res.cookie('authToken', sessionToken, cookieOptions);
+
+    // Log login activity for each agency using centralized service
+    for (const employee of activeEmployees) {
+      ActivityLogService.logActivity({
+        actionType: 'login',
+        userId: employee.user_id || null,
+        agencyId: employee.agency_id,
+        ipAddress,
+        userAgent,
+        sessionId,
+        metadata: {
+          email: employee.email,
+          type: 'approved_employee',
+          multipleAgencies: activeEmployees.length > 1
+        }
+      });
+    }
+
+    res.json({
+      token: sessionToken,
+      user: {
+        email: matchedEmployee.email,
+        role: 'approved_employee',
+        type: 'approved_employee',
+        agencyIds: agencyIds // Include all agency IDs in response
+      },
+      sessionId,
+      agencies: agencyIds // Also include as separate field for convenience
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const login = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -733,28 +892,20 @@ export const initialSetup = async (req, res, next) => {
     await User.changePassword(user.id, password);
 
     // Update status from PENDING_SETUP to PREHIRE_OPEN when password is first set
-    let finalStatus = user.status;
     if (user.status === 'PENDING_SETUP') {
       await User.updateStatus(user.id, 'PREHIRE_OPEN', user.id);
-      finalStatus = 'PREHIRE_OPEN';
       console.log(`[initialSetup] User ${user.id} status updated from PENDING_SETUP to PREHIRE_OPEN`);
     }
 
     // Mark token as used (single-use token)
     await User.markTokenAsUsed(user.id);
 
-    // Get updated user data before generating token to ensure we have latest status
-    const updatedUser = await User.findById(user.id);
-    if (!updatedUser) {
-      return res.status(404).json({ error: { message: 'User not found after password setup' } });
-    }
-
     // Generate session ID
     const sessionId = crypto.randomUUID();
 
-    // Generate JWT token for session with updated user data
+    // Generate JWT token for session
     const jwtToken = jwt.sign(
-      { id: updatedUser.id, email: updatedUser.username || updatedUser.email, role: updatedUser.role, status: updatedUser.status, sessionId },
+      { id: user.id, email: user.username || user.email, role: user.role, status: user.status, sessionId },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
@@ -764,22 +915,25 @@ export const initialSetup = async (req, res, next) => {
     res.cookie('authToken', jwtToken, cookieOptions);
 
     // Get user agencies
-    const userAgencies = await User.getAgencies(updatedUser.id);
+    const userAgencies = await User.getAgencies(user.id);
 
     // Log login activity
     ActivityLogService.logActivity({
       actionType: 'login',
-      userId: updatedUser.id,
+      userId: user.id,
       sessionId,
       metadata: {
-        email: updatedUser.username || updatedUser.email,
-        role: updatedUser.role,
+        email: user.username || user.email,
+        role: user.role,
         loginType: 'passwordless_initial_setup',
-        isPending: updatedUser.status === 'PREHIRE_OPEN' || updatedUser.status === 'PENDING_SETUP'
+        isPending: user.status === 'PREHIRE_OPEN' || user.status === 'PENDING_SETUP'
       }
     }, req);
 
-    console.log('[initialSetup] Password set successfully for user:', updatedUser.id, updatedUser.first_name, updatedUser.last_name);
+    console.log('[initialSetup] Password set successfully for user:', user.id, user.first_name, user.last_name);
+    
+    // Get updated user data
+    const updatedUser = await User.findById(user.id);
     
     res.json({
       token: jwtToken,
@@ -904,6 +1058,20 @@ export const register = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'This email is already registered as a work email for another user.' } });
       }
       
+      // Also check if email exists in approved_employee_emails table
+      const ApprovedEmployee = (await import('../models/ApprovedEmployee.model.js')).default;
+      const pool = (await import('../config/database.js')).default;
+      const [existingEmployees] = await pool.execute(
+        'SELECT email, agency_id FROM approved_employee_emails WHERE email = ? LIMIT 1',
+        [email]
+      );
+      if (existingEmployees.length > 0) {
+        return res.status(400).json({ 
+          error: { 
+            message: 'This email is already registered as an approved employee in the system. Please use a different email or contact an administrator.' 
+          } 
+        });
+      }
     }
 
     // CRITICAL: Protect superadmin email - always force super_admin role
@@ -926,6 +1094,15 @@ export const register = async (req, res, next) => {
       role: finalRole,
       status: 'PENDING_SETUP' // New users start in PENDING_SETUP status
     });
+    
+    // Do NOT set temporary password for pending users
+    // Generate passwordless login token (7 days expiration for pending users)
+    // This token will be used for initial setup (password creation)
+    const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 7 * 24); // 7 days in hours
+    // Link goes to passwordless-login which will redirect to initial-setup if password not set
+    const passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
+    
+    console.log('User created:', { id: user.id, email: user.email, workEmail: user.work_email });
     
     // Assign user to agencies if provided
     const assignedAgencyIds = [];
@@ -957,37 +1134,6 @@ export const register = async (req, res, next) => {
       console.log('No agencies to assign or agencyIds is not an array');
     }
     
-    // Get agency info for branding and token link generation
-    let agencyName = 'Your Agency';
-    let peopleOpsEmail = 'support@example.com';
-    let agency = null;
-    if (assignedAgencyIds.length > 0) {
-      const Agency = (await import('../models/Agency.model.js')).default;
-      agency = await Agency.findById(assignedAgencyIds[0]);
-      if (agency) {
-        agencyName = agency.name;
-        peopleOpsEmail = agency.people_ops_email || peopleOpsEmail;
-      }
-    }
-    
-    // Do NOT set temporary password for pending users
-    // Generate passwordless login token (7 days expiration for pending users)
-    // This token will be used for initial setup (password creation)
-    const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 7 * 24); // 7 days in hours
-    
-    // Build token link with agency portal URL if available
-    const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
-    let passwordlessTokenLink;
-    if (agency && agency.portal_url) {
-      // Use agency portal URL for branding
-      passwordlessTokenLink = EmailTemplateService.buildResetTokenLink(agency, passwordlessTokenResult.token);
-    } else {
-      // Fall back to default frontend URL
-      passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
-    }
-    
-    console.log('User created:', { id: user.id, email: user.email, workEmail: user.work_email });
-    
     // Initialize onboarding checklist for new user
     try {
       const OnboardingChecklist = (await import('../models/OnboardingChecklist.model.js')).default;
@@ -1001,8 +1147,22 @@ export const register = async (req, res, next) => {
     // No need to assign them during user creation - they will appear when user views their checklist
 
     // Generate email template for admin to copy (if template exists)
+    const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
     const EmailTemplate = (await import('../models/EmailTemplate.model.js')).default;
     const generatedEmails = [];
+    
+    // Get agency info for branding
+    let agencyName = 'Your Agency';
+    let peopleOpsEmail = 'support@example.com';
+    let agency = null;
+    if (assignedAgencyIds.length > 0) {
+      const Agency = (await import('../models/Agency.model.js')).default;
+      agency = await Agency.findById(assignedAgencyIds[0]);
+      if (agency) {
+        agencyName = agency.name;
+        peopleOpsEmail = agency.people_ops_email || peopleOpsEmail;
+      }
+    }
     
     // Try to get the pending_welcome template (agency-specific or platform default)
     try {

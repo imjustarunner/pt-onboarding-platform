@@ -5,8 +5,7 @@ import { validationResult } from 'express-validator';
 export const getAllAgencies = async (req, res, next) => {
   try {
     const includeInactive = req.user.role === 'admin' || req.user.role === 'super_admin';
-    // Super admins should see all agencies including archived ones (like plottwistco)
-    const includeArchived = req.user.role === 'super_admin';
+    const includeArchived = false; // Don't include archived by default
     
     // Super admins see all agencies
     if (req.user.role === 'super_admin') {

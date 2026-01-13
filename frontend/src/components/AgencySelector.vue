@@ -35,11 +35,12 @@ onMounted(async () => {
   // Fetch user's assigned agencies and set default
   await agencyStore.fetchUserAgencies();
   
-  // Also fetch agencies for the selector dropdown
-  if (authStore.user?.id) {
+  // Also fetch agencies for the selector dropdown (for regular users)
+  if (authStore.user?.id && authStore.user?.type !== 'approved_employee') {
     await agencyStore.fetchAgencies(authStore.user.id);
   }
   
+  // For approved employees, agencies are already loaded from fetchUserAgencies
   // Ensure current agency is set
   if (agencyStore.currentAgency) {
     selectedAgencyId.value = agencyStore.currentAgency.id;

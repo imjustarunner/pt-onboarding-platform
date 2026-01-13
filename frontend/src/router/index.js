@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { getDashboardRoute } from '../utils/router';
-import { getLoginUrl } from '../utils/loginRedirect';
 
 const routes = [
   {
@@ -20,13 +19,7 @@ const routes = [
     path: '/initial-setup/:token',
     name: 'InitialSetup',
     component: () => import('../views/InitialSetupView.vue'),
-    meta: { requiresGuest: false } // Allow authenticated users to complete setup
-  },
-  {
-    path: '/:agencySlug/initial-setup/:token',
-    name: 'AgencyInitialSetup',
-    component: () => import('../views/InitialSetupView.vue'),
-    meta: { requiresGuest: false, agencySlug: true } // Allow authenticated users to complete setup
+    meta: { requiresGuest: true }
   },
   {
     path: '/dashboard',
@@ -151,13 +144,7 @@ const routes = [
     path: '/passwordless-login/:token',
     name: 'PasswordlessTokenLogin',
     component: () => import('../views/PasswordlessTokenLoginView.vue'),
-    meta: { requiresGuest: false } // Allow authenticated users (they might be redirected here)
-  },
-  {
-    path: '/:agencySlug/passwordless-login/:token',
-    name: 'AgencyPasswordlessTokenLogin',
-    component: () => import('../views/PasswordlessTokenLoginView.vue'),
-    meta: { requiresGuest: false, agencySlug: true }
+    meta: { requiresGuest: true }
   },
   {
     path: '/pending-completion',
@@ -217,17 +204,12 @@ router.beforeEach((to, from, next) => {
     const loginUrl = getLoginUrl(authStore.user);
     next(loginUrl);
   } else if (to.meta.requiresGuest && authStore.isAuthenticated) {
-    // Allow access to initial-setup and passwordless-login even if authenticated
-    // (user might be completing setup flow)
-    if (to.path.includes('/initial-setup/') || to.path.includes('/passwordless-login/')) {
-      next();
-    } else {
-      // Redirect to appropriate dashboard based on user role
-      next(getDashboardRoute());
-    }
+    // Redirect to appropriate dashboard based on user role
+    next(getDashboardRoute());
   } else if (to.meta.requiresApprovedEmployee) {
-    // ACTIVE_EMPLOYEE/TERMINATED_PENDING users can access on-demand training
-    const canAccessOnDemand = authStore.user?.status === 'ACTIVE_EMPLOYEE' || 
+    // Approved employees and ACTIVE_EMPLOYEE/TERMINATED_PENDING users can access on-demand training
+    const canAccessOnDemand = authStore.user?.type === 'approved_employee' || 
+                              authStore.user?.status === 'ACTIVE_EMPLOYEE' || 
                               authStore.user?.status === 'TERMINATED_PENDING' ||
                               authStore.user?.status === 'active' ||
                               authStore.user?.status === 'completed';
@@ -261,8 +243,12 @@ router.beforeEach((to, from, next) => {
       next(getDashboardRoute());
     }
   } else if (to.meta.blockApprovedEmployees) {
-    // This meta tag is no longer needed but kept for backward compatibility
-    next();
+    // Block approved employees from accessing regular user routes
+    if (authStore.user?.type === 'approved_employee') {
+      next('/on-demand-training');
+    } else {
+      next();
+    }
   } else {
     // Block ARCHIVED users from all routes
     if (authStore.user?.status === 'ARCHIVED') {
@@ -270,7 +256,12 @@ router.beforeEach((to, from, next) => {
       return;
     }
     
-    next();
+    // Block regular routes for approved employees - they should only access on-demand training
+    if (authStore.user?.type === 'approved_employee' && to.path !== '/on-demand-training' && !to.path.startsWith('/on-demand-training/')) {
+      next('/on-demand-training');
+    } else {
+      next();
+    }
   }
 });
 

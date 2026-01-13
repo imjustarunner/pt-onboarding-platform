@@ -148,14 +148,6 @@ class EmailTemplateService {
   }
 
   /**
-   * Build initial setup token link
-   */
-  static buildInitialSetupLink(agency, token) {
-    const portalUrl = this.buildPortalUrl(agency);
-    return `${portalUrl}/initial-setup/${token}`;
-  }
-
-  /**
    * Get terminology settings for an agency
    */
   static getTerminologySettings(agency) {

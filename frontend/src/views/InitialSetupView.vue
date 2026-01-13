@@ -1,21 +1,17 @@
 <template>
-  <BrandingProvider>
-    <div class="initial-setup-container" :style="{ background: loginBackground }">
-      <div class="setup-card">
-        <div v-if="loading" class="loading">
-          <p>Loading...</p>
-        </div>
-        <div v-else-if="error" class="error">
-          <h2>Setup Error</h2>
-          <p>{{ error }}</p>
-          <router-link to="/login" class="btn btn-primary">Go to Login</router-link>
-        </div>
-        <div v-else class="setup-form">
-          <div v-if="displayLogoUrl" class="setup-logo">
-            <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="handleLogoError" />
-          </div>
-          <h2>Welcome, {{ userFirstName }}!</h2>
-          <p class="subtitle">Create your password to get started</p>
+  <div class="initial-setup-container">
+    <div class="setup-card">
+      <div v-if="loading" class="loading">
+        <p>Loading...</p>
+      </div>
+      <div v-else-if="error" class="error">
+        <h2>Setup Error</h2>
+        <p>{{ error }}</p>
+        <router-link to="/login" class="btn btn-primary">Go to Login</router-link>
+      </div>
+      <div v-else class="setup-form">
+        <h2>Welcome, {{ userFirstName }}!</h2>
+        <p class="subtitle">Create your password to get started</p>
         
         <form @submit.prevent="handleSetup">
           <div class="form-group">
@@ -53,48 +49,20 @@
             {{ setting ? 'Setting Password...' : 'Create Password' }}
           </button>
         </form>
-        </div>
       </div>
     </div>
-  </BrandingProvider>
+  </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
-import { useBrandingStore } from '../store/branding';
-import { getPortalUrl } from '../utils/subdomain';
-import BrandingProvider from '../components/BrandingProvider.vue';
 import api from '../services/api';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
-const brandingStore = useBrandingStore();
-
-// Check if this is an agency-specific setup page
-const isAgencySetup = computed(() => route.params.agencySlug && route.meta?.agencySlug);
-const agencySlug = computed(() => route.params.agencySlug || getPortalUrl());
-
-// Agency login theme data
-const loginTheme = ref(null);
-const loadingTheme = ref(false);
-
-// Logo and background for agency setup
-const displayLogoUrl = computed(() => {
-  if (isAgencySetup.value && loginTheme.value?.agency?.logoUrl) {
-    return loginTheme.value.agency.logoUrl;
-  }
-  return brandingStore.displayLogoUrl || brandingStore.plotTwistCoLogoUrl;
-});
-
-const loginBackground = computed(() => {
-  if (isAgencySetup.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
-    return loginTheme.value.agency.themeSettings.loginBackground;
-  }
-  return brandingStore.loginBackground || 'linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%)';
-});
 
 const loading = ref(true);
 const error = ref('');
@@ -103,25 +71,6 @@ const password = ref('');
 const confirmPassword = ref('');
 const setting = ref(false);
 const setupError = ref('');
-
-const handleLogoError = (event) => {
-  event.target.style.display = 'none';
-};
-
-// Fetch agency-specific login theme
-const fetchLoginTheme = async (portalUrl) => {
-  if (!portalUrl) return;
-  try {
-    loadingTheme.value = true;
-    const response = await api.get(`/agencies/portal/${portalUrl}/login-theme`);
-    loginTheme.value = response.data;
-  } catch (error) {
-    console.error('Failed to fetch login theme:', error);
-    // Don't redirect on error, just use platform branding
-  } finally {
-    loadingTheme.value = false;
-  }
-};
 
 const passwordMismatch = computed(() => {
   return password.value && confirmPassword.value && password.value !== confirmPassword.value;
@@ -179,33 +128,30 @@ const handleSetup = async () => {
     sessionStorage.setItem('justLoggedIn', 'true');
     
     // Fetch user's agencies and store them for future login redirects
-    if (response.data.user.role !== 'super_admin') {
+    if (authStore.user.role !== 'super_admin' && authStore.user.type !== 'approved_employee') {
       try {
         const { useAgencyStore } = await import('../store/agency');
         const agencyStore = useAgencyStore();
-        if (response.data.agencies && response.data.agencies.length > 0) {
-          // Set current agency if available
-          agencyStore.setCurrentAgency(response.data.agencies[0]);
-          // Store agencies for future login redirects
-          const { storeUserAgencies } = await import('../utils/loginRedirect');
-          storeUserAgencies(response.data.agencies);
-        } else {
-          // Fetch agencies if not in response
-          await agencyStore.fetchUserAgencies();
-        }
+        await agencyStore.fetchUserAgencies();
+        // Agencies are now stored in localStorage by fetchUserAgencies
       } catch (err) {
         console.error('Failed to fetch user agencies after initial setup:', err);
         // Don't block redirect on agency fetch failure
       }
+    } else if (response.data.agencies && response.data.agencies.length > 0) {
+      // For approved employees or if agencies are in response
+      const { useAgencyStore } = await import('../store/agency');
+      const agencyStore = useAgencyStore();
+      agencyStore.setCurrentAgency(response.data.agencies[0]);
+      // Store agencies for future login redirects
+      const { storeUserAgencies } = await import('../utils/loginRedirect');
+      storeUserAgencies(response.data.agencies);
     }
     
-    // Wait a bit longer to ensure cookie is set and available
-    // Use replace instead of push to avoid history issues
-    setTimeout(async () => {
-      const { getDashboardRoute } = await import('../utils/router');
-      const dashboardRoute = getDashboardRoute();
-      router.replace(dashboardRoute);
-    }, 1000);
+    // Redirect to dashboard
+    setTimeout(() => {
+      router.push('/dashboard');
+    }, 500);
   } catch (err) {
     const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to set password. Please try again.';
     setupError.value = errorMessage;
@@ -214,16 +160,6 @@ const handleSetup = async () => {
 };
 
 onMounted(async () => {
-  // Fetch agency branding if on agency portal
-  if (agencySlug.value) {
-    await fetchLoginTheme(agencySlug.value);
-  } else {
-    // Initialize portal theme if on subdomain
-    await brandingStore.initializePortalTheme();
-  }
-  // Fetch platform branding as fallback
-  await brandingStore.fetchPlatformBranding();
-  
   await validateToken();
 });
 </script>
@@ -234,19 +170,7 @@ onMounted(async () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-}
-
-.setup-logo {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 24px;
-}
-
-.setup-logo .logo-image {
-  height: 60px;
-  width: auto;
-  max-width: 100%;
-  object-fit: contain;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
 }
 
 .setup-card {

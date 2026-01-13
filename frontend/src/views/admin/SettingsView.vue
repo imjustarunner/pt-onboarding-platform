@@ -17,6 +17,7 @@
       <AgencyManagement v-if="activeTab === 'agencies' && authStore.user?.role !== 'support' && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)" />
       <BrandingConfig v-if="activeTab === 'branding' && authStore.user?.role !== 'support' && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)" />
       <EmailTemplateManagement v-if="activeTab === 'communications' && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)" :readOnly="authStore.user?.role === 'support'" />
+      <ApprovedEmployeeList v-if="activeTab === 'approved-employees' && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)" />
       <PlatformSettings v-if="activeTab === 'platform' && authStore.user?.role !== 'support' && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)" />
       <UserInfoFieldManagement v-if="activeTab === 'user-info-fields' && authStore.user?.role === 'super_admin'" />
       <AgencyUserInfoFields v-if="activeTab === 'user-info-fields' && authStore.user?.role === 'admin' && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)" />
@@ -44,6 +45,7 @@ import UserInfoFieldManagement from '../../components/admin/UserInfoFieldManagem
 import AgencyUserInfoFields from '../../components/admin/AgencyUserInfoFields.vue';
 import CustomChecklistItemManagement from '../../components/admin/CustomChecklistItemManagement.vue';
 import AgencyCustomChecklistItems from '../../components/admin/AgencyCustomChecklistItems.vue';
+import ApprovedEmployeeList from '../../components/admin/ApprovedEmployeeList.vue';
 import IconLibraryView from './IconLibraryView.vue';
 import OnboardingPackageManagement from '../../components/admin/OnboardingPackageManagement.vue';
 import BrandingTemplateManager from '../../components/admin/BrandingTemplateManager.vue';
@@ -74,6 +76,7 @@ const tabs = computed(() => {
     { id: 'platform', label: 'Platform Settings' },
     { id: 'user-info-fields', label: 'User Info Fields' },
     { id: 'custom-checklist', label: 'Custom Checklist Items' },
+    { id: 'approved-employees', label: 'Approved Employees' },
     { id: 'onboarding-packages', label: 'Onboarding Packages' },
     { id: 'icon-library', label: 'Icon Library' },
     { id: 'fonts', label: 'Font Library' },
@@ -87,6 +90,7 @@ const tabs = computed(() => {
   if (userRole === 'support') {
     return [
       { id: 'communications', label: 'Communications' },
+      { id: 'approved-employees', label: 'Approved Employees' },
       { id: 'onboarding-packages', label: 'Onboarding Packages' },
       { id: 'custom-checklist', label: 'Custom Checklist Items' }
     ];

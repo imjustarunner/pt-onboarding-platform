@@ -20,10 +20,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: 'dist',
-    rollupOptions: {
-      input: './index.html' // Explicitly specify entry point
-    }
+    outDir: 'dist'
   }
 });
 

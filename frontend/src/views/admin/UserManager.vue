@@ -529,7 +529,17 @@
               <input type="text" :value="userCredentials.username" readonly class="credential-input" ref="usernameInput" />
               <button @click="copyToClipboard('username')" class="btn-copy">Copy</button>
             </div>
-            <small v-if="!userCredentials.username">Work email will be set when user moves to active status</small>
+            <small v-if="!userCredentials.temporaryPassword">Work email will be set when user moves to active status</small>
+          </div>
+          
+          <!-- Temporary Password - Only shown for active users, not pending users -->
+          <div v-if="userCredentials.temporaryPassword" class="credential-item">
+            <label>Temporary Password:</label>
+            <div class="credential-value">
+              <input type="text" :value="userCredentials.temporaryPassword" readonly class="credential-input" ref="passwordInput" />
+              <button @click="copyToClipboard('password')" class="btn-copy">Copy</button>
+            </div>
+            <small>Expires in 48 hours</small>
           </div>
         </div>
         
@@ -754,6 +764,7 @@ const userCredentials = ref({
   token: '',
   tokenLink: '',
   username: '',
+  temporaryPassword: '',
   generatedEmails: []
 });
 
@@ -894,17 +905,6 @@ const saveUser = async () => {
         updateData.password = userForm.value.password;
       }
       await api.put(`/users/${editingUser.value.id}`, updateData);
-      
-      // If role was updated and this is the current logged-in user, refresh their auth data
-      if (updateData.role !== undefined && editingUser.value.id === authStore.user?.id) {
-        console.log('Role updated for current user, refreshing auth data...');
-        await authStore.refreshUser();
-        // Force a page reload to ensure all components see the updated role
-        setTimeout(() => {
-          window.location.reload();
-        }, 500);
-      }
-      
       closeModal();
       fetchUsers();
     } else {
@@ -941,6 +941,7 @@ const saveUser = async () => {
           token: response.data.passwordlessToken,
           tokenLink: response.data.passwordlessTokenLink,
           username: response.data.user.email,
+          temporaryPassword: null,
           generatedEmails: []
         };
         
@@ -952,7 +953,7 @@ const saveUser = async () => {
         createData = {
           lastName: userForm.value.lastName?.trim() || '',
           role: userForm.value.role || 'clinician',
-          agencyIds: userForm.value.agencyIds && userForm.value.agencyIds.length > 0
+          agencyIds: userForm.value.agencyIds && userForm.value.agencyIds.length > 0 
             ? userForm.value.agencyIds.map(id => parseInt(id)).filter(id => !isNaN(id))
             : []
         };
@@ -998,7 +999,6 @@ const saveUser = async () => {
           agencyIds: userForm.value.agencyIds,
           firstName: userForm.value.firstName
         });
-        
         // Store pending user data in case we need to retry after duplicate check
         pendingUserData.value = createData;
         const response = await api.post('/auth/register', createData);
@@ -1037,6 +1037,7 @@ const saveUser = async () => {
           token: response.data.passwordlessToken,
           tokenLink: response.data.passwordlessTokenLink,
           username: userForm.value.email || 'N/A (Work email will be set when moved to active)',
+          temporaryPassword: null, // No temp password for pending users
           generatedEmails: response.data.generatedEmails || []
         };
         
@@ -1228,6 +1229,7 @@ const confirmMoveToActive = async () => {
       token: response.data.credentials.passwordlessToken,
       tokenLink: response.data.credentials.passwordlessTokenLink,
       username: response.data.credentials.workEmail,
+      temporaryPassword: response.data.credentials.temporaryPassword,
       generatedEmails: response.data.credentials.generatedEmail ? [{
         type: 'Welcome Active',
         subject: response.data.credentials.emailSubject || 'Your Account Credentials',
@@ -1335,6 +1337,7 @@ const closeCredentialsModal = () => {
     token: '',
     tokenLink: '',
     username: '',
+    temporaryPassword: '',
     generatedEmails: []
   };
 };
@@ -1345,6 +1348,13 @@ const copyToClipboard = async (type) => {
     text = userCredentials.value.tokenLink || '';
   } else if (type === 'username') {
     text = userCredentials.value.username;
+  } else if (type === 'password') {
+    // Only copy if temporary password exists (not for pending users)
+    if (!userCredentials.value.temporaryPassword) {
+      return;
+    }
+    text = userCredentials.value.temporaryPassword;
+  }
   
   try {
     await navigator.clipboard.writeText(text);
@@ -1385,6 +1395,10 @@ const copyAllCredentials = async () => {
     parts.push(`Passwordless Login Link: ${userCredentials.value.tokenLink}`);
   }
   parts.push(`Username: ${userCredentials.value.username}`);
+  // Only include temporary password if it exists (not for pending users)
+  if (userCredentials.value.temporaryPassword) {
+    parts.push(`Temporary Password: ${userCredentials.value.temporaryPassword}`);
+  }
   
   const allText = parts.join('\n');
   
@@ -1653,6 +1667,7 @@ const proceedWithCreation = async () => {
       token: response.data.passwordlessToken,
       tokenLink: response.data.passwordlessTokenLink,
       username: pendingUserData.value.email || 'N/A (Work email will be set when moved to active)',
+      temporaryPassword: null,
       generatedEmails: response.data.generatedEmails || []
     };
     
