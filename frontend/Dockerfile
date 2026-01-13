@@ -2,7 +2,7 @@
 # Multi-stage build for optimized production image
 
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM node:18-alpine AS builder
 
 WORKDIR /app
 
@@ -30,23 +30,25 @@ RUN if [ ! -f "index.html" ]; then \
 # Build argument for API URL (set at build time)
 ARG VITE_API_URL
 ENV VITE_API_URL=${VITE_API_URL}
+ENV NODE_ENV=production
 
 # Debug: Show environment variables
 RUN echo "VITE_API_URL=$VITE_API_URL" && \
+    echo "NODE_ENV=$NODE_ENV" && \
     node -v && npm -v && \
     ls -la && ls -la node_modules/@vitejs || true
 
-# Build the application
-RUN npm run build || ( \
-    echo "❌ Build failed!" && \
+# Build the application with better error visibility
+RUN npm run build 2>&1 | tee build.log || ( \
+    echo "❌ Build failed! Showing build output:" && \
+    cat build.log && \
+    echo "--- Environment ---" && \
     echo "VITE_API_URL=$VITE_API_URL" && \
-    echo "Current directory: $(pwd)" && \
-    echo "Checking for index.html:" && \
-    ls -la index.html || echo "index.html not found!" && \
-    echo "Files in current directory:" && \
+    echo "NODE_ENV=$NODE_ENV" && \
+    echo "--- Files ---" && \
     ls -la && \
-    echo "Checking package.json..." && \
-    cat package.json && \
+    echo "--- index.html check ---" && \
+    [ -f index.html ] && echo "✓ index.html exists" || echo "✗ index.html missing" && \
     exit 1 )
 
 # Stage 2: Production
