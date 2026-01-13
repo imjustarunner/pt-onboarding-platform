@@ -9,12 +9,12 @@
               <h1 class="nav-title">{{ brandingStore.navigationTitle || (brandingStore.displayName + ' ' + (brandingStore.peopleOpsTerm || 'People Operations')) }}</h1>
             </div>
             <div class="nav-links">
-            <!-- Active/terminated users see On-Demand Training (but NOT superadmins) -->
-            <template v-if="user?.role !== 'super_admin' && (user?.status === 'ACTIVE_EMPLOYEE' || user?.status === 'TERMINATED_PENDING' || user?.status === 'active' || user?.status === 'completed')">
+            <!-- Approved employees and active/terminated users see On-Demand Training (but NOT superadmins) -->
+            <template v-if="user?.role !== 'super_admin' && (user?.type === 'approved_employee' || (user?.status === 'ACTIVE_EMPLOYEE' || user?.status === 'TERMINATED_PENDING' || user?.status === 'active' || user?.status === 'completed'))">
               <router-link to="/on-demand-training">On-Demand Training</router-link>
             </template>
             <!-- Regular users and admins see normal navigation (superadmins always see admin nav) -->
-            <template v-if="user?.role === 'super_admin' || (user?.status !== 'ACTIVE_EMPLOYEE' && user?.status !== 'TERMINATED_PENDING' && user?.status !== 'active' && user?.status !== 'completed')">
+            <template v-if="user?.role === 'super_admin' || (user?.type !== 'approved_employee' && user?.status !== 'ACTIVE_EMPLOYEE' && user?.status !== 'TERMINATED_PENDING' && user?.status !== 'active' && user?.status !== 'completed')">
               <router-link to="/dashboard" v-if="user?.role !== 'admin' && user?.role !== 'super_admin' && user?.role !== 'support' && !isSupervisor(user) && user?.role !== 'clinical_practice_assistant'">Dashboard</router-link>
               <router-link to="/dashboard" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'">My Training</router-link>
               <router-link to="/admin" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'">Admin Dashboard</router-link>
@@ -28,7 +28,7 @@
               <router-link to="/admin/settings" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)">Settings</router-link>
             </template>
               <span class="user-info">{{ user?.firstName || user?.email }} {{ user?.lastName || '' }}</span>
-              <button @click="handleLogout" class="btn btn-secondary" style="white-space: nowrap; flex-shrink: 0;">Logout</button>
+              <button @click="handleLogout" class="btn btn-secondary">Logout</button>
             </div>
           </div>
         </div>
@@ -37,6 +37,7 @@
         <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin" />
         <router-view />
       </main>
+      <PoweredByFooter v-if="isAuthenticated" />
     </div>
   </BrandingProvider>
 </template>
@@ -51,6 +52,7 @@ import { isSupervisor } from './utils/helpers.js';
 import AgencySelector from './components/AgencySelector.vue';
 import BrandingProvider from './components/BrandingProvider.vue';
 import BrandingLogo from './components/BrandingLogo.vue';
+import PoweredByFooter from './components/PoweredByFooter.vue';
 
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
@@ -128,6 +130,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 24px;
+  flex-wrap: nowrap;
   overflow: hidden;
 }
 
@@ -135,6 +138,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .nav-logo {
@@ -156,8 +161,6 @@ onUnmounted(() => {
   gap: 20px;
   flex-wrap: nowrap;
   white-space: nowrap;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
 .nav-links a {
