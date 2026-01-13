@@ -130,7 +130,6 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 24px;
-  flex-wrap: nowrap;
   overflow: hidden;
 }
 
@@ -138,7 +137,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
-  flex-shrink: 1;
+  flex-shrink: 0;
   min-width: 0;
 }
 
@@ -153,6 +152,10 @@ onUnmounted(() => {
   text-transform: uppercase;
   margin: 0;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .nav-links {
@@ -160,7 +163,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 20px;
   flex-wrap: nowrap;
-  white-space: nowrap;
+  flex-shrink: 0;
+  overflow: visible;
 }
 
 .nav-links a {
@@ -176,6 +180,11 @@ onUnmounted(() => {
 .nav-links a:hover,
 .nav-links a.router-link-active {
   background-color: rgba(255,255,255,0.1);
+}
+
+.nav-links .btn {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .user-info {
