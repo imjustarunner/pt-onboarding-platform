@@ -1,0 +1,114 @@
+import UserPreferences from '../models/UserPreferences.model.js';
+import User from '../models/User.model.js';
+
+/**
+ * Get user preferences
+ * GET /api/users/:userId/preferences
+ */
+export const getUserPreferences = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const requestingUserId = req.user.id;
+    const requestingRole = req.user.role;
+
+    // Users can view their own preferences, admins/staff/superadmin can view any user's preferences
+    if (parseInt(userId) !== requestingUserId) {
+      if (!['super_admin', 'admin', 'staff', 'support'].includes(requestingRole)) {
+        return res.status(403).json({
+          error: { message: 'You do not have permission to view this user\'s preferences' }
+        });
+      }
+    }
+
+    const preferences = await UserPreferences.findByUserId(parseInt(userId));
+    
+    if (!preferences) {
+      // Return default preferences if none exist
+      return res.json({
+        email_enabled: true,
+        sms_enabled: false,
+        in_app_enabled: true,
+        quiet_hours_enabled: false,
+        quiet_hours_allowed_days: null,
+        quiet_hours_start_time: null,
+        quiet_hours_end_time: null,
+        auto_reply_enabled: false,
+        auto_reply_message: null,
+        notification_categories: null,
+        work_modality: null,
+        scheduling_preferences: null,
+        show_read_receipts: false,
+        allow_staff_step_in: true,
+        show_full_name_on_schedules: true,
+        show_initials_only_on_boards: true,
+        allow_name_in_pdfs: true,
+        reduced_motion: false,
+        high_contrast_mode: false,
+        larger_text: false,
+        default_landing_page: 'dashboard'
+      });
+    }
+
+    res.json(preferences);
+  } catch (error) {
+    console.error('Error fetching user preferences:', error);
+    next(error);
+  }
+};
+
+/**
+ * Update user preferences
+ * PUT /api/users/:userId/preferences
+ */
+export const updateUserPreferences = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const requestingUserId = req.user.id;
+    const requestingRole = req.user.role;
+    const updates = req.body;
+
+    // Users can edit their own preferences (within boundaries), admins/staff/superadmin can edit any user's preferences
+    const isOwnPreferences = parseInt(userId) === requestingUserId;
+    const isAdmin = ['super_admin', 'admin', 'staff', 'support'].includes(requestingRole);
+
+    if (!isOwnPreferences && !isAdmin) {
+      return res.status(403).json({
+        error: { message: 'You do not have permission to edit this user\'s preferences' }
+      });
+    }
+
+    // Validate user exists
+    const user = await User.findById(parseInt(userId));
+    if (!user) {
+      return res.status(404).json({
+        error: { message: 'User not found' }
+      });
+    }
+
+    // For non-admin users editing their own preferences, enforce boundaries
+    if (isOwnPreferences && !isAdmin) {
+      // Users cannot edit admin-controlled fields
+      const adminControlledFields = ['work_modality', 'scheduling_preferences'];
+      for (const field of adminControlledFields) {
+        if (field in updates) {
+          delete updates[field];
+        }
+      }
+    }
+
+    // Ensure in_app_enabled is always true (safety requirement)
+    if ('in_app_enabled' in updates && updates.in_app_enabled === false) {
+      updates.in_app_enabled = true;
+    }
+
+    const preferences = await UserPreferences.update(parseInt(userId), updates);
+
+    res.json({
+      message: 'Preferences updated successfully',
+      preferences
+    });
+  } catch (error) {
+    console.error('Error updating user preferences:', error);
+    next(error);
+  }
+};
