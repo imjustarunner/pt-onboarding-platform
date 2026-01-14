@@ -34,6 +34,7 @@ import publicTrainingRoutes from './routes/publicTraining.routes.js';
 import agencyOnDemandTrainingRoutes from './routes/agencyOnDemandTraining.routes.js';
 import certificateRoutes from './routes/certificate.routes.js';
 import iconRoutes from './routes/icon.routes.js';
+import iconTemplateRoutes from './routes/iconTemplate.routes.js';
 import platformBrandingRoutes from './routes/platformBranding.routes.js';
 import onboardingPackageRoutes from './routes/onboardingPackage.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
@@ -107,8 +108,18 @@ app.use('/uploads', async (req, res, next) => {
       return res.status(404).json({ error: { message: 'File not found' } });
     }
     
-    // Prepend "uploads/" to match GCS storage structure
-    if (!filePath.startsWith('uploads/')) {
+    // Map /uploads/* requests to the correct GCS object keys.
+    //
+    // Most assets are stored under "uploads/..." in GCS (icons, logos, etc).
+    // Fonts are stored under "fonts/..." in GCS (see StorageService.saveFont).
+    // Templates may be stored under "templates/..." and other non-uploads prefixes.
+    const isDirectPrefix = (p) =>
+      p.startsWith('uploads/') ||
+      p.startsWith('fonts/') ||
+      p.startsWith('templates/') ||
+      p.startsWith('signed/');
+
+    if (!isDirectPrefix(filePath)) {
       filePath = `uploads/${filePath}`;
     }
     
@@ -242,6 +253,7 @@ app.use('/api/on-demand-training', publicTrainingRoutes);
 app.use('/api/agency-on-demand-training', agencyOnDemandTrainingRoutes);
 app.use('/api/certificates', certificateRoutes);
 app.use('/api/icons', iconRoutes);
+app.use('/api/icon-templates', iconTemplateRoutes);
 app.use('/api/platform-branding', platformBrandingRoutes);
 app.use('/api/onboarding-packages', onboardingPackageRoutes);
 app.use('/api/notifications', notificationRoutes);

@@ -140,12 +140,58 @@
           <small>This name appears in "Powered by" footer on agency login pages and throughout the platform</small>
         </div>
         <div class="form-group">
-          <label>Organization Logo URL</label>
-          <input v-model="platformForm.organizationLogoUrl" type="url" placeholder="https://example.com/logo.png" />
-          <p class="form-help">Enter the full URL to your platform organization logo image (PNG, JPG, or SVG)</p>
-          <div v-if="platformForm.organizationLogoUrl" class="logo-preview">
-            <img :src="platformForm.organizationLogoUrl" alt="Logo preview" @error="handleLogoError" />
-            <p v-if="logoError" class="logo-error">Failed to load logo. Please check the URL.</p>
+          <label>Organization Logo</label>
+          <div class="logo-input-tabs">
+            <button 
+              type="button"
+              :class="['tab-button-small', { active: platformLogoInputMethod === 'url' }]"
+              @click="platformLogoInputMethod = 'url'"
+            >
+              URL
+            </button>
+            <button 
+              type="button"
+              :class="['tab-button-small', { active: platformLogoInputMethod === 'upload' }]"
+              @click="platformLogoInputMethod = 'upload'"
+            >
+              Upload
+            </button>
+          </div>
+          
+          <!-- URL Input -->
+          <div v-if="platformLogoInputMethod === 'url'" class="logo-input-section">
+            <input v-model="platformForm.organizationLogoUrl" type="url" placeholder="https://example.com/logo.png" />
+            <p class="form-help">Enter the full URL to your platform organization logo image (PNG, JPG, or SVG)</p>
+            <div v-if="platformForm.organizationLogoUrl" class="logo-preview">
+              <img :src="platformForm.organizationLogoUrl" alt="Logo preview" @error="handleLogoError" />
+              <p v-if="logoError" class="logo-error">Failed to load logo. Please check the URL.</p>
+            </div>
+          </div>
+          
+          <!-- Upload Input -->
+          <div v-if="platformLogoInputMethod === 'upload'" class="logo-input-section">
+            <input 
+              type="file" 
+              ref="platformLogoFileInput"
+              @change="handlePlatformLogoFileSelect"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/svg+xml,image/webp"
+              class="file-input"
+              style="display: none;"
+            />
+            <button 
+              type="button"
+              class="btn btn-primary"
+              @click="platformLogoFileInput?.click()"
+              :disabled="uploadingPlatformLogo"
+            >
+              {{ uploadingPlatformLogo ? 'Uploading...' : 'Choose Logo File' }}
+            </button>
+            <p class="form-help">Upload a logo file (PNG, JPG, GIF, SVG, or WebP - max 5MB)</p>
+            <div v-if="uploadingPlatformLogo" class="upload-status">Uploading logo...</div>
+            <div v-if="platformForm.organizationLogoPath" class="logo-preview">
+              <img :src="getLogoUrlFromPath(platformForm.organizationLogoPath)" alt="Logo preview" @error="handleLogoError" />
+              <p class="form-help">Logo uploaded successfully</p>
+            </div>
           </div>
         </div>
         <div class="form-group">
@@ -1128,7 +1174,8 @@ const platformForm = ref({
       allAgenciesNotificationsIconId: null,
       organizationName: null,
       organizationLogoIconId: null,
-      organizationLogoUrl: null
+      organizationLogoUrl: null,
+      organizationLogoPath: null
     });
 
 const agencyBrandingForm = ref({
@@ -1160,6 +1207,9 @@ const selectedAgency = computed(() => {
 const saving = ref(false);
 const error = ref('');
 const logoError = ref(false);
+const platformLogoFileInput = ref(null);
+const uploadingPlatformLogo = ref(false);
+const platformLogoInputMethod = ref('url'); // 'url' or 'upload'
 
 const currentAgency = computed(() => agencyStore.currentAgency);
 
@@ -1459,6 +1509,55 @@ const handleLogoError = () => {
   logoError.value = true;
 };
 
+const handlePlatformLogoFileSelect = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  // Validate file size (5MB max)
+  if (file.size > 5 * 1024 * 1024) {
+    error.value = 'Logo file must be 5MB or smaller';
+    return;
+  }
+  
+  // Validate file type
+  const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/svg+xml', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) {
+    error.value = 'Invalid file type. Please upload a PNG, JPG, GIF, SVG, or WebP image.';
+    return;
+  }
+  
+  uploadingPlatformLogo.value = true;
+  error.value = '';
+  
+  try {
+    const formData = new FormData();
+    formData.append('logo', file);
+    
+    // Don't set Content-Type header - let the API interceptor handle it for FormData
+    // This ensures cookies are sent properly for authentication
+    const response = await api.post('/logos/upload', formData);
+    
+    if (response.data.success) {
+      platformForm.value.organizationLogoPath = response.data.path;
+      platformForm.value.organizationLogoUrl = ''; // Clear URL when using upload
+      logoError.value = false;
+    }
+  } catch (err) {
+    console.error('Error uploading logo:', err);
+    error.value = err.response?.data?.error?.message || 'Failed to upload logo. Please try again.';
+  } finally {
+    uploadingPlatformLogo.value = false;
+  }
+};
+
+const getLogoUrlFromPath = (logoPath) => {
+  if (!logoPath) return null;
+  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+  // Path is already like "uploads/logos/logo-123.png", so just prepend base URL
+  return `${apiBase}/${logoPath}`;
+};
+
 watch(() => brandingForm.value.logoUrl, () => {
   logoError.value = false;
 });
@@ -1684,8 +1783,19 @@ const applySelectedTemplate = async (event) => {
           manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,
           platformSettingsIconId: brandingStore.platformBranding.platform_settings_icon_id ?? null,
           viewAllProgressIconId: brandingStore.platformBranding.view_all_progress_icon_id ?? null,
-          allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null
+          allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
+          organizationName: brandingStore.platformBranding.organization_name ?? null,
+          organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null,
+          organizationLogoUrl: brandingStore.platformBranding.organization_logo_url ?? null,
+          organizationLogoPath: brandingStore.platformBranding.organization_logo_path ?? null
         };
+        
+        // Set logo input method based on what's available
+        if (platformForm.value.organizationLogoPath) {
+          platformLogoInputMethod.value = 'upload';
+        } else if (platformForm.value.organizationLogoUrl) {
+          platformLogoInputMethod.value = 'url';
+        }
       }
       // Force a page reload to ensure all components see the updated branding
       setTimeout(() => {
@@ -1930,7 +2040,8 @@ const savePlatformBranding = async () => {
       allAgenciesNotificationsIconId: platformForm.value.allAgenciesNotificationsIconId ?? null,
       organizationName: platformForm.value.organizationName?.trim() || null,
       organizationLogoIconId: platformForm.value.organizationLogoIconId ?? null,
-      organizationLogoUrl: platformForm.value.organizationLogoUrl?.trim() || null
+      organizationLogoUrl: platformLogoInputMethod.value === 'url' ? (platformForm.value.organizationLogoUrl?.trim() || null) : null,
+      organizationLogoPath: platformLogoInputMethod.value === 'upload' ? (platformForm.value.organizationLogoPath || null) : null
     };
     
     const response = await api.put('/platform-branding', brandingData);
@@ -2138,6 +2249,7 @@ onMounted(async () => {
     await brandingStore.fetchPlatformBranding();
     if (brandingStore.platformBranding) {
       platformForm.value = {
+        ...platformForm.value,
         tagline: brandingStore.platformBranding.tagline || platformForm.value.tagline,
         primaryColor: brandingStore.platformBranding.primary_color || platformForm.value.primaryColor,
         secondaryColor: brandingStore.platformBranding.secondary_color || platformForm.value.secondaryColor,
@@ -2192,6 +2304,14 @@ onActivated(async () => {
       platformForm.value.organizationName = brandingStore.platformBranding.organization_name ?? null;
       platformForm.value.organizationLogoIconId = brandingStore.platformBranding.organization_logo_icon_id ?? null;
       platformForm.value.organizationLogoUrl = brandingStore.platformBranding.organization_logo_url ?? null;
+      platformForm.value.organizationLogoPath = brandingStore.platformBranding.organization_logo_path ?? null;
+      
+      // Set logo input method based on what's available
+      if (platformForm.value.organizationLogoPath) {
+        platformLogoInputMethod.value = 'upload';
+      } else if (platformForm.value.organizationLogoUrl) {
+        platformLogoInputMethod.value = 'url';
+      }
       
       if (selectedBrandingScope.value === 'platform') {
         await detectCurrentlyAppliedTemplate();
@@ -2314,6 +2434,56 @@ onActivated(async () => {
 .branding-form h3 {
   margin-bottom: 20px;
   color: var(--text-primary);
+}
+
+.logo-input-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tab-button-small {
+  padding: 6px 16px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+
+.tab-button-small:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.tab-button-small.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.logo-input-section {
+  margin-top: 8px;
+}
+
+.file-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.upload-status {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--bg-alt);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .logo-preview {

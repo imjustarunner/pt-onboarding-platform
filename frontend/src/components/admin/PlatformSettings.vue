@@ -63,11 +63,71 @@
     </div>
     
     <div class="settings-section">
+      <h3>Settings Menu Icons</h3>
+      <p class="section-description">
+        Customize icons for settings menu items. These icons will replace the default emojis in the settings modal.
+      </p>
+      
+      <div class="settings-icons-grid">
+        <div class="icon-setting-item">
+          <label>Company Profile</label>
+          <IconSelector v-model="settingsIcons.companyProfileIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Team & Roles</label>
+          <IconSelector v-model="settingsIcons.teamRolesIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Billing</label>
+          <IconSelector v-model="settingsIcons.billingIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Packages</label>
+          <IconSelector v-model="settingsIcons.packagesIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Checklist Items</label>
+          <IconSelector v-model="settingsIcons.checklistItemsIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Field Definitions</label>
+          <IconSelector v-model="settingsIcons.fieldDefinitionsIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Branding & Templates</label>
+          <IconSelector v-model="settingsIcons.brandingTemplatesIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Assets (Icons/Fonts)</label>
+          <IconSelector v-model="settingsIcons.assetsIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Communications</label>
+          <IconSelector v-model="settingsIcons.communicationsIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Integrations</label>
+          <IconSelector v-model="settingsIcons.integrationsIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Archive</label>
+          <IconSelector v-model="settingsIcons.archiveIconId" />
+        </div>
+      </div>
+      
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" @click="saveSettingsIcons" :disabled="savingIcons">
+          {{ savingIcons ? 'Saving...' : 'Save Settings Icons' }}
+        </button>
+      </div>
+    </div>
+    
+    <div class="settings-section">
       <h3>Platform Information</h3>
       <div class="info-grid">
         <div class="info-item">
           <strong>Platform Name:</strong>
-          <span>PlotTwistCo People Operations Platform</span>
+          <span>{{ platformName }}</span>
         </div>
         <div class="info-item">
           <strong>Version:</strong>
@@ -87,8 +147,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import api from '../../services/api';
+import { useBrandingStore } from '../../store/branding';
+
+const brandingStore = useBrandingStore();
 
 const settings = ref({
   peopleOpsTerm: 'People Operations',
@@ -99,15 +162,82 @@ const settings = ref({
 });
 
 const saving = ref(false);
+const savingIcons = ref(false);
 const superAdminCount = ref(0);
 const totalAgencies = ref(0);
 
+const settingsIcons = ref({
+  companyProfileIconId: null,
+  teamRolesIconId: null,
+  billingIconId: null,
+  packagesIconId: null,
+  checklistItemsIconId: null,
+  fieldDefinitionsIconId: null,
+  brandingTemplatesIconId: null,
+  assetsIconId: null,
+  communicationsIconId: null,
+  integrationsIconId: null,
+  archiveIconId: null
+});
+
+// Platform name - use platform branding or fallback
+const platformName = computed(() => {
+  const orgName = brandingStore.platformBranding?.organization_name || '';
+  const term = brandingStore.peopleOpsTerm || 'People Operations';
+  if (!orgName || orgName === 'PlotTwistCo') {
+    return `${term} Platform`;
+  }
+  return `${orgName} ${term} Platform`;
+});
+
 const fetchSettings = async () => {
   try {
-    // In a real implementation, this would fetch from a settings API
-    // For now, we'll use defaults
+    // Load settings icons from platform branding
+    await brandingStore.fetchPlatformBranding();
+    const pb = brandingStore.platformBranding;
+    if (pb) {
+      settingsIcons.value = {
+        companyProfileIconId: pb.company_profile_icon_id ?? null,
+        teamRolesIconId: pb.team_roles_icon_id ?? null,
+        billingIconId: pb.billing_icon_id ?? null,
+        packagesIconId: pb.packages_icon_id ?? null,
+        checklistItemsIconId: pb.checklist_items_icon_id ?? null,
+        fieldDefinitionsIconId: pb.field_definitions_icon_id ?? null,
+        brandingTemplatesIconId: pb.branding_templates_icon_id ?? null,
+        assetsIconId: pb.assets_icon_id ?? null,
+        communicationsIconId: pb.communications_icon_id ?? null,
+        integrationsIconId: pb.integrations_icon_id ?? null,
+        archiveIconId: pb.archive_icon_id ?? null
+      };
+    }
   } catch (err) {
     console.error('Failed to load settings:', err);
+  }
+};
+
+const saveSettingsIcons = async () => {
+  try {
+    savingIcons.value = true;
+    await api.put('/platform-branding', {
+      companyProfileIconId: settingsIcons.value.companyProfileIconId,
+      teamRolesIconId: settingsIcons.value.teamRolesIconId,
+      billingIconId: settingsIcons.value.billingIconId,
+      packagesIconId: settingsIcons.value.packagesIconId,
+      checklistItemsIconId: settingsIcons.value.checklistItemsIconId,
+      fieldDefinitionsIconId: settingsIcons.value.fieldDefinitionsIconId,
+      brandingTemplatesIconId: settingsIcons.value.brandingTemplatesIconId,
+      assetsIconId: settingsIcons.value.assetsIconId,
+      communicationsIconId: settingsIcons.value.communicationsIconId,
+      integrationsIconId: settingsIcons.value.integrationsIconId,
+      archiveIconId: settingsIcons.value.archiveIconId
+    });
+    await brandingStore.fetchPlatformBranding();
+    alert('Settings icons saved successfully!');
+  } catch (err) {
+    console.error('Failed to save settings icons:', err);
+    alert('Failed to save settings icons');
+  } finally {
+    savingIcons.value = false;
   }
 };
 
@@ -246,6 +376,25 @@ onMounted(async () => {
   margin-top: 4px;
   color: var(--text-secondary);
   font-size: 11px;
+}
+
+.settings-icons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.icon-setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.icon-setting-item label {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
 }
 </style>
 

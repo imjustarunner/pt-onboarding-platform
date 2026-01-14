@@ -64,6 +64,12 @@ export const createAgency = async (req, res, next) => {
     }
 
     const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId } = req.body;
+
+    // Only super admins can create "agency" organizations. Admins can create school/program/learning.
+    const requestedType = (organizationType || 'agency').toLowerCase();
+    if (req.user?.role !== 'super_admin' && requestedType === 'agency') {
+      return res.status(403).json({ error: { message: 'Only super admins can create agency organizations' } });
+    }
     
     // Ensure colorPalette is properly formatted
     let formattedColorPalette = colorPalette;
@@ -122,7 +128,7 @@ export const createAgency = async (req, res, next) => {
       portalUrl,
       themeSettings: formattedThemeSettings,
       customParameters: formattedCustomParameters,
-      organizationType: organizationType || 'agency',
+      organizationType: requestedType,
       statusExpiredIconId,
       tempPasswordExpiredIconId,
       taskOverdueIconId,
@@ -132,6 +138,16 @@ export const createAgency = async (req, res, next) => {
       firstLoginPendingIconId,
       passwordChangedIconId
     });
+
+    // If an admin (non-super-admin) created an organization, ensure they are assigned to it
+    // so it shows up in their Organization Management list immediately.
+    if (req.user?.role !== 'super_admin') {
+      try {
+        await User.assignToAgency(req.user.id, agency.id);
+      } catch (e) {
+        // best effort; do not block creation
+      }
+    }
     res.status(201).json(agency);
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {

@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { login, register, approvedEmployeeLogin, logout, logActivity, passwordlessTokenLogin, passwordlessTokenLoginFromBody, verifyPendingIdentity, validateSetupToken, initialSetup } from '../controllers/auth.controller.js';
+import { login, register, approvedEmployeeLogin, logout, logActivity, passwordlessTokenLogin, passwordlessTokenLoginFromBody, verifyPendingIdentity, validateSetupToken, initialSetup, validateResetToken, resetPasswordWithToken } from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
 import { authLimiter } from '../middleware/rateLimiter.middleware.js';
@@ -142,5 +142,15 @@ router.post('/initial-setup/:token', [
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters')
 ], initialSetup);
+
+// Password reset routes (token-based, forces user to set a new password)
+router.get('/validate-reset-token/:token', validateResetToken);
+router.post('/reset-password/:token', [
+  body('password')
+    .notEmpty()
+    .withMessage('Password is required')
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters')
+], resetPasswordWithToken);
 
 export default router;

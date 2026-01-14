@@ -16,7 +16,8 @@
     "check-roles": "node src/scripts/checkUserRoles.js",
     "fix-roles": "node src/scripts/fixAdminRoles.js",
     "set-test-passwords": "node src/scripts/setTestPasswords.js",
-    "restore-superadmin": "node src/scripts/restoreSuperAdmin.js"
+    "restore-superadmin": "node src/scripts/restoreSuperAdmin.js",
+    "migrate-icons": "node src/scripts/migrate-icons-to-uploads.js"
   },
   "keywords": [],
   "author": "",

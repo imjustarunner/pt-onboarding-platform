@@ -22,7 +22,15 @@
                 :class="['category-item', { active: selectedCategory === category.id && selectedItem === item.id }]"
                 :disabled="!item.visible"
               >
-                <span class="item-icon">{{ item.icon }}</span>
+                <span class="item-icon">
+                  <img 
+                    v-if="getSettingsIconUrl(item.id)" 
+                    :src="getSettingsIconUrl(item.id)" 
+                    :alt="item.label"
+                    class="icon-image"
+                  />
+                  <span v-else class="icon-emoji">{{ item.icon }}</span>
+                </span>
                 <span class="item-label">{{ item.label }}</span>
               </button>
             </div>
@@ -49,6 +57,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
+import { useBrandingStore } from '../../store/branding';
 import { isSupervisor } from '../../utils/helpers.js';
 
 // Import all existing components
@@ -72,6 +81,7 @@ import IntegrationsManagement from './IntegrationsManagement.vue';
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 
 const selectedCategory = ref(null);
 const selectedItem = ref(null);
@@ -347,7 +357,7 @@ const closeModal = () => {
 };
 
 // Initialize from URL query parameters
-onMounted(() => {
+onMounted(async () => {
   const userRole = authStore.user?.role;
   
   // Redirect CPAs and supervisors away from settings
@@ -355,6 +365,9 @@ onMounted(() => {
     router.push('/admin');
     return;
   }
+  
+  // Fetch platform branding to get settings icons
+  await brandingStore.fetchPlatformBranding();
   
   // Check for deep link parameters
   const categoryParam = route.query.category;
@@ -396,6 +409,58 @@ watch(() => route.query, (newQuery) => {
     }
   }
 }, { immediate: true });
+
+// Map settings item IDs to platform branding icon field names
+const settingsIconMap = {
+  'company-profile': 'company_profile_icon_path',
+  'team-roles': 'team_roles_icon_path',
+  'billing': 'billing_icon_path',
+  'packages': 'packages_icon_path',
+  'checklist-items': 'checklist_items_icon_path',
+  'checklist-items-agency': 'checklist_items_icon_path',
+  'field-definitions': 'field_definitions_icon_path',
+  'field-definitions-agency': 'field_definitions_icon_path',
+  'branding-templates': 'branding_templates_icon_path',
+  'assets': 'assets_icon_path',
+  'communications': 'communications_icon_path',
+  'integrations': 'integrations_icon_path',
+  'platform-security': 'platform_settings_icon_path', // Reuse existing field
+  'archive': 'archive_icon_path'
+};
+
+// Get icon URL for a settings item
+const getSettingsIconUrl = (itemId) => {
+  const iconField = settingsIconMap[itemId];
+  if (!iconField) return null;
+  
+  const platformBranding = brandingStore.platformBranding;
+  if (!platformBranding) return null;
+  
+  const iconPath = platformBranding[iconField];
+  if (!iconPath) return null;
+  
+  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+  
+  // Handle both old format (icons/...) and new format (uploads/icons/...)
+  let cleanPath = iconPath;
+  if (iconPath.startsWith('/uploads/')) {
+    cleanPath = iconPath.substring('/uploads/'.length);
+  } else if (iconPath.startsWith('/')) {
+    cleanPath = iconPath.substring(1);
+  }
+  
+  // If path doesn't already include uploads/, add it
+  if (!cleanPath.startsWith('uploads/') && !cleanPath.startsWith('icons/')) {
+    // Assume it's an icon path
+    cleanPath = `uploads/${cleanPath}`;
+  } else if (cleanPath.startsWith('icons/')) {
+    // Convert old format to new format
+    cleanPath = `uploads/${cleanPath}`;
+  }
+  
+  return `${apiBase}/${cleanPath}`;
+};
 </script>
 
 <style scoped>
@@ -582,7 +647,61 @@ watch(() => route.query, (newQuery) => {
   font-size: 16px;
 }
 
-/* Responsive design */
+/* Responsive design for smaller windows */
+@media (max-width: 1200px) {
+  .settings-modal {
+    width: 98%;
+    max-width: 98%;
+  }
+  
+  .settings-sidebar {
+    width: 240px;
+  }
+  
+  .settings-content {
+    padding: 24px;
+  }
+}
+
+@media (max-width: 992px) {
+  .settings-modal {
+    width: 95%;
+    height: 85vh;
+    max-height: 85vh;
+  }
+  
+  .settings-sidebar {
+    width: 200px;
+  }
+  
+  .modal-header {
+    padding: 20px 24px;
+  }
+  
+  .modal-header h1 {
+    font-size: 24px;
+  }
+  
+  .settings-content {
+    padding: 20px;
+  }
+  
+  .category-item {
+    padding: 10px 20px;
+    font-size: 14px;
+  }
+  
+  .item-icon {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .item-icon .icon-image {
+    width: 18px;
+    height: 18px;
+  }
+}
+
 @media (max-width: 768px) {
   .settings-modal {
     width: 100%;
@@ -597,21 +716,95 @@ watch(() => route.query, (newQuery) => {
     border-bottom: 2px solid var(--border);
     max-height: 200px;
     overflow-y: auto;
+    padding: 16px 0;
   }
   
   .modal-body {
     flex-direction: column;
   }
   
+  .modal-header {
+    padding: 16px 20px;
+  }
+  
+  .modal-header h1 {
+    font-size: 20px;
+  }
+  
+  .category-label {
+    padding: 0 16px;
+    font-size: 10px;
+  }
+  
   .category-items {
     flex-direction: row;
     overflow-x: auto;
     padding: 0 12px;
+    gap: 8px;
   }
   
   .category-item {
-    min-width: 150px;
+    min-width: 140px;
     white-space: nowrap;
+    padding: 10px 16px;
+    border-radius: 8px;
+  }
+  
+  .category-item.active {
+    border-right: none;
+    border-bottom: 3px solid var(--primary);
+  }
+  
+  .settings-content {
+    padding: 16px;
+    overflow-y: auto;
+  }
+  
+  .item-icon {
+    width: 18px;
+    height: 18px;
+  }
+  
+  .item-icon .icon-image {
+    width: 16px;
+    height: 16px;
+  }
+  
+  .item-icon .icon-emoji {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .category-item {
+    min-width: 120px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  
+  .item-label {
+    font-size: 13px;
+  }
+}
+
+/* Ensure modal is scrollable on small screens */
+@media (max-height: 700px) {
+  .settings-modal {
+    height: 95vh;
+    max-height: 95vh;
+  }
+  
+  .settings-content {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Better scrolling for sidebar on medium screens */
+@media (max-width: 992px) and (min-width: 769px) {
+  .settings-sidebar {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 </style>

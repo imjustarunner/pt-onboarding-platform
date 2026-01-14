@@ -44,13 +44,31 @@ class StorageService {
     
     const { Storage } = await import('@google-cloud/storage');
     
-    // Cloud Run automatically provides IAM credentials via the service account
-    // No need for keyFilename or credentials JSON - the @google-cloud/storage
-    // library automatically detects and uses the service account attached to Cloud Run
-    gcsStorage = new Storage({
-      // projectId is optional - GCS can infer it from the service account
+    // Build storage configuration
+    const storageConfig = {
       projectId: process.env.GCS_PROJECT_ID
-    });
+    };
+    
+    // For local development, support explicit key file or credentials JSON
+    // In production (Cloud Run), credentials are automatically provided via service account
+    if (process.env.GCS_KEY_FILENAME) {
+      // Use explicit key file path
+      storageConfig.keyFilename = process.env.GCS_KEY_FILENAME;
+    } else if (process.env.GCS_CREDENTIALS) {
+      // Use credentials JSON string
+      try {
+        storageConfig.credentials = JSON.parse(process.env.GCS_CREDENTIALS);
+      } catch (error) {
+        console.error('Failed to parse GCS_CREDENTIALS JSON:', error);
+        throw new Error('Invalid GCS_CREDENTIALS format');
+      }
+    }
+    // If neither is provided, @google-cloud/storage will use:
+    // 1. Application Default Credentials (gcloud auth application-default login)
+    // 2. Cloud Run service account (in production)
+    // 3. Environment variables (GOOGLE_APPLICATION_CREDENTIALS)
+    
+    gcsStorage = new Storage(storageConfig);
     
     return gcsStorage;
   }
@@ -262,7 +280,7 @@ class StorageService {
    */
   static async saveIcon(fileBuffer, filename, contentType = 'image/png') {
     const sanitizedFilename = this.sanitizeFilename(filename);
-    const key = `icons/${sanitizedFilename}`;
+    const key = `uploads/icons/${sanitizedFilename}`;
     
     const bucket = await this.getGCSBucket();
     const file = bucket.file(key);
@@ -290,11 +308,20 @@ class StorageService {
    */
   static async readIcon(filename) {
     const bucket = await this.getGCSBucket();
-    const key = `icons/${filename}`;
+    // Support both old path (icons/) and new path (uploads/icons/)
+    let key = filename.startsWith('uploads/') ? filename : `uploads/icons/${filename}`;
     const file = bucket.file(key);
     
     const [exists] = await file.exists();
     if (!exists) {
+      // Try old path for backward compatibility
+      const oldKey = filename.startsWith('icons/') ? filename : `icons/${filename}`;
+      const oldFile = bucket.file(oldKey);
+      const [oldExists] = await oldFile.exists();
+      if (oldExists) {
+        const [buffer] = await oldFile.download();
+        return buffer;
+      }
       throw new Error(`Icon not found in GCS: ${key}`);
     }
     
@@ -308,18 +335,55 @@ class StorageService {
    * @returns {Promise<void>}
    */
   static async deleteIcon(filename) {
-    const key = `icons/${filename}`;
+    // Support both old path (icons/) and new path (uploads/icons/)
+    let key = filename.startsWith('uploads/') ? filename : `uploads/icons/${filename}`;
     const bucket = await this.getGCSBucket();
     const file = bucket.file(key);
     
-    try {
-      await file.delete();
-    } catch (gcsError) {
-      // Ignore if file doesn't exist (404)
-      if (gcsError.code !== 404) {
-        throw new Error(`Failed to delete icon from GCS: ${gcsError.message}`);
+    const [exists] = await file.exists();
+    if (!exists) {
+      // Try old path for backward compatibility
+      const oldKey = filename.startsWith('icons/') ? filename : `icons/${filename}`;
+      const oldFile = bucket.file(oldKey);
+      const [oldExists] = await oldFile.exists();
+      if (oldExists) {
+        await oldFile.delete();
+        return;
       }
+      throw new Error(`Icon not found in GCS: ${key}`);
     }
+    
+    await file.delete();
+  }
+
+  /**
+   * Save a logo file to GCS
+   * @param {Buffer} fileBuffer - File content as buffer
+   * @param {string} filename - Filename (will be sanitized)
+   * @param {string} contentType - MIME type (e.g., 'image/png', 'image/svg+xml')
+   * @returns {Promise<{path: string, key: string, filename: string, relativePath: string}>}
+   */
+  static async saveLogo(fileBuffer, filename, contentType = 'image/png') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `uploads/logos/${sanitizedFilename}`;
+    
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    
+    await file.save(fileBuffer, {
+      contentType: contentType,
+      metadata: {
+        uploadedAt: new Date().toISOString()
+      }
+    });
+    
+    // Return GCS key - this is what gets stored in MySQL (metadata only)
+    return {
+      path: key,
+      key: key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
   }
 
   /**

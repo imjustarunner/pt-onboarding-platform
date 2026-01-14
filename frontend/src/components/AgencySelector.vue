@@ -16,9 +16,12 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
+import { useRoute, useRouter } from 'vue-router';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const router = useRouter();
+const route = useRoute();
 
 const selectedAgencyId = ref(agencyStore.currentAgency?.id || null);
 
@@ -28,6 +31,20 @@ const handleAgencyChange = () => {
   const agency = agencies.value.find(a => a.id === selectedAgencyId.value);
   if (agency) {
     agencyStore.setCurrentAgency(agency);
+
+    // Keep URL slug + branding in sync with the selected agency
+    const slug = agency.slug || agency.portal_url;
+    if (!slug) return;
+
+    // If we are already on a slug-prefixed route, preserve current sub-route and swap slug.
+    if (route.params.organizationSlug) {
+      const nextParams = { ...route.params, organizationSlug: slug };
+      router.push({ name: route.name, params: nextParams, query: route.query });
+      return;
+    }
+
+    // Otherwise, go to the branded dashboard for this agency.
+    router.push(`/${slug}/dashboard`);
   }
 };
 

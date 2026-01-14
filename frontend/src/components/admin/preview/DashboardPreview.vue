@@ -1,12 +1,13 @@
 <template>
   <div class="dashboard-preview" ref="previewContainer">
-    <BrandingProvider>
+    <PreviewBrandingProvider :agency-id="agencyId">
       <DashboardView 
+        :key="`dashboard-${status}`"
         :preview-mode="true"
         :preview-status="status"
         :preview-data="mockData"
       />
-    </BrandingProvider>
+    </PreviewBrandingProvider>
   </div>
 </template>
 
@@ -14,7 +15,7 @@
 import { ref, onMounted, watch } from 'vue';
 import { useAgencyStore } from '../../../store/agency';
 import { useBrandingStore } from '../../../store/branding';
-import BrandingProvider from '../../../components/BrandingProvider.vue';
+import PreviewBrandingProvider from './PreviewBrandingProvider.vue';
 import DashboardView from '../../../views/DashboardView.vue';
 import api from '../../../services/api';
 import { createMockDashboardData } from '../../../utils/previewUtils';

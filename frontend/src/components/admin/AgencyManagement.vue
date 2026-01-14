@@ -234,11 +234,17 @@
           <div class="form-group">
             <label>Organization Type *</label>
             <select v-model="agencyForm.organizationType" required :disabled="!!editingAgency">
-              <option value="agency">Agency</option>
+              <option
+                v-if="userRole === 'super_admin' || (editingAgency && (editingAgency.organization_type || 'agency') === 'agency')"
+                value="agency"
+              >
+                Agency
+              </option>
               <option value="school">School</option>
               <option value="program">Program</option>
               <option value="learning">Learning</option>
             </select>
+            <small v-if="!editingAgency && userRole !== 'super_admin'">Admins can create schools/programs/learning orgs. Only super admins can create agencies.</small>
             <small v-if="editingAgency">Organization type cannot be changed after creation</small>
           </div>
           <div class="form-group">
@@ -543,6 +549,37 @@
           <!-- Customize Icons Tab -->
           <div v-show="activeTab === 'icons'" class="tab-content">
             <div class="settings-section-divider">
+              <h4>Icon Templates</h4>
+              <p class="section-description">
+                Apply a saved icon set to this organization in one click, or save the current icon set as a template.
+              </p>
+            </div>
+
+            <div class="icon-templates-row">
+              <div class="form-group" style="margin: 0;">
+                <label>Choose Template</label>
+                <select v-model="selectedIconTemplateId" class="template-select">
+                  <option value="">-- Select an icon template --</option>
+                  <option v-for="t in iconTemplates" :key="t.id" :value="String(t.id)">
+                    {{ t.name }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="template-actions">
+                <button type="button" class="btn btn-secondary" :disabled="!selectedIconTemplateId" @click="applySelectedIconTemplate">
+                  Apply Template
+                </button>
+                <button type="button" class="btn btn-secondary" @click="clearIconsToPlatformDefaults">
+                  Clear to Platform Defaults
+                </button>
+                <button type="button" class="btn btn-primary" @click="openSaveIconTemplateModal">
+                  Save as Template
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-section-divider">
               <h4>Organization Icon</h4>
               <p class="section-description">
                 The main icon representing this organization.
@@ -665,7 +702,7 @@
           
           <div class="modal-actions">
             <button 
-              v-if="editingAgency && userRole === 'super_admin'" 
+              v-if="editingAgency && userRole === 'super_admin' && (editingAgency.organization_type || 'agency') !== 'school'" 
               type="button" 
               @click="openPreviewModal(editingAgency.id)" 
               class="btn btn-info"
@@ -696,6 +733,23 @@
       :show="showPreviewModal"
       @close="closePreviewModal"
     />
+
+    <SplashPagePreviewModal
+      v-if="showSplashPreviewModal"
+      :show="showSplashPreviewModal"
+      :organization-slug="previewOrganizationSlug"
+      :organization-id="previewOrganizationId"
+      @close="closeSplashPreview"
+    />
+
+    <IconTemplateModal
+      :show="showIconTemplateModal"
+      :initial-icons="buildCurrentIconData()"
+      :saving="savingIconTemplate"
+      :error="iconTemplateError"
+      @close="closeSaveIconTemplateModal"
+      @save="saveIconTemplate"
+    />
   </div>
 </template>
 
@@ -706,6 +760,8 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import IconSelector from './IconSelector.vue';
 import DashboardPreviewModal from './DashboardPreviewModal.vue';
+import IconTemplateModal from './IconTemplateModal.vue';
+import SplashPagePreviewModal from './SplashPagePreviewModal.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -742,8 +798,36 @@ const customParamKeys = ref([]);
   const copiedUrl = ref(null); // Track which URL was copied
 const activeTab = ref('settings'); // Tab navigation: 'settings' or 'icons'
 
+// Icon templates (apply a full set of icons at once)
+const iconTemplates = ref([]);
+const selectedIconTemplateId = ref('');
+const showIconTemplateModal = ref(false);
+const savingIconTemplate = ref(false);
+const iconTemplateError = ref('');
+
+const ICON_TEMPLATE_FIELDS = [
+  'iconId',
+  'trainingFocusDefaultIconId',
+  'moduleDefaultIconId',
+  'userDefaultIconId',
+  'documentDefaultIconId',
+  'progressDashboardIconId',
+  'manageModulesIconId',
+  'manageDocumentsIconId',
+  'manageUsersIconId',
+  'settingsIconId',
+  'statusExpiredIconId',
+  'tempPasswordExpiredIconId',
+  'taskOverdueIconId',
+  'onboardingCompletedIconId',
+  'invitationExpiredIconId',
+  'firstLoginIconId',
+  'firstLoginPendingIconId',
+  'passwordChangedIconId'
+];
+
 const agencyForm = ref({
-  organizationType: 'agency',
+  organizationType: userRole.value === 'super_admin' ? 'agency' : 'school',
   name: '',
   slug: '',
   logoUrl: '',
@@ -786,6 +870,114 @@ const agencyForm = ref({
   firstLoginPendingIconId: null,
   passwordChangedIconId: null
 });
+
+const fetchIconTemplates = async () => {
+  try {
+    const response = await api.get('/icon-templates', { params: { scope: 'agency' } });
+    iconTemplates.value = response.data || [];
+  } catch (err) {
+    console.error('Failed to fetch icon templates:', err);
+    iconTemplates.value = [];
+  }
+};
+
+const openSplashPreview = (organization) => {
+  if (!organization) return;
+  previewOrganizationSlug.value = organization.slug || organization.portal_url || '';
+  previewOrganizationId.value = organization.id || null;
+  showSplashPreviewModal.value = true;
+};
+
+const closeSplashPreview = () => {
+  showSplashPreviewModal.value = false;
+  previewOrganizationSlug.value = '';
+  previewOrganizationId.value = null;
+};
+
+const clearIconTemplateSelection = () => {
+  selectedIconTemplateId.value = '';
+};
+
+const applySelectedIconTemplate = () => {
+  const templateId = parseInt(selectedIconTemplateId.value, 10);
+  const template = iconTemplates.value.find(t => t.id === templateId);
+  if (!template) return;
+
+  const data = template.icon_data || {};
+  ICON_TEMPLATE_FIELDS.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(data, field)) {
+      agencyForm.value[field] = data[field];
+    }
+  });
+};
+
+const clearIconsToPlatformDefaults = () => {
+  ICON_TEMPLATE_FIELDS.forEach((field) => {
+    agencyForm.value[field] = null;
+  });
+  clearIconTemplateSelection();
+};
+
+const openSaveIconTemplateModal = () => {
+  iconTemplateError.value = '';
+  showIconTemplateModal.value = true;
+};
+
+const closeSaveIconTemplateModal = () => {
+  showIconTemplateModal.value = false;
+  iconTemplateError.value = '';
+};
+
+const buildCurrentIconData = () => {
+  const iconData = {};
+  ICON_TEMPLATE_FIELDS.forEach((field) => {
+    iconData[field] = agencyForm.value[field] ?? null;
+  });
+  return iconData;
+};
+
+const saveIconTemplate = async ({ name, description, iconData }) => {
+  try {
+    savingIconTemplate.value = true;
+    iconTemplateError.value = '';
+
+    // By default, create a global agency template (super-admin use case).
+    // If backend forbids global creation for non-super-admins, we fall back to agency-scoped creation.
+    let payload = {
+      name,
+      description,
+      scope: 'agency',
+      agencyId: null,
+      isShared: true,
+      iconData
+    };
+
+    try {
+      const created = await api.post('/icon-templates', payload);
+      await fetchIconTemplates();
+      selectedIconTemplateId.value = String(created.data.id);
+      showIconTemplateModal.value = false;
+      return;
+    } catch (err) {
+      const message = err.response?.data?.error?.message || '';
+      // Fall back to agency-scoped template if global is not allowed for this user.
+      if (message.toLowerCase().includes('global') && editingAgency.value?.id) {
+        payload = { ...payload, agencyId: editingAgency.value.id, isShared: false };
+        const created = await api.post('/icon-templates', payload);
+        await fetchIconTemplates();
+        selectedIconTemplateId.value = String(created.data.id);
+        showIconTemplateModal.value = false;
+        return;
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error('Failed to save icon template:', err);
+    iconTemplateError.value = err.response?.data?.error?.message || 'Failed to save icon template';
+  } finally {
+    savingIconTemplate.value = false;
+  }
+};
 
 const fetchAgencies = async () => {
   try {
@@ -1536,7 +1728,7 @@ const closeModal = () => {
   customParamKeys.value = [];
   customParameters.value = {};
   agencyForm.value = {
-    organizationType: 'agency',
+    organizationType: userRole.value === 'super_admin' ? 'agency' : 'school',
     name: '',
     slug: '',
     logoUrl: '',
@@ -1576,6 +1768,13 @@ const closeModal = () => {
     passwordChangedIconId: null
   };
 };
+
+watch(showCreateModal, (isOpen) => {
+  if (!isOpen) return;
+  if (editingAgency.value) return;
+  // Ensure admins default to an allowed org type (no agency creation)
+  agencyForm.value.organizationType = userRole.value === 'super_admin' ? 'agency' : 'school';
+});
 
 // Get agency login URL
 const getAgencyLoginUrl = (portalUrl) => {
@@ -1619,6 +1818,7 @@ onMounted(async () => {
   if (userRole.value === 'super_admin') {
     await fetchUsers();
   }
+  await fetchIconTemplates();
 });
 </script>
 
@@ -2168,6 +2368,30 @@ small {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
+}
+
+.icon-templates-row {
+  display: flex;
+  gap: 16px;
+  align-items: end;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  margin-bottom: 18px;
+}
+
+.template-select {
+  min-width: 320px;
+  padding: 10px 12px;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  color: var(--text-primary);
+}
+
+.template-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .terminology-grid {

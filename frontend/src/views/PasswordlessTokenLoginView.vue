@@ -117,6 +117,19 @@ const attemptLogin = async (lastNameValue = null) => {
       }
     }, 1500);
   } catch (err) {
+    // If this is a reset token, route to reset-password flow (do NOT login directly)
+    if (err.response?.data?.error?.requiresPasswordReset) {
+      const portalSlug = err.response.data.error.portalSlug;
+      if (route.params.organizationSlug) {
+        router.push(`/${route.params.organizationSlug}/reset-password/${cleanToken}`);
+      } else if (portalSlug) {
+        router.push(`/${portalSlug}/reset-password/${cleanToken}`);
+      } else {
+        router.push(`/reset-password/${cleanToken}`);
+      }
+      return;
+    }
+
     // Check if setup is required (no password set)
     if (err.response?.data?.error?.requiresSetup) {
       // Redirect to initial setup page

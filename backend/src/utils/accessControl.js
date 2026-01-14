@@ -1,7 +1,59 @@
 /**
  * Access Control Helper
- * Determines what a user can access based on their status
+ * Determines what a user can access based on their status and permission attributes
  */
+
+/**
+ * Check if user has provider access (either through role or permission attribute)
+ * @param {Object} user - User object with role and has_provider_access fields
+ * @returns {boolean} Whether user has provider access
+ */
+export function hasProviderAccess(user) {
+  if (!user) return false;
+  
+  // Direct provider role
+  if (user.role === 'provider' || user.role === 'clinician') {
+    return true;
+  }
+  
+  // Staff with provider access attribute
+  if (user.role === 'staff' && user.has_provider_access) {
+    return true;
+  }
+  
+  // Admin and super_admin always have provider access
+  if (user.role === 'admin' || user.role === 'super_admin') {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if user has staff access (either through role or permission attribute)
+ * @param {Object} user - User object with role and has_staff_access fields
+ * @returns {boolean} Whether user has staff access
+ */
+export function hasStaffAccess(user) {
+  if (!user) return false;
+  
+  // Direct staff role
+  if (user.role === 'staff' || user.role === 'support') {
+    return true;
+  }
+  
+  // Provider with staff access attribute
+  if ((user.role === 'provider' || user.role === 'clinician') && user.has_staff_access) {
+    return true;
+  }
+  
+  // Admin and super_admin always have staff access
+  if (user.role === 'admin' || user.role === 'super_admin') {
+    return true;
+  }
+  
+  return false;
+}
 
 /**
  * Check user access permissions based on status

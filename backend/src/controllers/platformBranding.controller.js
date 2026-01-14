@@ -75,7 +75,19 @@ export const updatePlatformBranding = async (req, res, next) => {
       allAgenciesNotificationsIconId,
       organizationName,
       organizationLogoIconId,
-      organizationLogoUrl
+      organizationLogoUrl,
+      organizationLogoPath,
+      companyProfileIconId,
+      teamRolesIconId,
+      billingIconId,
+      packagesIconId,
+      checklistItemsIconId,
+      fieldDefinitionsIconId,
+      brandingTemplatesIconId,
+      assetsIconId,
+      communicationsIconId,
+      integrationsIconId,
+      archiveIconId
     } = req.body;
 
     const branding = await PlatformBranding.update({
@@ -112,7 +124,19 @@ export const updatePlatformBranding = async (req, res, next) => {
       allAgenciesNotificationsIconId,
       organizationName,
       organizationLogoIconId: organizationLogoIconId !== undefined ? (organizationLogoIconId === null || organizationLogoIconId === '' ? null : parseInt(organizationLogoIconId)) : undefined,
-      organizationLogoUrl
+      organizationLogoUrl,
+      organizationLogoPath,
+      companyProfileIconId: companyProfileIconId !== undefined ? (companyProfileIconId === null || companyProfileIconId === '' ? null : parseInt(companyProfileIconId)) : undefined,
+      teamRolesIconId: teamRolesIconId !== undefined ? (teamRolesIconId === null || teamRolesIconId === '' ? null : parseInt(teamRolesIconId)) : undefined,
+      billingIconId: billingIconId !== undefined ? (billingIconId === null || billingIconId === '' ? null : parseInt(billingIconId)) : undefined,
+      packagesIconId: packagesIconId !== undefined ? (packagesIconId === null || packagesIconId === '' ? null : parseInt(packagesIconId)) : undefined,
+      checklistItemsIconId: checklistItemsIconId !== undefined ? (checklistItemsIconId === null || checklistItemsIconId === '' ? null : parseInt(checklistItemsIconId)) : undefined,
+      fieldDefinitionsIconId: fieldDefinitionsIconId !== undefined ? (fieldDefinitionsIconId === null || fieldDefinitionsIconId === '' ? null : parseInt(fieldDefinitionsIconId)) : undefined,
+      brandingTemplatesIconId: brandingTemplatesIconId !== undefined ? (brandingTemplatesIconId === null || brandingTemplatesIconId === '' ? null : parseInt(brandingTemplatesIconId)) : undefined,
+      assetsIconId: assetsIconId !== undefined ? (assetsIconId === null || assetsIconId === '' ? null : parseInt(assetsIconId)) : undefined,
+      communicationsIconId: communicationsIconId !== undefined ? (communicationsIconId === null || communicationsIconId === '' ? null : parseInt(communicationsIconId)) : undefined,
+      integrationsIconId: integrationsIconId !== undefined ? (integrationsIconId === null || integrationsIconId === '' ? null : parseInt(integrationsIconId)) : undefined,
+      archiveIconId: archiveIconId !== undefined ? (archiveIconId === null || archiveIconId === '' ? null : parseInt(archiveIconId)) : undefined
     }, req.user.id);
 
     res.json(branding);

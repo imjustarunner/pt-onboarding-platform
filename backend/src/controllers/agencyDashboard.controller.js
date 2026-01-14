@@ -31,45 +31,71 @@ export const getAgencyUsers = async (req, res, next) => {
     // Get progress summary for each user
     const usersWithProgress = await Promise.all(
       userRows.map(async (user) => {
-        const userTracks = await UserTrack.getUserTracks(user.id, agencyIdInt);
-        const totalTime = await ProgressCalculationService.getTotalTimeSpent(user.id, agencyIdInt);
-        
-        // Calculate overall progress across all tracks
-        let totalModules = 0;
-        let completedModules = 0;
-        let inProgressModules = 0;
+        try {
+          const userTracks = await UserTrack.getUserTracks(user.id, agencyIdInt);
+          const totalTime = await ProgressCalculationService.getTotalTimeSpent(user.id, agencyIdInt);
+          
+          // Calculate overall progress across all tracks
+          let totalModules = 0;
+          let completedModules = 0;
+          let inProgressModules = 0;
 
-        for (const userTrack of userTracks) {
-          const trackProgress = await ProgressCalculationService.calculateTrackProgress(
-            user.id,
-            userTrack.track_id,
-            agencyIdInt
-          );
-          totalModules += trackProgress.modulesTotal;
-          completedModules += trackProgress.modulesCompleted;
-          inProgressModules += trackProgress.modulesInProgress;
-        }
-
-        const overallCompletion = totalModules > 0 
-          ? Math.round((completedModules / totalModules) * 100)
-          : 0;
-
-        return {
-          id: user.id,
-          email: user.email,
-          firstName: user.first_name,
-          lastName: user.last_name,
-          role: user.role,
-          tracksAssigned: userTracks.length,
-          overallCompletion,
-          totalModules,
-          completedModules,
-          inProgressModules,
-          totalTimeSpent: {
-            minutes: totalTime.totalMinutes,
-            seconds: totalTime.totalSeconds
+          for (const userTrack of userTracks) {
+            try {
+              const trackProgress = await ProgressCalculationService.calculateTrackProgress(
+                user.id,
+                userTrack.track_id,
+                agencyIdInt
+              );
+              totalModules += trackProgress.modulesTotal || 0;
+              completedModules += trackProgress.modulesCompleted || 0;
+              inProgressModules += trackProgress.modulesInProgress || 0;
+            } catch (trackError) {
+              console.error(`Error calculating progress for user ${user.id}, track ${userTrack.track_id}:`, trackError);
+              // Continue with other tracks
+            }
           }
-        };
+
+          const overallCompletion = totalModules > 0 
+            ? Math.round((completedModules / totalModules) * 100)
+            : 0;
+
+          return {
+            id: user.id,
+            email: user.email,
+            firstName: user.first_name,
+            lastName: user.last_name,
+            role: user.role,
+            tracksAssigned: userTracks.length,
+            overallCompletion,
+            totalModules,
+            completedModules,
+            inProgressModules,
+            totalTimeSpent: {
+              minutes: totalTime?.totalMinutes || 0,
+              seconds: totalTime?.totalSeconds || 0
+            }
+          };
+        } catch (userError) {
+          console.error(`Error processing user ${user.id}:`, userError);
+          // Return basic user info even if progress calculation fails
+          return {
+            id: user.id,
+            email: user.email,
+            firstName: user.first_name,
+            lastName: user.last_name,
+            role: user.role,
+            tracksAssigned: 0,
+            overallCompletion: 0,
+            totalModules: 0,
+            completedModules: 0,
+            inProgressModules: 0,
+            totalTimeSpent: {
+              minutes: 0,
+              seconds: 0
+            }
+          };
+        }
       })
     );
 

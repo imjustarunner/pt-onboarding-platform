@@ -941,7 +941,7 @@ export const resetPasswordlessToken = async (req, res, next) => {
       finalExpiresInHours = 1;
     }
     
-    const tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours);
+    const tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours, 'setup');
     
     // Get frontend URL for the link
     const config = (await import('../config/config.js')).default;
@@ -989,21 +989,21 @@ export const sendResetPasswordLink = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Expiration must be at least 1 hour' } });
     }
     
-    // Generate passwordless token
-    const tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours);
+    // Generate password reset token (single-use, forces password change)
+    const tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours, 'reset');
     
     // Get frontend URL for the link
     const config = (await import('../config/config.js')).default;
     const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
     const userAgencies = await User.getAgencies(userId);
     const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
-    const passwordlessTokenLink = portalSlug
-      ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
-      : `${frontendBase}/passwordless-login/${tokenResult.token}`;
+    const resetLink = portalSlug
+      ? `${frontendBase}/${portalSlug}/reset-password/${tokenResult.token}`
+      : `${frontendBase}/reset-password/${tokenResult.token}`;
     
     res.json({
       token: tokenResult.token,
-      tokenLink: passwordlessTokenLink,
+      tokenLink: resetLink,
       expiresAt: tokenResult.expiresAt,
       expiresInHours: finalExpiresInHours,
       message: 'Reset password link generated successfully'

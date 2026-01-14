@@ -15,25 +15,28 @@
             </div>
             <div class="nav-links-wrapper">
               <div class="nav-links">
-              <!-- Approved employees and active/terminated users see On-Demand Training (but NOT superadmins) -->
-              <template v-if="user?.role !== 'super_admin' && (user?.type === 'approved_employee' || (user?.status === 'ACTIVE_EMPLOYEE' || user?.status === 'TERMINATED_PENDING' || user?.status === 'active' || user?.status === 'completed'))">
-                <router-link to="/on-demand-training" @click="closeMobileMenu">On-Demand Training</router-link>
-              </template>
-              <!-- Regular users and admins see normal navigation (superadmins always see admin nav) -->
-              <template v-if="user?.role === 'super_admin' || (user?.type !== 'approved_employee' && user?.status !== 'ACTIVE_EMPLOYEE' && user?.status !== 'TERMINATED_PENDING' && user?.status !== 'active' && user?.status !== 'completed')">
-                <router-link to="/dashboard" v-if="user?.role !== 'admin' && user?.role !== 'super_admin' && user?.role !== 'support' && !isSupervisor(user) && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu">Dashboard</router-link>
-                <router-link to="/dashboard" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">My Training</router-link>
-                <router-link to="/admin" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Admin Dashboard</router-link>
-                <router-link to="/account-info" v-if="!isAdmin && !isSupervisor(user) && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu">Account Info</router-link>
-                <router-link to="/account-info" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Account Info</router-link>
-                <router-link to="/admin/modules" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Training</router-link>
-                <router-link to="/admin/documents" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Documents</router-link>
-                <router-link to="/admin/users" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Users</router-link>
-                <router-link to="/admin/notifications" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Notifications</router-link>
-                <router-link to="/notifications" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Notifications</router-link>
-                <router-link to="/admin/settings" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Settings</router-link>
+              <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeMobileMenu">On-Demand Training</router-link>
+
+              <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
+              <template v-if="canSeePortalNav">
+                <router-link :to="orgTo('/dashboard')" v-if="!isPrivilegedPortalUser" @click="closeMobileMenu">Dashboard</router-link>
+                <router-link :to="orgTo('/dashboard')" v-if="isPrivilegedPortalUser" @click="closeMobileMenu">My Dashboard</router-link>
+
+                <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Admin Dashboard</router-link>
+                <router-link :to="orgTo('/account-info')" @click="closeMobileMenu">Account Info</router-link>
+
+                <router-link :to="orgTo('/admin/modules')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Training</router-link>
+                <router-link :to="orgTo('/admin/documents')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Documents</router-link>
+                <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Users</router-link>
+                <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeMobileMenu">Clients</router-link>
+
+                <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Notifications</router-link>
+                <router-link :to="orgTo('/notifications')" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Notifications</router-link>
+
+                <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Settings</router-link>
               </template>
                 <span class="user-info">{{ user?.firstName || user?.email }} {{ user?.lastName || '' }}</span>
+                <router-link :to="orgTo('/preferences')" @click="closeMobileMenu" class="nav-link preferences-link">My Preferences</router-link>
                 <button @click="handleLogout" class="btn btn-secondary">Logout</button>
               </div>
             </div>
@@ -49,27 +52,29 @@
             <button class="mobile-close" @click="mobileMenuOpen = false" aria-label="Close menu">×</button>
           </div>
           <div class="mobile-nav-links">
-            <!-- Approved employees and active/terminated users see On-Demand Training (but NOT superadmins) -->
-            <template v-if="user?.role !== 'super_admin' && (user?.type === 'approved_employee' || (user?.status === 'ACTIVE_EMPLOYEE' || user?.status === 'TERMINATED_PENDING' || user?.status === 'active' || user?.status === 'completed'))">
-              <router-link to="/on-demand-training" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
-            </template>
-            <!-- Regular users and admins see normal navigation (superadmins always see admin nav) -->
-            <template v-if="user?.role === 'super_admin' || (user?.type !== 'approved_employee' && user?.status !== 'ACTIVE_EMPLOYEE' && user?.status !== 'TERMINATED_PENDING' && user?.status !== 'active' && user?.status !== 'completed')">
-              <router-link to="/dashboard" v-if="user?.role !== 'admin' && user?.role !== 'super_admin' && user?.role !== 'support' && !isSupervisor(user) && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Dashboard</router-link>
-              <router-link to="/dashboard" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">My Training</router-link>
-              <router-link to="/admin" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
-              <router-link to="/account-info" v-if="!isAdmin && !isSupervisor(user) && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Account Info</router-link>
-              <router-link to="/account-info" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Account Info</router-link>
-              <router-link to="/admin/modules" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Training</router-link>
-              <router-link to="/admin/documents" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Documents</router-link>
-              <router-link to="/admin/users" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Users</router-link>
-              <router-link to="/admin/notifications" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
-              <router-link to="/notifications" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
-              <router-link to="/admin/settings" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Settings</router-link>
+            <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
+
+            <template v-if="canSeePortalNav">
+              <router-link :to="orgTo('/dashboard')" v-if="!isPrivilegedPortalUser" @click="closeMobileMenu" class="mobile-nav-link">Dashboard</router-link>
+              <router-link :to="orgTo('/dashboard')" v-if="isPrivilegedPortalUser" @click="closeMobileMenu" class="mobile-nav-link">My Dashboard</router-link>
+
+              <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
+              <router-link :to="orgTo('/account-info')" @click="closeMobileMenu" class="mobile-nav-link">Account Info</router-link>
+
+              <router-link :to="orgTo('/admin/modules')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Training</router-link>
+              <router-link :to="orgTo('/admin/documents')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Documents</router-link>
+              <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Users</router-link>
+              <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
+
+              <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
+              <router-link :to="orgTo('/notifications')" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
+
+              <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Settings</router-link>
             </template>
           </div>
           <div class="mobile-sidebar-footer">
             <div class="mobile-user-info">{{ user?.firstName || user?.email }} {{ user?.lastName || '' }}</div>
+            <router-link :to="orgTo('/preferences')" @click="closeMobileMenu" class="mobile-nav-link">My Preferences</router-link>
             <button @click="handleLogout" class="btn btn-secondary mobile-logout">Logout</button>
           </div>
         </div>
@@ -89,6 +94,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useAuthStore } from './store/auth';
 import { useBrandingStore } from './store/branding';
+import { useAgencyStore } from './store/agency';
 import { useOrganizationStore } from './store/organization';
 import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking } from './utils/activityTracker';
@@ -100,6 +106,7 @@ import PoweredByFooter from './components/PoweredByFooter.vue';
 
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
+const agencyStore = useAgencyStore();
 const organizationStore = useOrganizationStore();
 const router = useRouter();
 const route = useRoute();
@@ -131,10 +138,48 @@ const isAdmin = computed(() => {
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
 
+const isPrivilegedPortalUser = computed(() => {
+  const role = user.value?.role;
+  return role === 'admin' || role === 'super_admin' || role === 'support' || isSupervisor(user.value) || role === 'clinical_practice_assistant';
+});
+
+const isOnDemandUser = computed(() => {
+  return user.value?.type === 'approved_employee' ||
+    user.value?.status === 'ACTIVE_EMPLOYEE' ||
+    user.value?.status === 'TERMINATED_PENDING' ||
+    user.value?.status === 'active' ||
+    user.value?.status === 'completed';
+});
+
+const canSeePortalNav = computed(() => {
+  // Admins (and other privileged roles) must always see portal nav even if ACTIVE_EMPLOYEE.
+  return isPrivilegedPortalUser.value || !isOnDemandUser.value;
+});
+
+const showOnDemandLink = computed(() => {
+  return user.value?.role !== 'super_admin' && isOnDemandUser.value;
+});
+
 const canCreateEdit = computed(() => {
   const role = user.value?.role;
   return role === 'admin' || role === 'super_admin';
 });
+
+const activeOrganizationSlug = computed(() => {
+  const slugFromRoute = route.params.organizationSlug;
+  if (typeof slugFromRoute === 'string' && slugFromRoute) return slugFromRoute;
+  const slugFromAgency = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url;
+  if (slugFromAgency) return slugFromAgency;
+  const slugFromOrg = organizationStore.organizationContext?.slug;
+  if (slugFromOrg) return slugFromOrg;
+  return null;
+});
+
+const orgTo = (path) => {
+  const slug = activeOrganizationSlug.value;
+  if (!slug) return path;
+  return `/${slug}${path}`;
+};
 
 const handleLogout = async () => {
   stopActivityTracking();
@@ -302,6 +347,19 @@ onUnmounted(() => {
   font-weight: 500;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.preferences-link {
+  color: #ecf0f1;
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  transition: background-color 0.2s;
+  font-size: 14px;
+}
+
+.preferences-link:hover {
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 /* Mobile Menu Toggle Button (always visible, positioned on left) */

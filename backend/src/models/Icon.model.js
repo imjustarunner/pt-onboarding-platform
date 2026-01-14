@@ -556,9 +556,27 @@ class Icon {
     if (!icon || !icon.file_path) {
       return null;
     }
-    // Return relative path that can be served as static file
-    // The path should match the static file serving route
-    return `/uploads/${icon.file_path}`;
+    // file_path is stored as "uploads/icons/filename.png" (from StorageService.saveIcon)
+    // Don't prepend /uploads/ if it's already there
+    let filePath = icon.file_path;
+    
+    // Remove leading slash if present
+    if (filePath.startsWith('/')) {
+      filePath = filePath.substring(1);
+    }
+    
+    // If path already starts with uploads/, use it as-is
+    if (filePath.startsWith('uploads/')) {
+      return `/${filePath}`;
+    }
+    
+    // Old format: icons/filename.png - convert to new format
+    if (filePath.startsWith('icons/')) {
+      return `/uploads/${filePath}`;
+    }
+    
+    // Just a filename - prepend uploads/icons/
+    return `/uploads/icons/${filePath}`;
   }
 }
 

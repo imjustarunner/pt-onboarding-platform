@@ -40,8 +40,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import api from '../../services/api';
+import ClientStatusBadge from '../admin/ClientStatusBadge.vue';
 
 const props = defineProps({
   organizationSlug: {
@@ -57,6 +58,7 @@ const props = defineProps({
 const clients = ref([]);
 const loading = ref(false);
 const error = ref('');
+const clientNotes = ref({}); // Map of clientId -> shared notes
 
 const fetchClients = async () => {
   if (!props.organizationId) {
@@ -69,16 +71,30 @@ const fetchClients = async () => {
   error.value = '';
 
   try {
-    // TODO: Update endpoint when clients API is ready (Step 2)
-    // For now, this is a placeholder that will work once the clients table exists
     const response = await api.get(`/school-portal/${props.organizationId}/clients`);
     clients.value = response.data || [];
+    
+    // Fetch shared notes for each client (for admin notes column)
+    for (const client of clients.value) {
+      try {
+        const notesResponse = await api.get(`/clients/${client.id}/notes`);
+        const notes = notesResponse.data || [];
+        // Only show shared notes (non-internal)
+        const sharedNotes = notes.filter(n => !n.is_internal_only);
+        // Get the most recent shared note as "admin notes"
+        if (sharedNotes.length > 0) {
+          clientNotes.value[client.id] = sharedNotes[0].message;
+        }
+      } catch (err) {
+        console.error(`Failed to fetch notes for client ${client.id}:`, err);
+      }
+    }
   } catch (err) {
     console.error('Failed to fetch clients:', err);
-    // For now, show empty state until clients API is implemented
-    // This is expected until Step 2 (Client Management) is complete
-    if (err.response?.status === 501) {
-      error.value = 'Client management will be available in Step 2 (Client Management Module).';
+    if (err.response?.status === 404) {
+      error.value = 'Organization not found.';
+    } else if (err.response?.status === 403) {
+      error.value = 'You do not have access to this school\'s client list.';
     } else {
       error.value = 'Failed to load students. Please try again later.';
     }
@@ -88,25 +104,26 @@ const fetchClients = async () => {
   }
 };
 
-const formatStatus = (status) => {
-  const statusMap = {
-    'PENDING_REVIEW': 'Pending Review',
-    'ACTIVE': 'Active',
-    'ON_HOLD': 'On Hold',
-    'DECLINED': 'Declined',
-    'ARCHIVED': 'Archived'
-  };
-  return statusMap[status] || status;
-};
-
 const formatDate = (dateString) => {
   if (!dateString) return '-';
   const date = new Date(dateString);
   return date.toLocaleDateString();
 };
 
+const getAdminNotes = (clientId) => {
+  return clientNotes.value[clientId] || '-';
+};
+
+watch(() => props.organizationId, () => {
+  if (props.organizationId) {
+    fetchClients();
+  }
+});
+
 onMounted(() => {
-  fetchClients();
+  if (props.organizationId) {
+    fetchClients();
+  }
 });
 </script>
 
@@ -154,36 +171,12 @@ td {
   color: var(--text-primary);
 }
 
-.status-badge {
-  display: inline-block;
-  padding: 4px 12px;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 600;
+.client-row {
+  cursor: pointer;
+  transition: background 0.2s;
 }
 
-.status-pending-review {
-  background: #fff3cd;
-  color: #856404;
-}
-
-.status-active {
-  background: #d4edda;
-  color: #155724;
-}
-
-.status-on-hold {
-  background: #ffeaa7;
-  color: #856404;
-}
-
-.status-declined {
-  background: #f8d7da;
-  color: #721c24;
-}
-
-.status-archived {
-  background: #e2e3e5;
-  color: #383d41;
+.client-row:hover {
+  background: var(--bg-alt);
 }
 </style>

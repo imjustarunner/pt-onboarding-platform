@@ -518,6 +518,20 @@ export const passwordlessTokenLogin = async (req, res, next) => {
     
     console.log('[passwordlessTokenLogin] Token validated, user:', user.id, 'status:', user.status);
 
+    // If this token is for password reset, do NOT allow direct login.
+    // Reset flows must force the user to set a new password first.
+    if (user.passwordless_token_purpose === 'reset') {
+      const userAgencies = await User.getAgencies(user.id);
+      const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+      return res.status(400).json({
+        error: {
+          message: 'Password reset required',
+          requiresPasswordReset: true,
+          portalSlug
+        }
+      });
+    }
+
     // Check if user needs initial setup (no password set)
     if (!user.password_hash) {
       // User needs to set password first
@@ -714,6 +728,18 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
     
     console.log('[passwordlessTokenLoginFromBody] Token validated, user:', user.id, 'status:', user.status);
 
+    if (user.passwordless_token_purpose === 'reset') {
+      const userAgencies = await User.getAgencies(user.id);
+      const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+      return res.status(400).json({
+        error: {
+          message: 'Password reset required',
+          requiresPasswordReset: true,
+          portalSlug
+        }
+      });
+    }
+
     // For pending users, ALWAYS require last name verification for security
     if (user.status === 'pending') {
       if (!lastName) {
@@ -854,6 +880,128 @@ export const validateSetupToken = async (req, res, next) => {
       lastName: user.last_name,
       email: user.personal_email || user.email,
       username: user.username || user.personal_email || user.email
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Validate reset token without using it
+ * Returns minimal info for reset screen (branded experience)
+ */
+export const validateResetToken = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+
+    if (!token) {
+      return res.status(400).json({ error: { message: 'Token is required' } });
+    }
+
+    const user = await User.validatePasswordlessToken(token);
+    if (!user) {
+      return res.status(401).json({ error: { message: 'Invalid or expired reset link' } });
+    }
+
+    if (user.passwordless_token_purpose !== 'reset') {
+      return res.status(400).json({ error: { message: 'This link is not a password reset link' } });
+    }
+
+    const userAgencies = await User.getAgencies(user.id);
+    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+
+    res.json({
+      firstName: user.first_name,
+      portalSlug
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Reset password using a single-use token.
+ * This replaces the user's current password and logs them in.
+ */
+export const resetPasswordWithToken = async (req, res, next) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: { message: 'Token is required' } });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: { message: 'Password must be at least 6 characters' } });
+    }
+
+    const user = await User.validatePasswordlessToken(token);
+    if (!user) {
+      return res.status(401).json({ error: { message: 'Invalid or expired reset link' } });
+    }
+
+    if (user.passwordless_token_purpose !== 'reset') {
+      return res.status(400).json({ error: { message: 'This link is not a password reset link' } });
+    }
+
+    // Set new password (overwrites old password hash)
+    await User.changePassword(user.id, password);
+
+    // Best-effort: ensure user is active after reset
+    try {
+      const pool = (await import('../config/database.js')).default;
+      await pool.execute('UPDATE users SET is_active = TRUE WHERE id = ?', [user.id]);
+    } catch (e) {
+      // ignore
+    }
+
+    // Invalidate the token so it cannot be reused
+    await User.markTokenAsUsed(user.id);
+
+    // Generate session ID
+    const sessionId = crypto.randomUUID();
+
+    // Generate JWT token for session
+    const jwtToken = jwt.sign(
+      { id: user.id, email: user.username || user.email, role: user.role, status: user.status, sessionId },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
+    );
+
+    // Set secure HttpOnly cookie for authentication
+    const cookieOptions = config.authCookie.set();
+    res.cookie('authToken', jwtToken, cookieOptions);
+
+    const userAgencies = await User.getAgencies(user.id);
+
+    ActivityLogService.logActivity({
+      actionType: 'login',
+      userId: user.id,
+      sessionId,
+      metadata: {
+        email: user.username || user.email,
+        role: user.role,
+        loginType: 'reset_password'
+      }
+    }, req);
+
+    const updatedUser = await User.findById(user.id);
+
+    res.json({
+      token: jwtToken,
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.username || updatedUser.email,
+        firstName: updatedUser.first_name,
+        lastName: updatedUser.last_name,
+        role: updatedUser.role,
+        status: updatedUser.status,
+        username: updatedUser.username || updatedUser.personal_email || updatedUser.email
+      },
+      sessionId,
+      agencies: userAgencies,
+      message: 'Password reset successfully'
     });
   } catch (error) {
     next(error);
@@ -1201,6 +1349,30 @@ export const register = async (req, res, next) => {
       });
     }
     
+    // Log generated emails to user_communications
+    if (generatedEmails.length > 0 && assignedAgencyIds.length > 0) {
+      try {
+        const UserCommunication = (await import('../models/UserCommunication.model.js')).default;
+        for (const email of generatedEmails) {
+          await UserCommunication.create({
+            userId: user.id,
+            agencyId: assignedAgencyIds[0],
+            templateType: 'pending_welcome',
+            templateId: null, // Template ID not available in this context
+            subject: email.subject,
+            body: email.body,
+            generatedByUserId: req.user.id,
+            channel: 'email',
+            recipientAddress: personalEmail || email || null, // May be null for pending users
+            deliveryStatus: 'pending' // Will be updated when email API sends it
+          });
+        }
+      } catch (logError) {
+        // Don't fail the request if logging fails
+        console.error('Failed to log communication:', logError);
+      }
+    }
+
     res.status(201).json({
       message: 'User created successfully in pending status.',
       user: {

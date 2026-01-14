@@ -1,18 +1,13 @@
 /**
  * Bulk Import Controller
  * 
- * NOTE: This is a placeholder controller that will be fully implemented in Step 2
- * when the clients table and Client Management module are created.
- * 
- * The bulk importer will:
- * - Parse CSV files (600+ rows)
- * - Create/update Client records
- * - Smart matching: agency_id + organization_id + initials
- * - Assign to correct School and Provider
- * - Log audit trail
+ * Handles bulk import of clients from CSV files with smart matching and deduplication
  */
 
 import multer from 'multer';
+import CSVParserService from '../services/csvParser.service.js';
+import ClientMatchingService from '../services/clientMatching.service.js';
+import User from '../models/User.model.js';
 
 // Configure multer for CSV uploads
 const upload = multer({
@@ -43,23 +38,73 @@ export const bulkImportClients = [
         });
       }
 
-      const updateExisting = req.body.updateExisting === 'true';
+      const userId = req.user.id;
+      const userRole = req.user.role;
 
-      // TODO: Implement CSV parsing and client creation when clients table exists (Step 2)
-      // const csvParser = await import('../services/csvParser.service.js');
-      // const clientMatching = await import('../services/clientMatching.service.js');
-      // 
-      // const rows = await csvParser.parseCSV(req.file.buffer);
-      // const results = await clientMatching.processBulkImport(rows, updateExisting);
+      // Permission check: Only admin or super_admin can bulk import
+      if (!['super_admin', 'admin'].includes(userRole)) {
+        return res.status(403).json({ 
+          error: { message: 'Only admins can perform bulk imports' } 
+        });
+      }
 
-      // Placeholder response
-      res.status(501).json({
-        error: { 
-          message: 'Bulk import will be fully implemented in Step 2 (Client Management Module)' 
+      const updateExisting = req.body.updateExisting === 'true' || req.body.updateExisting === true;
+
+      // Get user's primary agency ID
+      let agencyId = req.body.agency_id || req.user.agencyId;
+      
+      if (!agencyId && userRole !== 'super_admin') {
+        // Get user's first agency
+        const userAgencies = await User.getAgencies(userId);
+        if (userAgencies.length === 0) {
+          return res.status(400).json({ 
+            error: { message: 'You must be associated with an agency to import clients' } 
+          });
         }
+        agencyId = userAgencies[0].id;
+      }
+
+      if (!agencyId) {
+        return res.status(400).json({ 
+          error: { message: 'Agency ID is required for bulk import' } 
+        });
+      }
+
+      // Parse CSV
+      const rows = await CSVParserService.parseCSV(req.file.buffer);
+
+      if (rows.length === 0) {
+        return res.status(400).json({ 
+          error: { message: 'CSV file is empty or contains no valid rows' } 
+        });
+      }
+
+      // Process bulk import
+      const results = await ClientMatchingService.processBulkImport(
+        rows,
+        agencyId,
+        updateExisting,
+        userId
+      );
+
+      res.json({
+        success: true,
+        totalRows: rows.length,
+        created: results.created,
+        updated: results.updated,
+        errors: results.errors,
+        message: `Import completed: ${results.created} created, ${results.updated} updated, ${results.errors.length} errors`
       });
     } catch (error) {
       console.error('Bulk import error:', error);
+      
+      // Handle CSV parsing errors
+      if (error.message.includes('Row') || error.message.includes('CSV')) {
+        return res.status(400).json({ 
+          error: { message: error.message } 
+        });
+      }
+      
       next(error);
     }
   }

@@ -9,17 +9,84 @@ class UserCommunication {
       templateId,
       subject,
       body,
-      generatedByUserId
+      generatedByUserId,
+      channel = 'email',
+      recipientAddress = null,
+      deliveryStatus = 'pending',
+      externalMessageId = null,
+      sentAt = null,
+      deliveredAt = null,
+      errorMessage = null,
+      metadata = null
     } = communicationData;
 
     const [result] = await pool.execute(
       `INSERT INTO user_communications 
-       (user_id, agency_id, template_type, template_id, subject, body, generated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [userId, agencyId, templateType, templateId || null, subject, body, generatedByUserId]
+       (user_id, agency_id, template_type, template_id, channel, subject, body, recipient_address, 
+        delivery_status, external_message_id, sent_at, delivered_at, error_message, metadata, generated_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userId, 
+        agencyId, 
+        templateType, 
+        templateId || null, 
+        channel,
+        subject || null, 
+        body, 
+        recipientAddress || null,
+        deliveryStatus,
+        externalMessageId || null,
+        sentAt || null,
+        deliveredAt || null,
+        errorMessage || null,
+        metadata ? JSON.stringify(metadata) : null,
+        generatedByUserId
+      ]
     );
 
     return this.findById(result.insertId);
+  }
+
+  static async updateDeliveryStatus(id, status, externalMessageId = null, deliveredAt = null, errorMessage = null, metadata = null) {
+    const updates = [];
+    const values = [];
+
+    updates.push('delivery_status = ?');
+    values.push(status);
+
+    if (externalMessageId !== null) {
+      updates.push('external_message_id = ?');
+      values.push(externalMessageId);
+    }
+
+    if (deliveredAt !== null) {
+      updates.push('delivered_at = ?');
+      values.push(deliveredAt);
+    }
+
+    if (errorMessage !== null) {
+      updates.push('error_message = ?');
+      values.push(errorMessage);
+    }
+
+    if (metadata !== null) {
+      updates.push('metadata = ?');
+      values.push(JSON.stringify(metadata));
+    }
+
+    // Set sent_at when status changes to 'sent' (if not already set)
+    if (status === 'sent') {
+      updates.push('sent_at = COALESCE(sent_at, CURRENT_TIMESTAMP)');
+    }
+
+    values.push(id);
+
+    await pool.execute(
+      `UPDATE user_communications SET ${updates.join(', ')} WHERE id = ?`,
+      values
+    );
+
+    return this.findById(id);
   }
 
   static async findById(id) {

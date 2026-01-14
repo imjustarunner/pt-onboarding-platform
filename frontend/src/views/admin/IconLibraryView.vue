@@ -509,7 +509,20 @@ const getIconUrl = (icon) => {
   // Use the URL from the icon if available
   let iconUrl = icon.url;
   if (!iconUrl && icon.file_path) {
-    iconUrl = `/uploads/${icon.file_path}`;
+    // file_path is stored as "uploads/icons/filename.png" (from StorageService.saveIcon)
+    // Don't prepend /uploads/ if it's already there
+    let filePath = icon.file_path;
+    if (filePath.startsWith('uploads/')) {
+      iconUrl = `/${filePath}`;
+    } else if (filePath.startsWith('/uploads/')) {
+      iconUrl = filePath;
+    } else if (filePath.startsWith('icons/')) {
+      // Old format - convert to new format
+      iconUrl = `/uploads/${filePath}`;
+    } else {
+      // Assume it's just a filename, prepend uploads/icons/
+      iconUrl = `/uploads/icons/${filePath}`;
+    }
   }
   if (!iconUrl) return '';
   

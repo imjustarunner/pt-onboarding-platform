@@ -12,7 +12,7 @@ class User {
       // This is more reliable, especially with connection pooling and Unix sockets
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -21,6 +21,8 @@ class User {
       // Only add username to SELECT if column exists (migration has been run)
       if (existingColumns.includes('username')) query += ', username';
       if (existingColumns.includes('has_supervisor_privileges')) query += ', has_supervisor_privileges';
+      if (existingColumns.includes('has_provider_access')) query += ', has_provider_access';
+      if (existingColumns.includes('has_staff_access')) query += ', has_staff_access';
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
@@ -62,7 +64,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -70,6 +72,8 @@ class User {
       if (existingColumns.includes('personal_email')) query += ', personal_email';
       if (existingColumns.includes('username')) query += ', username';
       if (existingColumns.includes('has_supervisor_privileges')) query += ', has_supervisor_privileges';
+      if (existingColumns.includes('has_provider_access')) query += ', has_provider_access';
+      if (existingColumns.includes('has_staff_access')) query += ', has_staff_access';
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
@@ -97,6 +101,8 @@ class User {
       if (existingColumns.includes('work_email')) query += ', work_email';
       if (existingColumns.includes('personal_email')) query += ', personal_email';
       if (existingColumns.includes('has_supervisor_privileges')) query += ', has_supervisor_privileges';
+      if (existingColumns.includes('has_provider_access')) query += ', has_provider_access';
+      if (existingColumns.includes('has_staff_access')) query += ', has_staff_access';
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
@@ -157,7 +163,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'personal_phone', 'work_phone', 'work_phone_extension')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -170,6 +176,8 @@ class User {
       if (existingColumns.includes('personal_email')) query += ', personal_email';
       if (existingColumns.includes('username')) query += ', username';
       if (existingColumns.includes('has_supervisor_privileges')) query += ', has_supervisor_privileges';
+      if (existingColumns.includes('has_provider_access')) query += ', has_provider_access';
+      if (existingColumns.includes('has_staff_access')) query += ', has_staff_access';
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
@@ -284,14 +292,23 @@ class User {
   }
 
   static async findAll(includeArchived = false) {
-    // Check if has_supervisor_privileges column exists
+    // Check if permission attribute columns exist
     let hasSupervisorPrivilegesField = '';
+    let hasProviderAccessField = '';
+    let hasStaffAccessField = '';
     try {
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'has_supervisor_privileges'"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('has_supervisor_privileges', 'has_provider_access', 'has_staff_access')"
       );
-      if (columns.length > 0) {
+      const existingColumns = columns.map(c => c.COLUMN_NAME);
+      if (existingColumns.includes('has_supervisor_privileges')) {
         hasSupervisorPrivilegesField = ', u.has_supervisor_privileges';
+      }
+      if (existingColumns.includes('has_provider_access')) {
+        hasProviderAccessField = ', u.has_provider_access';
+      }
+      if (existingColumns.includes('has_staff_access')) {
+        hasStaffAccessField = ', u.has_staff_access';
       }
     } catch (err) {
       // Column doesn't exist yet, skip it
@@ -322,6 +339,12 @@ class User {
     let groupByFields = 'u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at, u.is_active, u.first_name, u.last_name, u.created_at';
     if (hasSupervisorPrivilegesField) {
       groupByFields += ', u.has_supervisor_privileges';
+    }
+    if (hasProviderAccessField) {
+      groupByFields += ', u.has_provider_access';
+    }
+    if (hasStaffAccessField) {
+      groupByFields += ', u.has_staff_access';
     }
     query += ` GROUP BY ${groupByFields}`;
     query += ' ORDER BY u.created_at DESC';
@@ -454,7 +477,7 @@ class User {
   }
 
   static async update(id, userData) {
-    const { firstName, lastName, role, phoneNumber, isActive, hasSupervisorPrivileges, personalPhone, workPhone, workPhoneExtension } = userData;
+    const { firstName, lastName, role, phoneNumber, isActive, hasSupervisorPrivileges, hasProviderAccess, hasStaffAccess, personalPhone, workPhone, workPhoneExtension } = userData;
     
     // Get current user to check if it's superadmin
     const currentUser = await this.findById(id);
@@ -623,6 +646,35 @@ class User {
         console.warn('work_phone_extension column does not exist yet');
       }
     }
+    
+    // Handle permission attributes for cross-role capabilities
+    if (hasProviderAccess !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'has_provider_access'"
+        );
+        if (columns.length > 0) {
+          updates.push('has_provider_access = ?');
+          values.push(hasProviderAccess ? 1 : 0);
+        }
+      } catch (err) {
+        console.warn('has_provider_access column does not exist yet:', err.message);
+      }
+    }
+    
+    if (hasStaffAccess !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'has_staff_access'"
+        );
+        if (columns.length > 0) {
+          updates.push('has_staff_access = ?');
+          values.push(hasStaffAccess ? 1 : 0);
+        }
+      } catch (err) {
+        console.warn('has_staff_access column does not exist yet:', err.message);
+      }
+    }
 
     if (updates.length === 0) return this.findById(id);
 
@@ -751,16 +803,25 @@ class User {
     return { password, expiresAt };
   }
 
-  static async generatePasswordlessToken(userId, expiresInHours = 48) {
+  static async generatePasswordlessToken(userId, expiresInHours = 48, purpose = 'setup') {
     const crypto = (await import('crypto')).default;
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + expiresInHours);
     
-    await pool.execute(
-      'UPDATE users SET passwordless_token = ?, passwordless_token_expires_at = ? WHERE id = ?',
-      [token, expiresAt, userId]
-    );
+    // Try to store purpose if the column exists (backward compatible)
+    try {
+      await pool.execute(
+        'UPDATE users SET passwordless_token = ?, passwordless_token_expires_at = ?, passwordless_token_purpose = ? WHERE id = ?',
+        [token, expiresAt, purpose || 'setup', userId]
+      );
+    } catch (e) {
+      // Fallback for older DBs without passwordless_token_purpose
+      await pool.execute(
+        'UPDATE users SET passwordless_token = ?, passwordless_token_expires_at = ? WHERE id = ?',
+        [token, expiresAt, userId]
+      );
+    }
     
     return { token, expiresAt };
   }
@@ -768,10 +829,17 @@ class User {
   static async markTokenAsUsed(userId) {
     // Mark token as used by setting passwordless_token to NULL
     // This makes the token single-use
-    await pool.execute(
-      'UPDATE users SET passwordless_token = NULL, passwordless_token_expires_at = NULL WHERE id = ?',
-      [userId]
-    );
+    try {
+      await pool.execute(
+        'UPDATE users SET passwordless_token = NULL, passwordless_token_expires_at = NULL, passwordless_token_purpose = NULL WHERE id = ?',
+        [userId]
+      );
+    } catch (e) {
+      await pool.execute(
+        'UPDATE users SET passwordless_token = NULL, passwordless_token_expires_at = NULL WHERE id = ?',
+        [userId]
+      );
+    }
   }
 
   static async updateUsername(userId, newUsername) {
@@ -820,7 +888,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_access_locked', 'pending_identity_verified', 'username', 'personal_email')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_access_locked', 'pending_identity_verified', 'username', 'personal_email', 'passwordless_token_purpose')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -828,6 +896,7 @@ class User {
       if (existingColumns.includes('pending_identity_verified')) query += ', pending_identity_verified';
       if (existingColumns.includes('username')) query += ', username';
       if (existingColumns.includes('personal_email')) query += ', personal_email';
+      if (existingColumns.includes('passwordless_token_purpose')) query += ', passwordless_token_purpose';
     } catch (err) {
       // If we can't check columns, just use the base query
     }

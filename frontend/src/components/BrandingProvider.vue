@@ -16,7 +16,9 @@ const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
 onMounted(async () => {
-  await brandingStore.fetchPlatformBranding();
+  // Force refresh branding on login page (when not authenticated) to get latest template
+  const forceRefresh = !authStore.isAuthenticated;
+  await brandingStore.fetchPlatformBranding(forceRefresh);
   
   // Load and apply platform fonts after branding is fetched
   if (brandingStore.platformBranding) {

@@ -92,6 +92,44 @@ class PlatformBranding {
           orgJoins = `
           LEFT JOIN icons org_i ON pb.organization_logo_icon_id = org_i.id`;
         }
+        
+        // Check if settings icon columns exist and add joins
+        let settingsIconSelects = '';
+        let settingsIconJoins = '';
+        try {
+          const [settingsIconColumns] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'company_profile_icon_id'"
+          );
+          if (settingsIconColumns.length > 0) {
+            settingsIconSelects = `,
+          cp_i.file_path as company_profile_icon_path, cp_i.name as company_profile_icon_name,
+          tr_i.file_path as team_roles_icon_path, tr_i.name as team_roles_icon_name,
+          b_i.file_path as billing_icon_path, b_i.name as billing_icon_name,
+          pkg_i.file_path as packages_icon_path, pkg_i.name as packages_icon_name,
+          ci_i.file_path as checklist_items_icon_path, ci_i.name as checklist_items_icon_name,
+          fd_i.file_path as field_definitions_icon_path, fd_i.name as field_definitions_icon_name,
+          bt_i.file_path as branding_templates_icon_path, bt_i.name as branding_templates_icon_name,
+          a_i.file_path as assets_icon_path, a_i.name as assets_icon_name,
+          comm_i.file_path as communications_icon_path, comm_i.name as communications_icon_name,
+          int_i.file_path as integrations_icon_path, int_i.name as integrations_icon_name,
+          arch_i.file_path as archive_icon_path, arch_i.name as archive_icon_name`;
+            settingsIconJoins = `
+          LEFT JOIN icons cp_i ON pb.company_profile_icon_id = cp_i.id
+          LEFT JOIN icons tr_i ON pb.team_roles_icon_id = tr_i.id
+          LEFT JOIN icons b_i ON pb.billing_icon_id = b_i.id
+          LEFT JOIN icons pkg_i ON pb.packages_icon_id = pkg_i.id
+          LEFT JOIN icons ci_i ON pb.checklist_items_icon_id = ci_i.id
+          LEFT JOIN icons fd_i ON pb.field_definitions_icon_id = fd_i.id
+          LEFT JOIN icons bt_i ON pb.branding_templates_icon_id = bt_i.id
+          LEFT JOIN icons a_i ON pb.assets_icon_id = a_i.id
+          LEFT JOIN icons comm_i ON pb.communications_icon_id = comm_i.id
+          LEFT JOIN icons int_i ON pb.integrations_icon_id = int_i.id
+          LEFT JOIN icons arch_i ON pb.archive_icon_id = arch_i.id`;
+          }
+        } catch (e) {
+          // Settings icon columns don't exist yet, skip
+        }
+        
         query = `SELECT pb.*,
           ma_i.file_path as manage_agencies_icon_path, ma_i.name as manage_agencies_icon_name,
           mm_i.file_path as manage_modules_icon_path, mm_i.name as manage_modules_icon_name,
@@ -102,7 +140,7 @@ class PlatformBranding {
           pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
           s_i.file_path as settings_icon_path, s_i.name as settings_icon_name,
           mb_i.file_path as master_brand_icon_path, mb_i.name as master_brand_icon_name,
-          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${fontSelects}${orgSelects}
+          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${fontSelects}${orgSelects}${settingsIconSelects}
           FROM platform_branding pb
           LEFT JOIN icons ma_i ON pb.manage_agencies_icon_id = ma_i.id
           LEFT JOIN icons mm_i ON pb.manage_modules_icon_id = mm_i.id
@@ -113,7 +151,7 @@ class PlatformBranding {
           LEFT JOIN icons pd_i ON pb.progress_dashboard_icon_id = pd_i.id
           LEFT JOIN icons s_i ON pb.settings_icon_id = s_i.id
           LEFT JOIN icons mb_i ON pb.master_brand_icon_id = mb_i.id
-          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${orgJoins}${fontJoins}
+          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${orgJoins}${fontJoins}${settingsIconJoins}
           ORDER BY pb.id DESC LIMIT 1`;
       } else {
         // Even if dashboard icons don't exist, try to include master brand icon if column exists
@@ -278,7 +316,19 @@ class PlatformBranding {
       allAgenciesNotificationsIconId,
       organizationName,
       organizationLogoIconId,
-      organizationLogoUrl
+      organizationLogoUrl,
+      organizationLogoPath,
+      companyProfileIconId,
+      teamRolesIconId,
+      billingIconId,
+      packagesIconId,
+      checklistItemsIconId,
+      fieldDefinitionsIconId,
+      brandingTemplatesIconId,
+      assetsIconId,
+      communicationsIconId,
+      integrationsIconId,
+      archiveIconId
     } = brandingData;
 
     // Check if branding exists
@@ -654,6 +704,48 @@ class PlatformBranding {
           }
         } catch (e) {
           // Column doesn't exist, skip
+        }
+        
+        // Check if organization_logo_path column exists
+        try {
+          const [logoPathColumns] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'organization_logo_path'"
+          );
+          if (logoPathColumns.length > 0) {
+            insertFields.push('organization_logo_path');
+            insertValues.push(organizationLogoPath || null);
+          }
+        } catch (e) {
+          // Column doesn't exist, skip
+        }
+        
+        // Handle settings icon fields for insert
+        const settingsIconFields = [
+          { field: 'company_profile_icon_id', value: companyProfileIconId },
+          { field: 'team_roles_icon_id', value: teamRolesIconId },
+          { field: 'billing_icon_id', value: billingIconId },
+          { field: 'packages_icon_id', value: packagesIconId },
+          { field: 'checklist_items_icon_id', value: checklistItemsIconId },
+          { field: 'field_definitions_icon_id', value: fieldDefinitionsIconId },
+          { field: 'branding_templates_icon_id', value: brandingTemplatesIconId },
+          { field: 'assets_icon_id', value: assetsIconId },
+          { field: 'communications_icon_id', value: communicationsIconId },
+          { field: 'integrations_icon_id', value: integrationsIconId },
+          { field: 'archive_icon_id', value: archiveIconId }
+        ];
+        
+        for (const { field, value } of settingsIconFields) {
+          try {
+            const [columns] = await pool.execute(
+              `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = '${field}'`
+            );
+            if (columns.length > 0) {
+              insertFields.push(field);
+              insertValues.push(value === null || value === '' ? null : parseInt(value));
+            }
+          } catch (e) {
+            // Column doesn't exist, skip
+          }
         }
       }
       

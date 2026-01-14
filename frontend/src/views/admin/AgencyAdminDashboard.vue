@@ -2,7 +2,12 @@
   <div class="container">
     <div class="dashboard-header">
       <div class="header-content">
-        <BrandingLogo v-if="currentAgency" size="large" class="dashboard-logo" />
+        <BrandingLogo 
+          v-if="currentAgency" 
+          size="large" 
+          class="dashboard-logo" 
+          :logo-url="previewMode ? (currentAgency?.logo_url || null) : undefined"
+        />
         <div>
           <h1>Agency Dashboard</h1>
           <span class="badge badge-info">Agency Admin</span>
@@ -404,7 +409,7 @@ onMounted(async () => {
 
 .dashboard-header h1 {
   margin: 0;
-  color: var(--text-primary);
+  color: var(--primary);
 }
 
 .agency-badge {

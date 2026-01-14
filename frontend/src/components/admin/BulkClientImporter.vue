@@ -52,18 +52,21 @@
         <div v-if="importResults" class="import-results">
           <h3>Import Results</h3>
           <div class="results-stats">
-            <p><strong>Total rows processed:</strong> {{ importResults.total }}</p>
-            <p><strong>Created:</strong> {{ importResults.created }}</p>
-            <p><strong>Updated:</strong> {{ importResults.updated }}</p>
-            <p><strong>Errors:</strong> {{ importResults.errors }}</p>
+            <p><strong>Total rows processed:</strong> {{ importResults.totalRows || 0 }}</p>
+            <p class="stat-success"><strong>Created:</strong> {{ importResults.created || 0 }}</p>
+            <p class="stat-info"><strong>Updated:</strong> {{ importResults.updated || 0 }}</p>
+            <p class="stat-error"><strong>Errors:</strong> {{ (importResults.errors || []).length }}</p>
           </div>
-          <div v-if="importResults.errorDetails && importResults.errorDetails.length > 0" class="error-details">
+          <div v-if="importResults.errors && importResults.errors.length > 0" class="error-details">
             <h4>Error Details:</h4>
             <ul>
-              <li v-for="(errorDetail, index) in importResults.errorDetails" :key="index">
-                Row {{ errorDetail.row }}: {{ errorDetail.message }}
+              <li v-for="(errorDetail, index) in importResults.errors" :key="index">
+                Row {{ errorDetail.row }} ({{ errorDetail.initials || 'Unknown' }}): {{ errorDetail.error }}
               </li>
             </ul>
+          </div>
+          <div v-if="importResults.message" class="success-message">
+            {{ importResults.message }}
           </div>
         </div>
 
@@ -157,7 +160,18 @@ const handleImport = async () => {
       }
     });
 
-    importResults.value = response.data;
+    if (response.data.success) {
+      importResults.value = {
+        totalRows: response.data.totalRows,
+        created: response.data.created,
+        updated: response.data.updated,
+        errors: response.data.errors || [],
+        message: response.data.message
+      };
+      emit('imported');
+    } else {
+      throw new Error(response.data.error?.message || 'Import failed');
+    }
   } catch (err) {
     console.error('Bulk import error:', err);
     error.value = err.response?.data?.error?.message || 'Failed to import clients. Please check the CSV format and try again.';
@@ -309,6 +323,27 @@ const resetForm = () => {
 .results-stats p {
   margin: 8px 0;
   color: var(--text-primary);
+}
+
+.stat-success {
+  color: #155724;
+}
+
+.stat-info {
+  color: #0c5460;
+}
+
+.stat-error {
+  color: #721c24;
+}
+
+.success-message {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: #d4edda;
+  color: #155724;
+  border-radius: 6px;
+  border: 1px solid #c3e6cb;
 }
 
 .error-details {

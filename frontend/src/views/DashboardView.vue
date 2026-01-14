@@ -1,6 +1,18 @@
 <template>
   <div class="container">
-    <h1>{{ isPending ? 'Pre-Hire Checklist' : 'My Training Dashboard' }}</h1>
+    <!-- Dashboard Header with Logo (shown in preview mode) -->
+    <div v-if="previewMode" class="dashboard-header-preview">
+      <div class="header-content">
+        <BrandingLogo v-if="previewAgencyLogoUrl" size="large" class="dashboard-logo" :logo-url="previewAgencyLogoUrl" />
+        <div>
+          <h1>{{ isPending ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
+        </div>
+      </div>
+    </div>
+    <div v-else class="dashboard-header-user">
+      <h1>{{ isPending ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
+      <span class="badge badge-user">Personal</span>
+    </div>
     
     <!-- Pending Completion Button -->
     <div v-if="isPending && pendingCompletionStatus?.allComplete && !pendingCompletionStatus?.accessLocked && (userStatus === 'PREHIRE_OPEN' || userStatus === 'pending')" class="pending-completion-banner">
@@ -113,13 +125,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
+import { useAgencyStore } from '../store/agency';
 import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
 import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue';
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
+import BrandingLogo from '../components/BrandingLogo.vue';
 
 const props = defineProps({
   previewMode: {
@@ -138,6 +152,7 @@ const props = defineProps({
 
 const router = useRouter();
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const activeTab = ref('checklist');
 const onboardingCompletion = ref(100);
 const trainingCount = ref(0);
@@ -154,6 +169,12 @@ const tabs = computed(() => [
   { id: 'training', label: 'Training', badgeCount: trainingCount.value },
   { id: 'documents', label: 'Documents', badgeCount: documentsCount.value }
 ]);
+
+// Agency logo URL for preview mode
+const previewAgencyLogoUrl = computed(() => {
+  if (!props.previewMode) return null;
+  return agencyStore.currentAgency?.logo_url || null;
+});
 
 const filteredTabs = computed(() => {
   // PREHIRE_OPEN, PREHIRE_REVIEW, and ONBOARDING users see limited tabs
@@ -271,6 +292,13 @@ const downloadOnboardingDocument = async () => {
   }
 };
 
+// Watch for preview status/data changes
+watch(() => [props.previewStatus, props.previewData], () => {
+  if (props.previewMode) {
+    fetchOnboardingStatus();
+  }
+}, { deep: true });
+
 onMounted(async () => {
   await fetchOnboardingStatus();
 });
@@ -353,6 +381,8 @@ h1 {
   margin-bottom: 32px;
   border-bottom: 2px solid var(--border);
   padding-bottom: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tab-button {
@@ -489,6 +519,56 @@ h1 {
 .preview-text {
   font-size: 16px;
   margin: 0;
+}
+
+.dashboard-header-preview {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 2px solid var(--border);
+}
+
+.dashboard-header-preview .header-content {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.dashboard-header-preview .dashboard-logo {
+  flex-shrink: 0;
+}
+
+.dashboard-header-preview h1 {
+  margin: 0;
+  color: var(--primary);
+}
+
+.dashboard-header-user {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid var(--border);
+}
+
+.dashboard-header-user h1 {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.badge-user {
+  display: inline-block;
+  padding: 4px 12px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .tab-button:disabled {

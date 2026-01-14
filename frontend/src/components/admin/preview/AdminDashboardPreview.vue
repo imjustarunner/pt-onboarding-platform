@@ -1,11 +1,11 @@
 <template>
   <div class="admin-dashboard-preview" ref="previewContainer">
-    <BrandingProvider>
+    <PreviewBrandingProvider :agency-id="agencyId">
       <AgencyAdminDashboard 
         :preview-mode="true"
         :preview-stats="mockStats"
       />
-    </BrandingProvider>
+    </PreviewBrandingProvider>
   </div>
 </template>
 
@@ -13,7 +13,7 @@
 import { ref, onMounted } from 'vue';
 import { useAgencyStore } from '../../../store/agency';
 import { useBrandingStore } from '../../../store/branding';
-import BrandingProvider from '../../../components/BrandingProvider.vue';
+import PreviewBrandingProvider from './PreviewBrandingProvider.vue';
 import AgencyAdminDashboard from '../../../views/admin/AgencyAdminDashboard.vue';
 import api from '../../../services/api';
 import { createMockAdminStats } from '../../../utils/previewUtils';

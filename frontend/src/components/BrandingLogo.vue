@@ -1,13 +1,14 @@
 <template>
-  <div class="branding-logo" :class="[sizeClass, { 'logo-only': logoOnly }]">
+  <div v-if="logoUrl || (showFallback && displayName)" class="branding-logo" :class="[sizeClass, { 'logo-only': logoOnly }]">
     <img
       v-if="logoUrl"
       :src="logoUrl"
       :alt="altText"
       class="logo-image"
       @error="handleImageError"
+      @load="handleImageLoad"
     />
-    <div v-else-if="showFallback" class="logo-fallback">
+    <div v-else-if="showFallback && displayName" class="logo-fallback">
       <span class="fallback-text">{{ displayName }}</span>
     </div>
   </div>
@@ -34,11 +35,15 @@ const props = defineProps({
   altText: {
     type: String,
     default: null
+  },
+  logoUrl: {
+    type: String,
+    default: null
   }
 });
 
 const brandingStore = useBrandingStore();
-const logoUrl = computed(() => brandingStore.displayLogoUrl);
+const logoUrl = computed(() => props.logoUrl || brandingStore.displayLogoUrl);
 const displayName = computed(() => brandingStore.displayName);
 
 const sizeClass = computed(() => `logo-${props.size}`);
@@ -53,10 +58,26 @@ const defaultAltText = computed(() => {
 
 const finalAltText = computed(() => props.altText || defaultAltText.value);
 
+const handleImageLoad = () => {
+  // Logo loaded successfully
+  if (import.meta.env.DEV) {
+    console.log('[BrandingLogo] Logo loaded successfully:', logoUrl.value);
+  }
+};
+
 const handleImageError = (event) => {
+  // Log the error for debugging
+  console.warn('[BrandingLogo] Failed to load logo:', {
+    logoUrl: logoUrl.value,
+    error: event
+  });
+  
   // Hide broken image, show fallback if enabled
   if (props.showFallback) {
     event.target.style.display = 'none';
+  } else {
+    // If no fallback, hide the entire logo container
+    event.target.closest('.branding-logo')?.style.setProperty('display', 'none');
   }
 };
 </script>

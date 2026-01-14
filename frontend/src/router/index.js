@@ -1,8 +1,32 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
+import { useAgencyStore } from '../store/agency';
+import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
 import { getLoginUrl } from '../utils/loginRedirect';
+
+const getDefaultOrganizationSlug = () => {
+  try {
+    const agencyStore = useAgencyStore();
+    const authStore = useAuthStore();
+
+    const fromStore = agencyStore.currentAgency?.slug;
+    if (fromStore) return fromStore;
+
+    const fromUserAgencies = authStore.user?.agencies?.[0]?.slug;
+    if (fromUserAgencies) return fromUserAgencies;
+
+    const fromStoredUserAgencies = JSON.parse(localStorage.getItem('userAgencies') || '[]')?.[0]?.slug;
+    if (fromStoredUserAgencies) return fromStoredUserAgencies;
+
+    const fromLocal = JSON.parse(localStorage.getItem('currentAgency') || 'null')?.slug;
+    if (fromLocal) return fromLocal;
+  } catch (e) {
+    // ignore
+  }
+  return null;
+};
 
 const routes = [
   // Organization-specific routes (supports Agency, School, Program, Learning)
@@ -38,10 +62,149 @@ const routes = [
     meta: { requiresGuest: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/reset-password/:token',
+    name: 'OrganizationResetPassword',
+    component: () => import('../views/ResetPasswordView.vue'),
+    meta: { requiresGuest: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/dashboard',
     name: 'OrganizationDashboard',
-    component: () => import('../views/school/SchoolPortalView.vue'),
+    component: () => import('../views/OrganizationDashboardView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
+  },
+  // Slug-prefixed authenticated routes (branded portal)
+  {
+    path: '/:organizationSlug/preferences',
+    name: 'OrganizationPreferences',
+    component: () => import('../views/PreferencesView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/module/:id',
+    name: 'OrganizationModule',
+    component: () => import('../views/ModuleView.vue'),
+    meta: { requiresAuth: true, blockPendingUsers: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/tracks',
+    name: 'OrganizationTracks',
+    component: () => import('../views/TracksView.vue'),
+    meta: { requiresAuth: true, blockPendingUsers: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/tasks',
+    name: 'OrganizationTasks',
+    component: () => import('../views/TasksView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/tasks/documents/:taskId/sign',
+    name: 'OrganizationDocumentSigning',
+    component: () => import('../views/DocumentSigningView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/onboarding',
+    name: 'OrganizationOnboardingChecklist',
+    component: () => import('../views/OnboardingChecklistView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/account-info',
+    name: 'OrganizationAccountInfo',
+    component: () => import('../views/AccountInfoView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/on-demand-training',
+    name: 'OrganizationOnDemandTrainingLibrary',
+    component: () => import('../views/OnDemandTrainingLibraryView.vue'),
+    meta: { requiresAuth: true, requiresApprovedEmployee: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/on-demand-training/modules/:id',
+    name: 'OrganizationOnDemandModuleView',
+    component: () => import('../components/on-demand/OnDemandModuleViewer.vue'),
+    meta: { requiresAuth: true, requiresApprovedEmployee: true, organizationSlug: true }
+  },
+  // Slug-prefixed admin routes
+  {
+    path: '/:organizationSlug/admin',
+    name: 'OrganizationAdminDashboard',
+    component: () => import('../views/admin/AdminDashboard.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/modules',
+    name: 'OrganizationModuleManager',
+    component: () => import('../views/admin/ModuleManager.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/modules/:id/content-editor',
+    name: 'OrganizationModuleContentEditor',
+    component: () => import('../views/admin/ModuleContentEditor.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/users/:userId',
+    name: 'OrganizationUserProfile',
+    component: () => import('../views/admin/UserProfileView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/users',
+    name: 'OrganizationUserManager',
+    component: () => import('../views/admin/UserManager.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/clients',
+    name: 'OrganizationClientManagement',
+    component: () => import('../views/admin/ClientManagementView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'provider'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/settings',
+    name: 'OrganizationSettings',
+    component: () => import('../views/admin/SettingsView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/documents',
+    name: 'OrganizationDocumentsLibrary',
+    component: () => import('../views/admin/DocumentsLibraryView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/agency-progress',
+    name: 'OrganizationAgencyProgress',
+    component: () => import('../views/admin/AgencyProgressDashboard.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/agencies/:agencyId/progress',
+    name: 'OrganizationAgencyProgressById',
+    component: () => import('../views/admin/AgencyProgressDashboard.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/agencies',
+    name: 'OrganizationAgencies',
+    redirect: (to) => `/${to.params.organizationSlug}/admin/settings?tab=agencies`
+  },
+  {
+    path: '/:organizationSlug/admin/notifications',
+    name: 'OrganizationNotifications',
+    component: () => import('../views/admin/NotificationsView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/notifications',
+    name: 'OrganizationSupervisorNotifications',
+    component: () => import('../views/SupervisorNotificationsView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'supervisor_or_cpa', organizationSlug: true }
   },
   // Legacy agency slug route (backward compatibility)
   {
@@ -201,6 +364,12 @@ const routes = [
     meta: { requiresGuest: true }
   },
   {
+    path: '/reset-password/:token',
+    name: 'ResetPassword',
+    component: () => import('../views/ResetPasswordView.vue'),
+    meta: { requiresGuest: true }
+  },
+  {
     path: '/pending-completion',
     name: 'PendingCompletion',
     component: () => import('../views/PendingCompletionView.vue'),
@@ -220,7 +389,10 @@ const routes = [
   },
   {
     path: '/',
-    redirect: '/dashboard' // Will be overridden by beforeEach guard if user is authenticated
+    redirect: () => {
+      const slug = getDefaultOrganizationSlug();
+      return slug ? `/${slug}/dashboard` : '/login';
+    }
   }
 ];
 
@@ -229,9 +401,11 @@ const router = createRouter({
   routes
 });
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
   const brandingStore = useBrandingStore();
+  const agencyStore = useAgencyStore();
+  const organizationStore = useOrganizationStore();
   const userStatus = authStore.user?.status;
   const isPending = userStatus === 'pending';
   const isReadyForReview = userStatus === 'ready_for_review';
@@ -239,6 +413,44 @@ router.beforeEach((to, from, next) => {
   // Prevent stale org branding “flash” when going to platform login
   if (to.path === '/login') {
     brandingStore.clearPortalTheme();
+  }
+
+  // On slug-prefixed routes, load org context + apply branding.
+  // This is what keeps the portal branded consistently across all authenticated pages.
+  if (to.meta.organizationSlug) {
+    const slug = to.params.organizationSlug;
+    if (typeof slug === 'string' && slug) {
+      // Apply branding for non-super-admin authenticated users
+      if (authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
+        try {
+          await brandingStore.fetchAgencyTheme(slug);
+        } catch (e) {
+          // best effort: do not block navigation
+        }
+      }
+
+      // Keep organization + agency stores aligned to the slug so the rest of the app
+      // (filters, permissions, agency-scoped data) stays consistent.
+      try {
+        const org = await organizationStore.fetchBySlug(slug);
+        if (org && authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
+          agencyStore.setCurrentAgency(org);
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
+  // If user is authenticated and not super_admin, enforce slug-prefixed navigation
+  // so branding stays consistent across all portal pages.
+  if (authStore.isAuthenticated && authStore.user?.role !== 'super_admin' && to.meta.requiresAuth && !to.meta.organizationSlug) {
+    const slug = getDefaultOrganizationSlug();
+    if (slug) {
+      // Prefix the entire path (preserves queries/hash via fullPath).
+      next(`/${slug}${to.fullPath}`);
+      return;
+    }
   }
   
   // Handle root path redirect based on user role
@@ -286,8 +498,8 @@ router.beforeEach((to, from, next) => {
     // Block CPAs and supervisors from accessing restricted routes
     const restrictedRoutes = ['/admin/modules', '/admin/documents', '/admin/settings'];
     if ((userRole === 'clinical_practice_assistant' || userRole === 'supervisor') && 
-        restrictedRoutes.some(route => to.path.startsWith(route))) {
-      next('/admin'); // Redirect to admin dashboard
+        restrictedRoutes.some(route => to.path.includes(route))) {
+      next('/admin'); // Redirect (route redirects to slug)
       return;
     }
     
@@ -317,7 +529,8 @@ router.beforeEach((to, from, next) => {
     }
     
     // Block regular routes for approved employees - they should only access on-demand training
-    if (authStore.user?.type === 'approved_employee' && to.path !== '/on-demand-training' && !to.path.startsWith('/on-demand-training/')) {
+    const isOnDemandRoute = to.path.includes('/on-demand-training');
+    if (authStore.user?.type === 'approved_employee' && !isOnDemandRoute) {
       next('/on-demand-training');
     } else {
       next();

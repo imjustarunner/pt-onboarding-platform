@@ -166,7 +166,7 @@ router.get('/portal/:portalUrl/login-theme', getLoginThemeByPortalUrl);
 router.get('/', authenticate, getAllAgencies);
 router.get('/archived', authenticate, requireSuperAdmin, getArchivedAgencies);
 router.get('/:id', authenticate, getAgencyById);
-router.post('/', authenticate, requireSuperAdmin, validateCreateAgency, createAgency);
+router.post('/', authenticate, requireAdmin, validateCreateAgency, createAgency);
 router.put('/:id', authenticate, requireAdmin, validateUpdateAgency, updateAgency);
 router.post('/:id/archive', authenticate, requireSuperAdmin, archiveAgency);
 router.post('/:id/restore', authenticate, requireSuperAdmin, restoreAgency);

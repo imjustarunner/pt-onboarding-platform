@@ -17,9 +17,6 @@ export function getDashboardRoute() {
     return '/dashboard'; // Default fallback
   }
   
-  // Debug logging
-  console.log('getDashboardRoute - User role:', user.role, 'Type:', user.type, 'Status:', user.status);
-  
   // Check if user is associated with a school organization
   // If organization context is available, use it
   if (organizationStore.organizationContext) {
@@ -49,12 +46,10 @@ export function getDashboardRoute() {
   const userRole = user.role?.toLowerCase();
   if (userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin' || 
       user.role === 'support' || isSupervisor(user) || user.role === 'clinical_practice_assistant') {
-    console.log('getDashboardRoute: Routing to /admin for role:', user.role);
     return '/admin';
   }
   
   // Regular users go to regular dashboard
-  console.log('getDashboardRoute: Routing to /dashboard for role:', user.role);
   return '/dashboard';
 }
 
