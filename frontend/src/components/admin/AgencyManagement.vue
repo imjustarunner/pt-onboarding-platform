@@ -706,7 +706,6 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import IconSelector from './IconSelector.vue';
 import DashboardPreviewModal from './DashboardPreviewModal.vue';
-import SplashPagePreviewModal from './SplashPagePreviewModal.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
