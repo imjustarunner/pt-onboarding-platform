@@ -6,7 +6,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted } from 'vue';
 import { useAgencyStore } from '../../../store/agency';
 import { useBrandingStore } from '../../../store/branding';
 import { loadAndApplyPlatformFonts } from '../../../utils/fontLoader';
@@ -27,6 +27,9 @@ const brandingStore = useBrandingStore();
 const brandingStyles = computed(() => {
   const agency = agencyStore.currentAgency;
   const platform = brandingStore.platformBranding;
+  const themeSettings = agency?.theme_settings
+    ? (typeof agency.theme_settings === 'string' ? JSON.parse(agency.theme_settings) : agency.theme_settings)
+    : {};
   
   // Get agency color palette
   let colorPalette = {};
@@ -46,6 +49,10 @@ const brandingStyles = computed(() => {
     const lighten = (hex) => Math.min(255, parseInt(hex, 16) + 40).toString(16).padStart(2, '0');
     return `#${lighten(r)}${lighten(g)}${lighten(b)}`;
   });
+
+  const loginBackground = themeSettings?.loginBackground
+    ? themeSettings.loginBackground
+    : `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`;
   
   return {
     '--primary-color': primaryColor,
@@ -55,6 +62,8 @@ const brandingStyles = computed(() => {
     '--primary-light': primaryLight,
     '--secondary': secondaryColor,
     '--accent': accentColor,
+    '--agency-font-family': themeSettings?.fontFamily || null,
+    '--agency-login-background': loginBackground,
     '--success': platform?.success_color || '#2F8F83',
     '--error': platform?.error_color || '#CC3D3D',
     '--warning': platform?.warning_color || '#E6A700',
@@ -83,40 +92,7 @@ onMounted(async () => {
   if (brandingStore.platformBranding) {
     await loadAndApplyPlatformFonts(brandingStore.platformBranding);
   }
-  
-  // Apply agency theme settings if available
-  const agency = agencyStore.currentAgency;
-  if (agency?.theme_settings) {
-    const themeSettings = typeof agency.theme_settings === 'string'
-      ? JSON.parse(agency.theme_settings)
-      : agency.theme_settings;
-    
-    const root = document.documentElement;
-    if (themeSettings.fontFamily) {
-      root.style.setProperty('--agency-font-family', themeSettings.fontFamily);
-    }
-    if (themeSettings.loginBackground) {
-      root.style.setProperty('--agency-login-background', themeSettings.loginBackground);
-    }
-  }
 });
-
-// Watch for agency changes
-watch(() => agencyStore.currentAgency, async (newAgency) => {
-  if (newAgency?.id === props.agencyId && newAgency?.theme_settings) {
-    const themeSettings = typeof newAgency.theme_settings === 'string'
-      ? JSON.parse(newAgency.theme_settings)
-      : newAgency.theme_settings;
-    
-    const root = document.documentElement;
-    if (themeSettings.fontFamily) {
-      root.style.setProperty('--agency-font-family', themeSettings.fontFamily);
-    }
-    if (themeSettings.loginBackground) {
-      root.style.setProperty('--agency-login-background', themeSettings.loginBackground);
-    }
-  }
-}, { deep: true });
 </script>
 
 <style scoped>

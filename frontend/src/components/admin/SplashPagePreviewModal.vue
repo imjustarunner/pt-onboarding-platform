@@ -10,7 +10,14 @@
         <div class="preview-container" ref="previewContainer">
           <div v-if="loading" class="loading">Loading preview...</div>
           <div v-else class="preview-content">
+            <PreviewBrandingProvider v-if="organizationId" :agency-id="organizationId">
+              <SplashPagePreview 
+                :organization-slug="organizationSlug"
+                :organization-id="organizationId"
+              />
+            </PreviewBrandingProvider>
             <SplashPagePreview 
+              v-else
               :organization-slug="organizationSlug"
               :organization-id="organizationId"
             />
@@ -24,6 +31,9 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue';
 import SplashPagePreview from './preview/SplashPagePreview.vue';
+import PreviewBrandingProvider from './preview/PreviewBrandingProvider.vue';
+import { useAgencyStore } from '../../store/agency';
+import api from '../../services/api';
 
 const props = defineProps({
   show: {
@@ -44,10 +54,42 @@ const emit = defineEmits(['close']);
 
 const previewContainer = ref(null);
 const loading = ref(false);
+const agencyStore = useAgencyStore();
+const originalAgency = ref(null);
 
 const handleClose = () => {
+  // Restore original agency context
+  if (originalAgency.value) {
+    agencyStore.setCurrentAgency(originalAgency.value);
+  } else {
+    agencyStore.setCurrentAgency(null);
+  }
   emit('close');
 };
+
+const setupAgencyContext = async () => {
+  originalAgency.value = agencyStore.currentAgency;
+  if (props.organizationId) {
+    try {
+      const response = await api.get(`/agencies/${props.organizationId}`);
+      agencyStore.setCurrentAgency(response.data);
+    } catch (e) {
+      // best effort
+    }
+  }
+};
+
+watch(() => props.show, async (newValue) => {
+  if (newValue) {
+    await setupAgencyContext();
+  }
+});
+
+onMounted(async () => {
+  if (props.show) {
+    await setupAgencyContext();
+  }
+});
 </script>
 
 <style scoped>

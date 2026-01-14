@@ -1,10 +1,10 @@
 <template>
   <div class="login-preview" ref="previewContainer">
-    <BrandingProvider>
+    <PreviewBrandingProvider :agency-id="agencyId">
       <div class="login-container">
         <div class="login-card">
           <div class="login-logo">
-            <img :src="displayLogoUrl" alt="Logo" class="logo-image" v-if="displayLogoUrl" />
+            <BrandingLogo size="xlarge" :logo-url="agencyLogoUrl" />
           </div>
           <h2>{{ displayTitle }}</h2>
           <p class="subtitle">Sign in to continue</p>
@@ -44,7 +44,7 @@
           </div>
         </div>
       </div>
-    </BrandingProvider>
+    </PreviewBrandingProvider>
   </div>
 </template>
 
@@ -52,8 +52,10 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useBrandingStore } from '../../../store/branding';
 import { useAgencyStore } from '../../../store/agency';
-import BrandingProvider from '../../../components/BrandingProvider.vue';
+import PreviewBrandingProvider from './PreviewBrandingProvider.vue';
+import BrandingLogo from '../../../components/BrandingLogo.vue';
 import api from '../../../services/api';
+import { toUploadsUrl } from '../../../utils/uploadsUrl';
 
 const props = defineProps({
   agencyId: {
@@ -67,24 +69,20 @@ const agencyStore = useAgencyStore();
 const previewContainer = ref(null);
 const loginTheme = ref(null);
 
-const displayLogoUrl = computed(() => {
-  if (loginTheme.value?.agency?.logoUrl) {
-    return loginTheme.value.agency.logoUrl;
-  }
-  return brandingStore.displayLogoUrl || brandingStore.plotTwistCoLogoUrl;
-});
-
 const displayTitle = computed(() => {
-  if (loginTheme.value?.agency?.name) {
-    const term = brandingStore.peopleOpsTerm || 'People Operations';
-    return `${loginTheme.value.agency.name} ${term} Platform`;
-  }
-  const agencyName = agencyStore.currentAgency?.name || brandingStore.platformBranding?.organization_name || '';
+  const agency = agencyStore.currentAgency;
+  const agencyName = agency?.name || brandingStore.platformBranding?.organization_name || '';
   const term = brandingStore.peopleOpsTerm || 'People Operations';
   if (!agencyName) {
     return `${term} Platform`;
   }
   return `${agencyName} ${term} Platform`;
+});
+
+const agencyLogoUrl = computed(() => {
+  const agency = agencyStore.currentAgency;
+  if (agency?.logo_path) return toUploadsUrl(agency.logo_path);
+  return agency?.logo_url || null;
 });
 
 const handlePreviewSubmit = (e) => {
@@ -145,7 +143,7 @@ watch(() => agencyStore.currentAgency, async () => {
   justify-content: center;
   align-items: center;
   min-height: 500px;
-  background: var(--agency-login-background, linear-gradient(135deg, #C69A2B 0%, #D4B04A 100%));
+  background: var(--agency-login-background, linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%));
 }
 
 .login-card {
@@ -157,10 +155,26 @@ watch(() => agencyStore.currentAgency, async () => {
   max-width: 400px;
 }
 
+.login-logo {
+  margin-bottom: 30px;
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+}
+
+.login-logo :deep(.logo-image) {
+  height: 180px !important;
+  max-height: 180px !important;
+  width: auto;
+  object-fit: contain;
+}
+
 .login-card h2 {
   text-align: center;
   margin-bottom: 10px;
-  color: var(--agency-primary-color, var(--primary));
+  color: var(--primary);
   font-weight: 700;
   letter-spacing: -0.02em;
   font-size: 28px;
@@ -188,7 +202,7 @@ watch(() => agencyStore.currentAgency, async () => {
 }
 
 .help-link {
-  color: var(--agency-primary-color, var(--primary));
+  color: var(--primary);
   text-decoration: none;
   cursor: default;
   pointer-events: none;

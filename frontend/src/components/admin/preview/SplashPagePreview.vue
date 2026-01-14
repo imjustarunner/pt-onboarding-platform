@@ -3,7 +3,7 @@
     <div class="splash-container">
       <!-- Organization Branding Header -->
       <div class="splash-header">
-        <BrandingLogo size="large" class="splash-logo" />
+        <BrandingLogo size="large" class="splash-logo" :logo-url="organizationLogoUrl" />
         <h1 v-if="organizationName" class="organization-name">{{ organizationName }}</h1>
       </div>
 
@@ -40,6 +40,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useOrganizationStore } from '../../../store/organization';
 import { useBrandingStore } from '../../../store/branding';
 import BrandingLogo from '../../../components/BrandingLogo.vue';
+import { toUploadsUrl } from '../../../utils/uploadsUrl';
 
 const props = defineProps({
   organizationSlug: {
@@ -59,6 +60,15 @@ const organizationName = computed(() => {
   return organizationStore.organizationContext?.name || 
          organizationStore.currentOrganization?.name || 
          brandingStore.displayName;
+});
+
+const organizationLogoUrl = computed(() => {
+  const org = organizationStore.currentOrganization || organizationStore.organizationContext || null;
+  if (!org) return null;
+  // org can be raw agency row: logo_path / logo_url
+  if (org.logo_path) return toUploadsUrl(org.logo_path);
+  if (org.logo_url) return org.logo_url;
+  return null;
 });
 
 const handleDigitalLink = () => {
