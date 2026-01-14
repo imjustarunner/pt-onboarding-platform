@@ -129,7 +129,11 @@ const getIconUrl = (icon) => {
   // Use the URL from the icon if available
   let iconUrl = icon.url;
   if (!iconUrl && icon.file_path) {
-    iconUrl = `/uploads/${icon.file_path}`;
+    // Normalize file_path to avoid "/uploads/uploads/..." and similar
+    let fp = icon.file_path;
+    if (fp.startsWith('/')) fp = fp.slice(1);
+    if (fp.startsWith('uploads/')) fp = fp.substring('uploads/'.length);
+    iconUrl = `/uploads/${fp}`;
   }
   if (!iconUrl) return '';
   

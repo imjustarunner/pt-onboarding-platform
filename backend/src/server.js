@@ -95,16 +95,10 @@ app.use('/uploads', async (req, res, next) => {
     const StorageService = (await import('./services/storage.service.js')).default;
     
     // Extract file path from request
-    // req.path will be like "/icons/filename.png" when route is "/uploads"
-    // We need to remove the leading "/uploads" if present, or just use req.path without leading slash
+    // When route is "/uploads", Express strips "/uploads" from req.path
+    // So req.path will be like "/icons/filename.png" or "/logos/filename.png"
+    // Files are stored in GCS as "uploads/icons/..." or "uploads/logos/..."
     let filePath = req.path;
-    
-    // Remove /uploads prefix if present
-    if (filePath.startsWith('/uploads/')) {
-      filePath = filePath.replace(/^\/uploads\//, '');
-    } else if (filePath.startsWith('/uploads')) {
-      filePath = filePath.replace(/^\/uploads/, '');
-    }
     
     // Remove leading slash (GCS paths should not start with /)
     filePath = filePath.replace(/^\//, '');
@@ -113,7 +107,12 @@ app.use('/uploads', async (req, res, next) => {
       return res.status(404).json({ error: { message: 'File not found' } });
     }
     
-    console.log(`[File Request] Requested path: ${req.path}, Extracted: ${filePath}`);
+    // Prepend "uploads/" to match GCS storage structure
+    if (!filePath.startsWith('uploads/')) {
+      filePath = `uploads/${filePath}`;
+    }
+    
+    console.log(`[File Request] Requested path: ${req.path}, GCS path: ${filePath}`);
     
     // Check if file exists in GCS before generating signed URL
     const bucket = await StorageService.getGCSBucket();
@@ -144,15 +143,26 @@ app.use('/uploads', async (req, res, next) => {
       return res.status(404).json({ error: { message: 'File not found in storage' } });
     }
     
-    // In development: proxy file through backend (works with user credentials)
-    // In production: use signed URLs
-    if (config.nodeEnv === 'development') {
+    // Determine if this is an image or font file that needs CORS headers.
+    // In production, we proxy these through backend so they load from the backend origin
+    // (avoids frontend Cloud Run 404s and avoids GCS CORS issues on redirects).
+    const isImageOrFont = req.path.match(/\.(png|jpg|jpeg|gif|svg|webp|ico|woff|woff2|ttf|otf|eot)$/i);
+    
+    // In development: always proxy
+    // In production: proxy images/fonts (CORS-safe), redirect other file types to signed URLs
+    if (config.nodeEnv === 'development' || isImageOrFont) {
       try {
         const [buffer] = await file.download();
         const [metadata] = await file.getMetadata();
         const contentType = metadata.contentType || 'application/octet-stream';
         res.setHeader('Content-Type', contentType);
         res.setHeader('Cache-Control', 'public, max-age=3600');
+        
+        if (isImageOrFont) {
+          res.setHeader('Access-Control-Allow-Origin', config.cors.origin || '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+          res.setHeader('Access-Control-Allow-Credentials', 'true');
+        }
         res.send(buffer);
         console.log(`[File Request] Successfully proxied file: ${filePath} (${contentType})`);
       } catch (proxyError) {
@@ -162,11 +172,13 @@ app.use('/uploads', async (req, res, next) => {
           const transparentPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
           res.setHeader('Content-Type', 'image/png');
           res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Access-Control-Allow-Origin', config.cors.origin || '*');
           return res.status(404).send(transparentPng);
         }
         throw proxyError;
       }
     } else {
+      // For non-image/font files in production, use signed URLs (redirect)
       const signedUrl = await StorageService.getSignedUrl(filePath, 60);
       console.log(`[File Request] Generated signed URL for: ${filePath}`);
       res.redirect(302, signedUrl);

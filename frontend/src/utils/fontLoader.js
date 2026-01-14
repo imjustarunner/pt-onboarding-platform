@@ -50,7 +50,19 @@ export async function loadFont(font) {
   try {
     // Create @font-face declaration
     const fontFormat = getFontFormat(file_path);
-    const fontUrl = `/uploads/${file_path}`;
+    // Normalize file_path - handle various formats:
+    // - Remove leading slash if present
+    // - Remove "uploads/" prefix if already present to avoid double prefix
+    // - Ensure final path is "fonts/..." or "icons/..." etc.
+    let normalizedPath = file_path.startsWith('/') ? file_path.slice(1) : file_path;
+    if (normalizedPath.startsWith('uploads/')) {
+      normalizedPath = normalizedPath.substring('uploads/'.length);
+    }
+    // Build absolute URL to backend /uploads (frontend is a separate service in prod)
+    // VITE_API_URL should be like "https://onboarding-backend.../api"
+    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+    const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+    const fontUrl = `${apiBase}/uploads/${normalizedPath}`;
     
     // Create style element for @font-face
     const style = document.createElement('style');
@@ -68,12 +80,25 @@ export async function loadFont(font) {
     // Mark as loaded
     loadedFonts.add(fontId);
     
-    // Wait for font to load (optional - can be removed if not needed)
-    await document.fonts.load(`1em '${family_name || name}'`);
+    // Wait for font to load with timeout
+    // If font fails to load (404/500), browser will use fallback
+    try {
+      await Promise.race([
+        document.fonts.load(`1em '${family_name || name}'`),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Font load timeout')), 5000))
+      ]);
+    } catch (loadError) {
+      // Font file may not exist or failed to load - silently use fallback
+      // Browser will automatically use system fonts as fallback
+    }
     
     return family_name || name;
   } catch (error) {
-    console.error('Error loading font:', error);
+    // Silently fail - browser will use system font fallback
+    // Only log in development for debugging
+    if (import.meta.env.DEV) {
+      console.warn(`Font not available, using system fallback: ${family_name || name}`, error.message);
+    }
     // Return family_name as fallback
     return family_name || name;
   }

@@ -379,18 +379,35 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
       ? JSON.parse(agency.theme_settings)
       : agency.theme_settings;
 
+    // Build a base URL for absolute asset URLs (Cloud Run is behind a proxy)
+    const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+    const host = req.get('x-forwarded-host') || req.get('host');
+    const baseUrl = `${proto}://${host}`;
+
+    const normalizeUploadsPath = (p) => {
+      if (!p) return null;
+      let cleaned = p;
+      // Allow inputs like "/uploads/icons/x.png", "uploads/icons/x.png", "icons/x.png"
+      if (cleaned.startsWith('/')) cleaned = cleaned.slice(1);
+      if (cleaned.startsWith('uploads/')) cleaned = cleaned.substring('uploads/'.length);
+      return cleaned;
+    };
+
     // Get agency logo URL (priority: logo_path > icon_file_path > logo_url)
     let agencyLogoUrl = agency.logo_url;
     if (agency.logo_path) {
-      agencyLogoUrl = `/uploads/${agency.logo_path}`;
+      const cleaned = normalizeUploadsPath(agency.logo_path);
+      agencyLogoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : agency.logo_url;
     } else if (agency.icon_file_path) {
-      agencyLogoUrl = `/uploads/${agency.icon_file_path}`;
+      const cleaned = normalizeUploadsPath(agency.icon_file_path);
+      agencyLogoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : agency.logo_url;
     }
 
     // Get platform logo URL
     let platformLogoUrl = null;
     if (platformBranding.organization_logo_path) {
-      platformLogoUrl = `/uploads/${platformBranding.organization_logo_path}`;
+      const cleaned = normalizeUploadsPath(platformBranding.organization_logo_path);
+      platformLogoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : null;
     }
 
     // Return combined theme data for login page
