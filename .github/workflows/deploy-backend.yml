@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'backend/**'
+      - 'frontend/**'  # ADDED: Now triggers when you fix frontend files too
       - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
 
@@ -40,17 +41,24 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          # We hardcode the correct Backend URL here to avoid permission errors
+          # DEBUG: Print the Admin folder to confirm the file exists and check casing
+          echo "=== DEBUG: Checking Admin Component Folder ==="
+          ls -R frontend/src/components/admin/ || echo "Folder not found"
+          echo "=============================================="
+
+          # Build the Docker image
+          # Note: We build from root context (.) because backend Dockerfile needs access to frontend folder
           docker build -f backend/Dockerfile \
             --build-arg VITE_API_URL="https://onboarding-backend-378990906760.us-west3.run.app/api" \
             -t $IMAGE_NAME:$GITHUB_SHA \
             -t $IMAGE_NAME:latest .
+
+          # Push to Google Artifact Registry
           docker push $IMAGE_NAME:$GITHUB_SHA
           docker push $IMAGE_NAME:latest
 
       - name: Deploy to Cloud Run
         run: |
-          # We hardcode CORS_ORIGIN to the FRONTEND URL so the backend trusts it
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:$GITHUB_SHA \
             --platform managed \
