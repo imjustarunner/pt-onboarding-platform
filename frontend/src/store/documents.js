@@ -121,6 +121,23 @@ export const useDocumentsStore = defineStore('documents', () => {
     }
   };
 
+  const finalizeAcroformI9 = async (taskId, wizardData, signatureData) => {
+    try {
+      loading.value = true;
+      error.value = '';
+      const response = await api.post(`/document-signing/${taskId}/acroform/i9/finalize`, {
+        wizardData,
+        signatureData
+      });
+      return response.data;
+    } catch (err) {
+      error.value = err.response?.data?.error?.message || 'Failed to finalize I-9';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  };
+
   const downloadSignedDocument = async (taskId) => {
     try {
       const response = await api.get(`/document-signing/${taskId}/download`, {
@@ -171,6 +188,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     uploadTemplate,
     createTemplate,
     signDocument,
+    finalizeAcroformI9,
     downloadSignedDocument
   };
 });

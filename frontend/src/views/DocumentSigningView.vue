@@ -3,6 +3,7 @@
     <div v-if="loading" class="loading">Loading document...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <DocumentReviewWorkflow v-else-if="task?.document_action_type === 'review'" />
+    <AcroformI9Workflow v-else-if="task?.document_action_type === 'acroform'" />
     <DocumentSigningWorkflow v-else-if="task" />
   </div>
 </template>
@@ -13,6 +14,7 @@ import { useRoute } from 'vue-router';
 import api from '../services/api';
 import DocumentSigningWorkflow from '../components/documents/DocumentSigningWorkflow.vue';
 import DocumentReviewWorkflow from '../components/documents/DocumentReviewWorkflow.vue';
+import AcroformI9Workflow from '../components/documents/AcroformI9Workflow.vue';
 
 const route = useRoute();
 const taskId = route.params.taskId;

@@ -136,39 +136,22 @@
           </div>
             
             <div class="section-divider">
-              <h3 v-if="user?.status === 'pending'">Status Management</h3>
-              <h3 v-else>Temporary Password & Status Management</h3>
+              <h3>Status Management</h3>
             </div>
             
             <div class="password-status-layout">
-              <!-- Temporary Password Section - Only for active users -->
-              <div v-if="user?.status !== 'pending' && user?.status !== 'ready_for_review'" class="temp-password-section">
-                <h4>Temporary Password</h4>
-                <div v-if="tempPasswordInfo.hasTemporaryPassword" class="temp-password-status">
-                  <p><strong>Status:</strong> Temporary password is set</p>
-                  <p v-if="tempPasswordInfo.expiresAt"><strong>Expires:</strong> {{ formatDate(tempPasswordInfo.expiresAt) }}</p>
-                </div>
-                <div v-else class="temp-password-status">
-                  <p>No temporary password set</p>
-                </div>
-                
-                <div class="temp-password-actions">
-                  <button @click="generateTempPassword" type="button" class="btn btn-success btn-sm" :disabled="generatingTempPassword">
-                    {{ generatingTempPassword ? 'Generating...' : 'Generate' }}
-                  </button>
-                  <button v-if="tempPasswordInfo.hasTemporaryPassword" @click="resetTempPassword" type="button" class="btn btn-warning btn-sm" :disabled="resettingTempPassword">
-                    {{ resettingTempPassword ? 'Resetting...' : 'Reset' }}
-                  </button>
-                </div>
-                
-                <div v-if="newTempPassword" class="temp-password-display">
-                  <p><strong>New Temporary Password:</strong></p>
-                  <div class="password-display">
-                    <input type="text" :value="newTempPassword" readonly class="password-input" ref="tempPasswordInput" />
-                    <button @click="copyTempPassword" class="btn btn-secondary btn-sm">Copy</button>
-                  </div>
-                  <p class="password-warning">⚠️ Copy this password now. It will not be shown again.</p>
-                </div>
+              <!-- Send Reset Password Link Section -->
+              <div class="reset-password-section">
+                <h4>Password Reset</h4>
+                <p>Send a password reset link to this user. They can use it to set or change their password.</p>
+                <button 
+                  @click="generateResetPasswordLink" 
+                  type="button" 
+                  class="btn btn-primary btn-sm"
+                  :disabled="generatingResetLink"
+                >
+                  {{ generatingResetLink ? 'Generating...' : 'Send Reset Password Link' }}
+                </button>
               </div>
               
               <div class="status-management">
@@ -526,6 +509,25 @@
           :userId="userId"
         />
 
+        <div v-if="activeTab === 'preferences'" class="tab-panel">
+          <h2>User Preferences</h2>
+          <div class="preferences-admin-section">
+            <p class="section-description">Manage this user's preferences. Some settings are user-editable, while others are admin-controlled.</p>
+            
+            <div class="preferences-placeholder">
+              <p>Preferences editing interface will be implemented here.</p>
+              <p class="placeholder-note">This will allow admins to edit:</p>
+              <ul>
+                <li>Notification preferences (with admin override indicators)</li>
+                <li>Work modality (admin-controlled)</li>
+                <li>Scheduling preferences (if applicable)</li>
+                <li>UI/Accessibility preferences</li>
+              </ul>
+              <p class="placeholder-note">Permission boundaries will be clearly displayed showing which settings are user-editable vs admin-controlled.</p>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
     
@@ -537,6 +539,58 @@
       @confirm="handleMoveToActive"
     />
     
+    <!-- Reset Password Link Modal -->
+    <div v-if="showResetPasswordLinkModal" class="modal-overlay" @click="closeResetPasswordLinkModal">
+      <div class="modal-content credentials-modal" @click.stop>
+        <h2>Send Reset Password Link</h2>
+        <p class="credentials-description">Copy this reset password link to send to the user. They can use it to set or change their password.</p>
+        
+        <div class="credentials-section">
+          <div class="credential-item">
+            <label>Reset Password Link:</label>
+            <div class="credential-value">
+              <input 
+                type="text" 
+                :value="resetPasswordLink" 
+                readonly 
+                class="credential-input" 
+                ref="resetLinkInput" 
+              />
+              <button @click="copyResetLink" class="btn-copy">Copy</button>
+            </div>
+            <small>This link will expire in 48 hours. If the user is inactive, they will be activated when they set their password.</small>
+          </div>
+        </div>
+        
+        <div class="credentials-actions">
+          <button 
+            @click="copyResetLink" 
+            class="btn btn-primary"
+            :disabled="!resetPasswordLink"
+          >
+            Copy Link
+          </button>
+          <button 
+            @click="sendViaTextMessage" 
+            class="btn btn-secondary"
+            disabled
+            title="SMS integration coming soon"
+          >
+            Send via Text Message
+          </button>
+          <button 
+            @click="sendViaEmail" 
+            class="btn btn-secondary"
+            disabled
+            title="Email integration coming soon"
+          >
+            Send via Email
+          </button>
+          <button @click="closeResetPasswordLinkModal" class="btn btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+
     <!-- User Credentials Modal -->
     <div v-if="showCredentialsModal" class="modal-overlay" @click="showCredentialsModal = false">
       <div class="modal-content credentials-modal large" @click.stop>
@@ -561,14 +615,7 @@
             </div>
           </div>
           
-          <div v-if="userCredentials.temporaryPassword" class="credential-item">
-            <label>Temporary Password:</label>
-            <div class="credential-value">
-              <input type="text" :value="userCredentials.temporaryPassword" readonly class="credential-input" ref="passwordInput" />
-              <button @click="copyToClipboard('password')" class="btn-copy">Copy</button>
-            </div>
-            <small>Expires in 48 hours</small>
-          </div>
+          <!-- Temporary passwords have been deprecated in favor of reset-password links -->
         </div>
         
         <!-- Generated Emails Section -->
@@ -657,7 +704,8 @@ const tabs = computed(() => {
     { id: 'account', label: 'Account' },
     { id: 'training', label: 'Training' },
     { id: 'documents', label: 'Documents' },
-    { id: 'communications', label: 'Communications' }
+    { id: 'communications', label: 'Communications' },
+    { id: 'preferences', label: 'Preferences' }
   ];
   
   if (canViewActivityLog.value) {
@@ -676,7 +724,9 @@ const accountForm = ref({
   workPhone: '',
   workPhoneExtension: '',
   role: '',
-  hasSupervisorPrivileges: false
+  hasSupervisorPrivileges: false,
+  hasProviderAccess: false,
+  hasStaffAccess: false
 });
 
 const canToggleSupervisorPrivileges = computed(() => {
@@ -694,16 +744,19 @@ watch(() => accountForm.value.role, (newRole) => {
   if (!eligibleRoles.includes(newRole)) {
     accountForm.value.hasSupervisorPrivileges = false;
   }
+  // Reset permission attributes when role changes
+  if (newRole !== 'staff' && newRole !== 'support') {
+    accountForm.value.hasProviderAccess = false;
+  }
+  if (newRole !== 'provider' && newRole !== 'clinician') {
+    accountForm.value.hasStaffAccess = false;
+  }
 });
 
-const tempPasswordInfo = ref({
-  hasTemporaryPassword: false,
-  expiresAt: null
-});
-const generatingTempPassword = ref(false);
-const resettingTempPassword = ref(false);
-const newTempPassword = ref('');
-const tempPasswordInput = ref(null);
+const showResetPasswordLinkModal = ref(false);
+const generatingResetLink = ref(false);
+const resetPasswordLink = ref('');
+const resetLinkInput = ref(null);
 
 const userAgencies = ref([]);
 const availableAgencies = ref([]);
@@ -725,7 +778,6 @@ const userCredentials = ref({
   token: '',
   tokenLink: '',
   username: '',
-  temporaryPassword: '',
   generatedEmails: []
 });
 
@@ -778,11 +830,11 @@ const fetchUser = async () => {
       workPhone: user.value.work_phone || accountForm.value?.workPhone || '',
       workPhoneExtension: user.value.work_phone_extension || accountForm.value?.workPhoneExtension || '',
       role: currentRole,
-      hasSupervisorPrivileges: currentHasSupervisorPrivileges
+      hasSupervisorPrivileges: currentHasSupervisorPrivileges,
+      hasProviderAccess: user.value.has_provider_access === true || user.value.has_provider_access === 1 || user.value.has_provider_access === '1' || false,
+      hasStaffAccess: user.value.has_staff_access === true || user.value.has_staff_access === 1 || user.value.has_staff_access === '1' || false
     };
     
-    // Fetch temp password info
-    await fetchTempPasswordInfo();
     // Fetch user agencies
     await fetchUserAgencies();
     // Fetch available agencies
@@ -1028,6 +1080,14 @@ const saveAccount = async () => {
       console.log('Cannot toggle supervisor privileges - user role:', accountForm.value.role, 'canToggle:', canToggleSupervisorPrivileges.value);
     }
     
+    // Include permission attributes for cross-role capabilities
+    if (accountForm.value.role === 'staff' || accountForm.value.role === 'support') {
+      updateData.hasProviderAccess = Boolean(accountForm.value.hasProviderAccess);
+    }
+    if (accountForm.value.role === 'provider' || accountForm.value.role === 'clinician') {
+      updateData.hasStaffAccess = Boolean(accountForm.value.hasStaffAccess);
+    }
+    
     console.log('Update data being sent:', updateData);
     const response = await api.put(`/users/${userId.value}`, updateData);
     // Always fetch fresh user data to ensure all fields are up to date
@@ -1040,57 +1100,45 @@ const saveAccount = async () => {
   }
 };
 
-const fetchTempPasswordInfo = async () => {
+const generateResetPasswordLink = async () => {
   try {
-    const response = await api.get(`/users/${userId.value}/credentials`);
-    tempPasswordInfo.value = {
-      hasTemporaryPassword: response.data.hasTemporaryPassword,
-      expiresAt: response.data.temporaryPasswordExpiresAt
-    };
+    generatingResetLink.value = true;
+    const response = await api.post(`/users/${userId.value}/send-reset-password-link`);
+    resetPasswordLink.value = response.data.tokenLink;
+    showResetPasswordLinkModal.value = true;
   } catch (err) {
-    console.error('Failed to fetch temp password info:', err);
-  }
-};
-
-const generateTempPassword = async () => {
-  try {
-    generatingTempPassword.value = true;
-    const response = await api.post(`/users/${userId.value}/generate-temp-password`);
-    newTempPassword.value = response.data.temporaryPassword;
-    await fetchTempPasswordInfo();
-  } catch (err) {
-    error.value = err.response?.data?.error?.message || 'Failed to generate temporary password';
+    error.value = err.response?.data?.error?.message || 'Failed to generate reset password link';
+    alert(error.value);
   } finally {
-    generatingTempPassword.value = false;
+    generatingResetLink.value = false;
   }
 };
 
-const resetTempPassword = async () => {
-  if (!confirm('Are you sure you want to reset the temporary password? This will generate a new one.')) {
-    return;
-  }
-  
-  try {
-    resettingTempPassword.value = true;
-    const response = await api.post(`/users/${userId.value}/generate-temp-password`);
-    newTempPassword.value = response.data.temporaryPassword;
-    await fetchTempPasswordInfo();
-  } catch (err) {
-    error.value = err.response?.data?.error?.message || 'Failed to reset temporary password';
-  } finally {
-    resettingTempPassword.value = false;
-  }
-};
-
-const copyTempPassword = async () => {
-  if (tempPasswordInput.value) {
-    tempPasswordInput.value.select();
+const copyResetLink = async () => {
+  if (resetLinkInput.value) {
+    resetLinkInput.value.select();
     try {
-      await navigator.clipboard.writeText(newTempPassword.value);
+      await navigator.clipboard.writeText(resetPasswordLink.value);
+      // Could show a toast notification here
     } catch (err) {
       console.error('Failed to copy:', err);
     }
   }
+};
+
+const closeResetPasswordLinkModal = () => {
+  showResetPasswordLinkModal.value = false;
+  resetPasswordLink.value = '';
+};
+
+const sendViaTextMessage = () => {
+  // Placeholder for future SMS API integration
+  alert('SMS integration coming soon');
+};
+
+const sendViaEmail = () => {
+  // Placeholder for future Email API integration
+  alert('Email integration coming soon');
 };
 
 const formatDate = (dateString) => {
@@ -1223,7 +1271,6 @@ const handleMoveToActive = async (data) => {
         token: response.data.credentials.passwordlessToken,
         tokenLink: response.data.credentials.passwordlessTokenLink,
         username: response.data.credentials.workEmail,
-        temporaryPassword: response.data.credentials.temporaryPassword,
         generatedEmails: response.data.credentials.generatedEmail ? [{
           type: 'Welcome Active',
           subject: response.data.credentials.emailSubject || 'Your Account Credentials',
@@ -1333,7 +1380,6 @@ const closeCredentialsModal = () => {
     token: '',
     tokenLink: '',
     username: '',
-    temporaryPassword: '',
     generatedEmails: []
   };
 };
@@ -1344,11 +1390,6 @@ const copyToClipboard = async (type) => {
     text = userCredentials.value.tokenLink || '';
   } else if (type === 'username') {
     text = userCredentials.value.username;
-  } else if (type === 'password') {
-    if (!userCredentials.value.temporaryPassword) {
-      return;
-    }
-    text = userCredentials.value.temporaryPassword;
   }
   
   try {
@@ -1389,9 +1430,6 @@ const copyAllCredentials = async () => {
     parts.push(`Passwordless Login Link: ${userCredentials.value.tokenLink}`);
   }
   parts.push(`Username: ${userCredentials.value.username}`);
-  if (userCredentials.value.temporaryPassword) {
-    parts.push(`Temporary Password: ${userCredentials.value.temporaryPassword}`);
-  }
   
   const allText = parts.join('\n');
   
@@ -1537,6 +1575,48 @@ onMounted(async () => {
   color: var(--text-primary);
 }
 
+.preferences-admin-section {
+  background: white;
+  border-radius: 8px;
+  padding: 32px;
+  border: 1px solid var(--border);
+}
+
+.preferences-admin-section .section-description {
+  margin-bottom: 24px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.preferences-placeholder {
+  padding: 40px;
+  text-align: center;
+  background: var(--bg-alt);
+  border-radius: 8px;
+  border: 2px dashed var(--border);
+}
+
+.preferences-placeholder p {
+  margin: 0 0 16px 0;
+  color: var(--text-secondary);
+  font-size: 16px;
+}
+
+.preferences-placeholder ul {
+  text-align: left;
+  display: inline-block;
+  margin: 16px 0;
+  color: var(--text-secondary);
+}
+
+.preferences-placeholder .placeholder-note {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-style: italic;
+  opacity: 0.8;
+  margin-top: 16px;
+}
+
 .account-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1662,12 +1742,32 @@ onMounted(async () => {
   align-items: start;
 }
 
+.reset-password-section h4,
 .temp-password-section h4,
 .status-management h4 {
   margin-top: 0;
   margin-bottom: 12px;
   color: var(--text-primary);
   font-size: 16px;
+}
+
+.reset-password-section {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: var(--bg-secondary, #f9fafb);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.reset-password-section h4 {
+  margin: 0 0 8px 0;
+  color: var(--text-primary);
+}
+
+.reset-password-section p {
+  margin: 0 0 12px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
 }
 
 .temp-password-section {

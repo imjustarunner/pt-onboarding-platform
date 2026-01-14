@@ -49,6 +49,13 @@
             >
               Review/Acknowledgment Only
             </button>
+            <button
+              type="button"
+              @click="formData.documentActionType = 'acroform'"
+              :class="['action-btn', { active: formData.documentActionType === 'acroform' }]"
+            >
+              AcroForm Wizard (Auto-fill PDF)
+            </button>
           </div>
           <small>This cannot be changed when assigning the document. Select how users will interact with this document.</small>
         </div>
@@ -71,7 +78,7 @@
         </div>
 
         <!-- Signature Coordinate Picker -->
-        <div v-if="formData.documentActionType === 'signature' && selectedFile && pdfUrl" class="form-group signature-coordinate-section">
+        <div v-if="(formData.documentActionType === 'signature' || formData.documentActionType === 'acroform') && selectedFile && pdfUrl" class="form-group signature-coordinate-section">
           <PDFSignatureCoordinatePicker
             :key="pdfUrl"
             :pdf-url="pdfUrl"

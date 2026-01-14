@@ -9,6 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { validationResult } from 'express-validator';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
+import I9AcroformService from '../services/acroforms/i9.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -674,6 +675,167 @@ export const signDocument = async (req, res, next) => {
         })
       }
     });
+  }
+};
+
+export const finalizeI9Acroform = async (req, res, next) => {
+  try {
+    const { taskId } = req.params;
+    const userId = req.user.id;
+    const ipAddress = getClientIpAddress(req);
+    const userAgent = req.get('user-agent');
+
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const { wizardData, signatureData } = req.body;
+
+    const task = await Task.findById(taskId);
+    if (!task || task.task_type !== 'document') {
+      return res.status(404).json({ error: { message: 'Document task not found' } });
+    }
+
+    // Verify access (same approach as getDocumentTask)
+    let userHasAccess = false;
+    if (task.assigned_to_user_id === userId) {
+      userHasAccess = true;
+    } else if (task.assigned_to_agency_id) {
+      try {
+        const User = (await import('../models/User.model.js')).default;
+        const userAgencies = await User.getAgencies(userId);
+        userHasAccess = userAgencies.some(a => a.id === task.assigned_to_agency_id);
+      } catch (e) {
+        // fall back
+        const userTasks = await Task.findByUser(userId);
+        userHasAccess = userTasks.some(t => t.id === parseInt(taskId));
+      }
+    } else {
+      const userTasks = await Task.findByUser(userId);
+      userHasAccess = userTasks.some(t => t.id === parseInt(taskId));
+    }
+
+    if (!userHasAccess) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const template = await DocumentTemplate.findById(task.reference_id);
+    if (!template) {
+      return res.status(404).json({ error: { message: 'Document template not found' } });
+    }
+
+    if (template.document_action_type !== 'acroform') {
+      return res.status(400).json({ error: { message: 'This document is not an acroform workflow' } });
+    }
+
+    if (template.template_type !== 'pdf' || !template.file_path) {
+      return res.status(400).json({ error: { message: 'Acroform templates must be PDF templates with a file_path' } });
+    }
+
+    // If already finalized, block
+    const existingSigned = await SignedDocument.findByTask(taskId);
+    if (existingSigned && existingSigned.signed_pdf_path && existingSigned.signed_pdf_path.trim() !== '') {
+      return res.status(400).json({ error: { message: 'Document already signed' } });
+    }
+
+    // If incomplete record exists, clean up to start fresh
+    if (existingSigned) {
+      try {
+        await pool.execute('DELETE FROM document_signature_workflow WHERE signed_document_id = ?', [existingSigned.id]);
+        await pool.execute('DELETE FROM signed_documents WHERE id = ?', [existingSigned.id]);
+      } catch (e) {
+        // ignore cleanup failure; we’ll try to proceed creating a new record
+      }
+    }
+
+    const signedDoc = await SignedDocument.create({
+      documentTemplateId: template.id,
+      templateVersion: template.version || 1,
+      userId,
+      taskId: parseInt(taskId),
+      signedPdfPath: null,
+      pdfHash: null,
+      ipAddress: ipAddress || 'unknown',
+      userAgent: userAgent || 'unknown',
+      auditTrail: {}
+    });
+
+    let workflow = await DocumentSignatureWorkflow.findBySignedDocument(signedDoc.id);
+    if (!workflow) {
+      workflow = await DocumentSignatureWorkflow.create(signedDoc.id);
+    }
+
+    // Ensure consent + intent exist (wizard is allowed to finalize directly)
+    workflow = await DocumentSignatureWorkflow.recordConsent(signedDoc.id, ipAddress, userAgent);
+    workflow = await DocumentSignatureWorkflow.recordIntent(signedDoc.id, ipAddress, userAgent);
+
+    const User = (await import('../models/User.model.js')).default;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    // Include agency identifier on certificate page
+    let agencyIdentifier = null;
+    try {
+      const agencyId = template.agency_id || task.assigned_to_agency_id || null;
+      if (agencyId) {
+        const Agency = (await import('../models/Agency.model.js')).default;
+        const agency = await Agency.findById(agencyId);
+        if (agency) {
+          agencyIdentifier = `${agency.id}:${agency.slug || agency.name}`;
+        }
+      }
+    } catch {
+      agencyIdentifier = null;
+    }
+
+    const signatureCoords = {
+      x: template.signature_x,
+      y: template.signature_y,
+      width: template.signature_width,
+      height: template.signature_height,
+      page: template.signature_page
+    };
+
+    const { pdfBytes, pdfHash, fieldWriteSummary } = await I9AcroformService.generateFinalizedI9({
+      templatePath: template.file_path,
+      wizardData,
+      signatureData,
+      signatureCoords,
+      workflowData: { ...workflow, agency_identifier: agencyIdentifier },
+      userData: { firstName: user.first_name, lastName: user.last_name, email: user.email, userId: user.id },
+      auditTrail: signedDoc.audit_trail || {}
+    });
+
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const filename = `acroform-i9-${signedDoc.id}-${Date.now()}.pdf`;
+    const storageResult = await StorageService.saveSignedDocument(userId, signedDoc.id, pdfBytes, filename);
+
+    // Avoid storing sensitive I-9 data in audit trail; only store a minimal summary.
+    const safeSummary = {
+      document: 'I-9',
+      completedAt: new Date().toISOString(),
+      fieldWriteSummary,
+      ssnLast4: typeof wizardData?.ssn === 'string' ? wizardData.ssn.replace(/\D/g, '').slice(-4) : null
+    };
+
+    await pool.execute(
+      'UPDATE signed_documents SET signed_pdf_path = ?, pdf_hash = ?, audit_trail = ? WHERE id = ?',
+      [storageResult.relativePath, pdfHash, JSON.stringify({ ...(signedDoc.audit_trail || {}), acroform_i9: safeSummary }), signedDoc.id]
+    );
+
+    await DocumentSignatureWorkflow.finalize(signedDoc.id);
+    await Task.markComplete(taskId, userId);
+
+    res.json({
+      success: true,
+      signedDocument: await SignedDocument.findById(signedDoc.id),
+      downloadUrl: `/api/document-signing/${taskId}/download`
+    });
+  } catch (error) {
+    next(error);
   }
 };
 
