@@ -36,6 +36,11 @@ yarn-error.log*
 # Docker
 docker-compose.override.yml
 
+## Local-only tooling / binaries (do not commit)
+backend/cloud-sql-proxy
+backend/backend/cloud-sql-proxy
+backend/backend/
+
 node_modules/
 .env
 .env.*
