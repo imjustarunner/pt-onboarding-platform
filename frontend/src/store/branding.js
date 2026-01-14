@@ -125,6 +125,43 @@ export const useBrandingStore = defineStore('branding', () => {
       root.style.setProperty('--agency-login-background', `linear-gradient(135deg, ${colorPalette.primary} 0%, ${colorPalette.secondary || colorPalette.primary} 100%)`);
     }
   };
+
+  const setPortalThemeData = (themeData) => {
+    if (!themeData) return;
+    portalTheme.value = themeData;
+    portalAgency.value = {
+      name: themeData.agencyName || themeData.name || portalAgency.value?.name || null,
+      colorPalette: themeData.colorPalette || {},
+      logoUrl: themeData.logoUrl || null,
+      themeSettings: themeData.themeSettings || {},
+      terminologySettings: themeData.terminologySettings || {}
+    };
+    applyTheme(themeData);
+  };
+
+  const setPortalThemeFromLoginTheme = (loginTheme) => {
+    if (!loginTheme?.agency) return;
+    setPortalThemeData({
+      agencyName: loginTheme.agency.name,
+      colorPalette: loginTheme.agency.colorPalette || {},
+      logoUrl: loginTheme.agency.logoUrl || null,
+      themeSettings: loginTheme.agency.themeSettings || {},
+      terminologySettings: loginTheme.agency.terminologySettings || {}
+    });
+  };
+
+  const clearPortalTheme = () => {
+    portalAgency.value = null;
+    portalTheme.value = null;
+
+    // Clear any agency-specific CSS variables to avoid “flash” when returning to /login
+    const root = document.documentElement;
+    root.style.removeProperty('--agency-primary-color');
+    root.style.removeProperty('--agency-secondary-color');
+    root.style.removeProperty('--agency-accent-color');
+    root.style.removeProperty('--agency-font-family');
+    root.style.removeProperty('--agency-login-background');
+  };
   
   // Initialize portal theme on app load
   const initializePortalTheme = async () => {
@@ -504,6 +541,9 @@ export const useBrandingStore = defineStore('branding', () => {
     fetchAgencyTheme,
     initializePortalTheme,
     applyTheme,
+    setPortalThemeData,
+    setPortalThemeFromLoginTheme,
+    clearPortalTheme,
     getNotificationIconUrl
   };
 });

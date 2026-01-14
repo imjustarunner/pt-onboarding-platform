@@ -414,6 +414,7 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
     res.json({
       agency: {
         name: agency.name,
+        organizationType: agency.organization_type || 'agency',
         logoUrl: agencyLogoUrl,
         colorPalette: colorPalette || {},
         themeSettings: themeSettings || {}

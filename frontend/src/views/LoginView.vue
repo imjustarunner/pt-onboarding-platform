@@ -1,69 +1,71 @@
 <template>
-  <BrandingProvider>
-    <div class="login-container">
-    <div class="login-card">
-      <div class="login-logo">
-        <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="handleLogoError" v-if="displayLogoUrl" />
-      </div>
-      <h2>{{ displayTitle }}</h2>
-      <p class="subtitle">Sign in to continue</p>
-      
-      <div v-if="error" class="error" v-html="formatError(error)"></div>
-      
-      <form @submit.prevent="handleLogin" class="login-form">
-        <div class="form-group">
-          <label for="email">Email</label>
-          <input
-            id="email"
-            v-model="email"
-            type="email"
-            required
-            placeholder="Enter your email"
-          />
+  <div class="login-page">
+    <div class="login-container" :style="{ background: loginBackground }">
+      <div class="login-card">
+        <div class="login-logo">
+          <img :src="displayLogoUrl" alt="Logo" class="logo-image" @error="handleLogoError" v-if="displayLogoUrl" />
+        </div>
+        <h2>{{ displayTitle }}</h2>
+        <p class="subtitle">Sign in to continue</p>
+        
+        <div v-if="error" class="error" v-html="formatError(error)"></div>
+        
+        <form @submit.prevent="handleLogin" class="login-form">
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input
+              id="email"
+              v-model="email"
+              type="email"
+              required
+              placeholder="Enter your email"
+            />
+          </div>
+          
+          <div class="form-group">
+            <label for="password">Password</label>
+            <input
+              id="password"
+              v-model="password"
+              type="password"
+              required
+              placeholder="Enter your password"
+            />
+          </div>
+          
+          <button type="submit" class="btn btn-primary" :disabled="loading">
+            {{ loading ? 'Signing in...' : 'Sign In' }}
+          </button>
+        </form>
+        
+        <div class="login-help">
+          <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
+          <span class="help-separator">|</span>
+          <a href="#" @click.prevent="showForgotUsername" class="help-link">Forgot Username?</a>
         </div>
         
-        <div class="form-group">
-          <label for="password">Password</label>
-          <input
-            id="password"
-            v-model="password"
-            type="password"
-            required
-            placeholder="Enter your password"
-          />
+        <div v-if="showForgotPasswordMessage" class="help-message">
+          <p>Please contact an administrator to reset your password.</p>
+          <button @click="showForgotPasswordMessage = false" class="btn-close-help">Close</button>
         </div>
         
-        <button type="submit" class="btn btn-primary" :disabled="loading">
-          {{ loading ? 'Signing in...' : 'Sign In' }}
-        </button>
-      </form>
-      
-      <div class="login-help">
-        <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
-        <span class="help-separator">|</span>
-        <a href="#" @click.prevent="showForgotUsername" class="help-link">Forgot Username?</a>
-      </div>
-      
-      <div v-if="showForgotPasswordMessage" class="help-message">
-        <p>Please contact an administrator to reset your password.</p>
-        <button @click="showForgotPasswordMessage = false" class="btn-close-help">Close</button>
-      </div>
-      
-      <div v-if="showForgotUsernameMessage" class="help-message">
-        <p>Use your company work email to log in. If you don't have one, please contact your administrator.</p>
-        <button @click="showForgotUsernameMessage = false" class="btn-close-help">Close</button>
+        <div v-if="showForgotUsernameMessage" class="help-message">
+          <p>Use your company work email to log in. If you don't have one, please contact your administrator.</p>
+          <button @click="showForgotUsernameMessage = false" class="btn-close-help">Close</button>
+        </div>
       </div>
     </div>
+    <PoweredByFooter />
   </div>
-  </BrandingProvider>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
+import PoweredByFooter from '../components/PoweredByFooter.vue';
 import api from '../services/api';
 import { getDashboardRoute } from '../utils/router';
 
@@ -74,9 +76,13 @@ const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 
-// Check if this is an agency-specific login page
-const isAgencyLogin = computed(() => route.params.agencySlug && route.meta.agencySlug);
-const agencySlug = computed(() => route.params.agencySlug);
+// Check if this is an organization-specific login page (supports both legacy agencySlug and new organizationSlug)
+const loginSlug = computed(() => {
+  if (route.meta?.organizationSlug && route.params?.organizationSlug) return route.params.organizationSlug;
+  if (route.meta?.agencySlug && route.params?.agencySlug) return route.params.agencySlug;
+  return null;
+});
+const isOrgLogin = computed(() => !!loginSlug.value);
 
 // Agency login theme data
 const loginTheme = ref(null);
@@ -84,14 +90,14 @@ const loadingTheme = ref(false);
 
 // Logo and title for agency login
 const displayLogoUrl = computed(() => {
-  if (isAgencyLogin.value && loginTheme.value?.agency?.logoUrl) {
+  if (isOrgLogin.value && loginTheme.value?.agency?.logoUrl) {
     return loginTheme.value.agency.logoUrl;
   }
   return brandingStore.displayLogoUrl || brandingStore.plotTwistCoLogoUrl;
 });
 
 const displayTitle = computed(() => {
-  if (isAgencyLogin.value && loginTheme.value?.agency?.name) {
+  if (isOrgLogin.value && loginTheme.value?.agency?.name) {
     const term = brandingStore.peopleOpsTerm || 'People Operations';
     return `${loginTheme.value.agency.name} ${term} Platform`;
   }
@@ -104,7 +110,7 @@ const displayTitle = computed(() => {
 });
 
 const loginBackground = computed(() => {
-  if (isAgencyLogin.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
+  if (isOrgLogin.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
     return loginTheme.value.agency.themeSettings.loginBackground;
   }
   return brandingStore.loginBackground;
@@ -112,7 +118,7 @@ const loginBackground = computed(() => {
 
 // Platform branding for "powered by" footer
 const platformOrgName = computed(() => {
-  if (isAgencyLogin.value && loginTheme.value?.platform?.organizationName) {
+  if (isOrgLogin.value && loginTheme.value?.platform?.organizationName) {
     return loginTheme.value.platform.organizationName;
   }
   return brandingStore.platformBranding?.organization_name || '';
@@ -124,6 +130,8 @@ const fetchLoginTheme = async (portalUrl) => {
     loadingTheme.value = true;
     const response = await api.get(`/agencies/portal/${portalUrl}/login-theme`);
     loginTheme.value = response.data;
+    // Apply org theme so CSS variables (colors/background/fonts) match the org on /{slug}/login
+    brandingStore.setPortalThemeFromLoginTheme(response.data);
   } catch (error) {
     console.error('Failed to fetch login theme:', error);
     // If agency not found, redirect to default login
@@ -137,15 +145,26 @@ const fetchLoginTheme = async (portalUrl) => {
 
 // Ensure branding is loaded before rendering
 onMounted(async () => {
-  if (isAgencyLogin.value && agencySlug.value) {
+  if (isOrgLogin.value && loginSlug.value) {
     // Fetch agency-specific login theme
-    await fetchLoginTheme(agencySlug.value);
+    await fetchLoginTheme(loginSlug.value);
   } else {
-    // Initialize portal theme if on subdomain
+    // Platform login: ensure no stale org theme sticks around
+    brandingStore.clearPortalTheme();
+    // Initialize portal theme if on subdomain (separate from slug-based org logins)
     await brandingStore.initializePortalTheme();
   }
-  // Fetch platform branding as fallback
-  await brandingStore.fetchPlatformBranding();
+});
+
+// If the slug changes while this view is mounted, refresh the login theme
+watch(loginSlug, async (newSlug, oldSlug) => {
+  if (newSlug && newSlug !== oldSlug) {
+    await fetchLoginTheme(newSlug);
+  }
+  if (!newSlug && oldSlug) {
+    loginTheme.value = null;
+    brandingStore.clearPortalTheme();
+  }
 });
 
 const email = ref('');
@@ -207,11 +226,17 @@ const handleLogoError = (event) => {
 
 <style>
 /* Login page styles - use dynamic theme from branding store */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 .login-container {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
+  flex: 1;
   /* Use dynamic background from theme */
   background: var(--agency-login-background, linear-gradient(135deg, #C69A2B 0%, #D4B04A 100%));
   transition: background 0.3s ease;
@@ -226,10 +251,26 @@ const handleLogoError = (event) => {
   max-width: 400px;
 }
 
+.login-logo {
+  margin-bottom: 30px;
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+}
+
+.login-logo .logo-image {
+  height: 180px;
+  max-height: 180px;
+  width: auto;
+  object-fit: contain;
+}
+
 .login-card h2 {
   text-align: center;
   margin-bottom: 10px;
-  color: var(--agency-primary-color, var(--primary));
+  color: var(--primary-color, var(--primary, #C69A2B));
   font-weight: 700;
   letter-spacing: -0.02em;
   font-size: 28px;
@@ -287,14 +328,14 @@ const handleLogoError = (event) => {
 }
 
 .help-link {
-  color: var(--agency-primary-color, var(--primary));
+  color: var(--primary-color, var(--primary, #C69A2B));
   text-decoration: none;
   cursor: pointer;
   transition: color 0.2s;
 }
 
 .help-link:hover {
-  color: var(--agency-accent-color, var(--accent));
+  color: var(--accent-color, var(--accent, #3A4C6B));
   text-decoration: underline;
 }
 
@@ -307,7 +348,7 @@ const handleLogoError = (event) => {
   margin-top: 15px;
   padding: 15px;
   background-color: var(--bg-alt);
-  border-left: 4px solid var(--agency-primary-color, var(--primary));
+  border-left: 4px solid var(--primary-color, var(--primary, #C69A2B));
   border-radius: 4px;
   font-size: 14px;
   color: var(--text-primary);
@@ -320,7 +361,7 @@ const handleLogoError = (event) => {
 .btn-close-help {
   background: none;
   border: none;
-  color: var(--agency-primary-color, var(--primary));
+  color: var(--primary-color, var(--primary, #C69A2B));
   cursor: pointer;
   font-size: 12px;
   text-decoration: underline;
@@ -328,7 +369,7 @@ const handleLogoError = (event) => {
 }
 
 .btn-close-help:hover {
-  color: var(--agency-accent-color, var(--accent));
+  color: var(--accent-color, var(--accent, #3A4C6B));
 }
 </style>
 

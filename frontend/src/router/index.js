@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../store/auth';
+import { useBrandingStore } from '../store/branding';
 import { getDashboardRoute } from '../utils/router';
 import { getLoginUrl } from '../utils/loginRedirect';
 
@@ -28,6 +29,12 @@ const routes = [
     path: '/:organizationSlug/new_account/:token',
     name: 'NewAccount',
     component: () => import('../views/InitialSetupView.vue'),
+    meta: { requiresGuest: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/passwordless-login/:token',
+    name: 'OrganizationPasswordlessTokenLogin',
+    component: () => import('../views/PasswordlessTokenLoginView.vue'),
     meta: { requiresGuest: true, organizationSlug: true }
   },
   {
@@ -61,6 +68,12 @@ const routes = [
     name: 'Dashboard',
     component: () => import('../views/DashboardView.vue'),
     meta: { requiresAuth: true, blockApprovedEmployees: true }
+  },
+  {
+    path: '/preferences',
+    name: 'Preferences',
+    component: () => import('../views/PreferencesView.vue'),
+    meta: { requiresAuth: true }
   },
   {
     path: '/module/:id',
@@ -97,6 +110,12 @@ const routes = [
     name: 'UserManager',
     component: () => import('../views/admin/UserManager.vue'),
     meta: { requiresAuth: true, requiresRole: 'admin' }
+  },
+  {
+    path: '/admin/clients',
+    name: 'ClientManagement',
+    component: () => import('../views/admin/ClientManagementView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'provider'] }
   },
   {
     path: '/admin/settings',
@@ -212,9 +231,15 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore();
+  const brandingStore = useBrandingStore();
   const userStatus = authStore.user?.status;
   const isPending = userStatus === 'pending';
   const isReadyForReview = userStatus === 'ready_for_review';
+
+  // Prevent stale org branding “flash” when going to platform login
+  if (to.path === '/login') {
+    brandingStore.clearPortalTheme();
+  }
   
   // Handle root path redirect based on user role
   if (to.path === '/' && authStore.isAuthenticated) {

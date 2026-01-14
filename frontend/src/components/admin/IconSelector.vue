@@ -86,6 +86,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const props = defineProps({
   modelValue: {
@@ -133,7 +134,7 @@ const getIconUrl = (icon) => {
     let fp = icon.file_path;
     if (fp.startsWith('/')) fp = fp.slice(1);
     if (fp.startsWith('uploads/')) fp = fp.substring('uploads/'.length);
-    iconUrl = `/uploads/${fp}`;
+    iconUrl = toUploadsUrl(fp);
   }
   if (!iconUrl) return '';
   

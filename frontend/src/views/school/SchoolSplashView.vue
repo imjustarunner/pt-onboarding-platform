@@ -56,6 +56,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useOrganizationStore } from '../../store/organization';
 import { useBrandingStore } from '../../store/branding';
+import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import ReferralUpload from '../../components/school/ReferralUpload.vue';
 import StaffLoginModal from '../../components/school/StaffLoginModal.vue';
@@ -103,13 +104,27 @@ onMounted(async () => {
       router.push('/login');
       return;
     }
-    
-    // Verify this is a school organization
-    const orgType = org.organization_type || 'agency';
-    if (orgType !== 'school') {
-      // If not a school, redirect to login for that organization
-      router.push(`/${organizationSlug.value}/login`);
+
+    // Fetch login-theme to determine organization type (and support future branding needs)
+    // If this is NOT a school, redirect to the org login page.
+    try {
+      const themeRes = await api.get(`/agencies/portal/${organizationSlug.value}/login-theme`);
+      const orgType = themeRes.data?.agency?.organizationType || org.organization_type || 'agency';
+      if (orgType !== 'school') {
+        router.push(`/${organizationSlug.value}/login`);
+        return;
+      }
+    } catch (e) {
+      // If login-theme fails, fall back to org.organization_type from slug lookup
+      const orgType = org.organization_type || 'agency';
+      if (orgType !== 'school') {
+        router.push(`/${organizationSlug.value}/login`);
+        return;
+      }
     }
+
+    // If this IS a school, apply portal theme so splash is fully branded
+    await brandingStore.fetchAgencyTheme(organizationSlug.value);
   }
 });
 </script>

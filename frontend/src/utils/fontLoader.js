@@ -5,6 +5,8 @@
  * Supports both uploaded fonts (with file_path) and system fonts (family_name only).
  */
 
+import { toUploadsUrl } from './uploadsUrl';
+
 // Track loaded fonts to avoid duplicate @font-face declarations
 const loadedFonts = new Set();
 
@@ -58,11 +60,7 @@ export async function loadFont(font) {
     if (normalizedPath.startsWith('uploads/')) {
       normalizedPath = normalizedPath.substring('uploads/'.length);
     }
-    // Build absolute URL to backend /uploads (frontend is a separate service in prod)
-    // VITE_API_URL should be like "https://onboarding-backend.../api"
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-    const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-    const fontUrl = `${apiBase}/uploads/${normalizedPath}`;
+    const fontUrl = toUploadsUrl(normalizedPath);
     
     // Create style element for @font-face
     const style = document.createElement('style');

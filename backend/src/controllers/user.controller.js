@@ -497,7 +497,7 @@ export const getUserById = async (req, res, next) => {
 export const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { firstName, lastName, role, hasSupervisorPrivileges, personalPhone, workPhone, workPhoneExtension } = req.body;
+    const { firstName, lastName, role, hasSupervisorPrivileges, hasProviderAccess, hasStaffAccess, personalPhone, workPhone, workPhoneExtension } = req.body;
     
     console.log('updateUser called with:', { id, role, hasSupervisorPrivileges, body: req.body });
 
@@ -646,6 +646,27 @@ export const updateUser = async (req, res, next) => {
       }
     } else {
       console.log('hasSupervisorPrivileges is undefined, skipping toggle processing');
+    }
+    
+    // Handle permission attributes for cross-role capabilities
+    if (hasProviderAccess !== undefined) {
+      const targetUser = await User.findById(id);
+      if (targetUser) {
+        // Only allow provider access for staff/support roles
+        if (targetUser.role === 'staff' || targetUser.role === 'support' || (role && (role === 'staff' || role === 'support'))) {
+          updateData.hasProviderAccess = Boolean(hasProviderAccess);
+        }
+      }
+    }
+    
+    if (hasStaffAccess !== undefined) {
+      const targetUser = await User.findById(id);
+      if (targetUser) {
+        // Only allow staff access for provider/clinician roles
+        if (targetUser.role === 'provider' || targetUser.role === 'clinician' || (role && (role === 'provider' || role === 'clinician'))) {
+          updateData.hasStaffAccess = Boolean(hasStaffAccess);
+        }
+      }
     }
     
     // Handle phone number updates
@@ -924,7 +945,12 @@ export const resetPasswordlessToken = async (req, res, next) => {
     
     // Get frontend URL for the link
     const config = (await import('../config/config.js')).default;
-    const passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${tokenResult.token}`;
+    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
+    const userAgencies = await User.getAgencies(userId);
+    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+    const passwordlessTokenLink = portalSlug
+      ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
+      : `${frontendBase}/passwordless-login/${tokenResult.token}`;
     
     res.json({
       token: tokenResult.token,
@@ -932,6 +958,55 @@ export const resetPasswordlessToken = async (req, res, next) => {
       expiresAt: tokenResult.expiresAt,
       expiresInHours: finalExpiresInHours,
       message: 'Passwordless token reset successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const sendResetPasswordLink = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { expiresInHours } = req.body;
+    const userId = parseInt(id);
+    
+    // Verify user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+    
+    // Check permissions: Only admins/super_admins/support can send reset links
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    
+    // Calculate expiration (default 48 hours)
+    const finalExpiresInHours = expiresInHours ? parseInt(expiresInHours) : 48;
+    
+    // Ensure minimum 1 hour expiration
+    if (finalExpiresInHours < 1) {
+      return res.status(400).json({ error: { message: 'Expiration must be at least 1 hour' } });
+    }
+    
+    // Generate passwordless token
+    const tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours);
+    
+    // Get frontend URL for the link
+    const config = (await import('../config/config.js')).default;
+    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
+    const userAgencies = await User.getAgencies(userId);
+    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+    const passwordlessTokenLink = portalSlug
+      ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
+      : `${frontendBase}/passwordless-login/${tokenResult.token}`;
+    
+    res.json({
+      token: tokenResult.token,
+      tokenLink: passwordlessTokenLink,
+      expiresAt: tokenResult.expiresAt,
+      expiresInHours: finalExpiresInHours,
+      message: 'Reset password link generated successfully'
     });
   } catch (error) {
     next(error);
@@ -1095,7 +1170,17 @@ export const getAccountInfo = async (req, res, next) => {
     // For pending users, include passwordless login link
     if (user.status === 'pending' && user.passwordless_token) {
       const config = (await import('../config/config.js')).default;
-      accountInfo.passwordlessLoginLink = `${config.frontendUrl}/passwordless-login/${user.passwordless_token}`;
+      const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
+      let portalSlug = null;
+      try {
+        const userAgencies = await User.getAgencies(user.id);
+        portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+      } catch (e) {
+        portalSlug = null;
+      }
+      accountInfo.passwordlessLoginLink = portalSlug
+        ? `${frontendBase}/${portalSlug}/passwordless-login/${user.passwordless_token}`
+        : `${frontendBase}/passwordless-login/${user.passwordless_token}`;
       accountInfo.passwordlessToken = user.passwordless_token;
       accountInfo.passwordlessTokenExpiresAt = user.passwordless_token_expires_at;
       accountInfo.requiresLastNameVerification = !user.pending_identity_verified;
@@ -1401,7 +1486,12 @@ export const createCurrentEmployee = async (req, res, next) => {
 
     // Generate passwordless token for password setup (48 hours expiration)
     const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 48);
-    const passwordlessTokenLink = `${(await import('../config/config.js')).default.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
+    const frontendBase = ((await import('../config/config.js')).default.frontendUrl || '').replace(/\/$/, '');
+    const userAgencies = await User.getAgencies(userId);
+    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+    const passwordlessTokenLink = portalSlug
+      ? `${frontendBase}/${portalSlug}/passwordless-login/${passwordlessTokenResult.token}`
+      : `${frontendBase}/passwordless-login/${passwordlessTokenResult.token}`;
 
     // Get agency info for response
     const Agency = (await import('../models/Agency.model.js')).default;
@@ -1976,8 +2066,8 @@ export const movePendingToActive = async (req, res, next) => {
           FIRST_NAME: user.first_name,
           LAST_NAME: user.last_name,
           AGENCY_NAME: agencyName,
-          PORTAL_LOGIN_LINK: `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`,
-          RESET_TOKEN_LINK: `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`,
+          PORTAL_LOGIN_LINK: passwordlessTokenLink,
+          RESET_TOKEN_LINK: passwordlessTokenLink,
           PORTAL_URL: config.frontendUrl,
           USERNAME: workEmail.trim(),
           TEMP_PASSWORD: tempPassword,
@@ -2087,7 +2177,7 @@ export const movePendingToActive = async (req, res, next) => {
         // Fallback if template doesn't exist
         const senderUser = await User.findById(req.user.id);
         const senderName = senderUser?.first_name || 'Administrator';
-        generatedEmail = `Hello ${user.first_name} ${user.last_name},\n\nWelcome to ${agencyName}!\n\nYour account has been activated. Here are your login credentials:\n\nUsername: ${workEmail.trim()}\nTemporary Password: ${tempPassword}\n\nYou can log in using the link below, which will allow you to set your own password:\n${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}\n\nThis link will expire in 48 hours.\n\nIf you have any questions, please contact ${peopleOpsEmail}.\n\nBest regards,\n${senderName}`;
+        generatedEmail = `Hello ${user.first_name} ${user.last_name},\n\nWelcome to ${agencyName}!\n\nYour account has been activated. Here are your login credentials:\n\nUsername: ${workEmail.trim()}\nTemporary Password: ${tempPassword}\n\nYou can log in using the link below, which will allow you to set your own password:\n${passwordlessTokenLink}\n\nThis link will expire in 48 hours.\n\nIf you have any questions, please contact ${peopleOpsEmail}.\n\nBest regards,\n${senderName}`;
         emailSubject = 'Your Account Credentials';
       }
     } catch (emailError) {
@@ -2095,10 +2185,32 @@ export const movePendingToActive = async (req, res, next) => {
       // Fallback email if template rendering fails
       const senderUser = await User.findById(req.user.id);
       const senderName = senderUser?.first_name || 'Administrator';
-      generatedEmail = `Hello ${user.first_name} ${user.last_name},\n\nWelcome to ${agencyName}!\n\nYour account has been activated. Here are your login credentials:\n\nUsername: ${workEmail.trim()}\nTemporary Password: ${tempPassword}\n\nYou can log in using the link below, which will allow you to set your own password:\n${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}\n\nThis link will expire in 48 hours.\n\nIf you have any questions, please contact ${peopleOpsEmail}.\n\nBest regards,\n${senderName}`;
+      generatedEmail = `Hello ${user.first_name} ${user.last_name},\n\nWelcome to ${agencyName}!\n\nYour account has been activated. Here are your login credentials:\n\nUsername: ${workEmail.trim()}\nTemporary Password: ${tempPassword}\n\nYou can log in using the link below, which will allow you to set your own password:\n${passwordlessTokenLink}\n\nThis link will expire in 48 hours.\n\nIf you have any questions, please contact ${peopleOpsEmail}.\n\nBest regards,\n${senderName}`;
       emailSubject = 'Your Account Credentials';
     }
     
+    // Log the generated email to user_communications
+    if (generatedEmail && userAgencies.length > 0) {
+      try {
+        const UserCommunication = (await import('../models/UserCommunication.model.js')).default;
+        await UserCommunication.create({
+          userId: userId,
+          agencyId: userAgencies[0].id,
+          templateType: 'welcome_active',
+          templateId: templateId || null,
+          subject: emailSubject,
+          body: generatedEmail,
+          generatedByUserId: req.user.id,
+          channel: 'email',
+          recipientAddress: workEmail.trim(),
+          deliveryStatus: 'pending' // Will be updated when email API sends it
+        });
+      } catch (logError) {
+        // Don't fail the request if logging fails
+        console.error('Failed to log communication:', logError);
+      }
+    }
+
     res.json({
       message: 'User moved to active status',
       user: updatedUser,
@@ -2106,7 +2218,7 @@ export const movePendingToActive = async (req, res, next) => {
         workEmail: workEmail.trim(),
         temporaryPassword: tempPassword,
         passwordlessToken: passwordlessTokenResult.token,
-        passwordlessTokenLink: `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`,
+        passwordlessTokenLink,
         generatedEmail: generatedEmail,
         emailSubject: emailSubject
       }
@@ -2171,6 +2283,15 @@ export const changePassword = async (req, res, next) => {
 
     // Change the password
     await User.changePassword(userId, newPassword);
+
+    // If user is inactive, activate them when they set their password
+    if (user.is_active === false || user.is_active === 0) {
+      const pool = (await import('../config/database.js')).default;
+      await pool.execute(
+        'UPDATE users SET is_active = TRUE WHERE id = ?',
+        [userId]
+      );
+    }
 
     // Log password change activity using centralized service
     ActivityLogService.logActivity({

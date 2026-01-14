@@ -249,12 +249,17 @@ class Agency {
       query = 'SELECT * FROM agencies WHERE portal_url = ? AND is_active = TRUE';
     }
     
-    const [rows] = await pool.execute(query, [portalUrl.toLowerCase()]);
-    return rows[0] || null;
+    const normalized = portalUrl.toLowerCase();
+    const [rows] = await pool.execute(query, [normalized]);
+    const agency = rows[0] || null;
+    if (agency) return agency;
+
+    // Fallback: many routes use slug as the portal identifier
+    return await this.findBySlug(normalized);
   }
 
   static async create(agencyData) {
-    const { name, slug, logoUrl, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType } = agencyData;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType } = agencyData;
     
     // Check if icon_id column exists
     let hasIconId = false;
@@ -294,8 +299,24 @@ class Agency {
     const orgType = organizationType || 'agency';
     
     // Build dynamic INSERT query based on available columns
+    // Check if logo_path column exists
+    let hasLogoPath = false;
+    try {
+      const [logoPathColumns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'logo_path'"
+      );
+      hasLogoPath = logoPathColumns.length > 0;
+    } catch (e) {
+      hasLogoPath = false;
+    }
+    
     const insertFields = ['name', 'slug', 'logo_url', 'color_palette', 'terminology_settings', 'is_active'];
     const insertValues = [name, slug, logoUrl || null, colorPalette ? JSON.stringify(colorPalette) : null, terminologySettings ? JSON.stringify(terminologySettings) : null, isActive !== undefined ? isActive : true];
+    
+    if (hasLogoPath) {
+      insertFields.push('logo_path');
+      insertValues.push(logoPath || null);
+    }
     
     if (hasOrganizationType) {
       insertFields.push('organization_type');
@@ -362,9 +383,24 @@ class Agency {
       updates.push('slug = ?');
       values.push(slug);
     }
+    // Check if logo_path column exists
+    let hasLogoPath = false;
+    try {
+      const [logoPathColumns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'logo_path'"
+      );
+      hasLogoPath = logoPathColumns.length > 0;
+    } catch (e) {
+      hasLogoPath = false;
+    }
+    
     if (logoUrl !== undefined) {
       updates.push('logo_url = ?');
       values.push(logoUrl);
+    }
+    if (hasLogoPath && logoPath !== undefined) {
+      updates.push('logo_path = ?');
+      values.push(logoPath);
     }
     if (colorPalette !== undefined) {
       updates.push('color_palette = ?');

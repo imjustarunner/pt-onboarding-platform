@@ -58,11 +58,13 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
+import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
 
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 
 const loading = ref(true);
 const error = ref('');
@@ -160,6 +162,10 @@ const handleSetup = async () => {
 };
 
 onMounted(async () => {
+  // If this setup link is org-scoped, load org theme for branded experience
+  if (route.params.organizationSlug) {
+    await brandingStore.fetchAgencyTheme(route.params.organizationSlug);
+  }
   await validateToken();
 });
 </script>

@@ -17,6 +17,7 @@
 <script setup>
 import { computed } from 'vue';
 import { useBrandingStore } from '../store/branding';
+import { toUploadsUrl } from '../utils/uploadsUrl';
 
 const brandingStore = useBrandingStore();
 const showPoweredBy = computed(() => brandingStore.showPoweredBy);
@@ -33,15 +34,13 @@ const platformLogoUrl = computed(() => {
   }
   // Priority 2: Platform organization_logo_path (from icon library)
   if (brandingStore.platformBranding?.organization_logo_path) {
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
     let iconPath = brandingStore.platformBranding.organization_logo_path;
     if (iconPath.startsWith('/uploads/')) {
       iconPath = iconPath.substring('/uploads/'.length);
     } else if (iconPath.startsWith('/')) {
       iconPath = iconPath.substring(1);
     }
-    return `${apiBase}/uploads/${iconPath}`;
+    return toUploadsUrl(iconPath);
   }
   // Priority 3: Fallback to PlotTwistCo logo (only if organization name is set)
   if (platformOrgName.value) {
