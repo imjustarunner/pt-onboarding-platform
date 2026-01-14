@@ -34,7 +34,8 @@ export const useBrandingStore = defineStore('branding', () => {
   
   // Platform branding (fetched from API)
   const platformBranding = ref(null);
-  
+  const brandingVersion = ref(Date.now()); // Version for cache-busting logos
+
   // Portal agency (detected from subdomain)
   const portalAgency = ref(null);
   
@@ -42,10 +43,14 @@ export const useBrandingStore = defineStore('branding', () => {
   const portalTheme = ref(null);
   
   // Fetch platform branding
-  const fetchPlatformBranding = async () => {
+  const fetchPlatformBranding = async (forceRefresh = false) => {
     try {
-      const response = await (await import('../services/api')).default.get('/platform-branding');
+      // Add cache-busting parameter if force refresh is requested
+      const params = forceRefresh ? { _t: Date.now() } : {};
+      const response = await (await import('../services/api')).default.get('/platform-branding', { params });
       platformBranding.value = response.data;
+      // Update branding version to force logo refresh
+      brandingVersion.value = Date.now();
     } catch (err) {
       console.error('Failed to fetch platform branding:', err);
       // Use defaults if fetch fails
@@ -237,22 +242,52 @@ export const useBrandingStore = defineStore('branding', () => {
       }
       return null;
     }
-    return agencyStore.currentAgency?.logo_url || null;
+    // Check for logo_path first (uploaded), then logo_url (URL)
+    const agency = agencyStore.currentAgency;
+    if (agency?.logo_path) {
+      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+      return `${apiBase}/${agency.logo_path}`;
+    }
+    return agency?.logo_url || null;
   });
   
+  // Helper function to add cache-busting parameter to URL
+  const addCacheBuster = (url) => {
+    if (!url) return url;
+    // Only add cache buster if URL doesn't already have query params
+    // or if it's a local upload (not external URL)
+    const isLocalUpload = url.includes('/uploads/') || url.startsWith('/');
+    const hasQuery = url.includes('?');
+    if (isLocalUpload && !hasQuery) {
+      // Add branding version as cache buster for uploaded logos
+      const separator = url.includes('?') ? '&' : '?';
+      return `${url}${separator}v=${brandingVersion.value}`;
+    }
+    // For external URLs, add cache buster if no query params exist
+    if (!hasQuery && !url.startsWith('http')) {
+      return `${url}?v=${brandingVersion.value}`;
+    }
+    // For external URLs with existing query params, append version
+    if (hasQuery && url.startsWith('http')) {
+      return `${url}&v=${brandingVersion.value}`;
+    }
+    return url;
+  };
+
   // Display logo URL (no PlotTwistCo fallback - show platform template logo or nothing)
   const displayLogoUrl = computed(() => {
     // Portal theme takes precedence
     if (portalAgency.value?.logoUrl) {
-      return portalAgency.value.logoUrl;
+      return addCacheBuster(portalAgency.value.logoUrl);
     }
-    if (isSuperAdmin.value) {
+    if (isSuperAdmin.value || !authStore.isAuthenticated) {
       // Priority 1: Platform organization_logo_url (if set)
       if (platformBranding.value?.organization_logo_url) {
         if (import.meta.env.DEV) {
           console.log('[Branding] Using organization_logo_url for displayLogoUrl:', platformBranding.value.organization_logo_url);
         }
-        return platformBranding.value.organization_logo_url;
+        return addCacheBuster(platformBranding.value.organization_logo_url);
       }
       // Priority 2: Platform organization_logo_path (from icon library)
       if (platformBranding.value?.organization_logo_path) {
@@ -272,7 +307,7 @@ export const useBrandingStore = defineStore('branding', () => {
             finalUrl: logoUrl
           });
         }
-        return logoUrl;
+        return addCacheBuster(logoUrl);
       }
       // No fallback - return null if no platform logo is set (don't show PlotTwistCo logo)
       if (import.meta.env.DEV) {
@@ -283,8 +318,22 @@ export const useBrandingStore = defineStore('branding', () => {
       }
       return null;
     }
-    if (agencyStore.currentAgency?.logo_url) {
-      return agencyStore.currentAgency.logo_url;
+    // Check for logo_path first (uploaded), then logo_url (URL)
+    const agency = agencyStore.currentAgency;
+    if (agency?.logo_path) {
+      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+      let iconPath = agency.logo_path;
+      if (iconPath.startsWith('/uploads/')) {
+        iconPath = iconPath.substring('/uploads/'.length);
+      } else if (iconPath.startsWith('/')) {
+        iconPath = iconPath.substring(1);
+      }
+      const logoUrl = `${apiBase}/uploads/${iconPath}`;
+      return addCacheBuster(logoUrl);
+    }
+    if (agency?.logo_url) {
+      return addCacheBuster(agency.logo_url);
     }
     return null;
   });

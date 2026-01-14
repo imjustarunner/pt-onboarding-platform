@@ -63,7 +63,7 @@ export const createAgency = async (req, res, next) => {
       return res.status(400).json({ error: { message: `Validation failed: ${errorMessages}`, errors: errors.array() } });
     }
 
-    const { name, slug, logoUrl, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId } = req.body;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId } = req.body;
     
     // Ensure colorPalette is properly formatted
     let formattedColorPalette = colorPalette;
@@ -106,7 +106,8 @@ export const createAgency = async (req, res, next) => {
     const agency = await Agency.create({ 
       name, 
       slug, 
-      logoUrl, 
+      logoUrl,
+      logoPath, 
       colorPalette: formattedColorPalette, 
       terminologySettings, 
       isActive, 
@@ -156,7 +157,7 @@ export const updateAgency = async (req, res, next) => {
     }
 
     const { id } = req.params;
-    const { name, slug, logoUrl, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters } = req.body;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters } = req.body;
     
     // Validate Google Docs URL if provided
     if (certificateTemplateUrl && certificateTemplateUrl.trim() !== '') {
@@ -218,7 +219,8 @@ export const updateAgency = async (req, res, next) => {
     const agency = await Agency.update(id, { 
       name, 
       slug, 
-      logoUrl, 
+      logoUrl,
+      logoPath, 
       colorPalette: formattedColorPalette, 
       terminologySettings, 
       isActive, 
@@ -377,9 +379,11 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
       ? JSON.parse(agency.theme_settings)
       : agency.theme_settings;
 
-    // Get agency logo URL (from icon if available, otherwise logo_url)
+    // Get agency logo URL (priority: logo_path > icon_file_path > logo_url)
     let agencyLogoUrl = agency.logo_url;
-    if (agency.icon_file_path) {
+    if (agency.logo_path) {
+      agencyLogoUrl = `/uploads/${agency.logo_path}`;
+    } else if (agency.icon_file_path) {
       agencyLogoUrl = `/uploads/${agency.icon_file_path}`;
     }
 
