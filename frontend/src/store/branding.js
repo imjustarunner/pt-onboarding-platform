@@ -194,7 +194,7 @@ export const useBrandingStore = defineStore('branding', () => {
     return platformBranding.value?.tagline || 'The gold standard for behavioral health workflows.';
   });
 
-  // Logo URL: PlotTwistCo for super admin, agency logo for others
+  // Logo URL: Platform template logo or agency logo (no PlotTwistCo fallback)
   const logoUrl = computed(() => {
     // Portal theme takes precedence
     if (portalAgency.value?.logoUrl) {
@@ -203,6 +203,9 @@ export const useBrandingStore = defineStore('branding', () => {
     if (isSuperAdmin.value) {
       // Priority 1: Platform organization_logo_url (if set)
       if (platformBranding.value?.organization_logo_url) {
+        if (import.meta.env.DEV) {
+          console.log('[Branding] Using organization_logo_url:', platformBranding.value.organization_logo_url);
+        }
         return platformBranding.value.organization_logo_url;
       }
       // Priority 2: Platform organization_logo_path (from icon library)
@@ -215,15 +218,29 @@ export const useBrandingStore = defineStore('branding', () => {
         } else if (iconPath.startsWith('/')) {
           iconPath = iconPath.substring(1);
         }
-        return `${apiBase}/uploads/${iconPath}`;
+        const logoUrl = `${apiBase}/uploads/${iconPath}`;
+        if (import.meta.env.DEV) {
+          console.log('[Branding] Constructed logoUrl from path:', {
+            originalPath: platformBranding.value.organization_logo_path,
+            cleanedPath: iconPath,
+            finalUrl: logoUrl
+          });
+        }
+        return logoUrl;
       }
-      // Priority 3: Fallback to PlotTwistCo logo
-      return plotTwistCoLogoUrl.value;
+      // No fallback - return null if no platform logo is set
+      if (import.meta.env.DEV) {
+        console.warn('[Branding] No platform logo available for logoUrl:', {
+          hasOrgLogoUrl: !!platformBranding.value?.organization_logo_url,
+          hasOrgLogoPath: !!platformBranding.value?.organization_logo_path
+        });
+      }
+      return null;
     }
     return agencyStore.currentAgency?.logo_url || null;
   });
   
-  // Display logo URL (with fallback)
+  // Display logo URL (no PlotTwistCo fallback - show platform template logo or nothing)
   const displayLogoUrl = computed(() => {
     // Portal theme takes precedence
     if (portalAgency.value?.logoUrl) {
@@ -232,6 +249,9 @@ export const useBrandingStore = defineStore('branding', () => {
     if (isSuperAdmin.value) {
       // Priority 1: Platform organization_logo_url (if set)
       if (platformBranding.value?.organization_logo_url) {
+        if (import.meta.env.DEV) {
+          console.log('[Branding] Using organization_logo_url for displayLogoUrl:', platformBranding.value.organization_logo_url);
+        }
         return platformBranding.value.organization_logo_url;
       }
       // Priority 2: Platform organization_logo_path (from icon library)
@@ -244,10 +264,24 @@ export const useBrandingStore = defineStore('branding', () => {
         } else if (iconPath.startsWith('/')) {
           iconPath = iconPath.substring(1);
         }
-        return `${apiBase}/uploads/${iconPath}`;
+        const logoUrl = `${apiBase}/uploads/${iconPath}`;
+        if (import.meta.env.DEV) {
+          console.log('[Branding] Constructed displayLogoUrl from path:', {
+            originalPath: platformBranding.value.organization_logo_path,
+            cleanedPath: iconPath,
+            finalUrl: logoUrl
+          });
+        }
+        return logoUrl;
       }
-      // Priority 3: Fallback to PlotTwistCo logo
-      return plotTwistCoLogoUrl.value;
+      // No fallback - return null if no platform logo is set (don't show PlotTwistCo logo)
+      if (import.meta.env.DEV) {
+        console.warn('[Branding] No platform logo available for displayLogoUrl:', {
+          hasOrgLogoUrl: !!platformBranding.value?.organization_logo_url,
+          hasOrgLogoPath: !!platformBranding.value?.organization_logo_path
+        });
+      }
+      return null;
     }
     if (agencyStore.currentAgency?.logo_url) {
       return agencyStore.currentAgency.logo_url;
@@ -344,6 +378,56 @@ export const useBrandingStore = defineStore('branding', () => {
     }
   });
 
+  // Get notification icon URL for a specific notification type
+  // Priority: Agency-level icon > Platform-level icon > null (fallback to emoji)
+  const getNotificationIconUrl = (notificationType, agencyId = null) => {
+    const iconFieldMap = {
+      status_expired: 'status_expired_icon_path',
+      temp_password_expired: 'temp_password_expired_icon_path',
+      task_overdue: 'task_overdue_icon_path',
+      onboarding_completed: 'onboarding_completed_icon_path',
+      invitation_expired: 'invitation_expired_icon_path',
+      first_login: 'first_login_icon_path',
+      first_login_pending: 'first_login_pending_icon_path',
+      password_changed: 'password_changed_icon_path'
+    };
+
+    const iconPathField = iconFieldMap[notificationType];
+    if (!iconPathField) return null;
+
+    // Priority 1: Agency-level icon (if agency is specified)
+    if (agencyId !== null) {
+      const agency = agencyStore.agencies?.find(a => a.id === agencyId);
+      if (agency?.[iconPathField]) {
+        const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+        const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+        let iconPath = agency[iconPathField];
+        if (iconPath.startsWith('/uploads/')) {
+          iconPath = iconPath.substring('/uploads/'.length);
+        } else if (iconPath.startsWith('/')) {
+          iconPath = iconPath.substring(1);
+        }
+        return `${apiBase}/uploads/${iconPath}`;
+      }
+    }
+
+    // Priority 2: Platform-level icon
+    const pb = platformBranding.value;
+    if (pb?.[iconPathField]) {
+      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+      let iconPath = pb[iconPathField];
+      if (iconPath.startsWith('/uploads/')) {
+        iconPath = iconPath.substring('/uploads/'.length);
+      } else if (iconPath.startsWith('/')) {
+        iconPath = iconPath.substring(1);
+      }
+      return `${apiBase}/uploads/${iconPath}`;
+    }
+
+    return null;
+  };
+
   return {
     userRole,
     isSuperAdmin,
@@ -370,7 +454,8 @@ export const useBrandingStore = defineStore('branding', () => {
     fontFamily,
     fetchAgencyTheme,
     initializePortalTheme,
-    applyTheme
+    applyTheme,
+    getNotificationIconUrl
   };
 });
 

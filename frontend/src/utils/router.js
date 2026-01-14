@@ -1,12 +1,15 @@
 import { useAuthStore } from '../store/auth';
+import { useOrganizationStore } from '../store/organization';
 import { isSupervisor } from './helpers.js';
+import { getOrganizationDashboardRoute } from './organizationContext.js';
 
 /**
- * Returns the correct dashboard route based on user role
+ * Returns the correct dashboard route based on user role and organization type
  * @returns {string} The dashboard route for the current user
  */
 export function getDashboardRoute() {
   const authStore = useAuthStore();
+  const organizationStore = useOrganizationStore();
   const user = authStore.user;
   
   if (!user) {
@@ -16,6 +19,25 @@ export function getDashboardRoute() {
   
   // Debug logging
   console.log('getDashboardRoute - User role:', user.role, 'Type:', user.type, 'Status:', user.status);
+  
+  // Check if user is associated with a school organization
+  // If organization context is available, use it
+  if (organizationStore.organizationContext) {
+    const orgType = organizationStore.organizationContext.organizationType;
+    const slug = organizationStore.organizationContext.slug;
+    
+    if (orgType === 'school' && slug) {
+      // School users go to school portal dashboard
+      return `/${slug}/dashboard`;
+    }
+  }
+  
+  // Check user's organizations for school type (fallback)
+  const userOrgs = user.agencies || [];
+  const schoolOrg = userOrgs.find(org => org.organization_type === 'school');
+  if (schoolOrg && schoolOrg.slug) {
+    return `/${schoolOrg.slug}/dashboard`;
+  }
   
   // Approved employees go to on-demand training
   if (user.type === 'approved_employee') {

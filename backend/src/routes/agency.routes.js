@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { getAllAgencies, getAgencyById, createAgency, updateAgency, archiveAgency, restoreAgency, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl } from '../controllers/agency.controller.js';
+import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl } from '../controllers/agency.controller.js';
 import { authenticate, requireAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -157,6 +157,7 @@ const validateUpdateAgency = [
 ];
 
 // Public routes (no auth required) - must come before /:id route
+router.get('/slug/:slug', getAgencyBySlug); // Get organization by slug (supports all organization types)
 router.get('/portal/:portalUrl', getAgencyByPortalUrl);
 router.get('/portal/:portalUrl/theme', getThemeByPortalUrl);
 router.get('/portal/:portalUrl/login-theme', getLoginThemeByPortalUrl);

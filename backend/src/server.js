@@ -44,6 +44,10 @@ import fontRoutes from './routes/font.routes.js';
 import activityLogRoutes from './routes/activityLog.routes.js';
 import supervisorAssignmentRoutes from './routes/supervisorAssignment.routes.js';
 import healthCheckRoutes from './routes/healthCheck.routes.js';
+import referralUploadRoutes from './routes/referralUpload.routes.js';
+import schoolPortalRoutes from './routes/schoolPortal.routes.js';
+import referralRoutes from './routes/referral.routes.js';
+import bulkImportRoutes from './routes/bulkImport.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -128,23 +132,62 @@ app.use('/uploads', async (req, res, next) => {
         console.error(`[File Request] Error listing GCS files:`, listErr.message);
       }
       
+      // For image requests, return a 1x1 transparent PNG instead of JSON
+      // This prevents broken image icons in the browser
+      if (req.path.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/i)) {
+        const transparentPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'no-cache');
+        return res.status(404).send(transparentPng);
+      }
+      
       return res.status(404).json({ error: { message: 'File not found in storage' } });
     }
     
-    // Generate signed URL for direct GCS access
-    // Signed URLs expire after 1 hour by default
-    const signedUrl = await StorageService.getSignedUrl(filePath, 60);
-    console.log(`[File Request] Generated signed URL for: ${filePath}`);
-    
-    // Redirect to signed URL for direct access
-    res.redirect(302, signedUrl);
+    // In development: proxy file through backend (works with user credentials)
+    // In production: use signed URLs
+    if (config.nodeEnv === 'development') {
+      try {
+        const [buffer] = await file.download();
+        const [metadata] = await file.getMetadata();
+        const contentType = metadata.contentType || 'application/octet-stream';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.send(buffer);
+        console.log(`[File Request] Successfully proxied file: ${filePath} (${contentType})`);
+      } catch (proxyError) {
+        console.error(`[File Request] Error proxying file: ${filePath}`, proxyError.message);
+        // For images, return transparent PNG instead of error
+        if (req.path.match(/\.(png|jpg|jpeg|gif|svg|webp|ico)$/i)) {
+          const transparentPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+          res.setHeader('Content-Type', 'image/png');
+          res.setHeader('Cache-Control', 'no-cache');
+          return res.status(404).send(transparentPng);
+        }
+        throw proxyError;
+      }
+    } else {
+      const signedUrl = await StorageService.getSignedUrl(filePath, 60);
+      console.log(`[File Request] Generated signed URL for: ${filePath}`);
+      res.redirect(302, signedUrl);
+    }
   } catch (error) {
-    console.error('[File Request] Error generating signed URL for file:', {
-      path: req.path,
-      error: error.message,
-      stack: error.stack
-    });
-    res.status(500).json({ error: { message: 'Failed to access file', details: error.message } });
+    // In development, return 404 instead of 500 for GCS errors (fonts/files may not be uploaded yet)
+    // This allows the app to gracefully fall back to system fonts
+    const isDevelopment = config.nodeEnv === 'development';
+    const statusCode = isDevelopment ? 404 : 500;
+    
+    if (isDevelopment) {
+      console.warn(`[File Request] GCS access failed in development (file may not exist): ${req.path}`, error.message);
+    } else {
+      console.error('[File Request] Error generating signed URL for file:', {
+        path: req.path,
+        error: error.message,
+        stack: error.stack
+      });
+    }
+    
+    res.status(statusCode).json({ error: { message: 'File not available', details: error.message } });
   }
 });
 
@@ -196,6 +239,10 @@ app.use('/api/branding-templates', brandingTemplateRoutes);
 app.use('/api/fonts', fontRoutes);
 app.use('/api/activity-log', activityLogRoutes);
 app.use('/api/supervisor-assignments', supervisorAssignmentRoutes);
+app.use('/api/organizations', referralUploadRoutes); // Organization routes (referral upload, etc.)
+app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
+app.use('/api/referrals', referralRoutes); // Referral pipeline routes
+app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
 
 // Error handling middleware
 app.use((err, req, res, next) => {

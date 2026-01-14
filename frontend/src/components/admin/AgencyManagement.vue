@@ -1,8 +1,8 @@
 <template>
   <div class="agency-management">
     <div class="section-header">
-      <h2>Agency Management</h2>
-      <button @click="showCreateModal = true" class="btn btn-primary">Create Agency</button>
+      <h2>Organization Management</h2>
+      <button @click="showCreateModal = true" class="btn btn-primary">Create Organization</button>
     </div>
     
     <div v-if="loading" class="loading">Loading agencies...</div>
@@ -198,11 +198,21 @@
     <!-- Create/Edit Modal -->
     <div v-if="showCreateModal || editingAgency" class="modal-overlay" @click.self="closeModal">
       <div class="modal-content" @click.stop>
-        <h3>{{ editingAgency ? 'Edit Agency' : 'Create Agency' }}</h3>
+        <h3>{{ editingAgency ? 'Edit Organization' : 'Create Organization' }}</h3>
         <div v-if="error" class="error-modal">
           <strong>Error:</strong> {{ error }}
         </div>
         <form @submit.prevent="saveAgency">
+          <div class="form-group">
+            <label>Organization Type *</label>
+            <select v-model="agencyForm.organizationType" required :disabled="!!editingAgency">
+              <option value="agency">Agency</option>
+              <option value="school">School</option>
+              <option value="program">Program</option>
+              <option value="learning">Learning</option>
+            </select>
+            <small v-if="editingAgency">Organization type cannot be changed after creation</small>
+          </div>
           <div class="form-group">
             <label>Name *</label>
             <input v-model="agencyForm.name" type="text" required />
@@ -394,34 +404,32 @@
             </p>
           </div>
           
-          <div class="form-group">
-            <label>People Operations Term</label>
-            <input v-model="agencyForm.terminologySettings.peopleOpsTerm" type="text" placeholder="Leave blank for platform default" />
-            <small>Platform default: "People Operations"</small>
-          </div>
-          
-          <div class="form-group">
-            <label>Training Modules Term</label>
-            <input v-model="agencyForm.terminologySettings.trainingModulesTerm" type="text" placeholder="Leave blank for platform default" />
-            <small>Platform default: "Training Modules"</small>
-          </div>
-          
-          <div class="form-group">
-            <label>Training Focus Term</label>
-            <input v-model="agencyForm.terminologySettings.trainingFocusTerm" type="text" placeholder="Leave blank for platform default" />
-            <small>Platform default: "Training Focus"</small>
-          </div>
-          
-          <div class="form-group">
-            <label>Onboarding Term</label>
-            <input v-model="agencyForm.terminologySettings.onboardingTerm" type="text" placeholder="Leave blank for platform default" />
-            <small>Platform default: "Onboarding"</small>
-          </div>
-          
-          <div class="form-group">
-            <label>Ongoing Development Term</label>
-            <input v-model="agencyForm.terminologySettings.ongoingDevTerm" type="text" placeholder="Leave blank for platform default" />
-            <small>Platform default: "Ongoing Development"</small>
+          <div class="terminology-grid">
+            <div class="terminology-item">
+              <label>People Operations Term</label>
+              <input v-model="agencyForm.terminologySettings.peopleOpsTerm" type="text" placeholder="Leave blank for platform default" />
+              <small>Platform default: "People Operations"</small>
+            </div>
+            <div class="terminology-item">
+              <label>Training Modules Term</label>
+              <input v-model="agencyForm.terminologySettings.trainingModulesTerm" type="text" placeholder="Leave blank for platform default" />
+              <small>Platform default: "Training Modules"</small>
+            </div>
+            <div class="terminology-item">
+              <label>Training Focus Term</label>
+              <input v-model="agencyForm.terminologySettings.trainingFocusTerm" type="text" placeholder="Leave blank for platform default" />
+              <small>Platform default: "Training Focus"</small>
+            </div>
+            <div class="terminology-item">
+              <label>Onboarding Term</label>
+              <input v-model="agencyForm.terminologySettings.onboardingTerm" type="text" placeholder="Leave blank for platform default" />
+              <small>Platform default: "Onboarding"</small>
+            </div>
+            <div class="terminology-item">
+              <label>Ongoing Development Term</label>
+              <input v-model="agencyForm.terminologySettings.ongoingDevTerm" type="text" placeholder="Leave blank for platform default" />
+              <small>Platform default: "Ongoing Development"</small>
+            </div>
           </div>
           
           <div class="settings-section-divider">
@@ -431,28 +439,27 @@
             </p>
           </div>
           
-          <div class="form-group">
-            <label>Training Focus Default Icon</label>
-            <IconSelector v-model="agencyForm.trainingFocusDefaultIconId" />
-            <small>Default icon for training focuses when no specific icon is assigned</small>
-          </div>
-          
-          <div class="form-group">
-            <label>Module Default Icon</label>
-            <IconSelector v-model="agencyForm.moduleDefaultIconId" />
-            <small>Default icon for modules when no specific icon is assigned</small>
-          </div>
-          
-          <div class="form-group">
-            <label>User Default Icon</label>
-            <IconSelector v-model="agencyForm.userDefaultIconId" />
-            <small>Default icon for users when no specific icon is assigned</small>
-          </div>
-          
-          <div class="form-group">
-            <label>Document Default Icon</label>
-            <IconSelector v-model="agencyForm.documentDefaultIconId" />
-            <small>Default icon for documents when no specific icon is assigned</small>
+          <div class="default-icons-grid">
+            <div class="default-icon-item">
+              <label>Training Focus Default Icon</label>
+              <IconSelector v-model="agencyForm.trainingFocusDefaultIconId" />
+              <small>Default icon for training focuses when no specific icon is assigned</small>
+            </div>
+            <div class="default-icon-item">
+              <label>Module Default Icon</label>
+              <IconSelector v-model="agencyForm.moduleDefaultIconId" />
+              <small>Default icon for modules when no specific icon is assigned</small>
+            </div>
+            <div class="default-icon-item">
+              <label>User Default Icon</label>
+              <IconSelector v-model="agencyForm.userDefaultIconId" />
+              <small>Default icon for users when no specific icon is assigned</small>
+            </div>
+            <div class="default-icon-item">
+              <label>Document Default Icon</label>
+              <IconSelector v-model="agencyForm.documentDefaultIconId" />
+              <small>Default icon for documents when no specific icon is assigned</small>
+            </div>
           </div>
           
           <div class="settings-section-divider">
@@ -462,34 +469,74 @@
             </p>
           </div>
           
-          <div class="form-group">
-            <label>Progress Dashboard Icon</label>
-            <IconSelector v-model="agencyForm.progressDashboardIconId" />
-            <small>Icon for the "Progress Dashboard" action card</small>
+          <div class="dashboard-icons-grid">
+            <div class="dashboard-icon-item">
+              <label>Progress Dashboard Icon</label>
+              <IconSelector v-model="agencyForm.progressDashboardIconId" />
+              <small>Icon for the "Progress Dashboard" action card</small>
+            </div>
+            <div class="dashboard-icon-item">
+              <label>Manage Modules Icon</label>
+              <IconSelector v-model="agencyForm.manageModulesIconId" />
+              <small>Icon for the "Manage Modules" action card</small>
+            </div>
+            <div class="dashboard-icon-item">
+              <label>Manage Documents Icon</label>
+              <IconSelector v-model="agencyForm.manageDocumentsIconId" />
+              <small>Icon for the "Manage Documents" action card</small>
+            </div>
+            <div class="dashboard-icon-item">
+              <label>Manage Users Icon</label>
+              <IconSelector v-model="agencyForm.manageUsersIconId" />
+              <small>Icon for the "Manage Users" action card</small>
+            </div>
+            <div class="dashboard-icon-item">
+              <label>Settings Icon</label>
+              <IconSelector v-model="agencyForm.settingsIconId" />
+              <small>Icon for the "Settings" action card</small>
+            </div>
           </div>
           
-          <div class="form-group">
-            <label>Manage Modules Icon</label>
-            <IconSelector v-model="agencyForm.manageModulesIconId" />
-            <small>Icon for the "Manage Modules" action card</small>
+          <div class="settings-section-divider">
+            <h4>Notification Icons</h4>
+            <p class="section-description">
+              Set custom icons for different notification types. These override platform defaults.
+            </p>
           </div>
           
-          <div class="form-group">
-            <label>Manage Documents Icon</label>
-            <IconSelector v-model="agencyForm.manageDocumentsIconId" />
-            <small>Icon for the "Manage Documents" action card</small>
-          </div>
-          
-          <div class="form-group">
-            <label>Manage Users Icon</label>
-            <IconSelector v-model="agencyForm.manageUsersIconId" />
-            <small>Icon for the "Manage Users" action card</small>
-          </div>
-          
-          <div class="form-group">
-            <label>Settings Icon</label>
-            <IconSelector v-model="agencyForm.settingsIconId" />
-            <small>Icon for the "Settings" action card</small>
+          <div class="notification-icons-grid">
+            <div class="notification-icon-item">
+              <label>Status Expired</label>
+              <IconSelector v-model="agencyForm.statusExpiredIconId" />
+            </div>
+            <div class="notification-icon-item">
+              <label>Temp Password Expired</label>
+              <IconSelector v-model="agencyForm.tempPasswordExpiredIconId" />
+            </div>
+            <div class="notification-icon-item">
+              <label>Task Overdue</label>
+              <IconSelector v-model="agencyForm.taskOverdueIconId" />
+            </div>
+            <div class="notification-icon-item">
+              <label>Onboarding Completed</label>
+              <IconSelector v-model="agencyForm.onboardingCompletedIconId" />
+            </div>
+            <div class="notification-icon-item">
+              <label>Invitation Expired</label>
+              <IconSelector v-model="agencyForm.invitationExpiredIconId" />
+            </div>
+            <div class="notification-icon-item">
+              <label>First Login</label>
+              <IconSelector v-model="agencyForm.firstLoginIconId" />
+            </div>
+            <div class="notification-icon-item">
+              <label>First Login (Pending)</label>
+              <IconSelector v-model="agencyForm.firstLoginPendingIconId" />
+            </div>
+            <div class="notification-icon-item">
+              <label>Password Changed</label>
+              <IconSelector v-model="agencyForm.passwordChangedIconId" />
+            </div>
           </div>
           
           <!-- Custom Parameters for Email Templates -->
@@ -595,6 +642,7 @@ const customParamKeys = ref([]);
   const copiedUrl = ref(null); // Track which URL was copied
 
 const agencyForm = ref({
+  organizationType: 'agency',
   name: '',
   slug: '',
   logoUrl: '',
@@ -626,7 +674,16 @@ const agencyForm = ref({
     trainingFocusTerm: '',
     onboardingTerm: '',
     ongoingDevTerm: ''
-  }
+  },
+  // Notification icon fields
+  statusExpiredIconId: null,
+  tempPasswordExpiredIconId: null,
+  taskOverdueIconId: null,
+  onboardingCompletedIconId: null,
+  invitationExpiredIconId: null,
+  firstLoginIconId: null,
+  firstLoginPendingIconId: null,
+  passwordChangedIconId: null
 });
 
 const fetchAgencies = async () => {
@@ -914,6 +971,7 @@ const editAgency = (agency) => {
   customParameters.value = { ...customParams };
   
   agencyForm.value = {
+    organizationType: agency.organization_type || 'agency',
     name: agency.name,
     slug: agency.slug,
     logoUrl: agency.logo_url || '',
@@ -945,7 +1003,16 @@ const editAgency = (agency) => {
       trainingFocusTerm: terminology.trainingFocusTerm || '',
       onboardingTerm: terminology.onboardingTerm || '',
       ongoingDevTerm: terminology.ongoingDevTerm || ''
-    }
+    },
+    // Notification icon fields
+    statusExpiredIconId: agency.status_expired_icon_id ?? null,
+    tempPasswordExpiredIconId: agency.temp_password_expired_icon_id ?? null,
+    taskOverdueIconId: agency.task_overdue_icon_id ?? null,
+    onboardingCompletedIconId: agency.onboarding_completed_icon_id ?? null,
+    invitationExpiredIconId: agency.invitation_expired_icon_id ?? null,
+    firstLoginIconId: agency.first_login_icon_id ?? null,
+    firstLoginPendingIconId: agency.first_login_pending_icon_id ?? null,
+    passwordChangedIconId: agency.password_changed_icon_id ?? null
   };
 };
 
@@ -1067,6 +1134,7 @@ const saveAgency = async () => {
     });
     
     const data = {
+      organizationType: agencyForm.value.organizationType || 'agency',
       name: agencyForm.value.name.trim(),
       slug: slug,
       logoUrl: agencyForm.value.logoUrl?.trim() || null,
@@ -1088,7 +1156,16 @@ const saveAgency = async () => {
       phoneExtension: agencyForm.value.phoneExtension?.trim() || null,
       portalUrl: agencyForm.value.portalUrl?.trim().toLowerCase() || null,
       themeSettings: Object.keys(themeSettings).length > 0 ? themeSettings : null,
-      customParameters: Object.keys(customParams).length > 0 ? customParams : null
+      customParameters: Object.keys(customParams).length > 0 ? customParams : null,
+      // Notification icon fields
+      statusExpiredIconId: agencyForm.value.statusExpiredIconId ?? null,
+      tempPasswordExpiredIconId: agencyForm.value.tempPasswordExpiredIconId ?? null,
+      taskOverdueIconId: agencyForm.value.taskOverdueIconId ?? null,
+      onboardingCompletedIconId: agencyForm.value.onboardingCompletedIconId ?? null,
+      invitationExpiredIconId: agencyForm.value.invitationExpiredIconId ?? null,
+      firstLoginIconId: agencyForm.value.firstLoginIconId ?? null,
+      firstLoginPendingIconId: agencyForm.value.firstLoginPendingIconId ?? null,
+      passwordChangedIconId: agencyForm.value.passwordChangedIconId ?? null
     };
     
     console.log('Saving agency with data:', JSON.stringify(data, null, 2));
@@ -1265,6 +1342,7 @@ const closeModal = () => {
   customParamKeys.value = [];
   customParameters.value = {};
   agencyForm.value = {
+    organizationType: 'agency',
     name: '',
     slug: '',
     logoUrl: '',
@@ -1291,7 +1369,16 @@ const closeModal = () => {
       trainingFocusTerm: '',
       onboardingTerm: '',
       ongoingDevTerm: ''
-    }
+    },
+    // Notification icon fields
+    statusExpiredIconId: null,
+    tempPasswordExpiredIconId: null,
+    taskOverdueIconId: null,
+    onboardingCompletedIconId: null,
+    invitationExpiredIconId: null,
+    firstLoginIconId: null,
+    firstLoginPendingIconId: null,
+    passwordChangedIconId: null
   };
 };
 
@@ -1788,6 +1875,89 @@ small {
   background-color: #5a6268;
   color: white;
   box-shadow: 0 0 0 0.2rem rgba(108, 117, 125, 0.5);
+}
+
+.notification-icons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.notification-icon-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notification-icon-item label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.terminology-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.terminology-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.terminology-item label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.terminology-item input {
+  padding: 8px 12px;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.default-icons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.default-icon-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.default-icon-item label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.dashboard-icons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.dashboard-icon-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dashboard-icon-item label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
 }
 </style>
 

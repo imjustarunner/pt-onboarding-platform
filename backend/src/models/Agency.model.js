@@ -1,7 +1,28 @@
 import pool from '../config/database.js';
 
+/**
+ * Agency Model
+ * 
+ * NOTE: This model represents ALL organization types (Agency, School, Program, Learning).
+ * The table name remains "agencies" for backward compatibility, but conceptually
+ * this model handles all organization types as specified by the organization_type field.
+ * 
+ * Organization Types:
+ * - 'agency': Traditional agency organizations (default, backward compatible)
+ * - 'school': School organizations with school-specific portals
+ * - 'program': Standalone program initiatives
+ * - 'learning': Learning-focused organizations (e.g., tutoring companies)
+ */
 class Agency {
-  static async findAll(includeInactive = false, includeArchived = false) {
+  /**
+   * Find all organizations (agencies, schools, programs, learning)
+   * @param {Object} options - Query options
+   * @param {boolean} options.includeInactive - Include inactive organizations
+   * @param {boolean} options.includeArchived - Include archived organizations
+   * @param {string} options.organizationType - Filter by organization type ('agency', 'school', 'program', 'learning')
+   * @returns {Promise<Array>} Array of organization objects
+   */
+  static async findAll(includeInactive = false, includeArchived = false, organizationType = null) {
     // Check if is_archived column exists
     let hasArchiveColumn = false;
     try {
@@ -11,6 +32,17 @@ class Agency {
       hasArchiveColumn = columns.length > 0;
     } catch (e) {
       hasArchiveColumn = false;
+    }
+    
+    // Check if organization_type column exists
+    let hasOrganizationType = false;
+    try {
+      const [orgTypeColumns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'organization_type'"
+      );
+      hasOrganizationType = orgTypeColumns.length > 0;
+    } catch (e) {
+      hasOrganizationType = false;
     }
     
     // Check if icon_id column exists
@@ -44,6 +76,12 @@ class Agency {
     
     if (hasArchiveColumn && !includeArchived) {
       conditions.push('(a.is_archived = FALSE OR a.is_archived IS NULL)');
+    }
+    
+    // Filter by organization_type if specified and column exists
+    if (hasOrganizationType && organizationType) {
+      conditions.push('a.organization_type = ?');
+      params.push(organizationType);
     }
     
     if (conditions.length > 0) {
@@ -137,12 +175,38 @@ class Agency {
     return agency;
   }
 
+  /**
+   * Find organization by slug
+   * @param {string} slug - Organization slug
+   * @returns {Promise<Object|null>} Organization object or null
+   */
   static async findBySlug(slug) {
+    // Check if organization_type column exists for potential future filtering
+    let hasOrganizationType = false;
+    try {
+      const [orgTypeColumns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'organization_type'"
+      );
+      hasOrganizationType = orgTypeColumns.length > 0;
+    } catch (e) {
+      hasOrganizationType = false;
+    }
+    
     const [rows] = await pool.execute(
-      'SELECT * FROM agencies WHERE slug = ?',
+      'SELECT * FROM agencies WHERE slug = ? AND is_active = TRUE',
       [slug]
     );
     return rows[0] || null;
+  }
+  
+  /**
+   * Find organizations by type
+   * @param {string} organizationType - Organization type ('agency', 'school', 'program', 'learning')
+   * @param {boolean} includeInactive - Include inactive organizations
+   * @returns {Promise<Array>} Array of organization objects
+   */
+  static async findByType(organizationType, includeInactive = false) {
+    return this.findAll(includeInactive, false, organizationType);
   }
 
   static async findByPortalUrl(portalUrl) {
@@ -190,7 +254,7 @@ class Agency {
   }
 
   static async create(agencyData) {
-    const { name, slug, logoUrl, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters } = agencyData;
+    const { name, slug, logoUrl, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType } = agencyData;
     
     // Check if icon_id column exists
     let hasIconId = false;
@@ -215,37 +279,65 @@ class Agency {
       hasPortalConfig = false;
     }
     
-    if (hasIconId && hasPortalConfig) {
-      const [result] = await pool.execute(
-        'INSERT INTO agencies (name, slug, logo_url, color_palette, terminology_settings, is_active, icon_id, onboarding_team_email, phone_number, phone_extension, portal_url, theme_settings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [name, slug, logoUrl || null, colorPalette ? JSON.stringify(colorPalette) : null, terminologySettings ? JSON.stringify(terminologySettings) : null, isActive !== undefined ? isActive : true, iconId || null, onboardingTeamEmail || null, phoneNumber || null, phoneExtension || null, portalUrl ? portalUrl.toLowerCase() : null, themeSettings ? JSON.stringify(themeSettings) : null]
+    // Check if organization_type column exists
+    let hasOrganizationType = false;
+    try {
+      const [orgTypeColumns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'organization_type'"
       );
-      return this.findById(result.insertId);
-    } else if (hasIconId) {
-      const [result] = await pool.execute(
-        'INSERT INTO agencies (name, slug, logo_url, color_palette, terminology_settings, is_active, icon_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [name, slug, logoUrl || null, colorPalette ? JSON.stringify(colorPalette) : null, terminologySettings ? JSON.stringify(terminologySettings) : null, isActive !== undefined ? isActive : true, iconId || null]
-      );
-      return this.findById(result.insertId);
-    } else if (hasPortalConfig) {
-      // Column doesn't exist, create without icon_id but with portal config
-      const [result] = await pool.execute(
-        'INSERT INTO agencies (name, slug, logo_url, color_palette, terminology_settings, is_active, onboarding_team_email, phone_number, phone_extension, portal_url, theme_settings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [name, slug, logoUrl || null, colorPalette ? JSON.stringify(colorPalette) : null, terminologySettings ? JSON.stringify(terminologySettings) : null, isActive !== undefined ? isActive : true, onboardingTeamEmail || null, phoneNumber || null, phoneExtension || null, portalUrl ? portalUrl.toLowerCase() : null, themeSettings ? JSON.stringify(themeSettings) : null]
-      );
-      return this.findById(result.insertId);
-    } else {
-      // Column doesn't exist, create without icon_id
-      const [result] = await pool.execute(
-        'INSERT INTO agencies (name, slug, logo_url, color_palette, terminology_settings, is_active) VALUES (?, ?, ?, ?, ?, ?)',
-        [name, slug, logoUrl || null, colorPalette ? JSON.stringify(colorPalette) : null, terminologySettings ? JSON.stringify(terminologySettings) : null, isActive !== undefined ? isActive : true]
-      );
-      return this.findById(result.insertId);
+      hasOrganizationType = orgTypeColumns.length > 0;
+    } catch (e) {
+      hasOrganizationType = false;
     }
+    
+    // Default organization_type to 'agency' for backward compatibility
+    const orgType = organizationType || 'agency';
+    
+    // Build dynamic INSERT query based on available columns
+    const insertFields = ['name', 'slug', 'logo_url', 'color_palette', 'terminology_settings', 'is_active'];
+    const insertValues = [name, slug, logoUrl || null, colorPalette ? JSON.stringify(colorPalette) : null, terminologySettings ? JSON.stringify(terminologySettings) : null, isActive !== undefined ? isActive : true];
+    
+    if (hasOrganizationType) {
+      insertFields.push('organization_type');
+      insertValues.push(orgType);
+    }
+    
+    if (hasIconId) {
+      insertFields.push('icon_id');
+      insertValues.push(iconId || null);
+    }
+    
+    if (hasPortalConfig) {
+      insertFields.push('onboarding_team_email', 'phone_number', 'phone_extension', 'portal_url', 'theme_settings');
+      insertValues.push(onboardingTeamEmail || null, phoneNumber || null, phoneExtension || null, portalUrl ? portalUrl.toLowerCase() : null, themeSettings ? JSON.stringify(themeSettings) : null);
+    }
+    
+    // Check if notification icon columns exist
+    let hasNotificationIcons = false;
+    try {
+      const [columns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'status_expired_icon_id'"
+      );
+      hasNotificationIcons = columns.length > 0;
+    } catch (e) {
+      hasNotificationIcons = false;
+    }
+    
+    if (hasNotificationIcons) {
+      insertFields.push('status_expired_icon_id', 'temp_password_expired_icon_id', 'task_overdue_icon_id', 'onboarding_completed_icon_id', 'invitation_expired_icon_id', 'first_login_icon_id', 'first_login_pending_icon_id', 'password_changed_icon_id');
+      insertValues.push(statusExpiredIconId || null, tempPasswordExpiredIconId || null, taskOverdueIconId || null, onboardingCompletedIconId || null, invitationExpiredIconId || null, firstLoginIconId || null, firstLoginPendingIconId || null, passwordChangedIconId || null);
+    }
+    
+    const placeholders = insertFields.map(() => '?').join(', ');
+    const [result] = await pool.execute(
+      `INSERT INTO agencies (${insertFields.join(', ')}) VALUES (${placeholders})`,
+      insertValues
+    );
+    return this.findById(result.insertId);
   }
 
   static async update(id, agencyData) {
-    const { name, slug, logoUrl, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters } = agencyData;
+    const { name, slug, logoUrl, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId } = agencyData;
     
     // Check if icon_id column exists
     let hasIconId = false;
@@ -396,6 +488,68 @@ class Agency {
       if (settingsIconId !== undefined) {
         updates.push('settings_icon_id = ?');
         values.push(settingsIconId || null);
+      }
+    }
+    
+    // Check if organization_type column exists
+    let hasOrganizationType = false;
+    try {
+      const [orgTypeColumns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'organization_type'"
+      );
+      hasOrganizationType = orgTypeColumns.length > 0;
+    } catch (e) {
+      hasOrganizationType = false;
+    }
+    
+    if (hasOrganizationType && organizationType !== undefined) {
+      updates.push('organization_type = ?');
+      values.push(organizationType);
+    }
+    
+    // Check if notification icon columns exist
+    let hasNotificationIcons = false;
+    try {
+      const [columns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'status_expired_icon_id'"
+      );
+      hasNotificationIcons = columns.length > 0;
+    } catch (e) {
+      hasNotificationIcons = false;
+    }
+    
+    if (hasNotificationIcons) {
+      if (statusExpiredIconId !== undefined) {
+        updates.push('status_expired_icon_id = ?');
+        values.push(statusExpiredIconId || null);
+      }
+      if (tempPasswordExpiredIconId !== undefined) {
+        updates.push('temp_password_expired_icon_id = ?');
+        values.push(tempPasswordExpiredIconId || null);
+      }
+      if (taskOverdueIconId !== undefined) {
+        updates.push('task_overdue_icon_id = ?');
+        values.push(taskOverdueIconId || null);
+      }
+      if (onboardingCompletedIconId !== undefined) {
+        updates.push('onboarding_completed_icon_id = ?');
+        values.push(onboardingCompletedIconId || null);
+      }
+      if (invitationExpiredIconId !== undefined) {
+        updates.push('invitation_expired_icon_id = ?');
+        values.push(invitationExpiredIconId || null);
+      }
+      if (firstLoginIconId !== undefined) {
+        updates.push('first_login_icon_id = ?');
+        values.push(firstLoginIconId || null);
+      }
+      if (firstLoginPendingIconId !== undefined) {
+        updates.push('first_login_pending_icon_id = ?');
+        values.push(firstLoginPendingIconId || null);
+      }
+      if (passwordChangedIconId !== undefined) {
+        updates.push('password_changed_icon_id = ?');
+        values.push(passwordChangedIconId || null);
       }
     }
     

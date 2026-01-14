@@ -1,14 +1,49 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { getDashboardRoute } from '../utils/router';
+import { getLoginUrl } from '../utils/loginRedirect';
 
 const routes = [
+  // Organization-specific routes (supports Agency, School, Program, Learning)
+  // School splash page (public, no auth required)
+  {
+    path: '/:organizationSlug',
+    name: 'OrganizationSplash',
+    component: () => import('../views/school/SchoolSplashView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true } // Allow both guests and authenticated users
+  },
+  {
+    path: '/:organizationSlug/login',
+    name: 'OrganizationLogin',
+    component: () => import('../views/LoginView.vue'),
+    meta: { requiresGuest: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/upload',
+    name: 'ReferralUpload',
+    component: () => import('../components/school/ReferralUpload.vue'),
+    meta: { organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/new_account/:token',
+    name: 'NewAccount',
+    component: () => import('../views/InitialSetupView.vue'),
+    meta: { requiresGuest: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/dashboard',
+    name: 'OrganizationDashboard',
+    component: () => import('../views/school/SchoolPortalView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  // Legacy agency slug route (backward compatibility)
   {
     path: '/:agencySlug/login',
     name: 'AgencyLogin',
     component: () => import('../views/LoginView.vue'),
     meta: { requiresGuest: true, agencySlug: true }
   },
+  // Platform default routes
   {
     path: '/login',
     name: 'Login',

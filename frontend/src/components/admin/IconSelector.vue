@@ -448,9 +448,9 @@ onMounted(async () => {
 }
 
 .modal-content.large {
-  width: 90%;
-  max-width: 800px;
-  max-height: 90vh;
+  width: 85%;
+  max-width: 700px;
+  max-height: 85vh;
   background: white;
   border-radius: 12px;
   box-shadow: var(--shadow-lg);
@@ -462,7 +462,7 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -496,10 +496,10 @@ onMounted(async () => {
 }
 
 .icon-search {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
 .agency-filter,
@@ -529,8 +529,8 @@ onMounted(async () => {
 
 .icon-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 12px;
 }
 
 .icon-item {
@@ -559,12 +559,12 @@ onMounted(async () => {
 }
 
 .icon-img {
-  width: 64px;
-  height: 64px;
+  width: 48px;
+  height: 48px;
   object-fit: contain;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   background: var(--bg-alt);
-  padding: 8px;
+  padding: 6px;
   border-radius: 4px;
 }
 
@@ -579,7 +579,7 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  padding: 20px;
+  padding: 16px 20px;
   border-top: 1px solid var(--border);
 }
 
@@ -587,6 +587,33 @@ onMounted(async () => {
   text-align: center;
   padding: 40px;
   color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+  .icon-search {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  
+  .modal-content.large {
+    width: 95%;
+    max-height: 90vh;
+  }
+  
+  .icon-grid {
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 8px;
+  }
+  
+  .icon-item {
+    min-height: 100px;
+    padding: 8px;
+  }
+  
+  .icon-img {
+    width: 40px;
+    height: 40px;
+  }
 }
 </style>
 

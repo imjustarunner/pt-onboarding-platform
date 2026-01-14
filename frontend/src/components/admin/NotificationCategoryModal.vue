@@ -17,7 +17,15 @@
           @click="navigateToCategory(category.type)"
         >
           <div class="category-icon">
-            {{ getCategoryIcon(category.type) }}
+            <img
+              v-if="getCategoryIconUrl(category.type)"
+              :src="getCategoryIconUrl(category.type)"
+              :alt="category.label"
+              class="category-icon-image"
+              :data-type="category.type"
+              @error="handleIconError"
+            />
+            <span v-else class="category-icon-emoji">{{ getCategoryIcon(category.type) }}</span>
           </div>
           <div class="category-info">
             <h3 class="category-title">{{ category.label }}</h3>
@@ -39,6 +47,8 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useNotificationStore } from '../../store/notifications';
+import { useBrandingStore } from '../../store/branding';
+import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -56,10 +66,13 @@ const emit = defineEmits(['close']);
 
 const router = useRouter();
 const notificationStore = useNotificationStore();
+const brandingStore = useBrandingStore();
+const agencyStore = useAgencyStore();
 
 const loading = ref(false);
 const error = ref('');
 const categoryCounts = ref({});
+const iconErrors = ref({});
 
 const categories = computed(() => {
   const categoryTypes = [
@@ -79,6 +92,17 @@ const categories = computed(() => {
   }));
 });
 
+// Get icon URL for notification type (agency-level first, then platform-level, then emoji fallback)
+const getCategoryIconUrl = (type) => {
+  if (iconErrors.value[type]) {
+    return null; // Don't retry if we already know it failed
+  }
+
+  // Use branding store helper to get notification icon URL
+  return brandingStore.getNotificationIconUrl(type, props.agencyId);
+};
+
+// Emoji fallback
 const getCategoryIcon = (type) => {
   const icons = {
     status_expired: '⏰',
@@ -91,6 +115,13 @@ const getCategoryIcon = (type) => {
     password_changed: '🔐'
   };
   return icons[type] || '📢';
+};
+
+const handleIconError = (event) => {
+  const type = event.target.dataset?.type;
+  if (type) {
+    iconErrors.value[type] = true;
+  }
 };
 
 const fetchCategoryCounts = async () => {
@@ -273,6 +304,22 @@ onMounted(() => {
 .category-icon {
   font-size: 32px;
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+}
+
+.category-icon-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.category-icon-emoji {
+  font-size: 32px;
+  line-height: 1;
 }
 
 .category-info {

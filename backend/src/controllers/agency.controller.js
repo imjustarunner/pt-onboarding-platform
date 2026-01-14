@@ -36,6 +36,25 @@ export const getAgencyById = async (req, res, next) => {
   }
 };
 
+/**
+ * Get organization by slug (public route - no auth required)
+ * Supports all organization types (Agency, School, Program, Learning)
+ */
+export const getAgencyBySlug = async (req, res, next) => {
+  try {
+    const { slug } = req.params;
+    const agency = await Agency.findBySlug(slug);
+    
+    if (!agency) {
+      return res.status(404).json({ error: { message: 'Organization not found' } });
+    }
+
+    res.json(agency);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const createAgency = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -44,7 +63,7 @@ export const createAgency = async (req, res, next) => {
       return res.status(400).json({ error: { message: `Validation failed: ${errorMessages}`, errors: errors.array() } });
     }
 
-    const { name, slug, logoUrl, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters } = req.body;
+    const { name, slug, logoUrl, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId } = req.body;
     
     // Ensure colorPalette is properly formatted
     let formattedColorPalette = colorPalette;
@@ -101,7 +120,16 @@ export const createAgency = async (req, res, next) => {
       phoneExtension,
       portalUrl,
       themeSettings: formattedThemeSettings,
-      customParameters: formattedCustomParameters
+      customParameters: formattedCustomParameters,
+      organizationType: organizationType || 'agency',
+      statusExpiredIconId,
+      tempPasswordExpiredIconId,
+      taskOverdueIconId,
+      onboardingCompletedIconId,
+      invitationExpiredIconId,
+      firstLoginIconId,
+      firstLoginPendingIconId,
+      passwordChangedIconId
     });
     res.status(201).json(agency);
   } catch (error) {
@@ -213,7 +241,16 @@ export const updateAgency = async (req, res, next) => {
       phoneExtension,
       portalUrl,
       themeSettings: formattedThemeSettings,
-      customParameters: formattedCustomParameters
+      customParameters: formattedCustomParameters,
+      organizationType,
+      statusExpiredIconId,
+      tempPasswordExpiredIconId,
+      taskOverdueIconId,
+      onboardingCompletedIconId,
+      invitationExpiredIconId,
+      firstLoginIconId,
+      firstLoginPendingIconId,
+      passwordChangedIconId
     });
     if (!agency) {
       return res.status(404).json({ error: { message: 'Agency not found' } });
