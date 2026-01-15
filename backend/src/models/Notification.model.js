@@ -14,7 +14,20 @@ class Notification {
     'password_changed',
     'passwordless_token_expired',
     'pending_completed',
-    'checklist_incomplete'
+    'checklist_incomplete',
+    // Documents / credentials compliance
+    'credential_expiring',
+    'credential_expired_blocking',
+    // Communications (Twilio messaging)
+    'inbound_client_message',
+    'support_safety_net_alert',
+    // Kiosk
+    'kiosk_checkin',
+    'survey_completed',
+    // Emergency broadcasts
+    'emergency_broadcast',
+    // Client chat / notes
+    'client_note'
   ];
 
   static async create(notificationData) {

@@ -129,6 +129,31 @@ class PlatformBranding {
         } catch (e) {
           // Settings icon columns don't exist yet, skip
         }
+
+        // Check if "My Dashboard" card icon columns exist and add joins
+        let myDashboardIconSelects = '';
+        let myDashboardIconJoins = '';
+        try {
+          const [myDashColumns] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'my_dashboard_checklist_icon_id'"
+          );
+          if (myDashColumns.length > 0) {
+            myDashboardIconSelects = `,
+          mdc_i.file_path as my_dashboard_checklist_icon_path, mdc_i.name as my_dashboard_checklist_icon_name,
+          mdt_i.file_path as my_dashboard_training_icon_path, mdt_i.name as my_dashboard_training_icon_name,
+          mdd_i.file_path as my_dashboard_documents_icon_path, mdd_i.name as my_dashboard_documents_icon_name,
+          mdm_i.file_path as my_dashboard_my_account_icon_path, mdm_i.name as my_dashboard_my_account_icon_name,
+          mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name`;
+            myDashboardIconJoins = `
+          LEFT JOIN icons mdc_i ON pb.my_dashboard_checklist_icon_id = mdc_i.id
+          LEFT JOIN icons mdt_i ON pb.my_dashboard_training_icon_id = mdt_i.id
+          LEFT JOIN icons mdd_i ON pb.my_dashboard_documents_icon_id = mdd_i.id
+          LEFT JOIN icons mdm_i ON pb.my_dashboard_my_account_icon_id = mdm_i.id
+          LEFT JOIN icons mdod_i ON pb.my_dashboard_on_demand_training_icon_id = mdod_i.id`;
+          }
+        } catch (e) {
+          // "My Dashboard" icon columns don't exist yet, skip
+        }
         
         query = `SELECT pb.*,
           ma_i.file_path as manage_agencies_icon_path, ma_i.name as manage_agencies_icon_name,
@@ -140,7 +165,7 @@ class PlatformBranding {
           pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
           s_i.file_path as settings_icon_path, s_i.name as settings_icon_name,
           mb_i.file_path as master_brand_icon_path, mb_i.name as master_brand_icon_name,
-          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${fontSelects}${orgSelects}${settingsIconSelects}
+          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
           FROM platform_branding pb
           LEFT JOIN icons ma_i ON pb.manage_agencies_icon_id = ma_i.id
           LEFT JOIN icons mm_i ON pb.manage_modules_icon_id = mm_i.id
@@ -151,7 +176,7 @@ class PlatformBranding {
           LEFT JOIN icons pd_i ON pb.progress_dashboard_icon_id = pd_i.id
           LEFT JOIN icons s_i ON pb.settings_icon_id = s_i.id
           LEFT JOIN icons mb_i ON pb.master_brand_icon_id = mb_i.id
-          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${orgJoins}${fontJoins}${settingsIconJoins}
+          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${orgJoins}${fontJoins}${settingsIconJoins}${myDashboardIconJoins}
           ORDER BY pb.id DESC LIMIT 1`;
       } else {
         // Even if dashboard icons don't exist, try to include master brand icon if column exists
@@ -313,6 +338,11 @@ class PlatformBranding {
       viewAllProgressIconId,
       progressDashboardIconId,
       settingsIconId,
+        myDashboardChecklistIconId,
+        myDashboardTrainingIconId,
+        myDashboardDocumentsIconId,
+        myDashboardMyAccountIconId,
+        myDashboardOnDemandTrainingIconId,
       allAgenciesNotificationsIconId,
       organizationName,
       organizationLogoIconId,
@@ -493,6 +523,47 @@ class PlatformBranding {
           console.log('PlatformBranding.update: Setting settings_icon_id to:', settingsIconId ?? null);
         }
       }
+
+      // Check if "My Dashboard" card icon columns exist
+      if (
+        myDashboardChecklistIconId !== undefined ||
+        myDashboardTrainingIconId !== undefined ||
+        myDashboardDocumentsIconId !== undefined ||
+        myDashboardMyAccountIconId !== undefined ||
+        myDashboardOnDemandTrainingIconId !== undefined
+      ) {
+        try {
+          const [myDashColumns] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'my_dashboard_checklist_icon_id'"
+          );
+          if (myDashColumns.length > 0) {
+            if (myDashboardChecklistIconId !== undefined) {
+              updates.push('my_dashboard_checklist_icon_id = ?');
+              values.push(myDashboardChecklistIconId ?? null);
+            }
+            if (myDashboardTrainingIconId !== undefined) {
+              updates.push('my_dashboard_training_icon_id = ?');
+              values.push(myDashboardTrainingIconId ?? null);
+            }
+            if (myDashboardDocumentsIconId !== undefined) {
+              updates.push('my_dashboard_documents_icon_id = ?');
+              values.push(myDashboardDocumentsIconId ?? null);
+            }
+            if (myDashboardMyAccountIconId !== undefined) {
+              updates.push('my_dashboard_my_account_icon_id = ?');
+              values.push(myDashboardMyAccountIconId ?? null);
+            }
+            if (myDashboardOnDemandTrainingIconId !== undefined) {
+              updates.push('my_dashboard_on_demand_training_icon_id = ?');
+              values.push(myDashboardOnDemandTrainingIconId ?? null);
+            }
+          } else {
+            console.warn('PlatformBranding.update: My Dashboard icon columns do not exist. Migration 125 may not have run.');
+          }
+        } catch (e) {
+          console.warn('PlatformBranding.update: Error checking for My Dashboard icon columns:', e.message);
+        }
+      }
       
       // Check if all_agencies_notifications_icon_id column exists (separate from dashboard icons)
       if (allAgenciesNotificationsIconId !== undefined) {
@@ -577,7 +648,12 @@ class PlatformBranding {
                   !update.includes('platform_settings_icon_id') &&
                   !update.includes('view_all_progress_icon_id') &&
                   !update.includes('progress_dashboard_icon_id') &&
-                  !update.includes('settings_icon_id')) {
+                  !update.includes('settings_icon_id') &&
+                  !update.includes('my_dashboard_checklist_icon_id') &&
+                  !update.includes('my_dashboard_training_icon_id') &&
+                  !update.includes('my_dashboard_documents_icon_id') &&
+                  !update.includes('my_dashboard_my_account_icon_id') &&
+                  !update.includes('my_dashboard_on_demand_training_icon_id')) {
                 filteredUpdates.push(update);
                 filteredValues.push(values[index]);
               }

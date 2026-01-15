@@ -127,8 +127,36 @@ class Agency {
       hasIconId = false;
     }
 
+    // Check if "My Dashboard" card icon columns exist
+    let hasMyDashboardIcons = false;
+    try {
+      const [columns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'my_dashboard_checklist_icon_id'"
+      );
+      hasMyDashboardIcons = columns.length > 0;
+    } catch (e) {
+      hasMyDashboardIcons = false;
+    }
+
     let query;
     if (hasDashboardIcons) {
+      const myDashSelects = hasMyDashboardIcons
+        ? `,
+        mdc_i.file_path as my_dashboard_checklist_icon_path, mdc_i.name as my_dashboard_checklist_icon_name,
+        mdt_i.file_path as my_dashboard_training_icon_path, mdt_i.name as my_dashboard_training_icon_name,
+        mdd_i.file_path as my_dashboard_documents_icon_path, mdd_i.name as my_dashboard_documents_icon_name,
+        mdm_i.file_path as my_dashboard_my_account_icon_path, mdm_i.name as my_dashboard_my_account_icon_name,
+        mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name`
+        : '';
+      const myDashJoins = hasMyDashboardIcons
+        ? `
+        LEFT JOIN icons mdc_i ON a.my_dashboard_checklist_icon_id = mdc_i.id
+        LEFT JOIN icons mdt_i ON a.my_dashboard_training_icon_id = mdt_i.id
+        LEFT JOIN icons mdd_i ON a.my_dashboard_documents_icon_id = mdd_i.id
+        LEFT JOIN icons mdm_i ON a.my_dashboard_my_account_icon_id = mdm_i.id
+        LEFT JOIN icons mdod_i ON a.my_dashboard_on_demand_training_icon_id = mdod_i.id`
+        : '';
+
       // Join with icons table to get icon file paths (including master icon)
       query = `SELECT a.*,
         master_i.file_path as icon_file_path, master_i.name as icon_name,
@@ -139,7 +167,7 @@ class Agency {
         ps_i.file_path as platform_settings_icon_path, ps_i.name as platform_settings_icon_name,
         vap_i.file_path as view_all_progress_icon_path, vap_i.name as view_all_progress_icon_name,
         pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
-        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name
+        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${myDashSelects}
         FROM agencies a
         ${hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : ''}
         LEFT JOIN icons ma_i ON a.manage_agencies_icon_id = ma_i.id
@@ -149,7 +177,7 @@ class Agency {
         LEFT JOIN icons ps_i ON a.platform_settings_icon_id = ps_i.id
         LEFT JOIN icons vap_i ON a.view_all_progress_icon_id = vap_i.id
         LEFT JOIN icons pd_i ON a.progress_dashboard_icon_id = pd_i.id
-        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id
+        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${myDashJoins}
         WHERE a.id = ?`;
     } else {
       // Even without dashboard icons, join for master icon if column exists
@@ -181,21 +209,38 @@ class Agency {
    * @returns {Promise<Object|null>} Organization object or null
    */
   static async findBySlug(slug) {
-    // Check if organization_type column exists for potential future filtering
-    let hasOrganizationType = false;
+    // Include "My Dashboard" card icon paths when available so the portal can render them.
+    let hasMyDashboardIcons = false;
     try {
-      const [orgTypeColumns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'organization_type'"
+      const [columns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'my_dashboard_checklist_icon_id'"
       );
-      hasOrganizationType = orgTypeColumns.length > 0;
+      hasMyDashboardIcons = columns.length > 0;
     } catch (e) {
-      hasOrganizationType = false;
+      hasMyDashboardIcons = false;
     }
-    
-    const [rows] = await pool.execute(
-      'SELECT * FROM agencies WHERE slug = ? AND is_active = TRUE',
-      [slug]
-    );
+
+    if (hasMyDashboardIcons) {
+      const [rows] = await pool.execute(
+        `SELECT a.*,
+          mdc_i.file_path as my_dashboard_checklist_icon_path, mdc_i.name as my_dashboard_checklist_icon_name,
+          mdt_i.file_path as my_dashboard_training_icon_path, mdt_i.name as my_dashboard_training_icon_name,
+          mdd_i.file_path as my_dashboard_documents_icon_path, mdd_i.name as my_dashboard_documents_icon_name,
+          mdm_i.file_path as my_dashboard_my_account_icon_path, mdm_i.name as my_dashboard_my_account_icon_name,
+          mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name
+         FROM agencies a
+         LEFT JOIN icons mdc_i ON a.my_dashboard_checklist_icon_id = mdc_i.id
+         LEFT JOIN icons mdt_i ON a.my_dashboard_training_icon_id = mdt_i.id
+         LEFT JOIN icons mdd_i ON a.my_dashboard_documents_icon_id = mdd_i.id
+         LEFT JOIN icons mdm_i ON a.my_dashboard_my_account_icon_id = mdm_i.id
+         LEFT JOIN icons mdod_i ON a.my_dashboard_on_demand_training_icon_id = mdod_i.id
+         WHERE a.slug = ? AND a.is_active = TRUE`,
+        [slug]
+      );
+      return rows[0] || null;
+    }
+
+    const [rows] = await pool.execute('SELECT * FROM agencies WHERE slug = ? AND is_active = TRUE', [slug]);
     return rows[0] || null;
   }
   
@@ -358,7 +403,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, slug, logoUrl, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId } = agencyData;
+    const { name, slug, logoUrl, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId } = agencyData;
     
     // Check if icon_id column exists
     let hasIconId = false;
@@ -524,6 +569,48 @@ class Agency {
       if (settingsIconId !== undefined) {
         updates.push('settings_icon_id = ?');
         values.push(settingsIconId || null);
+      }
+    }
+
+    // Check if "My Dashboard" card icon columns exist
+    if (
+      myDashboardChecklistIconId !== undefined ||
+      myDashboardTrainingIconId !== undefined ||
+      myDashboardDocumentsIconId !== undefined ||
+      myDashboardMyAccountIconId !== undefined ||
+      myDashboardOnDemandTrainingIconId !== undefined
+    ) {
+      let hasMyDashboardIcons = false;
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'my_dashboard_checklist_icon_id'"
+        );
+        hasMyDashboardIcons = columns.length > 0;
+      } catch (e) {
+        hasMyDashboardIcons = false;
+      }
+
+      if (hasMyDashboardIcons) {
+        if (myDashboardChecklistIconId !== undefined) {
+          updates.push('my_dashboard_checklist_icon_id = ?');
+          values.push(myDashboardChecklistIconId || null);
+        }
+        if (myDashboardTrainingIconId !== undefined) {
+          updates.push('my_dashboard_training_icon_id = ?');
+          values.push(myDashboardTrainingIconId || null);
+        }
+        if (myDashboardDocumentsIconId !== undefined) {
+          updates.push('my_dashboard_documents_icon_id = ?');
+          values.push(myDashboardDocumentsIconId || null);
+        }
+        if (myDashboardMyAccountIconId !== undefined) {
+          updates.push('my_dashboard_my_account_icon_id = ?');
+          values.push(myDashboardMyAccountIconId || null);
+        }
+        if (myDashboardOnDemandTrainingIconId !== undefined) {
+          updates.push('my_dashboard_on_demand_training_icon_id = ?');
+          values.push(myDashboardOnDemandTrainingIconId || null);
+        }
       }
     }
     

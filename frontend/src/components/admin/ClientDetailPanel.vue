@@ -145,6 +145,9 @@
           <div v-if="notesLoading" class="loading">Loading messages...</div>
           <div v-else-if="notesError" class="error">{{ notesError }}</div>
           <div v-else class="messages-container">
+            <div class="phi-warning">
+              <strong>Reminder:</strong> Use initials only. Do not include PHI. This is not an EHR.
+            </div>
             <div class="messages-list">
               <div
                 v-for="note in notes"
@@ -155,6 +158,7 @@
                 <div class="message-header">
                   <span class="message-author">{{ note.author_name || 'Unknown' }}</span>
                   <span class="message-date">{{ formatDateTime(note.created_at) }}</span>
+                  <span v-if="note.category" class="category-badge">{{ formatCategory(note.category) }}</span>
                   <span v-if="note.is_internal_only" class="internal-badge">Internal</span>
                 </div>
                 <div class="message-content">{{ note.message }}</div>
@@ -163,9 +167,21 @@
 
             <div class="add-message-form">
               <h3>Add Message</h3>
+              <div class="message-options">
+                <label class="category-label">
+                  Category
+                  <select v-model="newNoteCategory" class="inline-select">
+                    <option value="general">General</option>
+                    <option value="status">Status update</option>
+                    <option value="administrative">Administrative</option>
+                    <option value="billing">Billing</option>
+                    <option value="clinical">Clinical question</option>
+                  </select>
+                </label>
+              </div>
               <textarea
                 v-model="newNoteMessage"
-                placeholder="Enter your message..."
+                placeholder="Enter your message (initials only)..."
                 rows="4"
                 class="message-input"
               ></textarea>
@@ -235,10 +251,13 @@ const notesLoading = ref(false);
 const notesError = ref('');
 const newNoteMessage = ref('');
 const newNoteIsInternal = ref(false);
+const newNoteCategory = ref('general');
 const creatingNote = ref(false);
 
+const hasAgencyAccess = ref(false);
+
 const canCreateInternalNotes = computed(() => {
-  return ['super_admin', 'admin', 'staff', 'provider'].includes(authStore.user?.role);
+  return hasAgencyAccess.value;
 });
 
 const formatDate = (dateString) => {
@@ -355,6 +374,16 @@ const fetchNotes = async () => {
   }
 };
 
+const fetchAccess = async () => {
+  try {
+    const response = await api.get('/users/me/agencies');
+    const agencies = response.data || [];
+    hasAgencyAccess.value = agencies.some((a) => a.id === props.client.agency_id);
+  } catch {
+    hasAgencyAccess.value = false;
+  }
+};
+
 const fetchProviders = async () => {
   try {
     const response = await api.get('/users');
@@ -374,10 +403,12 @@ const createNote = async () => {
     creatingNote.value = true;
     await api.post(`/clients/${props.client.id}/notes`, {
       message: newNoteMessage.value.trim(),
-      is_internal_only: newNoteIsInternal.value
+      is_internal_only: newNoteIsInternal.value,
+      category: newNoteCategory.value
     });
     newNoteMessage.value = '';
     newNoteIsInternal.value = false;
+    newNoteCategory.value = 'general';
     await fetchNotes();
   } catch (err) {
     console.error('Failed to create note:', err);
@@ -385,6 +416,17 @@ const createNote = async () => {
   } finally {
     creatingNote.value = false;
   }
+};
+
+const formatCategory = (c) => {
+  const map = {
+    general: 'General',
+    status: 'Status',
+    administrative: 'Admin',
+    billing: 'Billing',
+    clinical: 'Clinical'
+  };
+  return map[c] || c;
 };
 
 const handleClose = () => {
@@ -407,6 +449,7 @@ watch(() => props.client, () => {
 
 onMounted(async () => {
   await fetchProviders();
+  await fetchAccess();
   if (activeTab.value === 'history') {
     await fetchHistory();
   } else if (activeTab.value === 'messages') {
@@ -690,6 +733,15 @@ onMounted(async () => {
   gap: 24px;
 }
 
+.phi-warning {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #7c2d12;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
 .messages-list {
   display: flex;
   flex-direction: column;
@@ -726,6 +778,14 @@ onMounted(async () => {
 }
 
 .message-date {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.category-badge {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
   color: var(--text-secondary);
   font-size: 12px;
 }

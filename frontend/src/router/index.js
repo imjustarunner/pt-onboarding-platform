@@ -49,6 +49,13 @@ const routes = [
     component: () => import('../components/school/ReferralUpload.vue'),
     meta: { organizationSlug: true }
   },
+  // Public kiosk (no auth)
+  {
+    path: '/kiosk/:locationId',
+    name: 'Kiosk',
+    component: () => import('../views/KioskView.vue'),
+    meta: { requiresGuest: false }
+  },
   {
     path: '/:organizationSlug/new_account/:token',
     name: 'NewAccount',
@@ -77,8 +84,26 @@ const routes = [
   {
     path: '/:organizationSlug/preferences',
     name: 'OrganizationPreferences',
-    component: () => import('../views/PreferencesView.vue'),
+    redirect: (to) => `/${to.params.organizationSlug}/dashboard?tab=my&my=preferences`,
     meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/credentials',
+    name: 'OrganizationCredentials',
+    redirect: (to) => `/${to.params.organizationSlug}/dashboard?tab=my&my=credentials`,
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/schedule',
+    name: 'OrganizationOfficeSchedule',
+    component: () => import('../views/OfficeScheduleView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/schedule/board/:locationId',
+    name: 'OrganizationOfficeScheduleBoard',
+    component: () => import('../views/OfficeScheduleBoardView.vue'),
+    meta: { requiresGuest: false, organizationSlug: true } // public (access-key protected via backend)
   },
   {
     path: '/:organizationSlug/module/:id',
@@ -113,7 +138,7 @@ const routes = [
   {
     path: '/:organizationSlug/account-info',
     name: 'OrganizationAccountInfo',
-    component: () => import('../views/AccountInfoView.vue'),
+    redirect: (to) => `/${to.params.organizationSlug}/dashboard?tab=my&my=account`,
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
@@ -172,6 +197,24 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/communications',
+    name: 'OrganizationCommunicationsFeed',
+    component: () => import('../views/admin/CommunicationsFeedView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/communications/thread/:userId/:clientId',
+    name: 'OrganizationCommunicationThread',
+    component: () => import('../views/admin/CommunicationThreadView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/schedule-approvals',
+    name: 'OrganizationOfficeScheduleApprovals',
+    component: () => import('../views/admin/OfficeScheduleApprovalsView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/documents',
     name: 'OrganizationDocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
@@ -201,8 +244,20 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/payroll',
+    name: 'OrganizationPayroll',
+    component: () => import('../views/admin/PayrollView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/notifications',
     name: 'OrganizationSupervisorNotifications',
+    component: () => import('../views/NotificationsHubView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/notifications/team',
+    name: 'OrganizationTeamNotifications',
     component: () => import('../views/SupervisorNotificationsView.vue'),
     meta: { requiresAuth: true, requiresRole: 'supervisor_or_cpa', organizationSlug: true }
   },
@@ -235,8 +290,26 @@ const routes = [
   {
     path: '/preferences',
     name: 'Preferences',
-    component: () => import('../views/PreferencesView.vue'),
+    redirect: '/dashboard?tab=my&my=preferences',
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/credentials',
+    name: 'Credentials',
+    redirect: '/dashboard?tab=my&my=credentials',
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/schedule',
+    name: 'OfficeSchedule',
+    component: () => import('../views/OfficeScheduleView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/schedule/board/:locationId',
+    name: 'OfficeScheduleBoard',
+    component: () => import('../views/OfficeScheduleBoardView.vue'),
+    meta: { requiresGuest: false }
   },
   {
     path: '/module/:id',
@@ -287,6 +360,24 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'admin' }
   },
   {
+    path: '/admin/communications',
+    name: 'CommunicationsFeed',
+    component: () => import('../views/admin/CommunicationsFeedView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+  },
+  {
+    path: '/admin/communications/thread/:userId/:clientId',
+    name: 'CommunicationThread',
+    component: () => import('../views/admin/CommunicationThreadView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+  },
+  {
+    path: '/admin/schedule-approvals',
+    name: 'OfficeScheduleApprovals',
+    component: () => import('../views/admin/OfficeScheduleApprovalsView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+  },
+  {
     path: '/admin/documents',
     name: 'DocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
@@ -316,8 +407,20 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'admin' }
   },
   {
+    path: '/admin/payroll',
+    name: 'Payroll',
+    component: () => import('../views/admin/PayrollView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin' }
+  },
+  {
     path: '/notifications',
     name: 'SupervisorNotifications',
+    component: () => import('../views/NotificationsHubView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/notifications/team',
+    name: 'TeamNotifications',
     component: () => import('../views/SupervisorNotificationsView.vue'),
     meta: { requiresAuth: true, requiresRole: 'supervisor_or_cpa' }
   },
@@ -348,7 +451,7 @@ const routes = [
   {
     path: '/account-info',
     name: 'AccountInfo',
-    component: () => import('../views/AccountInfoView.vue'),
+    redirect: '/dashboard?tab=my&my=account',
     meta: { requiresAuth: true }
   },
   {
@@ -401,6 +504,24 @@ const router = createRouter({
   routes
 });
 
+const getStoredUserAgencies = () => {
+  try {
+    const stored = JSON.parse(localStorage.getItem('userAgencies') || '[]');
+    return Array.isArray(stored) ? stored : [];
+  } catch {
+    return [];
+  }
+};
+
+const userHasSlugAccess = (slug, agencyStore, authStore) => {
+  if (!slug) return false;
+  const fromStore = agencyStore.userAgencies?.value || agencyStore.userAgencies;
+  const agencies = Array.isArray(fromStore) && fromStore.length > 0 ? fromStore : getStoredUserAgencies();
+
+  // Some records use `portal_url` as the slug-ish value
+  return agencies.some((a) => a?.slug === slug || a?.portal_url === slug);
+};
+
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
   const brandingStore = useBrandingStore();
@@ -434,11 +555,29 @@ router.beforeEach(async (to, from, next) => {
       try {
         const org = await organizationStore.fetchBySlug(slug);
         if (org && authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
-          agencyStore.setCurrentAgency(org);
+          // IMPORTANT: Do NOT overwrite the user's current agency context just because they visited a public
+          // organization splash page. Only sync currentAgency when:
+          // - the route requires auth (they are entering a branded portal), OR
+          // - the user actually belongs to that organization (prevents “/school” prefix sticking).
+          const shouldSyncAgencyContext = !!to.meta.requiresAuth || userHasSlugAccess(slug, agencyStore, authStore);
+          if (shouldSyncAgencyContext) {
+            agencyStore.setCurrentAgency(org);
+          }
         }
       } catch (e) {
         // ignore
       }
+    }
+  }
+
+  // Safety net: if currentAgency is set to a slug the user doesn't have access to,
+  // fall back to their first stored agency (prevents getting "stuck" in a bad prefix).
+  if (authStore.isAuthenticated && authStore.user?.role !== 'super_admin' && agencyStore.currentAgency) {
+    const current = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+    const slug = current?.slug || current?.portal_url;
+    if (slug && !userHasSlugAccess(slug, agencyStore, authStore)) {
+      const fallback = getStoredUserAgencies()[0] || null;
+      if (fallback) agencyStore.setCurrentAgency(fallback);
     }
   }
 
@@ -505,6 +644,8 @@ router.beforeEach(async (to, from, next) => {
     
     // Super admin, admin, support, supervisors, and CPAs can access admin routes
     if (requiredRole === 'admin' && (userRole === 'admin' || userRole === 'super_admin' || userRole === 'support' || userRole === 'supervisor' || userRole === 'clinical_practice_assistant')) {
+      next();
+    } else if (requiredRole === 'schedule_manager' && (userRole === 'clinical_practice_assistant' || userRole === 'admin' || userRole === 'super_admin' || userRole === 'support')) {
       next();
     } else if (requiredRole === 'supervisor_or_cpa' && (userRole === 'supervisor' || userRole === 'clinical_practice_assistant')) {
       next();

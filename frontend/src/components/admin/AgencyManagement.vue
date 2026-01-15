@@ -656,6 +656,41 @@
                 <small>Icon for the "Settings" action card</small>
               </div>
             </div>
+
+            <div class="settings-section-divider">
+              <h4>My Dashboard Card Icons</h4>
+              <p class="section-description">
+                Icons displayed on the user-facing "My Dashboard" cards. These override platform defaults for this organization.
+              </p>
+            </div>
+
+            <div class="dashboard-icons-grid">
+              <div class="dashboard-icon-item">
+                <label>Checklist Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardChecklistIconId" />
+                <small>Icon for the "Checklist" card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Training Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardTrainingIconId" />
+                <small>Icon for the "Training" card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Documents Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardDocumentsIconId" />
+                <small>Icon for the "Documents" card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>My Account Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardMyAccountIconId" />
+                <small>Icon for the "My Account" card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>On-Demand Training Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardOnDemandTrainingIconId" />
+                <small>Icon for the "On-Demand Training" card</small>
+              </div>
+            </div>
             
             <div class="settings-section-divider">
               <h4>Notification Icons</h4>
@@ -816,6 +851,11 @@ const ICON_TEMPLATE_FIELDS = [
   'manageDocumentsIconId',
   'manageUsersIconId',
   'settingsIconId',
+  'myDashboardChecklistIconId',
+  'myDashboardTrainingIconId',
+  'myDashboardDocumentsIconId',
+  'myDashboardMyAccountIconId',
+  'myDashboardOnDemandTrainingIconId',
   'statusExpiredIconId',
   'tempPasswordExpiredIconId',
   'taskOverdueIconId',
@@ -845,6 +885,11 @@ const agencyForm = ref({
   manageDocumentsIconId: null,
   manageUsersIconId: null,
   settingsIconId: null,
+  myDashboardChecklistIconId: null,
+  myDashboardTrainingIconId: null,
+  myDashboardDocumentsIconId: null,
+  myDashboardMyAccountIconId: null,
+  myDashboardOnDemandTrainingIconId: null,
   onboardingTeamEmail: '',
   phoneNumber: '',
   phoneExtension: '',
@@ -1292,6 +1337,11 @@ const editAgency = (agency) => {
     manageDocumentsIconId: agency.manage_documents_icon_id ?? null,
     manageUsersIconId: agency.manage_users_icon_id ?? null,
     settingsIconId: agency.settings_icon_id ?? null,
+    myDashboardChecklistIconId: agency.my_dashboard_checklist_icon_id ?? null,
+    myDashboardTrainingIconId: agency.my_dashboard_training_icon_id ?? null,
+    myDashboardDocumentsIconId: agency.my_dashboard_documents_icon_id ?? null,
+    myDashboardMyAccountIconId: agency.my_dashboard_my_account_icon_id ?? null,
+    myDashboardOnDemandTrainingIconId: agency.my_dashboard_on_demand_training_icon_id ?? null,
     onboardingTeamEmail: agency.onboarding_team_email || '',
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
@@ -1536,6 +1586,11 @@ const saveAgency = async () => {
       manageDocumentsIconId: agencyForm.value.manageDocumentsIconId ?? null,
       manageUsersIconId: agencyForm.value.manageUsersIconId ?? null,
       settingsIconId: agencyForm.value.settingsIconId ?? null,
+      myDashboardChecklistIconId: agencyForm.value.myDashboardChecklistIconId ?? null,
+      myDashboardTrainingIconId: agencyForm.value.myDashboardTrainingIconId ?? null,
+      myDashboardDocumentsIconId: agencyForm.value.myDashboardDocumentsIconId ?? null,
+      myDashboardMyAccountIconId: agencyForm.value.myDashboardMyAccountIconId ?? null,
+      myDashboardOnDemandTrainingIconId: agencyForm.value.myDashboardOnDemandTrainingIconId ?? null,
       onboardingTeamEmail: agencyForm.value.onboardingTeamEmail?.trim() || null,
       phoneNumber: agencyForm.value.phoneNumber?.trim() || null,
       phoneExtension: agencyForm.value.phoneExtension?.trim() || null,
@@ -1742,6 +1797,16 @@ const closeModal = () => {
     moduleDefaultIconId: null,
     userDefaultIconId: null,
     documentDefaultIconId: null,
+    progressDashboardIconId: null,
+    manageModulesIconId: null,
+    manageDocumentsIconId: null,
+    manageUsersIconId: null,
+    settingsIconId: null,
+    myDashboardChecklistIconId: null,
+    myDashboardTrainingIconId: null,
+    myDashboardDocumentsIconId: null,
+    myDashboardMyAccountIconId: null,
+    myDashboardOnDemandTrainingIconId: null,
     onboardingTeamEmail: '',
     phoneNumber: '',
     phoneExtension: '',

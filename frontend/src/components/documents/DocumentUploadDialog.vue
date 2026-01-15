@@ -87,18 +87,42 @@
         </div>
 
         <div class="form-group">
-          <label>
-            <input v-model="formData.agencySpecific" type="checkbox" />
-            Make this template agency-specific
-          </label>
-          <select v-if="formData.agencySpecific && availableAgencies.length > 0" v-model="formData.agencyId" class="form-group" style="margin-top: 8px;" required>
-            <option value="">Select an agency</option>
-            <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
-              {{ agency.name }}
-            </option>
-          </select>
-          <small v-if="formData.agencySpecific && availableAgencies.length === 0" style="color: #dc3545;">
-            Loading agencies...
+          <label>Scope *</label>
+          <div class="scope-toggle">
+            <button
+              type="button"
+              class="scope-btn"
+              :class="{ active: formData.scope === 'org' }"
+              @click="setScope('org')"
+            >
+              Organization
+            </button>
+            <button
+              type="button"
+              class="scope-btn"
+              :class="{ active: formData.scope === 'platform', disabled: !canUsePlatformScope }"
+              :disabled="!canUsePlatformScope"
+              @click="setScope('platform')"
+            >
+              Platform
+            </button>
+          </div>
+
+          <div v-if="formData.scope === 'org'" class="scope-org-select">
+            <label class="sub-label">Organization *</label>
+            <select v-model="formData.agencyId" required>
+              <option value="">Select an organization</option>
+              <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
+                {{ agency.name }}
+              </option>
+            </select>
+            <small v-if="availableAgencies.length === 0" style="color: #dc3545;">
+              Loading organizations...
+            </small>
+          </div>
+
+          <small v-if="!canUsePlatformScope">
+            Platform templates can only be created by platform admins.
           </small>
         </div>
 
@@ -151,8 +175,8 @@ const formData = ref({
   description: props.existingTemplate?.description || '',
   documentType: props.existingTemplate?.document_type || 'administrative',
   documentActionType: props.existingTemplate?.document_action_type || 'signature',
-  agencySpecific: props.existingTemplate?.agency_id !== null && props.existingTemplate?.agency_id !== undefined,
-  agencyId: props.existingTemplate?.agency_id || null,
+  scope: props.existingTemplate?.agency_id === null ? 'platform' : 'org',
+  agencyId: props.existingTemplate?.agency_id ?? '',
   iconId: props.existingTemplate?.icon_id || null
 });
 
@@ -171,6 +195,20 @@ const signatureCoordinates = ref({
 });
 
 const userRole = computed(() => authStore.user?.role);
+const canUsePlatformScope = computed(() => userRole.value === 'super_admin');
+
+const setScope = (scope) => {
+  if (scope === 'platform' && !canUsePlatformScope.value) return;
+  formData.value.scope = scope;
+  if (scope === 'platform') {
+    formData.value.agencyId = '';
+  } else if (!formData.value.agencyId) {
+    // Best-effort default to current org or first available
+    const current = agencyStore.currentAgency?.id;
+    if (current) formData.value.agencyId = current;
+    else if (availableAgencies.value?.[0]?.id) formData.value.agencyId = availableAgencies.value[0].id;
+  }
+};
 
 const fetchAgencies = async () => {
   try {
@@ -181,6 +219,16 @@ const fetchAgencies = async () => {
       // Agency Admin - use their agencies
       await agencyStore.fetchUserAgencies();
       availableAgencies.value = agencyStore.userAgencies || [];
+    }
+
+    // Enforce: non-super-admins cannot create platform templates
+    if (!canUsePlatformScope.value) {
+      setScope('org');
+    }
+
+    // Ensure we have an organization selected when org scope is active
+    if (formData.value.scope === 'org' && !formData.value.agencyId) {
+      setScope('org');
     }
   } catch (err) {
     console.error('Failed to fetch agencies:', err);
@@ -221,6 +269,11 @@ const handleUpload = async () => {
     return;
   }
 
+  if (formData.value.scope === 'org' && !formData.value.agencyId) {
+    error.value = 'Please select an organization scope.';
+    return;
+  }
+
   try {
     uploading.value = true;
     error.value = '';
@@ -236,10 +289,9 @@ const handleUpload = async () => {
     }
     
     // Templates are never user-specific (user-specific documents use separate endpoint)
-    if (formData.value.agencySpecific && formData.value.agencyId) {
-      formDataToSend.append('agencyId', formData.value.agencyId.toString());
-    } else {
-      formDataToSend.append('agencyId', 'null');
+    // IMPORTANT: Never send the literal string "null" (backend treats missing/empty as null).
+    if (formData.value.scope === 'org') {
+      formDataToSend.append('agencyId', String(formData.value.agencyId));
     }
 
     // Add signature coordinates if signature is selected and coordinates are set
@@ -261,7 +313,15 @@ const handleUpload = async () => {
     emit('close');
     
     // Reset form
-    formData.value = { name: '', description: '', documentType: 'administrative', documentActionType: 'signature', agencySpecific: false, agencyId: null, iconId: null };
+    formData.value = {
+      name: '',
+      description: '',
+      documentType: 'administrative',
+      documentActionType: 'signature',
+      scope: canUsePlatformScope.value ? 'platform' : 'org',
+      agencyId: '',
+      iconId: null
+    };
     selectedFile.value = null;
     if (pdfUrl.value) {
       URL.revokeObjectURL(pdfUrl.value);
@@ -334,7 +394,8 @@ onUnmounted(() => {
 
 .form-group input[type="text"],
 .form-group input[type="file"],
-.form-group textarea {
+.form-group textarea,
+.form-group select {
   width: 100%;
   padding: 10px;
   border: 1px solid var(--border);
@@ -398,6 +459,49 @@ onUnmounted(() => {
   margin-top: 24px;
   padding-top: 24px;
   border-top: 1px solid var(--border, #ddd);
+}
+
+.scope-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.scope-btn {
+  padding: 12px 14px;
+  border: 2px solid var(--border, #ddd);
+  border-radius: 10px;
+  background: white;
+  color: var(--text-primary, #333);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.scope-btn:hover:not(:disabled) {
+  border-color: var(--primary-color, #007bff);
+  background: #f8f9fa;
+}
+
+.scope-btn.active {
+  border-color: var(--primary-color, #007bff);
+  background: var(--primary-color, #007bff);
+  color: white;
+}
+
+.scope-btn:disabled,
+.scope-btn.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.scope-org-select .sub-label {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 </style>
 

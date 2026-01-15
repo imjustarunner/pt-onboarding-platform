@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
 import { parse } from 'csv-parse/sync';
+import EmailService from '../services/email.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -675,13 +676,40 @@ export const sendVerificationEmail = async (req, res, next) => {
 
     await ApprovedEmployee.setVerificationToken(employee.id, token, expiresAt);
 
-    // TODO: Send email with verification link
-    // For now, return the token (in production, send via email)
     const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${token}`;
+
+    // Send email when configured; otherwise fall back to returning the link (dev-friendly)
+    if (EmailService.isConfigured()) {
+      const fromName = process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations';
+      const fromAddress = process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null;
+      const replyTo = process.env.GOOGLE_WORKSPACE_REPLY_TO || null;
+
+      const subject = 'Verify your email';
+      const text = `Please verify your email by opening this link:\n\n${verificationUrl}\n\nThis link expires in 24 hours.`;
+      const html = `
+        <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+          <p>Please verify your email by clicking the button below:</p>
+          <p><a href="${verificationUrl}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Verify Email</a></p>
+          <p style="color:#555;">Or copy/paste this link:</p>
+          <p><a href="${verificationUrl}">${verificationUrl}</a></p>
+          <p style="color:#777;">This link expires in 24 hours.</p>
+        </div>
+      `.trim();
+
+      await EmailService.sendEmail({
+        to: employee.email,
+        subject,
+        text,
+        html,
+        fromName,
+        fromAddress,
+        replyTo
+      });
+    }
     
     res.json({
       message: 'Verification email sent',
-      verificationUrl // Remove this in production, send via email instead
+      verificationUrl: EmailService.isConfigured() ? undefined : verificationUrl
     });
   } catch (error) {
     next(error);

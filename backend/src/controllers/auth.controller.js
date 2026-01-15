@@ -1153,7 +1153,7 @@ export const register = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
-    const { email, firstName, lastName, role, phoneNumber, agencyIds, personalEmail } = req.body;
+    const { email, firstName, lastName, role, phoneNumber, agencyIds, personalEmail, billingAcknowledged } = req.body;
     
     console.log('Register request body:', { email, role, agencyIds, personalEmail });
     
@@ -1227,6 +1227,22 @@ export const register = async (req, res, next) => {
     if (email === 'superadmin@plottwistco.com') {
       finalRole = 'super_admin';
       console.warn('⚠️  Attempted to create user with superadmin email - forcing super_admin role');
+    }
+
+    // Billing hard gate: adding an admin beyond included requires acknowledgement
+    if (finalRole === 'admin' && Array.isArray(agencyIds) && agencyIds.length > 0) {
+      const { getAdminAddBillingImpact } = await import('../services/adminBillingGate.service.js');
+      const impacts = [];
+      for (const aId of agencyIds) {
+        const impact = await getAdminAddBillingImpact(parseInt(aId, 10), { deltaAdmins: 1 });
+        if (impact) impacts.push({ agencyId: parseInt(aId, 10), ...impact });
+      }
+      if (impacts.length > 0 && billingAcknowledged !== true) {
+        return res.status(409).json({
+          error: { message: 'Billing acknowledgement required to add an admin beyond included limits.' },
+          billingImpact: { code: 'ADMIN_OVERAGE', impacts }
+        });
+      }
     }
     
     // For PENDING_SETUP users: NO temporary password, only passwordless token

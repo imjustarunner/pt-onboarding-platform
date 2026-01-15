@@ -40,9 +40,10 @@ class UserPreferences {
           'email_enabled', 'sms_enabled', 'in_app_enabled',
           'quiet_hours_enabled', 'quiet_hours_allowed_days', 'quiet_hours_start_time', 'quiet_hours_end_time',
           'auto_reply_enabled', 'auto_reply_message',
+          'emergency_override',
           'notification_categories',
           'work_modality', 'scheduling_preferences',
-          'show_read_receipts', 'allow_staff_step_in',
+          'show_read_receipts', 'allow_staff_step_in', 'staff_step_in_after_minutes',
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
           'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page'
         ];
@@ -81,9 +82,10 @@ class UserPreferences {
           'email_enabled', 'sms_enabled', 'in_app_enabled',
           'quiet_hours_enabled', 'quiet_hours_allowed_days', 'quiet_hours_start_time', 'quiet_hours_end_time',
           'auto_reply_enabled', 'auto_reply_message',
+          'emergency_override',
           'notification_categories',
           'work_modality', 'scheduling_preferences',
-          'show_read_receipts', 'allow_staff_step_in',
+          'show_read_receipts', 'allow_staff_step_in', 'staff_step_in_after_minutes',
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
           'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page'
         ];

@@ -639,6 +639,11 @@ Permission middleware:
 agency-first resolution + user_type + role gates
 Employee status gates:
 enforce lifecycle access rules at login + route level
+
+
+
+
+
 Integrated Operations Platform Plan
 (Office Scheduling · Kiosk · Communications · Notifications · Compliance)
 
@@ -1248,3 +1253,212 @@ SYSTEM
 🔐 Platform & Security
 🗑️ Archive
 
+“My Preferences”
+Personal Settings Hub (User-Owned, Admin-Guarded)
+Purpose
+
+Create a single, predictable place where users manage their own experience without:
+
+Affecting compliance
+
+Weakening safety nets
+
+Conflicting with admin controls
+
+This is not an admin page.
+This is user-owned configuration.
+
+1. Where This Lives (Navigation)
+
+Profile Avatar → My Preferences
+
+Accessible to:
+
+Employees
+
+School Staff
+
+Clients / Guardians (limited view)
+
+Not accessible from:
+
+Admin dashboards
+
+Other users’ profiles
+
+2. “My Preferences” Page Structure
+
+The page is divided into clear sections, each with a defined ownership boundary.
+
+3. Section 1: Notification Preferences
+
+(Already Designed — Now Properly Housed)
+
+This section embeds the entire Notification Preferences System you already approved:
+
+Includes:
+
+In-App / Email / SMS toggles
+
+Category-based notification controls
+
+Quiet Hours configuration
+
+Auto-responder settings
+
+Emergency override indicator (if applicable)
+
+Rules:
+
+Users can modify preferences within allowed limits
+
+Emergency & blocking compliance notifications are visibly labeled as:
+
+“Required – cannot be disabled”
+
+4. Section 2: Availability & Work Style
+
+This section controls how the system interprets the user’s working context.
+
+4.1 Work Modality (Read-Only or Limited Edit)
+
+In-Person
+
+Telehealth-Only
+
+Hybrid
+
+Notes:
+
+This may be admin-controlled
+
+Displayed here for transparency
+
+Explains why certain features (e.g., Schedule tab) are hidden
+
+4.2 Office Scheduling Preferences (If Eligible)
+
+Visible only if:
+
+User has in-office permissions
+
+Options:
+
+Preferred building(s)
+
+Default booking duration
+
+Allow auto-approval for recurring slots (if CPA allows)
+
+These settings do not override CPA approval rules.
+
+5. Section 3: Communication Preferences (Non-Notification)
+
+This is about how the user presents themselves, not alerts.
+
+5.1 Messaging Behavior
+
+☐ Show read receipts to clients (if allowed)
+
+☐ Allow support staff to step in if I don’t respond within X minutes (default ON)
+
+These settings never disable the Safety Net, only tune behavior.
+
+5.2 After-Hours Boundary (Display)
+
+Shows:
+
+Quiet Hours window
+
+Auto-reply message
+
+Read-only indicator explaining:
+
+“Messages received after hours are still monitored by the support team.”
+
+6. Section 4: Privacy & Display
+
+Controls what the user sees and how their info is displayed.
+
+Options:
+
+☐ Show my full name on internal schedules
+
+☐ Show initials only on hallway boards (default ON)
+
+☐ Allow my name to appear in exported PDFs (admin override possible)
+
+No client-facing PHI controls appear here.
+
+7. Section 5: Accessibility & UI Preferences
+
+Non-clinical, quality-of-life settings:
+
+☐ Reduced motion
+
+☐ High-contrast mode
+
+☐ Larger text
+
+☐ Default landing page (Dashboard / Clients / Schedule)
+
+These are fully user-controlled.
+
+8. Section 6: Account & Identity (Mostly Read-Only)
+Displays:
+
+Name
+
+Email
+
+Role
+
+Organization(s)
+
+User Category (Employee / School Staff / Client / Guardian)
+
+Editable:
+
+Password
+
+MFA / security settings (future)
+
+9. Permission Boundaries (Critical)
+Setting Type	User Can Edit	Admin Can Override
+Notification timing	✅	❌
+Notification channels	✅	❌ (except emergencies)
+Quiet hours	✅	❌
+Auto-reply text	✅	❌
+Compliance alerts	❌	✅
+Scheduling eligibility	❌	✅
+Safety Net visibility	❌	❌
+Work modality	⚠️ Limited	✅
+10. Backend Model (Extends Existing)
+UserPreferences (Expanded)
+
+Includes:
+
+Notification preferences (already defined)
+
+UI preferences
+
+Availability flags
+
+Display/privacy options
+
+Still one table, not fragmented.
+
+11. Why This Matters
+
+This gives you:
+
+A single mental model for users
+
+A clear line between personal autonomy and organizational control
+
+Fewer support tickets (“why don’t I see this?”)
+
+A scalable place to add future preferences without chaos
+
+Most importantly:
+It prevents preferences from turning into permission bugs.

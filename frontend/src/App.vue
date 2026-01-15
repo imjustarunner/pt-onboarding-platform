@@ -23,12 +23,13 @@
                 <router-link :to="orgTo('/dashboard')" v-if="isPrivilegedPortalUser" @click="closeMobileMenu">My Dashboard</router-link>
 
                 <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Admin Dashboard</router-link>
-                <router-link :to="orgTo('/account-info')" @click="closeMobileMenu">Account Info</router-link>
 
                 <router-link :to="orgTo('/admin/modules')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Training</router-link>
                 <router-link :to="orgTo('/admin/documents')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Documents</router-link>
                 <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Users</router-link>
                 <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeMobileMenu">Clients</router-link>
+                <router-link :to="orgTo('/admin/communications')" v-if="isAdmin || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Communications</router-link>
+                <router-link :to="orgTo('/admin/payroll')" v-if="isAdmin" @click="closeMobileMenu">Payroll</router-link>
 
                 <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Notifications</router-link>
                 <router-link :to="orgTo('/notifications')" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Notifications</router-link>
@@ -36,7 +37,7 @@
                 <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Settings</router-link>
               </template>
                 <span class="user-info">{{ user?.firstName || user?.email }} {{ user?.lastName || '' }}</span>
-                <router-link :to="orgTo('/preferences')" @click="closeMobileMenu" class="nav-link preferences-link">My Preferences</router-link>
+                <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="nav-link">Office Schedule</router-link>
                 <button @click="handleLogout" class="btn btn-secondary">Logout</button>
               </div>
             </div>
@@ -59,12 +60,13 @@
               <router-link :to="orgTo('/dashboard')" v-if="isPrivilegedPortalUser" @click="closeMobileMenu" class="mobile-nav-link">My Dashboard</router-link>
 
               <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
-              <router-link :to="orgTo('/account-info')" @click="closeMobileMenu" class="mobile-nav-link">Account Info</router-link>
 
               <router-link :to="orgTo('/admin/modules')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Training</router-link>
               <router-link :to="orgTo('/admin/documents')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Documents</router-link>
               <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Users</router-link>
               <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
+              <router-link :to="orgTo('/admin/communications')" v-if="isAdmin || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Communications</router-link>
+              <router-link :to="orgTo('/admin/payroll')" v-if="isAdmin" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
 
               <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
               <router-link :to="orgTo('/notifications')" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
@@ -74,7 +76,7 @@
           </div>
           <div class="mobile-sidebar-footer">
             <div class="mobile-user-info">{{ user?.firstName || user?.email }} {{ user?.lastName || '' }}</div>
-            <router-link :to="orgTo('/preferences')" @click="closeMobileMenu" class="mobile-nav-link">My Preferences</router-link>
+            <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="mobile-nav-link">Office Schedule</router-link>
             <button @click="handleLogout" class="btn btn-secondary mobile-logout">Logout</button>
           </div>
         </div>

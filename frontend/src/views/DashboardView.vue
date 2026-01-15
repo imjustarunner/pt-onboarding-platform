@@ -80,22 +80,30 @@
       <button v-else class="btn btn-primary" disabled>View Checklist</button>
     </div>
     
-    <!-- Tab Navigation -->
-    <div class="dashboard-tabs">
+    <!-- Dashboard Cards (replaces tabs) -->
+    <div class="dashboard-card-grid">
       <button
-        v-for="tab in filteredTabs"
-        :key="tab.id"
-        @click="!previewMode && (activeTab = tab.id)"
-        :class="['tab-button', { active: activeTab === tab.id }]"
+        v-for="card in dashboardCards"
+        :key="card.id"
+        class="dash-card"
+        :class="{ active: card.kind === 'content' && activeTab === card.id }"
         :disabled="previewMode"
+        @click="handleCardClick(card)"
       >
-        {{ tab.label }}
-        <span v-if="tab.badgeCount > 0" class="tab-badge">{{ tab.badgeCount }}</span>
+        <div v-if="card.iconUrl" class="dash-card-icon">
+          <img :src="card.iconUrl" :alt="`${card.label} icon`" class="dash-card-icon-img" />
+        </div>
+        <div class="dash-card-title">{{ card.label }}</div>
+        <div v-if="card.description" class="dash-card-desc">{{ card.description }}</div>
+        <div class="dash-card-meta">
+          <span v-if="card.badgeCount > 0" class="dash-card-badge">{{ card.badgeCount }}</span>
+          <span class="dash-card-cta">{{ card.kind === 'link' ? 'Open' : 'View' }}</span>
+        </div>
       </button>
     </div>
     
-    <!-- Tab Content -->
-    <div class="tab-content">
+    <!-- Card Content (for content cards) -->
+    <div class="card-content">
       <TrainingFocusTab
         v-if="!previewMode"
         v-show="activeTab === 'training' && !isPending"
@@ -113,12 +121,61 @@
         v-show="activeTab === 'checklist'"
         @update-count="updateChecklistCount"
       />
+
+      <!-- My Account (nested inside dashboard) -->
+      <div
+        v-if="!previewMode && isOnboardingComplete"
+        v-show="activeTab === 'my'"
+        class="my-panel"
+      >
+        <div class="my-subnav">
+          <button
+            type="button"
+            class="subtab"
+            :class="{ active: myTab === 'account' }"
+            @click="setMyTab('account')"
+          >
+            Account Info
+          </button>
+          <button
+            type="button"
+            class="subtab"
+            :class="{ active: myTab === 'credentials' }"
+            @click="setMyTab('credentials')"
+          >
+            My Credentials
+          </button>
+          <button
+            type="button"
+            class="subtab"
+            :class="{ active: myTab === 'preferences' }"
+            @click="setMyTab('preferences')"
+          >
+            My Preferences
+          </button>
+        </div>
+
+        <div v-show="myTab === 'account'">
+          <AccountInfoView />
+        </div>
+        <div v-show="myTab === 'credentials'">
+          <CredentialsView />
+        </div>
+        <div v-show="myTab === 'preferences'">
+          <div class="preferences-header">
+            <h1>My Preferences</h1>
+            <p class="preferences-subtitle">Manage your personal settings and preferences</p>
+          </div>
+          <UserPreferencesHub v-if="authStore.user?.id" :userId="authStore.user.id" />
+        </div>
+      </div>
       
       <!-- Preview mode placeholder content -->
       <div v-if="previewMode" class="preview-tab-content">
         <p v-if="activeTab === 'checklist'" class="preview-text">Checklist content preview</p>
         <p v-if="activeTab === 'training'" class="preview-text">Training content preview</p>
         <p v-if="activeTab === 'documents'" class="preview-text">Documents content preview</p>
+        <p v-if="activeTab === 'my'" class="preview-text">My account content preview</p>
       </div>
     </div>
   </div>
@@ -126,14 +183,18 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
+import { useBrandingStore } from '../store/branding';
 import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
 import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue';
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
+import UserPreferencesHub from '../components/UserPreferencesHub.vue';
+import CredentialsView from './CredentialsView.vue';
+import AccountInfoView from './AccountInfoView.vue';
 
 const props = defineProps({
   previewMode: {
@@ -151,9 +212,12 @@ const props = defineProps({
 });
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
 const activeTab = ref('checklist');
+const myTab = ref('account'); // 'account' | 'credentials' | 'preferences'
 const onboardingCompletion = ref(100);
 const trainingCount = ref(0);
 const documentsCount = ref(0);
@@ -169,6 +233,13 @@ const tabs = computed(() => [
   { id: 'training', label: 'Training', badgeCount: trainingCount.value },
   { id: 'documents', label: 'Documents', badgeCount: documentsCount.value }
 ]);
+
+const isOnboardingComplete = computed(() => {
+  const st = userStatus.value;
+  // Approved employees should always be able to access on-demand + prefs.
+  if (authStore.user?.type === 'approved_employee') return true;
+  return st === 'ACTIVE_EMPLOYEE' || st === 'active' || st === 'completed';
+});
 
 // Agency logo URL for preview mode
 const previewAgencyLogoUrl = computed(() => {
@@ -186,6 +257,78 @@ const filteredTabs = computed(() => {
   // ACTIVE_EMPLOYEE and TERMINATED_PENDING users see all tabs
   return tabs.value;
 });
+
+const dashboardCards = computed(() => {
+  const cards = filteredTabs.value.map((t) => ({
+    ...t,
+    kind: 'content',
+    iconUrl: brandingStore.getDashboardCardIconUrl(t.id),
+    description:
+      t.id === 'checklist'
+        ? 'Your required onboarding and checklist items.'
+        : t.id === 'training'
+          ? 'Assigned training modules and progress.'
+          : 'Documents that need review or signature.'
+  }));
+
+  // Post-onboarding cards
+  if (isOnboardingComplete.value) {
+    cards.push({
+      id: 'my',
+      label: 'My Account',
+      kind: 'content',
+      badgeCount: 0,
+      iconUrl: brandingStore.getDashboardCardIconUrl('my'),
+      description: 'Account info, credentials, and personal preferences.'
+    });
+    cards.push({
+      id: 'on_demand_training',
+      label: 'On-Demand Training',
+      kind: 'link',
+      badgeCount: 0,
+      iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training'),
+      description: 'Always available after onboarding is complete.',
+      to: '/on-demand-training'
+    });
+  }
+
+  return cards;
+});
+
+const handleCardClick = (card) => {
+  if (props.previewMode) return;
+  if (card.kind === 'link' && card.to) {
+    router.push(card.to);
+    return;
+  }
+  activeTab.value = card.id;
+  if (props.previewMode) return;
+  if (card.id === 'my') {
+    router.replace({ query: { ...route.query, tab: 'my', my: myTab.value } });
+  } else {
+    router.replace({ query: { ...route.query, tab: card.id } });
+  }
+};
+
+const setMyTab = (tab) => {
+  myTab.value = tab;
+  activeTab.value = 'my';
+  if (props.previewMode) return;
+  router.replace({ query: { ...route.query, tab: 'my', my: tab } });
+};
+
+const syncFromQuery = () => {
+  if (props.previewMode) return;
+  const qTab = route.query?.tab;
+  if (typeof qTab === 'string' && ['checklist', 'training', 'documents', 'my'].includes(qTab)) {
+    activeTab.value = qTab;
+  }
+
+  const qMy = route.query?.my;
+  if (typeof qMy === 'string' && ['account', 'credentials', 'preferences'].includes(qMy)) {
+    myTab.value = qMy;
+  }
+};
 
 const updateTrainingCount = (count) => {
   trainingCount.value = count;
@@ -299,8 +442,13 @@ watch(() => [props.previewStatus, props.previewData], () => {
   }
 }, { deep: true });
 
+watch(() => [route.query?.tab, route.query?.my], () => {
+  syncFromQuery();
+});
+
 onMounted(async () => {
   await fetchOnboardingStatus();
+  syncFromQuery();
 });
 </script>
 
@@ -375,58 +523,134 @@ h1 {
   background: rgba(255, 255, 255, 0.9);
 }
 
-.dashboard-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 32px;
-  border-bottom: 2px solid var(--border);
-  padding-bottom: 0;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+.dashboard-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-.tab-button {
-  position: relative;
-  padding: 12px 24px;
-  background: none;
-  border: none;
-  border-bottom: 3px solid transparent;
+.dash-card {
+  text-align: left;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
   cursor: pointer;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  transition: all 0.2s;
-  margin-bottom: -2px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.tab-button:hover {
+.dash-card-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.dash-card-icon-img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.dash-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+}
+
+.dash-card:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.dash-card.active {
+  border-color: var(--accent);
+}
+
+.dash-card-title {
+  font-weight: 700;
   color: var(--text-primary);
+  margin-bottom: 6px;
 }
 
-.tab-button.active {
-  color: var(--primary);
-  border-bottom-color: var(--accent);
+.dash-card-desc {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin-bottom: 10px;
 }
 
-.tab-badge {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 8px;
+.dash-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dash-card-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
   background: #dc2626;
   color: white;
-  border-radius: 12px;
   font-size: 12px;
-  font-weight: 600;
-  min-width: 20px;
-  text-align: center;
+  font-weight: 700;
 }
 
-.tab-content {
+.dash-card-cta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.card-content {
   background: white;
   border-radius: 12px;
   padding: 32px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
+}
+
+.my-subnav {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.my-subnav .subtab {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.my-subnav .subtab.active {
+  border-color: var(--accent);
+  background: white;
+}
+
+.my-panel :deep(.container) {
+  padding: 0;
+}
+
+.my-panel :deep(.page-header),
+.my-panel :deep(.preferences-header) {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
 }
 
 .status-warning-banner {
@@ -571,7 +795,7 @@ h1 {
   letter-spacing: 0.05em;
 }
 
-.tab-button:disabled {
+.dash-card:disabled {
   cursor: not-allowed;
   opacity: 0.7;
 }

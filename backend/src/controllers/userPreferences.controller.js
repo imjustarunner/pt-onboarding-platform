@@ -1,6 +1,48 @@
 import UserPreferences from '../models/UserPreferences.model.js';
 import User from '../models/User.model.js';
 
+const buildDefaultPreferences = (userRole) => {
+  // Defaults per OVERHAUL_PLAN.md (minimal, role-aware)
+  // - In-app is always enabled (cannot be disabled)
+  // - Employees/providers default to SMS ON; support staff SMS optional
+  const employeeLikeRoles = new Set([
+    'staff',
+    'clinician',
+    'facilitator',
+    'intern',
+    'supervisor',
+    'clinical_practice_assistant'
+  ]);
+
+  const smsDefault = employeeLikeRoles.has(userRole);
+
+  return {
+    email_enabled: true,
+    sms_enabled: smsDefault,
+    in_app_enabled: true,
+    quiet_hours_enabled: false,
+    quiet_hours_allowed_days: null,
+    quiet_hours_start_time: null,
+    quiet_hours_end_time: null,
+    auto_reply_enabled: false,
+    auto_reply_message: null,
+    emergency_override: false,
+    notification_categories: null,
+    work_modality: null,
+    scheduling_preferences: null,
+    show_read_receipts: false,
+    allow_staff_step_in: true,
+    staff_step_in_after_minutes: 15,
+    show_full_name_on_schedules: true,
+    show_initials_only_on_boards: true,
+    allow_name_in_pdfs: true,
+    reduced_motion: false,
+    high_contrast_mode: false,
+    larger_text: false,
+    default_landing_page: 'dashboard'
+  };
+};
+
 /**
  * Get user preferences
  * GET /api/users/:userId/preferences
@@ -23,30 +65,10 @@ export const getUserPreferences = async (req, res, next) => {
     const preferences = await UserPreferences.findByUserId(parseInt(userId));
     
     if (!preferences) {
-      // Return default preferences if none exist
-      return res.json({
-        email_enabled: true,
-        sms_enabled: false,
-        in_app_enabled: true,
-        quiet_hours_enabled: false,
-        quiet_hours_allowed_days: null,
-        quiet_hours_start_time: null,
-        quiet_hours_end_time: null,
-        auto_reply_enabled: false,
-        auto_reply_message: null,
-        notification_categories: null,
-        work_modality: null,
-        scheduling_preferences: null,
-        show_read_receipts: false,
-        allow_staff_step_in: true,
-        show_full_name_on_schedules: true,
-        show_initials_only_on_boards: true,
-        allow_name_in_pdfs: true,
-        reduced_motion: false,
-        high_contrast_mode: false,
-        larger_text: false,
-        default_landing_page: 'dashboard'
-      });
+      // Return role-aware defaults if none exist
+      const user = await User.findById(parseInt(userId));
+      const role = user?.role || 'staff';
+      return res.json(buildDefaultPreferences(role));
     }
 
     res.json(preferences);
@@ -99,6 +121,20 @@ export const updateUserPreferences = async (req, res, next) => {
     // Ensure in_app_enabled is always true (safety requirement)
     if ('in_app_enabled' in updates && updates.in_app_enabled === false) {
       updates.in_app_enabled = true;
+    }
+
+    // Enforce safety-required notification category settings (if client sends them)
+    // Note: the UI labels these as “Required – cannot be disabled”.
+    if (updates.notification_categories && typeof updates.notification_categories === 'object') {
+      // Emergency broadcasts bypass preferences; keep the “category” required if present.
+      if (updates.notification_categories.system_emergency_broadcasts === false) {
+        updates.notification_categories.system_emergency_broadcasts = true;
+      }
+
+      // Support Safety Net alerts cannot be fully disabled for support staff.
+      if (user.role === 'support' && updates.notification_categories.messaging_support_safety_net_alerts === false) {
+        updates.notification_categories.messaging_support_safety_net_alerts = true;
+      }
     }
 
     const preferences = await UserPreferences.update(parseInt(userId), updates);

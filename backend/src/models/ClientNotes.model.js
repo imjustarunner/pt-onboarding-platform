@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
+import { scrubClientNamesToCode } from '../services/phiScrubber.service.js';
 
 /**
  * Client Notes Model
@@ -9,6 +11,40 @@ import pool from '../config/database.js';
  * - School staff: Can only see shared notes
  */
 class ClientNotes {
+  static ALLOWED_CATEGORIES = new Set([
+    'general',
+    'status',
+    'administrative',
+    'billing',
+    'clinical'
+  ]);
+
+  static normalizeCategory(category) {
+    const c = String(category || '').trim().toLowerCase();
+    if (!c) return 'general';
+    // Accept a couple common synonyms
+    if (c === 'admin') return 'administrative';
+    if (c === 'clinical_question') return 'clinical';
+    if (c === 'billing_question') return 'billing';
+    if (c === 'general_question') return 'general';
+    return this.ALLOWED_CATEGORIES.has(c) ? c : 'general';
+  }
+
+  static hydrateDecryptedMessage(row) {
+    if (row && row.message_ciphertext && row.message_iv && row.message_auth_tag) {
+      try {
+        row.message = decryptChatText({
+          ciphertextB64: row.message_ciphertext,
+          ivB64: row.message_iv,
+          authTagB64: row.message_auth_tag
+        });
+      } catch {
+        row.message = '[Unable to decrypt message]';
+      }
+    }
+    return row;
+  }
+
   /**
    * Create a new note
    * @param {Object} noteData - Note data
@@ -16,26 +52,68 @@ class ClientNotes {
    * @param {number} noteData.author_id - User creating the note
    * @param {string} noteData.message - Note message
    * @param {boolean} noteData.is_internal_only - Whether note is agency-only
-   * @param {string} userRole - Role of user creating the note
+   * @param {string} noteData.category - Message category
+   * @param {Object} access - Permission context
+   * @param {boolean} access.hasAgencyAccess - user belongs to client's agency
    * @returns {Promise<Object>} Created note object
    */
-  static async create(noteData, userRole) {
+  static async create(noteData, access = { hasAgencyAccess: false }) {
     const { client_id, author_id, message, is_internal_only = false } = noteData;
+    const category = this.normalizeCategory(noteData.category);
+    const scrubbedMessage = scrubClientNamesToCode(message);
 
-    // Validation: School staff cannot create internal notes
-    if (is_internal_only && (userRole === 'school_staff' || !['super_admin', 'admin', 'staff', 'provider'].includes(userRole))) {
+    // Validation: only agency members can create internal notes
+    if (is_internal_only && !access?.hasAgencyAccess) {
       throw new Error('Only agency staff can create internal notes');
     }
 
-    const query = `
-      INSERT INTO client_notes (client_id, author_id, message, is_internal_only)
-      VALUES (?, ?, ?, ?)
-    `;
+    if (!isChatEncryptionConfigured()) {
+      // In production we require encryption; in dev allow plaintext to avoid hard-blocking local setup.
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('Chat encryption key not configured');
+      }
+      const [result] = await pool.execute(
+        `INSERT INTO client_notes (client_id, author_id, category, message, is_internal_only)
+         VALUES (?, ?, ?, ?, ?)`,
+        [client_id, author_id, category, String(scrubbedMessage || ''), is_internal_only]
+      );
+      return this.findById(result.insertId);
+    }
 
-    const values = [client_id, author_id, message, is_internal_only];
-
-    const [result] = await pool.execute(query, values);
-    return this.findById(result.insertId);
+    const enc = encryptChatText(scrubbedMessage);
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO client_notes
+         (client_id, author_id, category, message, message_ciphertext, message_iv, message_auth_tag, encryption_key_id, is_internal_only)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          client_id,
+          author_id,
+          category,
+          null,
+          enc.ciphertextB64,
+          enc.ivB64,
+          enc.authTagB64,
+          enc.keyId,
+          is_internal_only
+        ]
+      );
+      return this.findById(result.insertId);
+    } catch (e) {
+      // If the migration hasn't been applied yet, fail loudly in production; fallback to plaintext in dev.
+      const msg = String(e?.message || '');
+      const columnMissing = msg.includes('Unknown column') || msg.includes('ER_BAD_FIELD_ERROR');
+      const nullViolation = msg.includes('cannot be null') || msg.includes('ER_BAD_NULL_ERROR');
+      if (process.env.NODE_ENV === 'production' && (columnMissing || nullViolation)) {
+        throw new Error('client_notes encryption columns missing; run migrations (120_add_encrypted_categories_to_client_notes.sql)');
+      }
+      const [result] = await pool.execute(
+        `INSERT INTO client_notes (client_id, author_id, category, message, is_internal_only)
+         VALUES (?, ?, ?, ?, ?)`,
+        [client_id, author_id, category, String(message || ''), is_internal_only]
+      );
+      return this.findById(result.insertId);
+    }
   }
 
   /**
@@ -57,7 +135,7 @@ class ClientNotes {
     const [rows] = await pool.execute(query, [id]);
     if (rows.length === 0) return null;
 
-    const note = rows[0];
+    const note = this.hydrateDecryptedMessage(rows[0]);
     if (note.author_first_name && note.author_last_name) {
       note.author_name = `${note.author_first_name} ${note.author_last_name}`;
     } else {
@@ -70,14 +148,13 @@ class ClientNotes {
   /**
    * Find all notes for a client (filtered by permission)
    * @param {number} clientId - Client ID
-   * @param {string} userRole - User role
-   * @param {number|null} userOrganizationId - User's organization ID (for school staff)
+   * @param {Object} access - Permission context
+   * @param {boolean} access.hasAgencyAccess - user belongs to client's agency
    * @returns {Promise<Array>} Array of note objects (filtered)
    */
-  static async findByClientId(clientId, userRole, userOrganizationId = null) {
-    // School staff can only see shared notes
-    const isSchoolStaff = userRole === 'school_staff' || 
-                          (!['super_admin', 'admin', 'staff', 'provider'].includes(userRole));
+  static async findByClientId(clientId, access = { hasAgencyAccess: false }) {
+    // If user does not have agency access, treat as school-side access: only shared notes.
+    const isSchoolSide = !access?.hasAgencyAccess;
 
     let query = `
       SELECT 
@@ -91,8 +168,8 @@ class ClientNotes {
 
     const values = [clientId];
 
-    // Filter: School staff only see shared notes
-    if (isSchoolStaff) {
+    // Filter: school-side only sees shared notes
+    if (isSchoolSide) {
       query += ' AND n.is_internal_only = FALSE';
     }
 
@@ -101,6 +178,7 @@ class ClientNotes {
     const [rows] = await pool.execute(query, values);
 
     return rows.map(row => {
+      this.hydrateDecryptedMessage(row);
       if (row.author_first_name && row.author_last_name) {
         row.author_name = `${row.author_first_name} ${row.author_last_name}`;
       } else {

@@ -10,6 +10,7 @@ import {
   syncNotifications,
   deleteNotification
 } from '../controllers/notification.controller.js';
+import { getMySmsLogs, getSmsLogs } from '../controllers/notificationSmsLog.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -22,6 +23,10 @@ router.get('/', getNotifications);
 
 // Get notification counts per agency
 router.get('/counts', getNotificationCounts);
+
+// SMS logs for notification-dispatched texts
+router.get('/sms-logs/me', getMySmsLogs);
+router.get('/sms-logs', getSmsLogs);
 
 // Get supervisor-specific notifications
 router.get('/supervisor', getSupervisorNotifications);

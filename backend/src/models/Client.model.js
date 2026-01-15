@@ -8,6 +8,29 @@ import pool from '../config/database.js';
  * - School users: Restricted access (no sensitive data)
  */
 class Client {
+  static normalizePhone(phone) {
+    if (!phone) return null;
+    const str = String(phone).trim();
+    // Keep + if present, otherwise strip to digits and assume US if 10 digits.
+    if (str.startsWith('+')) {
+      return '+' + str.slice(1).replace(/[^\d]/g, '');
+    }
+    const digits = str.replace(/[^\d]/g, '');
+    if (digits.length === 10) return `+1${digits}`;
+    if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+    return digits ? `+${digits}` : null;
+  }
+
+  static async findByContactPhone(contactPhone) {
+    const normalized = this.normalizePhone(contactPhone);
+    if (!normalized) return null;
+    const [rows] = await pool.execute(
+      'SELECT * FROM clients WHERE contact_phone = ? LIMIT 1',
+      [normalized]
+    );
+    return rows[0] || null;
+  }
+
   /**
    * Create a new client record
    * @param {Object} clientData - Client data
@@ -28,6 +51,7 @@ class Client {
       agency_id,
       provider_id,
       initials,
+      contact_phone,
       status = 'PENDING_REVIEW',
       submission_date,
       document_status = 'NONE',
@@ -37,9 +61,9 @@ class Client {
 
     const query = `
       INSERT INTO clients (
-        organization_id, agency_id, provider_id, initials, status,
+        organization_id, agency_id, provider_id, initials, contact_phone, status,
         submission_date, document_status, source, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const values = [
@@ -47,6 +71,7 @@ class Client {
       agency_id,
       provider_id || null,
       initials,
+      contact_phone ? this.normalizePhone(contact_phone) : null,
       status,
       submission_date,
       document_status,

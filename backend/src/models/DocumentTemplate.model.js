@@ -68,6 +68,14 @@ class DocumentTemplate {
         file_path, html_content, agency_id, created_by_user_id,
         document_type, document_action_type, is_user_specific, user_id`;
     let insertValues = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+    // Defensive normalization: never insert invalid agency_id/icon_id
+    const normalizeNullablePositiveInt = (v) => {
+      if (v === null || v === undefined || v === '') return null;
+      const n = typeof v === 'string' ? parseInt(v, 10) : Number(v);
+      if (Number.isNaN(n) || !Number.isFinite(n) || n <= 0) return null;
+      return Math.trunc(n);
+    };
+
     let insertParams = [
       name,
       description,
@@ -75,7 +83,7 @@ class DocumentTemplate {
       templateType,
       filePath,
       htmlContent,
-      agencyId,
+      normalizeNullablePositiveInt(agencyId),
       createdByUserId,
       documentType || 'administrative',
       documentActionType || 'signature',
@@ -86,7 +94,7 @@ class DocumentTemplate {
     if (hasIconColumn) {
       insertFields += ', icon_id';
       insertValues += ', ?';
-      insertParams.push(iconId || null);
+      insertParams.push(normalizeNullablePositiveInt(iconId));
     }
 
     insertFields += ', signature_x, signature_y, signature_width, signature_height, signature_page';

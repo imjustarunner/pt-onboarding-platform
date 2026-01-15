@@ -299,3 +299,40 @@ Fix: enforce rules in application code.
 ---
 
 **If `/health` = 200 and frontend loads, infrastructure is done.**
+
+---
+
+## 15. Scheduled Monthly Billing (Cloud Scheduler)
+
+The backend exposes an internal endpoint to generate monthly invoices and sync them to each agency’s connected QuickBooks Online company:
+
+- `POST /api/billing/run-monthly`
+
+### 15.1 Required backend env vars
+
+Set these on the backend Cloud Run service:
+
+- `BILLING_JOB_SECRET`: random secret used by Cloud Scheduler header `X-Billing-Job-Secret`
+
+### 15.2 Create a Cloud Scheduler job (example)
+
+This example runs at **03:00 on the 1st of every month** (America/Los_Angeles) and bills the **previous calendar month**.
+
+```bash
+BILLING_URL=$(gcloud run services describe onboarding-backend --region us-central1 --format="value(status.url)")
+
+gcloud scheduler jobs create http onboarding-monthly-billing \
+  --location us-central1 \
+  --schedule "0 3 1 * *" \
+  --time-zone "America/Los_Angeles" \
+  --uri "${BILLING_URL}/api/billing/run-monthly" \
+  --http-method POST \
+  --oidc-service-account-email "PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --oidc-token-audience "${BILLING_URL}" \
+  --headers "X-Billing-Job-Secret=YOUR_BILLING_JOB_SECRET"
+```
+
+Notes:
+
+- Cloud Run is private in many orgs; Cloud Scheduler should use **OIDC auth** (service account must have `roles/run.invoker`).
+- The endpoint also requires the **header secret** (`BILLING_JOB_SECRET`) to reduce risk of accidental/unauthorized triggering.

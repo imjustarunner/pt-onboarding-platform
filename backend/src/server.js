@@ -23,6 +23,7 @@ import documentSigningRoutes from './routes/documentSigning.routes.js';
 import documentAcknowledgmentRoutes from './routes/documentAcknowledgment.routes.js';
 import userDocumentRoutes from './routes/userDocument.routes.js';
 import userSpecificDocumentRoutes from './routes/userSpecificDocument.routes.js';
+import userComplianceDocumentRoutes from './routes/userComplianceDocument.routes.js';
 import accountTypeRoutes from './routes/accountType.routes.js';
 import userAccountRoutes from './routes/userAccount.routes.js';
 import userInfoFieldDefinitionRoutes from './routes/userInfoFieldDefinition.routes.js';
@@ -49,6 +50,15 @@ import referralUploadRoutes from './routes/referralUpload.routes.js';
 import schoolPortalRoutes from './routes/schoolPortal.routes.js';
 import referralRoutes from './routes/referral.routes.js';
 import bulkImportRoutes from './routes/bulkImport.routes.js';
+import userPreferencesRoutes from './routes/userPreferences.routes.js';
+import officeScheduleRoutes from './routes/officeSchedule.routes.js';
+import twilioRoutes from './routes/twilio.routes.js';
+import messageRoutes from './routes/message.routes.js';
+import kioskRoutes from './routes/kiosk.routes.js';
+import emergencyBroadcastRoutes from './routes/emergencyBroadcast.routes.js';
+import payrollRoutes from './routes/payroll.routes.js';
+import billingRoutes from './routes/billing.routes.js';
+import agencySchoolsRoutes from './routes/agencySchools.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -232,6 +242,7 @@ app.use('/api/quizzes', quizRoutes);
 app.use('/api/signatures', signatureRoutes);
 app.use('/api/agencies', agencyRoutes);
 app.use('/api/agencies', agencyDashboardRoutes);
+app.use('/api/agencies', agencySchoolsRoutes);
 app.use('/api/tracks', trackRoutes);
 app.use('/api/training-focuses', trackRoutes); // Alias for new terminology
 app.use('/api/acknowledgments', acknowledgmentRoutes);
@@ -242,6 +253,7 @@ app.use('/api/document-signing', documentSigningRoutes);
 app.use('/api/document-acknowledgment', documentAcknowledgmentRoutes);
 app.use('/api/user-documents', userDocumentRoutes);
 app.use('/api/user-specific-documents', userSpecificDocumentRoutes);
+app.use('/api/user-compliance-documents', userComplianceDocumentRoutes);
 app.use('/api/account-types', accountTypeRoutes);
 app.use('/api/users', userAccountRoutes);
 app.use('/api/user-info-fields', userInfoFieldDefinitionRoutes);
@@ -259,6 +271,7 @@ app.use('/api/onboarding-packages', onboardingPackageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/email-templates', emailTemplateRoutes);
 app.use('/api', userCommunicationRoutes);
+app.use('/api/users', userPreferencesRoutes);
 app.use('/api/branding-templates', brandingTemplateRoutes);
 app.use('/api/fonts', fontRoutes);
 app.use('/api/activity-log', activityLogRoutes);
@@ -267,6 +280,13 @@ app.use('/api/organizations', referralUploadRoutes); // Organization routes (ref
 app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
 app.use('/api/referrals', referralRoutes); // Referral pipeline routes
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
+app.use('/api/office-schedule', officeScheduleRoutes);
+app.use('/api/twilio', twilioRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/kiosk', kioskRoutes);
+app.use('/api/emergency-broadcasts', emergencyBroadcastRoutes);
+app.use('/api/payroll', payrollRoutes);
+app.use('/api/billing', billingRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -387,4 +407,28 @@ app.listen(PORT, () => {
       }
     }
   })();
+
+  // Set up daily credential expiration watchdog (documents compliance)
+  const scheduleCredentialWatchdog = async () => {
+    try {
+      const CredentialWatchdogService = (await import('./services/credentialWatchdog.service.js')).default;
+      await CredentialWatchdogService.run({ expiringWithinDays: 30 });
+    } catch (error) {
+      // Don't crash if table doesn't exist yet (migration not run)
+      if (error.code === 'ER_NO_SUCH_TABLE') {
+        console.warn('User compliance documents table not found. Run migration 110_create_user_compliance_documents.sql');
+      } else {
+        console.error('Error in scheduled credential watchdog:', error);
+      }
+    }
+  };
+
+  // Run immediately on startup (best-effort)
+  scheduleCredentialWatchdog();
+
+  // Schedule daily at midnight (reuse same helper)
+  setTimeout(() => {
+    scheduleCredentialWatchdog();
+    setInterval(scheduleCredentialWatchdog, 24 * 60 * 60 * 1000);
+  }, getMsUntilMidnight());
 

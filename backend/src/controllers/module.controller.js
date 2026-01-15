@@ -6,9 +6,12 @@ import { validationResult } from 'express-validator';
 
 export const getAllModules = async (req, res, next) => {
   try {
-    // Check if user is pending - pending users cannot access modules
+    // Check if user is pending - pending end-users cannot access modules
+    // IMPORTANT: Admin/support/super_admin must be able to manage modules even if their
+    // status is legacy 'pending' (older data) or during setup workflows.
     const user = await User.findById(req.user.id);
-    if (user && user.status === 'pending') {
+    const isPrivileged = req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support';
+    if (user && user.status === 'pending' && !isPrivileged) {
       return res.status(403).json({ 
         error: { message: 'Training modules are not available during the pre-hire process.' } 
       });
@@ -55,9 +58,10 @@ export const getAllModules = async (req, res, next) => {
 
 export const getModuleById = async (req, res, next) => {
   try {
-    // Check if user is pending - pending users cannot access modules
+    // Check if user is pending - pending end-users cannot access modules
     const user = await User.findById(req.user.id);
-    if (user && user.status === 'pending') {
+    const isPrivileged = req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support';
+    if (user && user.status === 'pending' && !isPrivileged) {
       return res.status(403).json({ 
         error: { message: 'Training modules are not available during the pre-hire process.' } 
       });

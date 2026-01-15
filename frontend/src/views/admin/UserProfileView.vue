@@ -513,20 +513,22 @@
           <h2>User Preferences</h2>
           <div class="preferences-admin-section">
             <p class="section-description">Manage this user's preferences. Some settings are user-editable, while others are admin-controlled.</p>
-            
-            <div class="preferences-placeholder">
-              <p>Preferences editing interface will be implemented here.</p>
-              <p class="placeholder-note">This will allow admins to edit:</p>
-              <ul>
-                <li>Notification preferences (with admin override indicators)</li>
-                <li>Work modality (admin-controlled)</li>
-                <li>Scheduling preferences (if applicable)</li>
-                <li>UI/Accessibility preferences</li>
-              </ul>
-              <p class="placeholder-note">Permission boundaries will be clearly displayed showing which settings are user-editable vs admin-controlled.</p>
-            </div>
+
+            <UserPreferencesHub
+              :userId="userId"
+              :viewOnly="!canEditUser"
+              :allowAdminControlledEdits="canEditUser"
+              :identity="user"
+              :organizations="userAgencies"
+            />
           </div>
         </div>
+
+        <UserPayrollTab
+          v-if="activeTab === 'payroll'"
+          :userId="userId"
+          :userAgencies="userAgencies"
+        />
 
       </div>
     </div>
@@ -573,10 +575,9 @@
           <button 
             @click="sendViaTextMessage" 
             class="btn btn-secondary"
-            disabled
-            title="SMS integration coming soon"
+            :disabled="!resetPasswordLink || sendingResetSms"
           >
-            Send via Text Message
+            {{ sendingResetSms ? 'Sending…' : 'Send via Text Message' }}
           </button>
           <button 
             @click="sendViaEmail" 
@@ -667,8 +668,10 @@ import UserDocumentsTab from '../../components/admin/UserDocumentsTab.vue';
 import UserInformationTab from '../../components/admin/UserInformationTab.vue';
 import UserCommunicationsTab from '../../components/admin/UserCommunicationsTab.vue';
 import UserActivityLogTab from '../../components/admin/UserActivityLogTab.vue';
+import UserPayrollTab from '../../components/admin/UserPayrollTab.vue';
 import SupervisorAssignmentManager from '../../components/admin/SupervisorAssignmentManager.vue';
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
+import UserPreferencesHub from '../../components/UserPreferencesHub.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -694,6 +697,11 @@ const canManageAssignments = computed(() => {
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
 
+const canViewPayroll = computed(() => {
+  const role = authStore.user?.role;
+  return role === 'admin' || role === 'super_admin' || role === 'support';
+});
+
 const supervisees = ref([]);
 const supervisors = ref([]);
 const superviseesLoading = ref(false);
@@ -707,6 +715,10 @@ const tabs = computed(() => {
     { id: 'communications', label: 'Communications' },
     { id: 'preferences', label: 'Preferences' }
   ];
+
+  if (canViewPayroll.value) {
+    baseTabs.push({ id: 'payroll', label: 'Payroll' });
+  }
   
   if (canViewActivityLog.value) {
     baseTabs.push({ id: 'activity', label: 'Activity Log' });
@@ -1132,13 +1144,29 @@ const closeResetPasswordLinkModal = () => {
 };
 
 const sendViaTextMessage = () => {
-  // Placeholder for future SMS API integration
-  alert('SMS integration coming soon');
+  // Implemented: send reset link via Twilio SMS
+  sendResetLinkSms();
 };
 
 const sendViaEmail = () => {
   // Placeholder for future Email API integration
   alert('Email integration coming soon');
+};
+
+const sendingResetSms = ref(false);
+const sendResetLinkSms = async () => {
+  try {
+    if (!resetPasswordLink.value) return;
+    sendingResetSms.value = true;
+    const resp = await api.post(`/users/${userId.value}/send-reset-password-link-sms`, {
+      tokenLink: resetPasswordLink.value
+    });
+    alert(`Sent SMS to ${resp.data.to}`);
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to send SMS');
+  } finally {
+    sendingResetSms.value = false;
+  }
 };
 
 const formatDate = (dateString) => {

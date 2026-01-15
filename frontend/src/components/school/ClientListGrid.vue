@@ -23,19 +23,25 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="client in clients" :key="client.id">
+          <tr v-for="client in clients" :key="client.id" class="client-row" @click="openClient(client)">
             <td>
               <span :class="['status-badge', `status-${client.status.toLowerCase().replace('_', '-')}`]">
                 {{ formatStatus(client.status) }}
               </span>
             </td>
             <td>{{ client.provider_name || 'Not assigned' }}</td>
-            <td>{{ client.admin_notes || '-' }}</td>
+            <td>{{ getAdminNotes(client.id) }}</td>
             <td>{{ formatDate(client.submission_date) }}</td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <SchoolClientChatModal
+      v-if="selectedClient"
+      :client="selectedClient"
+      @close="selectedClient = null"
+    />
   </div>
 </template>
 
@@ -43,6 +49,7 @@
 import { ref, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import ClientStatusBadge from '../admin/ClientStatusBadge.vue';
+import SchoolClientChatModal from './SchoolClientChatModal.vue';
 
 const props = defineProps({
   organizationSlug: {
@@ -59,6 +66,7 @@ const clients = ref([]);
 const loading = ref(false);
 const error = ref('');
 const clientNotes = ref({}); // Map of clientId -> shared notes
+const selectedClient = ref(null);
 
 const fetchClients = async () => {
   if (!props.organizationId) {
@@ -112,6 +120,10 @@ const formatDate = (dateString) => {
 
 const getAdminNotes = (clientId) => {
   return clientNotes.value[clientId] || '-';
+};
+
+const openClient = (client) => {
+  selectedClient.value = client;
 };
 
 watch(() => props.organizationId, () => {

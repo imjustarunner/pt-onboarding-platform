@@ -58,6 +58,81 @@
       </div>
     </div>
 
+    <div class="section-divider"></div>
+
+    <div class="tab-header">
+      <h3>System Texts (Notifications)</h3>
+      <div class="filter-controls">
+        <select v-model="smsAgency" @change="loadSmsLogs" class="form-select">
+          <option value="">All Agencies</option>
+          <option v-for="agency in userAgencies" :key="agency.id" :value="agency.id">
+            {{ agency.name }}
+          </option>
+        </select>
+      </div>
+    </div>
+
+    <div v-if="smsLoading" class="loading">Loading system texts...</div>
+    <div v-else-if="smsError" class="error">{{ smsError }}</div>
+    <div v-else-if="smsLogs.length === 0" class="empty-state">
+      <p>No system texts found for this user.</p>
+    </div>
+    <div v-else class="communications-list">
+      <div v-for="log in smsLogs" :key="log.id" class="communication-card">
+        <div class="communication-header">
+          <div class="communication-info">
+            <h4>{{ log.notification_title || 'Notification SMS' }}</h4>
+            <div class="communication-meta">
+              <span class="meta-item">
+                <strong>Status:</strong> {{ log.status }}
+              </span>
+              <span class="meta-item">
+                <strong>To:</strong> {{ log.to_number }}
+              </span>
+              <span class="meta-item">
+                <strong>Sent:</strong> {{ formatDate(log.created_at) }}
+              </span>
+              <span v-if="log.twilio_sid" class="meta-item">
+                <strong>SID:</strong> {{ log.twilio_sid }}
+              </span>
+            </div>
+          </div>
+          <div class="communication-actions">
+            <button @click="viewSms(log)" class="btn btn-sm btn-primary">View</button>
+            <button @click="copySms(log)" class="btn btn-sm btn-secondary">Copy</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- View SMS Modal -->
+    <div v-if="viewingSms" class="modal-overlay" @click="closeSmsModal">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>{{ viewingSms.notification_title || 'Notification SMS' }}</h3>
+          <button @click="closeSmsModal" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="view-communication-meta">
+            <p><strong>Status:</strong> {{ viewingSms.status }}</p>
+            <p><strong>To:</strong> {{ viewingSms.to_number }}</p>
+            <p><strong>From:</strong> {{ viewingSms.from_number }}</p>
+            <p><strong>Sent:</strong> {{ formatDate(viewingSms.created_at) }}</p>
+            <p v-if="viewingSms.twilio_sid"><strong>SID:</strong> {{ viewingSms.twilio_sid }}</p>
+            <p v-if="viewingSms.error_message"><strong>Error:</strong> {{ viewingSms.error_message }}</p>
+          </div>
+          <div class="view-communication-content">
+            <h4>Body:</h4>
+            <pre class="email-body">{{ viewingSms.body }}</pre>
+          </div>
+          <div class="modal-actions">
+            <button @click="copySms(viewingSms)" class="btn btn-primary">Copy Text</button>
+            <button @click="closeSmsModal" class="btn btn-secondary">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- View Communication Modal -->
     <div v-if="viewingCommunication" class="modal-overlay" @click="closeViewModal">
       <div class="modal-content" @click.stop>
@@ -137,6 +212,45 @@ const loadCommunications = async () => {
   }
 };
 
+const smsLogs = ref([]);
+const smsLoading = ref(false);
+const smsError = ref('');
+const smsAgency = ref('');
+const viewingSms = ref(null);
+
+const loadSmsLogs = async () => {
+  smsLoading.value = true;
+  smsError.value = '';
+  try {
+    const params = { userId: props.userId };
+    if (smsAgency.value) params.agencyId = smsAgency.value;
+    const response = await api.get('/notifications/sms-logs', { params });
+    smsLogs.value = response.data || [];
+  } catch (err) {
+    smsError.value = err.response?.data?.error?.message || 'Failed to load system texts';
+  } finally {
+    smsLoading.value = false;
+  }
+};
+
+const viewSms = (log) => {
+  viewingSms.value = log;
+};
+
+const closeSmsModal = () => {
+  viewingSms.value = null;
+};
+
+const copySms = async (log) => {
+  try {
+    await navigator.clipboard.writeText(log.body || '');
+    alert('Text copied to clipboard');
+  } catch (err) {
+    console.error('Failed to copy:', err);
+    alert('Failed to copy text');
+  }
+};
+
 const viewCommunication = (comm) => {
   viewingCommunication.value = comm;
 };
@@ -193,6 +307,7 @@ const formatDate = (dateString) => {
 
 onMounted(() => {
   loadCommunications();
+  loadSmsLogs();
 });
 </script>
 

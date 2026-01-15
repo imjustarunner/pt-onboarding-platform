@@ -38,6 +38,15 @@ export const uploadTemplate = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'PDF file is required' } });
     }
 
+    const parseNullablePositiveInt = (value) => {
+      if (value === null || value === undefined) return null;
+      const s = String(value).trim();
+      if (!s || s === 'null' || s === 'all') return null;
+      const n = parseInt(s, 10);
+      if (Number.isNaN(n) || n <= 0) return undefined; // explicit invalid
+      return n;
+    };
+
     const {
       name,
       description,
@@ -64,6 +73,38 @@ export const uploadTemplate = async (req, res, next) => {
       });
     }
 
+    const parsedAgencyId = parseNullablePositiveInt(agencyId);
+    if (parsedAgencyId === undefined) {
+      return res.status(400).json({ error: { message: 'agencyId must be null or a positive integer' } });
+    }
+
+    // Permissions:
+    // - Only super_admin can create platform templates (agencyId null)
+    // - Non-super-admins must create templates scoped to an organization they belong to
+    if (parsedAgencyId === null && req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only platform admins can create platform templates' } });
+    }
+    if (parsedAgencyId !== null && req.user?.role !== 'super_admin') {
+      const User = (await import('../models/User.model.js')).default;
+      const userAgencies = await User.getAgencies(req.user.id);
+      const agencyIds = userAgencies.map(a => a.id);
+      if (!agencyIds.includes(parsedAgencyId)) {
+        return res.status(403).json({ error: { message: 'Not authorized to create templates for this organization' } });
+      }
+    }
+
+    if (parsedAgencyId !== null) {
+      const [rows] = await pool.execute('SELECT id FROM agencies WHERE id = ? LIMIT 1', [parsedAgencyId]);
+      if (rows.length === 0) {
+        return res.status(400).json({ error: { message: `Invalid agencyId: ${parsedAgencyId} (agency not found)` } });
+      }
+    }
+
+    const parsedIconId = parseNullablePositiveInt(iconId);
+    if (parsedIconId === undefined) {
+      return res.status(400).json({ error: { message: 'iconId must be null or a positive integer' } });
+    }
+
     // Upload directly to GCS from memory buffer
     const fileBuffer = req.file.buffer;
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
@@ -81,13 +122,13 @@ export const uploadTemplate = async (req, res, next) => {
       templateType: 'pdf',
       filePath,
       htmlContent: null,
-      agencyId: agencyId ? parseInt(agencyId) : null,
+      agencyId: parsedAgencyId,
       createdByUserId,
       documentType: documentType || 'administrative',
       documentActionType,
       isUserSpecific: false,
       userId: null,
-      iconId: iconId ? parseInt(iconId) : null,
+      iconId: parsedIconId,
       signatureX: signatureX !== undefined && signatureX !== '' ? parseFloat(signatureX) : null,
       signatureY: signatureY !== undefined && signatureY !== '' ? parseFloat(signatureY) : null,
       signatureWidth: signatureWidth !== undefined && signatureWidth !== '' ? parseFloat(signatureWidth) : null,
@@ -107,6 +148,15 @@ export const createTemplate = async (req, res, next) => {
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
+
+    const parseNullablePositiveInt = (value) => {
+      if (value === null || value === undefined) return null;
+      const s = String(value).trim();
+      if (!s || s === 'null' || s === 'all') return null;
+      const n = parseInt(s, 10);
+      if (Number.isNaN(n) || n <= 0) return undefined; // explicit invalid
+      return n;
+    };
 
     const {
       name,
@@ -138,19 +188,51 @@ export const createTemplate = async (req, res, next) => {
       });
     }
 
+    const parsedAgencyId = parseNullablePositiveInt(agencyId);
+    if (parsedAgencyId === undefined) {
+      return res.status(400).json({ error: { message: 'agencyId must be null or a positive integer' } });
+    }
+
+    // Permissions:
+    // - Only super_admin can create platform templates (agencyId null)
+    // - Non-super-admins must create templates scoped to an organization they belong to
+    if (parsedAgencyId === null && req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only platform admins can create platform templates' } });
+    }
+    if (parsedAgencyId !== null && req.user?.role !== 'super_admin') {
+      const User = (await import('../models/User.model.js')).default;
+      const userAgencies = await User.getAgencies(req.user.id);
+      const agencyIds = userAgencies.map(a => a.id);
+      if (!agencyIds.includes(parsedAgencyId)) {
+        return res.status(403).json({ error: { message: 'Not authorized to create templates for this organization' } });
+      }
+    }
+
+    if (parsedAgencyId !== null) {
+      const [rows] = await pool.execute('SELECT id FROM agencies WHERE id = ? LIMIT 1', [parsedAgencyId]);
+      if (rows.length === 0) {
+        return res.status(400).json({ error: { message: `Invalid agencyId: ${parsedAgencyId} (agency not found)` } });
+      }
+    }
+
+    const parsedIconId = parseNullablePositiveInt(iconId);
+    if (parsedIconId === undefined) {
+      return res.status(400).json({ error: { message: 'iconId must be null or a positive integer' } });
+    }
+
     const template = await DocumentTemplate.create({
       name,
       description: description ?? null,
       templateType: 'html',
       filePath: null,
       htmlContent: htmlContent ?? null,
-      agencyId: agencyId ? parseInt(agencyId) : null,
+      agencyId: parsedAgencyId,
       createdByUserId,
       documentType: documentType || 'administrative',
       documentActionType,
       isUserSpecific: false,
       userId: null,
-      iconId: iconId ? parseInt(iconId) : null
+      iconId: parsedIconId
     });
 
     return res.status(201).json(template);

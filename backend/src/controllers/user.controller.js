@@ -497,7 +497,7 @@ export const getUserById = async (req, res, next) => {
 export const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { firstName, lastName, role, hasSupervisorPrivileges, hasProviderAccess, hasStaffAccess, personalPhone, workPhone, workPhoneExtension } = req.body;
+    const { firstName, lastName, role, hasSupervisorPrivileges, hasProviderAccess, hasStaffAccess, personalPhone, workPhone, workPhoneExtension, billingAcknowledged } = req.body;
     
     console.log('updateUser called with:', { id, role, hasSupervisorPrivileges, body: req.body });
 
@@ -552,6 +552,31 @@ export const updateUser = async (req, res, next) => {
         return res.status(403).json({ 
           error: { message: 'Only super admins and admins can assign the support role' } 
         });
+      }
+
+      // Billing hard gate: adding an admin beyond included requires acknowledgement
+      if (role === 'admin') {
+        const { getAdminAddBillingImpact } = await import('../services/adminBillingGate.service.js');
+        const targetUser = await User.findById(id);
+        if (targetUser && targetUser.role !== 'admin') {
+          const agencies = await User.getAgencies(id);
+          const impacts = [];
+          for (const agency of agencies) {
+            const impact = await getAdminAddBillingImpact(agency.id, { deltaAdmins: 1 });
+            if (impact) {
+              impacts.push({ agencyId: agency.id, agencyName: agency.name, ...impact });
+            }
+          }
+          if (impacts.length > 0 && billingAcknowledged !== true) {
+            return res.status(409).json({
+              error: { message: 'Billing acknowledgement required to add an admin beyond included limits.' },
+              billingImpact: {
+                code: 'ADMIN_OVERAGE',
+                impacts
+              }
+            });
+          }
+        }
       }
     }
 
@@ -1013,6 +1038,62 @@ export const sendResetPasswordLink = async (req, res, next) => {
   }
 };
 
+export const sendResetPasswordLinkSms = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = parseInt(id);
+    const { tokenLink } = req.body || {};
+
+    // Verify user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    // Check permissions: Only admins/super_admins/support can send reset links via SMS
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const phoneRaw = user.personal_phone || user.work_phone || user.phone_number || null;
+    const to = User.normalizePhone(phoneRaw);
+    if (!to) {
+      return res.status(400).json({ error: { message: 'User does not have a valid phone number on file' } });
+    }
+
+    const from = process.env.TWILIO_AUTH_FROM || process.env.TWILIO_DEFAULT_FROM;
+    if (!from) {
+      return res.status(400).json({ error: { message: 'Missing TWILIO_AUTH_FROM (or TWILIO_DEFAULT_FROM) env var' } });
+    }
+
+    // If the UI already generated a link, send that exact link; otherwise generate a fresh one (48h)
+    let linkToSend = tokenLink;
+    if (!linkToSend) {
+      const tokenResult = await User.generatePasswordlessToken(userId, 48, 'reset');
+      const config = (await import('../config/config.js')).default;
+      const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
+      const userAgencies = await User.getAgencies(userId);
+      const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+      linkToSend = portalSlug
+        ? `${frontendBase}/${portalSlug}/reset-password/${tokenResult.token}`
+        : `${frontendBase}/reset-password/${tokenResult.token}`;
+    }
+
+    const TwilioService = (await import('../services/twilio.service.js')).default;
+    const body = `Reset your password using this link (expires in 48 hours): ${linkToSend}`;
+
+    const msg = await TwilioService.sendSms({ to, from, body });
+
+    res.json({
+      message: 'Reset password link sent via SMS',
+      to,
+      sid: msg.sid
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getUserCredentials = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -1435,7 +1516,7 @@ export const createCurrentEmployee = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
 
-    const { firstName, lastName, workEmail, agencyId, role } = req.body;
+    const { firstName, lastName, workEmail, agencyId, role, billingAcknowledged } = req.body;
 
     // Validate required fields
     if (!firstName || !lastName || !workEmail || !agencyId) {
@@ -1465,6 +1546,18 @@ export const createCurrentEmployee = async (req, res, next) => {
 
     // Create user directly in ACTIVE_EMPLOYEE status (skips PENDING_SETUP, PREHIRE_OPEN, PREHIRE_REVIEW, ONBOARDING)
     const finalRole = role || 'clinician';
+
+    // Billing hard gate: adding an admin beyond included requires acknowledgement
+    if (finalRole === 'admin') {
+      const { getAdminAddBillingImpact } = await import('../services/adminBillingGate.service.js');
+      const impact = await getAdminAddBillingImpact(parseInt(agencyId, 10), { deltaAdmins: 1 });
+      if (impact && billingAcknowledged !== true) {
+        return res.status(409).json({
+          error: { message: 'Billing acknowledgement required.' },
+          billingImpact: { code: 'ADMIN_OVERAGE', impacts: [{ agencyId: parseInt(agencyId, 10), ...impact }] }
+        });
+      }
+    }
     
     // Create user with work email as username and email
     const user = await User.create({

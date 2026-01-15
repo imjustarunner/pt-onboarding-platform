@@ -908,7 +908,24 @@ const saveUser = async () => {
       if (userForm.value.password) {
         updateData.password = userForm.value.password;
       }
-      await api.put(`/users/${editingUser.value.id}`, updateData);
+      try {
+        await api.put(`/users/${editingUser.value.id}`, updateData);
+      } catch (e) {
+        const impacts = e?.response?.data?.billingImpact?.impacts;
+        if (e?.response?.status === 409 && Array.isArray(impacts) && impacts.length > 0) {
+          const msg = impacts
+            .map(i => `Agency ${i.agencyName || i.agencyId}: +$${(Number(i.deltaMonthlyCents || 0) / 100).toFixed(2)} / month`)
+            .join('\n');
+          const ok = confirm(`${msg}\n\nProceed?`);
+          if (ok) {
+            await api.put(`/users/${editingUser.value.id}`, { ...updateData, billingAcknowledged: true });
+          } else {
+            throw e;
+          }
+        } else {
+          throw e;
+        }
+      }
       closeModal();
       fetchUsers();
     } else {
@@ -938,7 +955,22 @@ const saveUser = async () => {
         };
         
         console.log('Creating current employee with data:', currentEmployeeData);
-        const response = await api.post('/users/current-employee', currentEmployeeData);
+        let response;
+        try {
+          response = await api.post('/users/current-employee', currentEmployeeData);
+        } catch (e) {
+          const impacts = e?.response?.data?.billingImpact?.impacts;
+          if (e?.response?.status === 409 && Array.isArray(impacts) && impacts.length > 0) {
+            const msg = impacts
+              .map(i => `Agency ${i.agencyName || i.agencyId}: +$${(Number(i.deltaMonthlyCents || 0) / 100).toFixed(2)} / month`)
+              .join('\n');
+            const ok = confirm(`${msg}\n\nProceed?`);
+            if (!ok) throw e;
+            response = await api.post('/users/current-employee', { ...currentEmployeeData, billingAcknowledged: true });
+          } else {
+            throw e;
+          }
+        }
         
         // Show credentials modal
         userCredentials.value = {
@@ -1004,7 +1036,22 @@ const saveUser = async () => {
         });
         // Store pending user data in case we need to retry after duplicate check
         pendingUserData.value = createData;
-        const response = await api.post('/auth/register', createData);
+        let response;
+        try {
+          response = await api.post('/auth/register', createData);
+        } catch (e) {
+          const impacts = e?.response?.data?.billingImpact?.impacts;
+          if (e?.response?.status === 409 && Array.isArray(impacts) && impacts.length > 0) {
+            const msg = impacts
+              .map(i => `Agency ${i.agencyName || i.agencyId}: +$${(Number(i.deltaMonthlyCents || 0) / 100).toFixed(2)} / month`)
+              .join('\n');
+            const ok = confirm(`${msg}\n\nProceed?`);
+            if (!ok) throw e;
+            response = await api.post('/auth/register', { ...createData, billingAcknowledged: true });
+          } else {
+            throw e;
+          }
+        }
         const newUserId = response.data.user.id;
         
         // Assign onboarding package if selected

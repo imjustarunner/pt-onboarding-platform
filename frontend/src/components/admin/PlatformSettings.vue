@@ -121,6 +121,42 @@
         </button>
       </div>
     </div>
+
+    <div class="settings-section">
+      <h3>My Dashboard Card Icons</h3>
+      <p class="section-description">
+        Set platform default icons for the user-facing "My Dashboard" cards. Organizations can override these in Company Profile → Customize Icons.
+      </p>
+
+      <div class="settings-icons-grid">
+        <div class="icon-setting-item">
+          <label>Checklist</label>
+          <IconSelector v-model="myDashboardIcons.checklistIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Training</label>
+          <IconSelector v-model="myDashboardIcons.trainingIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Documents</label>
+          <IconSelector v-model="myDashboardIcons.documentsIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>My Account</label>
+          <IconSelector v-model="myDashboardIcons.myAccountIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>On-Demand Training</label>
+          <IconSelector v-model="myDashboardIcons.onDemandTrainingIconId" />
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" @click="saveMyDashboardIcons" :disabled="savingMyDashboardIcons">
+          {{ savingMyDashboardIcons ? 'Saving...' : 'Save My Dashboard Icons' }}
+        </button>
+      </div>
+    </div>
     
     <div class="settings-section">
       <h3>Platform Information</h3>
@@ -163,6 +199,7 @@ const settings = ref({
 
 const saving = ref(false);
 const savingIcons = ref(false);
+const savingMyDashboardIcons = ref(false);
 const superAdminCount = ref(0);
 const totalAgencies = ref(0);
 
@@ -178,6 +215,14 @@ const settingsIcons = ref({
   communicationsIconId: null,
   integrationsIconId: null,
   archiveIconId: null
+});
+
+const myDashboardIcons = ref({
+  checklistIconId: null,
+  trainingIconId: null,
+  documentsIconId: null,
+  myAccountIconId: null,
+  onDemandTrainingIconId: null
 });
 
 // Platform name - use platform branding or fallback
@@ -209,6 +254,13 @@ const fetchSettings = async () => {
         integrationsIconId: pb.integrations_icon_id ?? null,
         archiveIconId: pb.archive_icon_id ?? null
       };
+      myDashboardIcons.value = {
+        checklistIconId: pb.my_dashboard_checklist_icon_id ?? null,
+        trainingIconId: pb.my_dashboard_training_icon_id ?? null,
+        documentsIconId: pb.my_dashboard_documents_icon_id ?? null,
+        myAccountIconId: pb.my_dashboard_my_account_icon_id ?? null,
+        onDemandTrainingIconId: pb.my_dashboard_on_demand_training_icon_id ?? null
+      };
     }
   } catch (err) {
     console.error('Failed to load settings:', err);
@@ -238,6 +290,26 @@ const saveSettingsIcons = async () => {
     alert('Failed to save settings icons');
   } finally {
     savingIcons.value = false;
+  }
+};
+
+const saveMyDashboardIcons = async () => {
+  try {
+    savingMyDashboardIcons.value = true;
+    await api.put('/platform-branding', {
+      myDashboardChecklistIconId: myDashboardIcons.value.checklistIconId,
+      myDashboardTrainingIconId: myDashboardIcons.value.trainingIconId,
+      myDashboardDocumentsIconId: myDashboardIcons.value.documentsIconId,
+      myDashboardMyAccountIconId: myDashboardIcons.value.myAccountIconId,
+      myDashboardOnDemandTrainingIconId: myDashboardIcons.value.onDemandTrainingIconId
+    });
+    await brandingStore.fetchPlatformBranding();
+    alert('My Dashboard icons saved successfully!');
+  } catch (err) {
+    console.error('Failed to save My Dashboard icons:', err);
+    alert('Failed to save My Dashboard icons');
+  } finally {
+    savingMyDashboardIcons.value = false;
   }
 };
 

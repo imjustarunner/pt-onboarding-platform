@@ -466,6 +466,26 @@ export const useBrandingStore = defineStore('branding', () => {
 
   // Get notification icon URL for a specific notification type
   // Priority: Agency-level icon > Platform-level icon > null (fallback to emoji)
+  const toUploadsUrl = (filePath) => {
+    if (!filePath) return null;
+    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+
+    let clean = String(filePath);
+    if (clean.startsWith('/uploads/')) clean = clean.substring('/uploads/'.length);
+    else if (clean.startsWith('uploads/')) clean = clean.substring('uploads/'.length);
+    else if (clean.startsWith('/')) clean = clean.substring(1);
+
+    // Normalize legacy "icons/..." paths into uploads.
+    if (clean.startsWith('icons/')) clean = `uploads/${clean}`;
+    else if (!clean.startsWith('uploads/')) clean = `uploads/${clean}`;
+
+    // Ensure we don't double-prefix.
+    if (clean.startsWith('uploads/uploads/')) clean = clean.replace(/^uploads\/uploads\//, 'uploads/');
+
+    return `${apiBase}/${clean}`;
+  };
+
   const getNotificationIconUrl = (notificationType, agencyId = null) => {
     const iconFieldMap = {
       status_expired: 'status_expired_icon_path',
@@ -484,33 +504,33 @@ export const useBrandingStore = defineStore('branding', () => {
     // Priority 1: Agency-level icon (if agency is specified)
     if (agencyId !== null) {
       const agency = agencyStore.agencies?.find(a => a.id === agencyId);
-      if (agency?.[iconPathField]) {
-        const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-        const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-        let iconPath = agency[iconPathField];
-        if (iconPath.startsWith('/uploads/')) {
-          iconPath = iconPath.substring('/uploads/'.length);
-        } else if (iconPath.startsWith('/')) {
-          iconPath = iconPath.substring(1);
-        }
-        return `${apiBase}/uploads/${iconPath}`;
-      }
+      if (agency?.[iconPathField]) return toUploadsUrl(agency[iconPathField]);
     }
 
     // Priority 2: Platform-level icon
     const pb = platformBranding.value;
-    if (pb?.[iconPathField]) {
-      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-      let iconPath = pb[iconPathField];
-      if (iconPath.startsWith('/uploads/')) {
-        iconPath = iconPath.substring('/uploads/'.length);
-      } else if (iconPath.startsWith('/')) {
-        iconPath = iconPath.substring(1);
-      }
-      return `${apiBase}/uploads/${iconPath}`;
-    }
+    if (pb?.[iconPathField]) return toUploadsUrl(pb[iconPathField]);
 
+    return null;
+  };
+
+  // Get icon URL for a specific "My Dashboard" card
+  // Priority: org-level icon > platform-level icon > null
+  const getDashboardCardIconUrl = (cardId, organization = null) => {
+    const iconFieldMap = {
+      checklist: 'my_dashboard_checklist_icon_path',
+      training: 'my_dashboard_training_icon_path',
+      documents: 'my_dashboard_documents_icon_path',
+      my: 'my_dashboard_my_account_icon_path',
+      on_demand_training: 'my_dashboard_on_demand_training_icon_path'
+    };
+
+    const field = iconFieldMap[cardId];
+    if (!field) return null;
+
+    const org = organization || agencyStore.currentAgency;
+    if (org?.[field]) return toUploadsUrl(org[field]);
+    if (platformBranding.value?.[field]) return toUploadsUrl(platformBranding.value[field]);
     return null;
   };
 
@@ -544,7 +564,8 @@ export const useBrandingStore = defineStore('branding', () => {
     setPortalThemeData,
     setPortalThemeFromLoginTheme,
     clearPortalTheme,
-    getNotificationIconUrl
+    getNotificationIconUrl,
+    getDashboardCardIconUrl
   };
 });
 

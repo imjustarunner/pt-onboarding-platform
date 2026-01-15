@@ -664,6 +664,39 @@ class StorageService {
   }
 
   /**
+   * Save a user compliance/credential document file to GCS
+   * @param {Buffer} fileBuffer
+   * @param {string} filename
+   * @param {string} contentType
+   */
+  static async saveComplianceDocument(fileBuffer, filename, contentType = 'application/pdf') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `credentials/${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: { uploadedAt: new Date().toISOString() }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  static async deleteComplianceDocument(filename) {
+    const key = `credentials/${filename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      if (gcsError.code !== 404) {
+        throw new Error(`Failed to delete compliance document from GCS: ${gcsError.message}`);
+      }
+    }
+  }
+
+  /**
    * Get a signed URL for a file in GCS (for direct access)
    * Signed URLs allow temporary direct access to files without proxying through the backend
    * @param {string} key - GCS object key/path

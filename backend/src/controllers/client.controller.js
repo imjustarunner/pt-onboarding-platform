@@ -434,13 +434,13 @@ export const getClientNotes = async (req, res, next) => {
     }
 
     // Permission check
-    let userOrganizationId = null;
+    let hasAgencyAccess = false;
     if (userRole !== 'super_admin') {
       const userAgencies = await User.getAgencies(userId);
       const userAgencyIds = userAgencies.map(a => a.id);
       const userOrganizationIds = userAgencies.map(a => a.id);
       
-      const hasAgencyAccess = userAgencyIds.includes(currentClient.agency_id);
+      hasAgencyAccess = userAgencyIds.includes(currentClient.agency_id);
       const hasSchoolAccess = userOrganizationIds.includes(currentClient.organization_id);
 
       if (!hasAgencyAccess && !hasSchoolAccess) {
@@ -448,16 +448,10 @@ export const getClientNotes = async (req, res, next) => {
           error: { message: 'You do not have access to this client' } 
         });
       }
-
-      // Get user's organization ID for school staff filtering
-      const userOrganization = userAgencies.find(org => org.id === currentClient.organization_id);
-      if (userOrganization) {
-        userOrganizationId = userOrganization.id;
-      }
     }
 
     // Get notes (filtered by permission)
-    const notes = await ClientNotes.findByClientId(id, userRole, userOrganizationId);
+    const notes = await ClientNotes.findByClientId(id, { hasAgencyAccess: userRole === 'super_admin' ? true : hasAgencyAccess });
     res.json(notes);
   } catch (error) {
     console.error('Get client notes error:', error);
@@ -472,7 +466,7 @@ export const getClientNotes = async (req, res, next) => {
 export const createClientNote = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { message, is_internal_only = false } = req.body;
+    const { message, is_internal_only = false, category = 'general' } = req.body;
     const userId = req.user.id;
     const userRole = req.user.role;
 
@@ -483,12 +477,13 @@ export const createClientNote = async (req, res, next) => {
     }
 
     // Permission check
+    let hasAgencyAccess = false;
     if (userRole !== 'super_admin') {
       const userAgencies = await User.getAgencies(userId);
       const userAgencyIds = userAgencies.map(a => a.id);
       const userOrganizationIds = userAgencies.map(a => a.id);
       
-      const hasAgencyAccess = userAgencyIds.includes(currentClient.agency_id);
+      hasAgencyAccess = userAgencyIds.includes(currentClient.agency_id);
       const hasSchoolAccess = userOrganizationIds.includes(currentClient.organization_id);
 
       if (!hasAgencyAccess && !hasSchoolAccess) {
@@ -510,8 +505,50 @@ export const createClientNote = async (req, res, next) => {
       client_id: id,
       author_id: userId,
       message: message.trim(),
-      is_internal_only
-    }, userRole);
+      is_internal_only,
+      category
+    }, { hasAgencyAccess: userRole === 'super_admin' ? true : hasAgencyAccess });
+
+    // Notify support staff (and assigned provider) about new note
+    try {
+      const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
+      const pool = (await import('../config/database.js')).default;
+
+      // Support staff in agency
+      const [supportRows] = await pool.execute(
+        `SELECT DISTINCT u.id
+         FROM users u
+         JOIN user_agencies ua ON u.id = ua.user_id
+         WHERE ua.agency_id = ?
+         AND u.role = 'support'
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
+        [currentClient.agency_id]
+      );
+      const supportIds = supportRows.map((r) => r.id).filter((uid) => uid !== userId);
+
+      const recipients = new Set(supportIds);
+      if (currentClient.provider_id && currentClient.provider_id !== userId) {
+        recipients.add(currentClient.provider_id);
+      }
+
+      for (const rid of recipients) {
+        await createNotificationAndDispatch(
+          {
+            type: 'client_note',
+            severity: 'info',
+            title: `Client update (${currentClient.initials})`,
+            message: `New ${String(category || 'general').replace(/_/g, ' ')} note posted.`,
+            userId: rid,
+            agencyId: currentClient.agency_id,
+            relatedEntityType: 'client',
+            relatedEntityId: parseInt(id)
+          },
+          { context: { severity: 'info' } }
+        );
+      }
+    } catch {
+      // best-effort; do not block note creation
+    }
 
     res.status(201).json(note);
   } catch (error) {

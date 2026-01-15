@@ -3,6 +3,27 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 
 class User {
+  static normalizePhone(phone) {
+    if (!phone) return null;
+    const str = String(phone).trim();
+    if (str.startsWith('+')) return '+' + str.slice(1).replace(/[^\d]/g, '');
+    const digits = str.replace(/[^\d]/g, '');
+    if (digits.length === 10) return `+1${digits}`;
+    if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+    return digits ? `+${digits}` : null;
+  }
+
+  static async findBySystemPhoneNumber(systemPhoneNumber) {
+    const phone = this.normalizePhone(systemPhoneNumber);
+    if (!phone) return null;
+    // Only select minimal fields; callers can call findById for full user object
+    const [rows] = await pool.execute(
+      "SELECT id FROM users WHERE system_phone_number = ? LIMIT 1",
+      [phone]
+    );
+    if (rows.length === 0) return null;
+    return this.findById(rows[0].id);
+  }
   static async findByEmail(email) {
     // Check which columns exist to avoid errors if migrations haven't been run
     let query = 'SELECT id, email, phone_number, role, status, completed_at, terminated_at, status_expires_at, password_hash, first_name, last_name, invitation_token, invitation_token_expires_at, temporary_password_hash, temporary_password_expires_at, created_at';
@@ -163,7 +184,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -181,6 +202,7 @@ class User {
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
+      if (existingColumns.includes('system_phone_number')) query += ', system_phone_number';
     } catch (err) {
       // If we can't check columns, just use the base query
       console.warn('Could not check for pending columns:', err.message);
@@ -477,7 +499,7 @@ class User {
   }
 
   static async update(id, userData) {
-    const { firstName, lastName, role, phoneNumber, isActive, hasSupervisorPrivileges, hasProviderAccess, hasStaffAccess, personalPhone, workPhone, workPhoneExtension } = userData;
+    const { firstName, lastName, role, phoneNumber, isActive, hasSupervisorPrivileges, hasProviderAccess, hasStaffAccess, personalPhone, workPhone, workPhoneExtension, systemPhoneNumber } = userData;
     
     // Get current user to check if it's superadmin
     const currentUser = await this.findById(id);
@@ -644,6 +666,20 @@ class User {
       } catch (err) {
         // Column doesn't exist yet, skip it
         console.warn('work_phone_extension column does not exist yet');
+      }
+    }
+
+    if (systemPhoneNumber !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'system_phone_number'"
+        );
+        if (columns.length > 0) {
+          updates.push('system_phone_number = ?');
+          values.push(systemPhoneNumber);
+        }
+      } catch (err) {
+        console.warn('system_phone_number column does not exist yet:', err.message);
       }
     }
     
