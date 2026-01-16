@@ -13,13 +13,13 @@ export const getAllChecklistItems = async (req, res, next) => {
       filters.agencyId = parseInt(agencyId);
     }
     
-    // Super admins see all, agency admins see platform templates + their agency's items
+    // Super admins see all, agency admins/support see platform templates + their agency's items
     if (req.user.role === 'super_admin') {
       const items = await CustomChecklistItem.findAll(filters);
       return res.json(items);
     }
     
-    if (req.user.role === 'admin') {
+    if (req.user.role === 'admin' || req.user.role === 'support') {
       // Get platform templates
       const platformTemplates = await CustomChecklistItem.findPlatformTemplates();
       
@@ -73,7 +73,7 @@ export const getAgencyItems = async (req, res, next) => {
     const { agencyId } = req.params;
     
     // Verify access
-    if (req.user.role === 'admin') {
+    if (req.user.role === 'admin' || req.user.role === 'support') {
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
@@ -115,7 +115,7 @@ export const getEnabledItemsForAgency = async (req, res, next) => {
     const { agencyId } = req.params;
     
     // Verify access
-    if (req.user.role === 'admin') {
+    if (req.user.role === 'admin' || req.user.role === 'support') {
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
@@ -139,7 +139,7 @@ export const toggleItemForAgency = async (req, res, next) => {
     const { enabled } = req.body;
     
     // Verify access
-    if (req.user.role === 'admin') {
+    if (req.user.role === 'admin' || req.user.role === 'support') {
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
@@ -183,8 +183,8 @@ export const createChecklistItem = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only super admins can create platform templates' } });
     }
     
-    // Agency admins can create agency-specific items
-    if (agencyId && req.user.role === 'admin') {
+    // Agency admins/support can create agency-specific items (for agencies they belong to)
+    if (agencyId && (req.user.role === 'admin' || req.user.role === 'support')) {
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
@@ -261,8 +261,8 @@ export const updateChecklistItem = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only super admins can modify platform templates' } });
     }
     
-    // Agency admins can only modify their agency's items
-    if (existingItem.agency_id && req.user.role === 'admin') {
+    // Agency admins/support can only modify their agency's items
+    if (existingItem.agency_id && (req.user.role === 'admin' || req.user.role === 'support')) {
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === existingItem.agency_id);
@@ -329,8 +329,8 @@ export const deleteChecklistItem = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only super admins can delete platform templates' } });
     }
     
-    // Agency admins can only delete their agency's items
-    if (existingItem.agency_id && req.user.role === 'admin') {
+    // Agency admins/support can only delete their agency's items
+    if (existingItem.agency_id && (req.user.role === 'admin' || req.user.role === 'support')) {
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === existingItem.agency_id);

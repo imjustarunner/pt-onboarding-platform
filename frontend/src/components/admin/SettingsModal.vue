@@ -39,10 +39,37 @@
         
         <div class="settings-content">
           <div v-if="selectedComponent" class="component-wrapper">
-            <component
-              :is="selectedComponent"
-              v-bind="componentProps"
-            />
+            <div v-if="selectedItemRequiresAgency" class="agency-context-bar">
+              <div class="agency-context-left">
+                <label class="agency-context-label">Agency</label>
+
+                <div v-if="!isSuperAdmin && selectableAgencies.length === 1" class="agency-context-single">
+                  {{ selectableAgencies[0].name }}
+                </div>
+
+                <select
+                  v-else
+                  v-model="selectedAgencyId"
+                  class="agency-context-select"
+                  @change="handleAgencySelection"
+                >
+                  <option v-if="isSuperAdmin" value="">Select an agency…</option>
+                  <option v-for="a in selectableAgencies" :key="a.id" :value="String(a.id)">
+                    {{ a.name }}
+                  </option>
+                </select>
+
+                <small v-if="isSuperAdmin" class="agency-context-help">
+                  Super Admin accounts must select which agency to manage for agency-scoped settings.
+                </small>
+              </div>
+            </div>
+
+            <div v-if="selectedItemRequiresAgency && !agencyStore.currentAgency" class="empty-state" style="margin-top: 12px;">
+              <p>Select an agency to continue.</p>
+            </div>
+
+            <component v-else :is="selectedComponent" v-bind="componentProps" />
           </div>
           <div v-else class="empty-state">
             <p>Select a setting category to get started</p>
@@ -58,6 +85,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
+import { useAgencyStore } from '../../store/agency';
 import { isSupervisor } from '../../utils/helpers.js';
 
 // Import all existing components
@@ -76,6 +104,7 @@ import ClientCatalogManagement from './ClientCatalogManagement.vue';
 import SchoolCatalogManagement from './SchoolCatalogManagement.vue';
 import ProviderCatalogManagement from './ProviderCatalogManagement.vue';
 import ProviderSchedulingManagement from './ProviderSchedulingManagement.vue';
+import ViewportPreviewSettings from './ViewportPreviewSettings.vue';
 
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
@@ -86,9 +115,11 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
+const agencyStore = useAgencyStore();
 
 const selectedCategory = ref(null);
 const selectedItem = ref(null);
+const selectedAgencyId = ref(agencyStore.currentAgency?.id ? String(agencyStore.currentAgency.id) : '');
 
 // Define all settings categories and items
 const allCategories = [
@@ -134,6 +165,7 @@ const allCategories = [
         label: 'Client Settings',
         icon: '🧾',
         component: 'ClientCatalogManagement',
+        requiresAgency: true,
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
@@ -143,6 +175,7 @@ const allCategories = [
         label: 'School Settings',
         icon: '🏫',
         component: 'SchoolCatalogManagement',
+        requiresAgency: true,
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
@@ -152,6 +185,7 @@ const allCategories = [
         label: 'Provider Settings',
         icon: '🧑‍⚕️',
         component: 'ProviderCatalogManagement',
+        requiresAgency: true,
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
@@ -161,6 +195,7 @@ const allCategories = [
         label: 'Provider Scheduling',
         icon: '🗓️',
         component: 'ProviderSchedulingManagement',
+        requiresAgency: true,
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
@@ -242,6 +277,15 @@ const allCategories = [
     id: 'system',
     label: 'SYSTEM',
     items: [
+      {
+        id: 'viewport-preview',
+        label: 'Viewport Preview',
+        icon: '📱',
+        component: 'ViewportPreviewSettings',
+        roles: ['super_admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
       {
         id: 'communications',
         label: 'Communications',
@@ -349,6 +393,7 @@ const componentMap = {
   SchoolCatalogManagement,
   ProviderCatalogManagement,
   ProviderSchedulingManagement,
+  ViewportPreviewSettings,
   TeamRolesManagement,
   BillingManagement,
   IntegrationsManagement
@@ -368,6 +413,20 @@ const selectedComponent = computed(() => {
   return componentMap[item.component] || null;
 });
 
+const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
+
+const selectableAgencies = computed(() => {
+  const list = isSuperAdmin.value ? (agencyStore.agencies || []) : (agencyStore.userAgencies || agencyStore.agencies || []);
+  return [...list].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+});
+
+const selectedItemRequiresAgency = computed(() => {
+  if (!selectedCategory.value || !selectedItem.value) return false;
+  const category = allCategories.find(c => c.id === selectedCategory.value);
+  const item = category?.items?.find(i => i.id === selectedItem.value);
+  return !!item?.requiresAgency;
+});
+
 const componentProps = computed(() => {
   if (!selectedCategory.value || !selectedItem.value) {
     return {};
@@ -381,6 +440,17 @@ const componentProps = computed(() => {
   
   return item.props || {};
 });
+
+const handleAgencySelection = () => {
+  const id = selectedAgencyId.value ? parseInt(selectedAgencyId.value, 10) : null;
+  const agency = selectableAgencies.value.find(a => a.id === id);
+  if (agency) {
+    agencyStore.setCurrentAgency(agency);
+  } else if (isSuperAdmin.value) {
+    // allow placeholder "no selection" for super_admin
+    agencyStore.setCurrentAgency(null);
+  }
+};
 
 const selectItem = (categoryId, itemId) => {
   selectedCategory.value = categoryId;
@@ -412,6 +482,23 @@ onMounted(async () => {
   
   // Fetch platform branding to get settings icons
   await brandingStore.fetchPlatformBranding();
+
+  // Load agency options for agency-scoped settings
+  // - super_admin: all agencies
+  // - admin: assigned agencies (auto-select if 1)
+  if (isSuperAdmin.value) {
+    await agencyStore.fetchAgencies();
+  } else {
+    await agencyStore.fetchUserAgencies();
+    const list = selectableAgencies.value || [];
+    if (!agencyStore.currentAgency && list.length === 1) {
+      agencyStore.setCurrentAgency(list[0]);
+    } else if (!agencyStore.currentAgency && list.length > 0) {
+      agencyStore.setCurrentAgency(list[0]);
+    }
+  }
+
+  selectedAgencyId.value = agencyStore.currentAgency?.id ? String(agencyStore.currentAgency.id) : '';
   
   // Check for deep link parameters
   const categoryParam = route.query.category;
@@ -438,6 +525,10 @@ onMounted(async () => {
       selectedItem.value = firstCategory.items[0].id;
     }
   }
+});
+
+watch(() => agencyStore.currentAgency, (a) => {
+  selectedAgencyId.value = a?.id ? String(a.id) : '';
 });
 
 // Watch for route changes (for browser back/forward)
@@ -694,6 +785,49 @@ const getSettingsIconUrl = (itemId) => {
   overflow-y: auto;
   padding: 32px;
   background: white;
+}
+
+.agency-context-bar {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.agency-context-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 520px;
+}
+
+.agency-context-label {
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.agency-context-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  font-size: 14px;
+}
+
+.agency-context-single {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.agency-context-help {
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .component-wrapper {

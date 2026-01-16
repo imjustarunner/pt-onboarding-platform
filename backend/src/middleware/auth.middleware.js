@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
 import User from '../models/User.model.js';
+import { getUserCapabilities } from '../utils/capabilities.js';
 
 export const authenticate = (req, res, next) => {
   try {
@@ -61,6 +62,41 @@ export const requireSuperAdmin = (req, res, next) => {
     return res.status(403).json({ error: { message: 'Super admin access required' } });
   }
   next();
+};
+
+/**
+ * Require one or more capabilities on the authenticated user.
+ * Capabilities are derived server-side from the user record (source of truth).
+ *
+ * Usage:
+ *   router.get('/x', authenticate, requireCapability('canSignDocuments'), handler)
+ *   router.get('/y', authenticate, requireCapability(['canViewTraining','canAccessPlatform']), handler)
+ */
+export const requireCapability = (required) => {
+  const requiredList = Array.isArray(required) ? required : [required];
+  return async (req, res, next) => {
+    try {
+      // Approved employee tokens do not have a users-table record.
+      let userForCaps = null;
+      if (req.user?.role === 'approved_employee') {
+        userForCaps = { role: 'approved_employee', status: 'ACTIVE_EMPLOYEE', type: req.user.type || 'approved_employee' };
+      } else {
+        userForCaps = await User.findById(req.user.id);
+      }
+
+      const caps = getUserCapabilities(userForCaps);
+      req.userCapabilities = caps;
+
+      const ok = requiredList.every((k) => !!caps?.[k]);
+      if (!ok) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+
+      next();
+    } catch (e) {
+      next(e);
+    }
+  };
 };
 
 export const requireAgencyAdmin = async (req, res, next) => {

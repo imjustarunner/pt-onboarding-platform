@@ -747,12 +747,38 @@ class User {
   }
 
   static async getAgencies(userId) {
-    const [rows] = await pool.execute(
-      `SELECT a.* FROM agencies a 
-       JOIN user_agencies ua ON a.id = ua.agency_id 
-       WHERE ua.user_id = ?`,
-      [userId]
-    );
+    // Best-effort: include icon paths when columns exist (keeps older DBs working).
+    let hasIconId = false;
+    let hasChatIconId = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('icon_id','chat_icon_id')"
+      );
+      const names = (cols || []).map((c) => c.COLUMN_NAME);
+      hasIconId = names.includes('icon_id');
+      hasChatIconId = names.includes('chat_icon_id');
+    } catch {
+      hasIconId = false;
+      hasChatIconId = false;
+    }
+
+    const selectExtra = [
+      hasIconId ? 'master_i.file_path as icon_file_path, master_i.name as icon_name' : null,
+      hasChatIconId ? 'chat_i.file_path as chat_icon_path, chat_i.name as chat_icon_name' : null
+    ].filter(Boolean).join(', ');
+
+    const joins = [
+      hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : null,
+      hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : null
+    ].filter(Boolean).join('\n       ');
+
+    const query = `SELECT a.*${selectExtra ? ', ' + selectExtra : ''}
+       FROM agencies a
+       JOIN user_agencies ua ON a.id = ua.agency_id
+       ${joins ? joins : ''}
+       WHERE ua.user_id = ?`;
+
+    const [rows] = await pool.execute(query, [userId]);
     return rows;
   }
 

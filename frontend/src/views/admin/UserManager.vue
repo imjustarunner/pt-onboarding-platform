@@ -326,6 +326,21 @@
                 <small v-else-if="userForm.role === 'admin' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
                 <small v-else-if="userForm.role === 'support' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the support role</small>
               </div>
+
+              <div v-if="['admin','support','staff'].includes(userForm.role)" class="form-group">
+                <label class="toggle-label">
+                  <span>Selectable as Provider</span>
+                  <div class="toggle-switch">
+                    <input
+                      type="checkbox"
+                      v-model="userForm.hasProviderAccess"
+                      id="provider-access-toggle-create"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+                <small class="form-help">Allows this Admin/Support/Staff user to be selected anywhere a Provider is selected (scheduling, assignments, etc.).</small>
+              </div>
               <div class="modal-actions">
                 <button type="button" @click="closeModal" class="btn btn-secondary">Cancel</button>
                 <button type="submit" class="btn btn-primary">
@@ -339,7 +354,7 @@
           <div v-if="currentStep === 2" class="step-content">
             <form @submit.prevent="saveUser">
               <div class="form-group">
-                <label>Assign to Agencies *</label>
+                <label>Assign to Organizations *</label>
                 <div class="agency-selector">
                   <div v-for="agency in agencies" :key="agency.id" class="agency-checkbox">
                     <label>
@@ -349,6 +364,9 @@
                         v-model="userForm.agencyIds"
                       />
                       {{ agency.name }}
+                      <span v-if="agency.organization_type" style="color: var(--text-secondary); font-size: 12px;">
+                        ({{ agency.organization_type }})
+                      </span>
                     </label>
                   </div>
                 </div>
@@ -784,7 +802,29 @@ const fetchUsers = async () => {
 const fetchAgencies = async () => {
   try {
     const response = await api.get('/agencies');
-    agencies.value = response.data;
+    const base = response.data || [];
+
+    // Expand with affiliated orgs (schools/programs/learning) for each parent agency.
+    // This lets admins assign providers to affiliated orgs even if they aren't directly assigned yet.
+    const parents = base.filter((a) => String(a.organization_type || 'agency').toLowerCase() === 'agency');
+    const affLists = await Promise.all(
+      parents.map(async (a) => {
+        try {
+          const r = await api.get(`/agencies/${a.id}/affiliated-organizations`);
+          return r.data || [];
+        } catch (e) {
+          return [];
+        }
+      })
+    );
+
+    const merged = [...base, ...affLists.flat()];
+    const byId = new Map();
+    for (const org of merged) {
+      if (!org?.id) continue;
+      if (!byId.has(org.id)) byId.set(org.id, org);
+    }
+    agencies.value = Array.from(byId.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   } catch (err) {
     console.error('Failed to load agencies:', err);
   }
@@ -992,6 +1032,11 @@ const saveUser = async () => {
             ? userForm.value.agencyIds.map(id => parseInt(id)).filter(id => !isNaN(id))
             : []
         };
+
+        // Include provider-selectable capability for admin/support/staff if enabled
+        if (['admin','support','staff'].includes(createData.role) && userForm.value.hasProviderAccess === true) {
+          createData.hasProviderAccess = true;
+        }
         
         // Only include firstName if it has a value
         if (userForm.value.firstName && userForm.value.firstName.trim()) {
@@ -1368,6 +1413,8 @@ const closeModal = () => {
     firstName: '',
     lastName: '',
     phoneNumber: '',
+    hasProviderAccess: false,
+    hasStaffAccess: false,
     personalPhone: '',
     workPhone: '',
     workPhoneExtension: '',

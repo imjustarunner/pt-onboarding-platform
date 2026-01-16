@@ -6,6 +6,7 @@ import User from '../models/User.model.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import config from '../config/config.js';
+import { getUserCapabilities } from '../utils/capabilities.js';
 
 export const approvedEmployeeLogin = async (req, res, next) => {
   try {
@@ -156,7 +157,8 @@ export const approvedEmployeeLogin = async (req, res, next) => {
         email: matchedEmployee.email,
         role: 'approved_employee',
         type: 'approved_employee',
-        agencyIds: agencyIds // Include all agency IDs in response
+        agencyIds: agencyIds, // Include all agency IDs in response
+        capabilities: getUserCapabilities({ role: 'approved_employee', status: 'ACTIVE_EMPLOYEE', type: 'approved_employee' })
       },
       sessionId,
       agencies: agencyIds // Also include as separate field for convenience
@@ -377,7 +379,8 @@ export const login = async (req, res, next) => {
         status: user.status,
         firstName: user.first_name,
         lastName: user.last_name,
-        username: user.username || user.email
+        username: user.username || user.email,
+        capabilities: getUserCapabilities(user)
       },
       sessionId
     };
@@ -638,7 +641,8 @@ export const passwordlessTokenLogin = async (req, res, next) => {
           firstName: user.first_name,
           lastName: user.last_name,
           role: user.role,
-          status: user.status
+          status: user.status,
+          capabilities: getUserCapabilities(fullUser)
         },
         sessionId,
         agencies: userAgencies,
@@ -828,7 +832,8 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
           firstName: user.first_name,
           lastName: user.last_name,
           role: user.role,
-          status: user.status
+          status: user.status,
+          capabilities: getUserCapabilities(fullUser)
         },
         sessionId,
         agencies: userAgencies,
@@ -1005,7 +1010,8 @@ export const resetPasswordWithToken = async (req, res, next) => {
         lastName: updatedUser.last_name,
         role: updatedUser.role,
         status: updatedUser.status,
-        username: updatedUser.username || updatedUser.personal_email || updatedUser.email
+        username: updatedUser.username || updatedUser.personal_email || updatedUser.email,
+        capabilities: getUserCapabilities(updatedUser)
       },
       sessionId,
       agencies: userAgencies,
@@ -1100,7 +1106,8 @@ export const initialSetup = async (req, res, next) => {
         lastName: updatedUser.last_name,
         role: updatedUser.role,
         status: updatedUser.status,
-        username: updatedUser.username || updatedUser.personal_email || updatedUser.email
+        username: updatedUser.username || updatedUser.personal_email || updatedUser.email,
+        capabilities: getUserCapabilities(updatedUser)
       },
       sessionId,
       agencies: userAgencies,
@@ -1161,7 +1168,7 @@ export const register = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
-    const { email, firstName, lastName, role, phoneNumber, agencyIds, personalEmail, billingAcknowledged } = req.body;
+    const { email, firstName, lastName, role, phoneNumber, agencyIds, organizationIds, personalEmail, billingAcknowledged, hasProviderAccess } = req.body;
     
     console.log('Register request body:', { email, role, agencyIds, personalEmail });
     
@@ -1276,23 +1283,60 @@ export const register = async (req, res, next) => {
     
     console.log('User created:', { id: user.id, email: user.email, workEmail: user.work_email });
     
-    // Assign user to agencies if provided
+    // Assign user to organizations if provided (agency + affiliated orgs like schools/programs/learning)
     const assignedAgencyIds = [];
-    if (agencyIds && Array.isArray(agencyIds) && agencyIds.length > 0) {
-      console.log('Assigning user to agencies:', agencyIds);
-      for (const agencyId of agencyIds) {
+    const inputOrgIds = Array.isArray(organizationIds) ? organizationIds : agencyIds;
+    if (inputOrgIds && Array.isArray(inputOrgIds) && inputOrgIds.length > 0) {
+      const Agency = (await import('../models/Agency.model.js')).default;
+      const OrganizationAffiliation = (await import('../models/OrganizationAffiliation.model.js')).default;
+
+      // Expand child org selections to also include their affiliated (parent) agency.
+      const expandedIds = new Set();
+      for (const rawId of inputOrgIds) {
+        const orgId = parseInt(rawId, 10);
+        if (!orgId) continue;
+        expandedIds.add(orgId);
+
+        const org = await Agency.findById(orgId);
+        const orgType = String(org?.organization_type || 'agency').toLowerCase();
+        if (['school', 'program', 'learning'].includes(orgType)) {
+          const parentAgencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId);
+          if (parentAgencyId) {
+            expandedIds.add(parseInt(parentAgencyId, 10));
+          }
+        }
+      }
+
+      const finalIds = Array.from(expandedIds.values()).filter((id) => Number.isFinite(id) && id > 0);
+      console.log('Assigning user to organizations:', finalIds);
+
+      // Non-super-admin: enforce that any "agency" assignments are within the requester's agencies
+      if (req.user?.role && req.user.role !== 'super_admin') {
+        const requesterOrgs = await User.getAgencies(req.user.id);
+        const requesterOrgIds = new Set((requesterOrgs || []).map((o) => parseInt(o.id, 10)).filter(Boolean));
+        // Validate agency-type orgs specifically (child orgs are allowed as long as the parent agency is allowed)
+        for (const id of finalIds) {
+          const org = await Agency.findById(id);
+          const orgType = String(org?.organization_type || 'agency').toLowerCase();
+          if (orgType === 'agency' && !requesterOrgIds.has(id)) {
+            return res.status(403).json({ error: { message: 'You can only assign users to your organizations' } });
+          }
+        }
+      }
+
+      for (const orgId of finalIds) {
         try {
-          const parsedAgencyId = parseInt(agencyId);
-          if (isNaN(parsedAgencyId)) {
-            console.error(`Invalid agency ID: ${agencyId}`);
+          const parsedOrgId = parseInt(orgId, 10);
+          if (isNaN(parsedOrgId)) {
+            console.error(`Invalid organization ID: ${orgId}`);
             continue;
           }
-          console.log(`Assigning user ${user.id} to agency ${parsedAgencyId}`);
-          await User.assignToAgency(user.id, parsedAgencyId);
-          assignedAgencyIds.push(parsedAgencyId);
-          console.log(`Successfully assigned user ${user.id} to agency ${parsedAgencyId}`);
+          console.log(`Assigning user ${user.id} to organization ${parsedOrgId}`);
+          await User.assignToAgency(user.id, parsedOrgId);
+          assignedAgencyIds.push(parsedOrgId);
+          console.log(`Successfully assigned user ${user.id} to organization ${parsedOrgId}`);
         } catch (err) {
-          console.error(`Failed to assign user to agency ${agencyId}:`, err);
+          console.error(`Failed to assign user to organization ${orgId}:`, err);
           console.error('Error details:', {
             message: err.message,
             code: err.code,
@@ -1304,6 +1348,15 @@ export const register = async (req, res, next) => {
       }
     } else {
       console.log('No agencies to assign or agencyIds is not an array');
+    }
+
+    // Optional: set provider-selectable capability for staff/support/admin users
+    if (hasProviderAccess === true || hasProviderAccess === 'true' || hasProviderAccess === 1 || hasProviderAccess === '1') {
+      try {
+        await User.update(user.id, { hasProviderAccess: true });
+      } catch (e) {
+        // best effort; do not fail registration
+      }
     }
     
     // Initialize onboarding checklist for new user

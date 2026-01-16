@@ -1,0 +1,333 @@
+import pool from '../config/database.js';
+import User from '../models/User.model.js';
+import Notification from '../models/Notification.model.js';
+
+const ONLINE_ACTIVITY_MS = 5 * 60 * 1000;
+const ONLINE_HEARTBEAT_MS = 2 * 60 * 1000;
+
+async function assertAgencyAccess(reqUser, agencyId) {
+  if (reqUser.role === 'super_admin') return true;
+  const agencies = await User.getAgencies(reqUser.id);
+  const ok = (agencies || []).some((a) => a.id === agencyId);
+  if (!ok) {
+    const err = new Error('Access denied to this agency');
+    err.status = 403;
+    throw err;
+  }
+  return true;
+}
+
+async function assertThreadAccess(reqUserId, threadId) {
+  const [rows] = await pool.execute(
+    'SELECT 1 FROM chat_thread_participants WHERE thread_id = ? AND user_id = ? LIMIT 1',
+    [threadId, reqUserId]
+  );
+  const ok = rows.length > 0;
+  if (!ok) {
+    const err = new Error('Access denied to this chat thread');
+    err.status = 403;
+    throw err;
+  }
+  return true;
+}
+
+async function findOrCreateDirectThread(agencyId, userAId, userBId) {
+  // Find a direct thread in this agency that has exactly these 2 participants.
+  const [rows] = await pool.execute(
+    `SELECT tp.thread_id
+     FROM chat_threads t
+     JOIN chat_thread_participants tp ON tp.thread_id = t.id
+     WHERE t.agency_id = ? AND t.thread_type = 'direct' AND tp.user_id IN (?, ?)
+     GROUP BY tp.thread_id
+     HAVING COUNT(DISTINCT tp.user_id) = 2
+     LIMIT 1`,
+    [agencyId, userAId, userBId]
+  );
+  if (rows.length) return rows[0].thread_id;
+
+  const [ins] = await pool.execute(
+    'INSERT INTO chat_threads (agency_id, thread_type) VALUES (?, ?)',
+    [agencyId, 'direct']
+  );
+  const threadId = ins.insertId;
+  await pool.execute(
+    'INSERT INTO chat_thread_participants (thread_id, user_id) VALUES (?, ?), (?, ?)',
+    [threadId, userAId, threadId, userBId]
+  );
+  return threadId;
+}
+
+async function isUserAwayForAgency(userId, agencyId) {
+  const [rows] = await pool.execute(
+    'SELECT last_heartbeat_at, last_activity_at, availability_level FROM user_presence WHERE user_id = ? LIMIT 1',
+    [userId]
+  );
+  if (!rows.length) return true;
+  const availability = String(rows[0].availability_level || '').toLowerCase();
+  if (availability === 'offline') return true;
+  const hb = rows[0].last_heartbeat_at ? new Date(rows[0].last_heartbeat_at).getTime() : null;
+  const act = rows[0].last_activity_at ? new Date(rows[0].last_activity_at).getTime() : null;
+  const now = Date.now();
+
+  // Treat as away if no fresh heartbeat or idle (>=5 min).
+  if (!hb || now - hb > ONLINE_HEARTBEAT_MS) return true;
+  if (act && now - act >= ONLINE_ACTIVITY_MS) return true;
+  return false;
+}
+
+export const listMyThreads = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+
+    let agencyIds = [];
+    if (agencyId) {
+      await assertAgencyAccess(req.user, agencyId);
+      agencyIds = [agencyId];
+    } else {
+      if (req.user.role === 'super_admin') {
+        const [a] = await pool.execute(
+          `SELECT id
+           FROM agencies
+           WHERE (is_archived = FALSE OR is_archived IS NULL)`
+        );
+        agencyIds = (a || []).map((r) => r.id);
+      } else {
+        const agencies = await User.getAgencies(req.user.id);
+        agencyIds = (agencies || []).map((a) => a.id);
+      }
+    }
+
+    const userId = req.user.id;
+    if (!agencyIds.length) return res.json([]);
+    const placeholders = agencyIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT t.id AS thread_id,
+              t.agency_id,
+              t.updated_at,
+              lm.id AS last_message_id,
+              lm.body AS last_message_body,
+              lm.created_at AS last_message_at,
+              lm.sender_user_id AS last_message_sender_user_id,
+              r.last_read_message_id,
+              (
+                SELECT COUNT(*)
+                FROM chat_messages m2
+                WHERE m2.thread_id = t.id
+                  AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
+                  AND m2.sender_user_id <> ?
+              ) AS unread_count
+       FROM chat_threads t
+       JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
+       LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
+       LEFT JOIN chat_messages lm ON lm.id = (
+         SELECT m.id FROM chat_messages m WHERE m.thread_id = t.id ORDER BY m.id DESC LIMIT 1
+       )
+       WHERE t.agency_id IN (${placeholders})
+       ORDER BY t.updated_at DESC`,
+      [userId, userId, userId, ...agencyIds]
+    );
+
+    // Enrich with "other participant" for direct threads
+    const threadIds = (rows || []).map((r) => r.thread_id);
+    let participantsByThread = {};
+    if (threadIds.length) {
+      const placeholders2 = threadIds.map(() => '?').join(',');
+      const [parts] = await pool.execute(
+        `SELECT tp.thread_id, u.id AS user_id, u.first_name, u.last_name, u.email, u.role
+         FROM chat_thread_participants tp
+         JOIN users u ON u.id = tp.user_id
+         WHERE tp.thread_id IN (${placeholders2})`,
+        threadIds
+      );
+      participantsByThread = (parts || []).reduce((acc, p) => {
+        acc[p.thread_id] = acc[p.thread_id] || [];
+        acc[p.thread_id].push(p);
+        return acc;
+      }, {});
+    }
+
+    const threads = (rows || []).map((r) => {
+      const participants = participantsByThread[r.thread_id] || [];
+      const other = participants.find((p) => p.user_id !== userId) || null;
+      return {
+        thread_id: r.thread_id,
+        agency_id: r.agency_id,
+        updated_at: r.updated_at,
+        unread_count: Number(r.unread_count || 0),
+        last_message: r.last_message_id
+          ? {
+              id: r.last_message_id,
+              body: r.last_message_body,
+              created_at: r.last_message_at,
+              sender_user_id: r.last_message_sender_user_id
+            }
+          : null,
+        other_participant: other
+          ? {
+              id: other.user_id,
+              first_name: other.first_name,
+              last_name: other.last_name,
+              email: other.email,
+              role: other.role
+            }
+          : null
+      };
+    });
+
+    res.json(threads);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createOrGetDirectThread = async (req, res, next) => {
+  try {
+    const agencyId = req.body.agencyId ? parseInt(req.body.agencyId, 10) : null;
+    const otherUserId = req.body.otherUserId ? parseInt(req.body.otherUserId, 10) : null;
+    if (!agencyId || !otherUserId) {
+      return res.status(400).json({ error: { message: 'agencyId and otherUserId are required' } });
+    }
+    await assertAgencyAccess(req.user, agencyId);
+
+    const me = req.user.id;
+    if (me === otherUserId) {
+      return res.status(400).json({ error: { message: 'Cannot create a chat with yourself' } });
+    }
+
+    // Ensure the other user is in the agency (unless super_admin, still enforce membership)
+    const [inAgency] = await pool.execute(
+      'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [otherUserId, agencyId]
+    );
+    if (inAgency.length === 0) {
+      return res.status(400).json({ error: { message: 'User is not in the selected agency' } });
+    }
+
+    const threadId = await findOrCreateDirectThread(agencyId, me, otherUserId);
+    res.status(201).json({ threadId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listMessages = async (req, res, next) => {
+  try {
+    const threadId = parseInt(req.params.threadId, 10);
+    if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
+    await assertThreadAccess(req.user.id, threadId);
+
+    // NOTE: Some MySQL/CloudSQL setups reject prepared-statement params for LIMIT,
+    // yielding "Incorrect arguments to mysqld_stmt_execute". We inline a validated integer.
+    const parsed = req.query.limit ? parseInt(req.query.limit, 10) : null;
+    const limit = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 200) : 60;
+    const [rows] = await pool.execute(
+      `SELECT m.id, m.thread_id, m.sender_user_id, m.body, m.created_at,
+              u.first_name AS sender_first_name, u.last_name AS sender_last_name
+       FROM chat_messages m
+       JOIN users u ON u.id = m.sender_user_id
+       WHERE m.thread_id = ?
+       ORDER BY m.id DESC
+       LIMIT ${limit}`,
+      [threadId]
+    );
+    res.json((rows || []).reverse());
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const sendMessage = async (req, res, next) => {
+  try {
+    const threadId = parseInt(req.params.threadId, 10);
+    const body = (req.body?.body || '').trim();
+    if (!threadId || !body) return res.status(400).json({ error: { message: 'body is required' } });
+    await assertThreadAccess(req.user.id, threadId);
+
+    // Resolve agency + participants
+    const [[t]] = await pool.execute('SELECT id, agency_id FROM chat_threads WHERE id = ?', [threadId]);
+    if (!t) return res.status(404).json({ error: { message: 'Thread not found' } });
+    const agencyId = t.agency_id;
+    await assertAgencyAccess(req.user, agencyId);
+
+    const [ins] = await pool.execute(
+      'INSERT INTO chat_messages (thread_id, sender_user_id, body) VALUES (?, ?, ?)',
+      [threadId, req.user.id, body]
+    );
+    await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
+
+    // Notifications: notify other participant if they are away/offline
+    const [parts] = await pool.execute('SELECT user_id FROM chat_thread_participants WHERE thread_id = ?', [threadId]);
+    const recipients = (parts || []).map((p) => p.user_id).filter((id) => id !== req.user.id);
+
+    const senderUser = await User.findById(req.user.id);
+    const senderName = `${senderUser?.first_name || ''} ${senderUser?.last_name || ''}`.trim() || 'Someone';
+    const snippet = body.length > 120 ? body.slice(0, 117) + '…' : body;
+
+    for (const rid of recipients) {
+      const away = await isUserAwayForAgency(rid, agencyId);
+      if (!away) continue;
+
+      // Avoid spamming: only notify if this message is newer than last_notified_message_id
+      const messageId = ins.insertId;
+      const [[readState]] = await pool.execute(
+        'SELECT last_notified_message_id FROM chat_thread_reads WHERE thread_id = ? AND user_id = ?',
+        [threadId, rid]
+      );
+      if (readState?.last_notified_message_id && messageId <= readState.last_notified_message_id) {
+        continue;
+      }
+
+      await pool.execute(
+        `INSERT INTO chat_thread_reads (thread_id, user_id, last_notified_message_id, last_notified_at)
+         VALUES (?, ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE last_notified_message_id = VALUES(last_notified_message_id), last_notified_at = NOW()`,
+        [threadId, rid, messageId]
+      );
+
+      await Notification.create({
+        type: 'chat_message',
+        severity: 'info',
+        title: 'New chat message',
+        message: `${senderName}: ${snippet}`,
+        userId: rid,
+        agencyId,
+        relatedEntityType: 'chat_thread',
+        relatedEntityId: threadId
+      });
+    }
+
+    const [row] = await pool.execute(
+      `SELECT m.id, m.thread_id, m.sender_user_id, m.body, m.created_at,
+              u.first_name AS sender_first_name, u.last_name AS sender_last_name
+       FROM chat_messages m
+       JOIN users u ON u.id = m.sender_user_id
+       WHERE m.id = ?`,
+      [ins.insertId]
+    );
+    res.status(201).json(row[0]);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const markRead = async (req, res, next) => {
+  try {
+    const threadId = parseInt(req.params.threadId, 10);
+    const lastReadMessageId = req.body?.lastReadMessageId ? parseInt(req.body.lastReadMessageId, 10) : null;
+    if (!threadId || !lastReadMessageId) {
+      return res.status(400).json({ error: { message: 'lastReadMessageId is required' } });
+    }
+    await assertThreadAccess(req.user.id, threadId);
+
+    await pool.execute(
+      `INSERT INTO chat_thread_reads (thread_id, user_id, last_read_message_id, last_read_at)
+       VALUES (?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE last_read_message_id = VALUES(last_read_message_id), last_read_at = NOW()`,
+      [threadId, req.user.id, lastReadMessageId]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+

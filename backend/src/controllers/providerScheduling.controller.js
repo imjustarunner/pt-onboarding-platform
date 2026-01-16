@@ -18,10 +18,14 @@ export const listProvidersForScheduling = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
     const [rows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.email, u.role
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.has_provider_access
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ? AND u.role IN ('clinician','provider','staff')
+       WHERE ua.agency_id = ?
+         AND (
+           u.role IN ('clinician','provider')
+           OR (u.has_provider_access = TRUE)
+         )
        ORDER BY u.last_name ASC, u.first_name ASC`,
       [agencyId]
     );

@@ -43,6 +43,16 @@ class UserInfoValue {
     return rows[0] || null;
   }
 
+  static async findByUserAndFieldIds(userId, fieldDefinitionIds) {
+    if (!fieldDefinitionIds || fieldDefinitionIds.length === 0) return [];
+    const placeholders = fieldDefinitionIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT * FROM user_info_values WHERE user_id = ? AND field_definition_id IN (${placeholders})`,
+      [userId, ...fieldDefinitionIds]
+    );
+    return rows;
+  }
+
   static async createOrUpdate(userId, fieldDefinitionId, value) {
     // Check if value exists
     const existing = await this.findByUserAndField(userId, fieldDefinitionId);

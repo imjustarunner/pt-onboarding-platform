@@ -1,6 +1,20 @@
 import pool from '../config/database.js';
 
 class OrganizationAffiliation {
+  static async listActiveOrganizationsForAgency(agencyId) {
+    const aId = parseInt(agencyId, 10);
+    if (!aId) return [];
+    const [rows] = await pool.execute(
+      `SELECT org.*
+       FROM organization_affiliations oa
+       INNER JOIN agencies org ON oa.organization_id = org.id
+       WHERE oa.agency_id = ? AND oa.is_active = TRUE
+       ORDER BY org.name ASC`,
+      [aId]
+    );
+    return rows || [];
+  }
+
   static async getActiveAgencyIdForOrganization(organizationId) {
     const orgId = parseInt(organizationId, 10);
     if (!orgId) return null;

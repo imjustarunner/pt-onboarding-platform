@@ -5,12 +5,12 @@ import {
   getUserDocuments,
   regenerateUserDocument
 } from '../controllers/userDocument.controller.js';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 // All routes require authentication
-router.use(authenticate);
+router.use(authenticate, requireCapability('canSignDocuments'));
 
 router.post('/generate', generateUserDocument);
 router.get('/user/:userId', getUserDocuments);

@@ -75,7 +75,7 @@ export const getModuleById = async (req, res, next) => {
     }
 
     // Non-admins/super_admins can only see active modules
-    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && !module.is_active) {
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support' && !module.is_active) {
       return res.status(403).json({ error: { message: 'Module not available' } });
     }
 
@@ -87,11 +87,6 @@ export const getModuleById = async (req, res, next) => {
 
 export const createModule = async (req, res, next) => {
   try {
-    // Support users cannot create modules
-    if (req.user.role === 'support') {
-      return res.status(403).json({ error: { message: 'Support users cannot create modules' } });
-    }
-
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
@@ -111,8 +106,8 @@ export const createModule = async (req, res, next) => {
       iconId
     } = req.body;
     
-    // Agency Admin can only create modules for their agencies
-    if (req.user.role === 'admin' && agencyId) {
+    // Agency Admin/Support can only create modules for their agencies
+    if ((req.user.role === 'admin' || req.user.role === 'support') && agencyId) {
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
       if (!hasAccess) {
@@ -175,7 +170,7 @@ export const createSharedModule = async (req, res, next) => {
 
 export const getSharedModules = async (req, res, next) => {
   try {
-    const includeInactive = req.user.role === 'admin' || req.user.role === 'super_admin';
+    const includeInactive = req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support';
     const modules = await Module.findShared();
     res.json(modules);
   } catch (error) {
@@ -242,13 +237,8 @@ export const updateModule = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Module not found' } });
     }
     
-    // Check permissions - Support users cannot edit modules
-    if (req.user.role === 'support') {
-      return res.status(403).json({ error: { message: 'Support users cannot edit modules' } });
-    }
-    
-    if (req.user.role === 'admin') {
-      // Agency Admin can only edit their agency's modules or shared modules
+    if (req.user.role === 'admin' || req.user.role === 'support') {
+      // Agency Admin/Support can only edit their agency's modules or shared modules
       if (existingModule.agency_id) {
         const userAgencies = await User.getAgencies(req.user.id);
         const hasAccess = userAgencies.some(a => a.id === existingModule.agency_id);
@@ -301,11 +291,6 @@ export const updateModule = async (req, res, next) => {
 
 export const archiveModule = async (req, res, next) => {
   try {
-    // Support users cannot archive modules
-    if (req.user.role === 'support') {
-      return res.status(403).json({ error: { message: 'Support users cannot archive modules' } });
-    }
-    
     const { id } = req.params;
     
     // Get user's agency ID (use first agency for admins, null for super_admin)
@@ -331,11 +316,6 @@ export const archiveModule = async (req, res, next) => {
 
 export const restoreModule = async (req, res, next) => {
   try {
-    // Support users cannot restore modules
-    if (req.user.role === 'support') {
-      return res.status(403).json({ error: { message: 'Support users cannot restore modules' } });
-    }
-    
     const { id } = req.params;
     
     // Get user's agency IDs for permission check
@@ -359,11 +339,6 @@ export const restoreModule = async (req, res, next) => {
 
 export const deleteModule = async (req, res, next) => {
   try {
-    // Support users cannot delete modules
-    if (req.user.role === 'support') {
-      return res.status(403).json({ error: { message: 'Support users cannot delete modules' } });
-    }
-    
     const { id } = req.params;
     
     // Get user's agency IDs for permission check

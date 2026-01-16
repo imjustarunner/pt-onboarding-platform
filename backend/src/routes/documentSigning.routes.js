@@ -10,7 +10,7 @@ import {
   verifyDocument,
   finalizeI9Acroform
 } from '../controllers/documentSigning.controller.js';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -23,15 +23,17 @@ const validateI9Finalize = [
   body('signatureData').notEmpty().withMessage('Signature data is required')
 ];
 
-// All routes require authentication
-router.get('/:taskId', authenticate, getDocumentTask);
-router.get('/:taskId/view', authenticate, viewSignedDocument); // View signed document in browser
-router.post('/:taskId/consent', authenticate, giveConsent);
-router.post('/:taskId/intent', authenticate, recordIntent);
-router.post('/:taskId/sign', authenticate, validateSignature, signDocument);
-router.post('/:taskId/acroform/i9/finalize', authenticate, validateI9Finalize, finalizeI9Acroform);
-router.get('/:taskId/download', authenticate, downloadSignedDocument);
-router.get('/:taskId/verify', authenticate, verifyDocument);
+// All routes require authentication + document capability
+router.use(authenticate, requireCapability('canSignDocuments'));
+
+router.get('/:taskId', getDocumentTask);
+router.get('/:taskId/view', viewSignedDocument); // View signed document in browser
+router.post('/:taskId/consent', giveConsent);
+router.post('/:taskId/intent', recordIntent);
+router.post('/:taskId/sign', validateSignature, signDocument);
+router.post('/:taskId/acroform/i9/finalize', validateI9Finalize, finalizeI9Acroform);
+router.get('/:taskId/download', downloadSignedDocument);
+router.get('/:taskId/verify', verifyDocument);
 
 export default router;
 

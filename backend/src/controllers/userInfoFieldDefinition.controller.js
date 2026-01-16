@@ -19,7 +19,7 @@ export const getAllFieldDefinitions = async (req, res, next) => {
       return res.json(fields);
     }
     
-    if (req.user.role === 'admin') {
+    if (req.user.role === 'admin' || req.user.role === 'support') {
       // Get platform templates
       const platformTemplates = await UserInfoFieldDefinition.findPlatformTemplates();
       
@@ -85,7 +85,7 @@ export const getAgencyFields = async (req, res, next) => {
     const { agencyId } = req.params;
     
     // Verify access
-    if (req.user.role === 'admin') {
+    if (req.user.role === 'admin' || req.user.role === 'support') {
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
@@ -127,7 +127,7 @@ export const createFieldDefinition = async (req, res, next) => {
     }
     
     // Agency admins can create agency-specific fields
-    if (agencyId && req.user.role === 'admin') {
+    if (agencyId && (req.user.role === 'admin' || req.user.role === 'support')) {
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
@@ -187,7 +187,7 @@ export const updateFieldDefinition = async (req, res, next) => {
     }
     
     // Agency admins can only modify their agency's fields
-    if (existingField.agency_id && req.user.role === 'admin') {
+    if (existingField.agency_id && (req.user.role === 'admin' || req.user.role === 'support')) {
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === existingField.agency_id);
@@ -237,7 +237,7 @@ export const deleteFieldDefinition = async (req, res, next) => {
     }
     
     // Agency admins can only delete their agency's fields
-    if (existingField.agency_id && req.user.role === 'admin') {
+    if (existingField.agency_id && (req.user.role === 'admin' || req.user.role === 'support')) {
       const User = (await import('../models/User.model.js')).default;
       const userAgencies = await User.getAgencies(req.user.id);
       const hasAccess = userAgencies.some(a => a.id === existingField.agency_id);

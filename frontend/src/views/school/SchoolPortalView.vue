@@ -6,23 +6,49 @@
     </div>
 
     <div class="portal-content">
-      <!-- Client List Grid -->
-      <ClientListGrid
-        :organization-slug="organizationSlug"
-        :organization-id="organizationId"
-      />
+      <div class="tabs">
+        <button
+          class="tab"
+          :class="{ active: activeTab === 'clients' }"
+          @click="activeTab = 'clients'"
+        >
+          Clients
+        </button>
+        <button
+          class="tab"
+          :class="{ active: activeTab === 'schedule' }"
+          @click="activeTab = 'schedule'"
+        >
+          Provider Schedule
+        </button>
+      </div>
+
+      <div v-if="activeTab === 'clients'">
+        <ClientListGrid
+          :organization-slug="organizationSlug"
+          :organization-id="organizationId"
+        />
+      </div>
+
+      <div v-else class="schedule-wrap">
+        <ProviderSchoolSchedule v-if="organizationId" :organization-id="organizationId" />
+        <div v-else class="empty-state">Organization not loaded.</div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useOrganizationStore } from '../../store/organization';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
+import ProviderSchoolSchedule from '../../components/school/ProviderSchoolSchedule.vue';
 
 const route = useRoute();
 const organizationStore = useOrganizationStore();
+
+const activeTab = ref('clients');
 
 const organizationSlug = computed(() => route.params.organizationSlug);
 
@@ -76,5 +102,30 @@ onMounted(async () => {
   padding: 32px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+.tab {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.tab.active {
+  border-color: var(--primary);
+  background: rgba(0, 0, 0, 0.03);
+}
+.schedule-wrap {
+  margin-top: 8px;
 }
 </style>

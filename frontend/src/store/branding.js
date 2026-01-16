@@ -4,6 +4,7 @@ import { useAgencyStore } from './agency';
 import { useAuthStore } from './auth';
 import { getPortalUrl } from '../utils/subdomain';
 import api from '../services/api';
+import { loadFont } from '../utils/fontLoader';
 
 export const useBrandingStore = defineStore('branding', () => {
   const agencyStore = useAgencyStore();
@@ -100,6 +101,7 @@ export const useBrandingStore = defineStore('branding', () => {
     const root = document.documentElement;
     const colorPalette = themeData.colorPalette || {};
     const themeSettings = themeData.themeSettings || {};
+    const brandingAgencyId = themeData.brandingAgencyId || themeData.agencyId || null;
     
     // Apply colors
     if (colorPalette.primary) {
@@ -124,6 +126,31 @@ export const useBrandingStore = defineStore('branding', () => {
       // Use primary color as gradient if no background specified
       root.style.setProperty('--agency-login-background', `linear-gradient(135deg, ${colorPalette.primary} 0%, ${colorPalette.secondary || colorPalette.primary} 100%)`);
     }
+
+    // Best-effort: if this font family refers to an uploaded font, load it so the CSS family resolves.
+    // This is important for portal/login screens where we don't have auth but still need branded fonts.
+    if (themeSettings.fontFamily) {
+      const extractFamily = (cssValue) => {
+        const s = String(cssValue || '').trim();
+        const m = s.match(/^['"]([^'"]+)['"]/);
+        if (m?.[1]) return m[1];
+        return s.split(',')[0].trim().replace(/^['"]|['"]$/g, '');
+      };
+
+      const familyName = extractFamily(themeSettings.fontFamily);
+      if (familyName) {
+        api
+          .get('/fonts/public', { params: { agencyId: brandingAgencyId || undefined, familyName } })
+          .then((res) => {
+            const fonts = res.data || [];
+            if (Array.isArray(fonts) && fonts.length > 0) {
+              // Load first available face for this family.
+              loadFont(fonts[0]).catch(() => {});
+            }
+          })
+          .catch(() => {});
+      }
+    }
   };
 
   const setPortalThemeData = (themeData) => {
@@ -142,6 +169,8 @@ export const useBrandingStore = defineStore('branding', () => {
   const setPortalThemeFromLoginTheme = (loginTheme) => {
     if (!loginTheme?.agency) return;
     setPortalThemeData({
+      brandingAgencyId: loginTheme.agency.brandingAgencyId || null,
+      portalOrganizationId: loginTheme.agency.portalOrganizationId || null,
       agencyName: loginTheme.agency.name,
       colorPalette: loginTheme.agency.colorPalette || {},
       logoUrl: loginTheme.agency.logoUrl || null,

@@ -7,7 +7,7 @@ export const getUserInfo = async (req, res, next) => {
     const { agencyId } = req.query;
     
     // Users can view their own info, admins can view any
-    if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+    if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     
@@ -33,7 +33,7 @@ export const updateUserInfo = async (req, res, next) => {
     const { values } = req.body; // Array of { fieldDefinitionId, value }
     
     // Users can update their own info, admins can update any
-    if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+    if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     
@@ -60,7 +60,7 @@ export const updateUserInfoField = async (req, res, next) => {
     const { value } = req.body;
     
     // Users can update their own info, admins can update any
-    if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+    if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     
@@ -77,7 +77,7 @@ export const deleteUserInfoField = async (req, res, next) => {
     const { userId, fieldId } = req.params;
     
     // Users can delete their own info, admins can delete any
-    if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+    if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     

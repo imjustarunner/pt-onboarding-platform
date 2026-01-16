@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl } from '../controllers/agency.controller.js';
+import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations } from '../controllers/agency.controller.js';
 import { authenticate, requireAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -29,6 +29,7 @@ const validateCreateAgency = [
   }).withMessage('Logo URL must be a valid URL'),
   body('colorPalette').optional().isObject().withMessage('Color palette must be an object'),
   body('isActive').optional().isBoolean().withMessage('isActive must be a boolean'),
+  validateIconId('chatIconId'),
   validateIconId('trainingFocusDefaultIconId'),
   validateIconId('moduleDefaultIconId'),
   validateIconId('userDefaultIconId'),
@@ -104,6 +105,7 @@ const validateUpdateAgency = [
   }).withMessage('Logo URL must be a valid URL or empty'),
   body('colorPalette').optional().isObject().withMessage('Color palette must be an object'),
   body('isActive').optional().isBoolean().withMessage('isActive must be a boolean'),
+  validateIconId('chatIconId'),
   validateIconId('trainingFocusDefaultIconId'),
   validateIconId('moduleDefaultIconId'),
   validateIconId('userDefaultIconId'),
@@ -179,6 +181,7 @@ router.get('/portal/:portalUrl/login-theme', getLoginThemeByPortalUrl);
 // Protected routes
 router.get('/', authenticate, getAllAgencies);
 router.get('/archived', authenticate, requireSuperAdmin, getArchivedAgencies);
+router.get('/:id/affiliated-organizations', authenticate, requireAdmin, listAffiliatedOrganizations);
 router.get('/:id', authenticate, getAgencyById);
 router.post('/', authenticate, requireAdmin, validateCreateAgency, createAgency);
 router.put('/:id', authenticate, requireAdmin, validateUpdateAgency, updateAgency);

@@ -69,10 +69,9 @@
         </select>
         <button 
           @click="toggleOnDemandFilter"
-          :disabled="!filterAgencyIdForFocus"
           :class="['btn', 'btn-sm', 'on-demand-filter-btn', showOnDemandOnly ? 'btn-primary' : 'btn-secondary']"
           type="button"
-          :title="!filterAgencyIdForFocus ? 'Please select an agency first' : (showOnDemandOnly ? 'Click to show all training focuses' : 'Click to show only on-demand training focuses')"
+          :title="showOnDemandOnly ? 'Click to show all training focuses' : 'Click to show only training focuses that are assigned as on-demand'"
         >
           {{ showOnDemandOnly ? 'Show: Assigned as On-Demand' : 'Assigned as On-Demand' }}
         </button>
@@ -380,26 +379,32 @@
           </tr>
         </thead>
         <tbody>
-          <tr 
-            v-for="module in filteredModules" 
-            :key="module.id"
-            :class="{ 'on-demand-row': showOnDemandModulesOnly }"
-          >
+          <template v-for="row in moduleTableRows" :key="row.id">
+            <tr v-if="row.kind === 'header'" class="module-section-row">
+              <td colspan="8">
+                <strong>{{ row.label }}</strong>
+              </td>
+            </tr>
+
+            <tr
+              v-else
+              :class="{ 'on-demand-row': showOnDemandModulesOnly }"
+            >
             <td>
               <div class="table-module-title">
                 <img 
-                  v-if="module.icon_id && getIconUrl(module)" 
-                  :src="getIconUrl(module)" 
-                  :alt="module.icon_name || 'Module icon'"
+                  v-if="row.module.icon_id && getIconUrl(row.module)" 
+                  :src="getIconUrl(row.module)" 
+                  :alt="row.module.icon_name || 'Module icon'"
                   class="table-module-icon"
                 />
-                <span>{{ module.title }}</span>
-                <span v-if="module.source_module_id" class="copy-indicator" title="Copied from another module">📋</span>
-                <div v-if="getChecklistItemsForModule(module.id).length > 0" style="margin-top: 4px;">
-                  <small style="color: var(--text-secondary);">📋 {{ getChecklistItemsForModule(module.id).length }} checklist item(s):</small>
+                <span>{{ row.module.title }}</span>
+                <span v-if="row.module.source_module_id" class="copy-indicator" title="Copied from another module">📋</span>
+                <div v-if="getChecklistItemsForModule(row.module.id).length > 0" style="margin-top: 4px;">
+                  <small style="color: var(--text-secondary);">📋 {{ getChecklistItemsForModule(row.module.id).length }} checklist item(s):</small>
                   <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px;">
                     <span 
-                      v-for="item in getChecklistItemsForModule(module.id)" 
+                      v-for="item in getChecklistItemsForModule(row.module.id)" 
                       :key="item.id"
                       class="badge badge-info"
                       style="font-size: 10px;"
@@ -411,68 +416,69 @@
               </div>
             </td>
             <td>
-              <span v-if="module.is_shared" class="badge badge-warning">Shared</span>
-              <span v-else-if="module.track_id" class="badge badge-secondary">Training Focus</span>
-              <span v-else-if="module.agency_id" class="badge badge-secondary">Agency</span>
+              <span v-if="row.module.is_custom_input_module === 1 || row.module.is_custom_input_module === true" class="badge badge-primary">Custom Input</span>
+              <span v-if="row.module.is_shared" class="badge badge-warning" style="margin-left: 6px;">Shared</span>
+              <span v-else-if="row.module.track_id" class="badge badge-secondary">Training Focus</span>
+              <span v-else-if="row.module.agency_id" class="badge badge-secondary">Agency</span>
               <span v-else class="badge badge-secondary">Platform</span>
             </td>
             <td>
-              <span v-if="module.agency_id">{{ getAgencyName(module.agency_id) }}</span>
+              <span v-if="row.module.agency_id">{{ getAgencyName(row.module.agency_id) }}</span>
               <span v-else class="text-muted">-</span>
             </td>
             <td>
-              <span v-if="module.track_id">{{ getTrainingFocusName(module.track_id) }}</span>
+              <span v-if="row.module.track_id">{{ getTrainingFocusName(row.module.track_id) }}</span>
               <span v-else class="text-muted">-</span>
             </td>
-            <td>{{ module.order_index }}</td>
+            <td>{{ row.module.order_index }}</td>
             <td>
-              <span :class="['badge', module.is_active ? 'badge-success' : 'badge-secondary']">
-                {{ module.is_active ? 'Active' : 'Inactive' }}
+              <span :class="['badge', row.module.is_active ? 'badge-success' : 'badge-secondary']">
+                {{ row.module.is_active ? 'Active' : 'Inactive' }}
               </span>
             </td>
-            <td>{{ formatDate(module.created_at) }}</td>
+            <td>{{ formatDate(row.module.created_at) }}</td>
             <td class="actions-cell">
               <div class="action-buttons">
                 <button 
                   v-if="canCreateEdit" 
-                  @click="editModule(module)" 
+                  @click="editModule(row.module)" 
                   class="btn btn-primary btn-sm"
                 >
                   Edit
                 </button>
-                <div v-if="canCreateEdit" class="content-dropdown" :ref="el => setDropdownRef(el, module.id)">
+                <div v-if="canCreateEdit" class="content-dropdown" :ref="el => setDropdownRef(el, row.module.id)">
                   <button 
-                    @click="toggleContentMenu(module.id, $event)" 
+                    @click="toggleContentMenu(row.module.id, $event)" 
                     class="btn btn-secondary btn-sm"
                   >
                     Content ▼
                   </button>
                   <div 
-                    v-if="showContentMenu === module.id" 
+                    v-if="showContentMenu === row.module.id" 
                     class="dropdown-menu"
-                    :class="{ 'dropdown-up': dropdownPosition[module.id] === 'up' }"
+                    :class="{ 'dropdown-up': dropdownPosition[row.module.id] === 'up' }"
                   >
-                    <button @click.stop="manageContent(module)" class="dropdown-item">
+                    <button @click.stop="manageContent(row.module)" class="dropdown-item">
                       ✏️ Edit Content
                     </button>
-                    <button @click.stop="previewModule(module)" class="dropdown-item">
+                    <button @click.stop="previewModule(row.module)" class="dropdown-item">
                       👁️ Preview
                     </button>
                   </div>
                 </div>
-                <button @click="assignModule(module)" class="btn btn-success btn-sm">Assign</button>
-                <button v-if="canCreateEdit" @click="copyModule(module)" class="btn btn-secondary btn-sm">Copy</button>
-                <button v-if="canCreateEdit" @click="duplicateModule(module)" class="btn btn-secondary btn-sm">Duplicate</button>
+                <button @click="assignModule(row.module)" class="btn btn-success btn-sm">Assign</button>
+                <button v-if="canCreateEdit" @click="copyModule(row.module)" class="btn btn-secondary btn-sm">Copy</button>
+                <button v-if="canCreateEdit" @click="duplicateModule(row.module)" class="btn btn-secondary btn-sm">Duplicate</button>
                 <button
                   v-if="canCreateEdit"
-                  @click="toggleModuleActive(module)"
-                  :class="['btn', 'btn-sm', isModuleActive(module) ? 'btn-warning' : 'btn-success']"
+                  @click="toggleModuleActive(row.module)"
+                  :class="['btn', 'btn-sm', isModuleActive(row.module) ? 'btn-warning' : 'btn-success']"
                 >
-                  {{ isModuleActive(module) ? 'Deactivate' : 'Activate' }}
+                  {{ isModuleActive(row.module) ? 'Deactivate' : 'Activate' }}
                 </button>
                 <button 
                   v-if="canCreateEdit" 
-                  @click="archiveModule(module.id)" 
+                  @click="archiveModule(row.module.id)" 
                   class="btn btn-warning btn-sm"
                 >
                   Archive
@@ -480,6 +486,7 @@
               </div>
             </td>
           </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -907,6 +914,10 @@ const showContentMenu = ref(null); // Track which module's content menu is open
 const dropdownPosition = ref({}); // Track dropdown position for each module: 'up' or 'down'
 const dropdownRefs = ref({}); // Store refs to dropdown containers
 
+const isCustomInputModule = (m) => {
+  return m?.is_custom_input_module === true || m?.is_custom_input_module === 1;
+};
+
 const moduleForm = ref({
   title: '',
   description: '',
@@ -977,6 +988,23 @@ const filteredModules = computed(() => {
   // 'default' keeps original order
   
   return filtered;
+});
+
+const moduleTableRows = computed(() => {
+  const list = filteredModules.value || [];
+  const custom = list.filter(isCustomInputModule);
+  const traditional = list.filter((m) => !isCustomInputModule(m));
+
+  const rows = [];
+  if (custom.length > 0) {
+    rows.push({ kind: 'header', id: '__header_custom', label: `Custom Input (Profile) Modules (${custom.length})` });
+    custom.forEach((m) => rows.push({ kind: 'module', id: `m-${m.id}`, module: m }));
+  }
+  if (traditional.length > 0) {
+    rows.push({ kind: 'header', id: '__header_traditional', label: `Traditional Training Modules (${traditional.length})` });
+    traditional.forEach((m) => rows.push({ kind: 'module', id: `m-${m.id}`, module: m }));
+  }
+  return rows;
 });
 
 const fetchModules = async () => {
@@ -1139,6 +1167,9 @@ const filteredTrainingFocuses = computed(() => {
         return belongsToAgency && !isOnDemand;
       });
     }
+  } else if (showOnDemandOnly.value) {
+    // All Agencies view: show any training focuses assigned as on-demand for ANY agency
+    filtered = filtered.filter((f) => isTrainingFocusOnDemand(f.id));
   }
   
   return filtered;
@@ -1590,11 +1621,31 @@ const handlePublicAssignmentAndRefresh = async () => {
 const toggleOnDemandFilter = async () => {
   showOnDemandOnly.value = !showOnDemandOnly.value;
   
-  // If enabling and agency is selected, always fetch fresh on-demand data for that agency
-  if (showOnDemandOnly.value && filterAgencyIdForFocus.value) {
+  if (!showOnDemandOnly.value) return;
+
+  // If enabling and agency is selected, fetch that agency’s on-demand assignments.
+  if (filterAgencyIdForFocus.value) {
     const agencyId = parseInt(filterAgencyIdForFocus.value);
-    // Always fetch fresh data to ensure we have the latest assignments
     await fetchOnDemandForAgency(agencyId);
+    return;
+  }
+
+  // All Agencies view:
+  // - non-super-admin: fetch all of the user's agencies
+  // - super_admin: fetch all agencies
+  if (userRole.value !== 'super_admin') {
+    if (agencyStore.userAgencies && agencyStore.userAgencies.length > 0) {
+      await fetchOnDemandAssignments();
+    }
+    return;
+  }
+
+  // Super admin: ensure agencies list is loaded, then fetch each (best-effort)
+  if (agencies.value.length === 0) {
+    await fetchAgencies();
+  }
+  for (const agency of (agencies.value || [])) {
+    await fetchOnDemandForAgency(agency.id);
   }
 };
 
@@ -2529,6 +2580,20 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.module-section-row td {
+  background: #f8fafc;
+  border-top: 2px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 14px;
+  color: var(--text-primary);
+}
+
+.badge-primary {
+  background: #e0f2fe;
+  border: 1px solid #7dd3fc;
+  color: #075985;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;

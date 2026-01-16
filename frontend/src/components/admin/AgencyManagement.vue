@@ -4,14 +4,64 @@
       <h2>Organization Management</h2>
       <button @click="showCreateModal = true" class="btn btn-primary">Create Organization</button>
     </div>
+
+    <div class="filters" v-if="!loading">
+      <div class="filters-row">
+        <div class="filters-group">
+          <label class="filters-label">Search</label>
+          <input v-model="searchQuery" class="filters-input" type="text" placeholder="Search by name or slug…" />
+        </div>
+
+        <div class="filters-group">
+          <label class="filters-label">Type</label>
+          <select v-model="typeFilter" class="filters-select">
+            <option value="all">All</option>
+            <option value="agency">Agencies</option>
+            <option value="school">Schools</option>
+            <option value="program">Programs</option>
+            <option value="learning">Learning</option>
+          </select>
+        </div>
+
+        <div class="filters-group">
+          <label class="filters-label">Sort</label>
+          <select v-model="sortMode" class="filters-select">
+            <option value="name_asc">Name (A→Z)</option>
+            <option value="name_desc">Name (Z→A)</option>
+            <option value="slug_asc">Slug (A→Z)</option>
+            <option value="type_asc">Type</option>
+            <option value="status_desc">Status (Active first)</option>
+          </select>
+        </div>
+
+        <div class="filters-group" v-if="userRole === 'super_admin' && parentAgencies.length > 1">
+          <label class="filters-label">Agency</label>
+          <select v-model="selectedAgencyFilterId" class="filters-select" @change="loadAffiliatedForSelectedAgency">
+            <option value="">All organizations</option>
+            <option v-for="a in parentAgencies" :key="a.id" :value="String(a.id)">
+              {{ a.name }} ({{ a.slug }})
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div v-if="selectedAgencyFilterId" class="filters-hint">
+        Showing the selected agency and its affiliated organizations.
+        <button class="btn-link" type="button" @click="clearAgencyFilter">Clear</button>
+      </div>
+    </div>
     
     <div v-if="loading" class="loading">Loading agencies...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-if="error && (showCreateModal || editingAgency)" class="error-modal">{{ error }}</div>
     
     <div v-else class="agencies-list">
+      <div v-if="loadingAffiliates" class="loading">Loading affiliated organizations…</div>
+      <div v-else-if="organizationsToRender.length === 0" class="empty-state-inline">
+        No organizations found for the current filters.
+      </div>
       <div
-        v-for="agency in agencies"
+        v-for="agency in organizationsToRender"
         :key="agency.id"
         class="agency-card"
       >
@@ -30,9 +80,12 @@
               <p class="agency-slug">{{ agency.slug }}</p>
             </div>
           </div>
-          <span :class="['badge', agency.is_active ? 'badge-success' : 'badge-secondary']">
-            {{ agency.is_active ? 'Active' : 'Inactive' }}
-          </span>
+          <div class="badge-row">
+            <span class="badge badge-type">{{ String(agency.organization_type || 'agency').toLowerCase() }}</span>
+            <span :class="['badge', agency.is_active ? 'badge-success' : 'badge-secondary']">
+              {{ agency.is_active ? 'Active' : 'Inactive' }}
+            </span>
+          </div>
         </div>
         
         <!-- Agency Login URL (if portal_url is set) -->
@@ -494,11 +547,13 @@
             <label>Font Family</label>
             <select v-model="agencyForm.themeSettings.fontFamily">
               <option value="">Default (System Font)</option>
-              <option value="'Inter', sans-serif">Inter</option>
-              <option value="'Source Sans 3', sans-serif">Source Sans 3</option>
-              <option value="'Montserrat', sans-serif">Montserrat</option>
-              <option value="'Roboto', sans-serif">Roboto</option>
-              <option value="'Open Sans', sans-serif">Open Sans</option>
+              <option
+                v-for="opt in themeFontOptions"
+                :key="opt.value"
+                :value="opt.value"
+              >
+                {{ opt.label }}
+              </option>
             </select>
             <small>Font family for the portal theme</small>
           </div>
@@ -654,6 +709,19 @@
               <label>Organization Icon</label>
               <IconSelector v-model="agencyForm.iconId" label="Select Organization Icon" />
               <small>Main icon displayed for this organization</small>
+            </div>
+
+            <div class="settings-section-divider">
+              <h4>Chat</h4>
+              <p class="section-description">
+                Icon used for the left-side chat button.
+              </p>
+            </div>
+
+            <div class="form-group">
+              <label>Chat Icon</label>
+              <IconSelector v-model="agencyForm.chatIconId" />
+              <small>Overrides the platform chat icon for this organization</small>
             </div>
             
             <div class="settings-section-divider">
@@ -877,6 +945,13 @@ const agencyStore = useAgencyStore();
 const userRole = computed(() => authStore.user?.role);
 
 const agencies = ref([]);
+const searchQuery = ref('');
+const typeFilter = ref('all'); // all|agency|school|program|learning
+const sortMode = ref('name_asc'); // name_asc|name_desc|slug_asc|type_asc|status_desc
+const selectedAgencyFilterId = ref(''); // superadmin: parent agency filter
+const affiliatedOrganizations = ref([]); // /agencies/:id/affiliated-organizations results
+const loadingAffiliates = ref(false);
+
 const availableUsers = ref([]);
 const agencyAdmins = ref({});
 const agencySupport = ref({});
@@ -926,6 +1001,7 @@ const iconTemplateError = ref('');
 
 const ICON_TEMPLATE_FIELDS = [
   'iconId',
+  'chatIconId',
   'trainingFocusDefaultIconId',
   'moduleDefaultIconId',
   'userDefaultIconId',
@@ -960,6 +1036,7 @@ const agencyForm = ref({
   secondaryColor: '#1e40af',
   accentColor: '#f97316',
   iconId: null,
+  chatIconId: null,
   isActive: true,
   trainingFocusDefaultIconId: null,
   moduleDefaultIconId: null,
@@ -1001,8 +1078,120 @@ const agencyForm = ref({
   passwordChangedIconId: null
 });
 
-const affiliableAgencies = computed(() => {
-  return (agencies.value || []).filter(a => String(a.organization_type || 'agency').toLowerCase() === 'agency');
+const availableFontFamilies = ref([]);
+const loadingFontFamilies = ref(false);
+
+const buildFontCssValue = (familyName) => {
+  const fam = String(familyName || '').trim();
+  if (!fam) return '';
+  // Store a CSS-ready font-family value (matches existing persisted shape)
+  return `'${fam}', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`;
+};
+
+const labelFromFontCssValue = (v) => {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  // "'Family Name', ..." -> Family Name
+  const m = s.match(/^['"]([^'"]+)['"]/);
+  if (m?.[1]) return m[1];
+  // Family Name, ...
+  return s.split(',')[0].trim();
+};
+
+const themeFontOptions = computed(() => {
+  const opts = (availableFontFamilies.value || []).map((fam) => ({
+    label: fam,
+    value: buildFontCssValue(fam)
+  }));
+
+  // Preserve legacy/custom values so the current selection doesn't disappear.
+  const current = agencyForm.value?.themeSettings?.fontFamily || '';
+  if (current && !opts.some((o) => o.value === current)) {
+    opts.unshift({
+      label: `${labelFromFontCssValue(current)} (current)`,
+      value: current
+    });
+  }
+  return opts;
+});
+
+const fetchFontFamiliesForOrg = async (orgId) => {
+  try {
+    loadingFontFamilies.value = true;
+    const params = {};
+    if (orgId) params.agencyId = orgId;
+    const res = await api.get('/fonts/families', { params });
+    availableFontFamilies.value = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    availableFontFamilies.value = [];
+  } finally {
+    loadingFontFamilies.value = false;
+  }
+};
+
+const normalizeText = (v) => String(v || '').trim().toLowerCase();
+
+const sortByNameAsc = (list) => {
+  return [...(list || [])].sort((a, b) => normalizeText(a?.name).localeCompare(normalizeText(b?.name)));
+};
+
+const parentAgencies = computed(() => {
+  return sortByNameAsc((agencies.value || []).filter(a => String(a.organization_type || 'agency').toLowerCase() === 'agency'));
+});
+
+const affiliableAgencies = computed(() => parentAgencies.value);
+
+const applyFilters = (list) => {
+  const q = normalizeText(searchQuery.value);
+  const t = String(typeFilter.value || 'all').toLowerCase();
+  return (list || []).filter((o) => {
+    const ot = String(o?.organization_type || 'agency').toLowerCase();
+    if (t !== 'all' && ot !== t) return false;
+    if (!q) return true;
+    const hay = `${normalizeText(o?.name)} ${normalizeText(o?.slug)} ${normalizeText(o?.portal_url)}`;
+    return hay.includes(q);
+  });
+};
+
+const sortOrganizations = (list) => {
+  const mode = sortMode.value;
+  const sorted = [...(list || [])];
+  const typeRank = (t) => {
+    const v = String(t || 'agency').toLowerCase();
+    if (v === 'agency') return 0;
+    if (v === 'school') return 1;
+    if (v === 'program') return 2;
+    if (v === 'learning') return 3;
+    return 9;
+  };
+  sorted.sort((a, b) => {
+    if (mode === 'status_desc') {
+      const av = a?.is_active ? 1 : 0;
+      const bv = b?.is_active ? 1 : 0;
+      if (av !== bv) return bv - av;
+      return normalizeText(a?.name).localeCompare(normalizeText(b?.name));
+    }
+    if (mode === 'type_asc') {
+      const ar = typeRank(a?.organization_type);
+      const br = typeRank(b?.organization_type);
+      if (ar !== br) return ar - br;
+      return normalizeText(a?.name).localeCompare(normalizeText(b?.name));
+    }
+    if (mode === 'slug_asc') {
+      return normalizeText(a?.slug).localeCompare(normalizeText(b?.slug));
+    }
+    if (mode === 'name_desc') {
+      return normalizeText(b?.name).localeCompare(normalizeText(a?.name));
+    }
+    // name_asc default
+    return normalizeText(a?.name).localeCompare(normalizeText(b?.name));
+  });
+  return sorted;
+};
+
+const organizationsToRender = computed(() => {
+  const base = selectedAgencyFilterId.value ? (affiliatedOrganizations.value || []) : (agencies.value || []);
+  return sortOrganizations(applyFilters(base));
 });
 
 const requiresAffiliatedAgency = computed(() => {
@@ -1145,6 +1334,39 @@ const saveIconTemplate = async ({ name, description, iconData }) => {
   }
 };
 
+const clearAgencyFilter = () => {
+  selectedAgencyFilterId.value = '';
+  affiliatedOrganizations.value = [];
+};
+
+const loadAffiliatedForSelectedAgency = async () => {
+  if (!selectedAgencyFilterId.value) {
+    affiliatedOrganizations.value = [];
+    return;
+  }
+  const agencyId = parseInt(selectedAgencyFilterId.value, 10);
+  if (!agencyId) return;
+
+  try {
+    loadingAffiliates.value = true;
+    error.value = '';
+    const res = await api.get(`/agencies/${agencyId}/affiliated-organizations`);
+    affiliatedOrganizations.value = Array.isArray(res.data) ? res.data : [];
+
+    // Best-effort: ensure admin/support lists exist for all returned orgs.
+    for (const org of affiliatedOrganizations.value) {
+      if (!agencySupport.value[org.id]) agencySupport.value[org.id] = [];
+      await fetchAgencyAdmins(org.id);
+      await fetchAgencySupport(org.id);
+    }
+  } catch (e) {
+    affiliatedOrganizations.value = [];
+    error.value = e.response?.data?.error?.message || 'Failed to load affiliated organizations';
+  } finally {
+    loadingAffiliates.value = false;
+  }
+};
+
 const fetchAgencies = async () => {
   try {
     loading.value = true;
@@ -1162,6 +1384,11 @@ const fetchAgencies = async () => {
     for (const agency of agencies.value) {
       await fetchAgencyAdmins(agency.id);
       await fetchAgencySupport(agency.id);
+    }
+
+    // If a parent agency is selected, refresh affiliated view too.
+    if (selectedAgencyFilterId.value) {
+      await loadAffiliatedForSelectedAgency();
     }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load agencies';
@@ -1449,6 +1676,7 @@ const editAgency = (agency) => {
     secondaryColor: palette.secondary || '#1e40af',
     accentColor: palette.accent || '#f97316',
     iconId: agency.icon_id || null,
+    chatIconId: agency.chat_icon_id ?? null,
     isActive: agency.is_active,
     trainingFocusDefaultIconId: agency.training_focus_default_icon_id ?? null,
     moduleDefaultIconId: agency.module_default_icon_id ?? null,
@@ -1489,6 +1717,9 @@ const editAgency = (agency) => {
     firstLoginPendingIconId: agency.first_login_pending_icon_id ?? null,
     passwordChangedIconId: agency.password_changed_icon_id ?? null
   };
+
+  // Load available uploaded font families for this org (includes platform + org fonts)
+  fetchFontFamiliesForOrg(agency?.id || null);
 };
 
 const applyAffiliatedAgencyBranding = async () => {
@@ -1768,6 +1999,7 @@ const saveAgency = async () => {
       colorPalette: colorPalette,
       terminologySettings: Object.keys(terminologySettings).length > 0 ? terminologySettings : null,
       iconId: agencyForm.value.iconId ?? null,
+      chatIconId: agencyForm.value.chatIconId ?? null,
       isActive: agencyForm.value.isActive !== undefined ? agencyForm.value.isActive : true,
       trainingFocusDefaultIconId: agencyForm.value.trainingFocusDefaultIconId ?? null,
       moduleDefaultIconId: agencyForm.value.moduleDefaultIconId ?? null,
@@ -1986,6 +2218,7 @@ const closeModal = () => {
     secondaryColor: '#1e40af',
     accentColor: '#f97316',
     iconId: null,
+    chatIconId: null,
     isActive: true,
     trainingFocusDefaultIconId: null,
     moduleDefaultIconId: null,
@@ -2034,6 +2267,8 @@ watch(showCreateModal, (isOpen) => {
   // Ensure admins default to an allowed org type (no agency creation)
   agencyForm.value.organizationType = userRole.value === 'super_admin' ? 'agency' : 'school';
   agencyForm.value.affiliatedAgencyId = '';
+  // For a new org (no id yet), show platform font families (if any)
+  fetchFontFamiliesForOrg(null);
 });
 
 // Keep affiliated agency selection in sync with role + org type.
@@ -2123,9 +2358,102 @@ onMounted(async () => {
   color: var(--text-primary);
 }
 
+.filters {
+  margin-bottom: 18px;
+  padding: 14px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.filters-row {
+  display: grid;
+  grid-template-columns: 1.3fr 0.7fr 0.9fr 1.1fr;
+  gap: 12px;
+  align-items: end;
+}
+
+.filters-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filters-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.filters-input,
+.filters-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-primary);
+}
+
+.filters-hint {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-link {
+  background: transparent;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  font-weight: 800;
+  padding: 0;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.empty-state-inline {
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+}
+
+.badge-row {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.badge.badge-type {
+  background: rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  color: var(--text-secondary);
+}
+
+.badge.badge-type::first-letter {
+  text-transform: uppercase;
+}
+
 .agencies-list {
   display: grid;
   gap: 20px;
+}
+
+@media (max-width: 1100px) {
+  .filters-row {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .pricing-box {

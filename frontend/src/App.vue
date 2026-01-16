@@ -1,6 +1,7 @@
 <template>
   <BrandingProvider>
-    <div id="app">
+    <div class="preview-root" :data-preview-viewport="effectivePreviewViewport">
+      <div id="app">
       <nav v-if="isAuthenticated" class="navbar">
         <div class="container">
           <div class="nav-content">
@@ -10,7 +11,36 @@
               <span class="hamburger-line" :class="{ active: mobileMenuOpen }"></span>
             </button>
             <div class="nav-brand">
-              <BrandingLogo size="medium" class="nav-logo" />
+              <div class="brand-switcher" @click.stop>
+                <button class="brand-trigger" @click="toggleBrandMenu" :title="`Switch Brand (${currentBrandLabel})`">
+                  <BrandingLogo size="medium" class="nav-logo" />
+                  <span v-if="canSwitchBrand" class="brand-caret">▾</span>
+                </button>
+
+                <div v-if="brandMenuOpen && canSwitchBrand" class="brand-menu">
+                  <div class="brand-menu-title">Switch Brand</div>
+
+                  <button
+                    v-if="brandingStore.isSuperAdmin"
+                    class="brand-option"
+                    :class="{ active: !agencyStore.currentAgency }"
+                    @click="selectPlatformBrand"
+                  >
+                    Platform
+                  </button>
+
+                  <div class="brand-menu-section">Agencies</div>
+                  <button
+                    v-for="a in brandAgencies"
+                    :key="a.id"
+                    class="brand-option"
+                    :class="{ active: agencyStore.currentAgency?.id === a.id }"
+                    @click="selectAgencyBrand(a)"
+                  >
+                    {{ a.name }}
+                  </button>
+                </div>
+              </div>
               <h1 v-if="navTitleText" class="nav-title">{{ navTitleText }}</h1>
             </div>
             <div class="nav-links-wrapper">
@@ -24,11 +54,28 @@
               <template v-if="canSeePortalNav">
                 <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Admin Dashboard</router-link>
 
-                <router-link :to="orgTo('/admin/modules')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Training</router-link>
-                <router-link :to="orgTo('/admin/documents')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Documents</router-link>
+              <router-link
+                :to="orgTo('/admin/modules')"
+                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canViewTraining')"
+                @click="closeMobileMenu"
+              >Training</router-link>
+              <router-link
+                :to="orgTo('/admin/documents')"
+                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canSignDocuments')"
+                @click="closeMobileMenu"
+              >Documents</router-link>
                 <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Users</router-link>
                 <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeMobileMenu">Clients</router-link>
-                <router-link :to="orgTo('/admin/communications')" v-if="isAdmin || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Communications</router-link>
+              <router-link
+                :to="orgTo('/admin/communications')"
+                v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
+                @click="closeMobileMenu"
+              >Communications</router-link>
+              <router-link
+                :to="orgTo('/admin/communications/chats')"
+                v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
+                @click="closeMobileMenu"
+              >Chats</router-link>
                 <router-link :to="orgTo('/admin/payroll')" v-if="isAdmin" @click="closeMobileMenu">Payroll</router-link>
 
                 <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Notifications</router-link>
@@ -36,7 +83,12 @@
 
                 <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Settings</router-link>
               </template>
-              <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="nav-link">Office Schedule</router-link>
+              <router-link
+                v-if="hasCapability('canJoinProgramEvents')"
+                :to="orgTo('/schedule')"
+                @click="closeMobileMenu"
+                class="nav-link"
+              >Office Schedule</router-link>
               <button @click="handleLogout" class="btn btn-secondary">Logout</button>
               </div>
             </div>
@@ -45,9 +97,14 @@
       </nav>
       <!-- Welcome tag (hangs under navbar) -->
       <div v-if="isAuthenticated" class="welcome-hang-wrap">
-        <div class="welcome-hang">
-          Welcome, {{ welcomeName }}
-        </div>
+        <router-link
+          class="welcome-hang-link"
+          :to="orgTo('/dashboard')"
+          aria-label="Go to My Dashboard"
+        >
+          <span class="welcome-text">Welcome, {{ welcomeName }}</span>
+          <span class="dashboard-text">My Dashboard</span>
+        </router-link>
       </div>
       <!-- Mobile Sidebar (available on all screen sizes) -->
       <div v-if="isAuthenticated" class="mobile-sidebar" :class="{ open: mobileMenuOpen }" @click.self="mobileMenuOpen = false">
@@ -62,16 +119,42 @@
             <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu" class="mobile-nav-link">
               {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
             </router-link>
-            <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="mobile-nav-link">Office Schedule</router-link>
+            <router-link
+              v-if="hasCapability('canJoinProgramEvents')"
+              :to="orgTo('/schedule')"
+              @click="closeMobileMenu"
+              class="mobile-nav-link"
+            >Office Schedule</router-link>
 
             <template v-if="canSeePortalNav">
               <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
 
-              <router-link :to="orgTo('/admin/modules')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Training</router-link>
-              <router-link :to="orgTo('/admin/documents')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Documents</router-link>
+              <router-link
+                :to="orgTo('/admin/modules')"
+                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canViewTraining')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Training</router-link>
+              <router-link
+                :to="orgTo('/admin/documents')"
+                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canSignDocuments')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Documents</router-link>
               <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Users</router-link>
               <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
-              <router-link :to="orgTo('/admin/communications')" v-if="isAdmin || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Communications</router-link>
+              <router-link
+                :to="orgTo('/admin/communications')"
+                v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Communications</router-link>
+              <router-link
+                :to="orgTo('/admin/communications/chats')"
+                v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Chats</router-link>
               <router-link :to="orgTo('/admin/payroll')" v-if="isAdmin" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
 
               <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
@@ -88,10 +171,13 @@
       <!-- Mobile Sidebar Overlay -->
       <div v-if="isAuthenticated && mobileMenuOpen" class="mobile-overlay" @click="mobileMenuOpen = false"></div>
       <main>
+        <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher -->
         <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin" />
         <router-view />
       </main>
+      <PlatformChatDrawer />
       <PoweredByFooter v-if="isAuthenticated" />
+      </div>
     </div>
   </BrandingProvider>
 </template>
@@ -106,6 +192,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
 import AgencySelector from './components/AgencySelector.vue';
+import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
 import BrandingProvider from './components/BrandingProvider.vue';
 import BrandingLogo from './components/BrandingLogo.vue';
 import PoweredByFooter from './components/PoweredByFooter.vue';
@@ -117,6 +204,168 @@ const organizationStore = useOrganizationStore();
 const router = useRouter();
 const route = useRoute();
 const mobileMenuOpen = ref(false);
+
+// ---- Superadmin viewport preview (Desktop/Tablet/Mobile) ----
+const PREVIEW_STORAGE_KEY = 'superadminPreviewViewport';
+
+const previewViewport = ref('desktop'); // desktop | tablet | mobile
+
+const loadPreviewViewport = () => {
+  try {
+    const raw = localStorage.getItem(PREVIEW_STORAGE_KEY);
+    if (raw === 'mobile' || raw === 'tablet' || raw === 'desktop') {
+      previewViewport.value = raw;
+      return;
+    }
+  } catch {
+    // ignore
+  }
+  previewViewport.value = 'desktop';
+};
+
+const applyPreviewToDocument = (viewport) => {
+  try {
+    // Not strictly required for scoped CSS, but useful for debugging / future global styles.
+    document.documentElement.dataset.previewViewport = viewport;
+    document.documentElement.dataset.previewNav = viewport === 'desktop' ? 'full' : 'hamburger';
+  } catch {
+    // ignore
+  }
+};
+
+const isSuperAdminUser = computed(() => authStore.user?.role === 'super_admin');
+
+const effectivePreviewViewport = computed(() => {
+  if (!isSuperAdminUser.value) return 'desktop';
+  return previewViewport.value;
+});
+
+const onPreviewUpdated = (e) => {
+  if (!isSuperAdminUser.value) return;
+  const next = e?.detail?.viewport;
+  if (next === 'mobile' || next === 'tablet' || next === 'desktop') {
+    previewViewport.value = next;
+    applyPreviewToDocument(next);
+  }
+};
+
+// Keep preview attributes in sync (and reset to desktop for non-superadmins).
+watch(effectivePreviewViewport, (next) => {
+  applyPreviewToDocument(next);
+}, { immediate: true });
+
+// ---- Brand switcher (top-nav dropdown) ----
+const brandMenuOpen = ref(false);
+
+const onDocumentClick = () => {
+  brandMenuOpen.value = false;
+};
+
+const canSwitchBrand = computed(() => {
+  if (!isAuthenticated.value) return false;
+  // Super admins can switch Platform <-> any agency.
+  if (brandingStore.isSuperAdmin) return true;
+  // Multi-agency admins/support can switch between their agencies.
+  const list = (agencyStore.userAgencies || []).filter((a) => String(a.organization_type || 'agency').toLowerCase() === 'agency');
+  return list.length > 1;
+});
+
+const brandAgencies = computed(() => {
+  const list = brandingStore.isSuperAdmin ? (agencyStore.agencies || []) : (agencyStore.userAgencies || []);
+  return (list || []).filter((a) => String(a.organization_type || 'agency').toLowerCase() === 'agency');
+});
+
+const currentBrandLabel = computed(() => {
+  if (brandingStore.isSuperAdmin && !agencyStore.currentAgency) return 'Platform';
+  return agencyStore.currentAgency?.name || 'Agency';
+});
+
+const toggleBrandMenu = async () => {
+  if (!canSwitchBrand.value) return;
+
+  // If the list is empty, refresh it (can happen after context switches).
+  try {
+    if (brandingStore.isSuperAdmin) {
+      if (!agencyStore.agencies || agencyStore.agencies.length === 0) {
+        await agencyStore.fetchAgencies();
+      }
+    } else {
+      if (!agencyStore.userAgencies || agencyStore.userAgencies.length === 0) {
+        await agencyStore.fetchUserAgencies();
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  brandMenuOpen.value = !brandMenuOpen.value;
+};
+
+const closeBrandMenu = () => {
+  brandMenuOpen.value = false;
+};
+
+const pushWithSlug = (slug) => {
+  const full = route.fullPath || '/';
+  const [pathPart, queryPart] = String(full).split('?');
+  const currentSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : null;
+
+  let nextPath = pathPart;
+  if (currentSlug) {
+    const oldPrefix = `/${currentSlug}`;
+    if (nextPath === oldPrefix) nextPath = `/${slug}`;
+    else if (nextPath.startsWith(`${oldPrefix}/`)) nextPath = `/${slug}${nextPath.slice(oldPrefix.length)}`;
+    else nextPath = `/${slug}${nextPath}`;
+  } else {
+    // Prefix current route with the selected agency slug
+    nextPath = `/${slug}${nextPath}`;
+  }
+
+  router.push(queryPart ? `${nextPath}?${queryPart}` : nextPath);
+};
+
+const stripSlug = () => {
+  const currentSlug = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : null;
+  if (!currentSlug) return;
+
+  const full = route.fullPath || '/';
+  const [pathPart, queryPart] = String(full).split('?');
+  const oldPrefix = `/${currentSlug}`;
+
+  let nextPath = pathPart;
+  if (nextPath === oldPrefix) nextPath = '/';
+  else if (nextPath.startsWith(`${oldPrefix}/`)) nextPath = nextPath.slice(oldPrefix.length) || '/';
+
+  router.push(queryPart ? `${nextPath}?${queryPart}` : nextPath);
+};
+
+const selectAgencyBrand = async (a) => {
+  try {
+    closeBrandMenu();
+    if (!a) return;
+    agencyStore.setCurrentAgency(a);
+    const slug = a.slug || a.portal_url;
+    if (!slug) return;
+    pushWithSlug(slug);
+  } catch {
+    // ignore
+  }
+};
+
+const selectPlatformBrand = async () => {
+  closeBrandMenu();
+  agencyStore.setCurrentAgency(null);
+  stripSlug();
+
+  // Ensure super admins still have agency options after returning to Platform.
+  if (brandingStore.isSuperAdmin) {
+    try {
+      await agencyStore.fetchAgencies();
+    } catch {
+      // ignore
+    }
+  }
+};
 
 const closeMobileMenu = () => {
   mobileMenuOpen.value = false;
@@ -139,6 +388,15 @@ const navTitleText = computed(() => {
 
 const isAuthenticated = computed(() => authStore.isAuthenticated);
 const user = computed(() => authStore.user);
+const capabilities = computed(() => user.value?.capabilities || null);
+const hasCapability = (key) => {
+  const caps = capabilities.value;
+  // Backward-compat: if capabilities are not present yet, don't hide UI.
+  if (!caps || typeof caps !== 'object') return true;
+  const keys = Object.keys(caps);
+  if (keys.length === 0) return true;
+  return !!caps?.[key];
+};
 const welcomeName = computed(() => {
   const first = user.value?.firstName?.trim();
   if (first) return first;
@@ -171,7 +429,7 @@ const canSeePortalNav = computed(() => {
 });
 
 const showOnDemandLink = computed(() => {
-  return user.value?.role !== 'super_admin' && isOnDemandUser.value;
+  return user.value?.role !== 'super_admin' && isOnDemandUser.value && hasCapability('canViewTraining');
 });
 
 const canCreateEdit = computed(() => {
@@ -221,12 +479,34 @@ watch(() => route.params.organizationSlug, async (newSlug) => {
 }, { immediate: true });
 
 onMounted(async () => {
+  document.addEventListener('click', onDocumentClick);
+
+  // Initialize superadmin preview mode (if enabled locally).
+  if (isSuperAdminUser.value) {
+    loadPreviewViewport();
+  }
+
+  window.addEventListener('superadmin-preview-updated', onPreviewUpdated);
+
   // Load organization context if route has organization slug
   if (route.params.organizationSlug) {
     await organizationStore.fetchBySlug(route.params.organizationSlug);
   }
   // Initialize portal theme on app load (for subdomain detection)
   await brandingStore.initializePortalTheme();
+
+  // Load agency list for brand switching (super admins are not shown the legacy selector)
+  if (isAuthenticated.value) {
+    try {
+      if (brandingStore.isSuperAdmin) {
+        await agencyStore.fetchAgencies();
+      } else {
+        await agencyStore.fetchUserAgencies();
+      }
+    } catch {
+      // ignore
+    }
+  }
   
   if (isAuthenticated.value) {
     startActivityTracking();
@@ -245,14 +525,61 @@ onMounted(async () => {
       console.error('Error checking user role:', err);
     }
   }
+
 });
 
 onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick);
+  window.removeEventListener('superadmin-preview-updated', onPreviewUpdated);
   stopActivityTracking();
 });
 </script>
 
 <style scoped>
+.preview-root {
+  min-height: 100vh;
+}
+
+/* Constrain app width in preview modes */
+.preview-root[data-preview-viewport="tablet"] #app,
+.preview-root[data-preview-viewport="mobile"] #app {
+  margin: 0 auto;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  border-radius: 16px;
+  overflow: hidden;
+  position: relative;
+  /* Create a containing block so `position: fixed` UI (drawer/overlay) stays inside the preview frame */
+  transform: translateZ(0);
+  height: 100vh;
+  max-height: 100vh;
+  overflow-y: auto;
+  background: white;
+}
+
+.preview-root[data-preview-viewport="tablet"] #app {
+  width: 768px;
+  max-width: 768px;
+}
+
+.preview-root[data-preview-viewport="mobile"] #app {
+  width: 390px;
+  max-width: 390px;
+}
+
+/* Force hamburger-only nav in preview modes (even on wide desktop windows) */
+.preview-root[data-preview-viewport="tablet"] .nav-links-wrapper,
+.preview-root[data-preview-viewport="mobile"] .nav-links-wrapper {
+  display: none !important;
+}
+
+/* Add some backdrop contrast in preview modes */
+.preview-root[data-preview-viewport="tablet"],
+.preview-root[data-preview-viewport="mobile"] {
+  background: #f1f5f9;
+  padding: 18px 10px;
+}
+
 .navbar {
   background-color: var(--primary);
   color: white;
@@ -266,7 +593,8 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 24px;
-  overflow: hidden;
+  /* Allow dropdowns (e.g., Switch Brand) to render outside navbar row */
+  overflow: visible;
   position: relative;
 }
 
@@ -276,6 +604,79 @@ onUnmounted(() => {
   gap: 16px;
   flex-shrink: 0;
   min-width: 0;
+}
+
+.brand-switcher {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.brand-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+}
+
+.brand-caret {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.brand-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  min-width: 220px;
+  background: white;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 10px;
+  z-index: 1100;
+}
+
+.brand-menu-title {
+  font-weight: 800;
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.brand-menu-section {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin: 8px 0 6px;
+}
+
+.brand-option {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.brand-option:hover {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.brand-option.active {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #1e3a8a;
 }
 
 .nav-logo {
@@ -363,7 +764,9 @@ onUnmounted(() => {
   margin-top: -2px; /* visually attaches to navbar bottom border */
 }
 
-.welcome-hang {
+.welcome-hang-link {
+  display: inline-flex;
+  align-items: center;
   background: white;
   color: var(--primary);
   border: 2px solid var(--accent);
@@ -377,6 +780,35 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.welcome-hang-link:focus {
+  outline: 2px solid rgba(99, 102, 241, 0.45);
+  outline-offset: 2px;
+}
+
+.welcome-text,
+.dashboard-text {
+  display: inline-block;
+  min-width: 0;
+}
+
+.dashboard-text {
+  display: none;
+}
+
+.welcome-hang-link:hover .welcome-text,
+.welcome-hang-link:focus .welcome-text,
+.welcome-hang-link:focus-visible .welcome-text {
+  display: none;
+}
+
+.welcome-hang-link:hover .dashboard-text,
+.welcome-hang-link:focus .dashboard-text,
+.welcome-hang-link:focus-visible .dashboard-text {
+  display: inline-block;
 }
 
 .preferences-link {

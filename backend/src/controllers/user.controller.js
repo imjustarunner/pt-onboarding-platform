@@ -10,23 +10,37 @@ import ActivityLogService from '../services/activityLog.service.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getUserCapabilities } from '../utils/capabilities.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const getCurrentUser = async (req, res, next) => {
   try {
-    const user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ error: { message: 'User not found' } });
+    // Approved employee tokens do not have a users-table record.
+    if (!req.user?.id && req.user?.role === 'approved_employee') {
+      const synthetic = { role: 'approved_employee', status: 'ACTIVE_EMPLOYEE', type: req.user.type || 'approved_employee' };
+      return res.json({
+        email: req.user.email,
+        role: 'approved_employee',
+        type: req.user.type || 'approved_employee',
+        capabilities: getUserCapabilities(synthetic)
+      });
     }
-    // Return user in same format as login response
+
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+
+    // Return user in same format as login response + capabilities
     res.json({
       id: user.id,
       email: user.email,
       role: user.role, // Always get role from database, not token
+      status: user.status,
       firstName: user.first_name,
-      lastName: user.last_name
+      lastName: user.last_name,
+      username: user.username || user.personal_email || user.email,
+      capabilities: getUserCapabilities(user)
     });
   } catch (error) {
     next(error);
@@ -190,12 +204,21 @@ export const getAllUsers = async (req, res, next) => {
         
         // Check if has_supervisor_privileges column exists
         let hasSupervisorPrivilegesField = '';
+        let hasProviderAccessField = '';
+        let hasStaffAccessField = '';
         try {
           const [columns] = await pool.execute(
-            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'has_supervisor_privileges'"
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('has_supervisor_privileges','has_provider_access','has_staff_access')"
           );
-          if (columns.length > 0) {
+          const existingColumns = columns.map(c => c.COLUMN_NAME);
+          if (existingColumns.includes('has_supervisor_privileges')) {
             hasSupervisorPrivilegesField = ', u.has_supervisor_privileges';
+          }
+          if (existingColumns.includes('has_provider_access')) {
+            hasProviderAccessField = ', u.has_provider_access';
+          }
+          if (existingColumns.includes('has_staff_access')) {
+            hasStaffAccessField = ', u.has_staff_access';
           }
         } catch (err) {
           // Column doesn't exist yet, skip it
@@ -213,7 +236,7 @@ export const getAllUsers = async (req, res, next) => {
             u.is_active, 
             u.first_name, 
             u.last_name, 
-            u.created_at${hasSupervisorPrivilegesField},
+            u.created_at${hasSupervisorPrivilegesField}${hasProviderAccessField}${hasStaffAccessField},
             GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') as agencies,
             GROUP_CONCAT(DISTINCT a.id ORDER BY a.id SEPARATOR ',') as agency_ids
           FROM users u
@@ -229,6 +252,12 @@ export const getAllUsers = async (req, res, next) => {
         let groupByFields = 'u.id, u.email, u.role, u.status, u.completed_at, u.terminated_at, u.status_expires_at, u.is_active, u.first_name, u.last_name, u.created_at';
         if (hasSupervisorPrivilegesField) {
           groupByFields += ', u.has_supervisor_privileges';
+        }
+        if (hasProviderAccessField) {
+          groupByFields += ', u.has_provider_access';
+        }
+        if (hasStaffAccessField) {
+          groupByFields += ', u.has_staff_access';
         }
         query += ` GROUP BY ${groupByFields}`;
         query += ' ORDER BY u.created_at DESC';
@@ -677,8 +706,13 @@ export const updateUser = async (req, res, next) => {
     if (hasProviderAccess !== undefined) {
       const targetUser = await User.findById(id);
       if (targetUser) {
-        // Only allow provider access for staff/support roles
-        if (targetUser.role === 'staff' || targetUser.role === 'support' || (role && (role === 'staff' || role === 'support'))) {
+        // Allow provider access for staff/support/admin (admin can be "provider-selectable" when needed)
+        if (
+          targetUser.role === 'staff' ||
+          targetUser.role === 'support' ||
+          targetUser.role === 'admin' ||
+          (role && (role === 'staff' || role === 'support' || role === 'admin'))
+        ) {
           updateData.hasProviderAccess = Boolean(hasProviderAccess);
         }
       }

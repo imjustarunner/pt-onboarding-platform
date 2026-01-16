@@ -2,10 +2,13 @@
   <div class="container comms-feed">
     <div class="header">
       <div>
-        <h2>All Recent Texts</h2>
-        <p class="subtitle">Safety Net feed. Inbound and outbound messages across your agencies.</p>
+        <h2>Communications</h2>
+        <p class="subtitle">Texts + platform chats.</p>
       </div>
-      <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
+      <div class="header-actions">
+        <router-link class="btn btn-secondary" :to="chatsLink">Chats</router-link>
+        <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
+      </div>
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
@@ -38,17 +41,24 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 
 const authStore = useAuthStore();
 const router = useRouter();
+const route = useRoute();
 
 const loading = ref(true);
 const error = ref('');
 const rows = ref([]);
+
+const chatsLink = computed(() => {
+  const slug = route.params.organizationSlug;
+  if (typeof slug === 'string' && slug) return `/${slug}/admin/communications/chats`;
+  return '/admin/communications/chats';
+});
 
 const formatTime = (d) => {
   try {
@@ -97,6 +107,11 @@ onMounted(async () => {
   gap: 12px;
   align-items: flex-end;
   margin-bottom: 14px;
+}
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 .subtitle { color: var(--text-secondary); margin: 6px 0 0 0; }
 .card {

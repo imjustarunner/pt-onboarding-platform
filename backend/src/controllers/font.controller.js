@@ -120,13 +120,15 @@ export const getFontFamilies = async (req, res, next) => {
     const { agencyId } = req.query;
     const parsedAgencyId = agencyId && agencyId !== 'null' ? parseInt(agencyId, 10) : null;
 
-    // Only include families that have at least one available font file.
-    const filters = {};
-    if (agencyId !== undefined) {
-      if (agencyId === 'null') filters.agencyId = null;
-      else if (!Number.isNaN(parsedAgencyId)) filters.agencyId = parsedAgencyId;
-    }
-    let fonts = await Font.findAll(false, filters);
+    // Public endpoint:
+    // - If agencyId is provided: include (platform + that agency)
+    // - If agencyId is omitted: platform only
+    const includeAgency = agencyId !== undefined && agencyId !== '' && parsedAgencyId && !Number.isNaN(parsedAgencyId);
+
+    const platformFonts = await Font.findAll(false, { agencyId: null });
+    const agencyFonts = includeAgency ? await Font.findAll(false, { agencyId: parsedAgencyId }) : [];
+    const fonts = [...platformFonts, ...agencyFonts];
+
     const checks = await Promise.all(
       fonts.map(async (font) => {
         const fp = font?.file_path ? String(font.file_path) : '';
@@ -137,6 +139,50 @@ export const getFontFamilies = async (req, res, next) => {
     );
     const families = Array.from(new Set(checks.filter(Boolean))).sort();
     res.json(families);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Public: resolve uploaded font records for a given family (used on login/portal pages)
+export const getPublicFonts = async (req, res, next) => {
+  try {
+    const { agencyId, familyName } = req.query;
+    const parsedAgencyId = agencyId && agencyId !== 'null' ? parseInt(agencyId, 10) : null;
+
+    if (!familyName || !String(familyName).trim()) {
+      return res.status(400).json({ error: { message: 'familyName is required' } });
+    }
+
+    const includeAgency = parsedAgencyId && !Number.isNaN(parsedAgencyId);
+    const fam = String(familyName).trim();
+
+    const platformFonts = await Font.findAll(false, { agencyId: null, familyName: fam });
+    const agencyFonts = includeAgency ? await Font.findAll(false, { agencyId: parsedAgencyId, familyName: fam }) : [];
+    let fonts = [...platformFonts, ...agencyFonts];
+
+    // Only return fonts whose files exist.
+    const checks = await Promise.all(
+      fonts.map(async (font) => {
+        const fp = font?.file_path ? String(font.file_path) : '';
+        const filename = fp ? path.basename(fp) : null;
+        const exists = filename ? await StorageService.fontExists(filename) : false;
+        return exists ? font : null;
+      })
+    );
+    fonts = checks.filter(Boolean);
+
+    const fontsWithUrls = fonts.map((font) => ({
+      id: font.id,
+      name: font.name,
+      family_name: font.family_name,
+      file_path: font.file_path,
+      file_type: font.file_type,
+      agency_id: font.agency_id,
+      url: `/uploads/fonts/${path.basename(font.file_path)}`
+    }));
+
+    res.json(fontsWithUrls);
   } catch (error) {
     next(error);
   }

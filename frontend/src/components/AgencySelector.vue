@@ -51,9 +51,12 @@ const handleAgencyChange = () => {
 onMounted(async () => {
   // Fetch user's assigned agencies and set default
   await agencyStore.fetchUserAgencies();
-  
-  // Also fetch agencies for the selector dropdown (for regular users)
-  if (authStore.user?.id && authStore.user?.type !== 'approved_employee') {
+
+  // For super_admin, load all agencies (not just assigned)
+  if (authStore.user?.role === 'super_admin') {
+    await agencyStore.fetchAgencies();
+  } else if (authStore.user?.id && authStore.user?.type !== 'approved_employee') {
+    // Regular users/admins: load assigned agencies
     await agencyStore.fetchAgencies(authStore.user.id);
   }
   

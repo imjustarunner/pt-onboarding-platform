@@ -11,6 +11,23 @@
       <div class="placeholder-icon">💳</div>
       <h3>Select an Agency</h3>
       <p>Choose an agency context to view billing details.</p>
+      <div class="agency-picker" v-if="billingAgencies.length > 0">
+        <input
+          v-model="agencySearch"
+          class="input"
+          type="text"
+          placeholder="Search agencies…"
+        />
+        <select v-model="selectedAgencyId" class="select">
+          <option value="">Select an agency…</option>
+          <option v-for="a in filteredBillingAgencies" :key="a.id" :value="String(a.id)">
+            {{ a.name }} ({{ a.slug }})
+          </option>
+        </select>
+        <button class="btn" :disabled="!selectedAgencyId" @click="applyAgencySelection">
+          View Billing
+        </button>
+      </div>
     </div>
 
     <div v-else class="content">
@@ -217,11 +234,40 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
 
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 const route = useRoute();
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
+const agencySearch = ref('');
+const selectedAgencyId = ref('');
+
+const normalizeText = (v) => String(v || '').trim().toLowerCase();
+const billingAgencies = computed(() => {
+  const list = agencyStore.agencies || agencyStore.userAgencies || [];
+  return [...list]
+    .filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency')
+    .sort((a, b) => normalizeText(a?.name).localeCompare(normalizeText(b?.name)));
+});
+
+const filteredBillingAgencies = computed(() => {
+  const q = normalizeText(agencySearch.value);
+  if (!q) return billingAgencies.value;
+  return billingAgencies.value.filter((a) => {
+    const hay = `${normalizeText(a?.name)} ${normalizeText(a?.slug)} ${normalizeText(a?.portal_url)}`;
+    return hay.includes(q);
+  });
+});
+
+const applyAgencySelection = async () => {
+  const id = parseInt(selectedAgencyId.value, 10);
+  if (!id) return;
+  const agency = billingAgencies.value.find((a) => a.id === id);
+  if (!agency) return;
+  agencyStore.setCurrentAgency(agency);
+};
 
 const estimate = ref(null);
 const estimateError = ref('');
@@ -424,7 +470,11 @@ const unlink = async (schoolOrganizationId) => {
 
 onMounted(async () => {
   if (!agencyStore.currentAgency) {
-    await agencyStore.fetchUserAgencies();
+    if (authStore.user?.role === 'super_admin') {
+      await agencyStore.fetchAgencies();
+    } else {
+      await agencyStore.fetchUserAgencies();
+    }
   }
 
   const qboParam = String(route.query.qbo || '');
@@ -500,6 +550,23 @@ watch(currentAgencyId, async (newId, oldId) => {
   max-width: 500px;
   margin-left: auto;
   margin-right: auto;
+}
+
+.agency-picker {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: 1fr 280px 140px;
+  gap: 10px;
+  align-items: center;
+  max-width: 860px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (max-width: 900px) {
+  .agency-picker {
+    grid-template-columns: 1fr;
+  }
 }
 
 .placeholder-note {

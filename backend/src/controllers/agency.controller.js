@@ -65,7 +65,7 @@ export const createAgency = async (req, res, next) => {
       return res.status(400).json({ error: { message: `Validation failed: ${errorMessages}`, errors: errors.array() } });
     }
 
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId } = req.body;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId } = req.body;
 
     // Only super admins can create "agency" organizations. Admins can create school/program/learning.
     const requestedType = (organizationType || 'agency').toLowerCase();
@@ -147,6 +147,7 @@ export const createAgency = async (req, res, next) => {
       terminologySettings, 
       isActive, 
       iconId,
+      chatIconId,
       trainingFocusDefaultIconId,
       moduleDefaultIconId,
       userDefaultIconId,
@@ -221,7 +222,7 @@ export const updateAgency = async (req, res, next) => {
     }
 
     const { id } = req.params;
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId } = req.body;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId } = req.body;
     
     // Validate Google Docs URL if provided
     if (certificateTemplateUrl && certificateTemplateUrl.trim() !== '') {
@@ -289,6 +290,7 @@ export const updateAgency = async (req, res, next) => {
       terminologySettings, 
       isActive, 
       iconId,
+      chatIconId,
       trainingFocusDefaultIconId,
       moduleDefaultIconId,
       userDefaultIconId,
@@ -424,6 +426,38 @@ export const getAgencyByPortalUrl = async (req, res, next) => {
   }
 };
 
+/**
+ * List affiliated organizations (schools/programs/learning) for an agency.
+ * GET /api/agencies/:id/affiliated-organizations
+ */
+export const listAffiliatedOrganizations = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const agencyId = parseInt(id, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+
+    // Non-super-admin users must belong to this agency
+    if (req.user.role !== 'super_admin') {
+      const userAgencies = await User.getAgencies(req.user.id);
+      const ok = (userAgencies || []).some((a) => parseInt(a.id, 10) === agencyId);
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
+    const agency = await Agency.findById(agencyId);
+    const out = [];
+    if (agency) out.push(agency);
+    for (const org of affiliated || []) {
+      if (parseInt(org?.id, 10) === agencyId) continue;
+      out.push(org);
+    }
+
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getThemeByPortalUrl = async (req, res, next) => {
   try {
     const { portalUrl } = req.params;
@@ -479,6 +513,8 @@ export const getThemeByPortalUrl = async (req, res, next) => {
 
     // Return theme data for frontend
     res.json({
+      brandingAgencyId: brandingOrg.id,
+      portalOrganizationId: agency.id,
       colorPalette: colorPalette || {},
       logoUrl,
       themeSettings: themeSettings || {},
@@ -558,6 +594,8 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
     // Return combined theme data for login page
     res.json({
       agency: {
+        brandingAgencyId: brandingOrg.id,
+        portalOrganizationId: agency.id,
         name: brandingOrg.name,
         // Preserve the portal org type so frontend can enforce school portal behavior.
         organizationType: agency.organization_type || 'agency',

@@ -65,6 +65,111 @@
               v-else-if="currentContent.content_type === 'slide'"
               :content="currentContent.content_data"
             />
+            <!-- Custom Form (User Info) -->
+            <div v-else-if="currentContent.content_type === 'form'" class="form-content-viewer">
+              <h2 style="margin-top: 0;">
+                {{ currentContent.content_data?.categoryKey ? `Form: ${currentContent.content_data.categoryKey}` : 'Form' }}
+              </h2>
+
+              <div v-if="!formDefinition" class="loading" style="margin: 12px 0;">
+                Loading form…
+              </div>
+
+              <div v-else>
+                <div v-if="formPageError" class="error" style="margin-bottom: 12px;">
+                  {{ formPageError }}
+                </div>
+
+                <div v-if="currentFormFields.length === 0" class="empty-state" style="padding: 16px;">
+                  <p style="margin: 0;">No fields configured for this form page.</p>
+                </div>
+
+                <div v-else class="form-fields">
+                  <div v-for="field in currentFormFields" :key="field.id" class="form-field">
+                    <label class="form-label">
+                      {{ field.field_label }}
+                      <span v-if="isFieldRequiredForModule(field.id)" class="required-indicator">*</span>
+                    </label>
+
+                    <input
+                      v-if="['text','email','phone'].includes(field.field_type)"
+                      v-model="formValues[field.id]"
+                      :type="field.field_type === 'email' ? 'email' : (field.field_type === 'phone' ? 'tel' : 'text')"
+                      class="form-input"
+                    />
+
+                    <input
+                      v-else-if="field.field_type === 'number'"
+                      v-model="formValues[field.id]"
+                      type="number"
+                      class="form-input"
+                    />
+
+                    <input
+                      v-else-if="field.field_type === 'date'"
+                      v-model="formValues[field.id]"
+                      type="date"
+                      class="form-input"
+                    />
+
+                    <textarea
+                      v-else-if="field.field_type === 'textarea'"
+                      v-model="formValues[field.id]"
+                      rows="5"
+                      class="form-textarea"
+                    ></textarea>
+
+                    <select
+                      v-else-if="field.field_type === 'select'"
+                      v-model="formValues[field.id]"
+                      class="form-input"
+                    >
+                      <option value="">Select…</option>
+                      <option v-for="opt in (field.options || [])" :key="String(opt)" :value="opt">
+                        {{ opt }}
+                      </option>
+                    </select>
+
+                    <div v-else-if="field.field_type === 'multi_select'" class="multi-select">
+                      <div v-if="(field.options || []).length === 0" style="color: var(--text-secondary); font-size: 13px;">
+                        No options configured.
+                      </div>
+                      <label
+                        v-for="opt in (field.options || [])"
+                        :key="String(opt)"
+                        class="multi-select-option"
+                      >
+                        <input
+                          type="checkbox"
+                          :checked="Array.isArray(formValues[field.id]) && formValues[field.id].includes(opt)"
+                          @change="toggleMultiSelectValue(field.id, opt)"
+                        />
+                        <span>{{ opt }}</span>
+                      </label>
+                    </div>
+
+                    <label v-else-if="field.field_type === 'boolean'" class="boolean-row">
+                      <input v-model="formValues[field.id]" type="checkbox" />
+                      <span>Yes</span>
+                    </label>
+
+                    <input
+                      v-else
+                      v-model="formValues[field.id]"
+                      type="text"
+                      class="form-input"
+                    />
+                  </div>
+                </div>
+
+                <div class="form-actions">
+                  <button class="btn btn-primary" :disabled="formSaving" @click="saveCurrentFormPage(false)">
+                    {{ formSaving ? 'Saving…' : 'Save' }}
+                  </button>
+                  <span v-if="formSaveMessage" class="form-save-message">{{ formSaveMessage }}</span>
+                </div>
+              </div>
+            </div>
             <!-- Text Content (Documents, Rich Text, Intro, Response) -->
             <div v-else-if="currentContent.content_type === 'text'" class="text-content-viewer">
               <!-- Intro Screen (has title/description, no fileUrl, no content, no prompt) -->
@@ -250,7 +355,35 @@ const quizResults = ref(null);
 const hasStarted = ref(false);
 const starting = ref(false);
 
+// Form-module runtime
+const formDefinition = ref(null); // { pages, fields }
+const formValues = ref({}); // { [fieldDefinitionId]: value }
+const formSaving = ref(false);
+const formSaveMessage = ref('');
+const formPageError = ref('');
+
 const currentContent = computed(() => content.value[currentContentIndex.value]);
+
+const hasForm = computed(() => {
+  return content.value.some((item) => item.content_type === 'form');
+});
+
+const formFieldMap = computed(() => {
+  const fields = formDefinition.value?.fields || [];
+  return new Map(fields.map((f) => [f.id, f]));
+});
+
+const currentFormFieldIds = computed(() => {
+  if (currentContent.value?.content_type !== 'form') return [];
+  const ids = currentContent.value?.content_data?.fieldDefinitionIds;
+  return Array.isArray(ids) ? ids : [];
+});
+
+const currentFormFields = computed(() => {
+  return currentFormFieldIds.value
+    .map((id) => formFieldMap.value.get(id))
+    .filter(Boolean);
+});
 
 const needsSignature = computed(() => {
   return content.value.some(item => item.content_data?.requiresSignature);
@@ -260,12 +393,62 @@ const needsAcknowledgment = computed(() => {
   return content.value.some(item => item.content_type === 'acknowledgment');
 });
 
+const isFieldRequiredForModule = (fieldId) => {
+  if (!formDefinition.value) return false;
+  const pages = formDefinition.value.pages || [];
+  const defs = formFieldMap.value;
+  for (const p of pages) {
+    const ids = Array.isArray(p.fieldDefinitionIds) ? p.fieldDefinitionIds : [];
+    if (!ids.includes(fieldId)) continue;
+    if (p.requireAll === true) return true;
+    const def = defs.get(fieldId);
+    if (def && (def.is_required === 1 || def.is_required === true)) return true;
+  }
+  return false;
+};
+
+const isMissingFormValue = (val) => {
+  if (val === null || val === undefined) return true;
+  if (typeof val === 'string') return val.trim().length === 0;
+  if (Array.isArray(val)) return val.length === 0;
+  // boolean false is valid
+  return false;
+};
+
+const formsComplete = computed(() => {
+  if (!hasForm.value) return true;
+  if (!formDefinition.value) return false;
+  const pages = formDefinition.value.pages || [];
+  const defs = formFieldMap.value;
+
+  const requiredIds = new Set();
+  for (const p of pages) {
+    const ids = Array.isArray(p.fieldDefinitionIds) ? p.fieldDefinitionIds : [];
+    if (p.requireAll === true) {
+      ids.forEach((id) => requiredIds.add(id));
+    } else {
+      ids.forEach((id) => {
+        const def = defs.get(id);
+        if (def && (def.is_required === 1 || def.is_required === true)) {
+          requiredIds.add(id);
+        }
+      });
+    }
+  }
+
+  for (const id of requiredIds) {
+    if (isMissingFormValue(formValues.value[id])) return false;
+  }
+  return true;
+});
+
 const canComplete = computed(() => {
   if (progress.value?.status === 'completed') return false;
   const allContentViewed = currentContentIndex.value === content.value.length - 1;
   const hasSignature = !needsSignature.value || signatureSaved.value;
   const hasAcknowledgment = !needsAcknowledgment.value || acknowledgmentSaved.value;
-  return allContentViewed && hasSignature && hasAcknowledgment;
+  const hasValidForms = !hasForm.value || formsComplete.value;
+  return allContentViewed && hasSignature && hasAcknowledgment && hasValidForms;
 });
 
 const hasQuiz = computed(() => {
@@ -273,6 +456,55 @@ const hasQuiz = computed(() => {
 });
 
 const isCompleted = computed(() => progress.value?.status === 'completed');
+
+const normalizeBoolean = (v) => {
+  if (v === true || v === 1 || v === '1' || v === 'true') return true;
+  if (v === false || v === 0 || v === '0' || v === 'false') return false;
+  return null;
+};
+
+const fetchFormDefinition = async (moduleId) => {
+  try {
+    const res = await api.get(`/modules/${moduleId}/form-definition`);
+    formDefinition.value = res.data;
+
+    const nextValues = { ...(formValues.value || {}) };
+    const fields = res.data?.fields || [];
+    fields.forEach((f) => {
+      if (f.field_type === 'boolean') {
+        const b = normalizeBoolean(f.value);
+        nextValues[f.id] = b === null ? false : b;
+      } else if (f.field_type === 'multi_select') {
+        if (Array.isArray(f.value)) {
+          nextValues[f.id] = f.value;
+        } else if (typeof f.value === 'string' && f.value.trim()) {
+          try {
+            const parsed = JSON.parse(f.value);
+            nextValues[f.id] = Array.isArray(parsed) ? parsed : [];
+          } catch {
+            // fall back: comma-separated
+            nextValues[f.id] = f.value.split(',').map((s) => s.trim()).filter(Boolean);
+          }
+        } else {
+          nextValues[f.id] = [];
+        }
+      } else {
+        nextValues[f.id] = f.value ?? '';
+      }
+    });
+    formValues.value = nextValues;
+  } catch (err) {
+    console.error('Failed to load form definition:', err);
+    formDefinition.value = null;
+  }
+};
+
+const toggleMultiSelectValue = (fieldId, option) => {
+  const current = Array.isArray(formValues.value[fieldId]) ? formValues.value[fieldId] : [];
+  const exists = current.includes(option);
+  const next = exists ? current.filter((x) => x !== option) : [...current, option];
+  formValues.value = { ...formValues.value, [fieldId]: next };
+};
 
 const fetchModule = async () => {
   try {
@@ -295,6 +527,10 @@ const fetchModule = async () => {
         responseAnswers.value[index] = '';
       }
     });
+
+    if (content.value.some((i) => i.content_type === 'form')) {
+      await fetchFormDefinition(moduleId);
+    }
     
     // Skip progress tracking and other user-specific operations in preview mode
     if (!isPreview) {
@@ -442,6 +678,14 @@ const completeModule = async () => {
   
   try {
     completing.value = true;
+    error.value = '';
+
+    // If this module contains form pages, save + validate required fields first
+    if (hasForm.value) {
+      const ok = await saveFormValues(true);
+      if (!ok) return;
+    }
+
     await api.post('/progress/complete', { moduleId: module.value.id });
     progress.value = { ...progress.value, status: 'completed' };
     
@@ -493,6 +737,48 @@ const saveResponse = async (contentIndex) => {
   }
 };
 
+async function saveFormValues(validate) {
+  if (!module.value?.id) return false;
+  if (!formDefinition.value) return false;
+
+  formPageError.value = '';
+  formSaveMessage.value = '';
+
+  const moduleId = module.value.id;
+  const fieldIds = validate
+    ? (formDefinition.value.fields || []).map((f) => f.id)
+    : currentFormFieldIds.value;
+
+  const values = fieldIds.map((id) => ({
+    fieldDefinitionId: id,
+    value: Array.isArray(formValues.value[id])
+      ? JSON.stringify(formValues.value[id])
+      : (typeof formValues.value[id] === 'boolean' ? (formValues.value[id] ? 'true' : 'false') : formValues.value[id])
+  }));
+
+  try {
+    formSaving.value = true;
+    const suffix = validate ? '?validate=true' : '';
+    await api.post(`/modules/${moduleId}/form-submit${suffix}`, { values });
+    formSaveMessage.value = validate ? 'Validated' : 'Saved';
+    return true;
+  } catch (err) {
+    const msg = err?.response?.data?.error?.message || 'Failed to save form';
+    formPageError.value = msg;
+    if (err?.response?.data?.error?.missingFields?.length) {
+      const missing = err.response.data.error.missingFields.map((f) => f.field_label).join(', ');
+      formPageError.value = `Please complete: ${missing}`;
+    }
+    return false;
+  } finally {
+    formSaving.value = false;
+  }
+}
+
+async function saveCurrentFormPage(validate) {
+  return await saveFormValues(validate);
+}
+
 const isGoogleWorkspace = (url) => {
   if (!url) return false;
   return url.includes('docs.google.com') || url.includes('drive.google.com');
@@ -513,7 +799,8 @@ const getContentIcon = (type) => {
     slide: '📊',
     quiz: '❓',
     acknowledgment: '✓',
-    text: '📄'
+    text: '📄',
+    form: '🧩'
   };
   return icons[type] || '📝';
 };
@@ -810,6 +1097,85 @@ onMounted(() => {
   border: 1px solid #d1d5db;
   border-radius: 8px;
   color: #6b7280;
+}
+
+.form-content-viewer {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.required-indicator {
+  color: #dc3545;
+  margin-left: 4px;
+}
+
+.form-input,
+.form-textarea {
+  width: 100%;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.form-textarea {
+  resize: vertical;
+}
+
+.boolean-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.form-save-message {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.multi-select {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.multi-select-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
 @media (max-width: 768px) {

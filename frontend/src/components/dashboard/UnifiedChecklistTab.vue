@@ -206,6 +206,10 @@ const toggleCustomItem = async (item) => {
   }
 };
 
+const isProfileModuleItem = (_item) => false;
+
+const openProfileModule = async (_item) => {};
+
 const getAgencyName = (agencyId) => {
   if (!agencyId) return null;
   const agency = agencyStore.agencies.find(a => a.id === agencyId);
@@ -453,6 +457,7 @@ onMounted(async () => {
   background: #fee2e2;
   color: #991b1b;
 }
+
 
 .empty-state {
   padding: 40px;

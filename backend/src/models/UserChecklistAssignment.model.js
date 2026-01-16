@@ -238,8 +238,8 @@ class UserChecklistAssignment {
     // Group checklist items by training focus/module
     const standaloneItems = [];
     const trainingFocusGroups = new Map(); // { trainingFocusId: { focusInfo, modules: { moduleId: { moduleInfo, checklistItems: [] } } } }
-    
-    for (const item of customItems) {
+
+    for (const item of filteredCustomItems) {
       // Get the full checklist item details including nesting info
       const checklistItem = await CustomChecklistItem.findById(item.checklist_item_id);
       
@@ -331,7 +331,7 @@ class UserChecklistAssignment {
     }));
     
     // Count incomplete items
-    const incompleteCustom = customItems.filter(item => !item.is_completed).length;
+    const incompleteCustom = filteredCustomItems.filter((item) => !item.is_completed).length;
     const incompleteTraining = trainingTasks.length;
     const incompleteDocuments = documentTasks.length;
     

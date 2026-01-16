@@ -134,10 +134,11 @@ export const useAuthStore = defineStore('auth', () => {
       // Fetch current user data from backend to get updated role
       const response = await api.get('/users/me');
       if (response.data) {
-        // Update user data but keep the same token
-        user.value = response.data;
-        localStorage.setItem('user', JSON.stringify(response.data));
-        console.log('User data refreshed. New role:', response.data.role);
+        // Merge to avoid dropping client-side-only fields (e.g., approved employee agencyIds)
+        const merged = { ...(user.value || {}), ...(response.data || {}) };
+        user.value = merged;
+        localStorage.setItem('user', JSON.stringify(merged));
+        console.log('User data refreshed. New role:', merged.role);
       }
     } catch (err) {
       console.error('Failed to refresh user data:', err);
@@ -170,6 +171,9 @@ export const useAuthStore = defineStore('auth', () => {
           console.error('Failed to log logout event:', err);
         });
       }
+
+      // Mark presence offline (best-effort) so chat can move to notifications when away.
+      api.post('/presence/offline', {}).catch(() => {});
       
       // Always clear auth even if logging fails
       localStorage.removeItem('sessionId');

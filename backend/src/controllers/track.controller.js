@@ -166,11 +166,6 @@ export const getTrackById = async (req, res, next) => {
 
 export const createTrack = async (req, res, next) => {
   try {
-    // Support users cannot create training focuses
-    if (req.user.role === 'support') {
-      return res.status(403).json({ error: { message: 'Support users cannot create training focuses' } });
-    }
-
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
@@ -196,11 +191,6 @@ export const createTrack = async (req, res, next) => {
 
 export const updateTrack = async (req, res, next) => {
   try {
-    // Support users cannot edit training focuses
-    if (req.user.role === 'support') {
-      return res.status(403).json({ error: { message: 'Support users cannot edit training focuses' } });
-    }
-
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
@@ -269,11 +259,6 @@ export const removeModuleFromTrack = async (req, res, next) => {
 
 export const archiveTrack = async (req, res, next) => {
   try {
-    // Support users cannot archive training focuses
-    if (req.user.role === 'support') {
-      return res.status(403).json({ error: { message: 'Support users cannot archive training focuses' } });
-    }
-    
     const { id } = req.params;
     
     // Get user's agency ID (use first agency for admins, null for super_admin)
@@ -322,11 +307,6 @@ export const restoreTrack = async (req, res, next) => {
 
 export const deleteTrack = async (req, res, next) => {
   try {
-    // Support users cannot delete training focuses
-    if (req.user.role === 'support') {
-      return res.status(403).json({ error: { message: 'Support users cannot delete training focuses' } });
-    }
-    
     const { id } = req.params;
     
     // Get user's agency IDs for permission check
@@ -668,7 +648,7 @@ export const getUserTrainingFocuses = async (req, res, next) => {
     const userId = req.params.id;
     
     // Users can view their own focuses, admins can view any
-    if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+    if (parseInt(userId) !== req.user.id && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     

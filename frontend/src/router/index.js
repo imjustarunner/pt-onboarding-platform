@@ -127,13 +127,13 @@ const routes = [
     path: '/:organizationSlug/tasks/documents/:taskId/sign',
     name: 'OrganizationDocumentSigning',
     component: () => import('../views/DocumentSigningView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { requiresAuth: true, requiresCapability: 'canSignDocuments', organizationSlug: true }
   },
   {
     path: '/:organizationSlug/tasks/documents/:taskId/review',
     name: 'OrganizationDocumentReview',
     component: () => import('../views/DocumentSigningView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { requiresAuth: true, requiresCapability: 'canSignDocuments', organizationSlug: true }
   },
   {
     path: '/:organizationSlug/onboarding',
@@ -151,50 +151,50 @@ const routes = [
     path: '/:organizationSlug/on-demand-training',
     name: 'OrganizationOnDemandTrainingLibrary',
     component: () => import('../views/OnDemandTrainingLibraryView.vue'),
-    meta: { requiresAuth: true, requiresApprovedEmployee: true, organizationSlug: true }
+    meta: { requiresAuth: true, requiresApprovedEmployee: true, requiresCapability: 'canViewTraining', organizationSlug: true }
   },
   {
     path: '/:organizationSlug/on-demand-training/modules/:id',
     name: 'OrganizationOnDemandModuleView',
     component: () => import('../components/on-demand/OnDemandModuleViewer.vue'),
-    meta: { requiresAuth: true, requiresApprovedEmployee: true, organizationSlug: true }
+    meta: { requiresAuth: true, requiresApprovedEmployee: true, requiresCapability: 'canViewTraining', organizationSlug: true }
   },
   // Slug-prefixed admin routes
   {
     path: '/:organizationSlug/admin',
     name: 'OrganizationAdminDashboard',
     component: () => import('../views/admin/AdminDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/modules',
     name: 'OrganizationModuleManager',
     component: () => import('../views/admin/ModuleManager.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canViewTraining', organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/checklist-items',
     name: 'OrganizationChecklistItems',
     component: () => import('../views/admin/ChecklistItemsView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/modules/:id/content-editor',
     name: 'OrganizationModuleContentEditor',
     component: () => import('../views/admin/ModuleContentEditor.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/users/:userId',
     name: 'OrganizationUserProfile',
     component: () => import('../views/admin/UserProfileView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/users',
     name: 'OrganizationUserManager',
     component: () => import('../views/admin/UserManager.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/clients',
@@ -206,12 +206,18 @@ const routes = [
     path: '/:organizationSlug/admin/settings',
     name: 'OrganizationSettings',
     component: () => import('../views/admin/SettingsView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/communications',
     name: 'OrganizationCommunicationsFeed',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/communications/chats',
+    name: 'OrganizationPlatformChats',
+    component: () => import('../views/admin/PlatformChatsView.vue'),
     meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
   },
   {
@@ -230,19 +236,19 @@ const routes = [
     path: '/:organizationSlug/admin/documents',
     name: 'OrganizationDocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canSignDocuments', organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/agency-progress',
     name: 'OrganizationAgencyProgress',
     component: () => import('../views/admin/AgencyProgressDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/agencies/:agencyId/progress',
     name: 'OrganizationAgencyProgressById',
     component: () => import('../views/admin/AgencyProgressDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/agencies',
@@ -253,13 +259,13 @@ const routes = [
     path: '/:organizationSlug/admin/notifications',
     name: 'OrganizationNotifications',
     component: () => import('../views/admin/NotificationsView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/payroll',
     name: 'OrganizationPayroll',
     component: () => import('../views/admin/PayrollView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/notifications',
@@ -333,37 +339,37 @@ const routes = [
     path: '/admin',
     name: 'AdminDashboard',
     component: () => import('../views/admin/AdminDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/admin/modules',
     name: 'ModuleManager',
     component: () => import('../views/admin/ModuleManager.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canViewTraining' }
   },
   {
     path: '/admin/checklist-items',
     name: 'ChecklistItems',
     component: () => import('../views/admin/ChecklistItemsView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/admin/modules/:id/content-editor',
     name: 'ModuleContentEditor',
     component: () => import('../views/admin/ModuleContentEditor.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/admin/users/:userId',
     name: 'UserProfile',
     component: () => import('../views/admin/UserProfileView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/admin/users',
     name: 'UserManager',
     component: () => import('../views/admin/UserManager.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/admin/clients',
@@ -375,12 +381,18 @@ const routes = [
     path: '/admin/settings',
     name: 'Settings',
     component: () => import('../views/admin/SettingsView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/admin/communications',
     name: 'CommunicationsFeed',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+  },
+  {
+    path: '/admin/communications/chats',
+    name: 'PlatformChats',
+    component: () => import('../views/admin/PlatformChatsView.vue'),
     meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
   },
   {
@@ -399,19 +411,19 @@ const routes = [
     path: '/admin/documents',
     name: 'DocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canSignDocuments' }
   },
   {
     path: '/admin/agency-progress',
     name: 'AgencyProgress',
     component: () => import('../views/admin/AgencyProgressDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/admin/agencies/:agencyId/progress',
     name: 'AgencyProgressById',
     component: () => import('../views/admin/AgencyProgressDashboard.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/admin/agencies',
@@ -422,13 +434,13 @@ const routes = [
     path: '/admin/notifications',
     name: 'Notifications',
     component: () => import('../views/admin/NotificationsView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/admin/payroll',
     name: 'Payroll',
     component: () => import('../views/admin/PayrollView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'admin' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/notifications',
@@ -458,13 +470,13 @@ const routes = [
     path: '/tasks/documents/:taskId/sign',
     name: 'DocumentSigning',
     component: () => import('../views/DocumentSigningView.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, requiresCapability: 'canSignDocuments' }
   },
   {
     path: '/tasks/documents/:taskId/review',
     name: 'DocumentReview',
     component: () => import('../views/DocumentSigningView.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true, requiresCapability: 'canSignDocuments' }
   },
   {
     path: '/onboarding',
@@ -506,13 +518,13 @@ const routes = [
     path: '/on-demand-training',
     name: 'OnDemandTrainingLibrary',
     component: () => import('../views/OnDemandTrainingLibraryView.vue'),
-    meta: { requiresAuth: true, requiresApprovedEmployee: true }
+    meta: { requiresAuth: true, requiresApprovedEmployee: true, requiresCapability: 'canViewTraining' }
   },
   {
     path: '/on-demand-training/modules/:id',
     name: 'OnDemandModuleView',
     component: () => import('../components/on-demand/OnDemandModuleViewer.vue'),
-    meta: { requiresAuth: true, requiresApprovedEmployee: true }
+    meta: { requiresAuth: true, requiresApprovedEmployee: true, requiresCapability: 'canViewTraining' }
   },
   {
     path: '/',
@@ -653,9 +665,25 @@ router.beforeEach(async (to, from, next) => {
                               authStore.user?.status === 'active' ||
                               authStore.user?.status === 'completed';
     if (canAccessOnDemand) {
-      next();
+      // Optional: capability gate (e.g., canViewTraining)
+      const required = to.meta.requiresCapability
+        ? (Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability])
+        : [];
+      const caps = authStore.user?.capabilities || {};
+      const hasAll = required.length === 0 ? true : required.every((k) => !!caps?.[k]);
+      if (hasAll) next();
+      else next(getDashboardRoute());
     } else {
       // Redirect to appropriate dashboard
+      next(getDashboardRoute());
+    }
+  } else if (to.meta.requiresCapability) {
+    const required = Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability];
+    const caps = authStore.user?.capabilities || {};
+    const hasAll = required.every((k) => !!caps?.[k]);
+    if (hasAll) {
+      next();
+    } else {
       next(getDashboardRoute());
     }
   } else if (to.meta.requiresRole) {
@@ -700,7 +728,14 @@ router.beforeEach(async (to, from, next) => {
     });
 
     if (hasRequiredRole) {
-      next();
+      // Optional: capability gate (e.g., canViewTraining / canSignDocuments)
+      const required = to.meta.requiresCapability
+        ? (Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability])
+        : [];
+      const caps = authStore.user?.capabilities || {};
+      const hasAll = required.length === 0 ? true : required.every((k) => !!caps?.[k]);
+      if (hasAll) next();
+      else next(getDashboardRoute());
     } else {
       // Redirect to appropriate dashboard
       next(getDashboardRoute());

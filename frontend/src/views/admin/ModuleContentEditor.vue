@@ -272,6 +272,76 @@
             </div>
           </div>
 
+          <!-- Custom Form (User Info) Editor -->
+          <div v-else-if="currentPage.type === 'form'" class="page-content">
+            <div class="form-group">
+              <label>Category (optional)</label>
+              <select v-model="currentPage.data.categoryKey">
+                <option value="">No category</option>
+                <option v-for="cat in availableCategories" :key="cat.id" :value="cat.category_key">
+                  {{ cat.category_label }}{{ cat.agency_id ? '' : ' (Platform)' }}
+                </option>
+              </select>
+              <small>Used for organizing the collected info into profile tabs/sections.</small>
+            </div>
+
+            <div class="form-group">
+              <label style="display:flex; align-items:center; gap:8px;">
+                <input v-model="currentPage.data.requireAll" type="checkbox" />
+                Require all selected fields to complete this module
+              </label>
+            </div>
+
+            <div class="form-group">
+              <label>Create a new category</label>
+              <div style="display:flex; gap:8px; align-items:center;">
+                <input v-model="newCategoryLabel" type="text" placeholder="Category label (e.g., Clinical Info)" />
+                <input v-model="newCategoryKey" type="text" placeholder="Optional key (e.g., clinical_info)" />
+                <button class="btn btn-secondary btn-sm" :disabled="creatingCategory || !newCategoryLabel" @click="createCategoryFromEditor">
+                  {{ creatingCategory ? 'Creating...' : 'Create' }}
+                </button>
+              </div>
+              <small>If you leave key blank, it will be auto-generated.</small>
+            </div>
+
+            <div class="form-group">
+              <label>Pick fields</label>
+              <input v-model="formFieldSearch" type="text" placeholder="Search fields..." style="margin-bottom: 8px;" />
+              <div class="field-picker">
+                <label
+                  v-for="field in filteredAvailableFields"
+                  :key="field.id"
+                  class="field-picker-item"
+                >
+                  <input
+                    type="checkbox"
+                    :value="field.id"
+                    v-model="currentPage.data.fieldDefinitionIds"
+                  />
+                  <span style="font-weight: 600;">{{ field.field_label }}</span>
+                  <span style="opacity: 0.75; margin-left: 6px;">({{ field.field_key }})</span>
+                  <span v-if="field.agency_id" class="prop-badge" style="margin-left: 8px;">Agency</span>
+                  <span v-else class="prop-badge" style="margin-left: 8px;">Platform</span>
+                  <span v-if="field.is_required" class="prop-badge required" style="margin-left: 6px;">Required</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group" v-if="currentPage.data.fieldDefinitionIds && currentPage.data.fieldDefinitionIds.length">
+              <label>Selected fields (order)</label>
+              <div class="selected-fields">
+                <div v-for="(fid, idx) in currentPage.data.fieldDefinitionIds" :key="fid" class="selected-field-row">
+                  <span>{{ idx + 1 }}. {{ getFieldLabelById(fid) }}</span>
+                  <div style="display:flex; gap:6px;">
+                    <button class="btn btn-secondary btn-sm" :disabled="idx === 0" @click="moveSelectedField(-1, fid)">↑</button>
+                    <button class="btn btn-secondary btn-sm" :disabled="idx === currentPage.data.fieldDefinitionIds.length - 1" @click="moveSelectedField(1, fid)">↓</button>
+                    <button class="btn btn-danger btn-sm" @click="removeSelectedField(fid)">Remove</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Response Editor -->
           <div v-else-if="currentPage.type === 'response'" class="page-content">
             <div class="form-group">
@@ -425,6 +495,27 @@
             <p v-else style="color: #999; font-style: italic;">No questions added yet</p>
           </div>
 
+          <!-- Custom Form Preview -->
+          <div v-else-if="currentPage?.type === 'form'" class="preview-form">
+            <h3>Form</h3>
+            <p v-if="currentPage.data.categoryKey">
+              <strong>Category:</strong> {{ currentPage.data.categoryKey }}
+            </p>
+            <p v-else style="color: #999; font-style: italic;">No category selected</p>
+            <p>
+              <strong>Require all:</strong> {{ currentPage.data.requireAll ? 'Yes' : 'No' }}
+            </p>
+            <div v-if="currentPage.data.fieldDefinitionIds && currentPage.data.fieldDefinitionIds.length">
+              <p><strong>Fields:</strong></p>
+              <ul style="margin: 0; padding-left: 18px;">
+                <li v-for="fid in currentPage.data.fieldDefinitionIds" :key="fid">
+                  {{ getFieldLabelById(fid) }}
+                </li>
+              </ul>
+            </div>
+            <p v-else style="color: #999; font-style: italic;">No fields selected</p>
+          </div>
+
           <!-- Response Preview -->
           <div v-else-if="currentPage?.type === 'response'" class="preview-response">
             <h3>{{ currentPage.data.prompt || 'Response Prompt' }}</h3>
@@ -480,6 +571,10 @@
             <span class="icon">❓</span>
             <span class="label">Quiz</span>
           </button>
+          <button @click="addPage('form')" class="page-type-btn">
+            <span class="icon">🧩</span>
+            <span class="label">Form (User Info)</span>
+          </button>
           <button @click="addPage('response')" class="page-type-btn">
             <span class="icon">✍️</span>
             <span class="label">Response</span>
@@ -511,9 +606,43 @@ const showPreviewModal = ref(false);
 const saving = ref(false);
 const loading = ref(true);
 
+// Form-module builder data (user info categories + fields)
+const userInfoCategories = ref([]);
+const userInfoFields = ref([]);
+const formFieldSearch = ref('');
+const newCategoryLabel = ref('');
+const newCategoryKey = ref('');
+const creatingCategory = ref(false);
+
 const currentPage = computed(() => {
   return contentPages.value[currentPageIndex.value] || null;
 });
+
+const availableCategories = computed(() => {
+  const agencyId = module.value?.agency_id || null;
+  return (userInfoCategories.value || []).filter((c) => c.agency_id === null || c.agency_id === agencyId);
+});
+
+const availableFields = computed(() => {
+  const agencyId = module.value?.agency_id || null;
+  return (userInfoFields.value || []).filter((f) => f.agency_id === null || f.agency_id === agencyId);
+});
+
+const filteredAvailableFields = computed(() => {
+  const q = String(formFieldSearch.value || '').trim().toLowerCase();
+  if (!q) return availableFields.value;
+  return availableFields.value.filter((f) => {
+    return (
+      String(f.field_label || '').toLowerCase().includes(q) ||
+      String(f.field_key || '').toLowerCase().includes(q)
+    );
+  });
+});
+
+const getFieldLabelById = (id) => {
+  const field = (availableFields.value || []).find((f) => f.id === id);
+  return field?.field_label || `Field #${id}`;
+};
 
 const fetchModule = async () => {
   try {
@@ -569,6 +698,8 @@ const fetchContent = async () => {
         pageType = 'slides';
       } else if (item.content_type === 'quiz') {
         pageType = 'quiz';
+      } else if (item.content_type === 'form') {
+        pageType = 'form';
       } else if (item.content_type === 'text') {
         if (data.googleUrl || data.googleSlidesUrl) {
           pageType = data.googleSlidesUrl ? 'slides' : 'document';
@@ -593,6 +724,9 @@ const fetchContent = async () => {
           textContent: data.textContent || data.content || '',
           prompt: data.prompt || '',
           responseType: data.responseType || 'text',
+          categoryKey: data.categoryKey || '',
+          fieldDefinitionIds: Array.isArray(data.fieldDefinitionIds) ? data.fieldDefinitionIds : [],
+          requireAll: data.requireAll === true,
           questions: (data.questions || []).map(q => ({
             ...q,
             correctAnswer: q.correctAnswer !== undefined ? q.correctAnswer : (q.type === 'multiple_choice' ? 0 : (q.type === 'true_false' ? 'true' : '')),
@@ -624,6 +758,7 @@ const addPage = (type) => {
     slides: { title: '', googleSlidesUrl: '' },
     quiz: { title: '', description: '', questions: [], randomizeAnswers: false },
     response: { prompt: '', responseType: 'text' },
+    form: { categoryKey: '', fieldDefinitionIds: [], requireAll: true },
     'google-form': { title: '', formUrl: '' }
   };
   
@@ -719,10 +854,70 @@ const getPageTypeLabel = (type) => {
     video: 'Video',
     slides: 'Slides',
     quiz: 'Quiz',
+    form: 'Form',
     response: 'Response',
     'google-form': 'Google Form'
   };
   return labels[type] || type;
+};
+
+const moveSelectedField = (direction, fieldId) => {
+  if (!currentPage.value || currentPage.value.type !== 'form') return;
+  const arr = currentPage.value.data.fieldDefinitionIds || [];
+  const idx = arr.indexOf(fieldId);
+  if (idx === -1) return;
+  const next = idx + direction;
+  if (next < 0 || next >= arr.length) return;
+  const copy = [...arr];
+  const tmp = copy[idx];
+  copy[idx] = copy[next];
+  copy[next] = tmp;
+  currentPage.value.data.fieldDefinitionIds = copy;
+};
+
+const removeSelectedField = (fieldId) => {
+  if (!currentPage.value || currentPage.value.type !== 'form') return;
+  currentPage.value.data.fieldDefinitionIds = (currentPage.value.data.fieldDefinitionIds || []).filter(
+    (id) => id !== fieldId
+  );
+};
+
+const fetchFormBuilderData = async () => {
+  try {
+    const [catsRes, fieldsRes] = await Promise.all([
+      api.get('/user-info-categories'),
+      api.get('/user-info-fields')
+    ]);
+    userInfoCategories.value = catsRes.data || [];
+    userInfoFields.value = fieldsRes.data || [];
+  } catch (err) {
+    console.error('Failed to load form builder data:', err);
+  }
+};
+
+const createCategoryFromEditor = async () => {
+  try {
+    if (!newCategoryLabel.value) return;
+    creatingCategory.value = true;
+    const payload = {
+      categoryLabel: newCategoryLabel.value,
+      categoryKey: newCategoryKey.value || undefined,
+      agencyId: module.value?.agency_id || undefined
+    };
+    const res = await api.post('/user-info-categories', payload);
+    userInfoCategories.value = [...(userInfoCategories.value || []), res.data];
+    // Select it for the current form page
+    if (currentPage.value?.type === 'form') {
+      currentPage.value.data.categoryKey = res.data.category_key;
+    }
+    newCategoryLabel.value = '';
+    newCategoryKey.value = '';
+  } catch (err) {
+    console.error('Failed to create category:', err);
+    alert(err?.response?.data?.error?.message || 'Failed to create category');
+  } finally {
+    creatingCategory.value = false;
+  }
 };
 
 const getVideoEmbedUrl = (url) => {
@@ -836,6 +1031,14 @@ const convertPageToBackend = (page) => {
         randomizeAnswers: page.data.randomizeAnswers || false
       };
       break;
+    case 'form':
+      contentType = 'form';
+      contentData = {
+        categoryKey: page.data.categoryKey || null,
+        fieldDefinitionIds: Array.isArray(page.data.fieldDefinitionIds) ? page.data.fieldDefinitionIds : [],
+        requireAll: page.data.requireAll === true
+      };
+      break;
     case 'response':
       contentData = {
         prompt: page.data.prompt,
@@ -882,6 +1085,7 @@ const openPreview = () => {
 onMounted(async () => {
   await fetchModule();
   await fetchContent();
+  await fetchFormBuilderData();
 });
 </script>
 
@@ -1296,5 +1500,44 @@ onMounted(async () => {
 .preview-response h3 {
   margin-bottom: 16px;
   color: #2c3e50;
+}
+
+.field-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.field-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: white;
+  border: 1px solid #e9ecef;
+}
+
+.selected-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.selected-field-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  background: #fff;
 }
 </style>

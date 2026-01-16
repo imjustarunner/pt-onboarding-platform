@@ -1,6 +1,10 @@
 import pool from '../config/database.js';
 
 class Module {
+  static customInputFlagSql() {
+    return "EXISTS (SELECT 1 FROM module_content mc WHERE mc.module_id = m.id AND mc.content_type = 'form') AS is_custom_input_module";
+  }
+
   static async findAll(includeInactive = false, filters = {}) {
     // Check if icon_id column exists
     let hasIconColumn = false;
@@ -13,56 +17,57 @@ class Module {
       console.error('Error checking for icon_id column:', err);
     }
 
+    const customFlag = Module.customInputFlagSql();
     let query;
     if (hasIconColumn) {
-      query = 'SELECT m.*, i.file_path as icon_file_path, i.name as icon_name FROM modules m LEFT JOIN icons i ON m.icon_id = i.id';
+      query = `SELECT m.*, i.file_path as icon_file_path, i.name as icon_name, ${customFlag} FROM modules m LEFT JOIN icons i ON m.icon_id = i.id`;
     } else {
-      query = 'SELECT * FROM modules';
+      query = `SELECT m.*, ${customFlag} FROM modules m`;
     }
     
     const params = [];
     const conditions = [];
     
     if (!includeInactive) {
-      conditions.push(hasIconColumn ? 'm.is_active = TRUE' : 'is_active = TRUE');
+      conditions.push('m.is_active = TRUE');
     }
     
     // Exclude archived by default
     if (!filters.includeArchived) {
-      conditions.push(hasIconColumn ? '(m.is_archived = FALSE OR m.is_archived IS NULL)' : '(is_archived = FALSE OR is_archived IS NULL)');
+      conditions.push('(m.is_archived = FALSE OR m.is_archived IS NULL)');
     }
     
     if (filters.agencyId !== undefined) {
       if (filters.agencyId === null) {
-        conditions.push(hasIconColumn ? 'm.agency_id IS NULL' : 'agency_id IS NULL');
+        conditions.push('m.agency_id IS NULL');
       } else {
-        conditions.push(hasIconColumn ? 'm.agency_id = ?' : 'agency_id = ?');
+        conditions.push('m.agency_id = ?');
         params.push(filters.agencyId);
       }
     }
     
     if (filters.trackId !== undefined) {
-      conditions.push(hasIconColumn ? 'm.track_id = ?' : 'track_id = ?');
+      conditions.push('m.track_id = ?');
       params.push(filters.trackId);
     }
     
     if (filters.isShared !== undefined) {
-      conditions.push(hasIconColumn ? 'm.is_shared = ?' : 'is_shared = ?');
+      conditions.push('m.is_shared = ?');
       params.push(filters.isShared);
     }
     
     if (filters.isAlwaysAccessible !== undefined) {
-      conditions.push(hasIconColumn ? 'm.is_always_accessible = ?' : 'is_always_accessible = ?');
+      conditions.push('m.is_always_accessible = ?');
       params.push(filters.isAlwaysAccessible);
     }
     
     if (filters.isPublic !== undefined) {
-      conditions.push(hasIconColumn ? 'm.is_public = ?' : 'is_public = ?');
+      conditions.push('m.is_public = ?');
       params.push(filters.isPublic);
     }
     
     if (filters.isStandalone !== undefined) {
-      conditions.push(hasIconColumn ? 'm.is_standalone = ?' : 'is_standalone = ?');
+      conditions.push('m.is_standalone = ?');
       params.push(filters.isStandalone);
     }
     
@@ -70,7 +75,7 @@ class Module {
       query += ' WHERE ' + conditions.join(' AND ');
     }
     
-    query += hasIconColumn ? ' ORDER BY m.order_index ASC, m.created_at ASC' : ' ORDER BY order_index ASC, created_at ASC';
+    query += ' ORDER BY m.order_index ASC, m.created_at ASC';
     
     const [rows] = await pool.execute(query, params);
     
@@ -98,11 +103,12 @@ class Module {
       console.error('Error checking for icon_id column:', err);
     }
 
+    const customFlag = Module.customInputFlagSql();
     let query;
     if (hasIconColumn) {
-      query = 'SELECT m.*, i.file_path as icon_file_path, i.name as icon_name FROM modules m LEFT JOIN icons i ON m.icon_id = i.id WHERE m.is_shared = TRUE AND m.is_active = TRUE ORDER BY m.order_index ASC, m.created_at ASC';
+      query = `SELECT m.*, i.file_path as icon_file_path, i.name as icon_name, ${customFlag} FROM modules m LEFT JOIN icons i ON m.icon_id = i.id WHERE m.is_shared = TRUE AND m.is_active = TRUE ORDER BY m.order_index ASC, m.created_at ASC`;
     } else {
-      query = 'SELECT * FROM modules WHERE is_shared = TRUE AND is_active = TRUE ORDER BY order_index ASC, created_at ASC';
+      query = `SELECT m.*, ${customFlag} FROM modules m WHERE m.is_shared = TRUE AND m.is_active = TRUE ORDER BY m.order_index ASC, m.created_at ASC`;
     }
     
     const [rows] = await pool.execute(query);
@@ -131,18 +137,19 @@ class Module {
       console.error('Error checking for icon_id column:', err);
     }
 
+    const customFlag = Module.customInputFlagSql();
     let query;
     if (hasIconColumn) {
-      query = 'SELECT m.*, i.file_path as icon_file_path, i.name as icon_name FROM modules m LEFT JOIN icons i ON m.icon_id = i.id WHERE m.agency_id = ?';
+      query = `SELECT m.*, i.file_path as icon_file_path, i.name as icon_name, ${customFlag} FROM modules m LEFT JOIN icons i ON m.icon_id = i.id WHERE m.agency_id = ?`;
     } else {
-      query = 'SELECT * FROM modules WHERE agency_id = ?';
+      query = `SELECT m.*, ${customFlag} FROM modules m WHERE m.agency_id = ?`;
     }
     const params = [agencyId];
     
     if (!includeInactive) {
-      query += hasIconColumn ? ' AND m.is_active = TRUE' : ' AND is_active = TRUE';
+      query += ' AND m.is_active = TRUE';
     }
-    query += hasIconColumn ? ' ORDER BY m.order_index ASC, m.created_at ASC' : ' ORDER BY order_index ASC, created_at ASC';
+    query += ' ORDER BY m.order_index ASC, m.created_at ASC';
     
     const [rows] = await pool.execute(query, params);
     
@@ -170,18 +177,19 @@ class Module {
       console.error('Error checking for icon_id column:', err);
     }
 
+    const customFlag = Module.customInputFlagSql();
     let query;
     if (hasIconColumn) {
-      query = 'SELECT m.*, i.file_path as icon_file_path, i.name as icon_name FROM modules m LEFT JOIN icons i ON m.icon_id = i.id WHERE m.track_id = ?';
+      query = `SELECT m.*, i.file_path as icon_file_path, i.name as icon_name, ${customFlag} FROM modules m LEFT JOIN icons i ON m.icon_id = i.id WHERE m.track_id = ?`;
     } else {
-      query = 'SELECT * FROM modules WHERE track_id = ?';
+      query = `SELECT m.*, ${customFlag} FROM modules m WHERE m.track_id = ?`;
     }
     const params = [trackId];
     
     if (!includeInactive) {
-      query += hasIconColumn ? ' AND m.is_active = TRUE' : ' AND is_active = TRUE';
+      query += ' AND m.is_active = TRUE';
     }
-    query += hasIconColumn ? ' ORDER BY m.order_index ASC, m.created_at ASC' : ' ORDER BY order_index ASC, created_at ASC';
+    query += ' ORDER BY m.order_index ASC, m.created_at ASC';
     
     const [rows] = await pool.execute(query, params);
     
@@ -209,11 +217,12 @@ class Module {
       console.error('Error checking for icon_id column:', err);
     }
 
+    const customFlag = Module.customInputFlagSql();
     let query;
     if (hasIconColumn) {
-      query = 'SELECT m.*, i.file_path as icon_file_path, i.name as icon_name FROM modules m LEFT JOIN icons i ON m.icon_id = i.id WHERE m.id = ?';
+      query = `SELECT m.*, i.file_path as icon_file_path, i.name as icon_name, ${customFlag} FROM modules m LEFT JOIN icons i ON m.icon_id = i.id WHERE m.id = ?`;
     } else {
-      query = 'SELECT * FROM modules WHERE id = ?';
+      query = `SELECT m.*, ${customFlag} FROM modules m WHERE m.id = ?`;
     }
     
     const [rows] = await pool.execute(query, [id]);
@@ -366,17 +375,18 @@ class Module {
       console.error('Error checking for icon_id column:', err);
     }
 
+    const customFlag = Module.customInputFlagSql();
     let query;
     if (hasIconColumn) {
-      query = `SELECT m.*, i.file_path as icon_file_path, i.name as icon_name FROM modules m LEFT JOIN icons i ON m.icon_id = i.id 
+      query = `SELECT m.*, i.file_path as icon_file_path, i.name as icon_name, ${customFlag} FROM modules m LEFT JOIN icons i ON m.icon_id = i.id 
                WHERE (m.is_always_accessible = TRUE OR m.is_public = TRUE) 
                AND m.is_active = TRUE 
                ORDER BY m.order_index ASC, m.created_at ASC`;
     } else {
-      query = `SELECT * FROM modules 
-               WHERE (is_always_accessible = TRUE OR is_public = TRUE) 
-               AND is_active = TRUE 
-               ORDER BY order_index ASC, created_at ASC`;
+      query = `SELECT m.*, ${customFlag} FROM modules m 
+               WHERE (m.is_always_accessible = TRUE OR m.is_public = TRUE) 
+               AND m.is_active = TRUE 
+               ORDER BY m.order_index ASC, m.created_at ASC`;
     }
     
     const [rows] = await pool.execute(query);
@@ -405,22 +415,23 @@ class Module {
       console.error('Error checking for icon_id column:', err);
     }
 
+    const customFlag = Module.customInputFlagSql();
     let query;
     if (hasIconColumn) {
-      query = `SELECT m.*, i.file_path as icon_file_path, i.name as icon_name FROM modules m LEFT JOIN icons i ON m.icon_id = i.id 
+      query = `SELECT m.*, i.file_path as icon_file_path, i.name as icon_name, ${customFlag} FROM modules m LEFT JOIN icons i ON m.icon_id = i.id 
                WHERE m.is_standalone = TRUE AND m.is_active = TRUE`;
     } else {
-      query = `SELECT * FROM modules 
-               WHERE is_standalone = TRUE AND is_active = TRUE`;
+      query = `SELECT m.*, ${customFlag} FROM modules m 
+               WHERE m.is_standalone = TRUE AND m.is_active = TRUE`;
     }
     const params = [];
     
     if (category) {
-      query += hasIconColumn ? ' AND m.standalone_category = ?' : ' AND standalone_category = ?';
+      query += ' AND m.standalone_category = ?';
       params.push(category);
     }
     
-    query += hasIconColumn ? ' ORDER BY m.order_index ASC, m.created_at ASC' : ' ORDER BY order_index ASC, created_at ASC';
+    query += ' ORDER BY m.order_index ASC, m.created_at ASC';
     
     const [rows] = await pool.execute(query, params);
     

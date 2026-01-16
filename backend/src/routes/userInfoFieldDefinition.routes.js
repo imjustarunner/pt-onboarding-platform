@@ -17,7 +17,7 @@ const router = express.Router();
 const validateFieldDefinition = [
   body('fieldLabel').trim().notEmpty().withMessage('Field label is required'),
   body('fieldKey').optional().trim(),
-  body('fieldType').isIn(['text', 'number', 'date', 'email', 'phone', 'select', 'textarea', 'boolean']).withMessage('Invalid field type'),
+  body('fieldType').isIn(['text', 'number', 'date', 'email', 'phone', 'select', 'multi_select', 'textarea', 'boolean']).withMessage('Invalid field type'),
   body('options').optional().custom((value) => {
     if (value && typeof value !== 'object' && !Array.isArray(value)) {
       throw new Error('Options must be an object or array');

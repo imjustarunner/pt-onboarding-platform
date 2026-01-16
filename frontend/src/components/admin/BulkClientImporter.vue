@@ -9,6 +9,17 @@
 
     <div class="importer-content">
       <form @submit.prevent="handleImport" class="import-form">
+        <div v-if="isSuperAdmin" class="form-group">
+          <label for="agency-select"><strong>Target Agency</strong></label>
+          <select id="agency-select" v-model="selectedAgencyId" class="agency-select" required>
+            <option value="">Select an agency…</option>
+            <option v-for="agency in agencies" :key="agency.id" :value="String(agency.id)">
+              {{ agency.name }}
+            </option>
+          </select>
+          <small class="help-text">Super Admin accounts must select which agency the import should be applied to.</small>
+        </div>
+
         <div class="form-group">
           <label for="csv-file" class="file-label">
             <div class="file-input-area" :class="{ 'dragover': isDragging }">
@@ -74,7 +85,11 @@
           <button type="button" @click="resetForm" class="btn btn-secondary" :disabled="importing">
             Reset
           </button>
-          <button type="submit" class="btn btn-primary" :disabled="!selectedFile || importing">
+          <button
+            type="submit"
+            class="btn btn-primary"
+            :disabled="!selectedFile || importing || (isSuperAdmin && !selectedAgencyId)"
+          >
             <span v-if="importing">Importing...</span>
             <span v-else>Import Clients</span>
           </button>
@@ -85,8 +100,12 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
+import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
+
+const emit = defineEmits(['imported']);
 
 const fileInput = ref(null);
 const selectedFile = ref(null);
@@ -95,6 +114,12 @@ const importing = ref(false);
 const updateExisting = ref(true);
 const error = ref('');
 const importResults = ref(null);
+const selectedAgencyId = ref('');
+
+const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
+const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
+const agencies = computed(() => agencyStore.agencies || []);
 
 const handleFileSelect = (event) => {
   const file = event.target.files[0];
@@ -143,6 +168,10 @@ const handleImport = async () => {
     error.value = 'Please select a CSV file';
     return;
   }
+  if (isSuperAdmin.value && !selectedAgencyId.value) {
+    error.value = 'Please select an agency for this bulk import';
+    return;
+  }
 
   importing.value = true;
   error.value = '';
@@ -152,6 +181,9 @@ const handleImport = async () => {
     const formData = new FormData();
     formData.append('file', selectedFile.value);
     formData.append('updateExisting', updateExisting.value);
+    if (isSuperAdmin.value) {
+      formData.append('agency_id', selectedAgencyId.value);
+    }
 
     // TODO: Update endpoint when bulk import API is ready (Step 2)
     const response = await api.post('/bulk-import/clients', formData, {
@@ -184,10 +216,17 @@ const resetForm = () => {
   selectedFile.value = null;
   error.value = '';
   importResults.value = null;
+  selectedAgencyId.value = '';
   if (fileInput.value) {
     fileInput.value.value = '';
   }
 };
+
+onMounted(async () => {
+  if (isSuperAdmin.value) {
+    await agencyStore.fetchAgencies(); // fetch all agencies for super admin
+  }
+});
 </script>
 
 <style scoped>
@@ -228,6 +267,22 @@ const resetForm = () => {
 
 .form-group {
   margin-bottom: 24px;
+}
+
+.agency-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  background: white;
+}
+
+.help-text {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .file-label {

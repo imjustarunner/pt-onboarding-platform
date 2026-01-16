@@ -21,10 +21,12 @@
           </select>
         </div>
         <div class="field">
-          <label>School</label>
+          <label>School / Program</label>
           <select v-model="form.schoolOrganizationId" class="select">
             <option value="">Select…</option>
-            <option v-for="s in schools" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
+            <option v-for="s in schools" :key="s.id" :value="String(s.id)">
+              {{ s.name }} <span v-if="s.organization_type">({{ s.organization_type }})</span>
+            </option>
           </select>
         </div>
         <div class="field">
@@ -146,13 +148,14 @@ const reload = async () => {
 
     const [provResp, schoolsResp, assignmentsResp, reportResp] = await Promise.all([
       api.get('/provider-scheduling/providers', { params: { agencyId: agencyId.value } }),
-      api.get(`/agencies/${agencyId.value}/schools`),
+      api.get(`/agencies/${agencyId.value}/affiliated-organizations`),
       api.get('/provider-scheduling/assignments', { params: { agencyId: agencyId.value } }),
       api.get('/provider-scheduling/report', { params: { agencyId: agencyId.value } })
     ]);
 
     providers.value = provResp.data || [];
-    schools.value = schoolsResp.data || [];
+    // Filter out the parent agency itself; provider scheduling is for affiliated orgs (schools/programs/learning).
+    schools.value = (schoolsResp.data || []).filter((o) => String(o.organization_type || 'agency').toLowerCase() !== 'agency');
     assignments.value = assignmentsResp.data || [];
     report.value = reportResp.data || [];
   } catch (e) {

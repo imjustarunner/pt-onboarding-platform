@@ -1,10 +1,14 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { getAllModules, getModuleById, createModule, updateModule, archiveModule, restoreModule, deleteModule, getArchivedModules, createSharedModule, getSharedModules, copyModule, getCopyPreview, assignModuleToUsers } from '../controllers/module.controller.js';
+import { getModuleFormDefinition, submitModuleForm } from '../controllers/moduleForm.controller.js';
 import { saveResponse, getResponses } from '../controllers/moduleResponse.controller.js';
-import { authenticate, requireAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireAdmin, requireSuperAdmin, requireCapability } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
+
+// All module routes require authentication + training capability
+router.use(authenticate, requireCapability('canViewTraining'));
 
 const validateModuleCreate = [
   body('title').trim().notEmpty().withMessage('Title is required'),
@@ -21,23 +25,29 @@ const validateModuleUpdate = [
   body('isActive').optional().isBoolean()
 ];
 
-router.get('/', authenticate, getAllModules);
-router.get('/shared', authenticate, getSharedModules);
-router.get('/archived', authenticate, requireAdmin, getArchivedModules); // Must come before /:id
-router.get('/:moduleId/responses', authenticate, getResponses);
-router.get('/:id', authenticate, getModuleById);
-router.get('/:id/copy-preview', authenticate, requireAdmin, getCopyPreview);
-router.post('/', authenticate, requireAdmin, validateModuleCreate, createModule);
-router.post('/shared', authenticate, requireSuperAdmin, validateModuleCreate, createSharedModule);
-router.post('/:id/copy', authenticate, requireAdmin, [
+router.get('/', getAllModules);
+router.get('/shared', getSharedModules);
+router.get('/archived', requireAdmin, getArchivedModules); // Must come before /:id
+router.get('/:moduleId/responses', getResponses);
+router.get('/:moduleId/form-definition', getModuleFormDefinition);
+router.get('/:id', getModuleById);
+router.get('/:id/copy-preview', requireAdmin, getCopyPreview);
+router.post('/', requireAdmin, validateModuleCreate, createModule);
+router.post('/shared', requireSuperAdmin, validateModuleCreate, createSharedModule);
+router.post('/:id/copy', requireAdmin, [
   body('targetAgencyId').optional().isInt(),
   body('targetTrackId').optional().isInt()
 ], copyModule);
-router.put('/:id', authenticate, requireAdmin, validateModuleUpdate, updateModule);
-router.post('/:id/archive', authenticate, requireAdmin, archiveModule);
-router.post('/:id/restore', authenticate, requireAdmin, restoreModule);
-router.delete('/:id', authenticate, requireAdmin, deleteModule);
-router.post('/:id/assign', authenticate, requireAdmin, [
+router.put('/:id', requireAdmin, validateModuleUpdate, updateModule);
+router.post('/:moduleId/form-submit', [
+  body('values').isArray().withMessage('Values must be an array'),
+  body('values.*.fieldDefinitionId').isInt({ min: 1 }).withMessage('fieldDefinitionId must be an integer'),
+  body('values.*.value').optional()
+], submitModuleForm);
+router.post('/:id/archive', requireAdmin, archiveModule);
+router.post('/:id/restore', requireAdmin, restoreModule);
+router.delete('/:id', requireAdmin, deleteModule);
+router.post('/:id/assign', requireAdmin, [
   body('userIds').optional().isArray().withMessage('User IDs must be an array'),
   body('userIds.*').optional().isInt().withMessage('Each user ID must be an integer'),
   body('agencyId').optional().isInt().withMessage('Agency ID must be an integer'),
@@ -46,7 +56,7 @@ router.post('/:id/assign', authenticate, requireAdmin, [
   body('title').optional().trim(),
   body('description').optional().trim()
 ], assignModuleToUsers);
-router.post('/:moduleId/responses', authenticate, [
+router.post('/:moduleId/responses', [
   body('contentId').isInt({ min: 1 }).withMessage('Content ID is required'),
   body('responseText').trim().notEmpty().withMessage('Response text is required')
 ], saveResponse);

@@ -122,9 +122,10 @@
                 
                 <div class="add-agency-section">
                   <select v-model="selectedAgencyId" class="agency-select">
-                    <option value="">Select an agency...</option>
+                    <option value="">Select an organization...</option>
                     <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
                       {{ agency.name }}
+                      <span v-if="agency.organization_type">({{ agency.organization_type }})</span>
                     </option>
                   </select>
                   <button @click="addAgency" class="btn btn-primary btn-sm" :disabled="!selectedAgencyId || assigningAgency">
@@ -484,6 +485,11 @@
           />
         </div>
 
+        <ProviderInfoTab
+          v-if="activeTab === 'provider_info'"
+          :userId="userId"
+        />
+
         <UserTrainingTab
           v-if="activeTab === 'training'"
           :userId="userId"
@@ -666,6 +672,7 @@ import { isSupervisor } from '../../utils/helpers.js';
 import UserTrainingTab from '../../components/admin/UserTrainingTab.vue';
 import UserDocumentsTab from '../../components/admin/UserDocumentsTab.vue';
 import UserInformationTab from '../../components/admin/UserInformationTab.vue';
+import ProviderInfoTab from '../../components/admin/ProviderInfoTab.vue';
 import UserCommunicationsTab from '../../components/admin/UserCommunicationsTab.vue';
 import UserActivityLogTab from '../../components/admin/UserActivityLogTab.vue';
 import UserPayrollTab from '../../components/admin/UserPayrollTab.vue';
@@ -702,6 +709,13 @@ const canViewPayroll = computed(() => {
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
 
+const canViewProviderInfo = computed(() => {
+  const u = user.value;
+  if (!u) return false;
+  // Show for provider-like roles, or anyone explicitly provider-selectable.
+  return ['clinician', 'intern', 'facilitator'].includes(u.role) || u.has_provider_access === 1 || u.has_provider_access === true;
+});
+
 const supervisees = ref([]);
 const supervisors = ref([]);
 const superviseesLoading = ref(false);
@@ -710,6 +724,7 @@ const supervisorsLoading = ref(false);
 const tabs = computed(() => {
   const baseTabs = [
     { id: 'account', label: 'Account' },
+    ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Provider Info' }] : []),
     { id: 'training', label: 'Training' },
     { id: 'documents', label: 'Documents' },
     { id: 'communications', label: 'Communications' },
@@ -1011,6 +1026,27 @@ const fetchAvailableAgencies = async () => {
       await agencyStore.fetchUserAgencies();
       availableAgencies.value = agencyStore.userAgencies || [];
     }
+
+    // Expand options with affiliated orgs for each parent agency the admin can access.
+    const base = availableAgencies.value || [];
+    const parents = base.filter((a) => String(a.organization_type || 'agency').toLowerCase() === 'agency');
+    const affLists = await Promise.all(
+      parents.map(async (a) => {
+        try {
+          const r = await api.get(`/agencies/${a.id}/affiliated-organizations`);
+          return r.data || [];
+        } catch (e) {
+          return [];
+        }
+      })
+    );
+    const merged = [...base, ...affLists.flat()];
+    const byId = new Map();
+    for (const org of merged) {
+      if (!org?.id) continue;
+      if (!byId.has(org.id)) byId.set(org.id, org);
+    }
+    availableAgencies.value = Array.from(byId.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   } catch (err) {
     console.error('Failed to load agencies:', err);
     availableAgencies.value = [];

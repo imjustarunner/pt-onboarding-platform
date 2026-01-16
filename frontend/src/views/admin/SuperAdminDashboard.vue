@@ -38,100 +38,13 @@
       
       <NotificationCards />
       
-      <div class="quick-actions">
-        <h2>Quick Actions</h2>
-        <div class="actions-grid">
-          <router-link to="/admin/settings?tab=agencies" class="action-card">
-            <img 
-              v-if="getActionIcon('manage_agencies')" 
-              :src="getActionIcon('manage_agencies')" 
-              :alt="'Manage Agencies icon'"
-              class="action-icon"
-              @error="(e) => { console.error('Failed to load icon:', e.target.src); e.target.style.display = 'none'; }"
-            />
-            <div v-else class="action-icon-placeholder">📋</div>
-            <div class="action-content">
-              <h3>Manage Agencies</h3>
-              <p>Create and manage all agencies</p>
-            </div>
-          </router-link>
-          
-          <router-link to="/admin/modules" class="action-card">
-            <img 
-              v-if="getActionIcon('manage_modules')" 
-              :src="getActionIcon('manage_modules')" 
-              :alt="'Manage Modules icon'"
-              class="action-icon"
-              @error="(e) => { e.target.style.display = 'none'; }"
-            />
-            <div v-else class="action-icon-placeholder">📚</div>
-            <div class="action-content">
-              <h3>Manage Modules</h3>
-              <p>Create shared modules and manage all training</p>
-            </div>
-          </router-link>
-          
-          <router-link to="/admin/documents" class="action-card">
-            <img 
-              v-if="getActionIcon('manage_documents')" 
-              :src="getActionIcon('manage_documents')" 
-              :alt="'Manage Documents icon'"
-              class="action-icon"
-              @error="(e) => { e.target.style.display = 'none'; }"
-            />
-            <div v-else class="action-icon-placeholder">📄</div>
-            <div class="action-content">
-              <h3>Manage Documents</h3>
-              <p>Upload templates and assign documents for signature</p>
-            </div>
-          </router-link>
-          
-          <router-link to="/admin/users" class="action-card">
-            <img 
-              v-if="getActionIcon('manage_users')" 
-              :src="getActionIcon('manage_users')" 
-              :alt="'Manage Users icon'"
-              class="action-icon"
-              @error="(e) => { e.target.style.display = 'none'; }"
-            />
-            <div v-else class="action-icon-placeholder">👥</div>
-            <div class="action-content">
-              <h3>Manage Users</h3>
-              <p>View and manage all user accounts</p>
-            </div>
-          </router-link>
-          
-          <router-link to="/admin/settings" class="action-card">
-            <img 
-              v-if="getActionIcon('platform_settings')" 
-              :src="getActionIcon('platform_settings')" 
-              :alt="'Platform Settings icon'"
-              class="action-icon"
-              @error="(e) => { e.target.style.display = 'none'; }"
-            />
-            <div v-else class="action-icon-placeholder">⚙️</div>
-            <div class="action-content">
-              <h3>Platform Settings</h3>
-              <p>Configure platform-wide settings and terminology</p>
-            </div>
-          </router-link>
-          
-          <router-link to="/admin/agency-progress" class="action-card">
-            <img 
-              v-if="getActionIcon('view_all_progress')" 
-              :src="getActionIcon('view_all_progress')" 
-              :alt="'View All Progress icon'"
-              class="action-icon"
-              @error="(e) => { e.target.style.display = 'none'; }"
-            />
-            <div v-else class="action-icon-placeholder">📊</div>
-            <div class="action-content">
-              <h3>View All Progress</h3>
-              <p>View training progress across all agencies</p>
-            </div>
-          </router-link>
-        </div>
-      </div>
+      <QuickActionsSection
+        title="Quick Actions"
+        context-key="platform"
+        :actions="quickActions"
+        :default-action-ids="defaultQuickActionIds"
+        :icon-resolver="resolveQuickActionIcon"
+      />
       
       <div class="agencies-overview">
         <h2>Agencies Overview</h2>
@@ -145,13 +58,13 @@
             class="agency-card"
             @click="viewAgencyProgress(agency.id)"
           >
-            <div class="agency-info">
-              <h4>{{ agency.name }}</h4>
-              <p class="agency-meta">
+            <div class="agency-row">
+              <span class="agency-name" :title="agency.name">{{ agency.name }}</span>
+              <span class="agency-badges">
                 <span v-if="agency.is_active" class="badge badge-success">Active</span>
                 <span v-else class="badge badge-secondary">Inactive</span>
                 <span v-if="agency.user_count !== undefined" class="badge badge-secondary">{{ agency.user_count }} users</span>
-              </p>
+              </span>
             </div>
             <div class="agency-actions" @click.stop>
               <router-link 
@@ -183,6 +96,7 @@ import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
+import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
 
 const router = useRouter();
 const brandingStore = useBrandingStore();
@@ -300,6 +214,150 @@ const getActionIcon = (actionKey) => {
   return fullPath;
 };
 
+const quickActions = computed(() => ([
+  {
+    id: 'manage_organizations',
+    title: 'Manage Organizations',
+    description: 'Create and manage all organizations',
+    to: '/admin/settings?tab=agencies',
+    emoji: '🏢',
+    iconKey: 'manage_agencies',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'manage_clients',
+    title: 'Manage Clients',
+    description: 'Create and manage clients',
+    to: '/admin/clients',
+    emoji: '🧾',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'manage_modules',
+    title: 'Manage Modules',
+    description: 'Create shared modules and manage all training',
+    to: '/admin/modules',
+    emoji: '📚',
+    iconKey: 'manage_modules',
+    category: 'Training',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canViewTraining']
+  },
+  {
+    id: 'manage_documents',
+    title: 'Manage Documents',
+    description: 'Upload templates and assign documents for signature',
+    to: '/admin/documents',
+    emoji: '📄',
+    iconKey: 'manage_documents',
+    category: 'Documents',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canSignDocuments']
+  },
+  {
+    id: 'manage_users',
+    title: 'Manage Users',
+    description: 'View and manage all user accounts',
+    to: '/admin/users',
+    emoji: '👥',
+    iconKey: 'manage_users',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'communications',
+    title: 'Communications',
+    description: 'View communications feed',
+    to: '/admin/communications',
+    emoji: '💬',
+    category: 'Communications',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
+    capabilities: ['canUseChat']
+  },
+  {
+    id: 'chats',
+    title: 'Chats',
+    description: 'Open platform chats',
+    to: '/admin/communications/chats',
+    emoji: '💬',
+    category: 'Communications',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
+    capabilities: ['canUseChat']
+  },
+  {
+    id: 'notifications',
+    title: 'Notifications',
+    description: 'View all notifications',
+    to: '/admin/notifications',
+    emoji: '🔔',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'payroll',
+    title: 'Payroll',
+    description: 'Manage payroll',
+    to: '/admin/payroll',
+    emoji: '💵',
+    category: 'Management',
+    roles: ['admin', 'super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'platform_settings',
+    title: 'Platform Settings',
+    description: 'Configure platform-wide settings and terminology',
+    to: '/admin/settings',
+    emoji: '⚙️',
+    iconKey: 'platform_settings',
+    category: 'System',
+    roles: ['super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'all_progress',
+    title: 'View All Progress',
+    description: 'View training progress across all agencies',
+    to: '/admin/agency-progress',
+    emoji: '📊',
+    iconKey: 'view_all_progress',
+    category: 'Training',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canViewTraining']
+  },
+  {
+    id: 'billing',
+    title: 'Billing',
+    description: 'Plan usage and QuickBooks',
+    to: '/admin/settings?category=general&item=billing',
+    emoji: '💳',
+    category: 'System',
+    roles: ['admin', 'super_admin'],
+    capabilities: ['canAccessPlatform']
+  }
+]));
+
+const defaultQuickActionIds = computed(() => ([
+  'manage_organizations',
+  'manage_clients',
+  'manage_modules',
+  'manage_documents',
+  'manage_users',
+  'notifications',
+  'all_progress'
+]));
+
+const resolveQuickActionIcon = (action) => {
+  if (!action?.iconKey) return null;
+  return getActionIcon(action.iconKey);
+};
+
 const viewAgencyProgress = (agencyId) => {
   // Navigate to agency progress dashboard
   router.push(`/admin/agencies/${agencyId}/progress`);
@@ -398,76 +456,7 @@ onMounted(async () => {
   margin: 0;
 }
 
-.quick-actions {
-  margin-bottom: 0;
-}
-
-.quick-actions h2 {
-  margin-bottom: 24px;
-  color: var(--text-primary);
-}
-
-.actions-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 20px;
-}
-
-.action-card {
-  background: white;
-  padding: 32px;
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  text-decoration: none;
-  color: inherit;
-  transition: all 0.2s;
-  border: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
-
-.action-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-lg);
-  border-color: var(--primary);
-}
-
-.action-icon {
-  width: 64px;
-  height: 64px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-
-.action-icon-placeholder {
-  width: 64px;
-  height: 64px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  background: var(--bg-alt);
-  border-radius: 8px;
-  flex-shrink: 0;
-  opacity: 0.6;
-}
-
-.action-content {
-  flex: 1;
-}
-
-.action-card h3 {
-  color: var(--text-primary);
-  margin-bottom: 12px;
-  font-weight: 700;
-}
-
-.action-card p {
-  color: var(--text-secondary);
-  margin: 0;
-  line-height: 1.6;
-}
+/* Quick Actions are now rendered by `QuickActionsSection` */
 
 .agencies-overview {
   background: white;
@@ -489,8 +478,8 @@ onMounted(async () => {
 }
 
 .agency-card {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
   padding: 20px;
   background: var(--bg-alt);
@@ -498,6 +487,7 @@ onMounted(async () => {
   border: 2px solid var(--border);
   transition: all 0.2s;
   cursor: pointer;
+  gap: 12px;
 }
 
 .agency-card:hover {
@@ -511,16 +501,39 @@ onMounted(async () => {
   gap: 8px;
 }
 
-.agency-info h4 {
-  margin: 0 0 8px;
-  color: var(--text-primary);
-  font-weight: 700;
+.agency-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0; /* allow truncation */
+  flex-wrap: nowrap;
 }
 
-.agency-meta {
-  margin: 0;
-  display: flex;
+.agency-name {
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.agency-badges {
+  display: inline-flex;
   gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Keep everything on one line; allow horizontal scroll if needed */
+.agency-card {
+  overflow: hidden;
+}
+
+.agency-actions {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .empty-state {

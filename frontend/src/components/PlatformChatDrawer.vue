@@ -1,0 +1,716 @@
+<template>
+  <div
+    v-if="isAuthenticated"
+    class="chat-drawer"
+    :class="{ open: isOpen }"
+    @mouseenter="isOpen = true"
+    @mouseleave="isOpen = false"
+  >
+    <div class="rail" :title="needsAgency ? 'Select an agency to use chat' : 'Chat'">
+      <div class="rail-badge rail-badge-top" :class="{ zero: totalUnread <= 0 }">
+        {{ totalUnread }}
+      </div>
+
+      <div class="rail-icon">
+        <img v-if="iconUrl" :src="iconUrl" alt="Chat" />
+        <span v-else class="icon-fallback">Chat</span>
+      </div>
+
+      <div class="rail-badge rail-badge-bottom" :class="{ disabled: needsAgency }">
+        {{ loggedInNow }}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="title">Chat</div>
+          <div class="subtitle">Agency presence + internal messages</div>
+        </div>
+
+        <div class="presence-controls" v-if="isAuthenticated">
+          <template v-if="isAdminLike">
+            <button
+              class="btn btn-xs"
+              :class="myAvailability === 'admins_only' ? 'btn-primary' : 'btn-secondary'"
+              type="button"
+              @click="setMyAvailability('admins_only')"
+              title="Visible to admins only"
+            >
+              Go Online (Admins)
+            </button>
+            <button
+              class="btn btn-xs"
+              :class="myAvailability === 'everyone' ? 'btn-primary' : 'btn-secondary'"
+              type="button"
+              @click="setMyAvailability('everyone')"
+              title="Visible to everyone in the agency"
+            >
+              Go Online
+            </button>
+            <button
+              class="btn btn-xs"
+              :class="myAvailability === 'offline' ? 'btn-primary' : 'btn-secondary'"
+              type="button"
+              @click="setMyAvailability('offline')"
+              title="Appear offline"
+            >
+              Go Offline
+            </button>
+          </template>
+
+          <template v-else>
+            <button
+              class="btn btn-xs"
+              :class="myAvailability === 'offline' ? 'btn-secondary' : 'btn-primary'"
+              type="button"
+              @click="toggleMyAvailability"
+              title="Toggle your online visibility"
+            >
+              {{ myAvailability === 'offline' ? 'Go Online' : 'Go Offline' }}
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <div class="panel-body">
+        <template v-if="needsAgency">
+          <div class="empty">
+            <p style="margin: 0;">Select an agency to view who’s online.</p>
+          </div>
+
+          <div v-if="pendingThreads.length > 0" class="section" style="margin-top: 12px;">
+            <div class="section-title">Pending chats</div>
+            <button
+              v-for="t in pendingThreads"
+              :key="`${t.agency_id}-${t.thread_id}`"
+              class="person"
+              @click="openThread(t)"
+            >
+              <span class="dot dot-online"></span>
+              <span class="name">{{ t.other_participant.first_name }} {{ t.other_participant.last_name }}</span>
+              <span class="pill">{{ t.unread_count }}</span>
+            </button>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="toolbar">
+            <input v-model="q" class="search" placeholder="Search people…" />
+          </div>
+
+          <div v-if="loading" class="loading">Loading…</div>
+          <div v-else-if="error" class="error">{{ error }}</div>
+
+          <div v-else class="lists">
+            <div v-if="pendingThreads.length > 0" class="section">
+              <div class="section-title">Pending chats</div>
+              <button
+                v-for="t in pendingThreads"
+                :key="`${t.agency_id}-${t.thread_id}`"
+                class="person"
+                @click="openThread(t)"
+              >
+                <span class="dot dot-online"></span>
+                <span class="name">
+                  {{ t.other_participant.first_name }} {{ t.other_participant.last_name }}
+                  <span v-if="t.agencyLabel" class="agency-chip">{{ t.agencyLabel }}</span>
+                </span>
+                <span class="pill">{{ t.unread_count }}</span>
+              </button>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Online</div>
+              <div v-if="online.length === 0" class="muted">No one is online.</div>
+              <button v-for="u in online" :key="u.id" class="person" @click="openChat(u)">
+                <span class="dot dot-online"></span>
+                <span class="name">{{ u.first_name }} {{ u.last_name }}</span>
+                <span v-if="u.unreadCount" class="pill">{{ u.unreadCount }}</span>
+              </button>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Idle</div>
+              <div v-if="idle.length === 0" class="muted">No one is idle.</div>
+              <button v-for="u in idle" :key="u.id" class="person" @click="openChat(u)">
+                <span class="dot dot-idle"></span>
+                <span class="name">{{ u.first_name }} {{ u.last_name }}</span>
+                <span v-if="u.unreadCount" class="pill">{{ u.unreadCount }}</span>
+              </button>
+            </div>
+
+            <div class="section">
+              <div class="section-title">Offline</div>
+              <div class="scroll">
+                <div v-if="offline.length === 0" class="muted">No offline users.</div>
+                <button v-for="u in offline" :key="u.id" class="person" @click="openChat(u)">
+                  <span class="dot dot-offline"></span>
+                  <span class="name">{{ u.first_name }} {{ u.last_name }}</span>
+                  <span v-if="u.unreadCount" class="pill">{{ u.unreadCount }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="activeChatUser" class="chat-box">
+            <div class="chat-box-header">
+              <div class="chat-title">
+                {{ activeChatUser.first_name }} {{ activeChatUser.last_name }}
+              </div>
+              <button class="btn-close" @click="closeChat">×</button>
+            </div>
+
+            <div class="chat-messages">
+              <div v-if="chatLoading" class="muted">Loading messages…</div>
+              <div v-else-if="chatError" class="error">{{ chatError }}</div>
+              <div v-else class="msg-list">
+                <div v-for="m in chatMessages" :key="m.id" class="msg" :class="{ mine: m.sender_user_id === meId }">
+                  <div class="msg-meta">
+                    <span class="msg-author">{{ m.sender_first_name }} {{ m.sender_last_name }}</span>
+                    <span class="msg-time">{{ formatTime(m.created_at) }}</span>
+                  </div>
+                  <div class="msg-body">{{ m.body }}</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="chat-composer">
+              <textarea v-model="draft" rows="2" placeholder="Message…" />
+              <button class="btn btn-primary" @click="send" :disabled="sending || !draft.trim()">Send</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import api from '../services/api';
+import { useAgencyStore } from '../store/agency';
+import { useAuthStore } from '../store/auth';
+import { useBrandingStore } from '../store/branding';
+import { toUploadsUrl } from '../utils/uploadsUrl';
+
+const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
+const isAuthenticated = computed(() => authStore.isAuthenticated);
+const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const needsAgency = computed(() => !agencyId.value);
+const myRole = computed(() => authStore.user?.role || '');
+const isAdminLike = computed(() => myRole.value === 'admin' || myRole.value === 'super_admin');
+
+const people = ref([]);
+const threads = ref([]);
+let pollTimer = null;
+
+const isOpen = ref(false);
+const loading = ref(false);
+const error = ref('');
+const q = ref('');
+
+const myAvailability = ref(null);
+
+const activeChatUser = ref(null);
+const activeThreadId = ref(null);
+const activeThreadAgencyId = ref(null);
+const chatMessages = ref([]);
+const chatLoading = ref(false);
+const chatError = ref('');
+const draft = ref('');
+const sending = ref(false);
+
+const meId = computed(() => authStore.user?.id);
+
+const totalUnread = computed(() => (threads.value || []).reduce((sum, t) => sum + (t.unread_count || 0), 0));
+
+const iconUrl = computed(() => {
+  const a = agencyStore.currentAgency;
+  if (a?.chat_icon_path) return toUploadsUrl(a.chat_icon_path);
+
+  const pb = brandingStore.platformBranding;
+  if (pb?.chat_icon_path) return toUploadsUrl(pb.chat_icon_path);
+  if (pb?.communications_icon_path) return toUploadsUrl(pb.communications_icon_path);
+
+  // last-resort fallbacks
+  if (a?.icon_file_path) return toUploadsUrl(a.icon_file_path);
+  if (pb?.master_brand_icon_path) return toUploadsUrl(pb.master_brand_icon_path);
+  return null;
+});
+
+const loggedInNow = computed(() => {
+  if (needsAgency.value) return 0;
+  return (people.value || []).filter((u) => u.status === 'online' || u.status === 'idle').length;
+});
+
+const shouldLoadAllThreads = computed(() => {
+  if (myRole.value === 'super_admin') return true;
+  const ua = agencyStore.userAgencies || [];
+  return ua.length > 1;
+});
+
+const agenciesForLabel = computed(() => {
+  const map = new Map();
+  for (const a of (agencyStore.agencies || [])) map.set(a.id, a.name);
+  for (const a of (agencyStore.userAgencies || [])) map.set(a.id, a.name);
+  const current = agencyStore.currentAgency;
+  if (current?.id && current?.name) map.set(current.id, current.name);
+  return map;
+});
+
+const pendingThreads = computed(() => {
+  const list = (threads.value || []).filter((t) => (t.unread_count || 0) > 0 && t.other_participant);
+  const enriched = list.map((t) => ({
+    ...t,
+    agencyLabel: agenciesForLabel.value.get(t.agency_id) || (t.agency_id ? `Agency ${t.agency_id}` : '')
+  }));
+  return enriched.slice(0, 12);
+});
+
+const filteredPeople = computed(() => {
+  const query = q.value.trim().toLowerCase();
+  const list = people.value || [];
+  if (!query) return list;
+  return list.filter((u) => (`${u.first_name} ${u.last_name}`.toLowerCase().includes(query) || (u.email || '').toLowerCase().includes(query)));
+});
+
+const unreadByUserId = computed(() => {
+  const map = new Map();
+  for (const t of (threads.value || [])) {
+    const other = t.other_participant;
+    if (!other) continue;
+    map.set(other.id, (map.get(other.id) || 0) + (t.unread_count || 0));
+  }
+  return map;
+});
+
+const peopleWithUnread = computed(() => {
+  return (filteredPeople.value || []).map((u) => ({
+    ...u,
+    unreadCount: unreadByUserId.value.get(u.id) || 0
+  }));
+});
+
+const online = computed(() => peopleWithUnread.value.filter((u) => u.status === 'online' && u.id !== meId.value));
+const idle = computed(() => peopleWithUnread.value.filter((u) => u.status === 'idle' && u.id !== meId.value));
+const offline = computed(() => peopleWithUnread.value.filter((u) => u.status === 'offline' && u.id !== meId.value));
+
+const loadPresence = async () => {
+  if (!agencyId.value) {
+    people.value = [];
+    return;
+  }
+  try {
+    loading.value = true;
+    error.value = '';
+    const resp = await api.get(`/presence/agency/${agencyId.value}`);
+    people.value = resp.data || [];
+  } catch {
+    error.value = 'Failed to load presence';
+    people.value = [];
+  } finally {
+    loading.value = false;
+  }
+};
+
+const loadThreads = async () => {
+  try {
+    const params = {};
+    if (!shouldLoadAllThreads.value) {
+      if (!agencyId.value) {
+        threads.value = [];
+        return;
+      }
+      params.agencyId = agencyId.value;
+    }
+    const resp = await api.get('/chat/threads', { params });
+    threads.value = resp.data || [];
+  } catch {
+    // ignore
+  }
+};
+
+const openChat = async (u, agencyIdOverride = null) => {
+  activeChatUser.value = u;
+  chatError.value = '';
+  chatMessages.value = [];
+  draft.value = '';
+
+  try {
+    chatLoading.value = true;
+    const useAgencyId = agencyIdOverride || agencyId.value;
+    if (!useAgencyId) {
+      chatError.value = 'Select an agency to start a chat';
+      return;
+    }
+    activeThreadAgencyId.value = useAgencyId;
+    const resp = await api.post('/chat/threads/direct', { agencyId: useAgencyId, otherUserId: u.id });
+    activeThreadId.value = resp.data.threadId;
+    await loadMessages();
+  } catch (e) {
+    chatError.value = e.response?.data?.error?.message || 'Failed to open chat';
+  } finally {
+    chatLoading.value = false;
+  }
+};
+
+const openThread = async (t) => {
+  if (!t?.other_participant) return;
+  await openChat(t.other_participant, t.agency_id);
+};
+
+const loadMessages = async () => {
+  if (!activeThreadId.value) return;
+  try {
+    chatLoading.value = true;
+    const resp = await api.get(`/chat/threads/${activeThreadId.value}/messages`, { params: { limit: 60 } });
+    chatMessages.value = resp.data || [];
+    const last = chatMessages.value[chatMessages.value.length - 1];
+    if (last?.id) {
+      await api.post(`/chat/threads/${activeThreadId.value}/read`, { lastReadMessageId: last.id }).catch(() => {});
+      await loadThreads();
+    }
+  } finally {
+    chatLoading.value = false;
+  }
+};
+
+const send = async () => {
+  if (!activeThreadId.value || !draft.value.trim()) return;
+  try {
+    sending.value = true;
+    const body = draft.value.trim();
+    draft.value = '';
+    await api.post(`/chat/threads/${activeThreadId.value}/messages`, { body });
+    await loadMessages();
+  } catch (e) {
+    chatError.value = e.response?.data?.error?.message || 'Failed to send message';
+  } finally {
+    sending.value = false;
+  }
+};
+
+const closeChat = () => {
+  activeChatUser.value = null;
+  activeThreadId.value = null;
+  activeThreadAgencyId.value = null;
+  chatMessages.value = [];
+  draft.value = '';
+  chatError.value = '';
+};
+
+const fetchMyPresence = async () => {
+  try {
+    const resp = await api.get('/presence/me');
+    myAvailability.value = resp.data?.availability_level || null;
+  } catch {
+    // ignore
+  }
+};
+
+const setMyAvailability = async (level) => {
+  try {
+    await api.post('/presence/availability', { availabilityLevel: level });
+    myAvailability.value = level;
+    await Promise.all([loadPresence(), loadThreads()]);
+  } catch {
+    // ignore
+  }
+};
+
+const toggleMyAvailability = async () => {
+  const next = myAvailability.value === 'offline' ? 'everyone' : 'offline';
+  await setMyAvailability(next);
+};
+
+const formatTime = (d) => {
+  try {
+    return new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
+
+const startPolling = () => {
+  stopPolling();
+  pollTimer = setInterval(() => {
+    if (!isAuthenticated.value) return;
+    Promise.all([loadPresence(), loadThreads()]);
+    if (activeThreadId.value) {
+      loadMessages();
+    }
+  }, 20000);
+};
+
+const stopPolling = () => {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+};
+
+watch(agencyId, async () => {
+  closeChat();
+  await Promise.all([loadPresence(), loadThreads()]);
+});
+
+onMounted(async () => {
+  if (!isAuthenticated.value) return;
+  await Promise.all([fetchMyPresence(), loadPresence(), loadThreads()]);
+  startPolling();
+});
+
+onUnmounted(stopPolling);
+</script>
+
+<style scoped>
+.chat-drawer {
+  position: fixed;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  pointer-events: auto;
+}
+
+.rail {
+  width: 44px;
+  background: transparent; /* no rail background */
+  color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 6px;
+  gap: 6px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.rail-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Don't crop the icon */
+  overflow: visible;
+  border-radius: 0;
+}
+
+.rail-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain; /* avoid clipping */
+}
+
+.icon-fallback {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.rail-badge {
+  font-size: 11px;
+  font-weight: 900;
+  border-radius: 999px;
+  padding: 2px 6px;
+  line-height: 1.2;
+  background: rgba(15, 23, 42, 0.65); /* subtle pill; rail itself stays invisible */
+  color: #fff;
+}
+
+.rail-badge-top {
+  background: rgba(239, 68, 68, 0.9);
+}
+
+.rail-badge-top.zero {
+  background: rgba(15, 23, 42, 0.35);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.rail-badge-bottom {
+  background: rgba(34, 197, 94, 0.35);
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  color: #dcfce7;
+}
+
+.rail-badge-bottom.disabled {
+  opacity: 0.55;
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.3);
+  color: #e2e8f0;
+}
+
+.panel {
+  width: 0;
+  height: 0; /* prevent huge invisible container when closed */
+  max-height: 0;
+  overflow: hidden;
+  background: white;
+  border-right: none;
+  transition: width 160ms ease, height 160ms ease, max-height 160ms ease;
+}
+
+.chat-drawer.open .panel {
+  width: 360px;
+  height: 72vh;
+  max-height: 72vh;
+  border-right: 1px solid var(--border);
+}
+
+.panel-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.title {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.presence-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.btn.btn-xs {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+.agency-chip {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.panel-body {
+  padding: 12px 14px;
+  height: calc(72vh - 56px); /* 72vh minus header-ish space */
+  overflow: hidden;
+}
+
+.toolbar { margin-bottom: 10px; }
+.search {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.lists {
+  height: calc(100% - 44px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.section { margin-bottom: 14px; }
+.section-title { font-weight: 800; font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+.person {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 10px;
+  padding: 10px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  text-align: left;
+}
+.person:hover { border-color: var(--primary); }
+.dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
+.dot-online { background: #22c55e; }
+.dot-idle { background: #f59e0b; }
+.dot-offline { background: #9ca3af; }
+.name { flex: 1; font-weight: 700; color: var(--text-primary); font-size: 13px; }
+.pill { border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 12px; color: var(--text-secondary); font-weight: 800; }
+.muted { color: var(--text-secondary); font-size: 13px; padding: 6px 2px; }
+.scroll { max-height: 240px; overflow: auto; padding-right: 4px; }
+
+.chat-box {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  height: 420px;
+  border-top: 1px solid var(--border);
+  background: white;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.chat-title { font-weight: 800; }
+.btn-close { border: none; background: none; font-size: 18px; cursor: pointer; color: var(--text-secondary); }
+
+.chat-messages {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+.msg-list { display: flex; flex-direction: column; gap: 10px; }
+.msg {
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 12px;
+  padding: 8px 10px;
+  max-width: 90%;
+}
+.msg.mine { margin-left: auto; background: #ecfdf5; border-color: #a7f3d0; }
+.msg-meta { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+.msg-body { white-space: pre-wrap; font-size: 13px; color: var(--text-primary); }
+
+.chat-composer {
+  border-top: 1px solid var(--border);
+  padding: 10px 12px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.chat-composer textarea {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  resize: none;
+  font-size: 13px;
+}
+
+.loading { color: var(--text-secondary); }
+.error { color: #b91c1c; font-size: 13px; }
+.empty { color: var(--text-secondary); padding: 10px 2px; }
+</style>
+

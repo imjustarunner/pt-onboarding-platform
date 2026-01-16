@@ -4,6 +4,7 @@ import {
   getAllFonts,
   getFontById,
   getFontFamilies,
+  getPublicFonts,
   uploadFont,
   updateFont,
   deleteFont,
@@ -23,6 +24,7 @@ const validateFont = [
 
 // Public route for font families (needed for font selector) - must be before /:id route
 router.get('/families', getFontFamilies);
+router.get('/public', getPublicFonts);
 
 // Authenticated routes
 router.use(authenticate);

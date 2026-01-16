@@ -1,8 +1,11 @@
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
+import { useAgencyStore } from '../store/agency';
 
 const INACTIVITY_TIMEOUT = 8 * 60 * 1000; // 8 minutes in milliseconds
+const HEARTBEAT_INTERVAL = 30 * 1000; // 30s
 let activityTimer = null;
+let heartbeatTimer = null;
 let lastActivityTime = Date.now();
 let isTracking = false;
 
@@ -76,6 +79,22 @@ function onActivity() {
   resetTimer();
 }
 
+async function sendPresenceHeartbeat() {
+  const authStore = useAuthStore();
+  const agencyStore = useAgencyStore();
+  if (!authStore.isAuthenticated) return;
+
+  const agencyId = agencyStore.currentAgency?.id || null;
+  try {
+    await api.post('/presence/heartbeat', {
+      agencyId,
+      lastActivityAt: new Date(lastActivityTime).toISOString()
+    });
+  } catch {
+    // ignore - presence is best-effort
+  }
+}
+
 export function startActivityTracking() {
   if (isTracking) {
     return; // Already tracking
@@ -91,6 +110,10 @@ export function startActivityTracking() {
   
   // Start the timer
   resetTimer();
+
+  // Presence heartbeat (best-effort)
+  sendPresenceHeartbeat();
+  heartbeatTimer = setInterval(sendPresenceHeartbeat, HEARTBEAT_INTERVAL);
 }
 
 export function stopActivityTracking() {
@@ -109,6 +132,11 @@ export function stopActivityTracking() {
   if (activityTimer) {
     clearTimeout(activityTimer);
     activityTimer = null;
+  }
+
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
   }
 }
 

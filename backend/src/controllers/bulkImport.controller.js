@@ -50,24 +50,35 @@ export const bulkImportClients = [
 
       const updateExisting = req.body.updateExisting === 'true' || req.body.updateExisting === true;
 
-      // Get user's primary agency ID
-      let agencyId = req.body.agency_id || req.user.agencyId;
-      
-      if (!agencyId && userRole !== 'super_admin') {
-        // Get user's first agency
-        const userAgencies = await User.getAgencies(userId);
-        if (userAgencies.length === 0) {
-          return res.status(400).json({ 
-            error: { message: 'You must be associated with an agency to import clients' } 
+      // Resolve target agency ID:
+      // - super_admin must provide agency_id/agencyId explicitly
+      // - admin may omit and we’ll default to their first agency
+      const rawAgencyId = req.body.agency_id ?? req.body.agencyId ?? req.user.agencyId;
+      let agencyId = rawAgencyId ? parseInt(rawAgencyId, 10) : null;
+
+      if (userRole === 'super_admin') {
+        if (!agencyId) {
+          return res.status(400).json({
+            error: { message: 'Agency ID is required for bulk import (super admin must select an agency)' }
           });
         }
-        agencyId = userAgencies[0].id;
-      }
-
-      if (!agencyId) {
-        return res.status(400).json({ 
-          error: { message: 'Agency ID is required for bulk import' } 
-        });
+      } else {
+        const userAgencies = await User.getAgencies(userId);
+        if (!agencyId) {
+          if (userAgencies.length === 0) {
+            return res.status(400).json({
+              error: { message: 'You must be associated with an agency to import clients' }
+            });
+          }
+          agencyId = userAgencies[0].id;
+        } else {
+          const allowed = userAgencies.some((a) => a.id === agencyId);
+          if (!allowed) {
+            return res.status(403).json({
+              error: { message: 'You do not have access to import clients for the selected agency' }
+            });
+          }
+        }
       }
 
       // Parse CSV

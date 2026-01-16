@@ -68,114 +68,15 @@
       </div>
       
       <NotificationCards v-if="!previewMode" />
-      
-      <div class="quick-actions">
-        <h2>Quick Actions</h2>
-        <div class="actions-grid">
-          <component 
-            :is="previewMode ? 'div' : 'router-link'"
-            :to="previewMode ? null : '/admin/agency-progress'"
-            class="action-card"
-            :class="{ 'preview-disabled': previewMode }"
-          >
-            <img 
-              v-if="getActionIcon('progress_dashboard')" 
-              :src="getActionIcon('progress_dashboard')" 
-              :alt="'Progress Dashboard icon'"
-              class="action-icon"
-              @error="(e) => { e.target.style.display = 'none'; }"
-            />
-            <div v-else class="action-icon-placeholder">📊</div>
-            <div class="action-content">
-              <h3>Progress Dashboard</h3>
-              <p>View and manage user training progress, track completion, and quiz scores</p>
-            </div>
-          </component>
-          
-          <component 
-            :is="previewMode ? 'div' : 'router-link'"
-            v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
-            :to="previewMode ? null : '/admin/modules'"
-            class="action-card"
-            :class="{ 'preview-disabled': previewMode }"
-          >
-            <img 
-              v-if="getActionIcon('manage_modules')" 
-              :src="getActionIcon('manage_modules')" 
-              :alt="'Manage Modules icon'"
-              class="action-icon"
-              @error="(e) => { e.target.style.display = 'none'; }"
-            />
-            <div v-else class="action-icon-placeholder">📚</div>
-            <div class="action-content">
-              <h3>Manage Modules</h3>
-              <p>Create and edit training modules for your agencies</p>
-            </div>
-          </component>
-          
-          <component 
-            :is="previewMode ? 'div' : 'router-link'"
-            v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
-            :to="previewMode ? null : '/admin/documents'"
-            class="action-card"
-            :class="{ 'preview-disabled': previewMode }"
-          >
-            <img 
-              v-if="getActionIcon('manage_documents')" 
-              :src="getActionIcon('manage_documents')" 
-              :alt="'Manage Documents icon'"
-              class="action-icon"
-              @error="(e) => { e.target.style.display = 'none'; }"
-            />
-            <div v-else class="action-icon-placeholder">📄</div>
-            <div class="action-content">
-              <h3>Manage Documents</h3>
-              <p>Upload templates and assign documents for signature</p>
-            </div>
-          </component>
-          
-          <component 
-            :is="previewMode ? 'div' : 'router-link'"
-            :to="previewMode ? null : '/admin/users'"
-            class="action-card"
-            :class="{ 'preview-disabled': previewMode }"
-          >
-            <img 
-              v-if="getActionIcon('manage_users')" 
-              :src="getActionIcon('manage_users')" 
-              :alt="'Manage Users icon'"
-              class="action-icon"
-              @error="(e) => { e.target.style.display = 'none'; }"
-            />
-            <div v-else class="action-icon-placeholder">👥</div>
-            <div class="action-content">
-              <h3>Manage Users</h3>
-              <p>View and manage user accounts in your agencies</p>
-            </div>
-          </component>
-          
-          <component 
-            :is="previewMode ? 'div' : 'router-link'"
-            v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
-            :to="previewMode ? null : '/admin/settings'"
-            class="action-card"
-            :class="{ 'preview-disabled': previewMode }"
-          >
-            <img 
-              v-if="getActionIcon('settings')" 
-              :src="getActionIcon('settings')" 
-              :alt="'Settings icon'"
-              class="action-icon"
-              @error="(e) => { e.target.style.display = 'none'; }"
-            />
-            <div v-else class="action-icon-placeholder">⚙️</div>
-            <div class="action-content">
-              <h3>Settings</h3>
-              <p>Configure your agencies, tracks, and branding</p>
-            </div>
-          </component>
-        </div>
-      </div>
+
+      <QuickActionsSection
+        v-if="!previewMode"
+        title="Quick Actions"
+        context-key="agency"
+        :actions="quickActions"
+        :default-action-ids="defaultQuickActionIds"
+        :icon-resolver="resolveQuickActionIcon"
+      />
       
       <div class="agencies-overview" v-if="myAgencies.length > 0 && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)">
         <h2>My Agencies</h2>
@@ -186,12 +87,12 @@
             class="agency-card"
             :class="{ active: currentAgency?.id === agency.id }"
           >
-            <div class="agency-info">
-              <h4>{{ agency.name }}</h4>
-              <p class="agency-meta">
+            <div class="agency-row">
+              <span class="agency-name" :title="agency.name">{{ agency.name }}</span>
+              <span class="agency-badges">
                 <span v-if="agency.is_active" class="badge badge-success">Active</span>
                 <span v-else class="badge badge-secondary">Inactive</span>
-              </p>
+              </span>
             </div>
             <component 
               :is="previewMode ? 'button' : 'router-link'"
@@ -216,6 +117,7 @@ import { useBrandingStore } from '../../store/branding';
 import { useAuthStore } from '../../store/auth';
 import { isSupervisor } from '../../utils/helpers.js';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
+import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
 
 const props = defineProps({
   previewMode: {
@@ -365,6 +267,98 @@ const getActionIcon = (actionKey) => {
   return `${apiBase}/uploads/${cleanPath}`;
 };
 
+const quickActions = computed(() => ([
+  {
+    id: 'progress_dashboard',
+    title: 'Progress Dashboard',
+    description: 'View and manage training progress, completion, and quiz scores',
+    to: '/admin/agency-progress',
+    emoji: '📊',
+    iconKey: 'progress_dashboard',
+    category: 'Training',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'supervisor'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'manage_clients',
+    title: 'Manage Clients',
+    description: 'Create and manage clients',
+    to: '/admin/clients',
+    emoji: '🧾',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'manage_modules',
+    title: 'Manage Modules',
+    description: 'Create and edit training modules',
+    to: '/admin/modules',
+    emoji: '📚',
+    iconKey: 'manage_modules',
+    category: 'Training',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canViewTraining']
+  },
+  {
+    id: 'manage_documents',
+    title: 'Manage Documents',
+    description: 'Upload templates and assign documents',
+    to: '/admin/documents',
+    emoji: '📄',
+    iconKey: 'manage_documents',
+    category: 'Documents',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canSignDocuments']
+  },
+  {
+    id: 'manage_users',
+    title: 'Manage Users',
+    description: 'View and manage user accounts',
+    to: '/admin/users',
+    emoji: '👥',
+    iconKey: 'manage_users',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'supervisor'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'settings',
+    title: 'Settings',
+    description: 'Configure organizations, tracks, and branding',
+    to: '/admin/settings',
+    emoji: '⚙️',
+    iconKey: 'settings',
+    category: 'System',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'notifications',
+    title: 'Notifications',
+    description: 'View notifications',
+    to: '/admin/notifications',
+    emoji: '🔔',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  }
+]));
+
+const defaultQuickActionIds = computed(() => ([
+  'progress_dashboard',
+  'manage_clients',
+  'manage_modules',
+  'manage_documents',
+  'manage_users',
+  'settings'
+]));
+
+const resolveQuickActionIcon = (action) => {
+  if (!action?.iconKey) return null;
+  return getActionIcon(action.iconKey);
+};
+
 // Watch for agency changes and refetch agency data
 watch(currentAgency, async (newAgency) => {
   if (newAgency) {
@@ -471,76 +465,7 @@ onMounted(async () => {
   margin: 0;
 }
 
-.quick-actions {
-  margin-bottom: 0;
-}
-
-.quick-actions h2 {
-  margin-bottom: 24px;
-  color: var(--text-primary);
-}
-
-.actions-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 20px;
-}
-
-.action-card {
-  background: white;
-  padding: 32px;
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  text-decoration: none;
-  color: inherit;
-  transition: all 0.2s;
-  border: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
-
-.action-card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-lg);
-  border-color: var(--primary);
-}
-
-.action-icon {
-  width: 64px;
-  height: 64px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-
-.action-icon-placeholder {
-  width: 64px;
-  height: 64px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  background: var(--bg-alt);
-  border-radius: 8px;
-  flex-shrink: 0;
-  opacity: 0.6;
-}
-
-.action-content {
-  flex: 1;
-}
-
-.action-card h3 {
-  color: var(--text-primary);
-  margin-bottom: 12px;
-  font-weight: 700;
-}
-
-.action-card p {
-  color: var(--text-secondary);
-  margin: 0;
-  line-height: 1.6;
-}
+/* Quick Actions are now rendered by `QuickActionsSection` */
 
 .agencies-overview {
   background: white;
@@ -562,14 +487,16 @@ onMounted(async () => {
 }
 
 .agency-card {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
   padding: 20px;
   background: var(--bg-alt);
   border-radius: 8px;
   border: 2px solid var(--border);
   transition: all 0.2s;
+  gap: 12px;
+  overflow: hidden;
 }
 
 .agency-card:hover {
@@ -582,16 +509,29 @@ onMounted(async () => {
   background: white;
 }
 
-.agency-info h4 {
-  margin: 0 0 8px;
-  color: var(--text-primary);
-  font-weight: 700;
+.agency-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: nowrap;
 }
 
-.agency-meta {
-  margin: 0;
-  display: flex;
+.agency-name {
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.agency-badges {
+  display: inline-flex;
   gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .preview-disabled {

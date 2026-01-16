@@ -30,6 +30,104 @@
           </div>
         </div>
       </div>
+
+      <!-- Profile Information (Custom Input Modules / User Info) -->
+      <div class="info-section">
+        <div class="section-header">
+          <h2 style="margin: 0;">Profile Information</h2>
+          <button class="btn btn-primary btn-large" @click="saveMyUserInfo" :disabled="savingUserInfo">
+            {{ savingUserInfo ? 'Saving...' : 'Save Profile' }}
+          </button>
+        </div>
+
+        <div v-if="userInfoLoading" class="loading">Loading profile information...</div>
+        <div v-else-if="userInfoError" class="error">{{ userInfoError }}</div>
+        <div v-else>
+          <div v-if="myCategoryOptions.length > 1" class="category-tabs">
+            <button
+              v-for="cat in myCategoryOptions"
+              :key="cat.key"
+              @click="activeMyCategoryKey = cat.key"
+              :class="['category-tab', { active: activeMyCategoryKey === cat.key }]"
+            >
+              {{ cat.label }}
+            </button>
+          </div>
+
+          <div v-if="filteredMyFields.length === 0" class="empty-state">
+            <p>No profile fields found for this category.</p>
+          </div>
+
+          <div v-else class="fields-grid">
+            <div v-for="field in filteredMyFields" :key="field.id" class="field-item">
+              <label :for="`my-field-${field.id}`">
+                {{ field.field_label }}
+                <span v-if="field.is_required" class="required-asterisk">*</span>
+                <span v-if="field.agency_name" class="agency-badge">{{ field.agency_name }}</span>
+              </label>
+
+              <input
+                v-if="field.field_type === 'text' || field.field_type === 'email' || field.field_type === 'phone'"
+                :id="`my-field-${field.id}`"
+                :type="field.field_type === 'email' ? 'email' : field.field_type === 'phone' ? 'tel' : 'text'"
+                v-model="myUserInfoValues[field.id]"
+                :required="field.is_required"
+              />
+              <input
+                v-else-if="field.field_type === 'number'"
+                :id="`my-field-${field.id}`"
+                type="number"
+                v-model="myUserInfoValues[field.id]"
+                :required="field.is_required"
+              />
+              <input
+                v-else-if="field.field_type === 'date'"
+                :id="`my-field-${field.id}`"
+                type="date"
+                v-model="myUserInfoValues[field.id]"
+                :required="field.is_required"
+              />
+              <textarea
+                v-else-if="field.field_type === 'textarea'"
+                :id="`my-field-${field.id}`"
+                v-model="myUserInfoValues[field.id]"
+                :required="field.is_required"
+                rows="4"
+              ></textarea>
+              <select
+                v-else-if="field.field_type === 'select'"
+                :id="`my-field-${field.id}`"
+                v-model="myUserInfoValues[field.id]"
+                :required="field.is_required"
+              >
+                <option value="">Select an option</option>
+                <option v-for="option in (field.options || [])" :key="option" :value="option">
+                  {{ option }}
+                </option>
+              </select>
+              <div v-else-if="field.field_type === 'multi_select'" class="multi-select">
+                <label v-for="option in (field.options || [])" :key="option" class="multi-select-option">
+                  <input
+                    type="checkbox"
+                    :checked="Array.isArray(myUserInfoValues[field.id]) ? myUserInfoValues[field.id].includes(option) : false"
+                    @change="toggleMyMultiSelect(field.id, option)"
+                  />
+                  <span>{{ option }}</span>
+                </label>
+              </div>
+              <div v-else-if="field.field_type === 'boolean'" class="checkbox-wrapper">
+                <input
+                  :id="`my-field-${field.id}`"
+                  type="checkbox"
+                  :checked="myUserInfoValues[field.id] === 'true' || myUserInfoValues[field.id] === true"
+                  @change="myUserInfoValues[field.id] = $event.target.checked ? 'true' : 'false'"
+                />
+                <label :for="`my-field-${field.id}`" class="checkbox-label">Yes</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       
       <!-- Supervisor Information Section -->
       <div v-if="accountInfo.supervisors && accountInfo.supervisors.length > 0" class="info-section">
@@ -191,6 +289,110 @@ const resettingToken = ref(false);
 const showResetModal = ref(false);
 const tokenExpirationDays = ref(7);
 
+// User Info (profile fields saved by Custom Input Modules)
+const userInfoLoading = ref(false);
+const userInfoError = ref('');
+const myUserInfoFields = ref([]);
+const myUserInfoCategories = ref([]);
+const myUserInfoValues = ref({});
+const savingUserInfo = ref(false);
+const activeMyCategoryKey = ref('__all');
+
+const normalizeMultiSelectValue = (raw) => {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      return raw.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  return [];
+};
+
+const toggleMyMultiSelect = (fieldId, option) => {
+  const current = normalizeMultiSelectValue(myUserInfoValues.value[fieldId]);
+  const exists = current.includes(option);
+  const next = exists ? current.filter((x) => x !== option) : [...current, option];
+  myUserInfoValues.value[fieldId] = next;
+};
+
+const myCategoryOptions = computed(() => {
+  const byKey = new Map((myUserInfoCategories.value || []).map((c) => [c.category_key, c]));
+  const keysFromFields = new Set((myUserInfoFields.value || []).map((f) => f.category_key || '__uncategorized'));
+
+  const options = [
+    { key: '__all', label: 'All' },
+    ...Array.from(keysFromFields)
+      .filter((k) => k !== '__all')
+      .map((k) => {
+        if (k === '__uncategorized') return { key: k, label: 'Uncategorized', order: 999999 };
+        const c = byKey.get(k);
+        return { key: k, label: c?.category_label || k, order: c?.order_index ?? 0 };
+      })
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || String(a.label).localeCompare(String(b.label)))
+  ];
+
+  return options;
+});
+
+const filteredMyFields = computed(() => {
+  if (activeMyCategoryKey.value === '__all') return myUserInfoFields.value;
+  if (activeMyCategoryKey.value === '__uncategorized') {
+    return myUserInfoFields.value.filter((f) => !f.category_key);
+  }
+  return myUserInfoFields.value.filter((f) => f.category_key === activeMyCategoryKey.value);
+});
+
+const fetchMyUserInfo = async () => {
+  try {
+    userInfoLoading.value = true;
+    userInfoError.value = '';
+    const [fieldsRes, catsRes] = await Promise.all([
+      api.get(`/users/${userId.value}/user-info`),
+      api.get('/user-info-categories')
+    ]);
+    myUserInfoFields.value = fieldsRes.data || [];
+    myUserInfoCategories.value = catsRes.data || [];
+
+    const valuesMap = {};
+    myUserInfoFields.value.forEach((field) => {
+      if (field.field_type === 'multi_select') {
+        valuesMap[field.id] = normalizeMultiSelectValue(field.value);
+      } else {
+        valuesMap[field.id] = field.value || '';
+      }
+    });
+    myUserInfoValues.value = valuesMap;
+  } catch (err) {
+    userInfoError.value = err.response?.data?.error?.message || 'Failed to load profile information';
+  } finally {
+    userInfoLoading.value = false;
+  }
+};
+
+const saveMyUserInfo = async () => {
+  try {
+    savingUserInfo.value = true;
+    userInfoError.value = '';
+
+    const values = Object.keys(myUserInfoValues.value).map((fieldId) => ({
+      fieldDefinitionId: parseInt(fieldId),
+      value: Array.isArray(myUserInfoValues.value[fieldId]) ? JSON.stringify(myUserInfoValues.value[fieldId]) : (myUserInfoValues.value[fieldId] || null)
+    }));
+
+    await api.post(`/users/${userId.value}/user-info`, { values });
+    await fetchMyUserInfo();
+    alert('Profile information saved successfully!');
+  } catch (err) {
+    userInfoError.value = err.response?.data?.error?.message || 'Failed to save profile information';
+    alert(userInfoError.value);
+  } finally {
+    savingUserInfo.value = false;
+  }
+};
+
 const copyLink = () => {
   if (accountInfo.value.passwordlessLoginLink) {
     navigator.clipboard.writeText(accountInfo.value.passwordlessLoginLink).then(() => {
@@ -293,6 +495,7 @@ const downloadCompletionPackage = async () => {
 onMounted(() => {
   if (userId.value) {
     fetchAccountInfo();
+    fetchMyUserInfo();
   }
 });
 </script>
@@ -335,6 +538,102 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+}
+
+.category-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 18px 0;
+}
+
+.category-tab {
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.category-tab.active {
+  background: #e3f2fd;
+  border-color: #90caf9;
+  color: #1e3a8a;
+}
+
+.fields-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.field-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-item label {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.required-asterisk {
+  color: #dc3545;
+  margin-left: 4px;
+}
+
+.agency-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.field-item input,
+.field-item select,
+.field-item textarea {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.checkbox-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.multi-select {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.multi-select-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
 .download-section {

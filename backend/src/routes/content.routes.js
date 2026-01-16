@@ -6,7 +6,7 @@ import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 const router = express.Router();
 
 const validateContent = [
-  body('contentType').isIn(['video', 'slide', 'quiz', 'acknowledgment', 'text']).withMessage('Invalid content type'),
+  body('contentType').isIn(['video', 'slide', 'quiz', 'acknowledgment', 'text', 'form']).withMessage('Invalid content type'),
   body('contentData').isObject().withMessage('Content data must be an object'),
   body('orderIndex').optional().isInt({ min: 0 })
 ];

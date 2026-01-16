@@ -8,19 +8,26 @@
     <div v-else-if="totalNotifications === 0 && !showAllAgenciesCard" class="empty-state">
       <p>No notifications at this time.</p>
     </div>
-    <div v-else class="notification-cards-grid">
+    <div v-else>
+      <div v-if="showTopToggle" class="top-toggle">
+        <button class="btn-toggle" type="button" @click="toggleShowAll">
+          {{ showAll ? 'Show top 10' : `Show all (${agenciesWithNotifications.length})` }}
+        </button>
+      </div>
+
+      <div class="notification-cards-grid">
       <!-- All Agencies Card (if multiple agencies or super_admin) -->
       <div
         v-if="showAllAgenciesCard"
         class="notification-card all-agencies-card"
-        @click="openCategoryModal(null, 'All Agencies')"
+        @click="goToAllNotifications"
       >
         <div class="card-content">
           <div class="agency-icon-wrapper">
             <img
               v-if="allAgenciesNotificationsIconUrl"
               :src="allAgenciesNotificationsIconUrl"
-              alt="All Agencies Notifications"
+              alt="All Notifications"
               class="agency-icon"
             />
             <div v-else class="agency-icon-placeholder all-agencies">
@@ -28,7 +35,7 @@
             </div>
           </div>
           <div class="card-info">
-            <h3 class="agency-name">All Agencies</h3>
+            <h3 class="agency-name">All Notifications</h3>
             <p class="notification-count-text">
               {{ totalNotifications }} 
               {{ totalNotifications === 1 ? 'notification' : 'notifications' }}
@@ -42,7 +49,7 @@
 
       <!-- Individual Agency Cards -->
       <div
-        v-for="agency in agenciesWithNotifications"
+        v-for="agency in visibleAgencies"
         :key="agency.id"
         class="notification-card"
         :style="getCardStyle(agency)"
@@ -73,6 +80,7 @@
           </div>
         </div>
       </div>
+      </div>
     </div>
 
     <!-- Category Modal -->
@@ -86,7 +94,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useNotificationStore } from '../../store/notifications';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -98,6 +107,8 @@ const notificationStore = useNotificationStore();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
+const router = useRouter();
+const route = useRoute();
 
 const loading = ref(false);
 const agencies = ref([]);
@@ -105,6 +116,8 @@ const iconErrors = ref({});
 const showCategoryModal = ref(false);
 const selectedAgencyId = ref(null);
 const selectedAgencyName = ref('');
+const showAll = ref(false);
+const isDesktop = ref(true);
 
 const totalNotifications = computed(() => {
   return Object.values(notificationStore.counts).reduce((sum, count) => sum + count, 0);
@@ -125,6 +138,29 @@ const agenciesWithNotifications = computed(() => {
   }
   // For regular admins, show all their agencies (they'll see counts)
   return agencies.value;
+});
+
+const sortedAgencies = computed(() => {
+  const list = [...(agenciesWithNotifications.value || [])];
+  const countFor = (id) => notificationStore.counts?.[id] || 0;
+  list.sort((a, b) => {
+    const ac = countFor(a?.id);
+    const bc = countFor(b?.id);
+    if (ac !== bc) return bc - ac;
+    return String(a?.name || '').localeCompare(String(b?.name || ''));
+  });
+  return list;
+});
+
+const showTopToggle = computed(() => {
+  // Desktop-only affordance
+  return isDesktop.value && sortedAgencies.value.length > 10;
+});
+
+const visibleAgencies = computed(() => {
+  if (!isDesktop.value) return sortedAgencies.value;
+  if (showAll.value) return sortedAgencies.value;
+  return sortedAgencies.value.slice(0, 10);
 });
 
 const allAgenciesNotificationsIconUrl = computed(() => {
@@ -204,6 +240,26 @@ const openCategoryModal = (agencyId, agencyName) => {
   showCategoryModal.value = true;
 };
 
+const orgTo = (path) => {
+  const slug = route.params.organizationSlug;
+  if (typeof slug === 'string' && slug) return `/${slug}${path}`;
+  return path;
+};
+
+const goToAllNotifications = () => {
+  // Match existing navigation conventions:
+  // - supervisors/CPAs use /notifications
+  // - admins/support/super_admin use /admin/notifications
+  const role = authStore.user?.role;
+  const isSupervisorOrCpa = role === 'supervisor' || role === 'clinical_practice_assistant';
+  const path = isSupervisorOrCpa ? '/notifications' : '/admin/notifications';
+  router.push(orgTo(path));
+};
+
+const toggleShowAll = () => {
+  showAll.value = !showAll.value;
+};
+
 const closeCategoryModal = () => {
   showCategoryModal.value = false;
   selectedAgencyId.value = null;
@@ -243,12 +299,29 @@ const fetchNotificationCounts = async () => {
 };
 
 onMounted(async () => {
+  // Track desktop breakpoint for top-10 behavior.
+  const mq = window.matchMedia('(min-width: 769px)');
+  const apply = () => {
+    isDesktop.value = !!mq.matches;
+    if (!isDesktop.value) showAll.value = true; // mobile/tablet: show all
+  };
+  apply();
+  const onChange = () => apply();
+  mq.addEventListener?.('change', onChange);
+  // Safari fallback
+  mq.addListener?.(onChange);
+
   // Fetch platform branding to get the all agencies notifications icon
   if (!brandingStore.platformBranding) {
     await brandingStore.fetchPlatformBranding();
   }
   await fetchAgencies();
   await fetchNotificationCounts();
+
+  onUnmounted(() => {
+    mq.removeEventListener?.('change', onChange);
+    mq.removeListener?.(onChange);
+  });
 });
 
 // Watch for agency changes
@@ -267,6 +340,26 @@ watch(() => agencyStore.agencies, async () => {
 .notification-cards-container h2 {
   margin-bottom: 24px;
   color: var(--text-primary);
+}
+
+.top-toggle {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 10px 0;
+}
+
+.btn-toggle {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.btn-toggle:hover {
+  border-color: var(--primary);
 }
 
 .loading {

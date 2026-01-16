@@ -55,14 +55,29 @@ class Agency {
     } catch (e) {
       hasIconId = false;
     }
+
+    // Check if chat_icon_id column exists
+    let hasChatIconId = false;
+    try {
+      const [chatCols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'chat_icon_id'"
+      );
+      hasChatIconId = chatCols.length > 0;
+    } catch (e) {
+      hasChatIconId = false;
+    }
     
     let query;
     if (hasIconId) {
       // Join with icons table to get master icon file path
       query = `SELECT a.*,
-        master_i.file_path as icon_file_path, master_i.name as icon_name
+        master_i.file_path as icon_file_path, master_i.name as icon_name${
+          hasChatIconId ? ", chat_i.file_path as chat_icon_path, chat_i.name as chat_icon_name" : ''
+        }
         FROM agencies a
-        LEFT JOIN icons master_i ON a.icon_id = master_i.id`;
+        LEFT JOIN icons master_i ON a.icon_id = master_i.id${
+          hasChatIconId ? "\n        LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id" : ''
+        }`;
     } else {
       query = 'SELECT * FROM agencies';
     }
@@ -127,6 +142,17 @@ class Agency {
       hasIconId = false;
     }
 
+    // Check if chat_icon_id column exists
+    let hasChatIconId = false;
+    try {
+      const [chatCols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'chat_icon_id'"
+      );
+      hasChatIconId = chatCols.length > 0;
+    } catch (e) {
+      hasChatIconId = false;
+    }
+
     // Check if "My Dashboard" card icon columns exist
     let hasMyDashboardIcons = false;
     try {
@@ -160,6 +186,7 @@ class Agency {
       // Join with icons table to get icon file paths (including master icon)
       query = `SELECT a.*,
         master_i.file_path as icon_file_path, master_i.name as icon_name,
+        ${hasChatIconId ? 'chat_i.file_path as chat_icon_path, chat_i.name as chat_icon_name,' : ''}
         ma_i.file_path as manage_agencies_icon_path, ma_i.name as manage_agencies_icon_name,
         mm_i.file_path as manage_modules_icon_path, mm_i.name as manage_modules_icon_name,
         md_i.file_path as manage_documents_icon_path, md_i.name as manage_documents_icon_name,
@@ -170,6 +197,7 @@ class Agency {
         s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${myDashSelects}
         FROM agencies a
         ${hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : ''}
+        ${hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : ''}
         LEFT JOIN icons ma_i ON a.manage_agencies_icon_id = ma_i.id
         LEFT JOIN icons mm_i ON a.manage_modules_icon_id = mm_i.id
         LEFT JOIN icons md_i ON a.manage_documents_icon_id = md_i.id
@@ -183,9 +211,13 @@ class Agency {
       // Even without dashboard icons, join for master icon if column exists
       if (hasIconId) {
         query = `SELECT a.*,
-          master_i.file_path as icon_file_path, master_i.name as icon_name
+          master_i.file_path as icon_file_path, master_i.name as icon_name${
+            hasChatIconId ? ", chat_i.file_path as chat_icon_path, chat_i.name as chat_icon_name" : ''
+          }
           FROM agencies a
-          LEFT JOIN icons master_i ON a.icon_id = master_i.id
+          LEFT JOIN icons master_i ON a.icon_id = master_i.id${
+            hasChatIconId ? "\n          LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id" : ''
+          }
           WHERE a.id = ?`;
       } else {
         query = 'SELECT * FROM agencies WHERE id = ?';
@@ -304,7 +336,7 @@ class Agency {
   }
 
   static async create(agencyData) {
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType } = agencyData;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType } = agencyData;
     
     // Check if icon_id column exists
     let hasIconId = false;
@@ -316,6 +348,17 @@ class Agency {
     } catch (e) {
       // If check fails, assume column doesn't exist
       hasIconId = false;
+    }
+
+    // Check if chat_icon_id column exists
+    let hasChatIconId = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'chat_icon_id'"
+      );
+      hasChatIconId = cols.length > 0;
+    } catch (e) {
+      hasChatIconId = false;
     }
     
     // Check if portal config columns exist
@@ -372,6 +415,11 @@ class Agency {
       insertFields.push('icon_id');
       insertValues.push(iconId || null);
     }
+
+    if (hasChatIconId) {
+      insertFields.push('chat_icon_id');
+      insertValues.push(chatIconId || null);
+    }
     
     if (hasPortalConfig) {
       insertFields.push('onboarding_team_email', 'phone_number', 'phone_extension', 'portal_url', 'theme_settings');
@@ -403,7 +451,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId } = agencyData;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId } = agencyData;
     
     // Check if icon_id column exists
     let hasIconId = false;
@@ -415,6 +463,17 @@ class Agency {
     } catch (e) {
       // If check fails, assume column doesn't exist
       hasIconId = false;
+    }
+
+    // Check if chat_icon_id column exists
+    let hasChatIconId = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'chat_icon_id'"
+      );
+      hasChatIconId = cols.length > 0;
+    } catch (e) {
+      hasChatIconId = false;
     }
     
     const updates = [];
@@ -462,6 +521,11 @@ class Agency {
     if (iconId !== undefined && hasIconId) {
       updates.push('icon_id = ?');
       values.push(iconId);
+    }
+
+    if (chatIconId !== undefined && hasChatIconId) {
+      updates.push('chat_icon_id = ?');
+      values.push(chatIconId === '' ? null : (chatIconId || null));
     }
     
     // Check if default icon columns exist

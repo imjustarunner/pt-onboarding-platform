@@ -28,6 +28,8 @@ class Notification {
     'emergency_broadcast',
     // Client chat / notes
     'client_note',
+    // Platform chat (internal DM)
+    'chat_message',
     // Client pipeline automation
     'paperwork_received',
     'client_became_current',
