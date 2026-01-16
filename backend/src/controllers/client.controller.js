@@ -3,6 +3,9 @@ import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import pool from '../config/database.js';
+import { adjustProviderSlots } from '../services/providerSlots.service.js';
+import { notifyClientBecameCurrent, notifyPaperworkReceived } from '../services/clientNotifications.service.js';
 
 /**
  * Get all clients (agency view)
@@ -85,21 +88,21 @@ export const getClientById = async (req, res, next) => {
     const userAgencyIds = userAgencies.map(a => a.id);
     const userOrganizationIds = userAgencies.map(a => a.id);
 
-    // Check if user belongs to client's agency OR client's school organization
+    // Check if user belongs to client's agency OR client's organization
     const hasAgencyAccess = userAgencyIds.includes(client.agency_id);
-    const hasSchoolAccess = userOrganizationIds.includes(client.organization_id);
+    const hasOrganizationAccess = userOrganizationIds.includes(client.organization_id);
 
-    if (!hasAgencyAccess && !hasSchoolAccess) {
+    if (!hasAgencyAccess && !hasOrganizationAccess) {
       return res.status(403).json({ 
         error: { message: 'You do not have access to this client' } 
       });
     }
 
-    // If user is school staff (accessing via school organization), return restricted view
+    // If user is accessing via a non-agency organization (school/program/learning), return restricted view
     const userOrganization = userAgencies.find(org => org.id === client.organization_id);
-    const isSchoolStaff = userOrganization && (userOrganization.organization_type || 'agency') === 'school';
+    const isNonAgencyOrgStaff = userOrganization && (String(userOrganization.organization_type || 'agency').toLowerCase() !== 'agency');
 
-    if (isSchoolStaff && !hasAgencyAccess) {
+    if (isNonAgencyOrgStaff && !hasAgencyAccess) {
       // Return restricted view (exclude sensitive fields)
       const restrictedClient = {
         id: client.id,
@@ -157,19 +160,41 @@ export const createClient = async (req, res, next) => {
       });
     }
 
+    const parsedAgencyId = parseInt(agency_id, 10);
+    const parsedOrganizationId = parseInt(organization_id, 10);
+    if (!parsedAgencyId || !parsedOrganizationId) {
+      return res.status(400).json({
+        error: { message: 'agency_id and organization_id must be valid integers' }
+      });
+    }
+
     // Verify user has access to the agency
     if (userRole !== 'super_admin') {
       const userAgencies = await User.getAgencies(userId);
       const userAgencyIds = userAgencies.map(a => a.id);
-      if (!userAgencyIds.includes(agency_id)) {
+      if (!userAgencyIds.includes(parsedAgencyId)) {
         return res.status(403).json({ 
           error: { message: 'You do not have access to this agency' } 
         });
       }
     }
 
-    // Verify organization exists and is a school
-    const organization = await Agency.findById(organization_id);
+    // Verify agency exists and is an agency-type organization (clients can't be created "directly for agency")
+    const agencyOrg = await Agency.findById(parsedAgencyId);
+    if (!agencyOrg) {
+      return res.status(404).json({
+        error: { message: 'Agency not found' }
+      });
+    }
+    const agencyOrgType = (agencyOrg.organization_type || 'agency').toLowerCase();
+    if (agencyOrgType !== 'agency') {
+      return res.status(400).json({
+        error: { message: 'agency_id must refer to an agency organization' }
+      });
+    }
+
+    // Verify organization exists and is NOT an agency (allow school/program/learning)
+    const organization = await Agency.findById(parsedOrganizationId);
     if (!organization) {
       return res.status(404).json({ 
         error: { message: 'Organization not found' } 
@@ -177,16 +202,34 @@ export const createClient = async (req, res, next) => {
     }
 
     const orgType = organization.organization_type || 'agency';
-    if (orgType !== 'school') {
+    const normalizedOrgType = String(orgType).toLowerCase();
+    const allowedOrgTypes = ['school', 'program', 'learning'];
+    if (!allowedOrgTypes.includes(normalizedOrgType)) {
       return res.status(400).json({ 
-        error: { message: 'Clients must be associated with a school organization' } 
+        error: { message: `Clients must be associated with an organization of type: ${allowedOrgTypes.join(', ')}` } 
       });
+    }
+
+    // Verify organization is linked to the agency (enforces nested/associated rule)
+    // Note: we reuse agency_schools as the linkage table for any non-agency organization types.
+    try {
+      const AgencySchool = (await import('../models/AgencySchool.model.js')).default;
+      const links = await AgencySchool.listByAgency(parsedAgencyId, { includeInactive: false });
+      const isLinked = links.some((l) => parseInt(l.school_organization_id, 10) === parsedOrganizationId);
+      if (!isLinked) {
+        return res.status(400).json({
+          error: { message: 'Selected organization is not linked to this agency' }
+        });
+      }
+    } catch (e) {
+      // If linkage table/model isn't available for some reason, fall back to permissive behavior.
+      // This avoids blocking client creation in older environments.
     }
 
     // Create client
     const client = await Client.create({
-      organization_id,
-      agency_id,
+      organization_id: parsedOrganizationId,
+      agency_id: parsedAgencyId,
       provider_id: provider_id || null,
       initials: initials.toUpperCase().trim(),
       status,
@@ -252,7 +295,23 @@ export const updateClient = async (req, res, next) => {
     }
 
     // Update client
-    const updatedClient = await Client.update(id, req.body, userId);
+    let updatedClient = await Client.update(id, req.body, userId);
+
+    // If paperwork status is set to "Completed" and paperwork_received_at isn't set, set it automatically.
+    if (req.body.paperwork_status_id !== undefined) {
+      try {
+        const statusId = req.body.paperwork_status_id ? parseInt(req.body.paperwork_status_id, 10) : null;
+        if (statusId) {
+          const [rows] = await pool.execute(`SELECT status_key FROM paperwork_statuses WHERE id = ? LIMIT 1`, [statusId]);
+          const isCompleted = String(rows[0]?.status_key || '').toLowerCase() === 'completed';
+          if (isCompleted && !updatedClient.paperwork_received_at) {
+            updatedClient = await Client.update(id, { paperwork_received_at: new Date() }, userId);
+          }
+        }
+      } catch {
+        // Best-effort only
+      }
+    }
 
     // Log changes to history (for status and provider changes, use specific methods)
     // For other fields, log here
@@ -269,6 +328,22 @@ export const updateClient = async (req, res, next) => {
         to_value: req.body[field]?.toString() || null,
         note: `Updated ${field}`
       });
+    }
+
+    // Notifications: paperwork received
+    try {
+      const wasReceived = !!currentClient.paperwork_received_at;
+      const nowReceived = !!updatedClient.paperwork_received_at;
+      if (!wasReceived && nowReceived) {
+        await notifyPaperworkReceived({
+          agencyId: updatedClient.agency_id,
+          schoolOrganizationId: updatedClient.organization_id,
+          clientId: updatedClient.id,
+          clientNameOrIdentifier: updatedClient.identifier_code || updatedClient.full_name || updatedClient.initials
+        });
+      }
+    } catch {
+      // ignore
     }
 
     res.json(updatedClient);
@@ -331,7 +406,7 @@ export const updateClientStatus = async (req, res, next) => {
 export const assignProvider = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { provider_id, note } = req.body;
+    const { provider_id, service_day, note } = req.body;
     const userId = req.user.id;
     const userRole = req.user.role;
 
@@ -342,35 +417,137 @@ export const assignProvider = async (req, res, next) => {
       });
     }
 
-    // Get current client
-    const currentClient = await Client.findById(id);
-    if (!currentClient) {
-      return res.status(404).json({ error: { message: 'Client not found' } });
+    const normalizedDay = service_day ? String(service_day).trim() : null;
+    const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    if (normalizedDay && !allowedDays.includes(normalizedDay)) {
+      return res.status(400).json({ error: { message: `Invalid service_day. Must be one of: ${allowedDays.join(', ')}` } });
     }
 
-    // Verify user has access to client's agency
-    if (userRole !== 'super_admin') {
-      const userAgencies = await User.getAgencies(userId);
-      const userAgencyIds = userAgencies.map(a => a.id);
-      if (!userAgencyIds.includes(currentClient.agency_id)) {
-        return res.status(403).json({ 
-          error: { message: 'You do not have access to this client' } 
-        });
-      }
-    }
+    const providerId = provider_id === null || provider_id === '' || provider_id === undefined ? null : parseInt(provider_id, 10);
 
     // Verify provider exists if provided
-    if (provider_id !== null && provider_id !== undefined) {
-      const provider = await User.findById(provider_id);
+    if (providerId !== null) {
+      const provider = await User.findById(providerId);
       if (!provider) {
         return res.status(404).json({ error: { message: 'Provider not found' } });
       }
     }
 
-    // Assign provider with history logging
-    const updatedClient = await Client.assignProvider(id, provider_id || null, userId, note);
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
 
-    res.json(updatedClient);
+      const [clientRows] = await connection.execute(
+        `SELECT id, agency_id, provider_id, organization_id, service_day
+         FROM clients
+         WHERE id = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [parseInt(id, 10)]
+      );
+      const currentClient = clientRows[0];
+      if (!currentClient) {
+        await connection.rollback();
+        return res.status(404).json({ error: { message: 'Client not found' } });
+      }
+
+      // Verify user has access to client's agency
+      if (userRole !== 'super_admin') {
+        const userAgencies = await User.getAgencies(userId);
+        const userAgencyIds = userAgencies.map(a => a.id);
+        if (!userAgencyIds.includes(currentClient.agency_id)) {
+          await connection.rollback();
+          return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+        }
+      }
+
+      const oldProviderId = currentClient.provider_id ? parseInt(currentClient.provider_id, 10) : null;
+      const oldDay = currentClient.service_day ? String(currentClient.service_day) : null;
+      const schoolId = parseInt(currentClient.organization_id, 10);
+      const oldIsCurrent = !!(oldProviderId && oldDay);
+
+      // If changing provider while client has a day, require a day to be provided for slot safety.
+      if (providerId !== null && oldDay && providerId !== oldProviderId && !normalizedDay) {
+        await connection.rollback();
+        return res.status(400).json({
+          error: { message: 'service_day is required when changing provider for a client that already has a day assigned' }
+        });
+      }
+
+      // Determine target day: provided value, or keep existing if not provided.
+      const targetDay = normalizedDay !== null ? normalizedDay : oldDay;
+
+      // Day must not be explicitly set without a provider
+      if (normalizedDay && !providerId) {
+        await connection.rollback();
+        return res.status(400).json({ error: { message: 'Cannot assign a day without a provider' } });
+      }
+
+      // Release old slot if needed
+      if (oldProviderId && oldDay) {
+        const same = providerId === oldProviderId && targetDay === oldDay;
+        if (!same && (providerId === null || targetDay !== oldDay || providerId !== oldProviderId)) {
+          await adjustProviderSlots(connection, { providerUserId: oldProviderId, schoolId, dayOfWeek: oldDay, delta: +1 });
+        }
+      }
+
+      // Take new slot if needed
+      if (providerId && targetDay) {
+        const same = providerId === oldProviderId && targetDay === oldDay;
+        if (!same) {
+          const take = await adjustProviderSlots(connection, { providerUserId: providerId, schoolId, dayOfWeek: targetDay, delta: -1 });
+          if (!take.ok) {
+            await connection.rollback();
+            return res.status(400).json({ error: { message: take.reason } });
+          }
+        }
+      }
+
+      // If provider cleared, clear day too.
+      const finalProviderId = providerId;
+      const finalDay = finalProviderId ? targetDay : null;
+      const newIsCurrent = !!(finalProviderId && finalDay);
+
+      await connection.execute(
+        `UPDATE clients
+         SET provider_id = ?, service_day = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [finalProviderId, finalDay, userId, parseInt(id, 10)]
+      );
+
+      // History entries
+      if (oldProviderId !== finalProviderId) {
+        await connection.execute(
+          `INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
+           VALUES (?, ?, 'provider_id', ?, ?, ?)`,
+          [parseInt(id, 10), userId, oldProviderId ? String(oldProviderId) : null, finalProviderId ? String(finalProviderId) : null, note || null]
+        );
+      }
+      if (oldDay !== finalDay) {
+        await connection.execute(
+          `INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
+           VALUES (?, ?, 'service_day', ?, ?, ?)`,
+          [parseInt(id, 10), userId, oldDay || null, finalDay || null, note || null]
+        );
+      }
+
+      await connection.commit();
+
+      const updatedClient = await Client.findById(id);
+      // Notifications: client became Current
+      if (!oldIsCurrent && newIsCurrent) {
+        notifyClientBecameCurrent({
+          agencyId: updatedClient.agency_id,
+          schoolOrganizationId: updatedClient.organization_id,
+          clientId: updatedClient.id,
+          providerUserId: finalProviderId,
+          clientNameOrIdentifier: updatedClient.identifier_code || updatedClient.full_name || updatedClient.initials
+        }).catch(() => {});
+      }
+      res.json(updatedClient);
+    } finally {
+      connection.release();
+    }
   } catch (error) {
     console.error('Assign provider error:', error);
     next(error);

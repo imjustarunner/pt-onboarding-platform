@@ -1,46 +1,51 @@
 <template>
-  <div class="passwordless-login-container">
-    <div class="login-card">
-      <div v-if="needsIdentityVerification" class="identity-verification">
-        <h2>Identity Verification</h2>
-        <p>Please enter your last name to continue:</p>
-        <form @submit.prevent="verifyAndLogin">
-          <input
-            v-model="lastName"
-            type="text"
-            placeholder="Last Name"
-            required
-            class="form-input"
-            :disabled="verifying"
-          />
-          <button type="submit" class="btn btn-primary" :disabled="verifying || !lastName.trim()">
-            {{ verifying ? 'Verifying...' : 'Continue' }}
-          </button>
-        </form>
-        <p v-if="verificationError" class="error-message">{{ verificationError }}</p>
-      </div>
-      <div v-else-if="loading" class="loading">
-        <p>Logging you in...</p>
-      </div>
-      <div v-else-if="error" class="error">
-        <h2>Login Failed</h2>
-        <p>{{ error }}</p>
-        <router-link to="/login" class="btn btn-primary">Go to Login</router-link>
-      </div>
-      <div v-else class="success">
-        <h2>Login Successful</h2>
-        <p>Redirecting...</p>
+  <div class="passwordless-login-container" :style="{ background: loginBackground }">
+    <div class="passwordless-content">
+      <div class="login-card">
+        <div v-if="needsIdentityVerification" class="identity-verification">
+          <h2>Identity Verification</h2>
+          <p>Please enter your last name to continue:</p>
+          <form @submit.prevent="verifyAndLogin">
+            <input
+              v-model="lastName"
+              type="text"
+              placeholder="Last Name"
+              required
+              class="form-input"
+              :disabled="verifying"
+            />
+            <button type="submit" class="btn btn-primary" :disabled="verifying || !lastName.trim()">
+              {{ verifying ? 'Verifying...' : 'Continue' }}
+            </button>
+          </form>
+          <p v-if="verificationError" class="error-message">{{ verificationError }}</p>
+        </div>
+        <div v-else-if="loading" class="loading">
+          <p>Logging you in...</p>
+        </div>
+        <div v-else-if="error" class="error">
+          <h2>Login Failed</h2>
+          <p>{{ error }}</p>
+          <router-link to="/login" class="btn btn-primary">Go to Login</router-link>
+        </div>
+        <div v-else class="success">
+          <h2>Login Successful</h2>
+          <p>Redirecting...</p>
+        </div>
       </div>
     </div>
+
+    <PoweredByFooter />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
+import PoweredByFooter from '../components/PoweredByFooter.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -53,6 +58,8 @@ const needsIdentityVerification = ref(false);
 const lastName = ref('');
 const verifying = ref(false);
 const verificationError = ref('');
+
+const loginBackground = computed(() => brandingStore.loginBackground);
 
 const attemptLogin = async (lastNameValue = null) => {
   const token = route.params.token;
@@ -176,10 +183,18 @@ onMounted(async () => {
 <style scoped>
 .passwordless-login-container {
   display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  min-height: 100vh;
+  padding: 24px 16px;
+}
+
+.passwordless-content {
+  flex: 1;
+  display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
 }
 
 .login-card {

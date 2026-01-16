@@ -6,7 +6,7 @@
         <h1>{{ viewMode === 'hierarchy' ? 'Training Focus Management' : 'Module Management' }}</h1>
       </div>
       <div class="header-actions">
-        <router-link to="/admin/settings?tab=custom-checklist" class="btn btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center;">
+        <router-link to="/admin/checklist-items" class="btn btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center;">
           📋 Checklist Items
         </router-link>
         <button 
@@ -193,6 +193,20 @@
               >
                 {{ (focus.is_active === true || focus.is_active === 1) ? 'Deactivate' : 'Activate' }}
               </button>
+              <button
+                v-if="canCreateEdit && focus.agency_id"
+                @click.stop="duplicateTrainingFocus(focus)"
+                class="btn btn-secondary btn-sm"
+              >
+                Duplicate (Full Copy)
+              </button>
+              <button
+                v-else-if="canCreateEdit && userRole === 'super_admin' && !focus.agency_id"
+                @click.stop="copyTrainingFocusToAgency(focus)"
+                class="btn btn-secondary btn-sm"
+              >
+                Copy to Agency
+              </button>
               <button 
                 @click.stop="assignTrainingFocus(focus)" 
                 class="btn btn-info btn-sm"
@@ -216,6 +230,13 @@
           </div>
           <div v-if="expandedFocuses.includes(focus.id)" class="focus-modules">
             <div v-if="loadingModules[focus.id]" class="loading-modules">Loading modules...</div>
+            <div
+              v-else-if="focusModuleLoadErrors[focus.id]"
+              class="error-message"
+              style="margin-bottom: 12px; padding: 10px; background: #fee2e2; border-radius: 8px; color: #991b1b;"
+            >
+              {{ focusModuleLoadErrors[focus.id] }}
+            </div>
             <div v-else-if="focusModules[focus.id] && focusModules[focus.id].length === 0" class="no-modules">
               <p>No modules in this training focus</p>
             </div>
@@ -313,6 +334,20 @@
                     class="btn btn-secondary btn-sm"
                   >
                     Copy
+                  </button>
+                  <button
+                    v-if="canCreateEdit"
+                    @click.stop="duplicateModule(module)"
+                    class="btn btn-secondary btn-sm"
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    v-if="canCreateEdit"
+                    @click.stop="toggleModuleActive(module)"
+                    :class="['btn', 'btn-sm', isModuleActive(module) ? 'btn-warning' : 'btn-success']"
+                  >
+                    {{ isModuleActive(module) ? 'Deactivate' : 'Activate' }}
                   </button>
                   <button 
                     v-if="canCreateEdit" 
@@ -426,12 +461,14 @@
                   </div>
                 </div>
                 <button @click="assignModule(module)" class="btn btn-success btn-sm">Assign</button>
-                <button 
-                  v-if="canCreateEdit" 
-                  @click="copyModule(module)" 
-                  class="btn btn-secondary btn-sm"
+                <button v-if="canCreateEdit" @click="copyModule(module)" class="btn btn-secondary btn-sm">Copy</button>
+                <button v-if="canCreateEdit" @click="duplicateModule(module)" class="btn btn-secondary btn-sm">Duplicate</button>
+                <button
+                  v-if="canCreateEdit"
+                  @click="toggleModuleActive(module)"
+                  :class="['btn', 'btn-sm', isModuleActive(module) ? 'btn-warning' : 'btn-success']"
                 >
-                  Copy
+                  {{ isModuleActive(module) ? 'Deactivate' : 'Activate' }}
                 </button>
                 <button 
                   v-if="canCreateEdit" 
@@ -480,17 +517,11 @@
             <input v-model.number="moduleForm.orderIndex" type="number" min="0" />
           </div>
           <div class="form-group">
-            <label>
-              <input v-model="moduleForm.isActive" type="checkbox" />
-              Active
-            </label>
-          </div>
-          
-          <div v-if="editingModule" class="form-group">
+            <label>Status</label>
             <button 
               type="button" 
               @click="toggleModuleStatus" 
-              :class="['btn', moduleForm.isActive ? 'btn-warning' : 'btn-success']"
+              :class="['btn', 'btn-lg', moduleForm.isActive ? 'btn-warning' : 'btn-success']"
             >
               {{ moduleForm.isActive ? 'Deactivate Module' : 'Activate Module' }}
             </button>
@@ -618,23 +649,53 @@
           </div>
           <div class="form-group">
             <label>Add Module</label>
-            <div style="display: flex; gap: 8px; align-items: flex-start;">
-              <select v-model="trainingFocusForm.linkedModuleId" class="filter-select" style="flex: 1;">
-                <option :value="null">Link Existing Module</option>
-                <option v-for="module in modules" :key="module.id" :value="module.id">
-                  {{ module.title }}
-                </option>
-              </select>
-              <button 
-                type="button"
-                @click="createModuleForTrainingFocus"
-                class="btn btn-primary btn-sm"
-              >
-                Create New Module
-              </button>
+            <div style="border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: #f8f9fa;">
+              <div v-if="editingTrainingFocus && trainingFocusModulesInModal.length === 0" class="empty-state" style="padding: 16px; text-align: center; color: var(--text-secondary);">
+                No modules linked to this training focus yet.
+              </div>
+              <div v-else-if="editingTrainingFocus" style="margin-bottom: 12px;">
+                <div
+                  v-for="m in trainingFocusModulesInModal"
+                  :key="m.id"
+                  style="display: flex; justify-content: space-between; align-items: center; padding: 8px; background: white; border-radius: 4px; margin-bottom: 8px;"
+                >
+                  <span>{{ m.title }}</span>
+                  <button
+                    type="button"
+                    @click="removeModuleFromTrainingFocus(m.id)"
+                    class="btn btn-danger btn-xs"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 8px; align-items: flex-start;">
+                <select v-model="trainingFocusForm.linkedModuleId" class="filter-select" style="flex: 1;">
+                  <option :value="null">Select Module</option>
+                  <option v-for="module in availableModulesForTrainingFocus" :key="module.id" :value="module.id">
+                    {{ module.title }}
+                  </option>
+                </select>
+                <button
+                  type="button"
+                  @click="addModuleToTrainingFocus"
+                  class="btn btn-primary btn-sm"
+                  :disabled="!trainingFocusForm.linkedModuleId"
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  @click="createModuleForTrainingFocus"
+                  class="btn btn-secondary btn-sm"
+                >
+                  Create New Module
+                </button>
+              </div>
             </div>
             <small style="display: block; margin-top: 4px; color: var(--text-secondary);">
-              Link an existing module to this training focus, or create a new one.
+              Select a module and click Add. You can repeat this to add multiple modules.
             </small>
           </div>
           <div v-if="editingTrainingFocus" class="form-group">
@@ -739,6 +800,15 @@
       @close="showAssignTrainingFocusDialog = false; trainingFocusToAssign = null"
       @assigned="handleTrainingFocusAssigned"
     />
+
+    <!-- Duplicate/Copy Training Focus (Full Copy, includes modules) -->
+    <TrackCopyDialog
+      v-if="showTrackCopyDialog && trainingFocusToCopy"
+      :track="trainingFocusToCopy"
+      :copyToAgency="copyTrainingFocusToAgencyMode"
+      @close="showTrackCopyDialog = false; trainingFocusToCopy = null; copyTrainingFocusToAgencyMode = false"
+      @copied="handleTrainingFocusCopied"
+    />
   </div>
 </template>
 
@@ -754,6 +824,7 @@ import ModuleAssignmentDialog from '../../components/admin/ModuleAssignmentDialo
 import AssignPublicTrainingDialog from '../../components/admin/AssignPublicTrainingDialog.vue';
 import TrainingFocusAssignmentDialog from '../../components/admin/TrainingFocusAssignmentDialog.vue';
 import IconSelector from '../../components/admin/IconSelector.vue';
+import TrackCopyDialog from '../../components/admin/TrackCopyDialog.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -789,6 +860,9 @@ const showCreateTrainingFocusModal = ref(false);
 const showAssignPublicModal = ref(false);
 const showAssignTrainingFocusDialog = ref(false);
 const trainingFocusToAssign = ref(null);
+const showTrackCopyDialog = ref(false);
+const trainingFocusToCopy = ref(null);
+const copyTrainingFocusToAgencyMode = ref(false);
 const currentModule = ref(null);
 const moduleToCopy = ref(null);
 const moduleToAssign = ref(null);
@@ -823,6 +897,7 @@ const viewMode = ref(route.query.view === 'table' ? 'table' : 'hierarchy'); // '
 const expandedFocuses = ref([]);
 const focusModules = ref({}); // { focusId: [modules] }
 const loadingModules = ref({}); // { focusId: boolean }
+const focusModuleLoadErrors = ref({}); // { focusId: string|null }
 const filterAgencyIdForFocus = ref(''); // Agency filter for hierarchy view
 const showOnDemandOnly = ref(false); // Toggle for showing only on-demand training focuses
 const showOnDemandModulesOnly = ref(false); // Toggle for showing only on-demand modules in table view
@@ -939,7 +1014,8 @@ const toggleFocus = async (focusId) => {
   } else {
     // Expand - load modules if not already loaded
     expandedFocuses.value.push(focusId);
-    if (!focusModules.value[focusId]) {
+    // If we haven't loaded yet OR we previously had an error, try loading again
+    if (!focusModules.value[focusId] || focusModuleLoadErrors.value[focusId]) {
       await loadModulesForFocus(focusId);
     }
   }
@@ -950,15 +1026,30 @@ const focusChecklistItems = ref({}); // { focusId: { direct: [], byModule: { mod
 const loadModulesForFocus = async (focusId) => {
   try {
     loadingModules.value[focusId] = true;
-    const response = await api.get(`/training-focuses/${focusId}`);
-    const modules = response.data.modules || [];
-    focusModules.value[focusId] = modules;
+    focusModuleLoadErrors.value[focusId] = null;
+
+    // Prefer the dedicated modules endpoint for stability/clarity
+    const response = await api.get(`/training-focuses/${focusId}/modules`);
+    // Be defensive about response shape: some endpoints return { modules: [...] }
+    const loadedModules = Array.isArray(response.data)
+      ? response.data
+      : (Array.isArray(response.data?.modules) ? response.data.modules : []);
+
+    focusModules.value[focusId] = loadedModules;
     
     // Load checklist items for this training focus
     await fetchChecklistItemsForFocus(focusId);
   } catch (err) {
     console.error(`Failed to load modules for training focus ${focusId}:`, err);
-    focusModules.value[focusId] = [];
+    // Don't blow away already-loaded data on transient errors
+    const message =
+      err.response?.data?.error?.message ||
+      err.message ||
+      'Failed to load modules for this training focus';
+    focusModuleLoadErrors.value[focusId] = message;
+    if (!Array.isArray(focusModules.value[focusId])) {
+      focusModules.value[focusId] = [];
+    }
   } finally {
     loadingModules.value[focusId] = false;
   }
@@ -1252,6 +1343,37 @@ const copyModule = (module) => {
   showCopyModal.value = true;
 };
 
+const duplicateModule = async (module) => {
+  if (!module?.id) return;
+
+  // Shared/platform modules need a target agency/track selection
+  if (!module.agency_id) {
+    copyModule(module);
+    return;
+  }
+
+  try {
+    const response = await api.post(`/modules/${module.id}/copy`, {
+      targetAgencyId: module.agency_id,
+      targetTrackId: module.track_id || null
+    });
+
+    const newModuleId = response.data?.id;
+    if (newModuleId) {
+      const copyTitle = `Copy "${module.title}"`;
+      await api.put(`/modules/${newModuleId}`, { title: copyTitle });
+    }
+
+    await fetchModules();
+
+    if (module.track_id && expandedFocuses.value.includes(module.track_id)) {
+      await loadModulesForFocus(module.track_id);
+    }
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to duplicate module');
+  }
+};
+
 const assignModule = (module) => {
   moduleToAssign.value = module;
   showAssignModal.value = true;
@@ -1413,6 +1535,26 @@ const handleTrainingFocusAssigned = () => {
   // Optionally refresh data if needed
 };
 
+const duplicateTrainingFocus = (focus) => {
+  trainingFocusToCopy.value = focus;
+  copyTrainingFocusToAgencyMode.value = false;
+  showTrackCopyDialog.value = true;
+};
+
+const copyTrainingFocusToAgency = (focus) => {
+  trainingFocusToCopy.value = focus;
+  copyTrainingFocusToAgencyMode.value = true;
+  showTrackCopyDialog.value = true;
+};
+
+const handleTrainingFocusCopied = async () => {
+  showTrackCopyDialog.value = false;
+  trainingFocusToCopy.value = null;
+  copyTrainingFocusToAgencyMode.value = false;
+  await fetchTrainingFocuses();
+  await fetchModules();
+};
+
 const assignTrainingFocusAsPublic = (focus) => {
   itemToAssignAsPublic.value = focus;
   publicAssignmentType.value = 'training-focus';
@@ -1535,7 +1677,7 @@ const editModule = async (module) => {
     title: module.title,
     description: module.description || '',
     orderIndex: module.order_index,
-    isActive: module.is_active,
+    isActive: module.is_active === true || module.is_active === 1,
     agencyId: module.agency_id,
     trackId: module.track_id,
     iconId: module.icon_id || null,
@@ -1612,6 +1754,30 @@ const previewModule = (module) => {
 
 const toggleModuleStatus = () => {
   moduleForm.value.isActive = !moduleForm.value.isActive;
+};
+
+const isModuleActive = (module) => {
+  return module?.is_active === true || module?.is_active === 1;
+};
+
+const toggleModuleActive = async (module) => {
+  if (!module?.id) return;
+  const currentlyActive = isModuleActive(module);
+  const actionWord = currentlyActive ? 'deactivate' : 'activate';
+  if (!confirm(`Are you sure you want to ${actionWord} "${module.title}"?`)) return;
+
+  try {
+    await api.put(`/modules/${module.id}`, { isActive: !currentlyActive });
+    await fetchModules();
+
+    expandedFocuses.value.forEach((focusId) => {
+      if (focusModules.value[focusId]) {
+        loadModulesForFocus(focusId);
+      }
+    });
+  } catch (err) {
+    alert(err.response?.data?.error?.message || `Failed to ${actionWord} module`);
+  }
 };
 
 const saveModule = async (openContentEditor = false) => {
@@ -1872,6 +2038,25 @@ const trainingFocusChecklistItems = ref([]);
 const availableChecklistItemsForTrainingFocus = ref([]);
 const selectedChecklistItemForTrainingFocus = ref(null);
 
+const trainingFocusModulesInModal = computed(() => {
+  const focusId = editingTrainingFocus.value?.id;
+  if (!focusId) return [];
+  return focusModules.value[focusId] || [];
+});
+
+const availableModulesForTrainingFocus = computed(() => {
+  const focusId = editingTrainingFocus.value?.id;
+  const currentIds = new Set((focusId ? (focusModules.value[focusId] || []) : []).map(m => m.id));
+  // Prefer showing standalone modules (not already linked to another training focus)
+  // but allow re-adding a module already in this focus by filtering it out above.
+  return (modules.value || []).filter((m) => {
+    if (!m?.id) return false;
+    if (currentIds.has(m.id)) return false;
+    // Only allow standalone modules (track_id null) to avoid unintentionally moving modules between focuses.
+    return !m.track_id;
+  });
+});
+
 const fetchTrainingFocusChecklistItems = async (trainingFocusId) => {
   try {
     // Refresh checklist items list first
@@ -1966,6 +2151,11 @@ const editTrainingFocus = async (focus) => {
   };
   showEditTrainingFocusModal.value = true;
   
+  // Ensure modules are loaded for the modal module list
+  if (!focusModules.value[focus.id]) {
+    await loadModulesForFocus(focus.id);
+  }
+
   // Fetch checklist items for this training focus
   await fetchTrainingFocusChecklistItems(focus.id);
   
@@ -1982,6 +2172,80 @@ const editTrainingFocus = async (focus) => {
         await fetchOnDemandForAgency(agency.id);
       }
     }
+  }
+};
+
+const addModuleToTrainingFocus = async () => {
+  if (!trainingFocusForm.value.linkedModuleId) return;
+
+  // If we're creating a new training focus and haven't saved it yet, save it first and keep the modal open.
+  if (!editingTrainingFocus.value && showCreateTrainingFocusModal.value) {
+    try {
+      savingTrainingFocus.value = true;
+      trainingFocusError.value = '';
+
+      const isTemplate = userRole.value === 'super_admin' && trainingFocusForm.value.templateType === 'template';
+      const data = {
+        name: trainingFocusForm.value.name.trim(),
+        description: trainingFocusForm.value.description?.trim() || null,
+        orderIndex: trainingFocusForm.value.orderIndex || 0,
+        assignmentLevel: trainingFocusForm.value.agencyId ? 'agency' : 'platform',
+        isActive: trainingFocusForm.value.isActive !== false,
+        isTemplate,
+        iconId: trainingFocusForm.value.iconId || null,
+        agencyId: null
+      };
+      if (trainingFocusForm.value.agencyId && !isTemplate) {
+        const agencyId = parseInt(trainingFocusForm.value.agencyId);
+        if (!isNaN(agencyId) && agencyId > 0) data.agencyId = agencyId;
+      }
+
+      const response = await api.post('/training-focuses', data);
+      editingTrainingFocus.value = response.data;
+      showCreateTrainingFocusModal.value = false;
+      showEditTrainingFocusModal.value = true;
+      await fetchTrainingFocuses();
+    } catch (err) {
+      trainingFocusError.value = err.response?.data?.error?.message || 'Failed to create training focus';
+      return;
+    } finally {
+      savingTrainingFocus.value = false;
+    }
+  }
+
+  if (!editingTrainingFocus.value) return;
+
+  try {
+    const moduleId = parseInt(trainingFocusForm.value.linkedModuleId);
+    const focusId = editingTrainingFocus.value.id;
+    const existing = Array.isArray(focusModules.value[focusId]) ? focusModules.value[focusId] : [];
+    const maxOrder = existing.reduce((max, m) => {
+      const order = (m.track_order !== undefined && m.track_order !== null) ? Number(m.track_order) : Number(m.order_index || 0);
+      return Number.isFinite(order) ? Math.max(max, order) : max;
+    }, -1);
+    const nextOrderIndex = maxOrder + 1;
+
+    // Use the training-focus modules endpoint so ordering + linkage is consistent (track_modules + modules.track_id).
+    await api.post(`/training-focuses/${focusId}/modules`, { moduleId, orderIndex: nextOrderIndex });
+    trainingFocusForm.value.linkedModuleId = null;
+
+    // Refresh module lists
+    await fetchModules();
+    await loadModulesForFocus(focusId);
+  } catch (err) {
+    trainingFocusError.value = err.response?.data?.error?.message || 'Failed to add module to training focus';
+  }
+};
+
+const removeModuleFromTrainingFocus = async (moduleId) => {
+  if (!editingTrainingFocus.value) return;
+  try {
+    const focusId = editingTrainingFocus.value.id;
+    await api.delete(`/training-focuses/${focusId}/modules/${moduleId}`);
+    await fetchModules();
+    await loadModulesForFocus(focusId);
+  } catch (err) {
+    trainingFocusError.value = err.response?.data?.error?.message || 'Failed to remove module from training focus';
   }
 };
 
@@ -2470,6 +2734,13 @@ th {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 20px;
+}
+
+.btn-lg {
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 10px;
 }
 
 /* Training Focus Hierarchy View Styles */

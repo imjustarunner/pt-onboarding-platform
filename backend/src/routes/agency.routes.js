@@ -16,6 +16,8 @@ const validateIconId = (fieldName) => body(fieldName).optional().custom((value) 
 const validateCreateAgency = [
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('slug').trim().notEmpty().withMessage('Slug is required').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
+  body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning']).withMessage('organizationType must be one of: agency, school, program, learning'),
+  body('affiliatedAgencyId').optional().isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
   body('logoUrl').optional().custom((value) => {
     if (!value || value === null || value === '') return true;
     try {
@@ -87,6 +89,8 @@ const validateCreateAgency = [
 const validateUpdateAgency = [
   body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
   body('slug').optional().trim().notEmpty().withMessage('Slug cannot be empty').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
+  body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning']).withMessage('organizationType must be one of: agency, school, program, learning'),
+  body('affiliatedAgencyId').optional().isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
   body('logoUrl').optional().custom((value) => {
     // Allow null, undefined, or empty string
     if (!value || value === null || value === '' || value === undefined) return true;

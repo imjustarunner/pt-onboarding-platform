@@ -58,7 +58,14 @@ import kioskRoutes from './routes/kiosk.routes.js';
 import emergencyBroadcastRoutes from './routes/emergencyBroadcast.routes.js';
 import payrollRoutes from './routes/payroll.routes.js';
 import billingRoutes from './routes/billing.routes.js';
+import clientSettingsRoutes from './routes/clientSettings.routes.js';
+import providerSettingsRoutes from './routes/providerSettings.routes.js';
+import schoolSettingsRoutes from './routes/schoolSettings.routes.js';
+import bulkClientUploadRoutes from './routes/bulkClientUpload.routes.js';
+import providerSchedulingRoutes from './routes/providerScheduling.routes.js';
+import phiDocumentsRoutes from './routes/phiDocuments.routes.js';
 import agencySchoolsRoutes from './routes/agencySchools.routes.js';
+import clientRoutes from './routes/client.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -102,6 +109,8 @@ app.use(requestLoggingMiddleware);
 // Note: For public files (icons, fonts), consider making them public in GCS
 // and serving directly without signed URLs for even better performance
 app.use('/uploads', async (req, res, next) => {
+  // Keep a best-effort resolved storage key so we can fall back to local files in dev.
+  let resolvedFilePath = null;
   try {
     const StorageService = (await import('./services/storage.service.js')).default;
     
@@ -132,6 +141,45 @@ app.use('/uploads', async (req, res, next) => {
     if (!isDirectPrefix(filePath)) {
       filePath = `uploads/${filePath}`;
     }
+
+    resolvedFilePath = filePath;
+
+    const tryServeLocal = async (storageKey) => {
+      if (config.nodeEnv !== 'development') return false;
+      try {
+        const fs = (await import('fs/promises')).default;
+        const ext = path.extname(storageKey).toLowerCase();
+        const contentTypes = {
+          '.pdf': 'application/pdf',
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.svg': 'image/svg+xml',
+          '.webp': 'image/webp',
+          '.ico': 'image/x-icon',
+          '.woff': 'font/woff',
+          '.woff2': 'font/woff2',
+          '.ttf': 'font/ttf',
+          '.otf': 'font/otf',
+          '.eot': 'application/vnd.ms-fontobject'
+        };
+
+        // In local dev, files live under backend/uploads/* (no leading "uploads/" prefix).
+        let rel = storageKey || '';
+        if (rel.startsWith('uploads/')) rel = rel.substring('uploads/'.length);
+        const localPath = path.join(__dirname, '../uploads', rel);
+        const buffer = await fs.readFile(localPath);
+
+        res.setHeader('Content-Type', contentTypes[ext] || 'application/octet-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.send(buffer);
+        console.log(`[File Request] Served local file (dev): ${localPath}`);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    };
     
     console.log(`[File Request] Requested path: ${req.path}, GCS path: ${filePath}`);
     
@@ -141,6 +189,11 @@ app.use('/uploads', async (req, res, next) => {
     const [exists] = await file.exists();
     
     if (!exists) {
+      // Development fallback: if the file exists on disk, serve it from backend/uploads.
+      if (await tryServeLocal(filePath)) {
+        return;
+      }
+
       console.error(`[File Request] File not found in GCS: ${filePath}`);
       console.error(`[File Request] Bucket: ${process.env.PTONBOARDFILES || 'not set'}`);
       
@@ -211,6 +264,49 @@ app.use('/uploads', async (req, res, next) => {
     const statusCode = isDevelopment ? 404 : 500;
     
     if (isDevelopment) {
+      // If GCS isn't configured in dev, try serving from local disk.
+      try {
+        const raw = String(req.path || '').replace(/^\//, '');
+        const isDirectPrefix = (p) =>
+          p.startsWith('uploads/') ||
+          p.startsWith('fonts/') ||
+          p.startsWith('templates/') ||
+          p.startsWith('signed/');
+
+        let fallbackKey = resolvedFilePath || raw;
+        if (fallbackKey && !isDirectPrefix(fallbackKey)) {
+          fallbackKey = `uploads/${fallbackKey}`;
+        }
+
+        const fs = (await import('fs/promises')).default;
+        let rel = fallbackKey || '';
+        if (rel.startsWith('uploads/')) rel = rel.substring('uploads/'.length);
+        const localPath = path.join(__dirname, '../uploads', rel);
+        const buffer = await fs.readFile(localPath);
+        const ext = path.extname(localPath).toLowerCase();
+        const contentTypes = {
+          '.pdf': 'application/pdf',
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.svg': 'image/svg+xml',
+          '.webp': 'image/webp',
+          '.ico': 'image/x-icon',
+          '.woff': 'font/woff',
+          '.woff2': 'font/woff2',
+          '.ttf': 'font/ttf',
+          '.otf': 'font/otf',
+          '.eot': 'application/vnd.ms-fontobject'
+        };
+        res.setHeader('Content-Type', contentTypes[ext] || 'application/octet-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.send(buffer);
+        console.log(`[File Request] Served local file after GCS error (dev): ${localPath}`);
+        return;
+      } catch (localErr) {
+        // Ignore and fall through to existing behavior
+      }
       console.warn(`[File Request] GCS access failed in development (file may not exist): ${req.path}`, error.message);
     } else {
       console.error('[File Request] Error generating signed URL for file:', {
@@ -279,6 +375,7 @@ app.use('/api/supervisor-assignments', supervisorAssignmentRoutes);
 app.use('/api/organizations', referralUploadRoutes); // Organization routes (referral upload, etc.)
 app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
 app.use('/api/referrals', referralRoutes); // Referral pipeline routes
+app.use('/api/clients', clientRoutes); // Client management routes
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
 app.use('/api/office-schedule', officeScheduleRoutes);
 app.use('/api/twilio', twilioRoutes);
@@ -287,6 +384,12 @@ app.use('/api/kiosk', kioskRoutes);
 app.use('/api/emergency-broadcasts', emergencyBroadcastRoutes);
 app.use('/api/payroll', payrollRoutes);
 app.use('/api/billing', billingRoutes);
+app.use('/api/client-settings', clientSettingsRoutes);
+app.use('/api/provider-settings', providerSettingsRoutes);
+app.use('/api/school-settings', schoolSettingsRoutes);
+app.use('/api/bulk-client-upload', bulkClientUploadRoutes);
+app.use('/api/provider-scheduling', providerSchedulingRoutes);
+app.use('/api/phi-documents', phiDocumentsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -430,5 +533,28 @@ app.listen(PORT, () => {
   setTimeout(() => {
     scheduleCredentialWatchdog();
     setInterval(scheduleCredentialWatchdog, 24 * 60 * 60 * 1000);
+  }, getMsUntilMidnight());
+
+  // Background check automation watchdog (reimbursement + renewal reminders)
+  const scheduleBackgroundCheckWatchdog = async () => {
+    try {
+      const BackgroundCheckWatchdogService = (await import('./services/backgroundCheckWatchdog.service.js')).default;
+      await BackgroundCheckWatchdogService.run({ reimbursementAfterMonths: 6, renewalWithinDays: 30 });
+    } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE') {
+        console.warn('User compliance documents/notifications tables not found. Run migration 110_create_user_compliance_documents.sql');
+      } else {
+        console.error('Error in scheduled background check watchdog:', error);
+      }
+    }
+  };
+
+  // Run immediately on startup (best-effort)
+  scheduleBackgroundCheckWatchdog();
+
+  // Schedule daily at midnight (reuse same helper)
+  setTimeout(() => {
+    scheduleBackgroundCheckWatchdog();
+    setInterval(scheduleBackgroundCheckWatchdog, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight());
 

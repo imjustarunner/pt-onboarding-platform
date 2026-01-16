@@ -98,6 +98,7 @@ import api from '../../services/api';
 import SignaturePad from '../SignaturePad.vue';
 import { useDocumentsStore } from '../../store/documents';
 import { getDashboardRoute } from '../../utils/router';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const route = useRoute();
 const router = useRouter();
@@ -121,18 +122,15 @@ const displayType = ref(null);
 
 const getPdfUrl = (template) => {
   if (!template || !template.file_path) return null;
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  let filePath = template.file_path;
-  // Remove leading slash if present
-  if (filePath.startsWith('/')) {
-    filePath = filePath.substring(1);
+  let filePath = String(template.file_path);
+  if (filePath.startsWith('/')) filePath = filePath.substring(1);
+
+  // Normalize template file paths to live under "templates/" when not already prefixed.
+  if (!filePath.startsWith('templates/') && !filePath.startsWith('uploads/') && !filePath.startsWith('signed/') && !filePath.startsWith('fonts/')) {
+    filePath = `templates/${filePath}`;
   }
-  // Ensure it starts with uploads/templates/ or uploads/
-  if (!filePath.startsWith('uploads/')) {
-    filePath = `uploads/templates/${filePath}`;
-  }
-  return `${apiBase}/${filePath}`;
+
+  return toUploadsUrl(filePath);
 };
 
 const loadDocumentTask = async () => {
@@ -153,16 +151,9 @@ const loadDocumentTask = async () => {
         displayType.value = 'html';
       } else if (userDocument.value.personalized_file_path) {
         displayType.value = 'pdf';
-        const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-        const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-        let filePath = userDocument.value.personalized_file_path;
-        if (filePath.startsWith('/')) {
-          filePath = filePath.substring(1);
-        }
-        if (!filePath.startsWith('uploads/')) {
-          filePath = `uploads/${filePath}`;
-        }
-        pdfUrl.value = `${apiBase}/${filePath}`;
+        let filePath = String(userDocument.value.personalized_file_path);
+        if (filePath.startsWith('/')) filePath = filePath.substring(1);
+        pdfUrl.value = toUploadsUrl(filePath);
       } else if (template.value) {
         // Fallback to template
         if (template.value.template_type === 'html') {
@@ -180,16 +171,9 @@ const loadDocumentTask = async () => {
         displayType.value = 'html';
       } else if (userSpecificDocument.value.file_path) {
         displayType.value = 'pdf';
-        const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-        const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-        let filePath = userSpecificDocument.value.file_path;
-        if (filePath.startsWith('/')) {
-          filePath = filePath.substring(1);
-        }
-        if (!filePath.startsWith('uploads/')) {
-          filePath = `uploads/${filePath}`;
-        }
-        pdfUrl.value = `${apiBase}/${filePath}`;
+        let filePath = String(userSpecificDocument.value.file_path);
+        if (filePath.startsWith('/')) filePath = filePath.substring(1);
+        pdfUrl.value = toUploadsUrl(filePath);
       }
     } else if (template.value) {
       // Fallback to template

@@ -74,6 +74,7 @@
                 </div>
               </div>
               <div class="item-actions">
+                <button v-if="!assignOnly" @click="duplicateAgencyItem(item)" class="btn btn-secondary btn-sm">Duplicate</button>
                 <button v-if="!assignOnly" @click="editItem(item)" class="btn btn-secondary btn-sm">Edit</button>
                 <button v-if="!assignOnly" @click="deleteItem(item.id)" class="btn btn-danger btn-sm">Delete</button>
               </div>
@@ -351,6 +352,43 @@ const saveItem = async () => {
     await fetchItems();
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to save checklist item';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const makeUniqueCopyKey = (baseLabel) => {
+  const base = (baseLabel || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return `${base}_copy_${Date.now().toString(36)}`;
+};
+
+const duplicateAgencyItem = async (item) => {
+  if (!selectedAgencyId.value) return;
+  try {
+    saving.value = true;
+    error.value = '';
+
+    const copyLabel = `Copy "${item.item_label}"`;
+    const data = {
+      itemKey: makeUniqueCopyKey(copyLabel),
+      itemLabel: copyLabel,
+      description: item.description || undefined,
+      isPlatformTemplate: false,
+      agencyId: selectedAgencyId.value,
+      parentItemId: null,
+      autoAssign: item.auto_assign || false,
+      orderIndex: item.order_index || 0,
+      trainingFocusId: item.training_focus_id || null,
+      moduleId: item.module_id || null
+    };
+
+    await api.post('/custom-checklist-items', data);
+    await fetchItems();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to duplicate checklist item';
   } finally {
     saving.value = false;
   }

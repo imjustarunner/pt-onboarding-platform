@@ -8,13 +8,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import api from '../services/api';
+
+const MODULE_IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
 const props = defineProps({
   moduleId: {
     type: [String, Number],
     required: true
+  },
+  enabled: {
+    type: Boolean,
+    default: true
   }
 });
 
@@ -24,6 +30,7 @@ const sessionTime = ref(0); // in seconds
 const sessionStart = ref(null);
 let intervalId = null;
 let lastLogTime = Date.now();
+let idleTimerId = null;
 
 const formatTime = (seconds) => {
   const hours = Math.floor(seconds / 3600);
@@ -51,6 +58,9 @@ const logTime = async (durationMinutes) => {
 };
 
 const startTracking = () => {
+  if (!props.enabled) {
+    return;
+  }
   sessionStart.value = Date.now();
   lastLogTime = Date.now();
   
@@ -82,23 +92,67 @@ const stopTracking = () => {
   }
 };
 
+const clearIdleTimer = () => {
+  if (idleTimerId) {
+    clearTimeout(idleTimerId);
+    idleTimerId = null;
+  }
+};
+
+const armIdleTimer = () => {
+  clearIdleTimer();
+  if (!props.enabled) return;
+  idleTimerId = setTimeout(() => {
+    // Pause timer on inactivity (separate from global auth timeout)
+    stopTracking();
+  }, MODULE_IDLE_TIMEOUT_MS);
+};
+
 // Track visibility changes
 const handleVisibilityChange = () => {
   if (document.hidden) {
     stopTracking();
   } else {
     startTracking();
+    armIdleTimer();
   }
 };
 
+// Events that indicate in-module activity
+const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
+const handleActivity = () => {
+  if (!props.enabled) return;
+  // If we were paused due to inactivity, resume.
+  if (!intervalId) {
+    startTracking();
+  }
+  armIdleTimer();
+};
+
 onMounted(() => {
-  startTracking();
+  if (props.enabled) {
+    startTracking();
+  }
   document.addEventListener('visibilitychange', handleVisibilityChange);
+  activityEvents.forEach(evt => document.addEventListener(evt, handleActivity, true));
+  armIdleTimer();
 });
 
 onUnmounted(() => {
   stopTracking();
   document.removeEventListener('visibilitychange', handleVisibilityChange);
+  activityEvents.forEach(evt => document.removeEventListener(evt, handleActivity, true));
+  clearIdleTimer();
+});
+
+watch(() => props.enabled, (enabled) => {
+  if (enabled) {
+    startTracking();
+    armIdleTimer();
+  } else {
+    stopTracking();
+    clearIdleTimer();
+  }
 });
 </script>
 

@@ -61,15 +61,59 @@
                 View Document
               </button>
               <button
-                v-if="document.document_action_type === 'signature'"
-                @click="downloadDocument(document.id)"
+                @click="downloadDocument(document)"
                 class="btn btn-secondary"
               >
                 Download
               </button>
+              <button
+                @click="openDetails(document)"
+                class="btn btn-secondary btn-details"
+                title="View review details"
+              >
+                Details
+              </button>
             </template>
           </div>
         </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Details modal -->
+    <div v-if="showDetailsModal" class="modal-overlay" @click="closeDetails">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3 style="margin: 0;">{{ detailsDocument?.title || 'Document' }} — Details</h3>
+          <button class="btn btn-secondary btn-sm" @click="closeDetails">Close</button>
+        </div>
+
+        <div v-if="detailsLoading" class="loading">Loading details…</div>
+        <div v-else class="details-body">
+          <div class="detail-row">
+            <strong>Status:</strong>
+            <span>{{ detailsDocument?.document_action_type === 'review' ? 'Reviewed' : 'Signed' }}</span>
+          </div>
+
+          <template v-if="detailsDocument?.document_action_type === 'review'">
+            <div class="detail-row">
+              <strong>Reviewed at:</strong>
+              <span>{{ detailsAck?.acknowledged_at ? new Date(detailsAck.acknowledged_at).toLocaleString() : 'N/A' }}</span>
+            </div>
+            <div class="detail-row">
+              <strong>IP address:</strong>
+              <span>{{ detailsAck?.ip_address || 'N/A' }}</span>
+            </div>
+            <div class="detail-row">
+              <strong>User agent:</strong>
+              <span class="mono">{{ detailsAck?.user_agent || 'N/A' }}</span>
+            </div>
+          </template>
+
+          <div class="modal-actions">
+            <button class="btn btn-primary" @click="viewDocument(detailsDocument)">View Document</button>
+            <button class="btn btn-secondary" @click="downloadDocument(detailsDocument)">Download</button>
+          </div>
         </div>
       </div>
     </div>
@@ -250,13 +294,16 @@ const viewDocument = async (document) => {
         alert(err.response?.data?.error?.message || 'Failed to retrieve document');
       }
     } else {
-      // For review documents, show acknowledgment info
       try {
-        const ackResponse = await api.get(`/document-acknowledgment/${document.id}`);
-        const ack = ackResponse.data;
-        alert(`Document Reviewed\n\nReviewed: ${new Date(ack.acknowledged_at).toLocaleString()}\nIP: ${ack.ip_address || 'N/A'}`);
+        // For review documents, open the reviewed PDF again (avoid iframe embedder issues)
+        const response = await api.get(`/document-acknowledgment/${document.id}/view`, {
+          responseType: 'blob'
+        });
+        const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+        window.open(url, '_blank');
+        setTimeout(() => window.URL.revokeObjectURL(url), 100);
       } catch (err) {
-        alert('Document has been reviewed, but acknowledgment details are not available.');
+        alert(err.response?.data?.error?.message || 'Failed to retrieve reviewed document');
       }
     }
   } catch (err) {
@@ -264,12 +311,70 @@ const viewDocument = async (document) => {
   }
 };
 
-const downloadDocument = async (taskId) => {
+const downloadBlob = (blob, filename) => {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => window.URL.revokeObjectURL(url), 250);
+};
+
+const safeFilename = (name) => {
+  const base = String(name || 'document')
+    .replace(/[^\w\s\-().]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  return base || 'document';
+};
+
+const downloadDocument = async (document) => {
   try {
-    await documentsStore.downloadSignedDocument(taskId);
+    if (document.document_action_type === 'signature') {
+      await documentsStore.downloadSignedDocument(document.id);
+      return;
+    }
+
+    // Review documents: download a single branded PDF (document + appended details page)
+    const title = safeFilename(document.title || 'reviewed-document');
+    const pdfRes = await api.get(`/document-acknowledgment/${document.id}/download`, { responseType: 'blob' });
+    downloadBlob(new Blob([pdfRes.data], { type: 'application/pdf' }), `${title}-reviewed.pdf`);
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to download document');
   }
+};
+
+const showDetailsModal = ref(false);
+const detailsDocument = ref(null);
+const detailsAck = ref(null);
+const detailsLoading = ref(false);
+
+const openDetails = async (document) => {
+  showDetailsModal.value = true;
+  detailsDocument.value = document;
+  detailsAck.value = null;
+  detailsLoading.value = true;
+
+  try {
+    if (document.document_action_type === 'review') {
+      const summaryRes = await api.get(`/document-acknowledgment/${document.id}/summary`);
+      detailsAck.value = summaryRes.data?.acknowledgment || null;
+    }
+  } catch (e) {
+    detailsAck.value = null;
+  } finally {
+    detailsLoading.value = false;
+  }
+};
+
+const closeDetails = () => {
+  showDetailsModal.value = false;
+  detailsDocument.value = null;
+  detailsAck.value = null;
+  detailsLoading.value = false;
 };
 
 const getStatusLabel = (status, documentActionType) => {
@@ -418,6 +523,73 @@ onMounted(async () => {
 .document-actions {
   display: flex;
   gap: 8px;
+}
+
+.btn-details {
+  min-width: 84px;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  width: 92%;
+  max-width: 640px;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.details-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.detail-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.detail-row strong {
+  min-width: 110px;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.modal-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .empty-state {

@@ -176,12 +176,25 @@ class TrainingFocus {
       'INSERT INTO track_modules (track_id, module_id, order_index) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE order_index = ?',
       [trackId, moduleId, orderIndex || 0, orderIndex || 0]
     );
+
+    // Keep legacy one-to-many linkage in sync (modules.track_id)
+    // This codebase historically uses modules.track_id for association.
+    await pool.execute(
+      'UPDATE modules SET track_id = ? WHERE id = ?',
+      [trackId, moduleId]
+    );
   }
 
   static async removeModule(trackId, moduleId) {
     await pool.execute(
       'DELETE FROM track_modules WHERE track_id = ? AND module_id = ?',
       [trackId, moduleId]
+    );
+
+    // Keep legacy linkage in sync (only clear if it matches this track)
+    await pool.execute(
+      'UPDATE modules SET track_id = NULL WHERE id = ? AND track_id = ?',
+      [moduleId, trackId]
     );
   }
 
@@ -197,23 +210,40 @@ class TrainingFocus {
       console.error('Error checking for icon_id column:', err);
     }
 
+    // Support both linkage styles:
+    // - Newer: track_modules pivot table
+    // - Legacy: modules.track_id FK
+    // Prefer ordering from track_modules when present; otherwise fall back to modules.order_index.
     let query;
     if (hasIconColumn) {
-      query = `SELECT m.*, tm.order_index as track_order, i.file_path as icon_file_path, i.name as icon_name
-               FROM modules m 
-               JOIN track_modules tm ON m.id = tm.module_id 
-               LEFT JOIN icons i ON m.icon_id = i.id
-               WHERE tm.track_id = ? 
-               ORDER BY tm.order_index ASC`;
+      query = `
+        SELECT
+          m.*,
+          tm.order_index as track_order,
+          i.file_path as icon_file_path,
+          i.name as icon_name
+        FROM modules m
+        LEFT JOIN track_modules tm
+          ON tm.track_id = ? AND tm.module_id = m.id
+        LEFT JOIN icons i
+          ON m.icon_id = i.id
+        WHERE (m.track_id = ? OR tm.track_id = ?)
+        ORDER BY COALESCE(tm.order_index, m.order_index) ASC
+      `;
     } else {
-      query = `SELECT m.*, tm.order_index as track_order 
-               FROM modules m 
-               JOIN track_modules tm ON m.id = tm.module_id 
-               WHERE tm.track_id = ? 
-               ORDER BY tm.order_index ASC`;
+      query = `
+        SELECT
+          m.*,
+          tm.order_index as track_order
+        FROM modules m
+        LEFT JOIN track_modules tm
+          ON tm.track_id = ? AND tm.module_id = m.id
+        WHERE (m.track_id = ? OR tm.track_id = ?)
+        ORDER BY COALESCE(tm.order_index, m.order_index) ASC
+      `;
     }
     
-    const [rows] = await pool.execute(query, [trackId]);
+    const [rows] = await pool.execute(query, [trackId, trackId, trackId]);
     
     // If icon_id column doesn't exist, set icon fields to null for all rows
     if (!hasIconColumn) {

@@ -51,21 +51,44 @@ class Client {
       agency_id,
       provider_id,
       initials,
+      full_name,
       contact_phone,
       status = 'PENDING_REVIEW',
       submission_date,
       document_status = 'NONE',
       source,
-      created_by_user_id
+      created_by_user_id,
+      referral_date,
+      client_status_id,
+      paperwork_status_id,
+      insurance_type_id,
+      paperwork_delivery_method_id,
+      doc_date,
+      grade,
+      gender,
+      identifier_code,
+      primary_client_language,
+      primary_parent_language,
+      skills,
+      internal_notes,
+      service_day,
+      paperwork_received_at,
+      cleared_to_start
     } = clientData;
 
-    const query = `
-      INSERT INTO clients (
-        organization_id, agency_id, provider_id, initials, contact_phone, status,
-        submission_date, document_status, source, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
+    // Build insert dynamically so older DBs won't break if a column doesn't exist yet.
+    const fields = [
+      'organization_id',
+      'agency_id',
+      'provider_id',
+      'initials',
+      'contact_phone',
+      'status',
+      'submission_date',
+      'document_status',
+      'source',
+      'created_by_user_id'
+    ];
     const values = [
       organization_id,
       agency_id,
@@ -78,6 +101,36 @@ class Client {
       source,
       created_by_user_id || null
     ];
+
+    const optional = [
+      ['full_name', full_name],
+      ['referral_date', referral_date],
+      ['client_status_id', client_status_id],
+      ['paperwork_status_id', paperwork_status_id],
+      ['insurance_type_id', insurance_type_id],
+      ['paperwork_delivery_method_id', paperwork_delivery_method_id],
+      ['doc_date', doc_date],
+      ['grade', grade],
+      ['gender', gender],
+      ['identifier_code', identifier_code],
+      ['primary_client_language', primary_client_language],
+      ['primary_parent_language', primary_parent_language],
+      ['skills', skills !== undefined ? (skills ? 1 : 0) : undefined],
+      ['internal_notes', internal_notes],
+      ['service_day', service_day],
+      ['paperwork_received_at', paperwork_received_at],
+      ['cleared_to_start', cleared_to_start !== undefined ? (cleared_to_start ? 1 : 0) : undefined]
+    ];
+
+    for (const [col, val] of optional) {
+      if (val !== undefined) {
+        fields.push(col);
+        values.push(val);
+      }
+    }
+
+    const placeholders = fields.map(() => '?').join(', ');
+    const query = `INSERT INTO clients (${fields.join(', ')}) VALUES (${placeholders})`;
 
     const [result] = await pool.execute(query, values);
     return this.findById(result.insertId);
@@ -223,10 +276,27 @@ class Client {
       'agency_id',
       'provider_id',
       'initials',
+      'full_name',
       'status',
       'submission_date',
       'document_status',
-      'source'
+      'source',
+      'referral_date',
+      'client_status_id',
+      'paperwork_status_id',
+      'insurance_type_id',
+      'paperwork_delivery_method_id',
+      'doc_date',
+      'grade',
+      'gender',
+      'identifier_code',
+      'primary_client_language',
+      'primary_parent_language',
+      'skills',
+      'internal_notes',
+      'service_day',
+      'paperwork_received_at',
+      'cleared_to_start'
     ];
 
     for (const field of allowedFields) {

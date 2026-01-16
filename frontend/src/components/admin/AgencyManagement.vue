@@ -101,6 +101,13 @@
         <div class="agency-actions">
           <button @click="editAgency(agency)" class="btn btn-secondary btn-sm">Edit</button>
           <button
+            v-if="isChildOrgRow(agency)"
+            @click="openDuplicateModal(agency)"
+            class="btn btn-secondary btn-sm"
+          >
+            Duplicate
+          </button>
+          <button
             v-if="(agency.organization_type || 'agency') === 'school'"
             @click="openSplashPreview(agency)"
             class="btn btn-info btn-sm"
@@ -164,6 +171,39 @@
             <button type="button" @click="closeAssignAdminModal" class="btn btn-secondary">Cancel</button>
             <button type="submit" class="btn btn-primary" :disabled="assigning">
               {{ assigning ? 'Assigning...' : 'Assign Admin' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Duplicate Organization Modal -->
+    <div v-if="showDuplicateModal && duplicatingOrganization" class="modal-overlay" @click.self="closeDuplicateModal">
+      <div class="modal-content" @click.stop>
+        <h3>Duplicate {{ duplicatingOrganization.name }}</h3>
+        <div v-if="duplicateError" class="error-modal">
+          <strong>Error:</strong> {{ duplicateError }}
+        </div>
+        <form @submit.prevent="duplicateOrganization">
+          <div class="form-group">
+            <label>New Name *</label>
+            <input v-model="duplicateForm.name" type="text" required />
+          </div>
+          <div class="form-group">
+            <label>New Slug *</label>
+            <input v-model="duplicateForm.slug" type="text" required pattern="[a-z0-9\\-]+" />
+            <small>Lowercase letters, numbers, and hyphens only</small>
+          </div>
+          <div class="form-group">
+            <label>Portal URL (optional)</label>
+            <input v-model="duplicateForm.portalUrl" type="text" pattern="[a-z0-9\\-]+" placeholder="Defaults to slug" />
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" @click="closeDuplicateModal" :disabled="duplicating">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary" :disabled="duplicating">
+              {{ duplicating ? 'Duplicating…' : 'Duplicate' }}
             </button>
           </div>
         </form>
@@ -246,6 +286,30 @@
             </select>
             <small v-if="!editingAgency && userRole !== 'super_admin'">Admins can create schools/programs/learning orgs. Only super admins can create agencies.</small>
             <small v-if="editingAgency">Organization type cannot be changed after creation</small>
+          </div>
+
+          <div v-if="requiresAffiliatedAgency" class="form-group">
+            <label>Affiliated Agency *</label>
+            <select v-model="agencyForm.affiliatedAgencyId" required :disabled="affiliatedAgencyLocked">
+              <option value="" disabled>Select an agency</option>
+              <option v-for="a in affiliableAgencies" :key="a.id" :value="String(a.id)">
+                {{ a.name }}
+              </option>
+            </select>
+            <small v-if="affiliatedAgencyLocked">This is auto-selected based on your admin access.</small>
+          </div>
+
+          <div v-if="requiresAffiliatedAgency" class="form-group pricing-box" :class="{ locked: affiliatedAgencyLocked }">
+            <div class="pricing-title">Pricing impact (estimate)</div>
+            <div class="pricing-row">
+              <span class="pricing-label">Affiliated agency</span>
+              <span class="pricing-value">{{ selectedAffiliatedAgency?.name || '—' }}</span>
+            </div>
+            <div class="pricing-row">
+              <span class="pricing-label">Additional {{ agencyForm.organizationType }}</span>
+              <span class="pricing-value">{{ formatMoneyCents(estimatedUnitPriceCents) }} / month</span>
+            </div>
+            <small class="pricing-note">Unit price estimate; actual billing depends on current plan usage and included counts.</small>
           </div>
           <div class="form-group">
             <label>Name *</label>
@@ -744,6 +808,16 @@
             >
               Preview Dashboard
             </button>
+            <button
+              v-if="editingAgency && isChildOrgRow(editingAgency)"
+              type="button"
+              class="btn btn-secondary"
+              :disabled="applyingAffiliatedBranding"
+              @click="applyAffiliatedAgencyBranding"
+              title="Apply the affiliated agency’s branding and icon defaults"
+            >
+              {{ applyingAffiliatedBranding ? 'Applying…' : 'Apply Agency Branding' }}
+            </button>
             <button 
               v-if="editingAgency && (editingAgency.organization_type || 'agency') === 'school'" 
               type="button" 
@@ -817,6 +891,16 @@ const previewAgencyId = ref(null);
 const showSplashPreviewModal = ref(false);
 const previewOrganizationSlug = ref('');
 const previewOrganizationId = ref(null);
+const showDuplicateModal = ref(false);
+const duplicatingOrganization = ref(null);
+const duplicating = ref(false);
+const duplicateError = ref('');
+const duplicateForm = ref({
+  name: '',
+  slug: '',
+  portalUrl: ''
+});
+const applyingAffiliatedBranding = ref(false);
 const selectedAgency = ref(null);
 const selectedUserId = ref('');
 const selectedSupportUserId = ref('');
@@ -868,6 +952,7 @@ const ICON_TEMPLATE_FIELDS = [
 
 const agencyForm = ref({
   organizationType: userRole.value === 'super_admin' ? 'agency' : 'school',
+  affiliatedAgencyId: '',
   name: '',
   slug: '',
   logoUrl: '',
@@ -915,6 +1000,42 @@ const agencyForm = ref({
   firstLoginPendingIconId: null,
   passwordChangedIconId: null
 });
+
+const affiliableAgencies = computed(() => {
+  return (agencies.value || []).filter(a => String(a.organization_type || 'agency').toLowerCase() === 'agency');
+});
+
+const requiresAffiliatedAgency = computed(() => {
+  const t = String(agencyForm.value.organizationType || 'agency').toLowerCase();
+  return ['school', 'program', 'learning'].includes(t);
+});
+
+const affiliatedAgencyLocked = computed(() => {
+  if (!requiresAffiliatedAgency.value) return true;
+  if (editingAgency.value) return userRole.value !== 'super_admin';
+  return userRole.value !== 'super_admin' && affiliableAgencies.value.length === 1;
+});
+
+const selectedAffiliatedAgency = computed(() => {
+  const id = parseInt(agencyForm.value.affiliatedAgencyId, 10);
+  return affiliableAgencies.value.find(a => a.id === id) || null;
+});
+
+const PRICING_UNIT_CENTS = {
+  school: 2500,
+  program: 1000,
+  learning: 1000
+};
+
+const estimatedUnitPriceCents = computed(() => {
+  const t = String(agencyForm.value.organizationType || '').toLowerCase();
+  return PRICING_UNIT_CENTS[t] || 0;
+});
+
+const formatMoneyCents = (cents) => {
+  const n = Number(cents || 0);
+  return `$${(n / 100).toFixed(2)}`;
+};
 
 const fetchIconTemplates = async () => {
   try {
@@ -1319,6 +1440,7 @@ const editAgency = (agency) => {
   
   agencyForm.value = {
     organizationType: agency.organization_type || 'agency',
+    affiliatedAgencyId: '',
     name: agency.name,
     slug: agency.slug,
     logoUrl: agency.logo_url || '',
@@ -1367,6 +1489,23 @@ const editAgency = (agency) => {
     firstLoginPendingIconId: agency.first_login_pending_icon_id ?? null,
     passwordChangedIconId: agency.password_changed_icon_id ?? null
   };
+};
+
+const applyAffiliatedAgencyBranding = async () => {
+  if (!editingAgency.value) return;
+  try {
+    applyingAffiliatedBranding.value = true;
+    error.value = '';
+    await api.post(`/organizations/${editingAgency.value.id}/apply-affiliated-agency-branding`);
+    // Refresh organization data in-place so the editor reflects new branding
+    const refreshed = await api.get(`/agencies/${editingAgency.value.id}`);
+    editAgency(refreshed.data);
+    await fetchAgencies();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to apply affiliated agency branding';
+  } finally {
+    applyingAffiliatedBranding.value = false;
+  }
 };
 
 const getColorPalette = (palette) => {
@@ -1471,6 +1610,59 @@ const getAgencyLogoUrl = (agency) => {
 
 const toggleAgencyStatus = () => {
   agencyForm.value.isActive = !agencyForm.value.isActive;
+};
+
+const isChildOrgRow = (org) => {
+  const t = String(org?.organization_type || 'agency').toLowerCase();
+  return ['school', 'program', 'learning'].includes(t);
+};
+
+const openDuplicateModal = (org) => {
+  duplicatingOrganization.value = org;
+  duplicateError.value = '';
+  showDuplicateModal.value = true;
+  const baseSlug = String(org.slug || '').trim() || 'organization';
+  duplicateForm.value = {
+    name: `${org.name} (Copy)`,
+    slug: `${baseSlug}-copy`,
+    portalUrl: ''
+  };
+};
+
+const closeDuplicateModal = () => {
+  showDuplicateModal.value = false;
+  duplicatingOrganization.value = null;
+  duplicating.value = false;
+  duplicateError.value = '';
+};
+
+const duplicateOrganization = async () => {
+  if (!duplicatingOrganization.value) return;
+  try {
+    duplicating.value = true;
+    duplicateError.value = '';
+
+    const name = String(duplicateForm.value.name || '').trim();
+    const slug = String(duplicateForm.value.slug || '').trim().toLowerCase();
+    const portalUrl = String(duplicateForm.value.portalUrl || '').trim().toLowerCase();
+
+    if (!name) throw new Error('Name is required');
+    if (!slug || !/^[a-z0-9-]+$/.test(slug)) throw new Error('Slug must be lowercase alphanumeric with hyphens only');
+    if (portalUrl && !/^[a-z0-9-]+$/.test(portalUrl)) throw new Error('Portal URL must be lowercase alphanumeric with hyphens only');
+
+    await api.post(`/organizations/${duplicatingOrganization.value.id}/duplicate`, {
+      name,
+      slug,
+      portalUrl: portalUrl || null
+    });
+
+    closeDuplicateModal();
+    await fetchAgencies();
+  } catch (e) {
+    duplicateError.value = e.response?.data?.error?.message || e.message || 'Failed to duplicate organization';
+  } finally {
+    duplicating.value = false;
+  }
 };
 
 const saveAgency = async () => {
@@ -1595,6 +1787,7 @@ const saveAgency = async () => {
       phoneNumber: agencyForm.value.phoneNumber?.trim() || null,
       phoneExtension: agencyForm.value.phoneExtension?.trim() || null,
       portalUrl: agencyForm.value.portalUrl?.trim().toLowerCase() || null,
+      ...(requiresAffiliatedAgency.value ? { affiliatedAgencyId: parseInt(agencyForm.value.affiliatedAgencyId, 10) } : {}),
       themeSettings: Object.keys(themeSettings).length > 0 ? themeSettings : null,
       customParameters: Object.keys(customParams).length > 0 ? customParams : null,
       // Notification icon fields
@@ -1784,6 +1977,7 @@ const closeModal = () => {
   customParameters.value = {};
   agencyForm.value = {
     organizationType: userRole.value === 'super_admin' ? 'agency' : 'school',
+    affiliatedAgencyId: '',
     name: '',
     slug: '',
     logoUrl: '',
@@ -1839,7 +2033,36 @@ watch(showCreateModal, (isOpen) => {
   if (editingAgency.value) return;
   // Ensure admins default to an allowed org type (no agency creation)
   agencyForm.value.organizationType = userRole.value === 'super_admin' ? 'agency' : 'school';
+  agencyForm.value.affiliatedAgencyId = '';
 });
+
+// Keep affiliated agency selection in sync with role + org type.
+watch([requiresAffiliatedAgency, affiliableAgencies, userRole, editingAgency], async () => {
+  if (!requiresAffiliatedAgency.value) {
+    agencyForm.value.affiliatedAgencyId = '';
+    return;
+  }
+
+  // Editing: load current affiliation (super admin only).
+  if (editingAgency.value) {
+    if (userRole.value === 'super_admin') {
+      try {
+        const res = await api.get(`/organizations/${editingAgency.value.id}/affiliation`);
+        if (res.data?.affiliatedAgencyId) {
+          agencyForm.value.affiliatedAgencyId = String(res.data.affiliatedAgencyId);
+        }
+      } catch (e) {
+        // best effort
+      }
+    }
+    return;
+  }
+
+  // Creating: auto-select for single-agency admins.
+  if (userRole.value !== 'super_admin' && affiliableAgencies.value.length === 1) {
+    agencyForm.value.affiliatedAgencyId = String(affiliableAgencies.value[0].id);
+  }
+}, { immediate: true });
 
 // Get agency login URL
 const getAgencyLoginUrl = (portalUrl) => {
@@ -1903,6 +2126,45 @@ onMounted(async () => {
 .agencies-list {
   display: grid;
   gap: 20px;
+}
+
+.pricing-box {
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.pricing-box.locked {
+  opacity: 0.85;
+}
+
+.pricing-title {
+  font-weight: 800;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.pricing-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.pricing-label {
+  color: var(--text-secondary);
+}
+
+.pricing-value {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.pricing-note {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-secondary);
 }
 
 .agency-card {

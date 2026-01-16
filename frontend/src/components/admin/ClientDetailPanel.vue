@@ -204,6 +204,11 @@
             </div>
           </div>
         </div>
+
+        <!-- PHI Packets Tab -->
+        <div v-if="activeTab === 'phi'" class="detail-section">
+          <PhiDocumentsPanel :client-id="Number(client.id)" />
+        </div>
       </div>
     </div>
   </div>
@@ -214,6 +219,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import ClientStatusBadge from './ClientStatusBadge.vue';
+import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
 
 const props = defineProps({
   client: {
@@ -230,7 +236,8 @@ const activeTab = ref('overview');
 const tabs = [
   { id: 'overview', label: 'Overview' },
   { id: 'history', label: 'Status History' },
-  { id: 'messages', label: 'Messages' }
+  { id: 'messages', label: 'Messages' },
+  { id: 'phi', label: 'Referral Packets' }
 ];
 
 // Overview tab state

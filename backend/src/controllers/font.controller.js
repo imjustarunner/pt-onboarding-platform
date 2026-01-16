@@ -47,6 +47,7 @@ export const upload = multer({
 export const getAllFonts = async (req, res, next) => {
   try {
     const { includeInactive, agencyId, familyName } = req.query;
+    const includeMissing = String(req.query.includeMissing || 'false') === 'true';
     
     const filters = {};
     if (agencyId !== undefined && agencyId !== '') {
@@ -71,6 +72,19 @@ export const getAllFonts = async (req, res, next) => {
       fonts = fonts.filter(font => font.agency_id !== null);
     }
     
+    // Hide “seeded”/missing fonts by default (only show fonts whose files actually exist)
+    if (!includeMissing) {
+      const checks = await Promise.all(
+        fonts.map(async (font) => {
+          const fp = font?.file_path ? String(font.file_path) : '';
+          const filename = fp ? path.basename(fp) : null;
+          const exists = filename ? await StorageService.fontExists(filename) : false;
+          return { font, exists };
+        })
+      );
+      fonts = checks.filter(x => x.exists).map(x => x.font);
+    }
+
     // Add URL to each font
     const fontsWithUrls = fonts.map(font => ({
       ...font,
@@ -105,8 +119,23 @@ export const getFontFamilies = async (req, res, next) => {
   try {
     const { agencyId } = req.query;
     const parsedAgencyId = agencyId && agencyId !== 'null' ? parseInt(agencyId, 10) : null;
-    
-    const families = await Font.getUniqueFamilyNames(parsedAgencyId);
+
+    // Only include families that have at least one available font file.
+    const filters = {};
+    if (agencyId !== undefined) {
+      if (agencyId === 'null') filters.agencyId = null;
+      else if (!Number.isNaN(parsedAgencyId)) filters.agencyId = parsedAgencyId;
+    }
+    let fonts = await Font.findAll(false, filters);
+    const checks = await Promise.all(
+      fonts.map(async (font) => {
+        const fp = font?.file_path ? String(font.file_path) : '';
+        const filename = fp ? path.basename(fp) : null;
+        const exists = filename ? await StorageService.fontExists(filename) : false;
+        return exists ? font.family_name : null;
+      })
+    );
+    const families = Array.from(new Set(checks.filter(Boolean))).sort();
     res.json(families);
   } catch (error) {
     next(error);

@@ -3,6 +3,8 @@ import path from 'path';
 import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
 import StorageService from '../services/storage.service.js';
 import User from '../models/User.model.js';
+import pool from '../config/database.js';
+import UserChecklistAssignment from '../models/UserChecklistAssignment.model.js';
 
 const storage = multer.memoryStorage();
 
@@ -74,17 +76,44 @@ export const createComplianceDocument = async (req, res, next) => {
     const filename = `credential-${targetUserId}-${uniqueSuffix}${path.extname(req.file.originalname || '.pdf')}`;
     const storageResult = await StorageService.saveComplianceDocument(req.file.buffer, filename, req.file.mimetype);
 
+    const normalizedType = String(documentType).trim().toLowerCase();
+    const uploadedAt = new Date();
+
+    let effectiveExpirationDate = expirationDate ? new Date(expirationDate) : null;
+    // Background check renews every 5 years (default expiration if not provided)
+    if (!effectiveExpirationDate && normalizedType.startsWith('background_check') && !normalizedType.startsWith('background_check_receipt')) {
+      effectiveExpirationDate = new Date(uploadedAt);
+      effectiveExpirationDate.setFullYear(effectiveExpirationDate.getFullYear() + 5);
+    }
+
     const doc = await UserComplianceDocument.create({
       userId: targetUserId,
       agencyId,
       documentType: String(documentType).trim(),
-      expirationDate: expirationDate ? new Date(expirationDate) : null,
+      expirationDate: effectiveExpirationDate,
       isBlocking: isBlocking === true || isBlocking === 'true' || isBlocking === 1 || isBlocking === '1',
       filePath: storageResult.relativePath,
       notes: notes ?? null,
-      uploadedAt: new Date(),
+      uploadedAt,
       createdByUserId: req.user.id
     });
+
+    // Best-effort: receipt upload marks a matching "Background Check" checklist item complete
+    if (normalizedType.startsWith('background_check_receipt')) {
+      try {
+        const [items] = await pool.execute(
+          `SELECT id FROM custom_checklist_items
+           WHERE (LOWER(item_key) LIKE '%background%' OR LOWER(item_label) LIKE '%background%')
+           ORDER BY is_platform_template DESC, agency_id IS NULL DESC, order_index ASC
+           LIMIT 5`
+        );
+        for (const item of items) {
+          await UserChecklistAssignment.markComplete(targetUserId, item.id);
+        }
+      } catch {
+        // ignore
+      }
+    }
 
     res.status(201).json(doc);
   } catch (e) {

@@ -16,12 +16,12 @@
             <div class="nav-links-wrapper">
               <div class="nav-links">
               <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeMobileMenu">On-Demand Training</router-link>
+              <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu">
+                {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
+              </router-link>
 
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
               <template v-if="canSeePortalNav">
-                <router-link :to="orgTo('/dashboard')" v-if="!isPrivilegedPortalUser" @click="closeMobileMenu">Dashboard</router-link>
-                <router-link :to="orgTo('/dashboard')" v-if="isPrivilegedPortalUser" @click="closeMobileMenu">My Dashboard</router-link>
-
                 <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Admin Dashboard</router-link>
 
                 <router-link :to="orgTo('/admin/modules')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Training</router-link>
@@ -36,14 +36,19 @@
 
                 <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Settings</router-link>
               </template>
-                <span class="user-info">{{ user?.firstName || user?.email }} {{ user?.lastName || '' }}</span>
-                <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="nav-link">Office Schedule</router-link>
-                <button @click="handleLogout" class="btn btn-secondary">Logout</button>
+              <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="nav-link">Office Schedule</router-link>
+              <button @click="handleLogout" class="btn btn-secondary">Logout</button>
               </div>
             </div>
           </div>
         </div>
       </nav>
+      <!-- Welcome tag (hangs under navbar) -->
+      <div v-if="isAuthenticated" class="welcome-hang-wrap">
+        <div class="welcome-hang">
+          Welcome, {{ welcomeName }}
+        </div>
+      </div>
       <!-- Mobile Sidebar (available on all screen sizes) -->
       <div v-if="isAuthenticated" class="mobile-sidebar" :class="{ open: mobileMenuOpen }" @click.self="mobileMenuOpen = false">
         <div class="mobile-sidebar-content">
@@ -54,11 +59,12 @@
           </div>
           <div class="mobile-nav-links">
             <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
+            <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu" class="mobile-nav-link">
+              {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
+            </router-link>
+            <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="mobile-nav-link">Office Schedule</router-link>
 
             <template v-if="canSeePortalNav">
-              <router-link :to="orgTo('/dashboard')" v-if="!isPrivilegedPortalUser" @click="closeMobileMenu" class="mobile-nav-link">Dashboard</router-link>
-              <router-link :to="orgTo('/dashboard')" v-if="isPrivilegedPortalUser" @click="closeMobileMenu" class="mobile-nav-link">My Dashboard</router-link>
-
               <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
 
               <router-link :to="orgTo('/admin/modules')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Training</router-link>
@@ -75,8 +81,6 @@
             </template>
           </div>
           <div class="mobile-sidebar-footer">
-            <div class="mobile-user-info">{{ user?.firstName || user?.email }} {{ user?.lastName || '' }}</div>
-            <router-link :to="orgTo('/schedule')" @click="closeMobileMenu" class="mobile-nav-link">Office Schedule</router-link>
             <button @click="handleLogout" class="btn btn-secondary mobile-logout">Logout</button>
           </div>
         </div>
@@ -135,6 +139,14 @@ const navTitleText = computed(() => {
 
 const isAuthenticated = computed(() => authStore.isAuthenticated);
 const user = computed(() => authStore.user);
+const welcomeName = computed(() => {
+  const first = user.value?.firstName?.trim();
+  if (first) return first;
+  const email = user.value?.email?.trim();
+  if (!email) return 'there';
+  const local = email.split('@')[0];
+  return local || email;
+});
 const isAdmin = computed(() => {
   const role = user.value?.role;
   return role === 'admin' || role === 'super_admin' || role === 'support';
@@ -314,7 +326,7 @@ onUnmounted(() => {
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 14px;
   flex-wrap: nowrap;
   flex-shrink: 0;
   min-width: max-content;
@@ -324,7 +336,7 @@ onUnmounted(() => {
 .nav-links a {
   color: white;
   text-decoration: none;
-  padding: 8px 15px;
+  padding: 6px 12px;
   border-radius: 5px;
   transition: background-color 0.3s;
   white-space: nowrap;
@@ -344,11 +356,27 @@ onUnmounted(() => {
   padding: 8px 16px;
 }
 
-.user-info {
-  color: #ecf0f1;
-  font-weight: 500;
+.welcome-hang-wrap {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 20px;
+  margin-top: -2px; /* visually attaches to navbar bottom border */
+}
+
+.welcome-hang {
+  background: white;
+  color: var(--primary);
+  border: 2px solid var(--accent);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  padding: 8px 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  box-shadow: var(--shadow-lg);
+  max-width: 80vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  flex-shrink: 0;
 }
 
 .preferences-link {
@@ -501,13 +529,6 @@ onUnmounted(() => {
 .mobile-sidebar-footer {
   padding: 20px;
   border-top: 2px solid rgba(255, 255, 255, 0.2);
-}
-
-.mobile-user-info {
-  color: rgba(255, 255, 255, 0.9);
-  font-weight: 500;
-  margin-bottom: 16px;
-  font-size: 14px;
 }
 
 .mobile-logout {

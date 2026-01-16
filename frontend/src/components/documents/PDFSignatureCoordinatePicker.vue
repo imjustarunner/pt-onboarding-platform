@@ -560,8 +560,8 @@ onMounted(() => {
   background: #f5f5f5;
   min-height: 400px;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: flex-start;
   overflow: auto;
   max-height: 600px;
 }

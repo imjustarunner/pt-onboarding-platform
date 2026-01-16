@@ -27,7 +27,13 @@ class Notification {
     // Emergency broadcasts
     'emergency_broadcast',
     // Client chat / notes
-    'client_note'
+    'client_note',
+    // Client pipeline automation
+    'paperwork_received',
+    'client_became_current',
+    // Background check automation
+    'background_check_reimbursement_due',
+    'background_check_renewal_due'
   ];
 
   static async create(notificationData) {

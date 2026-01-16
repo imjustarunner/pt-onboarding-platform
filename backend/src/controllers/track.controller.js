@@ -258,7 +258,7 @@ export const addModuleToTrack = async (req, res, next) => {
 export const removeModuleFromTrack = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { moduleId } = req.body;
+    const moduleId = req.params.moduleId || req.body?.moduleId;
     
     await TrainingTrack.removeModule(id, moduleId);
     res.json({ message: 'Module removed from training focus' });

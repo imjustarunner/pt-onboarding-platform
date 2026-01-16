@@ -1,63 +1,67 @@
 <template>
-  <div class="reset-container">
-    <div class="reset-card">
-      <div v-if="loading" class="loading">
-        <p>Loading...</p>
-      </div>
+  <div class="reset-container" :style="{ background: loginBackground }">
+    <div class="reset-content">
+      <div class="reset-card">
+        <div v-if="loading" class="loading">
+          <p>Loading...</p>
+        </div>
 
-      <div v-else-if="error" class="error">
-        <h2>Reset Error</h2>
-        <p>{{ error }}</p>
-        <router-link to="/login" class="btn btn-primary">Go to Login</router-link>
-      </div>
+        <div v-else-if="error" class="error">
+          <h2>Reset Error</h2>
+          <p>{{ error }}</p>
+          <router-link to="/login" class="btn btn-primary">Go to Login</router-link>
+        </div>
 
-      <div v-else class="reset-form">
-        <h2 v-if="firstName">Hi {{ firstName }},</h2>
-        <h2 v-else>Reset your password</h2>
-        <p class="subtitle">Please choose a new password to continue</p>
+        <div v-else class="reset-form">
+          <h2 v-if="firstName">Hi {{ firstName }},</h2>
+          <h2 v-else>Reset your password</h2>
+          <p class="subtitle">Please choose a new password to continue</p>
 
-        <form @submit.prevent="handleReset">
-          <div class="form-group">
-            <label for="password">New Password</label>
-            <input
-              id="password"
-              v-model="password"
-              type="password"
-              placeholder="Enter a new password"
-              required
-              class="form-input"
-              :disabled="saving"
-              minlength="6"
-            />
-          </div>
+          <form @submit.prevent="handleReset">
+            <div class="form-group">
+              <label for="password">New Password</label>
+              <input
+                id="password"
+                v-model="password"
+                type="password"
+                placeholder="Enter a new password"
+                required
+                class="form-input"
+                :disabled="saving"
+                minlength="6"
+              />
+            </div>
 
-          <div class="form-group">
-            <label for="confirmPassword">Confirm New Password</label>
-            <input
-              id="confirmPassword"
-              v-model="confirmPassword"
-              type="password"
-              placeholder="Confirm your new password"
-              required
-              class="form-input"
-              :disabled="saving"
-              minlength="6"
-            />
-          </div>
+            <div class="form-group">
+              <label for="confirmPassword">Confirm New Password</label>
+              <input
+                id="confirmPassword"
+                v-model="confirmPassword"
+                type="password"
+                placeholder="Confirm your new password"
+                required
+                class="form-input"
+                :disabled="saving"
+                minlength="6"
+              />
+            </div>
 
-          <p v-if="passwordMismatch" class="error-message">Passwords do not match</p>
-          <p v-if="formError" class="error-message">{{ formError }}</p>
+            <p v-if="passwordMismatch" class="error-message">Passwords do not match</p>
+            <p v-if="formError" class="error-message">{{ formError }}</p>
 
-          <button
-            type="submit"
-            class="btn btn-primary"
-            :disabled="saving || passwordMismatch || !password || !confirmPassword"
-          >
-            {{ saving ? 'Saving...' : 'Reset Password' }}
-          </button>
-        </form>
+            <button
+              type="submit"
+              class="btn btn-primary"
+              :disabled="saving || passwordMismatch || !password || !confirmPassword"
+            >
+              {{ saving ? 'Saving...' : 'Reset Password' }}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
+
+    <PoweredByFooter />
   </div>
 </template>
 
@@ -68,6 +72,7 @@ import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
 import { getDashboardRoute } from '../utils/router';
+import PoweredByFooter from '../components/PoweredByFooter.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -85,6 +90,8 @@ const formError = ref('');
 const passwordMismatch = computed(() => {
   return password.value && confirmPassword.value && password.value !== confirmPassword.value;
 });
+
+const loginBackground = computed(() => brandingStore.loginBackground);
 
 const token = computed(() => {
   const t = route.params.token;
@@ -168,10 +175,18 @@ onMounted(async () => {
 <style scoped>
 .reset-container {
   display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  min-height: 100vh;
+  padding: 24px 16px;
+}
+
+.reset-content {
+  flex: 1;
+  display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
 }
 
 .reset-card {

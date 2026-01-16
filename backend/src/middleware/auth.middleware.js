@@ -258,4 +258,3 @@ export const requireActiveStatus = async (req, res, next) => {
     next(error);
   }
 };
-

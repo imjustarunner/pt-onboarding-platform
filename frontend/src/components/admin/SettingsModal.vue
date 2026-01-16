@@ -72,6 +72,10 @@ import AgencyCustomChecklistItems from './AgencyCustomChecklistItems.vue';
 import AssetsManagement from './AssetsManagement.vue';
 import OnboardingPackageManagement from './OnboardingPackageManagement.vue';
 import ArchiveManagement from './ArchiveManagement.vue';
+import ClientCatalogManagement from './ClientCatalogManagement.vue';
+import SchoolCatalogManagement from './SchoolCatalogManagement.vue';
+import ProviderCatalogManagement from './ProviderCatalogManagement.vue';
+import ProviderSchedulingManagement from './ProviderSchedulingManagement.vue';
 
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
@@ -125,6 +129,42 @@ const allCategories = [
     id: 'workflow',
     label: 'WORKFLOW',
     items: [
+      {
+        id: 'client-settings',
+        label: 'Client Settings',
+        icon: '🧾',
+        component: 'ClientCatalogManagement',
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'school-settings',
+        label: 'School Settings',
+        icon: '🏫',
+        component: 'SchoolCatalogManagement',
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'provider-settings',
+        label: 'Provider Settings',
+        icon: '🧑‍⚕️',
+        component: 'ProviderCatalogManagement',
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'provider-scheduling',
+        label: 'Provider Scheduling',
+        icon: '🗓️',
+        component: 'ProviderSchedulingManagement',
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
       {
         id: 'packages',
         label: 'Packages',
@@ -305,6 +345,10 @@ const componentMap = {
   AssetsManagement,
   OnboardingPackageManagement,
   ArchiveManagement,
+  ClientCatalogManagement,
+  SchoolCatalogManagement,
+  ProviderCatalogManagement,
+  ProviderSchedulingManagement,
   TeamRolesManagement,
   BillingManagement,
   IntegrationsManagement
@@ -618,9 +662,27 @@ const getSettingsIconUrl = (itemId) => {
 }
 
 .item-icon {
-  font-size: 20px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
   flex-shrink: 0;
+}
+
+.item-icon .icon-image {
+  width: 24px;
+  height: 24px;
+  max-width: 24px;
+  max-height: 24px;
+  object-fit: contain;
+  display: block;
+}
+
+.item-icon .icon-emoji {
+  font-size: 22px;
+  line-height: 1;
 }
 
 .item-label {
@@ -692,13 +754,13 @@ const getSettingsIconUrl = (itemId) => {
   }
   
   .item-icon {
-    width: 20px;
-    height: 20px;
+    width: 26px;
+    height: 26px;
   }
   
   .item-icon .icon-image {
-    width: 18px;
-    height: 18px;
+    width: 22px;
+    height: 22px;
   }
 }
 
@@ -761,17 +823,17 @@ const getSettingsIconUrl = (itemId) => {
   }
   
   .item-icon {
-    width: 18px;
-    height: 18px;
+    width: 24px;
+    height: 24px;
   }
   
   .item-icon .icon-image {
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
   }
   
   .item-icon .icon-emoji {
-    font-size: 18px;
+    font-size: 20px;
   }
 }
 

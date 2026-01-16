@@ -3,6 +3,9 @@ import Client from '../models/Client.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import multer from 'multer';
 import StorageService from '../services/storage.service.js';
+import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import AgencySchool from '../models/AgencySchool.model.js';
 
 // Configure multer for memory storage (files will be uploaded to GCS)
 const upload = multer({
@@ -79,26 +82,19 @@ export const uploadReferralPacket = [
         }
       });
       
-      // Use signed URL instead of making public (more secure)
-      // File will be accessible via /uploads route
-      const fileUrl = `/uploads/${fileName}`;
+      // Note: referral packets are PHI. Do not return a public URL here.
 
       // Determine agency_id
-      // For schools, we need to find the associated agency that manages this school
-      // Since schools and agencies are in the same table, we'll use a simplified approach:
-      // For now, we'll look for an agency organization that the user might be associated with
-      // In a production system, you might have a school_agencies junction table or parent_agency_id field
       let agencyId = null;
       
-      // Try to find an agency organization (not a school)
-      // This is a simplified approach - in production, you'd have a proper relationship
-      const allAgencies = await Agency.findAll(true, false, 'agency');
-      if (allAgencies.length > 0) {
-        // Use the first agency found (in production, this would be the school's managing agency)
-        agencyId = allAgencies[0].id;
-      } else {
-        // Fallback: use organization id (not ideal, but allows the system to function)
-        agencyId = organization.id;
+      // Prefer the active affiliated agency for this school.
+      agencyId =
+        (await OrganizationAffiliation.getActiveAgencyIdForOrganization(organization.id)) ||
+        (await AgencySchool.getActiveAgencyIdForSchool(organization.id)) ||
+        null;
+      if (!agencyId) {
+        const allAgencies = await Agency.findAll(true, false, 'agency');
+        agencyId = allAgencies?.[0]?.id || organization.id;
       }
 
       // Create client record with status = PENDING_REVIEW
@@ -130,10 +126,30 @@ export const uploadReferralPacket = [
       // await OCRService.processReferralPacket(client.id, fileUrl);
       // After OCR, update client with extracted initials and other data
 
+      // Track packet as PHI and store metadata for secure access + auditing
+      let phiDoc = null;
+      try {
+        phiDoc = await ClientPhiDocument.create({
+          clientId: client.id,
+          agencyId,
+          schoolOrganizationId: organization.id,
+          storagePath: fileName,
+          originalName: req.file.originalname || null,
+          mimeType: req.file.mimetype || null,
+          uploadedByUserId: null
+        });
+      } catch (e) {
+        // Don't fail upload if PHI tracking table isn't available yet.
+        if (e.code !== 'ER_NO_SUCH_TABLE') {
+          console.warn('Failed to create PHI document record:', e.message);
+        }
+        phiDoc = null;
+      }
+
       res.json({
         success: true,
         message: 'Referral packet uploaded successfully. Client record created.',
-        fileUrl: fileUrl,
+        phiDocumentId: phiDoc?.id || null,
         organizationId: organization.id,
         clientId: client.id
       });
