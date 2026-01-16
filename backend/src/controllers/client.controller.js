@@ -3,6 +3,8 @@ import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import Notification from '../models/Notification.model.js';
+import pool from '../config/database.js';
 
 /**
  * Get all clients (agency view)
@@ -85,21 +87,21 @@ export const getClientById = async (req, res, next) => {
     const userAgencyIds = userAgencies.map(a => a.id);
     const userOrganizationIds = userAgencies.map(a => a.id);
 
-    // Check if user belongs to client's agency OR client's school organization
+    // Check if user belongs to client's agency OR client's organization
     const hasAgencyAccess = userAgencyIds.includes(client.agency_id);
-    const hasSchoolAccess = userOrganizationIds.includes(client.organization_id);
+    const hasOrganizationAccess = userOrganizationIds.includes(client.organization_id);
 
-    if (!hasAgencyAccess && !hasSchoolAccess) {
+    if (!hasAgencyAccess && !hasOrganizationAccess) {
       return res.status(403).json({ 
         error: { message: 'You do not have access to this client' } 
       });
     }
 
-    // If user is school staff (accessing via school organization), return restricted view
+    // If user is accessing via a non-agency organization (school/program/learning), return restricted view
     const userOrganization = userAgencies.find(org => org.id === client.organization_id);
-    const isSchoolStaff = userOrganization && (userOrganization.organization_type || 'agency') === 'school';
+    const isNonAgencyOrgStaff = userOrganization && (String(userOrganization.organization_type || 'agency').toLowerCase() !== 'agency');
 
-    if (isSchoolStaff && !hasAgencyAccess) {
+    if (isNonAgencyOrgStaff && !hasAgencyAccess) {
       // Return restricted view (exclude sensitive fields)
       const restrictedClient = {
         id: client.id,
@@ -157,19 +159,41 @@ export const createClient = async (req, res, next) => {
       });
     }
 
+    const parsedAgencyId = parseInt(agency_id, 10);
+    const parsedOrganizationId = parseInt(organization_id, 10);
+    if (!parsedAgencyId || !parsedOrganizationId) {
+      return res.status(400).json({
+        error: { message: 'agency_id and organization_id must be valid integers' }
+      });
+    }
+
     // Verify user has access to the agency
     if (userRole !== 'super_admin') {
       const userAgencies = await User.getAgencies(userId);
       const userAgencyIds = userAgencies.map(a => a.id);
-      if (!userAgencyIds.includes(agency_id)) {
+      if (!userAgencyIds.includes(parsedAgencyId)) {
         return res.status(403).json({ 
           error: { message: 'You do not have access to this agency' } 
         });
       }
     }
 
-    // Verify organization exists and is a school
-    const organization = await Agency.findById(organization_id);
+    // Verify agency exists and is an agency-type organization (clients can't be created "directly for agency")
+    const agencyOrg = await Agency.findById(parsedAgencyId);
+    if (!agencyOrg) {
+      return res.status(404).json({
+        error: { message: 'Agency not found' }
+      });
+    }
+    const agencyOrgType = (agencyOrg.organization_type || 'agency').toLowerCase();
+    if (agencyOrgType !== 'agency') {
+      return res.status(400).json({
+        error: { message: 'agency_id must refer to an agency organization' }
+      });
+    }
+
+    // Verify organization exists and is NOT an agency (allow school/program/learning)
+    const organization = await Agency.findById(parsedOrganizationId);
     if (!organization) {
       return res.status(404).json({ 
         error: { message: 'Organization not found' } 
@@ -177,16 +201,34 @@ export const createClient = async (req, res, next) => {
     }
 
     const orgType = organization.organization_type || 'agency';
-    if (orgType !== 'school') {
+    const normalizedOrgType = String(orgType).toLowerCase();
+    const allowedOrgTypes = ['school', 'program', 'learning'];
+    if (!allowedOrgTypes.includes(normalizedOrgType)) {
       return res.status(400).json({ 
-        error: { message: 'Clients must be associated with a school organization' } 
+        error: { message: `Clients must be associated with an organization of type: ${allowedOrgTypes.join(', ')}` } 
       });
+    }
+
+    // Verify organization is linked to the agency (enforces nested/associated rule)
+    // Note: we reuse agency_schools as the linkage table for any non-agency organization types.
+    try {
+      const AgencySchool = (await import('../models/AgencySchool.model.js')).default;
+      const links = await AgencySchool.listByAgency(parsedAgencyId, { includeInactive: false });
+      const isLinked = links.some((l) => parseInt(l.school_organization_id, 10) === parsedOrganizationId);
+      if (!isLinked) {
+        return res.status(400).json({
+          error: { message: 'Selected organization is not linked to this agency' }
+        });
+      }
+    } catch (e) {
+      // If linkage table/model isn't available for some reason, fall back to permissive behavior.
+      // This avoids blocking client creation in older environments.
     }
 
     // Create client
     const client = await Client.create({
-      organization_id,
-      agency_id,
+      organization_id: parsedOrganizationId,
+      agency_id: parsedAgencyId,
       provider_id: provider_id || null,
       initials: initials.toUpperCase().trim(),
       status,
@@ -249,6 +291,116 @@ export const updateClient = async (req, res, next) => {
       return res.status(403).json({ 
         error: { message: 'School staff cannot update clients' } 
       });
+    }
+
+    // --- Provider/day/capacity enforcement ---
+    const isChangingProvider = Object.prototype.hasOwnProperty.call(req.body, 'provider_id');
+    const isChangingDay = Object.prototype.hasOwnProperty.call(req.body, 'assigned_day_of_week');
+    const isChangingSchool = Object.prototype.hasOwnProperty.call(req.body, 'organization_id');
+
+    const nextProviderId = isChangingProvider ? (req.body.provider_id || null) : (currentClient.provider_id || null);
+    const nextDayRaw = isChangingDay ? (req.body.assigned_day_of_week || null) : (currentClient.assigned_day_of_week || null);
+    const nextSchoolOrgId = isChangingSchool ? (req.body.organization_id || null) : (currentClient.organization_id || null);
+
+    const normalizeDay = (v) => {
+      if (!v) return null;
+      const s = String(v).trim();
+      const allowed = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+      return allowed.includes(s) ? s : null;
+    };
+    const nextDay = normalizeDay(nextDayRaw);
+
+    // If day is being set, provider must already exist (either in request or on the client).
+    if (isChangingDay && nextDay && !nextProviderId) {
+      return res.status(400).json({ error: { message: 'Provider is required before assigning a day' } });
+    }
+
+    // If provider is cleared, day must also be cleared.
+    if (isChangingProvider && !nextProviderId && (nextDay || currentClient.assigned_day_of_week)) {
+      return res.status(400).json({ error: { message: 'Clear assigned day before clearing provider' } });
+    }
+
+    // If we have both provider + day (from request or existing), enforce schedule existence + capacity.
+    if ((isChangingProvider || isChangingDay || isChangingSchool) && nextProviderId && nextDay) {
+      const [schedRows] = await pool.execute(
+        `SELECT starting_available
+         FROM provider_school_schedules
+         WHERE agency_id = ? AND provider_user_id = ? AND school_organization_id = ? AND day_of_week = ?
+         LIMIT 1`,
+        [currentClient.agency_id, nextProviderId, nextSchoolOrgId, nextDay]
+      );
+      if (!schedRows.length) {
+        return res.status(400).json({ error: { message: 'Selected provider is not scheduled for this school/day' } });
+      }
+
+      const startingAvailable = schedRows[0].starting_available;
+      const [countRows] = await pool.execute(
+        `SELECT COUNT(*) AS cnt
+         FROM clients
+         WHERE provider_id = ? AND organization_id = ? AND assigned_day_of_week = ? AND id <> ?`,
+        [nextProviderId, nextSchoolOrgId, nextDay, parseInt(id, 10)]
+      );
+      const currentAssigned = countRows[0]?.cnt || 0;
+      if (currentAssigned >= startingAvailable) {
+        return res.status(400).json({ error: { message: 'No capacity available for this provider on the selected day' } });
+      }
+
+      // Auto-set client_status_id to "Current" when provider + day are set for the first time.
+      const wasAssigned = !!currentClient.provider_id && !!currentClient.assigned_day_of_week;
+      const becomesCurrent = !wasAssigned;
+      if (becomesCurrent) {
+        const [existingCurrent] = await pool.execute(
+          `SELECT id
+           FROM client_status_definitions
+           WHERE agency_id = ? AND (LOWER(display_name) = 'current' OR LOWER(key_name) = 'current')
+           LIMIT 1`,
+          [currentClient.agency_id]
+        );
+        let currentStatusId = existingCurrent[0]?.id || null;
+        if (!currentStatusId) {
+          const [ins] = await pool.execute(
+            `INSERT INTO client_status_definitions (agency_id, key_name, display_name, description, is_active)
+             VALUES (?, 'Current', 'Current', 'Actively receiving services', TRUE)`,
+            [currentClient.agency_id]
+          );
+          currentStatusId = ins.insertId;
+        }
+        req.body.client_status_id = currentStatusId;
+
+        // Notifications (agency + provider)
+        try {
+          await Notification.create({
+            type: 'client_became_current',
+            severity: 'info',
+            title: 'Client Became Current',
+            message: `Client ${currentClient.initials} is now Current (assigned provider + day).`,
+            userId: null,
+            agencyId: currentClient.agency_id,
+            relatedEntityType: 'client',
+            relatedEntityId: parseInt(id, 10)
+          });
+          await Notification.create({
+            type: 'client_became_current',
+            severity: 'info',
+            title: 'Client Became Current',
+            message: `Client ${currentClient.initials} is now Current and assigned to you on ${nextDay}.`,
+            userId: nextProviderId,
+            agencyId: currentClient.agency_id,
+            relatedEntityType: 'client',
+            relatedEntityId: parseInt(id, 10)
+          });
+        } catch (e) {
+          console.warn('Failed to create client_became_current notification:', e.message);
+        }
+      }
+    }
+
+    if (isChangingDay && req.body.assigned_day_of_week) {
+      const safe = normalizeDay(req.body.assigned_day_of_week);
+      if (!safe) {
+        return res.status(400).json({ error: { message: 'Invalid day (must be Monday–Friday)' } });
+      }
+      req.body.assigned_day_of_week = safe;
     }
 
     // Update client
@@ -367,8 +519,79 @@ export const assignProvider = async (req, res, next) => {
       }
     }
 
+    // If the client already has a day assigned, enforce schedule/capacity for the new provider.
+    if (provider_id && currentClient.assigned_day_of_week) {
+      const [schedRows] = await pool.execute(
+        `SELECT starting_available
+         FROM provider_school_schedules
+         WHERE agency_id = ? AND provider_user_id = ? AND school_organization_id = ? AND day_of_week = ?
+         LIMIT 1`,
+        [currentClient.agency_id, provider_id, currentClient.organization_id, currentClient.assigned_day_of_week]
+      );
+      if (!schedRows.length) {
+        return res.status(400).json({ error: { message: 'Selected provider is not scheduled for this school/day' } });
+      }
+      const startingAvailable = schedRows[0].starting_available;
+      const [countRows] = await pool.execute(
+        `SELECT COUNT(*) AS cnt
+         FROM clients
+         WHERE provider_id = ? AND organization_id = ? AND assigned_day_of_week = ? AND id <> ?`,
+        [provider_id, currentClient.organization_id, currentClient.assigned_day_of_week, parseInt(id, 10)]
+      );
+      const currentAssigned = countRows[0]?.cnt || 0;
+      if (currentAssigned >= startingAvailable) {
+        return res.status(400).json({ error: { message: 'No capacity available for this provider on the selected day' } });
+      }
+    }
+
     // Assign provider with history logging
     const updatedClient = await Client.assignProvider(id, provider_id || null, userId, note);
+
+    // If day is already set and provider is being assigned for the first time, auto-set to Current and notify.
+    if (provider_id && currentClient.assigned_day_of_week && !currentClient.provider_id) {
+      try {
+        const [existingCurrent] = await pool.execute(
+          `SELECT id
+           FROM client_status_definitions
+           WHERE agency_id = ? AND (LOWER(display_name) = 'current' OR LOWER(key_name) = 'current')
+           LIMIT 1`,
+          [currentClient.agency_id]
+        );
+        let currentStatusId = existingCurrent[0]?.id || null;
+        if (!currentStatusId) {
+          const [ins] = await pool.execute(
+            `INSERT INTO client_status_definitions (agency_id, key_name, display_name, description, is_active)
+             VALUES (?, 'Current', 'Current', 'Actively receiving services', TRUE)`,
+            [currentClient.agency_id]
+          );
+          currentStatusId = ins.insertId;
+        }
+        await Client.update(id, { client_status_id: currentStatusId }, userId);
+
+        await Notification.create({
+          type: 'client_became_current',
+          severity: 'info',
+          title: 'Client Became Current',
+          message: `Client ${currentClient.initials} is now Current (assigned ${currentClient.assigned_day_of_week}).`,
+          userId: null,
+          agencyId: currentClient.agency_id,
+          relatedEntityType: 'client',
+          relatedEntityId: parseInt(id, 10)
+        });
+        await Notification.create({
+          type: 'client_became_current',
+          severity: 'info',
+          title: 'Client Became Current',
+          message: `Client ${currentClient.initials} is now Current and assigned to you on ${currentClient.assigned_day_of_week}.`,
+          userId: provider_id,
+          agencyId: currentClient.agency_id,
+          relatedEntityType: 'client',
+          relatedEntityId: parseInt(id, 10)
+        });
+      } catch (e) {
+        console.warn('Failed to auto-set client to Current after provider assignment:', e.message);
+      }
+    }
 
     res.json(updatedClient);
   } catch (error) {
@@ -557,5 +780,49 @@ export const createClientNote = async (req, res, next) => {
       return res.status(403).json({ error: { message: error.message } });
     }
     next(error);
+  }
+};
+
+/**
+ * Get referral packet URL for a client (requires auth + access)
+ * GET /api/clients/:id/referral-packet
+ */
+export const getClientReferralPacket = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    if (!userId) {
+      return res.status(401).json({ error: { message: 'Authentication required' } });
+    }
+
+    const client = await Client.findById(id);
+    if (!client) {
+      return res.status(404).json({ error: { message: 'Client not found' } });
+    }
+
+    if (userRole !== 'super_admin') {
+      const userAgencies = await User.getAgencies(userId);
+      const ids = userAgencies.map(a => a.id);
+      const hasAgencyAccess = ids.includes(client.agency_id);
+      const hasSchoolAccess = ids.includes(client.organization_id);
+      if (!hasAgencyAccess && !hasSchoolAccess) {
+        return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+      }
+    }
+
+    if (!client.referral_packet_path) {
+      return res.status(404).json({ error: { message: 'No referral packet on file' } });
+    }
+
+    // Use /uploads route which will sign the URL (GCS) or serve locally (dev)
+    res.json({
+      clientId: client.id,
+      referralPacketUrl: `/uploads/${client.referral_packet_path}`,
+      referralPacketPath: client.referral_packet_path
+    });
+  } catch (e) {
+    next(e);
   }
 };

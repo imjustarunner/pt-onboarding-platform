@@ -159,7 +159,13 @@
                 <button @click="handlePreview(template)" class="btn btn-secondary btn-sm">Preview</button>
                 <button @click="handleDuplicate(template)" class="btn btn-info btn-sm">Duplicate</button>
                 <button v-if="canEdit(template)" @click="handleEdit(template)" class="btn btn-primary btn-sm">Edit</button>
-                <button v-if="canEdit(template) && template.template_type === 'pdf'" @click="handleUploadNewVersion(template)" class="btn btn-secondary btn-sm">New Version</button>
+                <button
+                  v-if="canEdit(template) && template.template_type === 'pdf' && template.document_action_type !== 'review'"
+                  @click="handleUploadNewVersion(template)"
+                  class="btn btn-secondary btn-sm"
+                >
+                  New Version
+                </button>
               </div>
             </td>
           </tr>
@@ -273,11 +279,16 @@
           </div>
           <div v-else class="form-group">
             <label>PDF Document</label>
-            <p class="info-text">To upload a new version of this PDF, use the "Upload New Version" button.</p>
+            <p v-if="editingTemplate.document_action_type !== 'review'" class="info-text">
+              To upload a new version of this PDF, use the "Upload New Version" button.
+            </p>
             <p class="info-text">Current file: {{ editingTemplate.file_path || 'N/A' }}</p>
             
             <!-- Signature Coordinate Picker -->
-            <div v-if="editingTemplate.template_type === 'pdf' && editingTemplate.file_path" class="signature-coordinate-section">
+            <div
+              v-if="editingTemplate.template_type === 'pdf' && editingTemplate.file_path && editingTemplate.document_action_type !== 'review'"
+              class="signature-coordinate-section"
+            >
               <h4 style="margin-top: 24px; margin-bottom: 12px;">Signature Position</h4>
               <p class="info-text" style="margin-bottom: 16px;">
                 Click on the PDF below to set where the signature should be placed. 
@@ -303,13 +314,7 @@
             </select>
             <small>Select an agency to make this document agency-specific, or leave as Platform for all agencies</small>
           </div>
-          <div class="form-group">
-            <label>
-              <input v-model="editForm.isActive" type="checkbox" />
-              Active
-            </label>
-          </div>
-          <div class="form-group">
+          <div v-if="editingTemplate.document_action_type !== 'review'" class="form-group">
             <label>
               <input v-model="editForm.saveAsNewVersion" type="checkbox" />
               Save as new version
@@ -322,7 +327,7 @@
                 v-if="canEdit(editingTemplate)" 
                 type="button" 
                 @click="toggleTemplateStatus(editingTemplate)" 
-                :class="['btn', editingTemplate.is_active !== false && editingTemplate.is_active !== 0 ? 'btn-warning' : 'btn-success']"
+                :class="['btn', 'btn-lg', editingTemplate.is_active !== false && editingTemplate.is_active !== 0 ? 'btn-warning' : 'btn-success']"
               >
                 {{ editingTemplate.is_active !== false && editingTemplate.is_active !== 0 ? 'Deactivate' : 'Activate' }}
               </button>
@@ -364,12 +369,7 @@
         <div class="preview-content">
           <div v-if="templateToPreview.template_type === 'html'" v-html="templateToPreview.html_content" class="html-preview"></div>
           <div v-else class="pdf-preview">
-            <iframe 
-              v-if="getPdfUrl(templateToPreview)" 
-              :src="getPdfUrl(templateToPreview)" 
-              class="pdf-iframe"
-              type="application/pdf"
-            ></iframe>
+            <PDFPreview v-if="getPdfUrl(templateToPreview)" :pdf-url="getPdfUrl(templateToPreview)" />
             <div v-else class="pdf-error">
               <p>PDF preview is not available.</p>
               <p v-if="templateToPreview.file_path" class="file-info">
@@ -395,9 +395,11 @@ import DocumentUploadDialog from '../../components/documents/DocumentUploadDialo
 import DocumentAssignmentDialog from '../../components/documents/DocumentAssignmentDialog.vue';
 import DocumentVersionHistory from '../../components/documents/DocumentVersionHistory.vue';
 import PDFSignatureCoordinatePicker from '../../components/documents/PDFSignatureCoordinatePicker.vue';
+import PDFPreview from '../../components/documents/PDFPreview.vue';
 import IconSelector from '../../components/admin/IconSelector.vue';
 import TemplateVariablesList from '../../components/documents/TemplateVariablesList.vue';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const router = useRouter();
 
@@ -1038,18 +1040,16 @@ const getDisplayIconAlt = (template) => {
 
 const getPdfUrl = (template) => {
   if (!template || !template.file_path) return null;
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  let filePath = template.file_path;
-  // Remove leading slash if present
-  if (filePath.startsWith('/')) {
-    filePath = filePath.substring(1);
+  let filePath = String(template.file_path);
+  if (filePath.startsWith('/')) filePath = filePath.substring(1);
+
+  // Normalize template file paths to live under "templates/" when not already prefixed.
+  // This avoids accidental "templates/templates/..." URLs.
+  if (!filePath.startsWith('templates/') && !filePath.startsWith('uploads/') && !filePath.startsWith('signed/') && !filePath.startsWith('fonts/')) {
+    filePath = `templates/${filePath}`;
   }
-  // Ensure it starts with uploads/templates/ or uploads/
-  if (!filePath.startsWith('uploads/')) {
-    filePath = `uploads/templates/${filePath}`;
-  }
-  return `${apiBase}/${filePath}`;
+
+  return toUploadsUrl(filePath);
 };
 
 const canEdit = (template) => {
@@ -1342,18 +1342,6 @@ onMounted(async () => {
 .text-muted {
   color: var(--text-secondary);
   font-style: italic;
-}
-
-.pdf-preview {
-  padding: 40px;
-  text-align: center;
-  background: #f8f9fa;
-  border-radius: 8px;
-}
-
-.pdf-preview p {
-  margin-bottom: 16px;
-  color: var(--text-secondary);
 }
 
 .file-info {

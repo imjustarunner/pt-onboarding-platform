@@ -457,6 +457,41 @@ class StorageService {
   }
 
   /**
+   * Check if a font file exists in storage.
+   * In production: checks GCS bucket for fonts/{filename}.
+   * In development: if GCS isn't configured/available, falls back to backend/uploads/fonts/{filename}.
+   * @param {string} filename
+   * @returns {Promise<boolean>}
+   */
+  static async fontExists(filename) {
+    if (!filename) return false;
+    const clean = String(filename).includes('/') ? String(filename).split('/').pop() : String(filename);
+    const key = `fonts/${clean}`;
+    try {
+      const bucket = await this.getGCSBucket();
+      const file = bucket.file(key);
+      const [exists] = await file.exists();
+      return !!exists;
+    } catch (error) {
+      // Best-effort dev fallback to local filesystem
+      if (process.env.NODE_ENV === 'development') {
+        try {
+          const fs = (await import('fs/promises')).default;
+          const { fileURLToPath } = await import('url');
+          const __filename = fileURLToPath(import.meta.url);
+          const __dirname = path.dirname(__filename);
+          const localPath = path.join(__dirname, '../uploads', key);
+          await fs.stat(localPath);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    }
+  }
+
+  /**
    * Save a document template file to GCS
    * Only metadata (file path) is stored in MySQL - the actual file is in GCS
    * @param {Buffer} fileBuffer - File content as buffer

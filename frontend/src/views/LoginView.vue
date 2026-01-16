@@ -93,7 +93,9 @@ const displayLogoUrl = computed(() => {
   if (isOrgLogin.value && loginTheme.value?.agency?.logoUrl) {
     return loginTheme.value.agency.logoUrl;
   }
-  return brandingStore.displayLogoUrl || brandingStore.plotTwistCoLogoUrl;
+  // IMPORTANT: don't fall back to PlotTwistCo on the regular login page.
+  // If branding hasn't loaded yet, show nothing instead of flashing the wrong logo.
+  return brandingStore.displayLogoUrl;
 });
 
 const displayTitle = computed(() => {

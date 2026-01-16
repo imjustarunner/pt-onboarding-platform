@@ -4,6 +4,7 @@
       <h1>Client Management</h1>
       <div class="header-actions">
         <button @click="showBulkImportModal = true" class="btn btn-secondary">Bulk Import</button>
+        <button @click="showRecentImportJobsModal = true" class="btn btn-secondary">Recent Preview Jobs</button>
         <button @click="showCreateModal = true" class="btn btn-primary">Create Client</button>
       </div>
     </div>
@@ -27,7 +28,7 @@
           <option value="ARCHIVED">Archived</option>
         </select>
         <select v-model="organizationFilter" @change="applyFilters" class="filter-select">
-          <option value="">All Schools</option>
+          <option value="">All Organizations</option>
           <option v-for="org in availableOrganizations" :key="org.id" :value="org.id">
             {{ org.name }}
           </option>
@@ -60,7 +61,7 @@
         <thead>
           <tr>
             <th>Initials</th>
-            <th>School</th>
+            <th>Organization</th>
             <th>Status</th>
             <th>Provider</th>
             <th>Submission Date</th>
@@ -148,9 +149,9 @@
         <h3>Create New Client</h3>
         <form @submit.prevent="createClient">
           <div class="form-group">
-            <label>School Organization *</label>
+            <label>Organization (School / Program / Learning) *</label>
             <select v-model="newClient.organization_id" required>
-              <option value="">Select school...</option>
+              <option value="">Select organization...</option>
               <option v-for="org in availableOrganizations" :key="org.id" :value="org.id">
                 {{ org.name }}
               </option>
@@ -215,6 +216,15 @@
       @close="showBulkImportModal = false"
       @imported="handleBulkImported"
     />
+
+    <!-- Recent Preview Jobs Modal -->
+    <RecentBulkImportJobsModal
+      v-if="showRecentImportJobsModal"
+      :agency-id="agencyStore.currentAgency?.id"
+      :agency-name="agencyStore.currentAgency?.name"
+      @close="showRecentImportJobsModal = false"
+      @rolledBack="handleRolledBack"
+    />
   </div>
 </template>
 
@@ -226,6 +236,7 @@ import api from '../../services/api';
 import ClientStatusBadge from '../../components/admin/ClientStatusBadge.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
+import RecentBulkImportJobsModal from '../../components/admin/RecentBulkImportJobsModal.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -241,7 +252,10 @@ const sortBy = ref('submission_date-desc');
 const selectedClient = ref(null);
 const showCreateModal = ref(false);
 const showBulkImportModal = ref(false);
+const showRecentImportJobsModal = ref(false);
 const creating = ref(false);
+const linkedOrganizations = ref([]);
+const loadingOrganizations = ref(false);
 
 // Inline editing state
 const editingStatusId = ref(null);
@@ -259,12 +273,48 @@ const newClient = ref({
   document_status: 'NONE'
 });
 
-// Get available organizations (schools only)
-const availableOrganizations = computed(() => {
-  if (authStore.user?.role === 'super_admin') {
-    return agencyStore.agencies?.filter(a => (a.organization_type || 'agency') === 'school') || [];
+const activeAgencyId = computed(() => {
+  const current = agencyStore.currentAgency;
+  const currentType = String(current?.organization_type || 'agency').toLowerCase();
+  if (current?.id && currentType === 'agency') return current.id;
+
+  // Fallback: pick first agency-type org from the user's list
+  const fromStore = authStore.user?.role === 'super_admin' ? agencyStore.agencies : agencyStore.userAgencies;
+  const firstAgency = (fromStore || []).find((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+  return firstAgency?.id || null;
+});
+
+const fetchLinkedOrganizations = async () => {
+  try {
+    loadingOrganizations.value = true;
+    const agencyId = activeAgencyId.value;
+    if (!agencyId) {
+      linkedOrganizations.value = [];
+      return;
+    }
+
+    // This endpoint returns agency-linked organizations (school/program/learning) via agency_schools linkage table
+    const response = await api.get(`/agencies/${agencyId}/schools`);
+    const rows = response.data || [];
+    linkedOrganizations.value = rows.map((r) => ({
+      id: r.school_organization_id,
+      name: r.school_name,
+      slug: r.school_slug,
+      organization_type: r.school_organization_type,
+      is_active: r.school_is_active
+    }));
+  } catch (err) {
+    console.error('Failed to fetch linked organizations:', err);
+    linkedOrganizations.value = [];
+  } finally {
+    loadingOrganizations.value = false;
   }
-  return agencyStore.userAgencies?.filter(a => (a.organization_type || 'agency') === 'school') || [];
+};
+
+// Get available organizations (school/program/learning only; never agency)
+const availableOrganizations = computed(() => {
+  // We intentionally show only orgs linked to the active agency, so client creation is valid.
+  return linkedOrganizations.value || [];
 });
 
 // Get available providers
@@ -410,31 +460,8 @@ const createClient = async () => {
     creating.value = true;
     error.value = '';
 
-    // Get user's agency ID
-    // The agency_id should be the agency organization (not school) that manages the school
-    let agencyId = null;
-    
-    if (authStore.user?.role === 'super_admin') {
-      // Super admin: Get first agency (not school) organization
-      const allAgencies = agencyStore.agencies || [];
-      const agencies = allAgencies.filter(a => (a.organization_type || 'agency') === 'agency');
-      if (agencies.length > 0) {
-        agencyId = agencies[0].id;
-      } else {
-        // Fallback: use organization id (not ideal, but allows creation)
-        agencyId = newClient.value.organization_id;
-      }
-    } else {
-      // Regular users: use their assigned agency (not school)
-      const userAgencies = agencyStore.userAgencies || [];
-      const agencies = userAgencies.filter(a => (a.organization_type || 'agency') === 'agency');
-      if (agencies.length > 0) {
-        agencyId = agencies[0].id;
-      } else if (userAgencies.length > 0) {
-        // Fallback: use first organization (may be a school - not ideal)
-        agencyId = userAgencies[0].id;
-      }
-    }
+    // The agency_id should be the agency organization that owns/manages the selected org
+    const agencyId = activeAgencyId.value;
 
     if (!agencyId) {
       error.value = 'Unable to determine agency. Please ensure you are associated with an agency.';
@@ -474,8 +501,13 @@ const handleBulkImported = () => {
   fetchClients();
 };
 
+const handleRolledBack = () => {
+  fetchClients();
+};
+
 onMounted(async () => {
   await agencyStore.fetchUserAgencies();
+  await fetchLinkedOrganizations();
   await fetchProviders();
   await fetchClients();
 });

@@ -1,6 +1,8 @@
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import { validationResult } from 'express-validator';
+import AgencySchool from '../models/AgencySchool.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 
 export const getAllAgencies = async (req, res, next) => {
   try {
@@ -63,12 +65,39 @@ export const createAgency = async (req, res, next) => {
       return res.status(400).json({ error: { message: `Validation failed: ${errorMessages}`, errors: errors.array() } });
     }
 
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId } = req.body;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId } = req.body;
 
     // Only super admins can create "agency" organizations. Admins can create school/program/learning.
     const requestedType = (organizationType || 'agency').toLowerCase();
     if (req.user?.role !== 'super_admin' && requestedType === 'agency') {
       return res.status(403).json({ error: { message: 'Only super admins can create agency organizations' } });
+    }
+
+    // For child org types, affiliated agency is required and must be allowed for this user.
+    const isChildOrgType = ['school', 'program', 'learning'].includes(requestedType);
+    let resolvedAffiliatedAgencyId = null;
+    if (isChildOrgType) {
+      resolvedAffiliatedAgencyId = parseInt(affiliatedAgencyId, 10);
+      if (!resolvedAffiliatedAgencyId) {
+        return res.status(400).json({ error: { message: 'affiliatedAgencyId is required for school/program/learning organizations' } });
+      }
+
+      const parentAgency = await Agency.findById(resolvedAffiliatedAgencyId);
+      if (!parentAgency) {
+        return res.status(404).json({ error: { message: 'Affiliated agency not found' } });
+      }
+      const parentType = String(parentAgency.organization_type || 'agency').toLowerCase();
+      if (parentType !== 'agency') {
+        return res.status(400).json({ error: { message: 'Affiliated agency must be an organization of type agency' } });
+      }
+
+      if (req.user?.role !== 'super_admin') {
+        const userAgencies = await User.getAgencies(req.user.id);
+        const canUseAgency = userAgencies.some((a) => a?.id === resolvedAffiliatedAgencyId && String(a.organization_type || 'agency').toLowerCase() === 'agency');
+        if (!canUseAgency) {
+          return res.status(403).json({ error: { message: 'You do not have access to affiliate to the selected agency' } });
+        }
+      }
     }
     
     // Ensure colorPalette is properly formatted
@@ -144,6 +173,20 @@ export const createAgency = async (req, res, next) => {
       myDashboardOnDemandTrainingIconId
     });
 
+    // Persist affiliation for child org types (school/program/learning).
+    if (isChildOrgType && resolvedAffiliatedAgencyId) {
+      try {
+        await OrganizationAffiliation.deactivateAllForOrganization(agency.id);
+        await OrganizationAffiliation.upsert({
+          agencyId: resolvedAffiliatedAgencyId,
+          organizationId: agency.id,
+          isActive: true
+        });
+      } catch (e) {
+        // best effort; do not block creation
+      }
+    }
+
     // If an admin (non-super-admin) created an organization, ensure they are assigned to it
     // so it shows up in their Organization Management list immediately.
     if (req.user?.role !== 'super_admin') {
@@ -178,7 +221,7 @@ export const updateAgency = async (req, res, next) => {
     }
 
     const { id } = req.params;
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId } = req.body;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId } = req.body;
     
     // Validate Google Docs URL if provided
     if (certificateTemplateUrl && certificateTemplateUrl.trim() !== '') {
@@ -284,6 +327,36 @@ export const updateAgency = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Agency not found' } });
     }
 
+    // Super admins can change affiliation for child org types (school/program/learning).
+    // Admins can create child orgs, but cannot re-affiliate them later.
+    if (affiliatedAgencyId !== undefined) {
+      if (req.user?.role !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Only super admins can change affiliated agency' } });
+      }
+
+      const type = String(agency.organization_type || organizationType || 'agency').toLowerCase();
+      const isChildOrgType = ['school', 'program', 'learning'].includes(type);
+      if (!isChildOrgType) {
+        return res.status(400).json({ error: { message: 'Affiliation can only be set for school/program/learning organizations' } });
+      }
+
+      const newAffId = parseInt(affiliatedAgencyId, 10);
+      if (!newAffId) {
+        return res.status(400).json({ error: { message: 'affiliatedAgencyId must be a positive integer' } });
+      }
+      const parentAgency = await Agency.findById(newAffId);
+      if (!parentAgency) {
+        return res.status(404).json({ error: { message: 'Affiliated agency not found' } });
+      }
+      const parentType = String(parentAgency.organization_type || 'agency').toLowerCase();
+      if (parentType !== 'agency') {
+        return res.status(400).json({ error: { message: 'Affiliated agency must be an organization of type agency' } });
+      }
+
+      await OrganizationAffiliation.deactivateAllForOrganization(agency.id);
+      await OrganizationAffiliation.upsert({ agencyId: newAffId, organizationId: agency.id, isActive: true });
+    }
+
     res.json(agency);
   } catch (error) {
     next(error);
@@ -360,24 +433,57 @@ export const getThemeByPortalUrl = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Agency not found' } });
     }
 
+    // If this portal belongs to a school/program/learning org, brand it using the linked parent agency (agency_schools).
+    const orgType = String(agency.organization_type || 'agency').toLowerCase();
+    let brandingOrg = agency;
+    if (['school', 'program', 'learning'].includes(orgType)) {
+      const linkedAgencyId =
+        (await OrganizationAffiliation.getActiveAgencyIdForOrganization(agency.id)) ||
+        (await AgencySchool.getActiveAgencyIdForSchool(agency.id)); // legacy fallback
+      if (linkedAgencyId) {
+        const linkedAgency = await Agency.findById(linkedAgencyId);
+        if (linkedAgency) brandingOrg = linkedAgency;
+      }
+    }
+
     // Parse JSON fields if they're strings
-    const colorPalette = typeof agency.color_palette === 'string' 
-      ? JSON.parse(agency.color_palette) 
-      : agency.color_palette;
-    const themeSettings = typeof agency.theme_settings === 'string'
-      ? JSON.parse(agency.theme_settings)
-      : agency.theme_settings;
-    const terminologySettings = typeof agency.terminology_settings === 'string'
-      ? JSON.parse(agency.terminology_settings)
-      : agency.terminology_settings;
+    const colorPalette = typeof brandingOrg.color_palette === 'string' 
+      ? JSON.parse(brandingOrg.color_palette) 
+      : brandingOrg.color_palette;
+    const themeSettings = typeof brandingOrg.theme_settings === 'string'
+      ? JSON.parse(brandingOrg.theme_settings)
+      : brandingOrg.theme_settings;
+    const terminologySettings = typeof brandingOrg.terminology_settings === 'string'
+      ? JSON.parse(brandingOrg.terminology_settings)
+      : brandingOrg.terminology_settings;
+
+    // Best-effort: return an absolute logo URL if a logo_path/icon_file_path exists
+    const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+    const host = req.get('x-forwarded-host') || req.get('host');
+    const baseUrl = `${proto}://${host}`;
+    const normalizeUploadsPath = (p) => {
+      if (!p) return null;
+      let cleaned = p;
+      if (cleaned.startsWith('/')) cleaned = cleaned.slice(1);
+      if (cleaned.startsWith('uploads/')) cleaned = cleaned.substring('uploads/'.length);
+      return cleaned;
+    };
+    let logoUrl = brandingOrg.logo_url;
+    if (brandingOrg.logo_path) {
+      const cleaned = normalizeUploadsPath(brandingOrg.logo_path);
+      logoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : brandingOrg.logo_url;
+    } else if (brandingOrg.icon_file_path) {
+      const cleaned = normalizeUploadsPath(brandingOrg.icon_file_path);
+      logoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : brandingOrg.logo_url;
+    }
 
     // Return theme data for frontend
     res.json({
       colorPalette: colorPalette || {},
-      logoUrl: agency.logo_url,
+      logoUrl,
       themeSettings: themeSettings || {},
       terminologySettings: terminologySettings || {},
-      agencyName: agency.name
+      agencyName: brandingOrg.name
     });
   } catch (error) {
     next(error);
@@ -398,12 +504,25 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
     const platformBranding = await PlatformBranding.get();
 
     // Parse JSON fields if they're strings
-    const colorPalette = typeof agency.color_palette === 'string' 
-      ? JSON.parse(agency.color_palette) 
-      : agency.color_palette;
-    const themeSettings = typeof agency.theme_settings === 'string'
-      ? JSON.parse(agency.theme_settings)
-      : agency.theme_settings;
+    // If this portal belongs to a school/program/learning org, brand it using the linked parent agency (agency_schools).
+    const orgType = String(agency.organization_type || 'agency').toLowerCase();
+    let brandingOrg = agency;
+    if (['school', 'program', 'learning'].includes(orgType)) {
+      const linkedAgencyId =
+        (await OrganizationAffiliation.getActiveAgencyIdForOrganization(agency.id)) ||
+        (await AgencySchool.getActiveAgencyIdForSchool(agency.id)); // legacy fallback
+      if (linkedAgencyId) {
+        const linkedAgency = await Agency.findById(linkedAgencyId);
+        if (linkedAgency) brandingOrg = linkedAgency;
+      }
+    }
+
+    const colorPalette = typeof brandingOrg.color_palette === 'string' 
+      ? JSON.parse(brandingOrg.color_palette) 
+      : brandingOrg.color_palette;
+    const themeSettings = typeof brandingOrg.theme_settings === 'string'
+      ? JSON.parse(brandingOrg.theme_settings)
+      : brandingOrg.theme_settings;
 
     // Build a base URL for absolute asset URLs (Cloud Run is behind a proxy)
     const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
@@ -420,13 +539,13 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
     };
 
     // Get agency logo URL (priority: logo_path > icon_file_path > logo_url)
-    let agencyLogoUrl = agency.logo_url;
-    if (agency.logo_path) {
-      const cleaned = normalizeUploadsPath(agency.logo_path);
-      agencyLogoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : agency.logo_url;
-    } else if (agency.icon_file_path) {
-      const cleaned = normalizeUploadsPath(agency.icon_file_path);
-      agencyLogoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : agency.logo_url;
+    let agencyLogoUrl = brandingOrg.logo_url;
+    if (brandingOrg.logo_path) {
+      const cleaned = normalizeUploadsPath(brandingOrg.logo_path);
+      agencyLogoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : brandingOrg.logo_url;
+    } else if (brandingOrg.icon_file_path) {
+      const cleaned = normalizeUploadsPath(brandingOrg.icon_file_path);
+      agencyLogoUrl = cleaned ? `${baseUrl}/uploads/${cleaned}` : brandingOrg.logo_url;
     }
 
     // Get platform logo URL
@@ -439,7 +558,8 @@ export const getLoginThemeByPortalUrl = async (req, res, next) => {
     // Return combined theme data for login page
     res.json({
       agency: {
-        name: agency.name,
+        name: brandingOrg.name,
+        // Preserve the portal org type so frontend can enforce school portal behavior.
         organizationType: agency.organization_type || 'agency',
         logoUrl: agencyLogoUrl,
         colorPalette: colorPalette || {},

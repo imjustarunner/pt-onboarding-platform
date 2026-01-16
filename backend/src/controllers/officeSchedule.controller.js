@@ -15,7 +15,8 @@ function formatClinicianName(firstName, lastName) {
 }
 
 async function userHasBlockingExpiredCredential(userId) {
-  const docs = await UserComplianceDocument.findByUserId(userId);
+  // Model method is findByUser (not findByUserId)
+  const docs = await UserComplianceDocument.findByUser(userId);
   const today = new Date(new Date().toISOString().slice(0, 10));
   return (docs || []).some((d) => {
     if (!d.is_blocking) return false;

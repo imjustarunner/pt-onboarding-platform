@@ -18,10 +18,14 @@
       <h2>Review Document: {{ task?.title }}</h2>
       
       <div class="document-preview">
-        <div v-if="template.template_type === 'html'" v-html="template.html_content" class="html-preview"></div>
+        <div v-if="template?.template_type === 'html'" v-html="template?.html_content" class="html-preview"></div>
+        <div v-else-if="pdfUrl" class="pdf-preview-container">
+          <PDFPreview :pdf-url="pdfUrl" />
+          <p class="note">Please review the document above, then mark it as reviewed below.</p>
+        </div>
         <div v-else class="pdf-preview">
-          <p><strong>PDF Document:</strong> {{ template.name }}</p>
-          <p class="note">Please review the document content. You will acknowledge that you have reviewed it below.</p>
+          <p><strong>PDF Document:</strong> {{ template?.name || 'Document' }}</p>
+          <p class="note">Loading document preview...</p>
         </div>
       </div>
 
@@ -48,7 +52,7 @@
           class="btn btn-primary"
           :disabled="!hasAcknowledged || submitting"
         >
-          {{ submitting ? 'Submitting...' : 'Acknowledge Document' }}
+          {{ submitting ? 'Submitting...' : 'Mark as Reviewed' }}
         </button>
         <button @click="router.push(getDashboardRoute())" class="btn btn-secondary">
           Cancel
@@ -63,6 +67,8 @@ import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { getDashboardRoute } from '../../utils/router';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
+import PDFPreview from './PDFPreview.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -72,6 +78,7 @@ const loading = ref(true);
 const error = ref('');
 const task = ref(null);
 const template = ref(null);
+const pdfUrl = ref(null);
 const hasAcknowledged = ref(false);
 const submitting = ref(false);
 const acknowledged = ref(false);
@@ -88,17 +95,15 @@ const loadDocumentTask = async () => {
 
     // Check if already acknowledged
     try {
-      const ackRes = await api.get(`/document-acknowledgment/${taskId}`);
-      acknowledgment.value = ackRes.data;
-      acknowledged.value = true;
-      loading.value = false;
-      return;
-    } catch (err) {
-      // Not acknowledged yet (404 is expected), continue silently
-      if (err.response?.status !== 404) {
-        // Only log if it's not a 404 (expected when not acknowledged)
-        console.warn('Error checking acknowledgment status:', err);
+      const summaryRes = await api.get(`/document-acknowledgment/${taskId}/summary`);
+      if (summaryRes.data?.acknowledged) {
+        acknowledgment.value = summaryRes.data.acknowledgment;
+        acknowledged.value = true;
+        loading.value = false;
+        return;
       }
+    } catch (err) {
+      console.warn('Error checking acknowledgment status:', err);
     }
 
     // Get template (use task endpoint for regular users)
@@ -118,6 +123,26 @@ const loadDocumentTask = async () => {
     // Verify it's a review document
     if (task.value.document_action_type !== 'review') {
       error.value = 'This document requires a signature, not a review. Please use the signature workflow.';
+    }
+
+    // Build PDF URL if needed
+    if (template.value?.template_type === 'pdf') {
+      let filePath = template.value.file_path;
+      if (filePath) {
+        filePath = String(filePath);
+        if (filePath.startsWith('/')) filePath = filePath.substring(1);
+
+        // Normalize template paths:
+        // - if already "templates/..." or "uploads/templates/..." keep it
+        // - otherwise assume it's a template file and prefix with "templates/"
+        if (!filePath.startsWith('templates/') && !filePath.startsWith('uploads/') && !filePath.startsWith('signed/') && !filePath.startsWith('fonts/')) {
+          filePath = `templates/${filePath}`;
+        }
+
+        pdfUrl.value = toUploadsUrl(filePath);
+      }
+    } else {
+      pdfUrl.value = null;
     }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load document task';
@@ -200,6 +225,22 @@ onMounted(() => {
 .pdf-preview {
   text-align: center;
   padding: 40px;
+}
+
+.pdf-preview-container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pdf-iframe {
+  width: 100%;
+  min-height: 600px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: white;
+  margin-bottom: 16px;
 }
 
 .pdf-preview .note {

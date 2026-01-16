@@ -38,6 +38,7 @@
               </div>
             </div>
             <div class="item-actions">
+              <button @click="duplicateItem(item)" class="btn btn-secondary btn-sm">Duplicate</button>
               <button @click="editItem(item)" class="btn btn-secondary btn-sm">Edit</button>
               <button @click="deleteItem(item.id)" class="btn btn-danger btn-sm">Delete</button>
             </div>
@@ -62,6 +63,23 @@
             <label>Item Label *</label>
             <input v-model="itemForm.itemLabel" type="text" required @input="generateItemKey" />
             <small>Display name for this item (e.g., "Create and verify payroll account")</small>
+          </div>
+          <div class="form-group">
+            <label>Scope *</label>
+            <select v-model="itemForm.scope" class="form-select">
+              <option value="platform">Platform Template</option>
+              <option value="agency">Agency-Specific Item</option>
+            </select>
+            <small>Platform templates can be toggled on/off per agency. Agency-specific items always apply to the selected agency.</small>
+          </div>
+          <div v-if="itemForm.scope === 'agency'" class="form-group">
+            <label>Agency *</label>
+            <select v-model="itemForm.agencyId" class="form-select" required>
+              <option :value="null" disabled>Select an agency</option>
+              <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
+                {{ agency.name }}
+              </option>
+            </select>
           </div>
           <div class="form-group">
             <label>Item Key</label>
@@ -143,7 +161,8 @@ const itemForm = ref({
   itemKey: '',
   itemLabel: '',
   description: '',
-  isPlatformTemplate: true,
+  scope: 'platform', // 'platform' | 'agency'
+  agencyId: null,
   autoAssign: false,
   orderIndex: 0,
   trainingFocusId: null,
@@ -241,7 +260,7 @@ const editItem = async (item) => {
     itemKey: item.item_key,
     itemLabel: item.item_label,
     description: item.description || '',
-    isPlatformTemplate: item.is_platform_template || false,
+    scope: item.is_platform_template ? 'platform' : 'agency',
     agencyId: item.agency_id || null,
     autoAssign: false,
     orderIndex: item.order_index,
@@ -260,13 +279,19 @@ const editItem = async (item) => {
 const saveItem = async () => {
   try {
     saving.value = true;
+
+    if (itemForm.value.scope === 'agency' && !itemForm.value.agencyId) {
+      error.value = 'Please select an agency';
+      saving.value = false;
+      return;
+    }
     
     const data = {
       itemKey: itemForm.value.itemKey?.trim() || undefined,
       itemLabel: itemForm.value.itemLabel?.trim(),
       description: itemForm.value.description?.trim() || undefined,
-      isPlatformTemplate: editingItem.value ? editingItem.value.is_platform_template : true,
-      agencyId: editingItem.value && editingItem.value.agency_id ? editingItem.value.agency_id : null,
+      isPlatformTemplate: itemForm.value.scope === 'platform',
+      agencyId: itemForm.value.scope === 'agency' ? itemForm.value.agencyId : null,
       autoAssign: false,
       orderIndex: itemForm.value.orderIndex,
       trainingFocusId: itemForm.value.trainingFocusId || null,
@@ -308,13 +333,49 @@ const closeModal = () => {
     itemKey: '',
     itemLabel: '',
     description: '',
-    isPlatformTemplate: true,
+    scope: filterType.value === 'agency' ? 'agency' : 'platform',
+    agencyId: null,
     autoAssign: false,
     orderIndex: 0,
     trainingFocusId: null,
     moduleId: null
   };
   availableModules.value = [];
+};
+
+const makeUniqueCopyKey = (baseLabel) => {
+  const base = (baseLabel || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return `${base}_copy_${Date.now().toString(36)}`;
+};
+
+const duplicateItem = async (item) => {
+  try {
+    saving.value = true;
+    error.value = '';
+
+    const copyLabel = `Copy "${item.item_label}"`;
+    const data = {
+      itemKey: makeUniqueCopyKey(copyLabel),
+      itemLabel: copyLabel,
+      description: item.description || undefined,
+      isPlatformTemplate: !!item.is_platform_template,
+      agencyId: item.agency_id || null,
+      autoAssign: item.auto_assign || false,
+      orderIndex: item.order_index || 0,
+      trainingFocusId: item.training_focus_id || null,
+      moduleId: item.module_id || null
+    };
+
+    await api.post('/custom-checklist-items', data);
+    await fetchItems();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to duplicate checklist item';
+  } finally {
+    saving.value = false;
+  }
 };
 
 onMounted(async () => {

@@ -1,56 +1,60 @@
 <template>
-  <div class="initial-setup-container">
-    <div class="setup-card">
-      <div v-if="loading" class="loading">
-        <p>Loading...</p>
-      </div>
-      <div v-else-if="error" class="error">
-        <h2>Setup Error</h2>
-        <p>{{ error }}</p>
-        <router-link to="/login" class="btn btn-primary">Go to Login</router-link>
-      </div>
-      <div v-else class="setup-form">
-        <h2>Welcome, {{ userFirstName }}!</h2>
-        <p class="subtitle">Create your password to get started</p>
-        
-        <form @submit.prevent="handleSetup">
-          <div class="form-group">
-            <label for="password">Password</label>
-            <input
-              id="password"
-              v-model="password"
-              type="password"
-              placeholder="Enter your password"
-              required
-              class="form-input"
-              :disabled="setting"
-              minlength="6"
-            />
-          </div>
+  <div class="initial-setup-container" :style="{ background: loginBackground }">
+    <div class="setup-content">
+      <div class="setup-card">
+        <div v-if="loading" class="loading">
+          <p>Loading...</p>
+        </div>
+        <div v-else-if="error" class="error">
+          <h2>Setup Error</h2>
+          <p>{{ error }}</p>
+          <router-link to="/login" class="btn btn-primary">Go to Login</router-link>
+        </div>
+        <div v-else class="setup-form">
+          <h2>Welcome, {{ userFirstName }}!</h2>
+          <p class="subtitle">Create your password to get started</p>
           
-          <div class="form-group">
-            <label for="confirmPassword">Confirm Password</label>
-            <input
-              id="confirmPassword"
-              v-model="confirmPassword"
-              type="password"
-              placeholder="Confirm your password"
-              required
-              class="form-input"
-              :disabled="setting"
-              minlength="6"
-            />
-          </div>
-          
-          <p v-if="passwordMismatch" class="error-message">Passwords do not match</p>
-          <p v-if="setupError" class="error-message">{{ setupError }}</p>
-          
-          <button type="submit" class="btn btn-primary" :disabled="setting || passwordMismatch || !password || !confirmPassword">
-            {{ setting ? 'Setting Password...' : 'Create Password' }}
-          </button>
-        </form>
+          <form @submit.prevent="handleSetup">
+            <div class="form-group">
+              <label for="password">Password</label>
+              <input
+                id="password"
+                v-model="password"
+                type="password"
+                placeholder="Enter your password"
+                required
+                class="form-input"
+                :disabled="setting"
+                minlength="6"
+              />
+            </div>
+            
+            <div class="form-group">
+              <label for="confirmPassword">Confirm Password</label>
+              <input
+                id="confirmPassword"
+                v-model="confirmPassword"
+                type="password"
+                placeholder="Confirm your password"
+                required
+                class="form-input"
+                :disabled="setting"
+                minlength="6"
+              />
+            </div>
+            
+            <p v-if="passwordMismatch" class="error-message">Passwords do not match</p>
+            <p v-if="setupError" class="error-message">{{ setupError }}</p>
+            
+            <button type="submit" class="btn btn-primary" :disabled="setting || passwordMismatch || !password || !confirmPassword">
+              {{ setting ? 'Setting Password...' : 'Create Password' }}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
+
+    <PoweredByFooter />
   </div>
 </template>
 
@@ -60,6 +64,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import api from '../services/api';
+import PoweredByFooter from '../components/PoweredByFooter.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -77,6 +82,8 @@ const setupError = ref('');
 const passwordMismatch = computed(() => {
   return password.value && confirmPassword.value && password.value !== confirmPassword.value;
 });
+
+const loginBackground = computed(() => brandingStore.loginBackground);
 
 const validateToken = async () => {
   const token = route.params.token;
@@ -173,10 +180,18 @@ onMounted(async () => {
 <style scoped>
 .initial-setup-container {
   display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  min-height: 100vh;
+  padding: 24px 16px;
+}
+
+.setup-content {
+  flex: 1;
+  display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
 }
 
 .setup-card {

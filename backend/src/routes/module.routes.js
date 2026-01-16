@@ -6,8 +6,16 @@ import { authenticate, requireAdmin, requireSuperAdmin } from '../middleware/aut
 
 const router = express.Router();
 
-const validateModule = [
+const validateModuleCreate = [
   body('title').trim().notEmpty().withMessage('Title is required'),
+  body('description').optional().trim(),
+  body('orderIndex').optional().isInt({ min: 0 }),
+  body('isActive').optional().isBoolean()
+];
+
+const validateModuleUpdate = [
+  // Allow partial updates (e.g., linking/unlinking a module to a training focus via trackId)
+  body('title').optional().trim().notEmpty().withMessage('Title is required'),
   body('description').optional().trim(),
   body('orderIndex').optional().isInt({ min: 0 }),
   body('isActive').optional().isBoolean()
@@ -19,13 +27,13 @@ router.get('/archived', authenticate, requireAdmin, getArchivedModules); // Must
 router.get('/:moduleId/responses', authenticate, getResponses);
 router.get('/:id', authenticate, getModuleById);
 router.get('/:id/copy-preview', authenticate, requireAdmin, getCopyPreview);
-router.post('/', authenticate, requireAdmin, validateModule, createModule);
-router.post('/shared', authenticate, requireSuperAdmin, validateModule, createSharedModule);
+router.post('/', authenticate, requireAdmin, validateModuleCreate, createModule);
+router.post('/shared', authenticate, requireSuperAdmin, validateModuleCreate, createSharedModule);
 router.post('/:id/copy', authenticate, requireAdmin, [
   body('targetAgencyId').optional().isInt(),
   body('targetTrackId').optional().isInt()
 ], copyModule);
-router.put('/:id', authenticate, requireAdmin, validateModule, updateModule);
+router.put('/:id', authenticate, requireAdmin, validateModuleUpdate, updateModule);
 router.post('/:id/archive', authenticate, requireAdmin, archiveModule);
 router.post('/:id/restore', authenticate, requireAdmin, restoreModule);
 router.delete('/:id', authenticate, requireAdmin, deleteModule);

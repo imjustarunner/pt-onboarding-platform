@@ -102,6 +102,16 @@
               >
                 Change Status
               </button>
+
+              <button
+                v-if="client.referral_packet_path"
+                @click="openReferralPacket"
+                class="btn btn-secondary"
+                :disabled="openingPacket"
+                title="Opens the uploaded referral packet (PHI access will be logged)"
+              >
+                {{ openingPacket ? 'Loading…' : 'View Referral Packet' }}
+              </button>
             </div>
           </div>
         </div>
@@ -206,6 +216,16 @@
         </div>
       </div>
     </div>
+
+    <PhiAccessWarningModal
+      v-if="showPhiModal"
+      :client-id="client.id"
+      :agency-id="client.agency_id"
+      resource-type="referral_packet"
+      :resource-id="referralPacketPath"
+      :open-url="referralPacketUrl"
+      @close="showPhiModal = false"
+    />
   </div>
 </template>
 
@@ -214,6 +234,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import ClientStatusBadge from './ClientStatusBadge.vue';
+import PhiAccessWarningModal from '../PhiAccessWarningModal.vue';
 
 const props = defineProps({
   client: {
@@ -239,6 +260,11 @@ const statusValue = ref(null);
 const editingProvider = ref(false);
 const providerValue = ref(null);
 const availableProviders = ref([]);
+
+const showPhiModal = ref(false);
+const openingPacket = ref(false);
+const referralPacketUrl = ref('');
+const referralPacketPath = ref('');
 
 // History tab state
 const history = ref([]);
@@ -290,6 +316,24 @@ const formatSource = (source) => {
     'ADMIN_CREATED': 'Admin Created'
   };
   return sourceMap[source] || source;
+};
+
+const openReferralPacket = async () => {
+  try {
+    openingPacket.value = true;
+    const resp = await api.get(`/clients/${props.client.id}/referral-packet`);
+    referralPacketUrl.value = resp.data?.referralPacketUrl || '';
+    referralPacketPath.value = resp.data?.referralPacketPath || '';
+    if (!referralPacketUrl.value) {
+      throw new Error('No referral packet URL available');
+    }
+    showPhiModal.value = true;
+  } catch (e) {
+    console.error(e);
+    alert(e.response?.data?.error?.message || e.message || 'Failed to load referral packet');
+  } finally {
+    openingPacket.value = false;
+  }
 };
 
 const formatFieldName = (field) => {

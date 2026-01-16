@@ -1,10 +1,18 @@
 <template>
-  <div class="school-splash">
+  <div class="school-splash" :style="{ background: loginBackground }">
     <div class="splash-container">
       <!-- Organization Branding Header -->
       <div class="splash-header">
         <BrandingLogo size="large" class="splash-logo" />
         <h1 v-if="organizationName" class="organization-name">{{ organizationName }}</h1>
+
+        <div v-if="schoolName || schoolLogoUrl" class="school-affiliation">
+          <div class="school-affiliation-label">School</div>
+          <div class="school-affiliation-row">
+            <img v-if="schoolLogoUrl" :src="schoolLogoUrl" class="school-logo" :alt="schoolName || 'School logo'" />
+            <div v-if="schoolName" class="school-name">{{ schoolName }}</div>
+          </div>
+        </div>
       </div>
 
       <!-- Three Action Options -->
@@ -48,6 +56,8 @@
       @close="showLoginModal = false"
       @login-success="handleLoginSuccess"
     />
+
+    <PoweredByFooter />
   </div>
 </template>
 
@@ -60,6 +70,8 @@ import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import ReferralUpload from '../../components/school/ReferralUpload.vue';
 import StaffLoginModal from '../../components/school/StaffLoginModal.vue';
+import PoweredByFooter from '../../components/PoweredByFooter.vue';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const route = useRoute();
 const router = useRouter();
@@ -75,6 +87,21 @@ const organizationName = computed(() => {
   return organizationStore.organizationContext?.name || 
          organizationStore.currentOrganization?.name || 
          brandingStore.displayName;
+});
+
+const loginBackground = computed(() => brandingStore.loginBackground);
+
+const schoolName = computed(() => {
+  const org = organizationStore.currentOrganization || organizationStore.organizationContext || null;
+  return org?.name || null;
+});
+
+const schoolLogoUrl = computed(() => {
+  const org = organizationStore.currentOrganization || organizationStore.organizationContext || null;
+  if (!org) return null;
+  if (org.logo_path) return toUploadsUrl(org.logo_path);
+  if (org.logo_url) return org.logo_url;
+  return null;
 });
 
 const handleDigitalLink = () => {
@@ -133,9 +160,9 @@ onMounted(async () => {
 .school-splash {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  background: var(--bg-alt);
+  justify-content: flex-start;
   padding: 40px 20px;
 }
 
@@ -143,6 +170,10 @@ onMounted(async () => {
   max-width: 1200px;
   width: 100%;
   text-align: center;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .splash-header {
@@ -160,6 +191,46 @@ onMounted(async () => {
   margin: 0;
 }
 
+.school-affiliation {
+  margin-top: 18px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  backdrop-filter: blur(6px);
+}
+
+.school-affiliation-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.school-affiliation-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.school-logo {
+  height: 28px;
+  width: auto;
+  max-width: 120px;
+  object-fit: contain;
+}
+
+.school-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
 .action-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -168,7 +239,7 @@ onMounted(async () => {
 }
 
 .action-card {
-  background: white;
+  background: rgba(255, 255, 255, 0.92);
   border-radius: 16px;
   padding: 40px 32px;
   box-shadow: var(--shadow);
@@ -225,6 +296,10 @@ onMounted(async () => {
   
   .action-card {
     padding: 32px 24px;
+  }
+
+  .school-splash {
+    padding: 28px 16px;
   }
 }
 </style>

@@ -228,6 +228,17 @@ const switchAgencyIfNeeded = async (itemAgencyId) => {
 
 const goToTraining = async (taskId, agencyId) => {
   await switchAgencyIfNeeded(agencyId);
+  // Go directly to the module start splash instead of the tasks list
+  try {
+    const taskRes = await api.get(`/tasks/${taskId}`);
+    const task = taskRes.data;
+    if (task?.reference_id) {
+      router.push(`/module/${task.reference_id}`);
+      return;
+    }
+  } catch (err) {
+    // Fall back to tasks list if task fetch fails
+  }
   router.push(`/tasks?taskType=training&taskId=${taskId}`);
 };
 

@@ -27,7 +27,10 @@ class Notification {
     // Emergency broadcasts
     'emergency_broadcast',
     // Client chat / notes
-    'client_note'
+    'client_note',
+    // Bulk client upload / client operations
+    'paperwork_received',
+    'client_became_current'
   ];
 
   static async create(notificationData) {

@@ -48,7 +48,13 @@
       <button @click="handlePreview" class="btn btn-sm btn-secondary">Preview</button>
       <button @click="$emit('duplicate', template)" class="btn btn-sm btn-info">Duplicate</button>
       <button v-if="canEdit" @click="$emit('edit', template)" class="btn btn-sm btn-secondary">Edit</button>
-      <button v-if="canEdit && template.template_type === 'pdf'" @click="$emit('upload-version', template)" class="btn btn-sm btn-secondary">Upload New Version</button>
+      <button
+        v-if="canEdit && template.template_type === 'pdf' && template.document_action_type !== 'review'"
+        @click="$emit('upload-version', template)"
+        class="btn btn-sm btn-secondary"
+      >
+        Upload New Version
+      </button>
       <button v-if="canEdit" @click="$emit('view-versions', template)" class="btn btn-sm btn-secondary">Versions</button>
     </div>
   </div>

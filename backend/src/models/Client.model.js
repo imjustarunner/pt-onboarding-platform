@@ -55,17 +55,25 @@ class Client {
       status = 'PENDING_REVIEW',
       submission_date,
       document_status = 'NONE',
+      referral_packet_path,
       source,
       created_by_user_id
     } = clientData;
 
-    const query = `
-      INSERT INTO clients (
-        organization_id, agency_id, provider_id, initials, contact_phone, status,
-        submission_date, document_status, source, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
+    // Build INSERT dynamically to support optional/late-added columns.
+    const fields = [
+      'organization_id',
+      'agency_id',
+      'provider_id',
+      'initials',
+      'contact_phone',
+      'status',
+      'submission_date',
+      'document_status',
+      'source',
+      'created_by_user_id'
+    ];
+    const placeholders = fields.map(() => '?');
     const values = [
       organization_id,
       agency_id,
@@ -78,6 +86,27 @@ class Client {
       source,
       created_by_user_id || null
     ];
+
+    // Add referral_packet_path if provided and column exists
+    if (referral_packet_path !== undefined) {
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'clients' AND COLUMN_NAME = 'referral_packet_path'"
+        );
+        if (cols.length > 0) {
+          fields.push('referral_packet_path');
+          placeholders.push('?');
+          values.push(referral_packet_path || null);
+        }
+      } catch (e) {
+        // Ignore if information_schema check fails
+      }
+    }
+
+    const query = `
+      INSERT INTO clients (${fields.join(', ')})
+      VALUES (${placeholders.join(', ')})
+    `;
 
     const [result] = await pool.execute(query, values);
     return this.findById(result.insertId);
@@ -226,7 +255,24 @@ class Client {
       'status',
       'submission_date',
       'document_status',
-      'source'
+      'source',
+      // Bulk-client-upload expanded fields
+      'client_identifier_name',
+      'identifier_code',
+      'referral_date',
+      'skills',
+      'insurance_id',
+      'client_status_id',
+      'paperwork_delivery_id',
+      'doc_date',
+      'paperwork_status_id',
+      'assigned_day_of_week',
+      'grade',
+      'gender',
+      'primary_client_language',
+      'primary_parent_language',
+      'internal_notes',
+      'referral_packet_path'
     ];
 
     for (const field of allowedFields) {

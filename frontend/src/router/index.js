@@ -130,6 +130,12 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/tasks/documents/:taskId/review',
+    name: 'OrganizationDocumentReview',
+    component: () => import('../views/DocumentSigningView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/onboarding',
     name: 'OrganizationOnboardingChecklist',
     component: () => import('../views/OnboardingChecklistView.vue'),
@@ -164,6 +170,12 @@ const routes = [
     path: '/:organizationSlug/admin/modules',
     name: 'OrganizationModuleManager',
     component: () => import('../views/admin/ModuleManager.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/checklist-items',
+    name: 'OrganizationChecklistItems',
+    component: () => import('../views/admin/ChecklistItemsView.vue'),
     meta: { requiresAuth: true, requiresRole: 'admin', organizationSlug: true }
   },
   {
@@ -330,6 +342,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'admin' }
   },
   {
+    path: '/admin/checklist-items',
+    name: 'ChecklistItems',
+    component: () => import('../views/admin/ChecklistItemsView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'admin' }
+  },
+  {
     path: '/admin/modules/:id/content-editor',
     name: 'ModuleContentEditor',
     component: () => import('../views/admin/ModuleContentEditor.vue'),
@@ -443,6 +461,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/tasks/documents/:taskId/review',
+    name: 'DocumentReview',
+    component: () => import('../views/DocumentSigningView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/onboarding',
     name: 'OnboardingChecklist',
     component: () => import('../views/OnboardingChecklistView.vue'),
@@ -531,6 +555,11 @@ router.beforeEach(async (to, from, next) => {
   const isPending = userStatus === 'pending';
   const isReadyForReview = userStatus === 'ready_for_review';
 
+  // Prevent stale org branding “flash” when leaving a branded portal.
+  if (!to.meta.organizationSlug && from.meta.organizationSlug) {
+    brandingStore.clearPortalTheme();
+  }
+
   // Prevent stale org branding “flash” when going to platform login
   if (to.path === '/login') {
     brandingStore.clearPortalTheme();
@@ -541,13 +570,12 @@ router.beforeEach(async (to, from, next) => {
   if (to.meta.organizationSlug) {
     const slug = to.params.organizationSlug;
     if (typeof slug === 'string' && slug) {
-      // Apply branding for non-super-admin authenticated users
-      if (authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
-        try {
-          await brandingStore.fetchAgencyTheme(slug);
-        } catch (e) {
-          // best effort: do not block navigation
-        }
+      // Apply portal branding for all slug routes (public + authenticated).
+      // (Super admins can still view the portal with correct branding.)
+      try {
+        await brandingStore.fetchAgencyTheme(slug);
+      } catch (e) {
+        // best effort: do not block navigation
       }
 
       // Keep organization + agency stores aligned to the slug so the rest of the app
@@ -633,23 +661,45 @@ router.beforeEach(async (to, from, next) => {
   } else if (to.meta.requiresRole) {
     const userRole = authStore.user?.role;
     const requiredRole = to.meta.requiresRole;
+    const requiredRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
     
     // Block CPAs and supervisors from accessing restricted routes
-    const restrictedRoutes = ['/admin/modules', '/admin/documents', '/admin/settings'];
+    const restrictedRoutes = ['/admin/modules', '/admin/documents', '/admin/settings', '/admin/checklist-items'];
     if ((userRole === 'clinical_practice_assistant' || userRole === 'supervisor') && 
         restrictedRoutes.some(route => to.path.includes(route))) {
       next('/admin'); // Redirect (route redirects to slug)
       return;
     }
     
-    // Super admin, admin, support, supervisors, and CPAs can access admin routes
-    if (requiredRole === 'admin' && (userRole === 'admin' || userRole === 'super_admin' || userRole === 'support' || userRole === 'supervisor' || userRole === 'clinical_practice_assistant')) {
-      next();
-    } else if (requiredRole === 'schedule_manager' && (userRole === 'clinical_practice_assistant' || userRole === 'admin' || userRole === 'super_admin' || userRole === 'support')) {
-      next();
-    } else if (requiredRole === 'supervisor_or_cpa' && (userRole === 'supervisor' || userRole === 'clinical_practice_assistant')) {
-      next();
-    } else if (userRole === requiredRole) {
+    const hasRequiredRole = requiredRoles.some((role) => {
+      // Super admin, admin, support, supervisors, and CPAs can access admin routes
+      if (role === 'admin') {
+        return (
+          userRole === 'admin' ||
+          userRole === 'super_admin' ||
+          userRole === 'support' ||
+          userRole === 'supervisor' ||
+          userRole === 'clinical_practice_assistant'
+        );
+      }
+
+      if (role === 'schedule_manager') {
+        return (
+          userRole === 'clinical_practice_assistant' ||
+          userRole === 'admin' ||
+          userRole === 'super_admin' ||
+          userRole === 'support'
+        );
+      }
+
+      if (role === 'supervisor_or_cpa') {
+        return userRole === 'supervisor' || userRole === 'clinical_practice_assistant';
+      }
+
+      return userRole === role;
+    });
+
+    if (hasRequiredRole) {
       next();
     } else {
       // Redirect to appropriate dashboard

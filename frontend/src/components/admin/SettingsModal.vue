@@ -72,6 +72,8 @@ import AgencyCustomChecklistItems from './AgencyCustomChecklistItems.vue';
 import AssetsManagement from './AssetsManagement.vue';
 import OnboardingPackageManagement from './OnboardingPackageManagement.vue';
 import ArchiveManagement from './ArchiveManagement.vue';
+import ClientSettingsManagement from './ClientSettingsManagement.vue';
+import ProviderSettingsManagement from './ProviderSettingsManagement.vue';
 
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
@@ -175,6 +177,30 @@ const allCategories = [
     ]
   },
   {
+    id: 'client_provider',
+    label: 'CLIENT / PROVIDER',
+    items: [
+      {
+        id: 'client-settings',
+        label: 'Client Settings',
+        icon: '🧾',
+        component: 'ClientSettingsManagement',
+        roles: ['super_admin', 'admin', 'support'],
+        excludeRoles: ['clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'provider-settings',
+        label: 'Provider Settings',
+        icon: '🧑‍⚕️',
+        component: 'ProviderSettingsManagement',
+        roles: ['super_admin', 'admin', 'support'],
+        excludeRoles: ['clinical_practice_assistant'],
+        excludeSupervisor: true
+      }
+    ]
+  },
+  {
     id: 'theming',
     label: 'THEMING',
     items: [
@@ -270,7 +296,7 @@ const visibleCategories = computed(() => {
         // Special handling for support users
         if (userRole === 'support') {
           // Support users can only see specific items
-          const supportAllowedItems = ['packages', 'checklist-items-agency', 'communications'];
+          const supportAllowedItems = ['packages', 'checklist-items-agency', 'communications', 'client-settings', 'provider-settings'];
           if (!supportAllowedItems.includes(item.id)) {
             return false;
           }
@@ -305,6 +331,8 @@ const componentMap = {
   AssetsManagement,
   OnboardingPackageManagement,
   ArchiveManagement,
+  ClientSettingsManagement,
+  ProviderSettingsManagement,
   TeamRolesManagement,
   BillingManagement,
   IntegrationsManagement
@@ -618,9 +646,27 @@ const getSettingsIconUrl = (itemId) => {
 }
 
 .item-icon {
-  font-size: 20px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
   flex-shrink: 0;
+}
+
+.item-icon .icon-image {
+  width: 24px;
+  height: 24px;
+  max-width: 24px;
+  max-height: 24px;
+  object-fit: contain;
+  display: block;
+}
+
+.item-icon .icon-emoji {
+  font-size: 22px;
+  line-height: 1;
 }
 
 .item-label {
@@ -692,13 +738,13 @@ const getSettingsIconUrl = (itemId) => {
   }
   
   .item-icon {
-    width: 20px;
-    height: 20px;
+    width: 26px;
+    height: 26px;
   }
   
   .item-icon .icon-image {
-    width: 18px;
-    height: 18px;
+    width: 22px;
+    height: 22px;
   }
 }
 
@@ -761,17 +807,17 @@ const getSettingsIconUrl = (itemId) => {
   }
   
   .item-icon {
-    width: 18px;
-    height: 18px;
+    width: 24px;
+    height: 24px;
   }
   
   .item-icon .icon-image {
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
   }
   
   .item-icon .icon-emoji {
-    font-size: 18px;
+    font-size: 20px;
   }
 }
 

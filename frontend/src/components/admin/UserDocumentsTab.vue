@@ -521,11 +521,11 @@ const fetchDocumentTasks = async () => {
               });
             }
           } else if (task.document_action_type === 'review') {
-            const ackRes = await api.get(`/document-acknowledgment/${task.id}`);
-            if (ackRes.data) {
+            const ackSummaryRes = await api.get(`/document-acknowledgment/${task.id}/summary`);
+            if (ackSummaryRes.data?.acknowledged && ackSummaryRes.data?.acknowledgment) {
               signedDocuments.value.push({
                 taskId: task.id,
-                acknowledgment: ackRes.data
+                acknowledgment: ackSummaryRes.data.acknowledgment
               });
             }
           }

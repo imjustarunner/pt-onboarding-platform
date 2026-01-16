@@ -116,6 +116,13 @@ export const uploadReferralPacket = [
         created_by_user_id: null // Public upload, no user
       });
 
+      // Store referral packet path for later viewing/auditing (PHI access logging happens on view).
+      try {
+        await Client.update(client.id, { referral_packet_path: fileName }, null);
+      } catch (e) {
+        console.warn('Failed to store referral_packet_path on client:', e.message);
+      }
+
       // Log to status history
       await ClientStatusHistory.create({
         client_id: client.id,

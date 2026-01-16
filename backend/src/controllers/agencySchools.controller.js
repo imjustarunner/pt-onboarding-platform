@@ -28,8 +28,9 @@ export const linkAgencySchool = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'School organization not found' } });
     }
     const orgType = (school.organization_type || 'agency').toLowerCase();
-    if (orgType !== 'school') {
-      return res.status(400).json({ error: { message: 'Provided organization is not a school' } });
+    const allowedOrgTypes = ['school', 'program', 'learning'];
+    if (!allowedOrgTypes.includes(orgType)) {
+      return res.status(400).json({ error: { message: `Provided organization must be one of: ${allowedOrgTypes.join(', ')}` } });
     }
 
     const linked = await AgencySchool.upsert({
@@ -62,10 +63,18 @@ export const listSchoolOrganizations = async (req, res, next) => {
   try {
     const search = String(req.query.search || '').trim().toLowerCase();
     const includeInactive = req.user?.role === 'super_admin';
-    const schools = await Agency.findByType('school', includeInactive);
+    const orgTypes = ['school', 'program', 'learning'];
+
+    const all = [];
+    for (const t of orgTypes) {
+      const rows = await Agency.findByType(t, includeInactive);
+      all.push(...rows);
+    }
+
     const filtered = search
-      ? schools.filter(s => String(s.name || '').toLowerCase().includes(search) || String(s.slug || '').toLowerCase().includes(search))
-      : schools;
+      ? all.filter(s => String(s.name || '').toLowerCase().includes(search) || String(s.slug || '').toLowerCase().includes(search))
+      : all;
+
     res.json(filtered);
   } catch (error) {
     next(error);

@@ -1,6 +1,20 @@
 import pool from '../config/database.js';
 
 class AgencySchool {
+  static async getActiveAgencyIdForSchool(schoolOrganizationId) {
+    const sId = parseInt(schoolOrganizationId, 10);
+    if (!sId) return null;
+    const [rows] = await pool.execute(
+      `SELECT agency_id
+       FROM agency_schools
+       WHERE school_organization_id = ? AND is_active = TRUE
+       ORDER BY updated_at DESC, id DESC
+       LIMIT 1`,
+      [sId]
+    );
+    return rows?.[0]?.agency_id || null;
+  }
+
   static async listByAgency(agencyId, { includeInactive = false } = {}) {
     const parsedAgencyId = parseInt(agencyId, 10);
     const conditions = ['asx.agency_id = ?'];

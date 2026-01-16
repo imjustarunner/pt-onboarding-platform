@@ -12,8 +12,27 @@
         <h1>{{ module.title }}</h1>
         <p class="module-description">{{ module.description }}</p>
       </div>
+
+      <!-- Start splash (only for real user sessions, not preview, and not completed) -->
+      <div v-if="!route.query.preview && !hasStarted && !isCompleted" class="module-start-splash">
+        <div class="splash-card">
+          <h2>Start Module</h2>
+          <p class="splash-subtitle">
+            When you click Start, your timer begins. You can leave and come back—your time will be saved.
+          </p>
+          <div class="splash-actions">
+            <button class="btn btn-primary btn-lg" @click="startModule" :disabled="starting">
+              {{ starting ? 'Starting...' : 'Start' }}
+            </button>
+            <button class="btn btn-secondary" @click="$router.push(getDashboardRoute())" :disabled="starting">
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+        <PoweredByFooter />
+      </div>
       
-      <div class="content-container">
+      <div v-else class="content-container">
         <div class="content-sidebar">
           <h3>Content</h3>
           <ul class="content-list">
@@ -33,6 +52,7 @@
           <TimeTracker
             v-if="currentContent && !route.query.preview"
             :module-id="module.id"
+            :enabled="hasStarted"
             @time-update="handleTimeUpdate"
           />
           
@@ -210,6 +230,7 @@ import QuizForm from '../components/QuizForm.vue';
 import SignaturePad from '../components/SignaturePad.vue';
 import TimeTracker from '../components/TimeTracker.vue';
 import AcknowledgmentForm from '../components/AcknowledgmentForm.vue';
+import PoweredByFooter from '../components/PoweredByFooter.vue';
 import { getDashboardRoute } from '../utils/router';
 
 const route = useRoute();
@@ -226,6 +247,8 @@ const signatureSaved = ref(false);
 const acknowledgmentSaved = ref(false);
 const responseAnswers = ref({});
 const quizResults = ref(null);
+const hasStarted = ref(false);
+const starting = ref(false);
 
 const currentContent = computed(() => content.value[currentContentIndex.value]);
 
@@ -287,19 +310,10 @@ const fetchModule = async () => {
       } catch (e) {
         progress.value = null;
       }
-      
-      // Start module if not started (but not if already completed)
-      if (!progress.value || progress.value.status === 'not_started') {
-        // Don't restart if already completed
-        if (progress.value?.status !== 'completed') {
-          try {
-            await api.post('/progress/start', { moduleId: parseInt(moduleId) });
-            progress.value = { status: 'in_progress', module_id: parseInt(moduleId) };
-          } catch (e) {
-            // Ignore errors starting progress in preview
-          }
-        }
-      }
+
+      // Only consider the module "started" once progress is in_progress (or completed).
+      // We intentionally do NOT auto-start on page load; user must click Start.
+      hasStarted.value = progress.value?.status === 'in_progress' || progress.value?.status === 'completed';
       
       // Check for existing signature
       try {
@@ -323,12 +337,28 @@ const fetchModule = async () => {
       progress.value = null;
       signatureSaved.value = false;
       acknowledgmentSaved.value = false;
+      hasStarted.value = false;
     }
   } catch (err) {
     console.error('Failed to load module:', err);
     error.value = err.response?.data?.error?.message || 'Failed to load module';
   } finally {
     loading.value = false;
+  }
+};
+
+const startModule = async () => {
+  try {
+    starting.value = true;
+    error.value = '';
+    const moduleId = parseInt(route.params.id);
+    await api.post('/progress/start', { moduleId });
+    progress.value = { ...(progress.value || {}), status: 'in_progress', module_id: moduleId };
+    hasStarted.value = true;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to start module';
+  } finally {
+    starting.value = false;
   }
 };
 
@@ -513,6 +543,44 @@ onMounted(() => {
   color: var(--text-secondary);
   font-size: 18px;
   line-height: 1.7;
+}
+
+.module-start-splash {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  min-height: 55vh;
+}
+
+.splash-card {
+  background: white;
+  border-radius: 12px;
+  padding: 28px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+.splash-card h2 {
+  margin: 0 0 8px 0;
+  color: var(--text-primary);
+}
+
+.splash-subtitle {
+  margin: 0 0 20px 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.splash-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.btn-lg {
+  padding: 12px 18px;
+  font-weight: 700;
 }
 
 .content-container {

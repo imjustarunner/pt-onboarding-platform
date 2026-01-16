@@ -194,10 +194,18 @@ export const login = async (req, res, next) => {
       });
       
       // Check if it's a database connection/auth error
-      if (dbError.code === 'ER_ACCESS_DENIED_ERROR' || dbError.code === 'ECONNREFUSED' || dbError.code === 'ETIMEDOUT') {
+      if (
+        dbError.code === 'ER_ACCESS_DENIED_ERROR' ||
+        dbError.code === 'ECONNREFUSED' ||
+        dbError.code === 'ETIMEDOUT' ||
+        dbError.code === 'PROTOCOL_CONNECTION_LOST'
+      ) {
+        const isDev = process.env.NODE_ENV === 'development';
         return res.status(503).json({ 
           error: { 
-            message: 'Database connection error. Please contact support if this persists.',
+            message: isDev
+              ? 'Database connection error. In local dev, ensure Cloud SQL Proxy is running and your gcloud Application Default Credentials are valid.'
+              : 'Database connection error. Please contact support if this persists.',
             code: 'DATABASE_ERROR'
           } 
         });
