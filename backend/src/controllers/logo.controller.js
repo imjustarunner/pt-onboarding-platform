@@ -45,11 +45,15 @@ export const uploadLogo = async (req, res, next) => {
     console.log('Logo uploaded to GCS:', filePath);
 
     // Return the path that can be used to construct the URL
-    // The path will be like "uploads/logos/logo-1234567890-123456789.png"
+    // The stored path will be like "uploads/logos/logo-1234567890-123456789.png"
+    // Public URL should be "/uploads/logos/..." (without the leading "uploads/").
+    const publicRel = String(filePath || '').startsWith('uploads/')
+      ? String(filePath).substring('uploads/'.length)
+      : String(filePath || '');
     res.json({
       success: true,
       path: filePath,
-      url: `/uploads/${filePath}`,
+      url: `/uploads/${publicRel}`,
       filename: filename
     });
   } catch (error) {

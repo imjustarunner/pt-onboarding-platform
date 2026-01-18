@@ -718,6 +718,40 @@ class StorageService {
     return { path: key, key, filename: sanitizedFilename, relativePath: key };
   }
 
+  /**
+   * Save a reimbursement receipt to GCS under uploads/ so it can be served via /uploads/*.
+   */
+  static async saveReimbursementReceipt(fileBuffer, filename, contentType = 'application/pdf') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `uploads/reimbursements/${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: { uploadedAt: new Date().toISOString() }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  /**
+   * Save a company card expense receipt to GCS under uploads/ so it can be served via /uploads/*.
+   */
+  static async saveCompanyCardExpenseReceipt(fileBuffer, filename, contentType = 'application/pdf') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `uploads/company_card_expenses/${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType,
+      metadata: { uploadedAt: new Date().toISOString() }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
   static async deleteComplianceDocument(filename) {
     const key = `credentials/${filename}`;
     const bucket = await this.getGCSBucket();

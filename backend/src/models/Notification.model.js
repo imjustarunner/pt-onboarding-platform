@@ -35,7 +35,16 @@ class Notification {
     'client_became_current',
     // Background check automation
     'background_check_reimbursement_due',
-    'background_check_renewal_due'
+    'background_check_renewal_due',
+    // Payroll claims
+    'mileage_claim_approved',
+    'mileage_claim_rejected',
+    'mileage_claim_returned',
+    'medcancel_claim_approved',
+    'medcancel_claim_rejected',
+    'medcancel_claim_returned',
+    // Payroll: documentation aging
+    'payroll_unpaid_notes_2_periods_old'
   ];
 
   static async create(notificationData) {
@@ -44,6 +53,7 @@ class Notification {
       severity = 'warning',
       title,
       message,
+      audienceJson,
       userId,
       agencyId,
       relatedEntityType,
@@ -63,9 +73,19 @@ class Notification {
 
     const [result] = await pool.execute(
       `INSERT INTO notifications 
-       (type, severity, title, message, user_id, agency_id, related_entity_type, related_entity_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [type, severity, title, message, userId, agencyId, relatedEntityType, relatedEntityId]
+       (type, severity, title, message, audience_json, user_id, agency_id, related_entity_type, related_entity_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        type,
+        severity,
+        title,
+        message,
+        audienceJson ? JSON.stringify(audienceJson) : null,
+        userId,
+        agencyId,
+        relatedEntityType,
+        relatedEntityId
+      ]
     );
 
     return this.findById(result.insertId);

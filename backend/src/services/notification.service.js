@@ -3,6 +3,17 @@ import User from '../models/User.model.js';
 import Task from '../models/Task.model.js';
 import pool from '../config/database.js';
 
+function parseJsonMaybe(v) {
+  if (!v) return null;
+  if (typeof v === 'object') return v;
+  if (typeof v !== 'string') return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+}
+
 class NotificationService {
   /**
    * Check for expired statuses (completed/terminated > 7 days)
@@ -252,6 +263,127 @@ class NotificationService {
   }
 
   /**
+   * Payroll claim notifications (provider-facing)
+   */
+  static async createMileageClaimApprovedNotification({ claim, agencyId, periodLabel }) {
+    if (!claim?.id || !claim?.user_id) return null;
+    const existing = await Notification.findByUser(claim.user_id, { type: 'mileage_claim_approved', isResolved: false });
+    const alreadyNotified = (existing || []).some((n) => n.related_entity_type === 'payroll_mileage_claim' && Number(n.related_entity_id) === Number(claim.id));
+    if (alreadyNotified) return null;
+
+    const amount = Number(claim.applied_amount || 0);
+    const driveDate = String(claim.drive_date || '').slice(0, 10);
+    const msg = `Your mileage claim (${driveDate}) was approved${periodLabel ? ` for ${periodLabel}` : ''}. Amount: ${amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}.`;
+    return Notification.create({
+      type: 'mileage_claim_approved',
+      severity: 'info',
+      title: 'Mileage claim approved',
+      message: msg,
+      userId: claim.user_id,
+      agencyId: agencyId || claim.agency_id,
+      relatedEntityType: 'payroll_mileage_claim',
+      relatedEntityId: claim.id
+    });
+  }
+
+  static async createMileageClaimRejectedNotification({ claim, agencyId, rejectionReason, actorName }) {
+    if (!claim?.id || !claim?.user_id) return null;
+    const existing = await Notification.findByUser(claim.user_id, { type: 'mileage_claim_rejected', isResolved: false });
+    const alreadyNotified = (existing || []).some((n) => n.related_entity_type === 'payroll_mileage_claim' && Number(n.related_entity_id) === Number(claim.id));
+    if (alreadyNotified) return null;
+
+    const driveDate = String(claim.drive_date || '').slice(0, 10);
+    const reason = String(rejectionReason || '').trim();
+    const by = actorName ? ` by ${actorName}` : '';
+    const msg = `Your mileage claim (${driveDate}) was rejected${by}. Reason: ${reason}`;
+    return Notification.create({
+      type: 'mileage_claim_rejected',
+      severity: 'warning',
+      title: 'Mileage claim rejected',
+      message: msg,
+      userId: claim.user_id,
+      agencyId: agencyId || claim.agency_id,
+      relatedEntityType: 'payroll_mileage_claim',
+      relatedEntityId: claim.id
+    });
+  }
+
+  static async createMileageClaimReturnedNotification({ claim, agencyId, note, actorName }) {
+    if (!claim?.id || !claim?.user_id) return null;
+    const msg = `Mileage claim needs changes${actorName ? ` (by ${actorName})` : ''}: ${String(note || '').trim()}`;
+    return await Notification.create({
+      userId: claim.user_id,
+      agencyId,
+      type: 'mileage_claim_returned',
+      message: msg,
+      metadata: {
+        claimId: claim.id,
+        note: String(note || '').trim(),
+        actorName: actorName || null
+      }
+    });
+  }
+
+  static async createMedcancelClaimApprovedNotification({ claim, agencyId, periodLabel }) {
+    if (!claim?.id || !claim?.user_id) return null;
+    const existing = await Notification.findByUser(claim.user_id, { type: 'medcancel_claim_approved', isResolved: false });
+    const alreadyNotified = (existing || []).some((n) => n.related_entity_type === 'payroll_medcancel_claim' && Number(n.related_entity_id) === Number(claim.id));
+    if (alreadyNotified) return null;
+
+    const amount = Number(claim.applied_amount || 0);
+    const claimDate = String(claim.claim_date || '').slice(0, 10);
+    const msg = `Your Med Cancel claim (${claimDate}) was approved${periodLabel ? ` for ${periodLabel}` : ''}. Amount: ${amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })}.`;
+    return Notification.create({
+      type: 'medcancel_claim_approved',
+      severity: 'info',
+      title: 'Med Cancel claim approved',
+      message: msg,
+      userId: claim.user_id,
+      agencyId: agencyId || claim.agency_id,
+      relatedEntityType: 'payroll_medcancel_claim',
+      relatedEntityId: claim.id
+    });
+  }
+
+  static async createMedcancelClaimRejectedNotification({ claim, agencyId, rejectionReason, actorName }) {
+    if (!claim?.id || !claim?.user_id) return null;
+    const existing = await Notification.findByUser(claim.user_id, { type: 'medcancel_claim_rejected', isResolved: false });
+    const alreadyNotified = (existing || []).some((n) => n.related_entity_type === 'payroll_medcancel_claim' && Number(n.related_entity_id) === Number(claim.id));
+    if (alreadyNotified) return null;
+
+    const claimDate = String(claim.claim_date || '').slice(0, 10);
+    const reason = String(rejectionReason || '').trim();
+    const by = actorName ? ` by ${actorName}` : '';
+    const msg = `Your Med Cancel claim (${claimDate}) was rejected${by}. Reason: ${reason}`;
+    return Notification.create({
+      type: 'medcancel_claim_rejected',
+      severity: 'warning',
+      title: 'Med Cancel claim rejected',
+      message: msg,
+      userId: claim.user_id,
+      agencyId: agencyId || claim.agency_id,
+      relatedEntityType: 'payroll_medcancel_claim',
+      relatedEntityId: claim.id
+    });
+  }
+
+  static async createMedcancelClaimReturnedNotification({ claim, agencyId, note, actorName }) {
+    if (!claim?.id || !claim?.user_id) return null;
+    const msg = `Med Cancel claim needs changes${actorName ? ` (by ${actorName})` : ''}: ${String(note || '').trim()}`;
+    return await Notification.create({
+      userId: claim.user_id,
+      agencyId,
+      type: 'medcancel_claim_returned',
+      message: msg,
+      metadata: {
+        claimId: claim.id,
+        note: String(note || '').trim(),
+        actorName: actorName || null
+      }
+    });
+  }
+
+  /**
    * Generate all notifications for an agency
    */
   static async generateNotificationsForAgency(agencyId) {
@@ -355,6 +487,45 @@ class NotificationService {
       } else {
         // Not a supervisor or CPA, return empty
         continue;
+      }
+
+      // Pull stored payroll-related alerts for these users (e.g. unpaid notes aging) so supervisors see them in the Team view.
+      try {
+        const userIds = (users || []).map((u) => Number(u.id)).filter(Boolean);
+        if (userIds.length) {
+          const placeholders = userIds.map(() => '?').join(',');
+          const [stored] = await pool.execute(
+            `SELECT n.*
+             FROM notifications n
+             WHERE n.agency_id = ?
+               AND n.type IN ('payroll_unpaid_notes_2_periods_old')
+               AND n.is_resolved = FALSE
+               AND n.user_id IN (${placeholders})
+             ORDER BY n.created_at DESC
+             LIMIT 200`,
+            [targetAgencyId, ...userIds]
+          );
+
+          for (const n of stored || []) {
+            // Respect optional audience targeting (if present).
+            const aud = parseJsonMaybe(n.audience_json);
+            const allowSupervisor = aud && typeof aud === 'object' ? aud.supervisor !== false : true;
+            const allowCpa = aud && typeof aud === 'object' ? aud.clinicalPracticeAssistant !== false : true;
+            const allow =
+              isSupervisor ? allowSupervisor : (supervisor.role === 'clinical_practice_assistant' ? allowCpa : true);
+            if (!allow) continue;
+
+            notifications.push({
+              ...n,
+              userId: n.user_id,
+              agencyId: n.agency_id,
+              relatedEntityType: n.related_entity_type,
+              relatedEntityId: n.related_entity_id
+            });
+          }
+        }
+      } catch {
+        // Best effort: do not block team notifications if stored lookup fails.
       }
 
       for (const user of users) {

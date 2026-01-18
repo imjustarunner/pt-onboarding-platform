@@ -38,27 +38,108 @@
               <div class="form-grid">
                 <div class="form-group">
                   <label>First Name</label>
-                  <input v-model="accountForm.firstName" type="text" />
+                  <input v-model="accountForm.firstName" type="text" :disabled="!isEditingAccount" />
                 </div>
                 <div class="form-group">
                   <label>Last Name</label>
-                  <input v-model="accountForm.lastName" type="text" />
+                  <input v-model="accountForm.lastName" type="text" :disabled="!isEditingAccount" />
                 </div>
                 <div class="form-group">
-                  <label>Email</label>
-                  <input v-model="accountForm.email" type="email" disabled />
+                  <label>Login Email</label>
+                  <input
+                    v-model="accountForm.email"
+                    type="email"
+                    :disabled="!isEditingAccount || String(user?.email || '').toLowerCase() === 'superadmin@plottwistco.com'"
+                  />
+                  <small class="form-help">
+                    This is the email the user logs in with. Changing it does <strong>not</strong> change their password — use “Send Reset Password Link” if needed.
+                  </small>
                 </div>
                 <div class="form-group">
                   <label>Personal Phone Number</label>
-                  <input v-model="accountForm.personalPhone" type="tel" />
+                  <input v-model="accountForm.personalPhone" type="tel" :disabled="!isEditingAccount" />
                 </div>
                 <div class="form-group">
                   <label>Work Phone Number</label>
-                  <input v-model="accountForm.workPhone" type="tel" />
+                  <input v-model="accountForm.workPhone" type="tel" :disabled="!isEditingAccount" />
                 </div>
                 <div class="form-group">
                   <label>Work Phone Extension</label>
-                  <input v-model="accountForm.workPhoneExtension" type="text" />
+                  <input v-model="accountForm.workPhoneExtension" type="text" :disabled="!isEditingAccount" />
+                </div>
+
+                <div class="form-group form-group-full">
+                  <div class="section-divider" style="margin: 8px 0 6px;">
+                    <h3 style="margin: 0;">Home Address</h3>
+                  </div>
+                  <p class="hint" style="margin: 0 0 10px;">
+                    Used for School Mileage auto-calculation.
+                  </p>
+                </div>
+
+                <div class="form-group">
+                  <label>Street</label>
+                  <input v-model="accountForm.homeStreetAddress" type="text" placeholder="123 Main St" :disabled="!isEditingAccount" />
+                </div>
+                <div class="form-group">
+                  <label>City</label>
+                  <input v-model="accountForm.homeCity" type="text" placeholder="City" :disabled="!isEditingAccount" />
+                </div>
+                <div class="form-group">
+                  <label>State</label>
+                  <input v-model="accountForm.homeState" type="text" placeholder="State" :disabled="!isEditingAccount" />
+                </div>
+                <div class="form-group">
+                  <label>Postal Code</label>
+                  <input v-model="accountForm.homePostalCode" type="text" placeholder="ZIP" :disabled="!isEditingAccount" />
+                </div>
+
+                <div class="form-group form-group-full">
+                  <div class="section-divider" style="margin: 8px 0 6px;">
+                    <h3 style="margin: 0;">Med Cancel (contract)</h3>
+                  </div>
+                  <p class="hint" style="margin: 0 0 10px;">
+                    Controls whether the provider can submit “Missed Medicaid sessions (Med Cancel)”.
+                  </p>
+                </div>
+
+                <div class="form-group form-group-full">
+                  <label>Med Cancel schedule</label>
+                  <select v-model="accountForm.medcancelRateSchedule" :disabled="!isEditingAccount">
+                    <option value="none">Not eligible (None)</option>
+                    <option value="low">Low schedule ($5 / $7.50 / $10)</option>
+                    <option value="high">High schedule ($10 / $15 / $20)</option>
+                  </select>
+                  <small class="form-help">
+                    If set to “Low” or “High”, the provider will see Med Cancel in Submit → In-School Claims.
+                  </small>
+                </div>
+
+                <div class="form-group form-group-full">
+                  <div class="section-divider" style="margin: 12px 0 6px;">
+                    <h3 style="margin: 0;">Company Card (contract)</h3>
+                  </div>
+                  <p class="hint" style="margin: 0 0 10px;">
+                    Enables the “Submit Expense (Company Card)” option in Submit for this user.
+                  </p>
+                </div>
+
+                <div class="form-group form-group-full">
+                  <label class="toggle-label">
+                    <span>Company card enabled</span>
+                    <div class="toggle-switch">
+                      <input
+                        id="company-card-toggle"
+                        type="checkbox"
+                        v-model="accountForm.companyCardEnabled"
+                        :disabled="!isEditingAccount"
+                      />
+                      <span class="slider"></span>
+                    </div>
+                  </label>
+                  <small class="form-help">
+                    Only users with a company card should have this turned on.
+                  </small>
                 </div>
                 
                 <div v-if="canToggleSupervisorPrivileges" class="form-group form-group-full">
@@ -68,24 +149,24 @@
                       <input 
                         type="checkbox" 
                         v-model="accountForm.hasSupervisorPrivileges" 
-                        :disabled="!canEditUser"
+                        :disabled="!isEditingAccount"
                         id="supervisor-privileges-toggle"
                       />
                       <span class="slider"></span>
                     </div>
                   </label>
                   <small class="form-help">Allows this user to be assigned as a supervisor while maintaining their primary role</small>
-                  <small v-if="!canEditUser" class="form-help" style="display: block; margin-top: 4px;">You don't have permission to edit this field</small>
+                  <small v-if="!isEditingAccount" class="form-help" style="display: block; margin-top: 4px;">Click “Edit” to modify this field</small>
                 </div>
                 <div class="form-group form-group-full">
                   <label>Role</label>
-                  <select v-model="accountForm.role" :disabled="!canChangeRole">
+                  <select v-model="accountForm.role" :disabled="!isEditingAccount || !canChangeRole">
                     <option v-if="canAssignSuperAdmin" value="super_admin">Super Admin</option>
                     <option v-if="canAssignAdmin" value="admin">Admin</option>
-                    <option v-if="canAssignSupport" value="support">Support</option>
+                    <option v-if="canAssignSupport" value="support">Staff</option>
                     <option value="supervisor">Supervisor</option>
                     <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
-                    <option value="staff">Staff</option>
+                    <option value="staff">Onboarding Staff</option>
                     <option value="clinician">Clinician</option>
                     <option value="facilitator">Facilitator</option>
                     <option value="intern">Intern</option>
@@ -93,13 +174,19 @@
                   <small v-if="!canChangeRole" class="form-help">You don't have permission to change roles</small>
                   <small v-else-if="!canAssignSuperAdmin && accountForm.role === 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
                   <small v-else-if="!canAssignAdmin && accountForm.role === 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
-                  <small v-else-if="!canAssignSupport && accountForm.role === 'support'" class="form-help">Only super admins and admins can assign the support role</small>
+                  <small v-else-if="!canAssignSupport && accountForm.role === 'support'" class="form-help">Only super admins and admins can assign the staff role</small>
                 </div>
               </div>
               
               <div class="form-actions">
-                <button type="submit" class="btn btn-primary" :disabled="saving">
+                <button v-if="!isEditingAccount" type="button" class="btn btn-secondary" @click="startEditAccount">
+                  Edit
+                </button>
+                <button v-else type="submit" class="btn btn-primary" :disabled="saving">
                   {{ saving ? 'Saving...' : 'Save Changes' }}
+                </button>
+                <button v-if="isEditingAccount" type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEditAccount">
+                  Cancel
                 </button>
               </div>
             </form>
@@ -194,7 +281,7 @@
                   
                   <!-- Admins can mark ONBOARDING users as ACTIVE_EMPLOYEE -->
                   <button 
-                    v-if="(user.status === 'ONBOARDING' || user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'active') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    v-if="(user.status === 'PENDING_SETUP' || user.status === 'ONBOARDING' || user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'active') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
                     @click="markComplete" 
                     class="btn btn-success btn-sm"
                     :disabled="updatingStatus"
@@ -750,11 +837,29 @@ const accountForm = ref({
   personalPhone: '',
   workPhone: '',
   workPhoneExtension: '',
+  homeStreetAddress: '',
+  homeCity: '',
+  homeState: '',
+  homePostalCode: '',
+  medcancelRateSchedule: 'none',
+  companyCardEnabled: false,
   role: '',
   hasSupervisorPrivileges: false,
   hasProviderAccess: false,
   hasStaffAccess: false
 });
+
+const isEditingAccount = ref(false);
+
+const startEditAccount = () => {
+  isEditingAccount.value = true;
+};
+
+const cancelEditAccount = async () => {
+  isEditingAccount.value = false;
+  // Restore values from server (source of truth)
+  await fetchUser();
+};
 
 const canToggleSupervisorPrivileges = computed(() => {
   const role = user.value?.role || accountForm.value?.role;
@@ -842,11 +947,21 @@ const fetchUser = async () => {
     const response = await api.get(`/users/${userId.value}`);
     user.value = response.data;
     
-    // Preserve the current form values if user data is missing to prevent toggle from disappearing
+    // Preserve the current form values if user data is missing to prevent toggles/settings from disappearing
     const currentRole = user.value?.role || accountForm.value?.role || '';
     const currentHasSupervisorPrivileges = user.value?.has_supervisor_privileges !== undefined 
       ? (user.value.has_supervisor_privileges === true || user.value.has_supervisor_privileges === 1 || user.value.has_supervisor_privileges === '1')
       : accountForm.value?.hasSupervisorPrivileges || false;
+    const currentMedcancelRateSchedule = String(
+      user.value?.medcancel_rate_schedule ??
+      user.value?.medcancelRateSchedule ??
+      accountForm.value?.medcancelRateSchedule ??
+      'none'
+    ).toLowerCase();
+    const currentCompanyCardEnabled =
+      user.value?.company_card_enabled !== undefined
+        ? (user.value.company_card_enabled === true || user.value.company_card_enabled === 1 || user.value.company_card_enabled === '1')
+        : (user.value?.companyCardEnabled !== undefined ? Boolean(user.value.companyCardEnabled) : (accountForm.value?.companyCardEnabled || false));
     
     accountForm.value = {
       firstName: user.value.first_name || accountForm.value?.firstName || '',
@@ -856,6 +971,8 @@ const fetchUser = async () => {
       personalPhone: user.value.personal_phone || accountForm.value?.personalPhone || '',
       workPhone: user.value.work_phone || accountForm.value?.workPhone || '',
       workPhoneExtension: user.value.work_phone_extension || accountForm.value?.workPhoneExtension || '',
+      medcancelRateSchedule: ['low', 'high', 'none'].includes(currentMedcancelRateSchedule) ? currentMedcancelRateSchedule : 'none',
+      companyCardEnabled: currentCompanyCardEnabled,
       role: currentRole,
       hasSupervisorPrivileges: currentHasSupervisorPrivileges,
       hasProviderAccess: user.value.has_provider_access === true || user.value.has_provider_access === 1 || user.value.has_provider_access === '1' || false,
@@ -881,6 +998,13 @@ const fetchAccountInfo = async () => {
     accountInfoLoading.value = true;
     const response = await api.get(`/users/${userId.value}/account-info`);
     accountInfo.value = response.data;
+
+    // Keep the admin account form in sync with home address from account-info endpoint.
+    // This avoids relying on /users/:id returning home_* columns in older deployments.
+    accountForm.value.homeStreetAddress = response.data?.homeStreetAddress || accountForm.value.homeStreetAddress || '';
+    accountForm.value.homeCity = response.data?.homeCity || accountForm.value.homeCity || '';
+    accountForm.value.homeState = response.data?.homeState || accountForm.value.homeState || '';
+    accountForm.value.homePostalCode = response.data?.homePostalCode || accountForm.value.homePostalCode || '';
   } catch (err) {
     accountInfoError.value = err.response?.data?.error?.message || 'Failed to load account information';
   } finally {
@@ -1088,6 +1212,7 @@ const removeAgency = async (agencyId) => {
 };
 
 const saveAccount = async () => {
+  if (!isEditingAccount.value) return;
   // Validate role assignment permissions
   if (accountForm.value.role === 'super_admin' && !canAssignSuperAdmin.value) {
     error.value = 'Only super admins can assign the super admin role';
@@ -1102,7 +1227,7 @@ const saveAccount = async () => {
   }
   
   if (accountForm.value.role === 'support' && !canAssignSupport.value) {
-    error.value = 'Only super admins and admins can assign the support role';
+    error.value = 'Only super admins and admins can assign the staff role';
     alert(error.value);
     return;
   }
@@ -1110,12 +1235,19 @@ const saveAccount = async () => {
   try {
     saving.value = true;
     const updateData = {
+      email: accountForm.value.email,
       firstName: accountForm.value.firstName,
       lastName: accountForm.value.lastName,
       phoneNumber: accountForm.value.phoneNumber,
       personalPhone: accountForm.value.personalPhone,
       workPhone: accountForm.value.workPhone,
       workPhoneExtension: accountForm.value.workPhoneExtension,
+      homeStreetAddress: accountForm.value.homeStreetAddress,
+      homeCity: accountForm.value.homeCity,
+      homeState: accountForm.value.homeState,
+      homePostalCode: accountForm.value.homePostalCode,
+      medcancelRateSchedule: String(accountForm.value.medcancelRateSchedule || 'none').toLowerCase(),
+      companyCardEnabled: Boolean(accountForm.value.companyCardEnabled),
       role: accountForm.value.role
     };
     
@@ -1140,6 +1272,7 @@ const saveAccount = async () => {
     const response = await api.put(`/users/${userId.value}`, updateData);
     // Always fetch fresh user data to ensure all fields are up to date
     await fetchUser();
+    isEditingAccount.value = false;
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to save changes';
     alert(error.value);
@@ -1218,13 +1351,23 @@ const getStatusLabel = (status, isActive = true) => {
     return 'Inactive';
   }
   const labels = {
-    'active': 'Active',
-    'completed': 'Completed',
-    'terminated': 'Terminated',
-    'pending': 'Pending',
-    'ready_for_review': 'Ready for Review'
+    // New status lifecycle
+    'PENDING_SETUP': 'Pending Setup',
+    'PREHIRE_OPEN': 'Pre-Hire',
+    'PREHIRE_REVIEW': 'Ready for Review',
+    'ONBOARDING': 'Onboarding',
+    'ACTIVE_EMPLOYEE': 'Active Employee',
+    'TERMINATED_PENDING': 'Terminated (Grace Period)',
+    'ARCHIVED': 'Archived',
+
+    // Legacy statuses (backward compatibility)
+    'pending': 'Pre-Hire (Legacy)',
+    'ready_for_review': 'Ready for Review (Legacy)',
+    'active': 'Active (Legacy)',
+    'completed': 'Completed (Legacy)',
+    'terminated': 'Terminated (Legacy)'
   };
-  return labels[status] || 'Active';
+  return labels[status] || String(status || 'Unknown');
 };
 
 const getStatusBadgeClass = (status, isActive = true) => {
@@ -1232,29 +1375,37 @@ const getStatusBadgeClass = (status, isActive = true) => {
     return 'badge-secondary';
   }
   const classes = {
+    // New status lifecycle
+    'PENDING_SETUP': 'badge-warning',
+    'PREHIRE_OPEN': 'badge-warning',
+    'PREHIRE_REVIEW': 'badge-primary',
+    'ONBOARDING': 'badge-info',
+    'ACTIVE_EMPLOYEE': 'badge-success',
+    'TERMINATED_PENDING': 'badge-danger',
+    'ARCHIVED': 'badge-secondary',
+
+    // Legacy statuses
+    'pending': 'badge-warning',
+    'ready_for_review': 'badge-primary',
     'active': 'badge-success',
     'completed': 'badge-info',
-    'terminated': 'badge-danger',
-    'pending': 'badge-warning',
-    'ready_for_review': 'badge-primary'
+    'terminated': 'badge-danger'
   };
   return classes[status] || 'badge-secondary';
 };
 
 const markComplete = async () => {
-  // Admins can mark pending, ready_for_review, or active users as completed
-  // The backend will handle the flow automatically
-  if (!confirm('Are you sure you want to mark this user as complete? Their access will expire in 7 days.')) {
+  if (!confirm('Mark this user as Active Employee? (This does not change their password. Use “Send Reset Password Link” if they need to set one.)')) {
     return;
   }
-  
+
   try {
     updatingStatus.value = true;
     await api.post(`/users/${userId.value}/mark-complete`);
     await fetchUser();
-    alert('User marked as complete. Access will expire in 7 days.');
+    alert('User marked as Active Employee.');
   } catch (err) {
-    error.value = err.response?.data?.error?.message || 'Failed to mark user as complete';
+    error.value = err.response?.data?.error?.message || 'Failed to mark user as Active Employee';
     alert(error.value);
   } finally {
     updatingStatus.value = false;

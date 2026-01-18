@@ -117,7 +117,8 @@ const groupedNotifications = computed(() => {
     // Supervisors: only task_overdue and checklist_incomplete
     const groups = {
       task_overdue: [],
-      checklist_incomplete: []
+      checklist_incomplete: [],
+      payroll_unpaid_notes_2_periods_old: []
     };
 
     notifications.value.forEach(notification => {
@@ -140,6 +141,7 @@ const getTypeLabel = (type) => {
   const labels = {
     task_overdue: 'Overdue Tasks',
     checklist_incomplete: 'Incomplete Checklist Items',
+    payroll_unpaid_notes_2_periods_old: 'Unpaid notes (2 pay periods old)',
     status_expired: 'Expired Statuses',
     temp_password_expired: 'Expired Temporary Passwords',
     passwordless_token_expired: 'Expired Passwordless Tokens',

@@ -9,7 +9,8 @@ const validateTimeLog = [
   body('moduleId').isInt({ min: 1 }),
   body('sessionStart').isISO8601(),
   body('sessionEnd').optional().isISO8601(),
-  body('durationMinutes').isInt({ min: 0 })
+  body('durationSeconds').optional().isInt({ min: 0 }),
+  body('durationMinutes').optional().isInt({ min: 0 })
 ];
 
 router.get('/', authenticate, getUserProgress);

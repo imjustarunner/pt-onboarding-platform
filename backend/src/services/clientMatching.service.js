@@ -2,6 +2,7 @@ import Client from '../models/Client.model.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
+import AgencySchool from '../models/AgencySchool.model.js';
 
 /**
  * Client Matching Service
@@ -9,6 +10,41 @@ import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
  * Handles smart deduplication and bulk import processing for clients
  */
 class ClientMatchingService {
+  static normalizeNameKey(name) {
+    return String(name || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+  }
+
+  static slugifyName(name) {
+    const base = String(name || '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    return base || 'school';
+  }
+
+  static async generateUniqueSlug(baseSlug) {
+    const base = this.slugifyName(baseSlug);
+    let candidate = base;
+    let i = 2;
+    // Ensure uniqueness against existing org slugs.
+    while (await Agency.findBySlug(candidate)) {
+      candidate = `${base}-${i}`;
+      i += 1;
+      if (i > 500) {
+        // Extremely unlikely unless slug space is polluted
+        candidate = `${base}-${Date.now()}`;
+        break;
+      }
+    }
+    return candidate;
+  }
+
   /**
    * Find existing client by match key
    * @param {Object} clientData - Client data
@@ -46,6 +82,38 @@ class ClientMatchingService {
     }
 
     return school || null;
+  }
+
+  /**
+   * Ensure a school organization exists for the given name.
+   * If missing, create it and link it to the agency via agency_schools.
+   */
+  static async ensureSchoolExists({ schoolName, agencyId }) {
+    const name = String(schoolName || '').trim();
+    if (!name) throw new Error('School name is required');
+
+    // Try to find an existing school first
+    let school = await this.findSchoolByName(name, agencyId);
+    if (school) return school;
+
+    // Create the school org
+    const slug = await this.generateUniqueSlug(name);
+    school = await Agency.create({
+      name,
+      slug,
+      organizationType: 'school',
+      isActive: true
+    });
+
+    // Link to parent agency for permissions/branding lookups
+    try {
+      await AgencySchool.upsert({ agencyId, schoolOrganizationId: school.id, isActive: true });
+    } catch (e) {
+      // Non-fatal: the school exists; linkage can be repaired later
+      console.warn('Failed to link school to agency via agency_schools:', e?.message || e);
+    }
+
+    return school;
   }
 
   /**
@@ -112,34 +180,26 @@ class ClientMatchingService {
     const results = {
       created: 0,
       updated: 0,
-      errors: []
+      errors: [],
+      createdSchools: []
     };
 
     // Get all schools for this agency (for faster lookup)
     const allSchools = await Agency.findAll(false, false, 'school');
+    const schoolByNameKey = new Map(
+      (allSchools || []).map((s) => [this.normalizeNameKey(s.name), s])
+    );
 
     for (const row of rows) {
       try {
-        // Find school organization by name
-        let school = allSchools.find(s => 
-          s.name.toLowerCase().trim() === row.schoolName.toLowerCase().trim()
-        );
+        // Find (or create) school organization by name
+        const key = this.normalizeNameKey(row.schoolName);
+        let school = schoolByNameKey.get(key) || null;
 
         if (!school) {
-          // Try partial match
-          school = allSchools.find(s => 
-            s.name.toLowerCase().includes(row.schoolName.toLowerCase().trim()) ||
-            row.schoolName.toLowerCase().trim().includes(s.name.toLowerCase())
-          );
-        }
-
-        if (!school) {
-          results.errors.push({
-            row: row.rowNumber,
-            initials: row.initials,
-            error: `School not found: ${row.schoolName}`
-          });
-          continue;
+          school = await this.ensureSchoolExists({ schoolName: row.schoolName, agencyId });
+          schoolByNameKey.set(this.normalizeNameKey(school.name), school);
+          results.createdSchools.push({ name: school.name, id: school.id });
         }
 
         const organizationId = school.id;

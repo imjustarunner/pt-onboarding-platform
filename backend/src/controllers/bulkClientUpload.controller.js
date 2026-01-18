@@ -1,7 +1,7 @@
 import multer from 'multer';
 import pool from '../config/database.js';
 import BulkClientUploadParserService from '../services/bulkClientUploadParser.service.js';
-import { processBulkClientUpload } from '../services/bulkClientUpload.service.js';
+import { processBulkClientUpload, undoBulkClientUploadJob } from '../services/bulkClientUpload.service.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -91,3 +91,27 @@ export const listBulkClientUploadJobRows = async (req, res, next) => {
   }
 };
 
+export const undoBulkClientUpload = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const jobId = parseInt(req.params.jobId, 10);
+    if (!jobId) return res.status(400).json({ error: { message: 'jobId is required' } });
+
+    // Safety: default to dry run unless explicitly confirmed
+    const confirm = String(req.query.confirm || '').toLowerCase() === 'true';
+    const dryRun = !confirm;
+
+    const result = await undoBulkClientUploadJob({
+      agencyId,
+      jobId,
+      requestingUserId: req.user?.id,
+      dryRun
+    });
+
+    res.json({ success: true, ...result });
+  } catch (e) {
+    next(e);
+  }
+};

@@ -57,7 +57,25 @@
         </div>
 
         <div v-if="error" class="error-message">
-          {{ error }}
+          <div>{{ error }}</div>
+          <div v-if="errorMeta" style="margin-top: 8px;">
+            <div v-if="errorMeta.row"><strong>Row:</strong> {{ errorMeta.row }}</div>
+            <div v-if="errorMeta.missingFields && errorMeta.missingFields.length">
+              <strong>Missing fields:</strong> {{ errorMeta.missingFields.join(', ') }}
+            </div>
+            <div v-if="errorMeta.foundHeaders && errorMeta.foundHeaders.length" style="margin-top: 6px;">
+              <strong>Found headers:</strong>
+              <div style="margin-top: 2px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 12px;">
+                {{ errorMeta.foundHeaders.join(', ') }}
+              </div>
+            </div>
+            <div v-if="errorMeta.expectedHeaders && errorMeta.expectedHeaders.length" style="margin-top: 6px;">
+              <strong>Expected headers (examples):</strong>
+              <ul style="margin: 6px 0 0 18px;">
+                <li v-for="(h, idx) in errorMeta.expectedHeaders" :key="idx">{{ h }}</li>
+              </ul>
+            </div>
+          </div>
         </div>
 
         <div v-if="importResults" class="import-results">
@@ -113,6 +131,7 @@ const isDragging = ref(false);
 const importing = ref(false);
 const updateExisting = ref(true);
 const error = ref('');
+const errorMeta = ref(null);
 const importResults = ref(null);
 const selectedAgencyId = ref('');
 
@@ -152,6 +171,7 @@ const validateAndSetFile = (file) => {
 
   selectedFile.value = file;
   error.value = '';
+  errorMeta.value = null;
   importResults.value = null;
 };
 
@@ -175,6 +195,7 @@ const handleImport = async () => {
 
   importing.value = true;
   error.value = '';
+  errorMeta.value = null;
   importResults.value = null;
 
   try {
@@ -182,31 +203,74 @@ const handleImport = async () => {
     formData.append('file', selectedFile.value);
     formData.append('updateExisting', updateExisting.value);
     if (isSuperAdmin.value) {
-      formData.append('agency_id', selectedAgencyId.value);
+      formData.append('agencyId', selectedAgencyId.value);
+    } else if (agencyStore.currentAgency?.id) {
+      // For agency admins, pass through for consistency (backend can also infer)
+      formData.append('agencyId', String(agencyStore.currentAgency.id));
     }
 
-    // TODO: Update endpoint when bulk import API is ready (Step 2)
-    const response = await api.post('/bulk-import/clients', formData, {
+    // Use the authoritative bulk client upload pipeline (supports auto-create school/provider + jobs)
+    const response = await api.post('/bulk-client-upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       }
     });
 
-    if (response.data.success) {
-      importResults.value = {
-        totalRows: response.data.totalRows,
-        created: response.data.created,
-        updated: response.data.updated,
-        errors: response.data.errors || [],
-        message: response.data.message
-      };
-      emit('imported');
-    } else {
-      throw new Error(response.data.error?.message || 'Import failed');
+    if (!response.data?.success) {
+      throw new Error(response.data?.error?.message || 'Import failed');
     }
+
+    const jobId = response.data.jobId;
+    importResults.value = {
+      totalRows: response.data.totalRows,
+      created: response.data.successRows, // approximate: successful rows processed
+      updated: 0,
+      errors: [],
+      message: `Upload completed. Job #${jobId}: ${response.data.successRows} succeeded, ${response.data.failedRows} failed.`
+    };
+
+    const createdSchools = Array.isArray(response.data.createdSchools) ? response.data.createdSchools : [];
+    const createdProviders = Array.isArray(response.data.createdProviders) ? response.data.createdProviders : [];
+    if (createdSchools.length || createdProviders.length) {
+      const schoolLine = createdSchools.length ? `${createdSchools.length} school(s) created` : null;
+      const providerLine = createdProviders.length ? `${createdProviders.length} provider(s) created` : null;
+      const extra = [schoolLine, providerLine].filter(Boolean).join(', ');
+      importResults.value.message = `${importResults.value.message} (${extra})`;
+    }
+
+    // Fetch per-row results for actionable feedback
+    if (jobId) {
+      try {
+        const rowsResp = await api.get(`/bulk-client-upload/jobs/${jobId}/rows`, {
+          params: { agencyId: isSuperAdmin.value ? selectedAgencyId.value : undefined }
+        });
+        const jobRows = Array.isArray(rowsResp.data) ? rowsResp.data : [];
+        const failed = jobRows
+          .filter((r) => String(r.status || '').toLowerCase() === 'failed')
+          .map((r) => ({
+            row: r.row_number,
+            initials: null,
+            error: r.message || 'Row failed'
+          }));
+        importResults.value.errors = failed;
+      } catch (e) {
+        // Non-fatal; base summary is still useful
+      }
+    }
+
+    emit('imported');
   } catch (err) {
     console.error('Bulk import error:', err);
-    error.value = err.response?.data?.error?.message || 'Failed to import clients. Please check the CSV format and try again.';
+    const apiErr = err.response?.data?.error;
+    error.value = apiErr?.message || 'Failed to import clients. Please check the CSV format and try again.';
+    errorMeta.value = apiErr && (apiErr.row || apiErr.missingFields || apiErr.foundHeaders || apiErr.expectedHeaders)
+      ? {
+          row: apiErr.row || null,
+          missingFields: Array.isArray(apiErr.missingFields) ? apiErr.missingFields : null,
+          foundHeaders: Array.isArray(apiErr.foundHeaders) ? apiErr.foundHeaders : null,
+          expectedHeaders: Array.isArray(apiErr.expectedHeaders) ? apiErr.expectedHeaders : null
+        }
+      : null;
   } finally {
     importing.value = false;
   }
@@ -215,6 +279,7 @@ const handleImport = async () => {
 const resetForm = () => {
   selectedFile.value = null;
   error.value = '';
+  errorMeta.value = null;
   importResults.value = null;
   selectedAgencyId.value = '';
   if (fileInput.value) {

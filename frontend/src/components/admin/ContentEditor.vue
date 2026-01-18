@@ -423,7 +423,8 @@ onMounted(() => {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  /* Must sit above parent modals (e.g. TrainingFocusDetailView's content editor modal) */
+  z-index: 1400;
 }
 
 .modal-content {

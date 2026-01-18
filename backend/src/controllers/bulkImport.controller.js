@@ -112,7 +112,13 @@ export const bulkImportClients = [
       // Handle CSV parsing errors
       if (error.message.includes('Row') || error.message.includes('CSV')) {
         return res.status(400).json({ 
-          error: { message: error.message } 
+          error: {
+            message: error.message,
+            row: error.rowNumber || null,
+            missingFields: error.missingFields || null,
+            foundHeaders: error.foundHeaders || null,
+            expectedHeaders: error.expectedHeaders || null
+          } 
         });
       }
       

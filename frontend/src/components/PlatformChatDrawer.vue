@@ -125,7 +125,10 @@
               <div v-if="online.length === 0" class="muted">No one is online.</div>
               <button v-for="u in online" :key="u.id" class="person" @click="openChat(u)">
                 <span class="dot dot-online"></span>
-                <span class="name">{{ u.first_name }} {{ u.last_name }}</span>
+                <span class="name">
+                  {{ u.first_name }} {{ u.last_name }}
+                  <span v-if="adminsAllMode && u.agency_names" class="agency-chip">{{ u.agency_names }}</span>
+                </span>
                 <span v-if="u.unreadCount" class="pill">{{ u.unreadCount }}</span>
               </button>
             </div>
@@ -135,7 +138,10 @@
               <div v-if="idle.length === 0" class="muted">No one is idle.</div>
               <button v-for="u in idle" :key="u.id" class="person" @click="openChat(u)">
                 <span class="dot dot-idle"></span>
-                <span class="name">{{ u.first_name }} {{ u.last_name }}</span>
+                <span class="name">
+                  {{ u.first_name }} {{ u.last_name }}
+                  <span v-if="adminsAllMode && u.agency_names" class="agency-chip">{{ u.agency_names }}</span>
+                </span>
                 <span v-if="u.unreadCount" class="pill">{{ u.unreadCount }}</span>
               </button>
             </div>
@@ -146,7 +152,10 @@
                 <div v-if="offline.length === 0" class="muted">No offline users.</div>
                 <button v-for="u in offline" :key="u.id" class="person" @click="openChat(u)">
                   <span class="dot dot-offline"></span>
-                  <span class="name">{{ u.first_name }} {{ u.last_name }}</span>
+                  <span class="name">
+                    {{ u.first_name }} {{ u.last_name }}
+                    <span v-if="adminsAllMode && u.agency_names" class="agency-chip">{{ u.agency_names }}</span>
+                  </span>
                   <span v-if="u.unreadCount" class="pill">{{ u.unreadCount }}</span>
                 </button>
               </div>
@@ -199,9 +208,10 @@ const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const isAuthenticated = computed(() => authStore.isAuthenticated);
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
-const needsAgency = computed(() => !agencyId.value);
 const myRole = computed(() => authStore.user?.role || '');
 const isAdminLike = computed(() => myRole.value === 'admin' || myRole.value === 'super_admin');
+const adminsAllMode = computed(() => myRole.value === 'super_admin' && myAvailability.value === 'admins_only');
+const needsAgency = computed(() => !agencyId.value && !adminsAllMode.value);
 
 const people = ref([]);
 const threads = ref([]);
@@ -299,15 +309,20 @@ const idle = computed(() => peopleWithUnread.value.filter((u) => u.status === 'i
 const offline = computed(() => peopleWithUnread.value.filter((u) => u.status === 'offline' && u.id !== meId.value));
 
 const loadPresence = async () => {
-  if (!agencyId.value) {
-    people.value = [];
-    return;
-  }
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get(`/presence/agency/${agencyId.value}`);
-    people.value = resp.data || [];
+    if (adminsAllMode.value) {
+      const resp = await api.get('/presence/admins');
+      people.value = resp.data || [];
+    } else {
+      if (!agencyId.value) {
+        people.value = [];
+        return;
+      }
+      const resp = await api.get(`/presence/agency/${agencyId.value}`);
+      people.value = resp.data || [];
+    }
   } catch {
     error.value = 'Failed to load presence';
     people.value = [];

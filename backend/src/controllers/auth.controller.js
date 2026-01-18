@@ -8,6 +8,23 @@ import ActivityLogService from '../services/activityLog.service.js';
 import config from '../config/config.js';
 import { getUserCapabilities } from '../utils/capabilities.js';
 
+async function buildPayrollCaps(user) {
+  const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
+  const baseCaps = getUserCapabilities(user);
+  const canManagePayroll =
+    user?.role === 'admin' ||
+    user?.role === 'super_admin' ||
+    (user?.role === 'staff' && payrollAgencyIds.length > 0);
+  return {
+    payrollAgencyIds,
+    capabilities: {
+      ...baseCaps,
+      canManagePayroll,
+      canViewMyPayroll: true
+    }
+  };
+}
+
 export const approvedEmployeeLogin = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -370,6 +387,20 @@ export const login = async (req, res, next) => {
       }, 0);
     }
 
+    // Ensure we have the latest user fields (including contract flags like medcancel_rate_schedule).
+    // Some login flows may not select all columns.
+    let freshUser = user;
+    try {
+      const loaded = await User.findById(user.id);
+      if (loaded) freshUser = loaded;
+    } catch {
+      // best-effort
+    }
+
+    const medcancelRateSchedule = freshUser?.medcancel_rate_schedule || null;
+    const medcancelEnabled = ['low', 'high'].includes(String(medcancelRateSchedule || '').toLowerCase());
+    const companyCardEnabled = Boolean(freshUser?.company_card_enabled);
+
     const responseData = {
       token,
       user: {
@@ -380,7 +411,10 @@ export const login = async (req, res, next) => {
         firstName: user.first_name,
         lastName: user.last_name,
         username: user.username || user.email,
-        capabilities: getUserCapabilities(user)
+        medcancelEnabled,
+        medcancelRateSchedule,
+        companyCardEnabled,
+        ...(await buildPayrollCaps(user))
       },
       sessionId
     };
@@ -642,7 +676,7 @@ export const passwordlessTokenLogin = async (req, res, next) => {
           lastName: user.last_name,
           role: user.role,
           status: user.status,
-          capabilities: getUserCapabilities(fullUser)
+          ...(await buildPayrollCaps(fullUser))
         },
         sessionId,
         agencies: userAgencies,
@@ -833,7 +867,9 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
           lastName: user.last_name,
           role: user.role,
           status: user.status,
-          capabilities: getUserCapabilities(fullUser)
+          medcancelEnabled: ['low', 'high'].includes(String(fullUser?.medcancel_rate_schedule || '').toLowerCase()),
+          medcancelRateSchedule: fullUser?.medcancel_rate_schedule || null,
+          ...(await buildPayrollCaps(fullUser))
         },
         sessionId,
         agencies: userAgencies,
@@ -1011,7 +1047,7 @@ export const resetPasswordWithToken = async (req, res, next) => {
         role: updatedUser.role,
         status: updatedUser.status,
         username: updatedUser.username || updatedUser.personal_email || updatedUser.email,
-        capabilities: getUserCapabilities(updatedUser)
+        ...(await buildPayrollCaps(updatedUser))
       },
       sessionId,
       agencies: userAgencies,
@@ -1107,7 +1143,7 @@ export const initialSetup = async (req, res, next) => {
         role: updatedUser.role,
         status: updatedUser.status,
         username: updatedUser.username || updatedUser.personal_email || updatedUser.email,
-        capabilities: getUserCapabilities(updatedUser)
+        ...(await buildPayrollCaps(updatedUser))
       },
       sessionId,
       agencies: userAgencies,

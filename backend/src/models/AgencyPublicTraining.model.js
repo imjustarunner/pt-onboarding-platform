@@ -143,7 +143,7 @@ class AgencyPublicTraining {
                     tt.is_active, tt.order_index
              FROM agency_public_training_focuses aptf
              INNER JOIN training_tracks tt ON aptf.training_focus_id = tt.id
-             WHERE aptf.agency_id = ? AND (tt.is_active = 1 OR tt.is_active = TRUE)
+             WHERE aptf.agency_id = ?
              ORDER BY tt.order_index ASC, tt.name ASC`,
             [agencyId]
           );
@@ -164,7 +164,7 @@ class AgencyPublicTraining {
                     m.is_active, m.order_index, m.estimated_time_minutes
              FROM agency_public_modules apm
              INNER JOIN modules m ON apm.module_id = m.id
-             WHERE apm.agency_id = ? AND (m.is_active = 1 OR m.is_active = TRUE)
+             WHERE apm.agency_id = ?
              ORDER BY m.order_index ASC, m.title ASC`,
             [agencyId]
           );
@@ -178,7 +178,7 @@ class AgencyPublicTraining {
                         m.is_active, m.order_index
                  FROM agency_public_modules apm
                  INNER JOIN modules m ON apm.module_id = m.id
-                 WHERE apm.agency_id = ? AND (m.is_active = 1 OR m.is_active = TRUE)
+                 WHERE apm.agency_id = ?
                  ORDER BY m.order_index ASC, m.title ASC`,
                 [agencyId]
               );

@@ -252,6 +252,7 @@ class Module {
       isPublic,
       isStandalone,
       standaloneCategory,
+      estimatedTimeMinutes,
       iconId
     } = moduleData;
     
@@ -259,8 +260,8 @@ class Module {
       `INSERT INTO modules (
         title, description, order_index, is_active, 
         agency_id, track_id, is_shared, source_module_id, created_by_user_id,
-        is_always_accessible, is_public, is_standalone, standalone_category, icon_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        is_always_accessible, is_public, is_standalone, standalone_category, estimated_time_minutes, icon_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title, 
         description || null, 
@@ -275,6 +276,7 @@ class Module {
         isPublic !== undefined ? isPublic : false,
         isStandalone !== undefined ? isStandalone : false,
         standaloneCategory || null,
+        estimatedTimeMinutes !== undefined && estimatedTimeMinutes !== null && estimatedTimeMinutes !== '' ? estimatedTimeMinutes : null,
         iconId || null
       ]
     );
@@ -295,6 +297,7 @@ class Module {
       isPublic,
       isStandalone,
       standaloneCategory,
+      estimatedTimeMinutes,
       iconId
     } = moduleData;
     const updates = [];
@@ -347,6 +350,10 @@ class Module {
     if (standaloneCategory !== undefined) {
       updates.push('standalone_category = ?');
       values.push(standaloneCategory);
+    }
+    if (estimatedTimeMinutes !== undefined) {
+      updates.push('estimated_time_minutes = ?');
+      values.push(estimatedTimeMinutes === '' ? null : estimatedTimeMinutes);
     }
     if (iconId !== undefined) {
       updates.push('icon_id = ?');

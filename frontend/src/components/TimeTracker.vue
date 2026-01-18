@@ -11,7 +11,8 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import api from '../services/api';
 
-const MODULE_IDLE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+const MODULE_IDLE_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes
+const LOG_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 const props = defineProps({
   moduleId: {
@@ -21,10 +22,14 @@ const props = defineProps({
   enabled: {
     type: Boolean,
     default: true
+  },
+  disableIdleTimeout: {
+    type: Boolean,
+    default: false
   }
 });
 
-const emit = defineEmits(['time-update']);
+const emit = defineEmits(['time-update', 'session-seconds']);
 
 const sessionTime = ref(0); // in seconds
 const sessionStart = ref(null);
@@ -43,17 +48,29 @@ const formatTime = (seconds) => {
   return `${minutes}:${String(secs).padStart(2, '0')}`;
 };
 
-const logTime = async (durationMinutes) => {
+const logTime = async (durationSeconds) => {
   try {
+    const safeSeconds = Math.max(0, Math.floor(Number(durationSeconds || 0)));
+    if (safeSeconds <= 0) return;
     await api.post('/progress/time', {
       moduleId: parseInt(props.moduleId),
       sessionStart: new Date(sessionStart.value).toISOString(),
       sessionEnd: new Date().toISOString(),
-      durationMinutes
+      durationSeconds: safeSeconds
     });
-    emit('time-update', durationMinutes);
+    emit('time-update', safeSeconds);
   } catch (error) {
     console.error('Failed to log time:', error);
+  }
+};
+
+const flushElapsed = () => {
+  if (!sessionStart.value) return;
+  const now = Date.now();
+  const durationSeconds = Math.floor((now - lastLogTime) / 1000);
+  if (durationSeconds > 0) {
+    logTime(durationSeconds);
+    lastLogTime = now;
   }
 };
 
@@ -66,13 +83,13 @@ const startTracking = () => {
   
   intervalId = setInterval(() => {
     sessionTime.value++;
+    // Lightweight sync so parent can compute thresholds (e.g., expected time warnings).
+    if (sessionTime.value % 10 === 0) emit('session-seconds', sessionTime.value);
     
     // Log time every 5 minutes
     const now = Date.now();
-    if (now - lastLogTime >= 5 * 60 * 1000) {
-      const durationMinutes = Math.floor((now - lastLogTime) / 60000);
-      logTime(durationMinutes);
-      lastLogTime = now;
+    if (now - lastLogTime >= LOG_INTERVAL_MS) {
+      flushElapsed();
     }
   }, 1000);
 };
@@ -84,10 +101,7 @@ const stopTracking = () => {
     
     // Log final time
     if (sessionStart.value) {
-      const durationMinutes = Math.floor((Date.now() - lastLogTime) / 60000);
-      if (durationMinutes > 0) {
-        logTime(durationMinutes);
-      }
+      flushElapsed();
     }
   }
 };
@@ -102,8 +116,9 @@ const clearIdleTimer = () => {
 const armIdleTimer = () => {
   clearIdleTimer();
   if (!props.enabled) return;
+  if (props.disableIdleTimeout) return;
   idleTimerId = setTimeout(() => {
-    // Pause timer on inactivity (separate from global auth timeout)
+    // On inactivity: flush logged time and pause timer (separate from global auth timeout)
     stopTracking();
   }, MODULE_IDLE_TIMEOUT_MS);
 };
@@ -153,6 +168,13 @@ watch(() => props.enabled, (enabled) => {
     stopTracking();
     clearIdleTimer();
   }
+});
+
+watch(() => props.disableIdleTimeout, () => {
+  // If idle timeout becomes disabled (e.g., video page), clear any pending timer.
+  // If it becomes enabled again, re-arm.
+  if (props.disableIdleTimeout) clearIdleTimer();
+  else armIdleTimer();
 });
 </script>
 

@@ -14,6 +14,7 @@ const validateModuleCreate = [
   body('title').trim().notEmpty().withMessage('Title is required'),
   body('description').optional().trim(),
   body('orderIndex').optional().isInt({ min: 0 }),
+  body('estimatedTimeMinutes').optional().isInt({ min: 0 }),
   body('isActive').optional().isBoolean()
 ];
 
@@ -22,6 +23,7 @@ const validateModuleUpdate = [
   body('title').optional().trim().notEmpty().withMessage('Title is required'),
   body('description').optional().trim(),
   body('orderIndex').optional().isInt({ min: 0 }),
+  body('estimatedTimeMinutes').optional().isInt({ min: 0 }),
   body('isActive').optional().isBoolean()
 ];
 

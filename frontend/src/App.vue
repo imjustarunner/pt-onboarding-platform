@@ -76,7 +76,7 @@
                 v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
                 @click="closeMobileMenu"
               >Chats</router-link>
-                <router-link :to="orgTo('/admin/payroll')" v-if="isAdmin" @click="closeMobileMenu">Payroll</router-link>
+                <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu">Payroll</router-link>
 
                 <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Notifications</router-link>
                 <router-link :to="orgTo('/notifications')" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Notifications</router-link>
@@ -155,7 +155,7 @@
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Chats</router-link>
-              <router-link :to="orgTo('/admin/payroll')" v-if="isAdmin" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
+              <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
 
               <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
               <router-link :to="orgTo('/notifications')" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
@@ -408,6 +408,22 @@ const welcomeName = computed(() => {
 const isAdmin = computed(() => {
   const role = user.value?.role;
   return role === 'admin' || role === 'super_admin' || role === 'support';
+});
+
+const currentAgencyId = computed(() => {
+  const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  return a?.id || null;
+});
+
+const canSeePayrollManagement = computed(() => {
+  const role = user.value?.role;
+  if (role === 'admin' || role === 'super_admin') return true;
+  const caps = user.value?.capabilities || {};
+  if (!caps.canManagePayroll) return false;
+  // Staff: only show when current agency is permitted.
+  const ids = Array.isArray(user.value?.payrollAgencyIds) ? user.value.payrollAgencyIds : [];
+  if (!currentAgencyId.value) return false;
+  return ids.includes(currentAgencyId.value);
 });
 
 const isPrivilegedPortalUser = computed(() => {

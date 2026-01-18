@@ -1554,8 +1554,12 @@ const getLogoUrlFromPath = (logoPath) => {
   if (!logoPath) return null;
   const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
   const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  // Path is already like "uploads/logos/logo-123.png", so just prepend base URL
-  return `${apiBase}/${logoPath}`;
+  // Accept "uploads/logos/..." or "/uploads/logos/..." or "logos/..."
+  // Normalize to "/uploads/logos/..."
+  let p = String(logoPath || '').trim();
+  if (p.startsWith('/')) p = p.substring(1);
+  if (p.startsWith('uploads/')) p = p.substring('uploads/'.length);
+  return `${apiBase}/uploads/${p}`;
 };
 
 watch(() => brandingForm.value.logoUrl, () => {

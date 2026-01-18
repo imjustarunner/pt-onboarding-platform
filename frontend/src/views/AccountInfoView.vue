@@ -29,6 +29,37 @@
             <span>{{ accountInfo.workPhone ? (accountInfo.workPhone + (accountInfo.workPhoneExtension ? ' ext. ' + accountInfo.workPhoneExtension : '')) : 'Not provided' }}</span>
           </div>
         </div>
+
+        <div class="card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">Home Address</h3>
+            <button class="btn btn-primary btn-large" @click="saveHomeAddress" :disabled="savingHomeAddress">
+              {{ savingHomeAddress ? 'Saving...' : 'Save Home Address' }}
+            </button>
+          </div>
+          <div class="hint" style="margin-top: 6px;">
+            Used for School Mileage auto-calculation.
+          </div>
+          <div v-if="homeAddressError" class="error" style="margin-top: 10px;">{{ homeAddressError }}</div>
+          <div class="fields-grid" style="margin-top: 12px;">
+            <div class="field-item">
+              <label>Street</label>
+              <input v-model="homeAddressForm.street" type="text" placeholder="123 Main St" />
+            </div>
+            <div class="field-item">
+              <label>City</label>
+              <input v-model="homeAddressForm.city" type="text" placeholder="City" />
+            </div>
+            <div class="field-item">
+              <label>State</label>
+              <input v-model="homeAddressForm.state" type="text" placeholder="State" />
+            </div>
+            <div class="field-item">
+              <label>Postal code</label>
+              <input v-model="homeAddressForm.postalCode" type="text" placeholder="ZIP" />
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Profile Information (Custom Input Modules / User Info) -->
@@ -298,6 +329,15 @@ const myUserInfoValues = ref({});
 const savingUserInfo = ref(false);
 const activeMyCategoryKey = ref('__all');
 
+const savingHomeAddress = ref(false);
+const homeAddressError = ref('');
+const homeAddressForm = ref({
+  street: '',
+  city: '',
+  state: '',
+  postalCode: ''
+});
+
 const normalizeMultiSelectValue = (raw) => {
   if (Array.isArray(raw)) return raw;
   if (typeof raw === 'string' && raw.trim()) {
@@ -461,10 +501,36 @@ const fetchAccountInfo = async () => {
     loading.value = true;
     const response = await api.get(`/users/${userId.value}/account-info`);
     accountInfo.value = response.data;
+    homeAddressForm.value = {
+      street: response.data?.homeStreetAddress || '',
+      city: response.data?.homeCity || '',
+      state: response.data?.homeState || '',
+      postalCode: response.data?.homePostalCode || ''
+    };
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load account information';
   } finally {
     loading.value = false;
+  }
+};
+
+const saveHomeAddress = async () => {
+  try {
+    savingHomeAddress.value = true;
+    homeAddressError.value = '';
+    await api.put('/payroll/me/home-address', {
+      homeStreetAddress: homeAddressForm.value.street,
+      homeCity: homeAddressForm.value.city,
+      homeState: homeAddressForm.value.state,
+      homePostalCode: homeAddressForm.value.postalCode
+    });
+    await fetchAccountInfo();
+    alert('Home address saved successfully!');
+  } catch (err) {
+    homeAddressError.value = err.response?.data?.error?.message || 'Failed to save home address';
+    alert(homeAddressError.value);
+  } finally {
+    savingHomeAddress.value = false;
   }
 };
 

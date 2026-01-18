@@ -2,6 +2,35 @@ import Notification from '../models/Notification.model.js';
 import NotificationService from '../services/notification.service.js';
 import User from '../models/User.model.js';
 
+function parseJsonMaybe(v) {
+  if (!v) return null;
+  if (typeof v === 'object') return v;
+  if (typeof v !== 'string') return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+}
+
+function viewerAudienceKey(role) {
+  const r = String(role || '').trim().toLowerCase();
+  if (r === 'supervisor') return 'supervisor';
+  if (r === 'clinical_practice_assistant') return 'clinicalPracticeAssistant';
+  if (r === 'admin' || r === 'super_admin' || r === 'support') return 'admin';
+  return 'provider';
+}
+
+function audienceAllows(notification, userRole) {
+  const aud = parseJsonMaybe(notification?.audience_json);
+  if (!aud || typeof aud !== 'object') return true; // default: visible to all (backward compatible)
+  const key = viewerAudienceKey(userRole);
+  const v = aud[key];
+  // If the audience map doesn't mention this role, treat as allowed (backward compatible).
+  if (v === undefined) return true;
+  return v !== false;
+}
+
 export const getNotifications = async (req, res, next) => {
   try {
     const { agencyId, type, isRead, isResolved } = req.query;
@@ -64,7 +93,7 @@ export const getNotifications = async (req, res, next) => {
 
       // Sort by created_at descending
       allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      return res.json(allNotifications);
+      return res.json(allNotifications.filter((n) => audienceAllows(n, userRole)));
     } else if (userRole === 'clinical_practice_assistant') {
       // CPAs can see all notifications for all users in their agencies
       const userAgencies = await User.getAgencies(userId);
@@ -96,7 +125,7 @@ export const getNotifications = async (req, res, next) => {
 
       // Sort by created_at descending
       allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      return res.json(allNotifications);
+      return res.json(allNotifications.filter((n) => audienceAllows(n, userRole)));
     } else {
       // Admin/support can only see their agencies
       const userAgencies = await User.getAgencies(userId);
@@ -130,7 +159,7 @@ export const getNotifications = async (req, res, next) => {
     // Sort by created_at descending
     allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-    res.json(allNotifications);
+    res.json(allNotifications.filter((n) => audienceAllows(n, userRole)));
   } catch (error) {
     next(error);
   }

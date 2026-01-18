@@ -1,6 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations } from '../controllers/agency.controller.js';
+import { listAgencyNotificationTriggers, updateAgencyNotificationTrigger } from '../controllers/agencyNotificationTriggers.controller.js';
 import { authenticate, requireAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -84,6 +85,20 @@ const validateCreateAgency = [
     }
     return false;
   }).withMessage('Custom parameters must be a valid JSON object')
+  ,
+  body('featureFlags').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    if (typeof value === 'object') return true;
+    if (typeof value === 'string') {
+      try {
+        JSON.parse(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }).withMessage('Feature flags must be a valid JSON object')
 ];
 
 // Validation for updating agencies (name and slug optional, can update just branding)
@@ -170,6 +185,20 @@ const validateUpdateAgency = [
     }
     return false;
   }).withMessage('Custom parameters must be a valid JSON object')
+  ,
+  body('featureFlags').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    if (typeof value === 'object') return true;
+    if (typeof value === 'string') {
+      try {
+        JSON.parse(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }).withMessage('Feature flags must be a valid JSON object')
 ];
 
 // Public routes (no auth required) - must come before /:id route
@@ -183,6 +212,8 @@ router.get('/', authenticate, getAllAgencies);
 router.get('/archived', authenticate, requireSuperAdmin, getArchivedAgencies);
 router.get('/:id/affiliated-organizations', authenticate, requireAdmin, listAffiliatedOrganizations);
 router.get('/:id', authenticate, getAgencyById);
+router.get('/:id/notification-triggers', authenticate, requireAdmin, listAgencyNotificationTriggers);
+router.put('/:id/notification-triggers/:triggerKey', authenticate, requireAdmin, updateAgencyNotificationTrigger);
 router.post('/', authenticate, requireAdmin, validateCreateAgency, createAgency);
 router.put('/:id', authenticate, requireAdmin, validateUpdateAgency, updateAgency);
 router.post('/:id/archive', authenticate, requireSuperAdmin, archiveAgency);

@@ -82,12 +82,19 @@ class ProgressCalculationService {
       };
     }
 
+    const secondsRaw = Number(progress.time_spent_seconds || 0);
+    const minutesRaw = Number(progress.time_spent_minutes || 0);
+    const timeSpentSeconds =
+      Number.isFinite(secondsRaw) && secondsRaw > 0
+        ? Math.floor(secondsRaw)
+        : (Number.isFinite(minutesRaw) && minutesRaw > 0 ? Math.floor(minutesRaw * 60) : 0);
+
     return {
       status: progress.status,
       startedAt: progress.started_at,
       completedAt: progress.completed_at,
-      timeSpentMinutes: progress.time_spent_minutes || 0,
-      timeSpentSeconds: progress.time_spent_seconds || 0,
+      timeSpentMinutes: Math.floor(timeSpentSeconds / 60),
+      timeSpentSeconds,
       isOverridden: !!progress.overridden_by_user_id,
       overriddenBy: progress.overridden_by_user_id,
       overriddenAt: progress.overridden_at
@@ -104,13 +111,17 @@ class ProgressCalculationService {
   static async getTimeSpent(userId, trackId, agencyId) {
     const modules = await TrainingTrack.getModules(trackId);
     const byModule = [];
-    let totalMinutes = 0;
     let totalSeconds = 0;
 
     for (const module of modules) {
       const progress = await UserProgress.findByUserAndModule(userId, module.id);
-      const minutes = progress?.time_spent_minutes || 0;
-      const seconds = progress?.time_spent_seconds || 0;
+      const secondsRaw = Number(progress?.time_spent_seconds || 0);
+      const minutesRaw = Number(progress?.time_spent_minutes || 0);
+      const seconds =
+        Number.isFinite(secondsRaw) && secondsRaw > 0
+          ? Math.floor(secondsRaw)
+          : (Number.isFinite(minutesRaw) && minutesRaw > 0 ? Math.floor(minutesRaw * 60) : 0);
+      const minutes = Math.floor(seconds / 60);
       
       byModule.push({
         moduleId: module.id,
@@ -119,12 +130,11 @@ class ProgressCalculationService {
         seconds
       });
 
-      totalMinutes += minutes;
       totalSeconds += seconds;
     }
 
     return {
-      totalMinutes,
+      totalMinutes: Math.floor(totalSeconds / 60),
       totalSeconds,
       byModule
     };
@@ -139,7 +149,6 @@ class ProgressCalculationService {
   static async getTotalTimeSpent(userId, agencyId) {
     const userTracks = await UserTrack.getUserTracks(userId, agencyId);
     const byTrack = [];
-    let totalMinutes = 0;
     let totalSeconds = 0;
 
     for (const userTrack of userTracks) {
@@ -151,12 +160,11 @@ class ProgressCalculationService {
         seconds: trackTime.totalSeconds
       });
 
-      totalMinutes += trackTime.totalMinutes;
       totalSeconds += trackTime.totalSeconds;
     }
 
     return {
-      totalMinutes,
+      totalMinutes: Math.floor(totalSeconds / 60),
       totalSeconds,
       byTrack
     };

@@ -65,7 +65,7 @@ export const createAgency = async (req, res, next) => {
       return res.status(400).json({ error: { message: `Validation failed: ${errorMessages}`, errors: errors.array() } });
     }
 
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId } = req.body;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, tierSystemEnabled, tierThresholds } = req.body;
 
     // Only super admins can create "agency" organizations. Admins can create school/program/learning.
     const requestedType = (organizationType || 'agency').toLowerCase();
@@ -171,7 +171,9 @@ export const createAgency = async (req, res, next) => {
       myDashboardTrainingIconId,
       myDashboardDocumentsIconId,
       myDashboardMyAccountIconId,
-      myDashboardOnDemandTrainingIconId
+      myDashboardOnDemandTrainingIconId,
+      tierSystemEnabled,
+      tierThresholds
     });
 
     // Persist affiliation for child org types (school/program/learning).
@@ -222,7 +224,7 @@ export const updateAgency = async (req, res, next) => {
     }
 
     const { id } = req.params;
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId } = req.body;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds } = req.body;
     
     // Validate Google Docs URL if provided
     if (certificateTemplateUrl && certificateTemplateUrl.trim() !== '') {
@@ -280,6 +282,22 @@ export const updateAgency = async (req, res, next) => {
         formattedCustomParameters = null;
       }
     }
+
+    // Ensure featureFlags is properly formatted
+    let formattedFeatureFlags = featureFlags;
+    if (featureFlags !== undefined) {
+      if (typeof featureFlags === 'object' && featureFlags !== null) {
+        formattedFeatureFlags = featureFlags;
+      } else if (typeof featureFlags === 'string' && featureFlags.trim()) {
+        try {
+          formattedFeatureFlags = JSON.parse(featureFlags);
+        } catch (e) {
+          formattedFeatureFlags = null;
+        }
+      } else {
+        formattedFeatureFlags = null;
+      }
+    }
     
     const agency = await Agency.update(id, { 
       name, 
@@ -295,6 +313,10 @@ export const updateAgency = async (req, res, next) => {
       moduleDefaultIconId,
       userDefaultIconId,
       documentDefaultIconId,
+      streetAddress,
+      city,
+      state,
+      postalCode,
       manageAgenciesIconId,
       manageModulesIconId,
       manageDocumentsIconId,
@@ -315,7 +337,10 @@ export const updateAgency = async (req, res, next) => {
       portalUrl,
       themeSettings: formattedThemeSettings,
       customParameters: formattedCustomParameters,
+      featureFlags: formattedFeatureFlags,
       organizationType,
+      tierSystemEnabled,
+      tierThresholds,
       statusExpiredIconId,
       tempPasswordExpiredIconId,
       taskOverdueIconId,

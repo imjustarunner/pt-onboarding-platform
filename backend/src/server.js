@@ -36,6 +36,7 @@ import publicTrainingRoutes from './routes/publicTraining.routes.js';
 import agencyOnDemandTrainingRoutes from './routes/agencyOnDemandTraining.routes.js';
 import certificateRoutes from './routes/certificate.routes.js';
 import iconRoutes from './routes/icon.routes.js';
+import logoRoutes from './routes/logo.routes.js';
 import iconTemplateRoutes from './routes/iconTemplate.routes.js';
 import platformBrandingRoutes from './routes/platformBranding.routes.js';
 import onboardingPackageRoutes from './routes/onboardingPackage.routes.js';
@@ -80,6 +81,10 @@ const app = express();
 // Set to 1 to trust only the first hop (Google Cloud Load Balancer) - satisfies rate limiter security check
 app.set('trust proxy', 1);
 
+// API responses are highly dynamic and user-specific. Disable ETags to prevent 304 responses
+// (which can cause XHR clients to receive empty bodies and show stale/empty state).
+app.set('etag', false);
+
 // Middleware
 // CORS configuration with explicit headers for mobile browser compatibility
 app.use(cors({
@@ -100,6 +105,14 @@ app.use(express.urlencoded({ extended: true }));
 // Must be after body parsing middleware (express.json, express.urlencoded)
 // This ensures req.body is available for sanitization
 app.use(requestLoggingMiddleware);
+
+// Prevent caching of API JSON responses (especially important in local dev).
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 
 // File serving for GCS - redirects to signed URLs
 // 
@@ -365,6 +378,7 @@ app.use('/api/on-demand-training', publicTrainingRoutes);
 app.use('/api/agency-on-demand-training', agencyOnDemandTrainingRoutes);
 app.use('/api/certificates', certificateRoutes);
 app.use('/api/icons', iconRoutes);
+app.use('/api/logos', logoRoutes);
 app.use('/api/icon-templates', iconTemplateRoutes);
 app.use('/api/platform-branding', platformBrandingRoutes);
 app.use('/api/onboarding-packages', onboardingPackageRoutes);

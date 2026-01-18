@@ -5,6 +5,16 @@ class PayrollSummary {
     payrollPeriodId,
     agencyId,
     userId,
+    noNoteUnits = 0,
+    draftUnits = 0,
+    finalizedUnits = 0,
+    tierCreditsCurrent = 0,
+    tierCreditsPrior = 0,
+    tierCreditsFinal = 0,
+    graceActive = 0,
+    totalHours = 0,
+    directHours = 0,
+    indirectHours = 0,
     totalUnits,
     subtotalAmount,
     adjustmentsAmount = 0,
@@ -13,9 +23,27 @@ class PayrollSummary {
   }) {
     await pool.execute(
       `INSERT INTO payroll_summaries
-       (payroll_period_id, agency_id, user_id, total_units, subtotal_amount, adjustments_amount, total_amount, breakdown)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       (payroll_period_id, agency_id, user_id,
+        no_note_units, draft_units, finalized_units,
+        tier_credits_current, tier_credits_prior, tier_credits_final, grace_active,
+        total_hours, direct_hours, indirect_hours,
+        total_units, subtotal_amount, adjustments_amount, total_amount, breakdown)
+       VALUES (?, ?, ?,
+               ?, ?, ?,
+               ?, ?, ?, ?,
+               ?, ?, ?,
+               ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
+         no_note_units = VALUES(no_note_units),
+         draft_units = VALUES(draft_units),
+         finalized_units = VALUES(finalized_units),
+         tier_credits_current = VALUES(tier_credits_current),
+         tier_credits_prior = VALUES(tier_credits_prior),
+         tier_credits_final = VALUES(tier_credits_final),
+         grace_active = VALUES(grace_active),
+         total_hours = VALUES(total_hours),
+         direct_hours = VALUES(direct_hours),
+         indirect_hours = VALUES(indirect_hours),
          total_units = VALUES(total_units),
          subtotal_amount = VALUES(subtotal_amount),
          adjustments_amount = VALUES(adjustments_amount),
@@ -26,6 +54,16 @@ class PayrollSummary {
         payrollPeriodId,
         agencyId,
         userId,
+        noNoteUnits,
+        draftUnits,
+        finalizedUnits,
+        tierCreditsCurrent,
+        tierCreditsPrior,
+        tierCreditsFinal,
+        graceActive ? 1 : 0,
+        totalHours,
+        directHours,
+        indirectHours,
         totalUnits,
         subtotalAmount,
         adjustmentsAmount,
@@ -59,14 +97,17 @@ class PayrollSummary {
       where += ' AND ps.agency_id = ?';
       params.push(agencyId);
     }
-    params.push(limit, offset);
+    // NOTE: Some MySQL setups/drivers error on prepared placeholders in LIMIT/OFFSET.
+    // Use sanitized numeric literals for LIMIT/OFFSET to avoid ER_WRONG_ARGUMENTS.
+    const lim = Math.max(0, Math.min(500, parseInt(limit, 10) || 50));
+    const off = Math.max(0, parseInt(offset, 10) || 0);
     const [rows] = await pool.execute(
       `SELECT ps.*, pp.label, pp.period_start, pp.period_end, pp.status
        FROM payroll_summaries ps
        JOIN payroll_periods pp ON ps.payroll_period_id = pp.id
        WHERE ${where}
        ORDER BY pp.period_start DESC
-       LIMIT ? OFFSET ?`,
+       LIMIT ${lim} OFFSET ${off}`,
       params
     );
     return rows.map((r) => {

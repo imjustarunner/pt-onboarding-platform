@@ -4,7 +4,8 @@ import {
   bulkClientUpload,
   listBulkClientUploadJobs,
   getBulkClientUploadJob,
-  listBulkClientUploadJobRows
+  listBulkClientUploadJobRows,
+  undoBulkClientUpload
 } from '../controllers/bulkClientUpload.controller.js';
 
 const router = express.Router();
@@ -23,6 +24,7 @@ router.post('/', authenticate, requireAgencyAdmin, requireAdminOrSuperAdminOnly,
 router.get('/jobs', authenticate, requireAgencyAdmin, requireAdminOrSuperAdminOnly, listBulkClientUploadJobs);
 router.get('/jobs/:jobId', authenticate, requireAgencyAdmin, requireAdminOrSuperAdminOnly, getBulkClientUploadJob);
 router.get('/jobs/:jobId/rows', authenticate, requireAgencyAdmin, requireAdminOrSuperAdminOnly, listBulkClientUploadJobRows);
+router.post('/jobs/:jobId/undo', authenticate, requireAgencyAdmin, requireAdminOrSuperAdminOnly, undoBulkClientUpload);
 
 export default router;
 

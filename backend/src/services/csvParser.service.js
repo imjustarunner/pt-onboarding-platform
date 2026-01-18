@@ -6,6 +6,46 @@ import { parse } from 'csv-parse/sync';
  * Parses CSV files for bulk client import
  */
 class CSVParserService {
+  static normalizeHeaderKey(key) {
+    if (!key) return '';
+    // Remove UTF-8 BOM and normalize spacing/punctuation.
+    return String(key)
+      .replace(/^\uFEFF/, '')
+      .toLowerCase()
+      .trim()
+      .replace(/[_\-]+/g, ' ')
+      .replace(/[^a-z0-9 ]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  static firstNonEmpty(normalizedRow, keys) {
+    for (const k of keys) {
+      const v = normalizedRow[k];
+      if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+    }
+    return '';
+  }
+
+  static deriveInitialsFromName(name) {
+    if (!name) return '';
+    const cleaned = String(name)
+      .replace(/[_\-]+/g, ' ')
+      .replace(/[^\p{L}\p{N} ]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!cleaned) return '';
+    const parts = cleaned.split(' ').filter(Boolean);
+    if (parts.length >= 2) {
+      const first = parts[0][0];
+      const last = parts[parts.length - 1][0];
+      return `${first}${last}`.toUpperCase();
+    }
+    // Single token fallback: take first 2 chars if possible
+    return cleaned.substring(0, 2).toUpperCase();
+  }
+
   /**
    * Parse CSV buffer into structured array of client data objects
    * @param {Buffer} csvBuffer - CSV file buffer
@@ -35,47 +75,93 @@ class CSVParserService {
         // Normalize column names (case-insensitive, handle variations)
         const normalizedRow = {};
         for (const [key, value] of Object.entries(row)) {
-          const normalizedKey = key.toLowerCase().trim();
+          const normalizedKey = this.normalizeHeaderKey(key);
           normalizedRow[normalizedKey] = value;
         }
 
         // Extract data with flexible column matching
-        const schoolName = normalizedRow['school name'] || 
-                          normalizedRow['school'] || 
-                          normalizedRow['organization'] ||
-                          normalizedRow['organization name'] ||
-                          '';
+        const schoolName = this.firstNonEmpty(normalizedRow, [
+          'school name',
+          'school',
+          'school site',
+          'organization',
+          'organization name',
+          'org',
+          'site',
+          'campus'
+        ]);
 
-        const initials = normalizedRow['initials'] || 
-                        normalizedRow['student initials'] || 
-                        normalizedRow['client initials'] ||
-                        normalizedRow['student'] ||
-                        '';
+        let initials = this.firstNonEmpty(normalizedRow, [
+          'initials',
+          'initial',
+          'student initials',
+          'student initial',
+          'client initials',
+          'client initial',
+          'client name',
+          'student name',
+          'full name',
+          'name',
+          'student',
+          'client'
+        ]);
 
-        const providerName = normalizedRow['provider name'] || 
-                            normalizedRow['provider'] || 
-                            normalizedRow['assigned provider'] ||
-                            normalizedRow['clinician'] ||
-                            null;
+        const providerName = this.firstNonEmpty(normalizedRow, [
+          'provider name',
+          'provider',
+          'assigned provider',
+          'clinician',
+          'therapist',
+          'assigned clinician'
+        ]) || null;
 
-        const status = normalizedRow['status'] || 
-                      normalizedRow['client status'] ||
-                      normalizedRow['student status'] ||
-                      'PENDING_REVIEW';
+        const status = this.firstNonEmpty(normalizedRow, [
+          'status',
+          'client status',
+          'student status'
+        ]) || 'PENDING_REVIEW';
 
-        const submissionDate = normalizedRow['submission date'] || 
-                              normalizedRow['date'] || 
-                              normalizedRow['created date'] ||
-                              normalizedRow['referral date'] ||
-                              new Date().toISOString().split('T')[0]; // Default to today
+        const submissionDate = this.firstNonEmpty(normalizedRow, [
+          'submission date',
+          'date',
+          'created date',
+          'referral date',
+          'submitted date'
+        ]) || new Date().toISOString().split('T')[0]; // Default to today
 
-        const documentStatus = normalizedRow['document status'] || 
-                              normalizedRow['doc status'] ||
-                              'NONE';
+        const documentStatus = this.firstNonEmpty(normalizedRow, [
+          'document status',
+          'doc status',
+          'documents status'
+        ]) || 'NONE';
+
+        // If the CSV gives us a name (e.g., "Jane Doe"), derive initials.
+        if (initials && (String(initials).includes(' ') || String(initials).includes(','))) {
+          initials = this.deriveInitialsFromName(initials);
+        }
 
         // Validate required fields
         if (!schoolName || !initials) {
-          throw new Error(`Row ${index + 2}: Missing required fields (School Name and Initials are required)`);
+          const missing = [];
+          if (!schoolName) missing.push('School Name');
+          if (!initials) missing.push('Initials');
+
+          const err = new Error(
+            `Row ${index + 2}: Missing required fields: ${missing.join(', ')}. ` +
+            `Make sure your CSV has headers like "School Name" and "Initials".`
+          );
+          err.rowNumber = index + 2;
+          err.missingFields = missing;
+          err.foundHeaders = Object.keys(row || {});
+          err.expectedHeaders = [
+            'School Name (or School / Organization / Organization Name)',
+            'Initials (or Client Name / Student Initials / Client Initials)',
+            'Provider Name (optional)',
+            'Status (optional)',
+            'Submission Date (optional)',
+            'Document Status (optional)'
+          ];
+          throw err;
         }
 
         // Normalize status to match ENUM values

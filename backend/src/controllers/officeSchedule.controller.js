@@ -446,7 +446,11 @@ export const updateLocation = async (req, res, next) => {
       name: req.body.name,
       timezone: req.body.timezone,
       svg_markup: req.body.svgMarkup,
-      is_active: req.body.isActive
+      is_active: req.body.isActive,
+      street_address: req.body.streetAddress,
+      city: req.body.city,
+      state: req.body.state,
+      postal_code: req.body.postalCode
     });
     res.json(updated);
   } catch (e) {

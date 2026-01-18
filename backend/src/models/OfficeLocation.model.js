@@ -2,9 +2,10 @@ import pool from '../config/database.js';
 import crypto from 'crypto';
 
 class OfficeLocation {
-  static async findByAgency(agencyId) {
+  static async findByAgency(agencyId, { includeInactive = false } = {}) {
+    const where = includeInactive ? 'agency_id = ?' : 'agency_id = ? AND is_active = TRUE';
     const [rows] = await pool.execute(
-      'SELECT * FROM office_locations WHERE agency_id = ? AND is_active = TRUE ORDER BY name ASC',
+      `SELECT * FROM office_locations WHERE ${where} ORDER BY name ASC`,
       [agencyId]
     );
     return rows;
@@ -31,7 +32,7 @@ class OfficeLocation {
   }
 
   static async update(id, updates = {}) {
-    const allowed = ['name', 'timezone', 'svg_markup', 'is_active'];
+    const allowed = ['name', 'timezone', 'svg_markup', 'is_active', 'street_address', 'city', 'state', 'postal_code'];
     const fields = [];
     const values = [];
 

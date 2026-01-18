@@ -336,7 +336,43 @@ class Agency {
   }
 
   static async create(agencyData) {
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType } = agencyData;
+    const {
+      name,
+      slug,
+      logoUrl,
+      logoPath,
+      colorPalette,
+      terminologySettings,
+      isActive,
+      iconId,
+      chatIconId,
+      trainingFocusDefaultIconId,
+      moduleDefaultIconId,
+      userDefaultIconId,
+      documentDefaultIconId,
+      companyDefaultPasswordHash,
+      useDefaultPassword,
+      onboardingTeamEmail,
+      phoneNumber,
+      phoneExtension,
+      portalUrl,
+      themeSettings,
+      customParameters,
+      organizationType,
+      // Notification icon ids (optional; columns may not exist in all DBs)
+      statusExpiredIconId,
+      tempPasswordExpiredIconId,
+      taskOverdueIconId,
+      onboardingCompletedIconId,
+      invitationExpiredIconId,
+      firstLoginIconId,
+      firstLoginPendingIconId,
+      passwordChangedIconId,
+
+      // Tier system (agency-specific; optional columns)
+      tierSystemEnabled,
+      tierThresholds
+    } = agencyData;
     
     // Check if icon_id column exists
     let hasIconId = false;
@@ -385,6 +421,21 @@ class Agency {
     
     // Default organization_type to 'agency' for backward compatibility
     const orgType = organizationType || 'agency';
+
+    // Check if tier system columns exist
+    let hasTierSystemEnabled = false;
+    let hasTierThresholdsJson = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('tier_system_enabled','tier_thresholds_json')"
+      );
+      const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+      hasTierSystemEnabled = names.has('tier_system_enabled');
+      hasTierThresholdsJson = names.has('tier_thresholds_json');
+    } catch {
+      hasTierSystemEnabled = false;
+      hasTierThresholdsJson = false;
+    }
     
     // Build dynamic INSERT query based on available columns
     // Check if logo_path column exists
@@ -409,6 +460,21 @@ class Agency {
     if (hasOrganizationType) {
       insertFields.push('organization_type');
       insertValues.push(orgType);
+    }
+
+    if (hasTierSystemEnabled) {
+      insertFields.push('tier_system_enabled');
+      insertValues.push(
+        tierSystemEnabled === undefined || tierSystemEnabled === null
+          ? 1
+          : (tierSystemEnabled === true || tierSystemEnabled === 1 || tierSystemEnabled === '1' || String(tierSystemEnabled).toLowerCase() === 'true')
+            ? 1
+            : 0
+      );
+    }
+    if (hasTierThresholdsJson) {
+      insertFields.push('tier_thresholds_json');
+      insertValues.push(tierThresholds ? JSON.stringify(tierThresholds) : null);
     }
     
     if (hasIconId) {
@@ -451,7 +517,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId } = agencyData;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds } = agencyData;
     
     // Check if icon_id column exists
     let hasIconId = false;
@@ -478,6 +544,21 @@ class Agency {
     
     const updates = [];
     const values = [];
+
+    // Check if tier system columns exist (optional)
+    let hasTierSystemEnabled = false;
+    let hasTierThresholdsJson = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('tier_system_enabled','tier_thresholds_json')"
+      );
+      const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+      hasTierSystemEnabled = names.has('tier_system_enabled');
+      hasTierThresholdsJson = names.has('tier_thresholds_json');
+    } catch {
+      hasTierSystemEnabled = false;
+      hasTierThresholdsJson = false;
+    }
 
     if (name !== undefined) {
       updates.push('name = ?');
@@ -513,6 +594,34 @@ class Agency {
     if (terminologySettings !== undefined) {
       updates.push('terminology_settings = ?');
       values.push(terminologySettings ? JSON.stringify(terminologySettings) : null);
+    }
+    if (hasTierSystemEnabled && tierSystemEnabled !== undefined) {
+      updates.push('tier_system_enabled = ?');
+      values.push(
+        (tierSystemEnabled === true || tierSystemEnabled === 1 || tierSystemEnabled === '1' || String(tierSystemEnabled).toLowerCase() === 'true')
+          ? 1
+          : 0
+      );
+    }
+    if (hasTierThresholdsJson && tierThresholds !== undefined) {
+      updates.push('tier_thresholds_json = ?');
+      values.push(tierThresholds ? JSON.stringify(tierThresholds) : null);
+    }
+    if (streetAddress !== undefined) {
+      updates.push('street_address = ?');
+      values.push(streetAddress || null);
+    }
+    if (city !== undefined) {
+      updates.push('city = ?');
+      values.push(city || null);
+    }
+    if (state !== undefined) {
+      updates.push('state = ?');
+      values.push(state || null);
+    }
+    if (postalCode !== undefined) {
+      updates.push('postal_code = ?');
+      values.push(postalCode || null);
     }
     if (isActive !== undefined) {
       updates.push('is_active = ?');
@@ -787,6 +896,21 @@ class Agency {
       if (hasCustomParams) {
         updates.push('custom_parameters = ?');
         values.push(customParameters ? JSON.stringify(customParameters) : null);
+      }
+    }
+    if (featureFlags !== undefined) {
+      let hasFeatureFlags = false;
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'feature_flags'"
+        );
+        hasFeatureFlags = columns.length > 0;
+      } catch (e) {
+        hasFeatureFlags = false;
+      }
+      if (hasFeatureFlags) {
+        updates.push('feature_flags = ?');
+        values.push(featureFlags ? JSON.stringify(featureFlags) : null);
       }
     }
     }

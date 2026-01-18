@@ -63,14 +63,14 @@ class UserProgress {
     }
   }
 
-  static async logTime(userId, moduleId, durationMinutes) {
-    const durationSeconds = durationMinutes * 60;
+  static async logTime(userId, moduleId, durationSeconds) {
+    const seconds = Math.max(0, Math.floor(Number(durationSeconds || 0)));
     await pool.execute(
-      `UPDATE user_progress 
-       SET time_spent_minutes = time_spent_minutes + ?,
-           time_spent_seconds = time_spent_seconds + ?
+      `UPDATE user_progress
+       SET time_spent_seconds = time_spent_seconds + ?,
+           time_spent_minutes = FLOOR((time_spent_seconds + ?) / 60)
        WHERE user_id = ? AND module_id = ?`,
-      [durationMinutes, durationSeconds, userId, moduleId]
+      [seconds, seconds, userId, moduleId]
     );
   }
 

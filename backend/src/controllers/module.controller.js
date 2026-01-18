@@ -103,6 +103,7 @@ export const createModule = async (req, res, next) => {
       isPublic,
       isStandalone,
       standaloneCategory,
+      estimatedTimeMinutes,
       iconId
     } = req.body;
     
@@ -128,6 +129,7 @@ export const createModule = async (req, res, next) => {
       isPublic: isPublic || false,
       isStandalone: isStandalone || false,
       standaloneCategory: standaloneCategory || null,
+      estimatedTimeMinutes: estimatedTimeMinutes === '' ? null : estimatedTimeMinutes,
       iconId: iconId || null
     });
     res.status(201).json(module);
@@ -262,6 +264,7 @@ export const updateModule = async (req, res, next) => {
       isPublic,
       isStandalone,
       standaloneCategory,
+      estimatedTimeMinutes,
       iconId
     } = req.body;
     
@@ -276,6 +279,7 @@ export const updateModule = async (req, res, next) => {
       isPublic,
       isStandalone,
       standaloneCategory,
+      estimatedTimeMinutes: estimatedTimeMinutes === '' ? null : estimatedTimeMinutes,
       iconId
     });
     

@@ -1,6 +1,18 @@
 import { parse } from 'csv-parse/sync';
 
-const normalizeHeader = (h) => String(h || '').trim().toLowerCase();
+// More forgiving than plain trim/lowercase:
+// - strips UTF-8 BOM
+// - normalizes punctuation/underscores
+// - collapses whitespace
+const normalizeHeader = (h) =>
+  String(h || '')
+    .replace(/^\uFEFF/, '')
+    .toLowerCase()
+    .trim()
+    .replace(/[_\-]+/g, ' ')
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 const toBool = (v) => {
   if (v === null || v === undefined) return false;
@@ -102,6 +114,7 @@ export default class BulkClientUploadParserService {
         normalized['client'] ||
         normalized['student name'] ||
         normalized['student'] ||
+        normalized['initials'] ||
         '';
 
       const out = {
@@ -111,15 +124,33 @@ export default class BulkClientUploadParserService {
         referralDate: toDateString(normalized['referral date']),
         skills: toBool(normalized['skills']),
         insurance: String(normalized['insurance'] || '').trim(),
-        school: String(normalized['school'] || normalized['school name'] || '').trim(),
-        provider: String(normalized['provider'] || '').trim(),
+        school: String(
+          normalized['school'] ||
+            normalized['school name'] ||
+            normalized['organization'] ||
+            normalized['organization name'] ||
+            ''
+        ).trim(),
+        provider: String(
+          normalized['provider'] ||
+            normalized['provider name'] ||
+            normalized['assigned provider'] ||
+            normalized['clinician'] ||
+            normalized['therapist'] ||
+            ''
+        ).trim(),
         backgroundCheckDate: toDateString(normalized['background check date']),
         providerRiskFlags: String(normalized['provider risk flags'] || '').trim(),
         providerAvailability: normalized['provider availability'],
         day: normalizeDay(normalized['day']),
-        paperworkDelivery: String(normalized['paperwork delivery'] || '').trim(),
+        paperworkDelivery: String(normalized['paperwork delivery'] || normalized['delivery'] || '').trim(),
         docDate: toDateString(normalized['doc date']),
-        paperworkStatus: String(normalized['paperwork status'] || '').trim(),
+        paperworkStatus: String(
+          normalized['paperwork status'] ||
+            normalized['document status'] ||
+            normalized['doc status'] ||
+            ''
+        ).trim(),
         notes: String(normalized['notes'] || '').trim(),
         grade: String(normalized['grade'] || '').trim(),
         gender: String(normalized['gender'] || '').trim(),

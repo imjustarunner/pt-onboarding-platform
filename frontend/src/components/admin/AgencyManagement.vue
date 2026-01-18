@@ -133,7 +133,7 @@
             </div>
           </div>
           <div class="agency-support" v-if="agencySupport[agency.id] && agencySupport[agency.id].length > 0">
-            <strong>Support Team:</strong>
+            <strong>Staff Team:</strong>
             <div class="admin-tags">
               <span
                 v-for="support in agencySupport[agency.id]"
@@ -154,7 +154,7 @@
         <div class="agency-actions">
           <button @click="editAgency(agency)" class="btn btn-secondary btn-sm">Edit</button>
           <button
-            v-if="isChildOrgRow(agency)"
+            v-if="userRole === 'super_admin'"
             @click="openDuplicateModal(agency)"
             class="btn btn-secondary btn-sm"
           >
@@ -180,7 +180,7 @@
             @click="showAssignSupport(agency)"
             class="btn btn-support btn-sm"
           >
-            Assign Support
+            Assign Staff
           </button>
           <button
             v-if="userRole === 'super_admin' && !agency.is_archived"
@@ -263,10 +263,10 @@
       </div>
     </div>
     
-    <!-- Assign Support Modal -->
+    <!-- Assign Staff Modal -->
     <div v-if="showAssignSupportModal && selectedAgency" class="modal-overlay" @click="closeAssignSupportModal">
       <div class="modal-content" @click.stop>
-        <h3>Assign Support to {{ selectedAgency.name }}</h3>
+        <h3>Assign Staff to {{ selectedAgency.name }}</h3>
         <form @submit.prevent="assignSupport">
           <div class="form-group">
             <label>Select User *</label>
@@ -288,7 +288,7 @@
           <div class="modal-actions">
             <button type="button" @click="closeAssignSupportModal" class="btn btn-secondary">Cancel</button>
             <button type="submit" class="btn btn-primary" :disabled="assigningSupport">
-              {{ assigningSupport ? 'Assigning...' : 'Assign Support' }}
+              {{ assigningSupport ? 'Assigning...' : 'Assign Staff' }}
             </button>
           </div>
         </form>
@@ -318,6 +318,14 @@
             @click="activeTab = 'icons'"
           >
             Customize Icons
+          </button>
+          <button
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            type="button"
+            :class="['tab-button', { active: activeTab === 'payroll' }]"
+            @click="openPayrollTab"
+          >
+            Payroll
           </button>
         </div>
         
@@ -506,6 +514,32 @@
             />
             <small>Lowercase letters, numbers, and hyphens only. This will be used for subdomain access (e.g., itsco.app.plottwistco.com)</small>
           </div>
+
+          <div
+            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'agency'"
+            class="form-group"
+            style="padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);"
+          >
+            <label style="margin-bottom: 8px; display: block;"><strong>Feature toggles (pricing / rollout)</strong></label>
+
+            <label class="toggle-label" style="margin-top: 8px;">
+              <span>Enable In‑School submissions</span>
+              <div class="toggle-switch">
+                <input type="checkbox" v-model="agencyForm.featureFlags.inSchoolSubmissionsEnabled" />
+                <span class="slider"></span>
+              </div>
+            </label>
+            <small class="hint">Controls School Mileage (and any other “In‑School Claims” modules).</small>
+
+            <label class="toggle-label" style="margin-top: 10px;">
+              <span>Enable Med Cancel</span>
+              <div class="toggle-switch">
+                <input type="checkbox" v-model="agencyForm.featureFlags.medcancelEnabled" />
+                <span class="slider"></span>
+              </div>
+            </label>
+            <small class="hint">Controls Med Cancel claim submissions and related notifications.</small>
+          </div>
           
           <div class="form-group">
             <label>Onboarding Team Email</label>
@@ -536,6 +570,260 @@
               placeholder="123"
             />
             <small>Optional phone extension</small>
+          </div>
+
+          <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);">
+            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Address</h4>
+            <small class="hint">Used for mileage calculations (schools use this as their school address).</small>
+          </div>
+
+          <div class="form-group">
+            <label>Street Address</label>
+            <input v-model="agencyForm.streetAddress" type="text" placeholder="123 Main St" />
+          </div>
+          <div class="form-group">
+            <label>City</label>
+            <input v-model="agencyForm.city" type="text" placeholder="City" />
+          </div>
+          <div class="form-group">
+            <label>State</label>
+            <input v-model="agencyForm.state" type="text" placeholder="State" />
+          </div>
+          <div class="form-group">
+            <label>Postal Code</label>
+            <input v-model="agencyForm.postalCode" type="text" placeholder="ZIP" />
+          </div>
+
+          <div
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-section-divider"
+            style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
+          >
+            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Mileage Rates (Tier 1/2/3)</h4>
+            <small class="hint">Per-mile reimbursement rates used for approving School Mileage submissions.</small>
+          </div>
+
+          <div
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-group"
+          >
+            <div v-if="mileageRatesError" class="error-modal">
+              <strong>Error:</strong> {{ mileageRatesError }}
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end;">
+              <div class="filters-group">
+                <label class="filters-label">Tier 1 ($/mile)</label>
+                <input v-model="mileageRatesDraft.tier1" class="filters-input" type="number" step="0.0001" min="0" :disabled="mileageRatesLoading || savingMileageRates" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Tier 2 ($/mile)</label>
+                <input v-model="mileageRatesDraft.tier2" class="filters-input" type="number" step="0.0001" min="0" :disabled="mileageRatesLoading || savingMileageRates" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Tier 3 ($/mile)</label>
+                <input v-model="mileageRatesDraft.tier3" class="filters-input" type="number" step="0.0001" min="0" :disabled="mileageRatesLoading || savingMileageRates" />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadMileageRates" :disabled="mileageRatesLoading || !editingAgency?.id">
+                  {{ mileageRatesLoading ? 'Loading…' : 'Reload' }}
+                </button>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="saveMileageRates" :disabled="savingMileageRates || !editingAgency?.id">
+                  {{ savingMileageRates ? 'Saving…' : 'Save rates' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-section-divider"
+            style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
+          >
+            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Tier System (Payroll)</h4>
+            <small class="hint">Enable/disable tier calculations and set the weekly credits/hour thresholds for Tier 1/2/3.</small>
+          </div>
+
+          <div
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-group"
+          >
+            <label style="display: flex; gap: 10px; align-items: center;">
+              <input type="checkbox" v-model="agencyForm.tierSystemEnabled" />
+              <span><strong>Enable tier system</strong> (shows Tier badge + tier credits in payroll)</span>
+            </label>
+
+            <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
+              <div class="filters-group">
+                <label class="filters-label">Tier 1 min (weekly credits/hours)</label>
+                <input v-model="agencyForm.tierThresholds.tier1MinWeekly" class="filters-input" type="number" step="0.1" min="0" :disabled="!agencyForm.tierSystemEnabled" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Tier 2 min (weekly credits/hours)</label>
+                <input v-model="agencyForm.tierThresholds.tier2MinWeekly" class="filters-input" type="number" step="0.1" min="0" :disabled="!agencyForm.tierSystemEnabled" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Tier 3 min (weekly credits/hours)</label>
+                <input v-model="agencyForm.tierThresholds.tier3MinWeekly" class="filters-input" type="number" step="0.1" min="0" :disabled="!agencyForm.tierSystemEnabled" />
+              </div>
+            </div>
+            <small class="hint" style="display: block; margin-top: 8px;">
+              Example: if Tier 1 min is 6, then Tier 1 starts at 6 credits/hours per week.
+            </small>
+          </div>
+
+          <div
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-section-divider"
+            style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
+          >
+            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Sites / Office Locations</h4>
+            <small class="hint">Manage multiple site addresses for this agency (used for School Mileage office selection).</small>
+          </div>
+
+          <div
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-group"
+          >
+            <div v-if="officeLocationsError" class="error-modal">
+              <strong>Error:</strong> {{ officeLocationsError }}
+            </div>
+            <div v-if="officeLocationsLoading" class="loading">Loading office locations…</div>
+
+            <div v-else class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Timezone</th>
+                    <th>Street</th>
+                    <th>City</th>
+                    <th>State</th>
+                    <th>ZIP</th>
+                    <th>Active</th>
+                    <th class="right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="l in officeLocations" :key="l.id">
+                    <td><input v-model="officeLocationEdits[l.id].name" type="text" /></td>
+                    <td><input v-model="officeLocationEdits[l.id].timezone" type="text" /></td>
+                    <td><input v-model="officeLocationEdits[l.id].streetAddress" type="text" /></td>
+                    <td><input v-model="officeLocationEdits[l.id].city" type="text" /></td>
+                    <td><input v-model="officeLocationEdits[l.id].state" type="text" /></td>
+                    <td><input v-model="officeLocationEdits[l.id].postalCode" type="text" /></td>
+                    <td><input v-model="officeLocationEdits[l.id].isActive" type="checkbox" /></td>
+                    <td class="right">
+                      <button type="button" class="btn btn-secondary btn-sm" @click="saveOfficeLocation(l)" :disabled="savingOfficeLocationId === l.id">
+                        {{ savingOfficeLocationId === l.id ? 'Saving…' : 'Save' }}
+                      </button>
+                    </td>
+                  </tr>
+                  <tr v-if="!officeLocations.length">
+                    <td colspan="8" class="empty-state-inline">No office locations yet.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
+              <div class="filters-group">
+                <label class="filters-label">Name</label>
+                <input v-model="newOfficeLocationName" class="filters-input" type="text" placeholder="e.g., Main Office" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Timezone</label>
+                <input v-model="newOfficeLocationTimezone" class="filters-input" type="text" placeholder="America/New_York" />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="createOfficeLocation" :disabled="creatingOfficeLocation || !newOfficeLocationName">
+                  {{ creatingOfficeLocation ? 'Creating…' : 'Add' }}
+                </button>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadOfficeLocations" :disabled="officeLocationsLoading">
+                  Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-section-divider"
+            style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
+          >
+            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Notification Triggers</h4>
+            <small class="hint">Platform-level notification initiators. Default is ON; customize per agency.</small>
+          </div>
+
+          <div
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-group"
+          >
+            <div v-if="notificationTriggersError" class="error-modal">
+              <strong>Error:</strong> {{ notificationTriggersError }}
+            </div>
+            <div class="filters-row" style="align-items: flex-end; margin-bottom: 10px;">
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadNotificationTriggers" :disabled="notificationTriggersLoading || !editingAgency?.id">
+                  {{ notificationTriggersLoading ? 'Loading…' : 'Reload' }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="notificationTriggersLoading" class="loading">Loading notification triggers…</div>
+            <div v-else class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Trigger</th>
+                    <th>Enabled</th>
+                    <th>Recipients</th>
+                    <th>Channels</th>
+                    <th class="right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="t in notificationTriggers" :key="t.triggerKey">
+                    <td style="min-width: 260px;">
+                      <div><strong>{{ t.name }}</strong></div>
+                      <div class="hint" style="margin-top: 4px;">{{ t.description }}</div>
+                      <div class="hint" style="margin-top: 4px;"><code>{{ t.triggerKey }}</code></div>
+                    </td>
+                    <td>
+                      <input v-model="getTriggerEdit(t.triggerKey).enabled" type="checkbox" />
+                    </td>
+                    <td>
+                      <div class="hint"><label><input v-model="getTriggerEdit(t.triggerKey).recipients.provider" type="checkbox" /> Provider</label></div>
+                      <div class="hint"><label><input v-model="getTriggerEdit(t.triggerKey).recipients.supervisor" type="checkbox" /> Supervisor</label></div>
+                      <div class="hint"><label><input v-model="getTriggerEdit(t.triggerKey).recipients.clinicalPracticeAssistant" type="checkbox" /> Clinical Practice Assistant</label></div>
+                      <div class="hint"><label><input v-model="getTriggerEdit(t.triggerKey).recipients.admin" type="checkbox" /> Admin</label></div>
+                    </td>
+                    <td>
+                      <div class="hint"><label><input type="checkbox" checked disabled /> Web app (in-app)</label></div>
+                      <div class="hint"><label><input type="checkbox" disabled /> Text (SMS) <span class="muted">(coming soon)</span></label></div>
+                      <div class="hint"><label><input type="checkbox" disabled /> Email <span class="muted">(coming soon)</span></label></div>
+                    </td>
+                    <td class="right">
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        @click="saveNotificationTrigger(t)"
+                        :disabled="savingNotificationTriggerKey === t.triggerKey || !editingAgency?.id"
+                      >
+                        {{ savingNotificationTriggerKey === t.triggerKey ? 'Saving…' : 'Save' }}
+                      </button>
+                    </td>
+                  </tr>
+                  <tr v-if="!notificationTriggers.length">
+                    <td colspan="5" class="empty-state-inline">No triggers found.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
           
           <!-- Theme Settings Section -->
@@ -866,6 +1154,141 @@
               </div>
             </div>
           </div>
+
+          <!-- Payroll Tab (agency-only) -->
+          <div v-show="activeTab === 'payroll'" class="tab-content">
+            <div class="settings-section-divider">
+              <h4>Mileage Rates (Tier 1/2/3)</h4>
+              <p class="section-description">
+                Set per-mile reimbursement rates used for approving School Mileage submissions.
+              </p>
+            </div>
+
+            <div v-if="mileageRatesError" class="error-modal">
+              <strong>Error:</strong> {{ mileageRatesError }}
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end;">
+              <div class="filters-group">
+                <label class="filters-label">Tier 1 ($/mile)</label>
+                <input v-model="mileageRatesDraft.tier1" class="filters-input" type="number" step="0.0001" min="0" :disabled="mileageRatesLoading || savingMileageRates" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Tier 2 ($/mile)</label>
+                <input v-model="mileageRatesDraft.tier2" class="filters-input" type="number" step="0.0001" min="0" :disabled="mileageRatesLoading || savingMileageRates" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Tier 3 ($/mile)</label>
+                <input v-model="mileageRatesDraft.tier3" class="filters-input" type="number" step="0.0001" min="0" :disabled="mileageRatesLoading || savingMileageRates" />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadMileageRates" :disabled="mileageRatesLoading || !editingAgency?.id">
+                  {{ mileageRatesLoading ? 'Loading…' : 'Reload' }}
+                </button>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="saveMileageRates" :disabled="savingMileageRates || !editingAgency?.id">
+                  {{ savingMileageRates ? 'Saving…' : 'Save rates' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-section-divider">
+              <h4>Payroll Service Codes (Equivalencies)</h4>
+              <p class="section-description">
+                Edit how each service code converts units → hours and whether it counts for tier credits. This drives payroll calculations.
+              </p>
+            </div>
+
+            <div v-if="payrollRulesError" class="error-modal">
+              <strong>Error:</strong> {{ payrollRulesError }}
+            </div>
+            <div v-if="payrollRulesLoading" class="loading">Loading payroll service codes…</div>
+
+            <div v-else class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Service Code</th>
+                    <th>Category (rate type)</th>
+                    <th class="right">Pay Divisor</th>
+                    <th class="right">Credit Value</th>
+                    <th>Counts for Tier?</th>
+                    <th>Other Slot</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in payrollRules" :key="r.service_code">
+                    <td><strong>{{ r.service_code }}</strong></td>
+                    <td>
+                      <select v-model="r.category">
+                        <option value="direct">direct</option>
+                        <option value="indirect">indirect</option>
+                        <option value="admin">admin</option>
+                        <option value="meeting">meeting</option>
+                        <option value="other">other</option>
+                        <option value="tutoring">tutoring</option>
+                        <option value="mileage">mileage</option>
+                        <option value="bonus">bonus</option>
+                        <option value="reimbursement">reimbursement</option>
+                        <option value="other_pay">other_pay</option>
+                      </select>
+                    </td>
+                    <td class="right">
+                      <input v-model="r.pay_divisor" type="number" min="1" step="1" style="width: 110px;" />
+                    </td>
+                    <td class="right">
+                      <input v-model="r.credit_value" type="number" min="0" step="0.00000000001" style="width: 140px;" />
+                    </td>
+                    <td>
+                      <input v-model="r.counts_for_tier" type="checkbox" />
+                    </td>
+                    <td>
+                      <select v-model="r.other_slot" :disabled="!(r.category === 'other' || r.category === 'tutoring')" title="Used only for 'other'/'tutoring' codes to pick which hourly 'Other Rate' slot (1/2/3) applies.">
+                        <option :value="1">1</option>
+                        <option :value="2">2</option>
+                        <option :value="3">3</option>
+                      </select>
+                    </td>
+                    <td class="right">
+                      <div class="payroll-rule-actions">
+                        <button type="button" class="btn btn-secondary btn-sm" @click="savePayrollRule(r)" :disabled="savingPayrollRule">
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-danger btn-sm"
+                          @click="deletePayrollRule(r)"
+                          :disabled="savingPayrollRule"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr v-if="!payrollRules.length">
+                    <td colspan="8" class="empty-state-inline">No service code rules found.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="settings-section-divider" style="margin-top: 18px;">
+              <h4>Add Service Code</h4>
+            </div>
+            <div class="filters-row" style="align-items: flex-end;">
+              <div class="filters-group">
+                <label class="filters-label">Service Code</label>
+                <input v-model="newPayrollServiceCode" class="filters-input" type="text" placeholder="e.g., 90791" />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="addPayrollRule" :disabled="!newPayrollServiceCode || savingPayrollRule">
+                  Add
+                </button>
+              </div>
+            </div>
+          </div>
           
           <div class="modal-actions">
             <button 
@@ -990,7 +1413,333 @@ const uploadingLogo = ref(false);
 const customParamKeys = ref([]);
   const customParameters = ref({});
   const copiedUrl = ref(null); // Track which URL was copied
-const activeTab = ref('settings'); // Tab navigation: 'settings' or 'icons'
+const activeTab = ref('settings'); // Tab navigation: 'settings' | 'icons' | 'payroll'
+
+// Payroll service code rules editor (agency-only)
+const payrollRulesLoading = ref(false);
+const payrollRulesError = ref('');
+const payrollRules = ref([]);
+const savingPayrollRule = ref(false);
+const newPayrollServiceCode = ref('');
+
+// Mileage reimbursement rates (agency-only; Tier 1/2/3 $/mile)
+const mileageRatesLoading = ref(false);
+const savingMileageRates = ref(false);
+const mileageRatesError = ref('');
+const mileageRatesDraft = ref({ tier1: 0, tier2: 0, tier3: 0 });
+
+// Office locations (sites) editor (agency-only)
+const officeLocations = ref([]);
+const officeLocationsLoading = ref(false);
+const officeLocationsError = ref('');
+const officeLocationEdits = ref({});
+const savingOfficeLocationId = ref(null);
+const newOfficeLocationName = ref('');
+const newOfficeLocationTimezone = ref('America/New_York');
+const creatingOfficeLocation = ref(false);
+
+// Notification triggers (agency-only; platform list with per-agency overrides)
+const notificationTriggers = ref([]);
+const notificationTriggersLoading = ref(false);
+const notificationTriggersError = ref('');
+const notificationTriggerEdits = ref({});
+const savingNotificationTriggerKey = ref(null);
+
+const getTriggerEdit = (triggerKey) => {
+  const key = String(triggerKey || '').trim();
+  if (!key) return { enabled: true, recipients: { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true }, channels: { inApp: true, sms: false, email: false } };
+  if (!notificationTriggerEdits.value[key]) {
+    notificationTriggerEdits.value[key] = {
+      enabled: true,
+      recipients: { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true },
+      channels: { inApp: true, sms: false, email: false }
+    };
+  }
+  return notificationTriggerEdits.value[key];
+};
+
+const loadNotificationTriggers = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    notificationTriggersLoading.value = true;
+    notificationTriggersError.value = '';
+    const resp = await api.get(`/agencies/${editingAgency.value.id}/notification-triggers`);
+    const rows = resp.data || [];
+    notificationTriggers.value = rows;
+
+    const edits = {};
+    for (const t of rows) {
+      const k = String(t?.triggerKey || '').trim();
+      if (!k) continue;
+      const resolved = t?.resolved || {};
+      edits[k] = {
+        enabled: !!resolved.enabled,
+        recipients: {
+          provider: !!resolved?.recipients?.provider,
+          supervisor: !!resolved?.recipients?.supervisor,
+          clinicalPracticeAssistant: !!resolved?.recipients?.clinicalPracticeAssistant,
+          admin: !!resolved?.recipients?.admin
+        },
+        channels: {
+          inApp: true,
+          sms: false,
+          email: false
+        }
+      };
+    }
+    notificationTriggerEdits.value = edits;
+  } catch (e) {
+    notificationTriggersError.value = e.response?.data?.error?.message || e.message || 'Failed to load notification triggers';
+    notificationTriggers.value = [];
+    notificationTriggerEdits.value = {};
+  } finally {
+    notificationTriggersLoading.value = false;
+  }
+};
+
+const saveNotificationTrigger = async (triggerRow) => {
+  if (!editingAgency.value?.id) return;
+  const triggerKey = String(triggerRow?.triggerKey || '').trim();
+  if (!triggerKey) return;
+  try {
+    savingNotificationTriggerKey.value = triggerKey;
+    notificationTriggersError.value = '';
+    const edit = getTriggerEdit(triggerKey);
+    await api.put(`/agencies/${editingAgency.value.id}/notification-triggers/${triggerKey}`, {
+      enabled: !!edit.enabled,
+      recipients: {
+        provider: !!edit.recipients?.provider,
+        supervisor: !!edit.recipients?.supervisor,
+        clinicalPracticeAssistant: !!edit.recipients?.clinicalPracticeAssistant,
+        admin: !!edit.recipients?.admin
+      },
+      channels: {
+        inApp: true,
+        sms: false,
+        email: false
+      }
+    });
+    await loadNotificationTriggers();
+  } catch (e) {
+    notificationTriggersError.value = e.response?.data?.error?.message || e.message || 'Failed to save trigger settings';
+  } finally {
+    savingNotificationTriggerKey.value = null;
+  }
+};
+
+const openPayrollTab = async () => {
+  activeTab.value = 'payroll';
+  await loadMileageRates();
+  await loadPayrollRules();
+  await loadOfficeLocations();
+};
+
+const loadMileageRates = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    mileageRatesLoading.value = true;
+    mileageRatesError.value = '';
+    const resp = await api.get('/payroll/mileage-rates', { params: { agencyId: editingAgency.value.id } });
+    const rates = resp.data?.rates || [];
+    const byTier = new Map((rates || []).map((r) => [Number(r.tierLevel), Number(r.ratePerMile || 0)]));
+    mileageRatesDraft.value = {
+      tier1: byTier.get(1) || 0,
+      tier2: byTier.get(2) || 0,
+      tier3: byTier.get(3) || 0
+    };
+  } catch (e) {
+    mileageRatesError.value = e.response?.data?.error?.message || e.message || 'Failed to load mileage rates';
+  } finally {
+    mileageRatesLoading.value = false;
+  }
+};
+
+const saveMileageRates = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    savingMileageRates.value = true;
+    mileageRatesError.value = '';
+    const t1 = Number(mileageRatesDraft.value.tier1 || 0);
+    const t2 = Number(mileageRatesDraft.value.tier2 || 0);
+    const t3 = Number(mileageRatesDraft.value.tier3 || 0);
+    await api.put('/payroll/mileage-rates', {
+      rates: [
+        { tierLevel: 1, ratePerMile: t1 },
+        { tierLevel: 2, ratePerMile: t2 },
+        { tierLevel: 3, ratePerMile: t3 }
+      ]
+    }, { params: { agencyId: editingAgency.value.id } });
+    await loadMileageRates();
+  } catch (e) {
+    mileageRatesError.value = e.response?.data?.error?.message || e.message || 'Failed to save mileage rates';
+  } finally {
+    savingMileageRates.value = false;
+  }
+};
+
+const loadOfficeLocations = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    officeLocationsLoading.value = true;
+    officeLocationsError.value = '';
+    const resp = await api.get('/payroll/office-locations', {
+      params: { agencyId: editingAgency.value.id, includeInactive: true }
+    });
+    const rows = resp.data || [];
+    officeLocations.value = rows;
+
+    const nextEdits = { ...(officeLocationEdits.value || {}) };
+    for (const l of rows) {
+      nextEdits[l.id] = {
+        name: l.name || '',
+        timezone: l.timezone || 'America/New_York',
+        streetAddress: l.street_address || '',
+        city: l.city || '',
+        state: l.state || '',
+        postalCode: l.postal_code || '',
+        isActive: !!l.is_active
+      };
+    }
+    officeLocationEdits.value = nextEdits;
+  } catch (e) {
+    officeLocationsError.value = e.response?.data?.error?.message || e.message || 'Failed to load office locations';
+    officeLocations.value = [];
+  } finally {
+    officeLocationsLoading.value = false;
+  }
+};
+
+const createOfficeLocation = async () => {
+  if (!editingAgency.value?.id) return;
+  if (!newOfficeLocationName.value) return;
+  try {
+    creatingOfficeLocation.value = true;
+    officeLocationsError.value = '';
+    await api.post('/payroll/office-locations', {
+      name: newOfficeLocationName.value,
+      timezone: newOfficeLocationTimezone.value || 'America/New_York'
+    }, { params: { agencyId: editingAgency.value.id } });
+    newOfficeLocationName.value = '';
+    await loadOfficeLocations();
+  } catch (e) {
+    officeLocationsError.value = e.response?.data?.error?.message || e.message || 'Failed to create office location';
+  } finally {
+    creatingOfficeLocation.value = false;
+  }
+};
+
+const saveOfficeLocation = async (loc) => {
+  if (!editingAgency.value?.id) return;
+  if (!loc?.id) return;
+  const draft = officeLocationEdits.value?.[loc.id];
+  if (!draft) return;
+  try {
+    savingOfficeLocationId.value = loc.id;
+    officeLocationsError.value = '';
+    await api.patch(`/payroll/office-locations/${loc.id}`, {
+      name: draft.name,
+      timezone: draft.timezone,
+      streetAddress: draft.streetAddress,
+      city: draft.city,
+      state: draft.state,
+      postalCode: draft.postalCode,
+      isActive: !!draft.isActive
+    }, { params: { agencyId: editingAgency.value.id } });
+    await loadOfficeLocations();
+  } catch (e) {
+    officeLocationsError.value = e.response?.data?.error?.message || e.message || 'Failed to save office location';
+  } finally {
+    savingOfficeLocationId.value = null;
+  }
+};
+
+const loadPayrollRules = async () => {
+  if (!editingAgency.value?.id) return;
+  payrollRulesError.value = '';
+  try {
+    payrollRulesLoading.value = true;
+    const resp = await api.get('/payroll/service-code-rules', { params: { agencyId: editingAgency.value.id } });
+    const rows = resp.data || [];
+    // Normalize numeric + checkbox types for v-model usage
+    payrollRules.value = rows.map((r) => ({
+      ...r,
+      category: r.category || 'direct',
+      other_slot: Number(r.other_slot || 1),
+      duration_minutes: r.duration_minutes ?? '',
+      pay_divisor: r.pay_divisor ?? 1,
+      credit_value: r.credit_value ?? 0,
+      counts_for_tier: r.counts_for_tier === 0 ? false : true
+    }));
+  } catch (e) {
+    payrollRulesError.value = e.response?.data?.error?.message || e.message || 'Failed to load payroll service codes';
+    payrollRules.value = [];
+  } finally {
+    payrollRulesLoading.value = false;
+  }
+};
+
+const savePayrollRule = async (row) => {
+  if (!editingAgency.value?.id || !row?.service_code) return;
+  try {
+    savingPayrollRule.value = true;
+    payrollRulesError.value = '';
+    await api.post('/payroll/service-code-rules', {
+      agencyId: editingAgency.value.id,
+      serviceCode: row.service_code,
+      category: row.category,
+      otherSlot: row.other_slot,
+      // Duration is intentionally hidden/not used for now (credits drive hours).
+      durationMinutes: null,
+      countsForTier: row.counts_for_tier ? 1 : 0,
+      payDivisor: row.pay_divisor,
+      creditValue: row.credit_value
+    });
+  } catch (e) {
+    payrollRulesError.value = e.response?.data?.error?.message || e.message || 'Failed to save service code rule';
+  } finally {
+    savingPayrollRule.value = false;
+  }
+};
+
+const deletePayrollRule = async (row) => {
+  if (!editingAgency.value?.id || !row?.service_code) return;
+  const code = String(row.service_code || '').trim();
+  if (!code) return;
+  if (!window.confirm(`Delete service code rule "${code}"?`)) return;
+  try {
+    savingPayrollRule.value = true;
+    payrollRulesError.value = '';
+    await api.delete('/payroll/service-code-rules', { params: { agencyId: editingAgency.value.id, serviceCode: code } });
+    payrollRules.value = (payrollRules.value || []).filter((r) => String(r.service_code || '').trim().toUpperCase() !== code.toUpperCase());
+  } catch (e) {
+    payrollRulesError.value = e.response?.data?.error?.message || e.message || 'Failed to delete service code rule';
+  } finally {
+    savingPayrollRule.value = false;
+  }
+};
+
+const addPayrollRule = async () => {
+  const code = String(newPayrollServiceCode.value || '').trim();
+  if (!editingAgency.value?.id || !code) return;
+  const exists = (payrollRules.value || []).some((r) => String(r.service_code || '').trim().toUpperCase() === code.toUpperCase());
+  if (exists) {
+    newPayrollServiceCode.value = '';
+    return;
+  }
+  const row = {
+    agency_id: editingAgency.value.id,
+    service_code: code,
+    category: 'direct',
+    other_slot: 1,
+    duration_minutes: '',
+    pay_divisor: 1,
+    credit_value: 0,
+    counts_for_tier: true
+  };
+  payrollRules.value = [...payrollRules.value, row].sort((a, b) => String(a.service_code || '').localeCompare(String(b.service_code || '')));
+  newPayrollServiceCode.value = '';
+  await savePayrollRule(row);
+};
 
 // Icon templates (apply a full set of icons at once)
 const iconTemplates = ref([]);
@@ -1055,7 +1804,17 @@ const agencyForm = ref({
   onboardingTeamEmail: '',
   phoneNumber: '',
   phoneExtension: '',
+  streetAddress: '',
+  city: '',
+  state: '',
+  postalCode: '',
   portalUrl: '',
+  tierSystemEnabled: true,
+  tierThresholds: {
+    tier1MinWeekly: 6,
+    tier2MinWeekly: 13,
+    tier3MinWeekly: 25
+  },
   themeSettings: {
     fontFamily: '',
     loginBackground: ''
@@ -1066,6 +1825,11 @@ const agencyForm = ref({
     trainingFocusTerm: '',
     onboardingTerm: '',
     ongoingDevTerm: ''
+  },
+  featureFlags: {
+    // Defaults are "enabled" to preserve existing behavior until an admin turns them off.
+    inSchoolSubmissionsEnabled: true,
+    medcancelEnabled: true
   },
   // Notification icon fields
   statusExpiredIconId: null,
@@ -1652,6 +2416,13 @@ const editAgency = (agency) => {
         ? JSON.parse(agency.custom_parameters) 
         : agency.custom_parameters)
     : {};
+
+  // Parse feature flags if they exist
+  const featureFlags = agency.feature_flags
+    ? (typeof agency.feature_flags === 'string'
+        ? (() => { try { return JSON.parse(agency.feature_flags); } catch { return {}; } })()
+        : agency.feature_flags)
+    : {};
   
   customParamKeys.value = Object.keys(customParams);
   customParameters.value = { ...customParams };
@@ -1665,6 +2436,21 @@ const editAgency = (agency) => {
     logoInputMethod.value = 'url'; // Default to URL
   }
   
+  const tierThresholds = (() => {
+    const raw = agency.tier_thresholds_json ?? null;
+    if (!raw) return { tier1MinWeekly: 6, tier2MinWeekly: 13, tier3MinWeekly: 25 };
+    try {
+      const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return {
+        tier1MinWeekly: Number(obj?.tier1MinWeekly ?? 6),
+        tier2MinWeekly: Number(obj?.tier2MinWeekly ?? 13),
+        tier3MinWeekly: Number(obj?.tier3MinWeekly ?? 25)
+      };
+    } catch {
+      return { tier1MinWeekly: 6, tier2MinWeekly: 13, tier3MinWeekly: 25 };
+    }
+  })();
+
   agencyForm.value = {
     organizationType: agency.organization_type || 'agency',
     affiliatedAgencyId: '',
@@ -1695,7 +2481,13 @@ const editAgency = (agency) => {
     onboardingTeamEmail: agency.onboarding_team_email || '',
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
+    streetAddress: agency.street_address || '',
+    city: agency.city || '',
+    state: agency.state || '',
+    postalCode: agency.postal_code || '',
     portalUrl: agency.portal_url || '',
+    tierSystemEnabled: (agency.tier_system_enabled === 1 || agency.tier_system_enabled === true || String(agency.tier_system_enabled || '').toLowerCase() === 'true'),
+    tierThresholds,
     themeSettings: {
       fontFamily: themeSettings.fontFamily || '',
       loginBackground: themeSettings.loginBackground || ''
@@ -1706,6 +2498,10 @@ const editAgency = (agency) => {
       trainingFocusTerm: terminology.trainingFocusTerm || '',
       onboardingTerm: terminology.onboardingTerm || '',
       ongoingDevTerm: terminology.ongoingDevTerm || ''
+    },
+    featureFlags: {
+      inSchoolSubmissionsEnabled: featureFlags.inSchoolSubmissionsEnabled !== false,
+      medcancelEnabled: featureFlags.medcancelEnabled !== false
     },
     // Notification icon fields
     statusExpiredIconId: agency.status_expired_icon_id ?? null,
@@ -1720,6 +2516,13 @@ const editAgency = (agency) => {
 
   // Load available uploaded font families for this org (includes platform + org fonts)
   fetchFontFamiliesForOrg(agency?.id || null);
+
+  // Load sites for agencies in the main Settings tab (not Payroll tab).
+  if (String(agency?.organization_type || 'agency').toLowerCase() === 'agency') {
+    loadOfficeLocations();
+    loadMileageRates();
+    loadNotificationTriggers();
+  }
 };
 
 const applyAffiliatedAgencyBranding = async () => {
@@ -1817,14 +2620,15 @@ const getLogoUrlFromPath = (logoPath) => {
   if (!logoPath) return null;
   const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
   const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  // Path is already like "uploads/logos/logo-123.png", so just prepend base URL
-  let iconPath = logoPath;
-  if (iconPath.startsWith('/uploads/')) {
-    iconPath = iconPath.substring('/uploads/'.length);
-  } else if (iconPath.startsWith('/')) {
-    iconPath = iconPath.substring(1);
-  }
-  return `${apiBase}/uploads/${iconPath}`;
+  // Accept any of:
+  // - "uploads/logos/..."
+  // - "/uploads/logos/..."
+  // - "logos/..."
+  // Normalize to "/uploads/logos/..."
+  let p = String(logoPath || '').trim();
+  if (p.startsWith('/')) p = p.substring(1);
+  if (p.startsWith('uploads/')) p = p.substring('uploads/'.length);
+  return `${apiBase}/uploads/${p}`;
 };
 
 const getAgencyLogoUrl = (agency) => {
@@ -2018,10 +2822,24 @@ const saveAgency = async () => {
       onboardingTeamEmail: agencyForm.value.onboardingTeamEmail?.trim() || null,
       phoneNumber: agencyForm.value.phoneNumber?.trim() || null,
       phoneExtension: agencyForm.value.phoneExtension?.trim() || null,
+      streetAddress: agencyForm.value.streetAddress?.trim() || null,
+      city: agencyForm.value.city?.trim() || null,
+      state: agencyForm.value.state?.trim() || null,
+      postalCode: agencyForm.value.postalCode?.trim() || null,
       portalUrl: agencyForm.value.portalUrl?.trim().toLowerCase() || null,
+      tierSystemEnabled: !!agencyForm.value.tierSystemEnabled,
+      tierThresholds: {
+        tier1MinWeekly: Number(agencyForm.value.tierThresholds?.tier1MinWeekly ?? 6),
+        tier2MinWeekly: Number(agencyForm.value.tierThresholds?.tier2MinWeekly ?? 13),
+        tier3MinWeekly: Number(agencyForm.value.tierThresholds?.tier3MinWeekly ?? 25)
+      },
       ...(requiresAffiliatedAgency.value ? { affiliatedAgencyId: parseInt(agencyForm.value.affiliatedAgencyId, 10) } : {}),
       themeSettings: Object.keys(themeSettings).length > 0 ? themeSettings : null,
       customParameters: Object.keys(customParams).length > 0 ? customParams : null,
+      featureFlags:
+        String(agencyForm.value.organizationType || 'agency').toLowerCase() === 'agency'
+          ? (agencyForm.value.featureFlags || null)
+          : null,
       // Notification icon fields
       statusExpiredIconId: agencyForm.value.statusExpiredIconId ?? null,
       tempPasswordExpiredIconId: agencyForm.value.tempPasswordExpiredIconId ?? null,
@@ -2205,6 +3023,11 @@ const closeModal = () => {
   showCreateModal.value = false;
   editingAgency.value = null;
   activeTab.value = 'settings'; // Reset to settings tab
+  notificationTriggers.value = [];
+  notificationTriggerEdits.value = {};
+  notificationTriggersError.value = '';
+  notificationTriggersLoading.value = false;
+  savingNotificationTriggerKey.value = null;
   customParamKeys.value = [];
   customParameters.value = {};
   agencyForm.value = {
@@ -2704,7 +3527,16 @@ onMounted(async () => {
 }
 
 .modal-content.large {
-  max-width: 900px;
+  max-width: 1100px;
+}
+
+.payroll-rule-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .error-modal {

@@ -3,6 +3,62 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 
 class User {
+  static _statusEnumCache = null;
+
+  static async _getUserStatusEnumValues() {
+    if (Array.isArray(this._statusEnumCache) && this._statusEnumCache.length) return this._statusEnumCache;
+    try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      const [rows] = await pool.execute(
+        "SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'status' LIMIT 1",
+        [dbName]
+      );
+      const ct = rows?.[0]?.COLUMN_TYPE || rows?.[0]?.column_type || '';
+      const m = String(ct).match(/^enum\((.*)\)$/i);
+      if (!m?.[1]) return null;
+      const vals = m[1]
+        .split(/,(?=(?:[^']*'[^']*')*[^']*$)/)
+        .map((s) => s.trim().replace(/^'+|'+$/g, '').replace(/^" +|"+$/g, ''))
+        .filter(Boolean);
+      this._statusEnumCache = vals;
+      return vals;
+    } catch {
+      return null;
+    }
+  }
+
+  static async _resolveUserStatus(inputStatus) {
+    const requested = String(inputStatus || 'pending').trim();
+    const allowed = await this._getUserStatusEnumValues();
+    if (!allowed || allowed.length === 0) return requested || 'pending';
+
+    // Exact match
+    if (allowed.includes(requested)) return requested;
+
+    // Case-insensitive match
+    const reqUpper = requested.toUpperCase();
+    const ci = allowed.find((v) => String(v).toUpperCase() === reqUpper);
+    if (ci) return ci;
+
+    // Legacy -> new lifecycle mapping
+    const lower = requested.toLowerCase();
+    if (lower === 'pending') {
+      if (allowed.includes('PENDING_SETUP')) return 'PENDING_SETUP';
+      if (allowed.includes('PREHIRE_OPEN')) return 'PREHIRE_OPEN';
+    }
+    if (lower === 'active' || lower === 'completed') {
+      if (allowed.includes('ACTIVE_EMPLOYEE')) return 'ACTIVE_EMPLOYEE';
+    }
+    if (lower === 'archived') {
+      if (allowed.includes('ARCHIVED')) return 'ARCHIVED';
+    }
+
+    // Fall back to column default-ish, otherwise first enum value.
+    if (allowed.includes('PENDING_SETUP')) return 'PENDING_SETUP';
+    if (allowed.includes('ACTIVE_EMPLOYEE')) return 'ACTIVE_EMPLOYEE';
+    return allowed[0];
+  }
+
   static normalizePhone(phone) {
     if (!phone) return null;
     const str = String(phone).trim();
@@ -25,6 +81,7 @@ class User {
     return this.findById(rows[0].id);
   }
   static async findByEmail(email) {
+    const normalized = String(email || '').trim().toLowerCase();
     // Check which columns exist to avoid errors if migrations haven't been run
     let query = 'SELECT id, email, phone_number, role, status, completed_at, terminated_at, status_expires_at, password_hash, first_name, last_name, invitation_token, invitation_token_expires_at, temporary_password_hash, temporary_password_expires_at, created_at';
     
@@ -68,13 +125,35 @@ class User {
     
     if (hasUsernameColumn) {
       query += ' FROM users WHERE email = ? OR work_email = ? OR username = ?';
-      const [rows] = await pool.execute(query, [email, email, email]);
-      return rows[0] || null;
+      const [rows] = await pool.execute(query, [normalized, normalized, normalized]);
+      if (rows[0]) return rows[0];
     } else {
       // Username column doesn't exist yet (migration not run)
       query += ' FROM users WHERE email = ? OR work_email = ?';
-      const [rows] = await pool.execute(query, [email, email]);
-      return rows[0] || null;
+      const [rows] = await pool.execute(query, [normalized, normalized]);
+      if (rows[0]) return rows[0];
+    }
+
+    // Fallback: allow additional login emails (aliases) when table exists.
+    // This supports users linked to multiple agencies/brandings but sharing one account.
+    try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      const [tables] = await pool.execute(
+        "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'user_login_emails' LIMIT 1",
+        [dbName]
+      );
+      if (!tables || tables.length === 0) return null;
+
+      const UserLoginEmail = (await import('./UserLoginEmail.model.js')).default;
+      const userId = await UserLoginEmail.findUserIdByEmail(normalized);
+      if (!userId) return null;
+
+      // Re-run the same SELECT shape by user id (so callers still get password_hash, etc).
+      const select = query.split(' FROM users ')[0];
+      const [rows2] = await pool.execute(`${select} FROM users WHERE id = ? LIMIT 1`, [userId]);
+      return rows2[0] || null;
+    } catch {
+      return null;
     }
   }
 
@@ -184,7 +263,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -203,6 +282,13 @@ class User {
       if (existingColumns.includes('work_phone')) query += ', work_phone';
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
       if (existingColumns.includes('system_phone_number')) query += ', system_phone_number';
+      if (existingColumns.includes('home_street_address')) query += ', home_street_address';
+      if (existingColumns.includes('home_city')) query += ', home_city';
+      if (existingColumns.includes('home_state')) query += ', home_state';
+      if (existingColumns.includes('home_postal_code')) query += ', home_postal_code';
+      if (existingColumns.includes('medcancel_enabled')) query += ', medcancel_enabled';
+      if (existingColumns.includes('medcancel_rate_schedule')) query += ', medcancel_rate_schedule';
+      if (existingColumns.includes('company_card_enabled')) query += ', company_card_enabled';
     } catch (err) {
       // If we can't check columns, just use the base query
       console.warn('Could not check for pending columns:', err.message);
@@ -217,8 +303,9 @@ class User {
 
   static async create(userData) {
     const { email, passwordHash, role, firstName, lastName, phoneNumber, status, personalEmail } = userData;
-    // All new users should be pending by default (unless explicitly set otherwise)
-    const userStatus = status || 'pending';
+    // All new users should be pending by default (unless explicitly set otherwise).
+    // IMPORTANT: DB enum values vary across deployments (legacy 'pending' vs new 'PENDING_SETUP' lifecycle).
+    const userStatus = await this._resolveUserStatus(status || 'pending');
     
     // CRITICAL: Protect superadmin email - always force super_admin role
     let finalRole = role || 'clinician';
@@ -499,7 +586,28 @@ class User {
   }
 
   static async update(id, userData) {
-    const { firstName, lastName, role, phoneNumber, isActive, hasSupervisorPrivileges, hasProviderAccess, hasStaffAccess, personalPhone, workPhone, workPhoneExtension, systemPhoneNumber } = userData;
+    const {
+      email,
+      firstName,
+      lastName,
+      role,
+      phoneNumber,
+      isActive,
+      hasSupervisorPrivileges,
+      hasProviderAccess,
+      hasStaffAccess,
+      personalPhone,
+      workPhone,
+      workPhoneExtension,
+      homeStreetAddress,
+      homeCity,
+      homeState,
+      homePostalCode,
+      systemPhoneNumber,
+      medcancelEnabled,
+      medcancelRateSchedule,
+      companyCardEnabled
+    } = userData;
     
     // Get current user to check if it's superadmin
     const currentUser = await this.findById(id);
@@ -514,6 +622,9 @@ class User {
       // If trying to change role away from super_admin, block it
       if (role !== undefined && role !== 'super_admin') {
         throw new Error('Cannot change role of superadmin@plottwistco.com - this account must remain super_admin');
+      }
+      if (email !== undefined && String(email || '').toLowerCase() !== 'superadmin@plottwistco.com') {
+        throw new Error('Cannot change login email of superadmin@plottwistco.com');
       }
       // Always ensure role is super_admin for superadmin account, even if not provided
       // This prevents accidental role loss
@@ -541,6 +652,27 @@ class User {
     if (lastName !== undefined) {
       updates.push('last_name = ?');
       values.push(lastName);
+    }
+    if (email !== undefined) {
+      updates.push('email = ?');
+      values.push(String(email || '').trim().toLowerCase());
+
+      // Keep username aligned with email if username column exists AND it was previously tied to email.
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'username'"
+        );
+        if (columns.length > 0) {
+          const currentUsername = currentUser.username === undefined ? null : currentUser.username;
+          const currentEmail = currentUser.email || null;
+          if (!currentUsername || (currentEmail && String(currentUsername).toLowerCase() === String(currentEmail).toLowerCase())) {
+            updates.push('username = ?');
+            values.push(String(email || '').trim().toLowerCase());
+          }
+        }
+      } catch {
+        // ignore (older DBs)
+      }
     }
     if (role !== undefined) {
       updates.push('role = ?');
@@ -669,6 +801,60 @@ class User {
       }
     }
 
+    // Home address (used for mileage calculations)
+    if (homeStreetAddress !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'home_street_address'"
+        );
+        if (columns.length > 0) {
+          updates.push('home_street_address = ?');
+          values.push(homeStreetAddress);
+        }
+      } catch (err) {
+        console.warn('home_street_address column does not exist yet');
+      }
+    }
+    if (homeCity !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'home_city'"
+        );
+        if (columns.length > 0) {
+          updates.push('home_city = ?');
+          values.push(homeCity);
+        }
+      } catch (err) {
+        console.warn('home_city column does not exist yet');
+      }
+    }
+    if (homeState !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'home_state'"
+        );
+        if (columns.length > 0) {
+          updates.push('home_state = ?');
+          values.push(homeState);
+        }
+      } catch (err) {
+        console.warn('home_state column does not exist yet');
+      }
+    }
+    if (homePostalCode !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'home_postal_code'"
+        );
+        if (columns.length > 0) {
+          updates.push('home_postal_code = ?');
+          values.push(homePostalCode);
+        }
+      } catch (err) {
+        console.warn('home_postal_code column does not exist yet');
+      }
+    }
+
     if (systemPhoneNumber !== undefined) {
       try {
         const [columns] = await pool.execute(
@@ -680,6 +866,70 @@ class User {
         }
       } catch (err) {
         console.warn('system_phone_number column does not exist yet:', err.message);
+      }
+    }
+
+    // Med Cancel (contract feature flag + schedule)
+    if (medcancelEnabled !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'medcancel_enabled'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('medcancel_enabled = ?');
+          values.push(medcancelEnabled ? 1 : 0);
+        } else {
+          // If caller provided this field but DB doesn't have column, fail loudly so admins know to run migrations.
+          throw new Error('Database is missing users.medcancel_enabled. Run migrations (see database/migrations/163_users_add_medcancel_flags.sql).');
+        }
+      } catch (err) {
+        // If this field was provided, treat missing column as a real error (not silent no-op)
+        throw err;
+      }
+    }
+    if (medcancelRateSchedule !== undefined) {
+      const val = medcancelRateSchedule === null ? null : String(medcancelRateSchedule || '').trim().toLowerCase();
+      if (val !== null && val !== 'low' && val !== 'high' && val !== 'none') {
+        throw new Error('medcancelRateSchedule must be low, high, none, or null');
+      }
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'medcancel_rate_schedule'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('medcancel_rate_schedule = ?');
+          values.push(val);
+        } else {
+          // If caller provided this field but DB doesn't have column, fail loudly so admins know to run migrations.
+          throw new Error('Database is missing users.medcancel_rate_schedule. Run migrations (see database/migrations/163_users_add_medcancel_flags.sql and 165_users_medcancel_schedule_default_none.sql).');
+        }
+      } catch (err) {
+        // If this field was provided, treat missing column as a real error (not silent no-op)
+        throw err;
+      }
+    }
+
+    // Company Card expense submissions (contract feature flag)
+    if (companyCardEnabled !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'company_card_enabled'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('company_card_enabled = ?');
+          values.push(companyCardEnabled ? 1 : 0);
+        } else {
+          // If caller provided this field but DB doesn't have column, fail loudly so admins know to run migrations.
+          throw new Error('Database is missing users.company_card_enabled. Run migrations (see database/migrations/173_users_add_company_card_enabled.sql).');
+        }
+      } catch (err) {
+        throw err;
       }
     }
     
@@ -798,6 +1048,37 @@ class User {
       'INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id',
       [userId, agencyId]
     );
+  }
+
+  static async getAgencyMembership(userId, agencyId) {
+    const [rows] = await pool.execute(
+      'SELECT * FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [userId, agencyId]
+    );
+    return rows?.[0] || null;
+  }
+
+  static async setAgencyPayrollAccess(userId, agencyId, enabled) {
+    // Requires migrations to add user_agencies.has_payroll_access.
+    await pool.execute(
+      'UPDATE user_agencies SET has_payroll_access = ? WHERE user_id = ? AND agency_id = ?',
+      [enabled ? 1 : 0, userId, agencyId]
+    );
+    const membership = await this.getAgencyMembership(userId, agencyId);
+    return membership;
+  }
+
+  static async listPayrollAgencyIds(userId) {
+    // Best-effort for older DBs (column may not exist yet).
+    try {
+      const [rows] = await pool.execute(
+        'SELECT agency_id FROM user_agencies WHERE user_id = ? AND has_payroll_access = 1',
+        [userId]
+      );
+      return (rows || []).map((r) => r.agency_id);
+    } catch {
+      return [];
+    }
   }
 
   static async assignToProgram(userId, programId) {

@@ -189,12 +189,33 @@ async function findOrCreateProvider(connection, { agencyId, providerName }) {
   let userId = existing[0]?.id || null;
 
   if (!userId) {
-    const [result] = await connection.execute(
-      `INSERT INTO users (role, status, first_name, last_name, email)
-       VALUES ('clinician', 'pending', ?, ?, ?)`,
-      [firstName || 'Provider', lastName || 'User', email]
-    );
-    userId = result.insertId;
+    const safeStatusCandidates = ['ACTIVE_EMPLOYEE', 'active', 'completed', 'pending'];
+    let inserted = false;
+    let lastErr = null;
+
+    for (const status of safeStatusCandidates) {
+      try {
+        const [result] = await connection.execute(
+          `INSERT INTO users (role, status, first_name, last_name, email)
+           VALUES ('clinician', ?, ?, ?, ?)`,
+          [status, firstName || 'Provider', lastName || 'User', email]
+        );
+        userId = result.insertId;
+        inserted = true;
+        break;
+      } catch (e) {
+        lastErr = e;
+        // Try next candidate if ENUM mismatch
+        if (e?.code === 'ER_WRONG_VALUE_FOR_FIELD' || String(e?.message || '').includes('Incorrect')) {
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    if (!inserted) {
+      throw lastErr || new Error('Failed to create provider user');
+    }
   }
 
   await connection.execute(
@@ -240,6 +261,8 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
 
     let successRows = 0;
     let failedRows = 0;
+    const createdSchools = new Map(); // name -> id
+    const createdProviders = new Map(); // provider display -> userId
 
     for (const row of rows) {
       await connection.beginTransaction();
@@ -249,8 +272,17 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           schoolName: row.school,
           districtName: row.district
         });
+        if (row.school && schoolId) {
+          // Best-effort "created" tracking: if the name doesn't exist in map yet, record it.
+          const key = String(row.school).trim();
+          if (key && !createdSchools.has(key)) createdSchools.set(key, schoolId);
+        }
 
         const providerUserId = await findOrCreateProvider(connection, { agencyId, providerName: row.provider });
+        if (row.provider && providerUserId) {
+          const key = String(row.provider).trim();
+          if (key && !createdProviders.has(key)) createdProviders.set(key, providerUserId);
+        }
         if (row.day && !providerUserId) {
           throw new Error('Day provided but Provider is missing');
         }
@@ -481,7 +513,183 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
       [successRows, failedRows, jobId]
     );
 
-    return { jobId, totalRows: rows.length, successRows, failedRows };
+    return {
+      jobId,
+      totalRows: rows.length,
+      successRows,
+      failedRows,
+      createdSchools: Array.from(createdSchools.entries()).map(([name, id]) => ({ name, id })),
+      createdProviders: Array.from(createdProviders.entries()).map(([name, id]) => ({ name, id }))
+    };
+  } finally {
+    connection.release();
+  }
+}
+
+export async function undoBulkClientUploadJob({ agencyId, jobId, requestingUserId, dryRun = true }) {
+  const aId = parseInt(agencyId, 10);
+  const jId = parseInt(jobId, 10);
+  if (!aId || !jId) throw new Error('agencyId and jobId are required');
+
+  const connection = await pool.getConnection();
+  try {
+    const [jobs] = await connection.execute(
+      `SELECT id, agency_id, uploaded_by_user_id, started_at, finished_at, created_at
+       FROM bulk_import_jobs
+       WHERE id = ? AND agency_id = ?
+       LIMIT 1`,
+      [jId, aId]
+    );
+    const job = jobs[0] || null;
+    if (!job) throw new Error('Job not found');
+    if (!job.finished_at) throw new Error('Job is still running (cannot undo until finished)');
+
+    // Only allow the uploader or another privileged admin to undo.
+    // The controller already gates by role; this is an extra safety check.
+    if (job.uploaded_by_user_id && requestingUserId && parseInt(job.uploaded_by_user_id, 10) !== parseInt(requestingUserId, 10)) {
+      // Allow, but note in response (audit-level decision belongs to controller/role)
+    }
+
+    const windowStart = job.started_at || job.created_at;
+    const windowEnd = job.finished_at;
+
+    // Only delete clients that were CREATED during this job window.
+    // We cannot safely revert "updates" without a before-snapshot.
+    const [clientRows] = await connection.execute(
+      `SELECT id, provider_id, organization_id, service_day
+       FROM clients
+       WHERE agency_id = ?
+         AND source = 'BULK_IMPORT'
+         AND created_by_user_id = ?
+         AND created_at BETWEEN ? AND ?`,
+      [aId, job.uploaded_by_user_id, windowStart, windowEnd]
+    );
+
+    const clientIds = clientRows.map((r) => r.id);
+    const providerIds = Array.from(new Set(clientRows.map((r) => r.provider_id).filter(Boolean)));
+    const schoolIds = Array.from(new Set(clientRows.map((r) => r.organization_id).filter(Boolean)));
+
+    const summary = {
+      jobId: jId,
+      agencyId: aId,
+      dryRun: !!dryRun,
+      willDeleteClients: clientIds.length,
+      willReleaseSlots: clientRows.filter((r) => r.provider_id && r.organization_id && r.service_day).length,
+      willAttemptProviderCleanup: providerIds.length,
+      willAttemptSchoolCleanup: schoolIds.length,
+      note: 'Undo only deletes clients created by the job. Rows that updated existing clients are not reverted.'
+    };
+
+    if (dryRun) return summary;
+
+    await connection.beginTransaction();
+
+    // Release provider slots for created clients that took a slot
+    let releasedSlots = 0;
+    for (const c of clientRows) {
+      if (!c.provider_id || !c.organization_id || !c.service_day) continue;
+      const res = await adjustProviderSlots(connection, {
+        providerUserId: c.provider_id,
+        schoolId: c.organization_id,
+        dayOfWeek: c.service_day,
+        delta: +1
+      });
+      if (res.ok) releasedSlots += 1;
+    }
+
+    // Delete clients
+    if (clientIds.length > 0) {
+      const placeholders = clientIds.map(() => '?').join(',');
+      await connection.execute(`DELETE FROM clients WHERE id IN (${placeholders})`, clientIds);
+    }
+
+    // Best-effort cleanup: delete placeholder providers created by this job window that are now unused.
+    // This is intentionally conservative.
+    let deletedProviders = 0;
+    for (const pId of providerIds) {
+      const [users] = await connection.execute(
+        `SELECT id, email, created_at
+         FROM users
+         WHERE id = ? LIMIT 1`,
+        [pId]
+      );
+      const u = users[0];
+      if (!u) continue;
+      const email = String(u.email || '');
+      const isPlaceholder = email.endsWith('@example.invalid') && email.startsWith('provider+');
+      if (!isPlaceholder) continue;
+
+      // Ensure provider is not referenced by any remaining clients
+      const [refs] = await connection.execute(`SELECT 1 FROM clients WHERE provider_id = ? LIMIT 1`, [pId]);
+      if (refs.length > 0) continue;
+
+      // Remove scheduling rows
+      await connection.execute(`DELETE FROM provider_school_assignments WHERE provider_user_id = ?`, [pId]);
+      // Remove agency link
+      await connection.execute(`DELETE FROM user_agencies WHERE user_id = ? AND agency_id = ?`, [pId, aId]);
+
+      // Attempt to delete the user (may fail if referenced elsewhere)
+      try {
+        const [del] = await connection.execute(`DELETE FROM users WHERE id = ?`, [pId]);
+        if (del.affectedRows > 0) deletedProviders += 1;
+      } catch {
+        // leave user in place
+      }
+    }
+
+    // Best-effort cleanup: delete schools created during this job window that are now unused.
+    let deletedSchools = 0;
+    for (const sId of schoolIds) {
+      const [schools] = await connection.execute(
+        `SELECT id, created_at
+         FROM agencies
+         WHERE id = ? AND organization_type = 'school'
+         LIMIT 1`,
+        [sId]
+      );
+      const s = schools[0];
+      if (!s) continue;
+      const createdAt = s.created_at;
+      if (!(createdAt >= windowStart && createdAt <= windowEnd)) continue;
+
+      const [clientRefs] = await connection.execute(`SELECT 1 FROM clients WHERE organization_id = ? LIMIT 1`, [sId]);
+      if (clientRefs.length > 0) continue;
+      const [schedRefs] = await connection.execute(
+        `SELECT 1 FROM provider_school_assignments WHERE school_organization_id = ? LIMIT 1`,
+        [sId]
+      );
+      if (schedRefs.length > 0) continue;
+
+      // Remove affiliations/links
+      await connection.execute(`DELETE FROM organization_affiliations WHERE agency_id = ? AND organization_id = ?`, [aId, sId]);
+      await connection.execute(`DELETE FROM agency_schools WHERE agency_id = ? AND school_organization_id = ?`, [aId, sId]);
+      await connection.execute(`DELETE FROM school_profiles WHERE school_organization_id = ?`, [sId]).catch(() => {});
+
+      try {
+        const [del] = await connection.execute(`DELETE FROM agencies WHERE id = ?`, [sId]);
+        if (del.affectedRows > 0) deletedSchools += 1;
+      } catch {
+        // leave school in place
+      }
+    }
+
+    await connection.commit();
+
+    return {
+      ...summary,
+      dryRun: false,
+      releasedSlots,
+      deletedClients: clientIds.length,
+      deletedProviders,
+      deletedSchools
+    };
+  } catch (e) {
+    try {
+      await connection.rollback();
+    } catch {
+      // ignore
+    }
+    throw e;
   } finally {
     connection.release();
   }

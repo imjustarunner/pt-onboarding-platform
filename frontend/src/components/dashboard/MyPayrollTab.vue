@@ -1,0 +1,2964 @@
+<template>
+  <div class="my-payroll">
+    <div class="header">
+      <h1>My Payroll</h1>
+      <p class="subtitle">View-only payroll history for the selected organization.</p>
+    </div>
+
+    <div v-if="submitSuccess" class="success" style="margin: 10px 0;">
+      {{ submitSuccess }}
+    </div>
+
+    <div class="claims-grid" style="margin: 10px 0;">
+      <details class="card claim-card" open>
+        <summary class="claim-summary">
+          <div>
+            <div class="claim-title">School Mileage</div>
+            <div class="muted">History of your submissions.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" @click.stop="loadMileageClaims" type="button" :disabled="mileageClaimsLoading">
+            {{ mileageClaimsLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+        </summary>
+
+        <div v-if="mileageClaimsError" class="warn-box" style="margin-top: 10px;">{{ mileageClaimsError }}</div>
+        <div v-if="(mileageClaims || []).length" class="table-wrap" style="margin-top: 10px;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th class="right">Miles</th>
+                <th>Status</th>
+                <th class="right">Amount</th>
+                <th class="right"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in mileageClaims" :key="c.id">
+                <td>{{ c.drive_date }}</td>
+                <td>{{ String(c.claim_type || '').toLowerCase() === 'school_travel' ? 'School' : 'Other' }}</td>
+                <td
+                  class="right"
+                  :title="
+                    String(c.claim_type || '').toLowerCase() === 'school_travel'
+                      ? (
+                          (c.home_school_roundtrip_miles !== null && c.home_school_roundtrip_miles !== undefined && c.home_office_roundtrip_miles !== null && c.home_office_roundtrip_miles !== undefined)
+                            ? `Eligible miles = max(0, Home↔School RT (${fmtNum(c.home_school_roundtrip_miles)}) − Home↔Office RT (${fmtNum(c.home_office_roundtrip_miles)}))`
+                            : 'Eligible miles = max(0, Home↔School RT − Home↔Office RT)'
+                        )
+                      : 'Miles as entered'
+                  "
+                >
+                  {{
+                    (() => {
+                      const isSchool = String(c.claim_type || '').toLowerCase() === 'school_travel';
+                      const miles = Number(isSchool ? (c.eligible_miles ?? c.miles ?? 0) : (c.miles ?? 0));
+                      if (isSchool && miles <= 1e-9) return '0 (not eligible)';
+                      return fmtNum(miles);
+                    })()
+                  }}
+                </td>
+                <td>
+                  <div>{{ String(c.status || '').toUpperCase() }}</div>
+                  <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
+                    Needs changes: {{ c.rejection_reason }}
+                  </div>
+                </td>
+                <td
+                  class="right"
+                  :title="
+                    c.applied_amount
+                      ? 'Approved amount'
+                      : (
+                          (() => {
+                            const isSchool = String(c.claim_type || '').toLowerCase() === 'school_travel';
+                            const miles = Number(isSchool ? (c.eligible_miles ?? c.miles ?? 0) : (c.miles ?? 0));
+                            const tier = Number(c.tier_level || 0);
+                            const rate = Number(mileageRateForTier(tier) || 0);
+                            if (rate > 0 && miles > 0) return `Estimated = ${fmtNum(miles)} mi × ${fmtMoney(rate)}/mi (Tier ${tier || '—'})`;
+                            if (tier > 0 && rate <= 0) return `Tier ${tier} mileage rate is not configured`;
+                            return 'Estimated amount will appear once approved';
+                          })()
+                        )
+                  "
+                >
+                  {{
+                    (() => {
+                      if (c.applied_amount) return fmtMoney(c.applied_amount);
+                      const isSchool = String(c.claim_type || '').toLowerCase() === 'school_travel';
+                      const miles = Number(isSchool ? (c.eligible_miles ?? c.miles ?? 0) : (c.miles ?? 0));
+                      const tier = Number(c.tier_level || 0);
+                      const rate = Number(mileageRateForTier(tier) || 0);
+                      const est = miles > 0 && rate > 0 ? (miles * rate) : 0;
+                      return est > 0 ? `${fmtMoney(est)} (est.)` : '—';
+                    })()
+                  }}
+                </td>
+                <td class="right">
+                  <button
+                    v-if="String(c.status||'').toLowerCase()==='deferred'"
+                    class="btn btn-danger btn-sm"
+                    type="button"
+                    @click="deleteMileageClaim(c)"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="muted" style="margin-top: 10px;">No mileage submissions yet.</div>
+      </details>
+
+      <details class="card claim-card" open v-if="authStore.user?.medcancelEnabled && medcancelEnabledForAgency">
+        <summary class="claim-summary">
+          <div>
+            <div class="claim-title">Missed Medicaid sessions (Med Cancel)</div>
+            <div class="muted">History of your submissions.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" @click.stop="loadMedcancelClaims" type="button" :disabled="medcancelClaimsLoading">
+            {{ medcancelClaimsLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+        </summary>
+
+        <div v-if="medcancelClaimsError" class="warn-box" style="margin-top: 10px;">{{ medcancelClaimsError }}</div>
+        <div v-if="(medcancelClaims || []).length" class="table-wrap" style="margin-top: 10px;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th class="right">Services</th>
+                <th>Status</th>
+                <th class="right">Amount</th>
+                <th class="right"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in medcancelClaims" :key="c.id">
+                <td>{{ c.claim_date }}</td>
+                <td class="right">{{ fmtNum(Number((c.items || []).length || c.units || 0)) }}</td>
+                <td>
+                  <div>{{ String(c.status || '').toUpperCase() }}</div>
+                  <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
+                    Needs changes: {{ c.rejection_reason }}
+                  </div>
+                </td>
+                <td class="right">{{ c.applied_amount ? fmtMoney(c.applied_amount) : '—' }}</td>
+                <td class="right">
+                  <button
+                    v-if="String(c.status||'').toLowerCase()==='deferred'"
+                    class="btn btn-danger btn-sm"
+                    type="button"
+                    @click="deleteMedcancelClaim(c)"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="muted" style="margin-top: 10px;">No Med Cancel submissions yet.</div>
+      </details>
+
+      <details class="card claim-card" open>
+        <summary class="claim-summary">
+          <div>
+            <div class="claim-title">Reimbursements</div>
+            <div class="muted">Upload receipts and track approval.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" @click.stop="loadReimbursementClaims" type="button" :disabled="reimbursementClaimsLoading">
+            {{ reimbursementClaimsLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+        </summary>
+
+        <div v-if="reimbursementClaimsError" class="warn-box" style="margin-top: 10px;">{{ reimbursementClaimsError }}</div>
+        <div v-if="(reimbursementClaims || []).length" class="table-wrap" style="margin-top: 10px;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th class="right">Amount</th>
+                <th>Status</th>
+                <th>Receipt</th>
+                <th class="right"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in reimbursementClaims" :key="c.id">
+                <td>{{ c.expense_date }}</td>
+                <td class="right">{{ fmtMoney(Number(c.amount || 0)) }}</td>
+                <td>
+                  <div>{{ String(c.status || '').toUpperCase() }}</div>
+                  <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
+                    Needs changes: {{ c.rejection_reason }}
+                  </div>
+                </td>
+                <td>
+                  <a v-if="c.receipt_file_path" :href="receiptUrl(c)" target="_blank" rel="noopener noreferrer">View</a>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td class="right">
+                  <button
+                    v-if="String(c.status||'').toLowerCase()==='deferred'"
+                    class="btn btn-danger btn-sm"
+                    type="button"
+                    @click="deleteReimbursementClaim(c)"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="muted" style="margin-top: 10px;">No reimbursements yet.</div>
+      </details>
+
+      <details v-if="authStore.user?.companyCardEnabled" class="card claim-card" open>
+        <summary class="claim-summary">
+          <div>
+            <div class="claim-title">Company Card Expenses</div>
+            <div class="muted">Submit company card purchases for tracking/review.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" @click.stop="loadCompanyCardExpenses" type="button" :disabled="companyCardExpensesLoading">
+            {{ companyCardExpensesLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+        </summary>
+
+        <div v-if="companyCardExpensesError" class="warn-box" style="margin-top: 10px;">{{ companyCardExpensesError }}</div>
+        <div v-if="(companyCardExpenses || []).length" class="table-wrap" style="margin-top: 10px;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th class="right">Amount</th>
+                <th>Status</th>
+                <th>Receipt</th>
+                <th class="right"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in companyCardExpenses" :key="c.id">
+                <td>{{ c.expense_date }}</td>
+                <td class="right">{{ fmtMoney(Number(c.amount || 0)) }}</td>
+                <td>
+                  <div>{{ String(c.status || '').toUpperCase() }}</div>
+                  <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
+                    Needs changes: {{ c.rejection_reason }}
+                  </div>
+                </td>
+                <td>
+                  <a v-if="c.receipt_file_path" :href="receiptUrl(c)" target="_blank" rel="noopener noreferrer">View</a>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td class="right">
+                  <button
+                    v-if="String(c.status||'').toLowerCase()==='deferred'"
+                    class="btn btn-danger btn-sm"
+                    type="button"
+                    @click="deleteCompanyCardExpense(c)"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="muted" style="margin-top: 10px;">No company card expenses yet.</div>
+      </details>
+
+      <details class="card claim-card" open>
+        <summary class="claim-summary">
+          <div>
+            <div class="claim-title">Time Claims</div>
+            <div class="muted">Attendance, holiday/excess time, service corrections.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm" @click.stop="loadTimeClaims" type="button" :disabled="timeClaimsLoading">
+            {{ timeClaimsLoading ? 'Loading…' : 'Refresh' }}
+          </button>
+        </summary>
+
+        <div v-if="timeClaimsError" class="warn-box" style="margin-top: 10px;">{{ timeClaimsError }}</div>
+        <div v-if="(timeClaims || []).length" class="table-wrap" style="margin-top: 10px;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th class="right">Amount</th>
+                <th class="right"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in timeClaims" :key="c.id">
+                <td>{{ c.claim_date }}</td>
+                <td>{{ timeClaimTypeLabel(c) }}</td>
+                <td>
+                  <div>{{ String(c.status || '').toUpperCase() }}</div>
+                  <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
+                    Needs changes: {{ c.rejection_reason }}
+                  </div>
+                </td>
+                <td class="right">{{ c.applied_amount ? fmtMoney(c.applied_amount) : '—' }}</td>
+                <td class="right">
+                  <button
+                    v-if="String(c.status||'').toLowerCase()==='deferred'"
+                    class="btn btn-danger btn-sm"
+                    type="button"
+                    @click="deleteTimeClaim(c)"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="muted" style="margin-top: 10px;">No time claims yet.</div>
+      </details>
+    </div>
+
+    <div class="controls" v-if="!loading">
+      <label class="control">
+        <span class="label">Sort by pay period</span>
+        <select v-model="sortOrder">
+          <option value="desc">Newest → Oldest</option>
+          <option value="asc">Oldest → Newest</option>
+        </select>
+      </label>
+      <label class="control">
+        <span class="label">Show</span>
+        <select v-model="showCount">
+          <option :value="25">Last 25</option>
+          <option :value="50">Last 50</option>
+          <option :value="100">Last 100</option>
+        </select>
+      </label>
+    </div>
+
+    <div v-if="error" class="error-box">{{ error }}</div>
+    <div v-if="loading" class="muted">Loading payroll…</div>
+
+    <div v-else class="periods">
+      <div class="periods-head">
+        <div>Pay Period</div>
+        <div class="right">Tier</div>
+        <div class="right">Credits</div>
+        <div class="right">Pay</div>
+      </div>
+      <button
+        v-for="(p, idx) in visiblePeriods"
+        :key="p.payroll_period_id"
+        type="button"
+        class="period-row"
+        :class="[{ active: expandedId === p.payroll_period_id }, periodShadeClass(idx)]"
+        @click="toggle(p.payroll_period_id)"
+      >
+        <div class="period-main">
+          <div class="period-title">
+            <span class="title"><strong>{{ fmtDateRange(p.period_start, p.period_end) }}</strong></span>
+            <span class="chev">{{ expandedId === p.payroll_period_id ? '▼' : '▶' }}</span>
+          </div>
+        </div>
+        <div class="right tier-cell">
+          {{ (p.breakdown && p.breakdown.__tier && p.breakdown.__tier.label) ? p.breakdown.__tier.label : '—' }}
+          <span v-if="p.grace_active" class="badge">Grace</span>
+        </div>
+        <div class="right">{{ fmtNum(p.tier_credits_final ?? p.tier_credits_current ?? 0) }}</div>
+        <div class="right">{{ fmtMoney(p.total_amount ?? 0) }}</div>
+      </button>
+      <div v-if="!visiblePeriods.length" class="muted" style="margin-top: 10px;">
+        No finalized payroll periods yet for this organization.
+      </div>
+    </div>
+
+    <div v-if="expandedId" class="details card">
+      <h2 class="card-title">Breakdown</h2>
+      <div v-if="expanded">
+        <div class="warn-box prior-notes-included" v-if="expanded.breakdown && expanded.breakdown.__carryover && (expanded.breakdown.__carryover.oldDoneNotesUnitsTotal || 0) > 0" style="margin-bottom: 10px;">
+          <div><strong>Prior notes included in this payroll:</strong> {{ fmtNum(expanded.breakdown.__carryover.oldDoneNotesUnitsTotal) }} units</div>
+          <div class="muted">Reminder: complete prior-period notes by Sunday 11:59pm after the pay period ends to avoid compensation delays.</div>
+        </div>
+        <div
+          class="warn-box old-notes-alert"
+          v-if="twoPeriodsAgoUnpaid.total > 0"
+          style="margin-bottom: 10px;"
+        >
+          <div>
+            <strong>Reminder: unpaid notes from 2 pay periods ago</strong>
+          </div>
+          <div style="margin-top: 4px;">
+            <strong>{{ fmtDateRange(twoPeriodsAgo.period_start, twoPeriodsAgo.period_end) }}</strong>
+          </div>
+          <div style="margin-top: 6px;">
+            <strong>No Note:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.noNote) }} units
+            <span class="muted">•</span>
+            <strong>Draft:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.draft) }} units
+          </div>
+          <div class="muted" style="margin-top: 6px;">
+            Complete outstanding notes to be included in a future payroll.
+          </div>
+        </div>
+
+        <div class="warn-box current-unpaid-notes" v-if="expandedUnpaid.total > 0" style="margin-bottom: 10px;">
+          <div>
+            <strong>Unpaid notes in this pay period</strong>
+          </div>
+          <div style="margin-top: 6px;">
+            <strong>No Note:</strong> {{ fmtNum(expandedUnpaid.noNote) }} units
+            <span class="muted">•</span>
+            <strong>Draft:</strong> {{ fmtNum(expandedUnpaid.draft) }} units
+          </div>
+          <div class="muted" style="margin-top: 6px;">
+            These units were not paid this period. Complete outstanding notes to be included in a future payroll.
+          </div>
+          <div class="muted" style="margin-top: 6px;">
+            Due to our EHR system, we are unable to differentiate a note that is incomplete for a session that did occur from a note that is incomplete for a session that did not occur.
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 10px;">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Pay Summary (Posted Payroll)</h3>
+          <div class="muted" v-if="!payTypeSummary.rows.length">No pay-type summary available.</div>
+          <div v-else class="paytype">
+            <div class="paytype-head">
+              <div>Pay Type</div>
+              <div class="right">Hours</div>
+              <div class="right">Rate</div>
+              <div class="right">Pay</div>
+            </div>
+            <div v-for="r in payTypeSummary.rows" :key="r.key" class="paytype-row">
+              <div class="code">{{ r.label }}</div>
+              <div class="right">{{ fmtNum(r.hours) }}</div>
+              <div class="right muted">{{ r.rateLabel }}</div>
+              <div class="right">{{ fmtMoney(r.amount) }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 10px;" v-if="hourlyRateSummary.effectiveRate !== null">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Hourly Rate</h3>
+          <div class="row"><strong>Effective hourly rate:</strong> {{ fmtMoney(hourlyRateSummary.effectiveRate) }}</div>
+          <div class="muted" style="margin-top: 6px;">
+            Effective hourly rate represents the total pay divided by earned credits/hours (which can vary by service mix, add-ons, and overrides).
+          </div>
+        </div>
+
+        <div class="warn-box" v-else-if="hourlyRateSummary.variableRatesNote" style="margin-top: 10px;">
+          <div><strong>Note about varying service rates</strong></div>
+          <div class="muted" style="margin-top: 6px;">
+            {{ hourlyRateSummary.variableRatesNote }}
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 10px;" v-if="expanded.breakdown && expanded.breakdown.__tier">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Benefit Tier</h3>
+          <div class="row"><strong>{{ expanded.breakdown.__tier.label }}</strong></div>
+          <div class="row"><strong>Status:</strong> {{ expanded.breakdown.__tier.status }}</div>
+        </div>
+
+        <h3 class="card-title" style="margin-top: 12px;">Totals</h3>
+        <div class="row"><strong>Total Pay:</strong> {{ fmtMoney(expanded.total_amount ?? 0) }}</div>
+        <div class="row"><strong>Total Credits/Hours:</strong> {{ fmtNum(expanded.total_hours ?? 0) }}</div>
+        <div class="row"><strong>Tier Credits (Final):</strong> {{ fmtNum(expanded.tier_credits_final ?? expanded.tier_credits_current ?? 0) }}</div>
+        <div class="row" v-if="ytdTotals">
+          <strong>Year to date ({{ ytdTotals.year }}):</strong>
+          {{ fmtMoney(ytdTotals.totalPay) }} • {{ fmtNum(ytdTotals.totalHours) }} credits/hours
+        </div>
+
+        <div class="card" style="margin-top: 10px;">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Direct / Indirect Totals</h3>
+          <div class="di-grid">
+            <div class="di-head">Type</div>
+            <div class="di-head right">Hours</div>
+            <div class="di-head right">Pay</div>
+            <div class="di-head right">Rate</div>
+
+            <div><strong>Direct</strong></div>
+            <div class="right">{{ fmtNum(expanded.direct_hours ?? 0) }}</div>
+            <div class="right">{{ fmtMoney(payTotalsFromBreakdown(expanded.breakdown).directAmount ?? 0) }}</div>
+            <div class="right muted">
+              {{
+                (() => {
+                  const h = Number(expanded.direct_hours || 0);
+                  const amt = Number(payTotalsFromBreakdown(expanded.breakdown).directAmount || 0);
+                  return h > 0 ? fmtMoney(amt / h) : '—';
+                })()
+              }}
+            </div>
+
+            <div><strong>Indirect</strong></div>
+            <div class="right">{{ fmtNum(expanded.indirect_hours ?? 0) }}</div>
+            <div class="right">{{ fmtMoney(payTotalsFromBreakdown(expanded.breakdown).indirectAmount ?? 0) }}</div>
+            <div class="right muted">
+              {{
+                (() => {
+                  const h = Number(expanded.indirect_hours || 0);
+                  const amt = Number(payTotalsFromBreakdown(expanded.breakdown).indirectAmount || 0);
+                  return h > 0 ? fmtMoney(amt / h) : '—';
+                })()
+              }}
+            </div>
+          </div>
+        </div>
+
+        <h3 class="card-title" style="margin-top: 12px;">Service Codes</h3>
+        <div class="muted" v-if="!expanded.breakdown || !Object.keys(expanded.breakdown).length">No breakdown available.</div>
+        <div v-else class="codes">
+          <div class="codes-head">
+            <div>Code</div>
+            <div class="right">No Note</div>
+            <div class="right">Draft</div>
+            <div class="right">Finalized</div>
+            <div class="right">Credits/Hours</div>
+            <div class="right">Rate</div>
+            <div class="right">Amount</div>
+          </div>
+          <div v-for="l in expandedServiceLines" :key="l.code" class="code-row">
+            <div class="code">{{ l.code }}</div>
+            <div class="right muted">{{ fmtNum(l.noNoteUnits ?? 0) }}</div>
+            <div class="right muted">{{ fmtNum(l.draftUnits ?? 0) }}</div>
+            <div class="right">{{ fmtNum(l.finalizedUnits ?? l.units ?? 0) }}</div>
+            <div class="right muted">{{ fmtNum(l.hours ?? 0) }}</div>
+            <div class="right muted">{{ fmtMoney(l.rateAmount ?? 0) }}</div>
+            <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
+          </div>
+          <div v-if="expanded.breakdown && expanded.breakdown.__adjustments" class="adjustments">
+            <h3 class="card-title" style="margin-top: 10px;">Additional Pay / Overrides</h3>
+            <div class="row"><strong>Mileage:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.mileageAmount ?? 0) }}</div>
+            <div class="row"><strong>Med Cancel:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.medcancelAmount ?? 0) }}</div>
+            <div class="row"><strong>Other taxable:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.otherTaxableAmount ?? 0) }}</div>
+            <div class="row"><strong>Bonus:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.bonusAmount ?? 0) }}</div>
+            <div class="row"><strong>Reimbursement:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.reimbursementAmount ?? 0) }}</div>
+          <div class="row"><strong>Time claims:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.timeClaimsAmount ?? 0) }}</div>
+            <div class="row"><strong>PTO:</strong> {{ fmtNum(expanded.breakdown.__adjustments.ptoHours ?? 0) }} hrs @ {{ fmtMoney(expanded.breakdown.__adjustments.ptoRate ?? 0) }} = {{ fmtMoney(expanded.breakdown.__adjustments.ptoPay ?? 0) }}</div>
+            <div class="row"><strong>Salary override:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.salaryAmount ?? 0) }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mileage submission modal -->
+  <div v-if="showMileageModal" class="modal-backdrop" @click.self="closeMileageModal">
+    <div class="modal" style="width: min(720px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Submit Mileage</div>
+          <div class="hint">Your submission will be reviewed by payroll before it is added to a pay period.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closeMileageModal">Close</button>
+      </div>
+
+      <div v-if="submitMileageError" class="warn-box" style="margin-top: 10px;">{{ submitMileageError }}</div>
+
+      <div class="hint" style="margin-top: 10px;">
+        <template v-if="mileageForm.claimType === 'school_travel'">
+          School Mileage (auto): eligible miles are calculated as (Home↔School RT − Home↔Office RT).
+        </template>
+        <template v-else>
+          Other Mileage (manual): enter miles and include who approved the trip + what it was for.
+        </template>
+      </div>
+
+      <div v-if="mileageForm.claimType === 'school_travel'" class="card" style="margin-top: 10px;">
+        <div class="section-header" style="margin: 0;">
+          <h3 class="card-title" style="margin: 0;">Home address</h3>
+          <div class="actions" style="margin: 0; justify-content: flex-end;">
+            <button
+              v-if="!editingHomeAddress"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="editingHomeAddress = true"
+            >
+              {{ hasHomeAddress ? 'Update home address' : 'Enter home address' }}
+            </button>
+            <template v-else>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="cancelHomeAddressEdit"
+                :disabled="savingHomeAddress"
+              >
+                Cancel
+              </button>
+              <button class="btn btn-primary btn-sm" type="button" @click="saveHomeAddress" :disabled="savingHomeAddress">
+                {{ savingHomeAddress ? 'Saving…' : 'Save' }}
+              </button>
+            </template>
+          </div>
+        </div>
+        <div class="hint" style="margin-top: 6px;">
+          Required for School Mileage auto-calculation.
+        </div>
+
+        <div v-if="!editingHomeAddress" style="margin-top: 10px;">
+          <div v-if="hasHomeAddress" class="row">
+            <strong>Using:</strong>
+            {{ mileageForm.homeStreetAddress }}, {{ mileageForm.homeCity }}, {{ mileageForm.homeState }} {{ mileageForm.homePostalCode }}
+          </div>
+          <div v-else class="warn-box">
+            No home address on file. Click <strong>Enter home address</strong> to save it.
+          </div>
+        </div>
+
+        <div v-else>
+          <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+            <div class="field">
+              <label>Street</label>
+              <input v-model="mileageForm.homeStreetAddress" type="text" placeholder="123 Main St" />
+            </div>
+            <div class="field">
+              <label>City</label>
+              <input v-model="mileageForm.homeCity" type="text" placeholder="City" />
+            </div>
+          </div>
+          <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+            <div class="field">
+              <label>State</label>
+              <input v-model="mileageForm.homeState" type="text" placeholder="State" />
+            </div>
+            <div class="field">
+              <label>Postal code</label>
+              <input v-model="mileageForm.homePostalCode" type="text" placeholder="ZIP" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Date of drive</label>
+          <input v-model="mileageForm.driveDate" type="date" />
+        </div>
+        <div class="field" v-if="mileageForm.claimType === 'school_travel'">
+          <label>Assigned school</label>
+          <select v-model="mileageForm.schoolOrganizationId">
+            <option :value="null" disabled>Select a school…</option>
+            <option v-for="s in mileageSchools" :key="s.schoolOrganizationId" :value="s.schoolOrganizationId">
+              {{ s.name }}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field" v-if="mileageForm.claimType === 'school_travel'">
+          <label>Assigned office</label>
+          <select v-model="mileageForm.officeLocationId">
+            <option :value="null" disabled>Select an office…</option>
+            <option v-for="o in mileageOffices" :key="o.id" :value="o.id">
+              {{ o.name }}
+            </option>
+          </select>
+        </div>
+        <div class="field" v-if="mileageForm.claimType === 'school_travel'">
+          <label>Tier (for rate)</label>
+          <select v-model="mileageForm.tierLevel">
+            <option :value="null">Unknown / Other</option>
+            <option :value="1">Tier 1</option>
+            <option :value="2">Tier 2</option>
+            <option :value="3">Tier 3</option>
+          </select>
+        </div>
+      </div>
+
+      <div v-if="mileageForm.claimType === 'school_travel'" class="warn-box" style="margin-top: 10px;">
+        Eligible miles will be calculated automatically when you submit (Home↔School RT − Home↔Office RT).
+      </div>
+
+      <div v-if="mileageForm.claimType !== 'school_travel'" class="card" style="margin-top: 10px;">
+        <h3 class="card-title" style="margin: 0 0 6px 0;">Trip details</h3>
+        <div class="hint">These details help payroll validate that the trip was approved and eligible.</div>
+        <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+          <div class="field">
+            <label>Who approved the trip? (required)</label>
+            <input v-model="mileageForm.tripApprovedBy" type="text" placeholder="Name or email" />
+          </div>
+          <div class="field">
+            <label>Was this trip pre-approved? (required)</label>
+            <select v-model="mileageForm.tripPreapproved">
+              <option :value="null" disabled>Select…</option>
+              <option :value="true">Yes</option>
+              <option :value="false">No</option>
+            </select>
+          </div>
+        </div>
+        <div class="field" style="margin-top: 10px;">
+          <label>What was the trip for? (required)</label>
+          <textarea v-model="mileageForm.tripPurpose" rows="2" placeholder="Brief purpose (client/school/admin need)…"></textarea>
+        </div>
+        <div class="field" style="margin-top: 10px;">
+          <label>Cost center / client / school (optional)</label>
+          <input v-model="mileageForm.costCenter" type="text" placeholder="Optional" />
+        </div>
+      </div>
+
+      <div
+        v-if="mileageForm.claimType === 'school_travel' && schoolTravelManualMilesMode"
+        class="card"
+        style="margin-top: 10px;"
+      >
+        <h3 class="card-title" style="margin: 0 0 6px 0;">Manual miles (temporary fallback)</h3>
+        <div class="hint">
+          Auto-calculation is unavailable (missing Google Maps key). Enter the <strong>eligible miles</strong> you want reimbursed.
+        </div>
+        <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr;">
+          <div class="field">
+            <label>Eligible miles</label>
+            <input v-model="mileageForm.miles" type="number" min="0" step="0.01" placeholder="0" />
+          </div>
+        </div>
+      </div>
+
+      <div v-if="mileageForm.claimType !== 'school_travel'" class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Miles</label>
+          <input v-model="mileageForm.miles" type="number" min="0" step="0.01" placeholder="0" />
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <label class="control" style="display: flex; gap: 10px; align-items: center;">
+            <input v-model="mileageForm.roundTrip" type="checkbox" />
+            <span>Round trip</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Start location (optional)</label>
+          <input v-model="mileageForm.startLocation" type="text" placeholder="Address or description…" />
+        </div>
+        <div class="field">
+          <label>End location (optional)</label>
+          <input v-model="mileageForm.endLocation" type="text" placeholder="Address or description…" />
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Notes (optional)</label>
+        <textarea v-model="mileageForm.notes" rows="3" placeholder="Add any context for payroll review…"></textarea>
+      </div>
+
+      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+        <input v-model="mileageForm.attestation" type="checkbox" />
+        <span>I certify this mileage claim is accurate and has not been submitted elsewhere.</span>
+      </label>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button class="btn btn-primary" @click="submitMileage" :disabled="submittingMileage">
+          {{ submittingMileage ? 'Submitting…' : 'Submit for approval' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MedCancel submission modal -->
+  <div v-if="showMedcancelModal" class="modal-backdrop" @click.self="closeMedcancelModal">
+    <div class="modal" style="width: min(720px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Submit Med Cancel</div>
+          <div class="hint">Your submission will be reviewed by payroll before it is added to a pay period.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closeMedcancelModal">Close</button>
+      </div>
+
+      <div v-if="submitMedcancelError" class="warn-box" style="margin-top: 10px;">{{ submitMedcancelError }}</div>
+
+      <div class="warn-box" style="margin-top: 10px;">
+        <strong>Reminder:</strong> Med Cancel submissions may be denied if the reason is not aligned with the workplace handbook.
+        Include why the client missed and what you did to attempt the session.
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Date</label>
+          <input v-model="medcancelForm.claimDate" type="date" />
+        </div>
+        <div class="field">
+          <label>Assigned school</label>
+          <select v-model="medcancelForm.schoolOrganizationId">
+            <option :value="null" disabled>Select a school…</option>
+            <option v-for="s in mileageSchools" :key="s.schoolOrganizationId" :value="s.schoolOrganizationId">
+              {{ s.name }}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 10px;">
+        <h3 class="card-title" style="margin: 0 0 6px 0;">Missed services (one date)</h3>
+        <div class="muted">Add one entry per missed encounter (90832, 90834, 90837). Each requires a note + certification.</div>
+
+        <div class="hint" style="margin-top: 8px;">
+          Estimated amount (if approved): <strong>{{ fmtMoney(medcancelEstimatedAmount) }}</strong>
+        </div>
+
+        <div v-for="(it, idx) in medcancelForm.items" :key="idx" class="card" style="margin-top: 10px;">
+          <div class="field-row" style="grid-template-columns: 200px 1fr; align-items: end;">
+            <div class="field">
+              <label>Missed service code</label>
+              <select v-model="it.missedServiceCode">
+                <option value="90832">90832</option>
+                <option value="90834">90834</option>
+                <option value="90837">90837</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Note (required)</label>
+              <textarea v-model="it.note" rows="2" placeholder="Why was the client missing? What did you do to attempt the session?"></textarea>
+            </div>
+          </div>
+          <label class="control" style="margin-top: 8px; display: flex; gap: 10px; align-items: center;">
+            <input v-model="it.attestation" type="checkbox" />
+            <span>I certify I attempted this session and it was missed.</span>
+          </label>
+          <div class="actions" style="margin-top: 8px; justify-content: flex-end;">
+            <button class="btn btn-secondary btn-sm" type="button" @click="removeMedcancelItem(idx)" :disabled="submittingMedcancel">
+              Remove
+            </button>
+          </div>
+        </div>
+
+        <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+          <button class="btn btn-secondary btn-sm" type="button" @click="addMedcancelItem" :disabled="submittingMedcancel">
+            + Add missed service
+          </button>
+        </div>
+      </div>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button class="btn btn-primary" @click="submitMedcancel" :disabled="submittingMedcancel">
+          {{ submittingMedcancel ? 'Submitting…' : 'Submit for approval' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reimbursement submission modal -->
+  <div v-if="showReimbursementModal" class="modal-backdrop" @click.self="closeReimbursementModal">
+    <div class="modal" style="width: min(720px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Submit Reimbursement</div>
+          <div class="hint">Upload a receipt and submit for payroll approval.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closeReimbursementModal">Close</button>
+      </div>
+
+      <div v-if="submitReimbursementError" class="warn-box" style="margin-top: 10px;">{{ submitReimbursementError }}</div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Expense date</label>
+          <input v-model="reimbursementForm.expenseDate" type="date" />
+        </div>
+        <div class="field">
+          <label>Amount</label>
+          <input v-model="reimbursementForm.amount" type="number" step="0.01" min="0" placeholder="0.00" />
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Who approved this purchase? (required)</label>
+          <input v-model="reimbursementForm.purchaseApprovedBy" type="text" placeholder="Name (or name + email)" />
+          <div class="hint">Enter the approver who authorized this purchase prior to buying.</div>
+        </div>
+        <div class="field">
+          <label>Was it pre-approved? (required)</label>
+          <select v-model="reimbursementForm.purchasePreapproved">
+            <option :value="null" disabled>Select…</option>
+            <option :value="true">Yes</option>
+            <option :value="false">No</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Vendor (optional)</label>
+          <input v-model="reimbursementForm.vendor" type="text" placeholder="Vendor" />
+        </div>
+        <div class="field">
+          <label>Category (optional)</label>
+          <input v-model="reimbursementForm.category" type="text" placeholder="Category" />
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Notes (required)</label>
+        <textarea v-model="reimbursementForm.notes" rows="3" placeholder="Add any context for payroll review…"></textarea>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Receipt (required)</label>
+        <input type="file" accept="application/pdf,image/png,image/jpeg,image/jpg,image/gif,image/webp" @change="onReceiptPick" />
+        <div class="hint" v-if="reimbursementForm.receiptName">Selected: <strong>{{ reimbursementForm.receiptName }}</strong></div>
+      </div>
+
+      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+        <input v-model="reimbursementForm.attestation" type="checkbox" />
+        <span>I certify this reimbursement is accurate and I have not submitted it elsewhere.</span>
+      </label>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button class="btn btn-primary" @click="submitReimbursement" :disabled="submittingReimbursement">
+          {{ submittingReimbursement ? 'Submitting…' : 'Submit for approval' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Company card expense submission modal -->
+  <div v-if="showCompanyCardExpenseModal" class="modal-backdrop" @click.self="closeCompanyCardExpenseModal">
+    <div class="modal" style="width: min(720px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Submit Expense (Company Card)</div>
+          <div class="hint">Submit a company card purchase for tracking/review.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closeCompanyCardExpenseModal">Close</button>
+      </div>
+
+      <div v-if="submitCompanyCardExpenseError" class="warn-box" style="margin-top: 10px;">{{ submitCompanyCardExpenseError }}</div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Expense date</label>
+          <input v-model="companyCardExpenseForm.expenseDate" type="date" />
+        </div>
+        <div class="field">
+          <label>Amount</label>
+          <input v-model="companyCardExpenseForm.amount" type="number" step="0.01" min="0" placeholder="0.00" />
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Vendor (optional)</label>
+          <input v-model="companyCardExpenseForm.vendor" type="text" placeholder="Vendor" />
+        </div>
+        <div class="field">
+          <label>Purpose (optional)</label>
+          <input v-model="companyCardExpenseForm.purpose" type="text" placeholder="What was this for?" />
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Notes (required)</label>
+        <textarea v-model="companyCardExpenseForm.notes" rows="3" placeholder="Describe the purchase and business purpose…"></textarea>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Receipt (required)</label>
+        <input type="file" accept="application/pdf,image/png,image/jpeg,image/jpg,image/gif,image/webp" @change="onCompanyCardReceiptPick" />
+        <div class="hint" v-if="companyCardExpenseForm.receiptName">Selected: <strong>{{ companyCardExpenseForm.receiptName }}</strong></div>
+      </div>
+
+      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+        <input v-model="companyCardExpenseForm.attestation" type="checkbox" />
+        <span>I certify this purchase was for business use and the details above are accurate.</span>
+      </label>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button class="btn btn-primary" @click="submitCompanyCardExpense" :disabled="submittingCompanyCardExpense">
+          {{ submittingCompanyCardExpense ? 'Submitting…' : 'Submit for review' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Time Claim: Meeting/Training modal -->
+  <div v-if="showTimeMeetingModal" class="modal-backdrop" @click.self="closeTimeMeetingModal">
+    <div class="modal" style="width: min(720px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Time Claim — Meeting / Training</div>
+          <div class="hint">Module 3A: Log attendance for meeting or training.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closeTimeMeetingModal">Close</button>
+      </div>
+
+      <div v-if="submitTimeClaimError" class="warn-box" style="margin-top: 10px;">{{ submitTimeClaimError }}</div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Date</label>
+          <input v-model="timeMeetingForm.claimDate" type="date" />
+        </div>
+        <div class="field">
+          <label>Meeting type</label>
+          <select v-model="timeMeetingForm.meetingType">
+            <option>Admin Update Meeting</option>
+            <option>Admin Meeting</option>
+            <option>Leadership Circle Meeting</option>
+            <option>Admin Town Hall Meeting</option>
+            <option>Training</option>
+            <option>Evaluation</option>
+            <option>Not listed</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field" v-if="timeMeetingForm.meetingType === 'Not listed'" style="margin-top: 10px;">
+        <label>Other meeting not listed</label>
+        <input v-model="timeMeetingForm.otherMeeting" type="text" placeholder="Describe the meeting" />
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
+        <div class="field">
+          <label>Start time</label>
+          <input v-model="timeMeetingForm.startTime" type="time" />
+        </div>
+        <div class="field">
+          <label>End time</label>
+          <input v-model="timeMeetingForm.endTime" type="time" />
+        </div>
+        <div class="field">
+          <label>Total minutes</label>
+          <input v-model="timeMeetingForm.totalMinutes" type="number" step="1" min="0" placeholder="0" />
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Platform</label>
+          <select v-model="timeMeetingForm.platform">
+            <option>Google Meet</option>
+            <option>In-Person</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <div class="hint">Tip: enter Total Minutes directly if you don’t want to track start/end times.</div>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Event summary</label>
+        <textarea v-model="timeMeetingForm.summary" rows="3" placeholder="Include purpose…"></textarea>
+      </div>
+
+      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+        <input v-model="timeMeetingForm.attestation" type="checkbox" />
+        <span>I certify that the information is accurate, complete, and in compliance with the workplace handbook.</span>
+      </label>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button
+          class="btn btn-primary"
+          @click="submitTimeMeeting"
+          :disabled="submittingTimeClaim"
+        >
+          {{ submittingTimeClaim ? 'Submitting…' : 'Submit for approval' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Time Claim: Excess/Holiday modal -->
+  <div v-if="showTimeExcessModal" class="modal-backdrop" @click.self="closeTimeExcessModal">
+    <div class="modal" style="width: min(720px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Time Claim — Excess / Holiday</div>
+          <div class="hint">Module 3B: Excess or holiday time submission.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closeTimeExcessModal">Close</button>
+      </div>
+
+      <div v-if="submitTimeClaimError" class="warn-box" style="margin-top: 10px;">{{ submitTimeClaimError }}</div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
+        <div class="field">
+          <label>Date of services</label>
+          <input v-model="timeExcessForm.claimDate" type="date" />
+        </div>
+        <div class="field">
+          <label>Total Direct Time (minutes)</label>
+          <input v-model="timeExcessForm.directMinutes" type="number" step="1" min="0" placeholder="0" />
+        </div>
+        <div class="field">
+          <label>Total Indirect Time (minutes)</label>
+          <input v-model="timeExcessForm.indirectMinutes" type="number" step="1" min="0" placeholder="0" />
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Reason for extended time/s</label>
+        <textarea v-model="timeExcessForm.reason" rows="3" placeholder="List service codes included (e.g., 4 x 90837)…"></textarea>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>PTO-only for this claim?</label>
+          <select v-model="timeExcessForm.ptoOnly">
+            <option>Yes</option>
+            <option>No</option>
+            <option>Unknown</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Total time worked for PTO consideration? (optional)</label>
+          <input v-model="timeExcessForm.totalTimeWorkedForPto" type="text" placeholder="e.g., 8 hours" />
+        </div>
+      </div>
+
+      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+        <input v-model="timeExcessForm.requestOvertimeEvaluation" type="checkbox" />
+        <span>Request overtime evaluation for this day</span>
+      </label>
+
+      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+        <input v-model="timeExcessForm.attestation" type="checkbox" />
+        <span>I certify the information is accurate and complete.</span>
+      </label>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button
+          class="btn btn-primary"
+          @click="submitTimeExcess"
+          :disabled="submittingTimeClaim"
+        >
+          {{ submittingTimeClaim ? 'Submitting…' : 'Submit for approval' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Time Claim: Service Correction modal -->
+  <div v-if="showTimeCorrectionModal" class="modal-backdrop" @click.self="closeTimeCorrectionModal">
+    <div class="modal" style="width: min(720px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Time Claim — Service Correction</div>
+          <div class="hint">Module 3C: Submit a service correction request.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closeTimeCorrectionModal">Close</button>
+      </div>
+
+      <div v-if="submitTimeClaimError" class="warn-box" style="margin-top: 10px;">{{ submitTimeClaimError }}</div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Date of service</label>
+          <input v-model="timeCorrectionForm.claimDate" type="date" />
+        </div>
+        <div class="field">
+          <label>Client initials</label>
+          <input v-model="timeCorrectionForm.clientInitials" type="text" placeholder="First 3 of first/last name" />
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Original service submitted</label>
+          <input v-model="timeCorrectionForm.originalService" type="text" placeholder="e.g., 90837" />
+        </div>
+        <div class="field">
+          <label>Corrected service</label>
+          <input v-model="timeCorrectionForm.correctedService" type="text" placeholder="e.g., 90834" />
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Duration for corrected service</label>
+        <input v-model="timeCorrectionForm.duration" type="text" placeholder="e.g., 53 minutes" />
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Reason for correction</label>
+        <textarea v-model="timeCorrectionForm.reason" rows="3"></textarea>
+      </div>
+
+      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+        <input v-model="timeCorrectionForm.attestation" type="checkbox" />
+        <span>I certify the information is accurate and complete.</span>
+      </label>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button
+          class="btn btn-primary"
+          @click="submitTimeCorrection"
+          :disabled="submittingTimeClaim"
+        >
+          {{ submittingTimeClaim ? 'Submitting…' : 'Submit for approval' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Time Claim: Overtime Evaluation modal -->
+  <div v-if="showTimeOvertimeModal" class="modal-backdrop" @click.self="closeTimeOvertimeModal">
+    <div class="modal" style="width: min(720px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Time Claim — Overtime Evaluation</div>
+          <div class="hint">Module 3D: Overtime evaluation.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closeTimeOvertimeModal">Close</button>
+      </div>
+
+      <div v-if="submitTimeClaimError" class="warn-box" style="margin-top: 10px;">{{ submitTimeClaimError }}</div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Reference date</label>
+          <input v-model="timeOvertimeForm.claimDate" type="date" />
+        </div>
+        <div class="field">
+          <label>Estimated total work hours this workweek</label>
+          <input v-model="timeOvertimeForm.estimatedWorkweekHours" type="number" step="0.1" min="0" placeholder="0" />
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Did you work over 12 hours in a day?</label>
+          <select v-model="timeOvertimeForm.workedOver12Hours">
+            <option :value="true">Yes</option>
+            <option :value="false">No</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>All direct service recorded in the EHR?</label>
+          <select v-model="timeOvertimeForm.allDirectServiceRecorded">
+            <option :value="true">Yes</option>
+            <option :value="false">No</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>List the dates with 12+ hours and total hours each day</label>
+        <textarea v-model="timeOvertimeForm.datesAndHours" rows="3"></textarea>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Was this overtime approved?</label>
+          <select v-model="timeOvertimeForm.overtimeApproved">
+            <option :value="true">Yes</option>
+            <option :value="false">No</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Who approved this overtime?</label>
+          <input v-model="timeOvertimeForm.approvedBy" type="text" placeholder="Name or email" />
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Notes for payroll</label>
+        <textarea v-model="timeOvertimeForm.notesForPayroll" rows="3"></textarea>
+      </div>
+
+      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+        <input v-model="timeOvertimeForm.attestation" type="checkbox" />
+        <span>I certify the information is accurate and complete.</span>
+      </label>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button
+          class="btn btn-primary"
+          @click="submitTimeOvertime"
+          :disabled="submittingTimeClaim"
+        >
+          {{ submittingTimeClaim ? 'Submitting…' : 'Submit for approval' }}
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import api from '../../services/api';
+import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
+
+const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
+const route = useRoute();
+const router = useRouter();
+
+const parseFeatureFlags = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) || {}; } catch { return {}; }
+  }
+  return {};
+};
+const agencyFlags = computed(() => {
+  const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  return parseFeatureFlags(a?.feature_flags);
+});
+const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
+const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
+
+const userId = computed(() => authStore.user?.id || null);
+
+const agencyId = computed(() => {
+  const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  return a?.id || null;
+});
+
+const periods = ref([]);
+const loading = ref(false);
+const error = ref('');
+
+const showMileageModal = ref(false);
+const submittingMileage = ref(false);
+const submitMileageError = ref('');
+const submitSuccess = ref('');
+const mileageClaims = ref([]);
+const mileageClaimsLoading = ref(false);
+const mileageClaimsError = ref('');
+const mileageSchools = ref([]);
+const mileageOffices = ref([]);
+const savingHomeAddress = ref(false);
+const editingHomeAddress = ref(false);
+const schoolTravelManualMilesMode = ref(false);
+const lastLoadedHomeAddress = ref({
+  homeStreetAddress: '',
+  homeCity: '',
+  homeState: '',
+  homePostalCode: ''
+});
+const showMedcancelModal = ref(false);
+const submittingMedcancel = ref(false);
+const submitMedcancelError = ref('');
+const medcancelClaims = ref([]);
+const medcancelClaimsLoading = ref(false);
+const medcancelClaimsError = ref('');
+const showReimbursementModal = ref(false);
+const submittingReimbursement = ref(false);
+const submitReimbursementError = ref('');
+const reimbursementClaims = ref([]);
+const reimbursementClaimsLoading = ref(false);
+const reimbursementClaimsError = ref('');
+const showCompanyCardExpenseModal = ref(false);
+const submittingCompanyCardExpense = ref(false);
+const submitCompanyCardExpenseError = ref('');
+const companyCardExpenses = ref([]);
+const companyCardExpensesLoading = ref(false);
+const companyCardExpensesError = ref('');
+const showTimeMeetingModal = ref(false);
+const showTimeExcessModal = ref(false);
+const showTimeCorrectionModal = ref(false);
+const showTimeOvertimeModal = ref(false);
+const submittingTimeClaim = ref(false);
+const submitTimeClaimError = ref('');
+const timeClaims = ref([]);
+const timeClaimsLoading = ref(false);
+const timeClaimsError = ref('');
+const mileageForm = ref({
+  claimType: 'school_travel',
+  driveDate: '',
+  schoolOrganizationId: null,
+  officeLocationId: null,
+  tierLevel: null,
+  miles: '',
+  roundTrip: false,
+  startLocation: '',
+  endLocation: '',
+  notes: '',
+  attestation: false,
+  homeStreetAddress: '',
+  homeCity: '',
+  homeState: '',
+  homePostalCode: ''
+});
+const medcancelForm = ref({
+  claimDate: '',
+  schoolOrganizationId: null,
+  items: []
+});
+const reimbursementForm = ref({
+  expenseDate: '',
+  amount: '',
+  vendor: '',
+  purchaseApprovedBy: '',
+  purchasePreapproved: null,
+  category: '',
+  notes: '',
+  attestation: false,
+  receiptFile: null,
+  receiptName: ''
+});
+
+const companyCardExpenseForm = ref({
+  expenseDate: '',
+  amount: '',
+  vendor: '',
+  purpose: '',
+  notes: '',
+  attestation: false,
+  receiptFile: null,
+  receiptName: ''
+});
+
+const timeMeetingForm = ref({
+  claimDate: '',
+  meetingType: 'Training',
+  otherMeeting: '',
+  startTime: '',
+  endTime: '',
+  totalMinutes: '',
+  platform: 'Google Meet',
+  summary: '',
+  attestation: false
+});
+
+const timeExcessForm = ref({
+  claimDate: '',
+  directMinutes: '',
+  indirectMinutes: '',
+  reason: '',
+  ptoOnly: 'Unknown',
+  totalTimeWorkedForPto: '',
+  requestOvertimeEvaluation: false,
+  attestation: false
+});
+
+const timeCorrectionForm = ref({
+  claimDate: '',
+  clientInitials: '',
+  originalService: '',
+  correctedService: '',
+  duration: '',
+  reason: '',
+  attestation: false
+});
+
+const timeOvertimeForm = ref({
+  claimDate: '',
+  workedOver12Hours: false,
+  datesAndHours: '',
+  estimatedWorkweekHours: '',
+  allDirectServiceRecorded: true,
+  overtimeApproved: false,
+  approvedBy: '',
+  notesForPayroll: '',
+  attestation: false
+});
+
+const medcancelEstimatedAmount = computed(() => {
+  const schedule = String(authStore.user?.medcancelRateSchedule || '').toLowerCase();
+  const items = Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items : [];
+  const rates =
+    schedule === 'high'
+      ? { '90832': 10, '90834': 15, '90837': 20 }
+      : { '90832': 5, '90834': 7.5, '90837': 10 };
+  let sum = 0;
+  for (const it of items) {
+    const code = String(it?.missedServiceCode || '').trim();
+    sum += Number(rates[code] || 0);
+  }
+  sum = Math.round(sum * 100) / 100;
+  return Number.isFinite(sum) ? sum : 0;
+});
+
+const expandedId = ref(null);
+const expanded = computed(() => periods.value.find((p) => p.payroll_period_id === expandedId.value) || null);
+const expandedUnpaid = computed(() => {
+  const p = expanded.value;
+  const noNote = Number(p?.no_note_units || 0);
+  const draft = Number(p?.draft_units || 0);
+  const total = noNote + draft;
+  return { noNote, draft, total };
+});
+
+const chronologicalPeriods = computed(() => {
+  const copy = [...(periods.value || [])];
+  copy.sort((a, b) => {
+    const da = new Date(a.period_start || a.period_end || 0).getTime();
+    const db = new Date(b.period_start || b.period_end || 0).getTime();
+    return da - db;
+  });
+  return copy;
+});
+
+const twoPeriodsAgo = computed(() => {
+  if (!expandedId.value) return null;
+  const list = chronologicalPeriods.value || [];
+  const idx = list.findIndex((p) => p.payroll_period_id === expandedId.value);
+  if (idx < 0) return null;
+  return list[idx - 2] || null;
+});
+
+const twoPeriodsAgoUnpaid = computed(() => {
+  const p = twoPeriodsAgo.value;
+  const noNote = Number(p?.no_note_units || 0);
+  const draft = Number(p?.draft_units || 0);
+  const total = noNote + draft;
+  return { noNote, draft, total };
+});
+const payTypeSummary = computed(() => {
+  const b = expanded.value?.breakdown || null;
+  const out = {
+    rows: []
+  };
+  if (!b || typeof b !== 'object') return out;
+
+  const lines = Object.entries(b)
+    .filter(([code]) => !String(code).startsWith('__'))
+    .map(([code, v]) => ({ code, ...(v || {}) }));
+
+  const byKey = new Map();
+  for (const l of lines) {
+    const category = String(l.category || 'direct');
+    const slot = category === 'other' ? Number(l.otherSlot || 1) : null;
+    const key = category === 'other' ? `other_${slot || 1}` : category;
+    if (!byKey.has(key)) byKey.set(key, { key, category, slot, hours: 0, amount: 0, rateAmounts: [] });
+    const agg = byKey.get(key);
+    agg.hours += Number(l.hours || 0);
+    agg.amount += Number(l.amount || 0);
+    if (Number.isFinite(Number(l.rateAmount))) agg.rateAmounts.push(Number(l.rateAmount));
+  }
+
+  const labelFor = (key) => {
+    if (key === 'direct') return 'Direct';
+    if (key === 'indirect') return 'Indirect';
+    if (key.startsWith('other_')) return `Other ${key.split('_')[1]}`;
+    return key;
+  };
+
+  out.rows = Array.from(byKey.values())
+    .filter((x) => x.hours > 0 || x.amount > 0)
+    .sort((a, b) => (b.amount || 0) - (a.amount || 0))
+    .map((x) => {
+      const distinctRates = Array.from(new Set((x.rateAmounts || []).map((n) => Number(n.toFixed(4)))));
+      let rateLabel = '—';
+      if (distinctRates.length === 1) {
+        // If rate-card hourly, this will be $/hr; if per-unit, it's still informative alongside service-code details.
+        rateLabel = fmtMoney(distinctRates[0]);
+      } else if (distinctRates.length > 1) {
+        rateLabel = 'Mixed';
+      }
+      return {
+        key: x.key,
+        label: labelFor(x.key),
+        hours: x.hours,
+        amount: x.amount,
+        rateLabel
+      };
+    });
+
+  return out;
+});
+
+const payBucketForCategory = (category) => {
+  const c = String(category || '').trim().toLowerCase();
+  if (c === 'indirect' || c === 'admin' || c === 'meeting') return 'indirect';
+  if (c === 'other' || c === 'tutoring') return 'other';
+  if (c === 'mileage' || c === 'bonus' || c === 'reimbursement' || c === 'other_pay') return 'flat';
+  return 'direct';
+};
+
+const splitBreakdownForDisplay = (breakdown) => {
+  const out = [];
+  if (!breakdown || typeof breakdown !== 'object') return out;
+  for (const [code, vRaw] of Object.entries(breakdown)) {
+    if (String(code).startsWith('_')) continue;
+    const v = vRaw || {};
+    const finalizedUnits = Number(v.finalizedUnits ?? v.units ?? 0);
+    const oldUnits = Number(v.oldDoneNotesUnits || 0);
+    const rateAmount = Number(v.rateAmount || 0);
+    const payDivisor = Number(v.payDivisor || 1);
+    const safeDiv = Number.isFinite(payDivisor) && payDivisor > 0 ? payDivisor : 1;
+    const creditValue = Number(v.creditValue || 0);
+    const safeCv = Number.isFinite(creditValue) ? creditValue : 0;
+    const bucket = payBucketForCategory(v.category);
+    const rateUnit = String(v.rateUnit || '');
+
+    if (!(oldUnits > 1e-9) || rateUnit === 'flat') {
+      out.push({ code, ...v });
+      continue;
+    }
+
+    const baseUnits = Math.max(0, finalizedUnits - oldUnits);
+    const oldPayHours = bucket !== 'flat' ? (oldUnits / safeDiv) : 0;
+    const oldCredits = oldUnits * safeCv;
+    const computedOldAmount = bucket !== 'flat' ? (oldPayHours * rateAmount) : (oldUnits * rateAmount);
+    const totalAmount = Number(v.amount || 0);
+    const oldAmount = Math.max(0, Math.min(totalAmount, computedOldAmount));
+    const baseAmount = Math.max(0, totalAmount - oldAmount);
+
+    if (baseUnits > 1e-9 && baseAmount > 1e-9) {
+      out.push({
+        code,
+        ...v,
+        finalizedUnits: baseUnits,
+        units: baseUnits,
+        hours: baseUnits * safeCv,
+        creditsHours: baseUnits * safeCv,
+        amount: baseAmount
+      });
+    }
+
+    if (oldUnits > 1e-9 && oldAmount > 1e-9) {
+      out.push({
+        code: `${code} (Old Note)`,
+        ...v,
+        noNoteUnits: 0,
+        draftUnits: 0,
+        finalizedUnits: oldUnits,
+        units: oldUnits,
+        hours: oldCredits,
+        creditsHours: oldCredits,
+        amount: oldAmount
+      });
+    }
+  }
+  return out;
+};
+
+const payTotalsFromBreakdown = (breakdown) => {
+  const out = { directAmount: 0, indirectAmount: 0, otherAmount: 0, flatAmount: 0 };
+  if (!breakdown || typeof breakdown !== 'object') return out;
+  for (const [code, v] of Object.entries(breakdown)) {
+    if (String(code).startsWith('_')) continue;
+    const amt = Number(v?.amount || 0);
+    const bucket = payBucketForCategory(v?.category);
+    if (bucket === 'indirect') out.indirectAmount += amt;
+    else if (bucket === 'other') out.otherAmount += amt;
+    else if (bucket === 'flat') out.flatAmount += amt;
+    else out.directAmount += amt;
+  }
+  return out;
+};
+
+const expandedServiceLines = computed(() => splitBreakdownForDisplay(expanded.value?.breakdown || null));
+
+const hourlyRateSummary = computed(() => {
+  const b = expanded.value?.breakdown || null;
+  if (!b || typeof b !== 'object') return { directRate: null, indirectRate: null, effectiveRate: null };
+
+  const sums = { directHours: 0, directAmount: 0, indirectHours: 0, indirectAmount: 0, otherHours: 0 };
+  const rateSets = { direct: new Set(), indirect: new Set() };
+  for (const [code, v] of Object.entries(b)) {
+    if (String(code).startsWith('_')) continue;
+    const category = String(v?.category || 'direct').trim().toLowerCase();
+    const bucket =
+      (category === 'indirect' || category === 'admin' || category === 'meeting') ? 'indirect'
+        : (category === 'other' || category === 'tutoring') ? 'other'
+          : (category === 'mileage' || category === 'bonus' || category === 'reimbursement' || category === 'other_pay') ? 'flat'
+            : 'direct';
+    const hours = Number(v?.hours || 0);
+    const amount = Number(v?.amount || 0);
+    const rateAmount = Number(v?.rateAmount || 0);
+    if (bucket === 'indirect') { sums.indirectHours += hours; sums.indirectAmount += amount; }
+    else if (bucket === 'other') { sums.otherHours += hours; }
+    else if (bucket === 'direct') { sums.directHours += hours; sums.directAmount += amount; }
+
+    // Track unique per-code rates to detect varying rates in a direct+indirect setup.
+    if (hours > 1e-9 && rateAmount > 1e-9 && (bucket === 'direct' || bucket === 'indirect')) {
+      // Round to 4 decimals to avoid tiny float diffs.
+      rateSets[bucket].add(Math.round(rateAmount * 10000) / 10000);
+    }
+  }
+
+  const directRate = sums.directHours > 1e-9 ? (sums.directAmount / sums.directHours) : null;
+  const indirectRate = sums.indirectHours > 1e-9 ? (sums.indirectAmount / sums.indirectHours) : null;
+
+  // Effective rate only when the period is direct-only (no indirect/other credits).
+  const totalHours = Number(expanded.value?.total_hours || 0);
+  const effectiveRate =
+    (sums.directHours > 1e-9 && sums.indirectHours <= 1e-9 && sums.otherHours <= 1e-9 && totalHours > 1e-9)
+      ? (sums.directAmount / totalHours)
+      : null;
+
+  const hasDirectAndIndirect = sums.directHours > 1e-9 && sums.indirectHours > 1e-9;
+  const hasVaryingRates = (rateSets.direct.size > 1) || (rateSets.indirect.size > 1);
+  const variableRatesNote =
+    hasDirectAndIndirect && hasVaryingRates
+      ? 'Your default direct and indirect hourly rates are used for most services. Some service codes may have specific contracted rates (often higher than the defaults) and those rates take precedence; services without a specific rate use the defaults. When services are paid at varying rates, your average hourly pay for the period can change—this is due to a limitation of our payroll system.'
+      : '';
+
+  return { directRate, indirectRate, effectiveRate, variableRatesNote };
+});
+
+const periodShadeClass = (idx) => (Number(idx || 0) % 2 === 0 ? 'shade-a' : 'shade-b');
+const sortOrder = ref('desc');
+const showCount = ref(50);
+
+const sortedPeriods = computed(() => {
+  const copy = [...(periods.value || [])];
+  const dir = sortOrder.value === 'asc' ? 1 : -1;
+  copy.sort((a, b) => {
+    const da = new Date(a.period_start || a.period_end || 0).getTime();
+    const db = new Date(b.period_start || b.period_end || 0).getTime();
+    return (da - db) * dir;
+  });
+  return copy;
+});
+
+const todayYmd = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
+const isFuturePeriod = (p) => {
+  const start = String(p?.period_start || '').slice(0, 10);
+  return start && start > todayYmd();
+};
+
+const historyPeriods = computed(() => {
+  const all = sortedPeriods.value || [];
+  const pastOrCurrent = all.filter((p) => !isFuturePeriod(p));
+
+  // Optionally show *one* upcoming (nearest future) period for context.
+  const nextFuture = all
+    .filter((p) => isFuturePeriod(p))
+    .sort((a, b) => String(a.period_start || '').localeCompare(String(b.period_start || '')))
+    .slice(0, 1);
+
+  return [...pastOrCurrent, ...nextFuture];
+});
+
+const visiblePeriods = computed(() => historyPeriods.value.slice(0, Number(showCount.value) || 50));
+
+const fmtMoney = (v) => Number(v || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+const fmtNum = (v) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+const parseYmd = (d) => {
+  if (!d) return null;
+  // Accept 'YYYY-MM-DD' or ISO strings.
+  const s = String(d);
+  const ymd = s.slice(0, 10);
+  const dt = new Date(ymd);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+};
+const fmtShortDate = (d) => {
+  const dt = parseYmd(d);
+  if (!dt) return String(d || '');
+  return dt.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+const fmtDateRange = (start, end) => {
+  const s = fmtShortDate(start);
+  const e = fmtShortDate(end);
+  return s && e ? `${s} → ${e}` : (s || e || '');
+};
+const fmtPeriodTitle = (p) => {
+  // Prefer label if it looks human; otherwise format from dates.
+  const raw = String(p?.label || '').trim();
+  if (raw && !raw.includes('T00:00:00')) return raw;
+  return fmtDateRange(p?.period_start, p?.period_end) || 'Pay Period';
+};
+
+const mileageRates = ref({ byTier: new Map() });
+const mileageRateForTier = (tierLevel) => {
+  const t = Number(tierLevel || 0);
+  if (!t) return 0;
+  return Number(mileageRates.value.byTier.get(t) || 0);
+};
+
+const loadMyMileageRates = async () => {
+  if (!agencyId.value) return;
+  try {
+    const resp = await api.get('/payroll/me/mileage-rates', { params: { agencyId: agencyId.value } });
+    const rows = resp.data?.rates || [];
+    const m = new Map();
+    for (const r of rows) m.set(Number(r.tierLevel), Number(r.ratePerMile || 0));
+    mileageRates.value = { byTier: m };
+  } catch {
+    mileageRates.value = { byTier: new Map() };
+  }
+};
+
+const ytdTotals = computed(() => {
+  const exp = expanded.value;
+  if (!exp) return null;
+  const end = String(exp.period_end || '').slice(0, 10);
+  const year = String(end || exp.period_start || '').slice(0, 4);
+  if (!year || year.length !== 4) return null;
+
+  const rows = (periods.value || []).filter((p) => {
+    const pe = String(p.period_end || '').slice(0, 10);
+    return pe && pe.slice(0, 4) === year && (!end || pe <= end);
+  });
+  const totalPay = rows.reduce((a, p) => a + Number(p.total_amount || 0), 0);
+  const totalHours = rows.reduce((a, p) => a + Number(p.total_hours || 0), 0);
+  return { year, totalPay, totalHours };
+});
+
+const openMileageModal = (claimType = 'school_travel') => {
+  submitMileageError.value = '';
+  schoolTravelManualMilesMode.value = false;
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  mileageForm.value = {
+    claimType: String(claimType || 'school_travel'),
+    driveDate: ymd,
+    schoolOrganizationId: null,
+    officeLocationId: null,
+    tierLevel: null,
+    miles: mileageForm.value.miles || '',
+    roundTrip: false,
+    startLocation: '',
+    endLocation: '',
+    notes: '',
+    tripApprovedBy: '',
+    tripPreapproved: null,
+    tripPurpose: '',
+    costCenter: '',
+    attestation: false,
+    homeStreetAddress: mileageForm.value.homeStreetAddress || '',
+    homeCity: mileageForm.value.homeCity || '',
+    homeState: mileageForm.value.homeState || '',
+    homePostalCode: mileageForm.value.homePostalCode || ''
+  };
+  // Pull saved home address so the modal reflects what mileage will use.
+  loadMyHomeAddress();
+  // Default: if missing, prompt for entry; if present, show read-only with update button.
+  editingHomeAddress.value = mileageForm.value.claimType === 'school_travel' ? !hasHomeAddress.value : false;
+  showMileageModal.value = true;
+};
+
+const closeMileageModal = () => {
+  showMileageModal.value = false;
+  editingHomeAddress.value = false;
+  schoolTravelManualMilesMode.value = false;
+};
+
+const loadMileageClaims = async () => {
+  if (!agencyId.value) return;
+  try {
+    mileageClaimsLoading.value = true;
+    mileageClaimsError.value = '';
+    await loadMyMileageRates();
+    const resp = await api.get('/payroll/me/mileage-claims', { params: { agencyId: agencyId.value } });
+    mileageClaims.value = resp.data || [];
+  } catch (e) {
+    mileageClaimsError.value = e.response?.data?.error?.message || e.message || 'Failed to load mileage submissions';
+    mileageClaims.value = [];
+  } finally {
+    mileageClaimsLoading.value = false;
+  }
+};
+
+const loadMileageSchools = async () => {
+  if (!agencyId.value) return;
+  try {
+    const resp = await api.get('/payroll/agency-schools', { params: { agencyId: agencyId.value } });
+    mileageSchools.value = resp.data || [];
+  } catch {
+    mileageSchools.value = [];
+  }
+};
+
+const loadMileageOffices = async () => {
+  if (!agencyId.value) return;
+  try {
+    const resp = await api.get('/payroll/office-locations', { params: { agencyId: agencyId.value } });
+    mileageOffices.value = resp.data || [];
+  } catch {
+    mileageOffices.value = [];
+  }
+};
+
+const loadMyHomeAddress = async () => {
+  try {
+    const resp = await api.get('/payroll/me/home-address');
+    const d = resp.data || {};
+    mileageForm.value.homeStreetAddress = d.homeStreetAddress || '';
+    mileageForm.value.homeCity = d.homeCity || '';
+    mileageForm.value.homeState = d.homeState || '';
+    mileageForm.value.homePostalCode = d.homePostalCode || '';
+
+    lastLoadedHomeAddress.value = {
+      homeStreetAddress: mileageForm.value.homeStreetAddress || '',
+      homeCity: mileageForm.value.homeCity || '',
+      homeState: mileageForm.value.homeState || '',
+      homePostalCode: mileageForm.value.homePostalCode || ''
+    };
+
+    // If none on file, default to editing so user can enter+save immediately.
+    if (mileageForm.value.claimType === 'school_travel') {
+      editingHomeAddress.value = !hasHomeAddress.value;
+    }
+  } catch {
+    // Best-effort.
+  }
+};
+
+const hasHomeAddress = computed(() => {
+  const s = String(mileageForm.value.homeStreetAddress || '').trim();
+  const c = String(mileageForm.value.homeCity || '').trim();
+  const st = String(mileageForm.value.homeState || '').trim();
+  const z = String(mileageForm.value.homePostalCode || '').trim();
+  return Boolean(s && c && st && z);
+});
+
+const cancelHomeAddressEdit = () => {
+  mileageForm.value.homeStreetAddress = lastLoadedHomeAddress.value.homeStreetAddress || '';
+  mileageForm.value.homeCity = lastLoadedHomeAddress.value.homeCity || '';
+  mileageForm.value.homeState = lastLoadedHomeAddress.value.homeState || '';
+  mileageForm.value.homePostalCode = lastLoadedHomeAddress.value.homePostalCode || '';
+  editingHomeAddress.value = false;
+};
+
+const saveHomeAddress = async () => {
+  try {
+    savingHomeAddress.value = true;
+    await api.put('/payroll/me/home-address', {
+      homeStreetAddress: mileageForm.value.homeStreetAddress,
+      homeCity: mileageForm.value.homeCity,
+      homeState: mileageForm.value.homeState,
+      homePostalCode: mileageForm.value.homePostalCode
+    });
+
+    lastLoadedHomeAddress.value = {
+      homeStreetAddress: mileageForm.value.homeStreetAddress || '',
+      homeCity: mileageForm.value.homeCity || '',
+      homeState: mileageForm.value.homeState || '',
+      homePostalCode: mileageForm.value.homePostalCode || ''
+    };
+    editingHomeAddress.value = false;
+  } catch (e) {
+    submitMileageError.value = e.response?.data?.error?.message || e.message || 'Failed to save home address';
+  } finally {
+    savingHomeAddress.value = false;
+  }
+};
+
+const submitMileage = async () => {
+  if (!agencyId.value) return;
+  try {
+    submittingMileage.value = true;
+    submitMileageError.value = '';
+    if (mileageForm.value.claimType !== 'school_travel') {
+      if (!String(mileageForm.value.tripApprovedBy || '').trim()) {
+        submitMileageError.value = 'Trip approver is required for Other Mileage.';
+        return;
+      }
+      if (mileageForm.value.tripPreapproved !== true && mileageForm.value.tripPreapproved !== false) {
+        submitMileageError.value = 'Please select whether the trip was pre-approved.';
+        return;
+      }
+      if (!String(mileageForm.value.tripPurpose || '').trim()) {
+        submitMileageError.value = 'Trip purpose is required for Other Mileage.';
+        return;
+      }
+    }
+    if (mileageForm.value.claimType === 'school_travel') {
+      if (!schoolTravelManualMilesMode.value && !hasHomeAddress.value) {
+        submitMileageError.value = 'Home address is required for School Mileage. Click “Enter home address” and save it first.';
+        return;
+      }
+      if (schoolTravelManualMilesMode.value) {
+        const n = Number(mileageForm.value.miles);
+        if (!Number.isFinite(n) || n < 0) {
+          submitMileageError.value = 'Enter a non-negative number of miles.';
+          return;
+        }
+      }
+    }
+    await api.post('/payroll/me/mileage-claims', {
+      agencyId: agencyId.value,
+      claimType: mileageForm.value.claimType || 'school_travel',
+      driveDate: mileageForm.value.driveDate,
+      schoolOrganizationId: mileageForm.value.schoolOrganizationId,
+      officeLocationId: mileageForm.value.officeLocationId,
+      tierLevel: mileageForm.value.tierLevel,
+      miles: mileageForm.value.miles,
+      roundTrip: !!mileageForm.value.roundTrip,
+      startLocation: mileageForm.value.startLocation,
+      endLocation: mileageForm.value.endLocation,
+      notes: mileageForm.value.notes,
+      tripApprovedBy: mileageForm.value.tripApprovedBy,
+      tripPreapproved: mileageForm.value.tripPreapproved,
+      tripPurpose: mileageForm.value.tripPurpose,
+      costCenter: mileageForm.value.costCenter,
+      attestation: !!mileageForm.value.attestation
+    });
+    showMileageModal.value = false;
+    submitSuccess.value = 'Mileage submission sent successfully. Payroll will review and approve it before it is added to a pay period.';
+    window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    await loadMileageClaims();
+  } catch (e) {
+    const msg = e.response?.data?.error?.message || e.message || 'Failed to submit mileage';
+    // If auto mileage isn't available, switch into manual miles mode without closing the modal.
+    if (String(msg).includes('GOOGLE_MAPS_API_KEY')) {
+      schoolTravelManualMilesMode.value = true;
+      submitMileageError.value = 'Automatic mileage is unavailable right now. Enter eligible miles manually below and resubmit.';
+      return;
+    }
+    submitMileageError.value = msg;
+  } finally {
+    submittingMileage.value = false;
+  }
+};
+
+const openMedcancelModal = () => {
+  submitMedcancelError.value = '';
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  medcancelForm.value = {
+    claimDate: ymd,
+    schoolOrganizationId: null,
+    items: [{ missedServiceCode: '90832', note: '', attestation: false }]
+  };
+  showMedcancelModal.value = true;
+};
+
+const closeMedcancelModal = () => {
+  showMedcancelModal.value = false;
+};
+
+const receiptUrl = (c) => {
+  const raw = String(c?.receipt_file_path || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('/uploads/')) return raw;
+  if (raw.startsWith('uploads/')) return `/uploads/${raw.substring('uploads/'.length)}`;
+  return `/uploads/${raw}`;
+};
+
+const openReimbursementModal = () => {
+  submitReimbursementError.value = '';
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  reimbursementForm.value = {
+    expenseDate: ymd,
+    amount: '',
+    vendor: '',
+    purchaseApprovedBy: '',
+    purchasePreapproved: null,
+    category: '',
+    notes: '',
+    attestation: false,
+    receiptFile: null,
+    receiptName: ''
+  };
+  showReimbursementModal.value = true;
+};
+
+const closeReimbursementModal = () => {
+  showReimbursementModal.value = false;
+};
+
+const onReceiptPick = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  reimbursementForm.value.receiptFile = file;
+  reimbursementForm.value.receiptName = file?.name || '';
+};
+
+const openCompanyCardExpenseModal = () => {
+  submitCompanyCardExpenseError.value = '';
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  companyCardExpenseForm.value = {
+    expenseDate: ymd,
+    amount: '',
+    vendor: '',
+    purpose: '',
+    notes: '',
+    attestation: false,
+    receiptFile: null,
+    receiptName: ''
+  };
+  showCompanyCardExpenseModal.value = true;
+};
+
+const closeCompanyCardExpenseModal = () => {
+  showCompanyCardExpenseModal.value = false;
+};
+
+const onCompanyCardReceiptPick = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  companyCardExpenseForm.value.receiptFile = file;
+  companyCardExpenseForm.value.receiptName = file?.name || '';
+};
+
+const loadReimbursementClaims = async () => {
+  if (!agencyId.value) return;
+  try {
+    reimbursementClaimsLoading.value = true;
+    reimbursementClaimsError.value = '';
+    const resp = await api.get('/payroll/me/reimbursement-claims', { params: { agencyId: agencyId.value } });
+    reimbursementClaims.value = resp.data || [];
+  } catch (e) {
+    reimbursementClaimsError.value = e.response?.data?.error?.message || e.message || 'Failed to load reimbursements';
+    reimbursementClaims.value = [];
+  } finally {
+    reimbursementClaimsLoading.value = false;
+  }
+};
+
+const loadCompanyCardExpenses = async () => {
+  if (!agencyId.value) return;
+  if (!authStore.user?.companyCardEnabled) return;
+  try {
+    companyCardExpensesLoading.value = true;
+    companyCardExpensesError.value = '';
+    const resp = await api.get('/payroll/me/company-card-expenses', { params: { agencyId: agencyId.value } });
+    companyCardExpenses.value = resp.data || [];
+  } catch (e) {
+    companyCardExpensesError.value = e.response?.data?.error?.message || e.message || 'Failed to load company card expenses';
+    companyCardExpenses.value = [];
+  } finally {
+    companyCardExpensesLoading.value = false;
+  }
+};
+
+const submitReimbursement = async () => {
+  if (!agencyId.value) return;
+  try {
+    submittingReimbursement.value = true;
+    submitReimbursementError.value = '';
+
+    const expenseDate = String(reimbursementForm.value.expenseDate || '').slice(0, 10);
+    const amount = Number(reimbursementForm.value.amount || 0);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)) {
+      submitReimbursementError.value = 'Expense date is required.';
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      submitReimbursementError.value = 'Amount must be greater than 0.';
+      return;
+    }
+    if (!String(reimbursementForm.value.purchaseApprovedBy || '').trim()) {
+      submitReimbursementError.value = 'Who approved this purchase is required.';
+      return;
+    }
+    if (reimbursementForm.value.purchasePreapproved !== true && reimbursementForm.value.purchasePreapproved !== false) {
+      submitReimbursementError.value = 'Please select whether the purchase was pre-approved.';
+      return;
+    }
+    if (!String(reimbursementForm.value.notes || '').trim()) {
+      submitReimbursementError.value = 'Notes are required.';
+      return;
+    }
+    if (!reimbursementForm.value.receiptFile) {
+      submitReimbursementError.value = 'Receipt file is required.';
+      return;
+    }
+    if (!reimbursementForm.value.attestation) {
+      submitReimbursementError.value = 'Attestation is required.';
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append('agencyId', String(agencyId.value));
+    fd.append('expenseDate', expenseDate);
+    fd.append('amount', String(amount));
+    if (String(reimbursementForm.value.vendor || '').trim()) fd.append('vendor', String(reimbursementForm.value.vendor || '').trim());
+    fd.append('purchaseApprovedBy', String(reimbursementForm.value.purchaseApprovedBy || '').trim());
+    fd.append('purchasePreapproved', reimbursementForm.value.purchasePreapproved ? '1' : '0');
+    if (String(reimbursementForm.value.category || '').trim()) fd.append('category', String(reimbursementForm.value.category || '').trim());
+    fd.append('notes', String(reimbursementForm.value.notes || '').trim());
+    fd.append('attestation', reimbursementForm.value.attestation ? '1' : '0');
+    fd.append('receipt', reimbursementForm.value.receiptFile);
+
+    await api.post('/payroll/me/reimbursement-claims', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+
+    showReimbursementModal.value = false;
+    submitSuccess.value = 'Reimbursement submitted successfully. Payroll will review and approve it before it is added to a pay period.';
+    window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    await loadReimbursementClaims();
+  } catch (e) {
+    submitReimbursementError.value = e.response?.data?.error?.message || e.message || 'Failed to submit reimbursement';
+  } finally {
+    submittingReimbursement.value = false;
+  }
+};
+
+const submitCompanyCardExpense = async () => {
+  if (!agencyId.value) return;
+  try {
+    submittingCompanyCardExpense.value = true;
+    submitCompanyCardExpenseError.value = '';
+
+    const expenseDate = String(companyCardExpenseForm.value.expenseDate || '').slice(0, 10);
+    const amount = Number(companyCardExpenseForm.value.amount || 0);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)) {
+      submitCompanyCardExpenseError.value = 'Expense date is required.';
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      submitCompanyCardExpenseError.value = 'Amount must be greater than 0.';
+      return;
+    }
+    if (!String(companyCardExpenseForm.value.notes || '').trim()) {
+      submitCompanyCardExpenseError.value = 'Notes are required.';
+      return;
+    }
+    if (!companyCardExpenseForm.value.receiptFile) {
+      submitCompanyCardExpenseError.value = 'Receipt file is required.';
+      return;
+    }
+    if (!companyCardExpenseForm.value.attestation) {
+      submitCompanyCardExpenseError.value = 'Attestation is required.';
+      return;
+    }
+
+    const fd = new FormData();
+    fd.append('agencyId', String(agencyId.value));
+    fd.append('expenseDate', expenseDate);
+    fd.append('amount', String(amount));
+    if (String(companyCardExpenseForm.value.vendor || '').trim()) fd.append('vendor', String(companyCardExpenseForm.value.vendor || '').trim());
+    if (String(companyCardExpenseForm.value.purpose || '').trim()) fd.append('purpose', String(companyCardExpenseForm.value.purpose || '').trim());
+    fd.append('notes', String(companyCardExpenseForm.value.notes || '').trim());
+    fd.append('attestation', companyCardExpenseForm.value.attestation ? '1' : '0');
+    fd.append('receipt', companyCardExpenseForm.value.receiptFile);
+
+    await api.post('/payroll/me/company-card-expenses', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+
+    showCompanyCardExpenseModal.value = false;
+    submitSuccess.value = 'Company card expense submitted successfully. Admins can review it in payroll submissions.';
+    window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    await loadCompanyCardExpenses();
+  } catch (e) {
+    submitCompanyCardExpenseError.value = e.response?.data?.error?.message || e.message || 'Failed to submit company card expense';
+  } finally {
+    submittingCompanyCardExpense.value = false;
+  }
+};
+
+const deleteCompanyCardExpense = async (c) => {
+  if (!c?.id) return;
+  const ok = window.confirm('Delete this returned submission?');
+  if (!ok) return;
+  try {
+    submitCompanyCardExpenseError.value = '';
+    await api.delete(`/payroll/me/company-card-expenses/${c.id}`, { params: { agencyId: agencyId.value } });
+    await loadCompanyCardExpenses();
+  } catch (e) {
+    submitCompanyCardExpenseError.value = e.response?.data?.error?.message || e.message || 'Failed to delete company card expense';
+  }
+};
+
+const deleteReimbursementClaim = async (c) => {
+  if (!agencyId.value || !c?.id) return;
+  const ok = window.confirm('Delete this returned reimbursement submission? You can then resubmit with corrections.');
+  if (!ok) return;
+  try {
+    submitReimbursementError.value = '';
+    await api.delete(`/payroll/me/reimbursement-claims/${c.id}`, { params: { agencyId: agencyId.value } });
+    await loadReimbursementClaims();
+  } catch (e) {
+    submitReimbursementError.value = e.response?.data?.error?.message || e.message || 'Failed to delete reimbursement';
+  }
+};
+
+const loadTimeClaims = async () => {
+  if (!agencyId.value) return;
+  try {
+    timeClaimsLoading.value = true;
+    timeClaimsError.value = '';
+    const resp = await api.get('/payroll/me/time-claims', { params: { agencyId: agencyId.value } });
+    timeClaims.value = resp.data || [];
+  } catch (e) {
+    timeClaimsError.value = e.response?.data?.error?.message || e.message || 'Failed to load time claims';
+    timeClaims.value = [];
+  } finally {
+    timeClaimsLoading.value = false;
+  }
+};
+
+const timeClaimTypeLabel = (c) => {
+  const t = String(c?.claim_type || '').toLowerCase();
+  if (t === 'meeting_training') return 'Meeting/Training';
+  if (t === 'excess_holiday') return 'Excess/Holiday';
+  if (t === 'service_correction') return 'Service correction';
+  if (t === 'overtime_evaluation') return 'Overtime eval';
+  return t || 'Time';
+};
+
+const submitTimeClaim = async ({ claimType, claimDate, payload }) => {
+  if (!agencyId.value) return;
+  try {
+    submittingTimeClaim.value = true;
+    submitTimeClaimError.value = '';
+    await api.post('/payroll/me/time-claims', {
+      agencyId: agencyId.value,
+      claimType,
+      claimDate,
+      payload
+    });
+    submitSuccess.value = 'Time claim submitted successfully. Payroll will review and approve it before it is added to a pay period.';
+    window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    await loadTimeClaims();
+  } catch (e) {
+    submitTimeClaimError.value = e.response?.data?.error?.message || e.message || 'Failed to submit time claim';
+  } finally {
+    submittingTimeClaim.value = false;
+  }
+};
+
+const deleteTimeClaim = async (c) => {
+  if (!agencyId.value || !c?.id) return;
+  const ok = window.confirm('Delete this returned time claim? You can then resubmit with corrections.');
+  if (!ok) return;
+  try {
+    submitTimeClaimError.value = '';
+    await api.delete(`/payroll/me/time-claims/${c.id}`, { params: { agencyId: agencyId.value } });
+    await loadTimeClaims();
+  } catch (e) {
+    submitTimeClaimError.value = e.response?.data?.error?.message || e.message || 'Failed to delete time claim';
+  }
+};
+
+const openTimeMeetingModal = () => {
+  submitTimeClaimError.value = '';
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  timeMeetingForm.value = { ...timeMeetingForm.value, claimDate: ymd, attestation: false };
+  showTimeMeetingModal.value = true;
+};
+const closeTimeMeetingModal = () => { showTimeMeetingModal.value = false; };
+
+const openTimeExcessModal = () => {
+  submitTimeClaimError.value = '';
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  timeExcessForm.value = { ...timeExcessForm.value, claimDate: ymd, attestation: false };
+  showTimeExcessModal.value = true;
+};
+const closeTimeExcessModal = () => { showTimeExcessModal.value = false; };
+
+const openTimeCorrectionModal = () => {
+  submitTimeClaimError.value = '';
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  timeCorrectionForm.value = { ...timeCorrectionForm.value, claimDate: ymd, attestation: false };
+  showTimeCorrectionModal.value = true;
+};
+const closeTimeCorrectionModal = () => { showTimeCorrectionModal.value = false; };
+
+const openTimeOvertimeModal = () => {
+  submitTimeClaimError.value = '';
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  timeOvertimeForm.value = { ...timeOvertimeForm.value, claimDate: ymd, attestation: false };
+  showTimeOvertimeModal.value = true;
+};
+const closeTimeOvertimeModal = () => { showTimeOvertimeModal.value = false; };
+
+const submitTimeMeeting = async () => {
+  submitTimeClaimError.value = '';
+  await submitTimeClaim({
+    claimType: 'meeting_training',
+    claimDate: timeMeetingForm.value.claimDate,
+    payload: {
+      meetingType: timeMeetingForm.value.meetingType,
+      otherMeeting: timeMeetingForm.value.otherMeeting,
+      startTime: timeMeetingForm.value.startTime,
+      endTime: timeMeetingForm.value.endTime,
+      totalMinutes: Number(timeMeetingForm.value.totalMinutes || 0),
+      platform: timeMeetingForm.value.platform,
+      summary: timeMeetingForm.value.summary,
+      attestation: !!timeMeetingForm.value.attestation
+    }
+  });
+  if (!submitTimeClaimError.value) closeTimeMeetingModal();
+};
+
+const submitTimeExcess = async () => {
+  submitTimeClaimError.value = '';
+  await submitTimeClaim({
+    claimType: 'excess_holiday',
+    claimDate: timeExcessForm.value.claimDate,
+    payload: {
+      directMinutes: Number(timeExcessForm.value.directMinutes || 0),
+      indirectMinutes: Number(timeExcessForm.value.indirectMinutes || 0),
+      reason: timeExcessForm.value.reason,
+      ptoOnly: timeExcessForm.value.ptoOnly,
+      totalTimeWorkedForPto: timeExcessForm.value.totalTimeWorkedForPto,
+      requestOvertimeEvaluation: !!timeExcessForm.value.requestOvertimeEvaluation,
+      attestation: !!timeExcessForm.value.attestation
+    }
+  });
+  if (!submitTimeClaimError.value) closeTimeExcessModal();
+};
+
+const submitTimeCorrection = async () => {
+  submitTimeClaimError.value = '';
+  await submitTimeClaim({
+    claimType: 'service_correction',
+    claimDate: timeCorrectionForm.value.claimDate,
+    payload: {
+      clientInitials: timeCorrectionForm.value.clientInitials,
+      originalService: timeCorrectionForm.value.originalService,
+      correctedService: timeCorrectionForm.value.correctedService,
+      duration: timeCorrectionForm.value.duration,
+      reason: timeCorrectionForm.value.reason,
+      attestation: !!timeCorrectionForm.value.attestation
+    }
+  });
+  if (!submitTimeClaimError.value) closeTimeCorrectionModal();
+};
+
+const submitTimeOvertime = async () => {
+  submitTimeClaimError.value = '';
+  await submitTimeClaim({
+    claimType: 'overtime_evaluation',
+    claimDate: timeOvertimeForm.value.claimDate,
+    payload: {
+      workedOver12Hours: !!timeOvertimeForm.value.workedOver12Hours,
+      datesAndHours: timeOvertimeForm.value.datesAndHours,
+      estimatedWorkweekHours: Number(timeOvertimeForm.value.estimatedWorkweekHours || 0),
+      allDirectServiceRecorded: !!timeOvertimeForm.value.allDirectServiceRecorded,
+      overtimeApproved: !!timeOvertimeForm.value.overtimeApproved,
+      approvedBy: timeOvertimeForm.value.approvedBy,
+      notesForPayroll: timeOvertimeForm.value.notesForPayroll,
+      attestation: !!timeOvertimeForm.value.attestation
+    }
+  });
+  if (!submitTimeClaimError.value) closeTimeOvertimeModal();
+};
+
+const loadMedcancelClaims = async () => {
+  if (!agencyId.value) return;
+  try {
+    medcancelClaimsLoading.value = true;
+    medcancelClaimsError.value = '';
+    const resp = await api.get('/payroll/me/medcancel-claims', { params: { agencyId: agencyId.value } });
+    medcancelClaims.value = resp.data || [];
+  } catch (e) {
+    medcancelClaimsError.value = e.response?.data?.error?.message || e.message || 'Failed to load MedCancel submissions';
+    medcancelClaims.value = [];
+  } finally {
+    medcancelClaimsLoading.value = false;
+  }
+};
+
+const addMedcancelItem = () => {
+  const next = Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items.slice() : [];
+  next.push({ missedServiceCode: '90832', note: '', attestation: false });
+  medcancelForm.value.items = next;
+};
+
+const removeMedcancelItem = (idx) => {
+  const next = Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items.slice() : [];
+  next.splice(idx, 1);
+  medcancelForm.value.items = next;
+};
+
+const submitMedcancel = async () => {
+  if (!agencyId.value) return;
+  try {
+    submittingMedcancel.value = true;
+    submitMedcancelError.value = '';
+    const items = Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items : [];
+    if (!items.length) {
+      submitMedcancelError.value = 'Add at least one missed service.';
+      return;
+    }
+    for (const it of items) {
+      if (!String(it.missedServiceCode || '').trim()) {
+        submitMedcancelError.value = 'Each missed service requires a code.';
+        return;
+      }
+      if (!String(it.note || '').trim()) {
+        submitMedcancelError.value = 'Each missed service requires a note.';
+        return;
+      }
+      if (!it.attestation) {
+        submitMedcancelError.value = 'Each missed service requires attestation.';
+        return;
+      }
+    }
+    await api.post('/payroll/me/medcancel-claims', {
+      agencyId: agencyId.value,
+      claimDate: medcancelForm.value.claimDate,
+      schoolOrganizationId: medcancelForm.value.schoolOrganizationId,
+      items: items.map((it) => ({
+        missedServiceCode: String(it.missedServiceCode || '').trim(),
+        note: String(it.note || '').trim(),
+        attestation: !!it.attestation
+      }))
+    });
+    showMedcancelModal.value = false;
+    submitSuccess.value = 'Med Cancel submission sent successfully. Payroll will review and approve it before it is added to a pay period.';
+    window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    await loadMedcancelClaims();
+  } catch (e) {
+    submitMedcancelError.value = e.response?.data?.error?.message || e.message || 'Failed to submit MedCancel';
+  } finally {
+    submittingMedcancel.value = false;
+  }
+};
+
+const deleteMileageClaim = async (c) => {
+  if (!agencyId.value || !c?.id) return;
+  const ok = window.confirm('Delete this returned mileage submission? You can then resubmit with corrections.');
+  if (!ok) return;
+  try {
+    submitMileageError.value = '';
+    await api.delete(`/payroll/me/mileage-claims/${c.id}`, { params: { agencyId: agencyId.value } });
+    await loadMileageClaims();
+  } catch (e) {
+    submitMileageError.value = e.response?.data?.error?.message || e.message || 'Failed to delete mileage claim';
+  }
+};
+
+const deleteMedcancelClaim = async (c) => {
+  if (!agencyId.value || !c?.id) return;
+  const ok = window.confirm('Delete this returned Med Cancel submission? You can then resubmit with corrections.');
+  if (!ok) return;
+  try {
+    submitMedcancelError.value = '';
+    await api.delete(`/payroll/me/medcancel-claims/${c.id}`, { params: { agencyId: agencyId.value } });
+    await loadMedcancelClaims();
+  } catch (e) {
+    submitMedcancelError.value = e.response?.data?.error?.message || e.message || 'Failed to delete Med Cancel claim';
+  }
+};
+
+const load = async () => {
+  if (!agencyId.value) return;
+  try {
+    loading.value = true;
+    error.value = '';
+    const resp = await api.get('/payroll/me/periods', { params: { agencyId: agencyId.value } });
+    periods.value = (resp.data || []).map((p) => {
+      if (typeof p.breakdown === 'string') {
+        try { p.breakdown = JSON.parse(p.breakdown); } catch { /* ignore */ }
+      }
+      return p;
+    });
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to load payroll';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const toggle = (id) => {
+  expandedId.value = expandedId.value === id ? null : id;
+};
+
+watch(agencyId, async () => {
+  expandedId.value = null;
+  await load();
+  await loadMileageClaims();
+  await loadMileageSchools();
+  await loadMileageOffices();
+  if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
+    await loadMedcancelClaims();
+  } else {
+    medcancelClaims.value = [];
+    medcancelClaimsError.value = '';
+  }
+  await loadReimbursementClaims();
+  await loadCompanyCardExpenses();
+  await loadTimeClaims();
+});
+
+watch(
+  () => route.query?.submission,
+  async (v) => {
+    if (!v) return;
+    // Ensure the supporting data is loaded for dropdowns before opening modals.
+    await loadMileageSchools();
+    await loadMileageOffices();
+    await loadMyHomeAddress();
+
+    const key = String(v || '');
+    if (key === 'school_mileage') {
+      if (!inSchoolEnabled.value) {
+        submitMileageError.value = 'In-School submissions are disabled for this organization.';
+        return;
+      }
+      openMileageModal('school_travel');
+    } else if (key === 'mileage') {
+      openMileageModal('standard');
+    } else if (key === 'medcancel') {
+      if (!authStore.user?.medcancelEnabled || !medcancelEnabledForAgency.value) {
+        submitMedcancelError.value = 'Med Cancel is disabled for this organization.';
+        return;
+      }
+      openMedcancelModal();
+    } else if (key === 'reimbursement') {
+      openReimbursementModal();
+    } else if (key === 'company_card_expense') {
+      openCompanyCardExpenseModal();
+    } else if (key === 'time_meeting_training') {
+      openTimeMeetingModal();
+    } else if (key === 'time_excess_holiday') {
+      openTimeExcessModal();
+    } else if (key === 'time_service_correction') {
+      openTimeCorrectionModal();
+    } else if (key === 'time_overtime_evaluation') {
+      openTimeOvertimeModal();
+    }
+
+    // Clear the query so refresh/back doesn't keep reopening.
+    const next = { ...route.query };
+    delete next.submission;
+    router.replace({ query: next });
+  },
+  { immediate: true }
+);
+
+onMounted(async () => {
+  await loadMyHomeAddress();
+  await load();
+  await loadMileageClaims();
+  if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
+    await loadMedcancelClaims();
+  }
+  await loadReimbursementClaims();
+  await loadCompanyCardExpenses();
+  await loadTimeClaims();
+});
+</script>
+
+<style scoped>
+.my-payroll .header .subtitle {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+}
+.table-wrap {
+  overflow: auto;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table th,
+.table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.right {
+  text-align: right;
+}
+.muted {
+  color: var(--text-secondary);
+}
+.warn-box {
+  border: 1px solid #ffe58f;
+  background: #fffbe6;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.current-unpaid-notes {
+  border: 1px solid #ffd8a8;
+  background: #fff4e6;
+}
+.current-unpaid-notes strong {
+  color: #b45309;
+}
+.old-notes-alert {
+  border: 1px solid #ffb5b5;
+  background: #ffecec;
+}
+.old-notes-alert strong {
+  color: #b42318;
+  font-weight: 800;
+}
+.clickable {
+  cursor: pointer;
+}
+.clickable:hover td {
+  background: #f9fafb;
+}
+.period-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.period-title .chev {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.controls {
+  display: flex;
+  gap: 12px;
+  margin: 10px 0;
+  flex-wrap: wrap;
+}
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.control .label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.claims-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 900px) {
+  .claims-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.claim-summary {
+  list-style: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+}
+.claim-summary::-webkit-details-marker {
+  display: none;
+}
+.claim-title {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.claim-card[open] .claim-summary {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.claim-card {
+  padding: 12px 14px;
+}
+.claim-card .muted {
+  font-size: 12px;
+}
+.periods {
+  margin-top: 10px;
+  max-width: 980px;
+}
+.periods-head {
+  display: grid;
+  grid-template-columns: 1fr 240px 90px 140px;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.period-row {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 1fr 240px 90px 140px;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+  margin-top: 10px;
+  cursor: pointer;
+}
+.period-row.shade-a {
+  background: #ffffff;
+}
+.period-row.shade-b {
+  background: #f8fafc;
+}
+.period-row:hover {
+  background: #f9fafb;
+}
+.period-row.active {
+  border-color: #111827;
+}
+.tier-cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.period-title .title strong {
+  font-weight: 800;
+}
+@media (max-width: 860px) {
+  .periods-head {
+    display: none;
+  }
+  .period-row {
+    grid-template-columns: 1fr;
+  }
+}
+.paytype {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.paytype-head,
+.paytype-row {
+  display: grid;
+  grid-template-columns: 1fr 110px 140px 140px;
+  gap: 10px;
+  align-items: baseline;
+}
+.paytype-head {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.paytype-row .code {
+  font-weight: 600;
+}
+.card {
+  margin-top: 12px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+.card-title {
+  margin: 0 0 10px 0;
+}
+.row {
+  margin: 6px 0;
+}
+.di-grid {
+  display: grid;
+  grid-template-columns: 1fr 110px 110px 110px;
+  gap: 6px 10px;
+  align-items: baseline;
+}
+.di-head {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.codes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.codes-head {
+  display: grid;
+  grid-template-columns: 1fr repeat(6, minmax(72px, 92px));
+  gap: 6px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.code-row {
+  display: grid;
+  grid-template-columns: 1fr repeat(6, minmax(72px, 92px));
+  gap: 6px;
+  align-items: baseline;
+}
+.code {
+  font-weight: 600;
+}
+.adjustments {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.error-box {
+  background: #ffecec;
+  border: 1px solid #ffb5b5;
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin: 10px 0;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  z-index: 50;
+}
+.modal {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  width: min(900px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+.modal-title {
+  font-weight: 700;
+}
+.hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.field-row {
+  display: grid;
+  gap: 10px;
+}
+.field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  color: var(--text-primary);
+}
+.btn {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.btn.btn-primary {
+  background: #111827;
+  color: white;
+  border-color: #111827;
+}
+.btn.btn-secondary {
+  background: #f9fafb;
+}
+.btn.btn-sm {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+</style>
+

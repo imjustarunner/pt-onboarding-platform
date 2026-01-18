@@ -118,7 +118,12 @@ export const completeModule = async (req, res, next) => {
 
     // Get time spent in module
     const moduleProgress = await UserProgress.findByUserAndModule(userId, moduleId);
-    const totalSeconds = moduleProgress ? (moduleProgress.time_spent_minutes || 0) * 60 + (moduleProgress.time_spent_seconds || 0) : 0;
+    const totalSeconds = (() => {
+      const s = Number(moduleProgress?.time_spent_seconds || 0);
+      if (Number.isFinite(s) && s > 0) return Math.floor(s);
+      const m = Number(moduleProgress?.time_spent_minutes || 0);
+      return Number.isFinite(m) && m > 0 ? Math.floor(m * 60) : 0;
+    })();
 
     // Log module completion activity using centralized service
     ActivityLogService.logActivity({
@@ -145,7 +150,13 @@ export const logTime = async (req, res, next) => {
     }
 
     const userId = req.user.id;
-    const { moduleId, sessionStart, sessionEnd, durationMinutes } = req.body;
+    const { moduleId, sessionStart, sessionEnd, durationMinutes, durationSeconds } = req.body;
+
+    const seconds =
+      durationSeconds !== undefined && durationSeconds !== null && durationSeconds !== ''
+        ? Math.max(0, parseInt(durationSeconds, 10) || 0)
+        : Math.max(0, Math.floor((parseInt(durationMinutes, 10) || 0) * 60));
+    const minutesForLog = Math.floor(seconds / 60);
 
     // Log time in time_logs table
     await TimeLog.create({
@@ -153,22 +164,22 @@ export const logTime = async (req, res, next) => {
       moduleId,
       sessionStart: new Date(sessionStart),
       sessionEnd: sessionEnd ? new Date(sessionEnd) : null,
-      durationMinutes
+      durationMinutes: minutesForLog
     });
 
     // Update total time in user_progress
-    await UserProgress.logTime(userId, moduleId, durationMinutes);
+    await UserProgress.logTime(userId, moduleId, seconds);
 
-    const durationSeconds = Math.floor(durationMinutes * 60);
+    const loggedSeconds = seconds;
 
     // Log module end activity using centralized service
     ActivityLogService.logActivity({
       actionType: 'module_end',
       moduleId: parseInt(moduleId),
-      durationSeconds,
+      durationSeconds: loggedSeconds,
       metadata: {
         moduleId: parseInt(moduleId),
-        durationMinutes,
+        durationMinutes: minutesForLog,
         sessionStart,
         sessionEnd
       }

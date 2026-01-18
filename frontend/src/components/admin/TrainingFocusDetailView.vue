@@ -39,6 +39,17 @@
           <span>{{ modules.length }}</span>
         </div>
       </div>
+      
+      <div v-if="userId" class="training-focus-info" style="margin-top: 12px;">
+        <div class="info-item">
+          <strong>Total time (this focus):</strong>
+          <span>{{ formatSeconds(focusTimeSeconds) }}</span>
+        </div>
+        <div class="info-item">
+          <strong>Total time (all training):</strong>
+          <span>{{ formatSeconds(overallTimeSeconds) }}</span>
+        </div>
+      </div>
 
       <div class="modules-section">
         <h3>Modules in this Training Focus</h3>
@@ -72,6 +83,9 @@
                   <span v-if="getModuleProgress(module.id)" class="badge badge-info">
                     {{ getModuleProgress(module.id).status || 'Not Started' }}
                   </span>
+                  <div v-if="getModuleProgress(module.id)" class="text-muted" style="margin-top: 4px;">
+                    {{ formatSeconds(getModuleProgress(module.id).timeSpent || 0) }}
+                  </div>
                   <span v-else class="text-muted">Not assigned</span>
                 </td>
                 <td>
@@ -162,7 +176,7 @@
     </div>
     
     <!-- Content Editor Modal -->
-    <div v-if="showContentModal && currentModule" class="modal-overlay" @click.self="closeContentModal">
+    <div v-if="showContentModal && currentModule" class="modal-overlay modal-overlay-top" @click.self="closeContentModal">
       <div class="modal-content large" @click.stop>
         <div class="modal-header">
           <h3>Manage Content: {{ currentModule.title }}</h3>
@@ -210,10 +224,21 @@ const selectedModuleForAssignment = ref(null);
 const availableModules = ref([]);
 const loadingAvailableModules = ref(false);
 const moduleProgress = ref({});
+const focusTimeSeconds = ref(0);
+const overallTimeSeconds = ref(0);
 const editingModule = ref(null);
 const showContentModal = ref(false);
 const currentModule = ref(null);
 const saving = ref(false);
+
+const formatSeconds = (totalSeconds) => {
+  const s = Math.max(0, Math.floor(Number(totalSeconds || 0)));
+  const hours = Math.floor(s / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  return `${minutes}:${String(secs).padStart(2, '0')}`;
+};
 
 const moduleForm = ref({
   title: '',
@@ -405,9 +430,11 @@ const fetchUserProgress = async () => {
   try {
     // Fetch user's progress for modules in this training focus
     const progressRes = await api.get(`/agencies/${trainingFocus.value.agency_id}/users/${props.userId}/progress`);
+    overallTimeSeconds.value = Number(progressRes.data?.totalTimeSpent?.seconds || 0);
     if (progressRes.data && progressRes.data.tracks) {
       const track = progressRes.data.tracks.find(t => t.trackId === trainingFocus.value.id);
       if (track && track.modules) {
+        focusTimeSeconds.value = Number(track.timeSpent?.totalSeconds || 0);
         const progressMap = {};
         track.modules.forEach(mod => {
           progressMap[mod.moduleId] = {
@@ -455,6 +482,11 @@ onMounted(async () => {
   justify-content: center;
   align-items: center;
   z-index: 1000;
+}
+
+.modal-overlay-top {
+  /* Ensure nested modals (e.g. ContentEditor) sit above the Training Focus modal */
+  z-index: 1200;
 }
 
 .modal-content {

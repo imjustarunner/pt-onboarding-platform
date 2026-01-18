@@ -54,6 +54,8 @@
             :module-id="module.id"
             :enabled="hasStarted"
             @time-update="handleTimeUpdate"
+            @session-seconds="handleSessionSeconds"
+            :disable-idle-timeout="String(currentContent?.content_type || '').toLowerCase() === 'video'"
           />
           
           <div v-if="currentContent" class="content-viewer">
@@ -323,10 +325,24 @@
       </div>
     </div>
   </div>
+
+  <!-- Expected-time warning modal -->
+  <div v-if="showExpectedTimeWarning" class="expected-time-overlay" @click="dismissExpectedTimeWarning">
+    <div class="expected-time-modal" @click.stop>
+      <h3 style="margin: 0 0 8px 0;">Time warning</h3>
+      <div class="muted">
+        Your time on this module has surpassed 10 minutes longer than the average time it takes to complete this module.
+        Please reach out to your administrator if you are having technical difficulties or require additional support.
+      </div>
+      <div style="margin-top: 14px; display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn btn-primary" type="button" @click="dismissExpectedTimeWarning">OK</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watchEffect } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import VideoPlayer from '../components/VideoPlayer.vue';
@@ -337,9 +353,11 @@ import TimeTracker from '../components/TimeTracker.vue';
 import AcknowledgmentForm from '../components/AcknowledgmentForm.vue';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import { getDashboardRoute } from '../utils/router';
+import { useAuthStore } from '../store/auth';
 
 const route = useRoute();
 const router = useRouter();
+const authStore = useAuthStore();
 
 const module = ref(null);
 const content = ref([]);
@@ -614,9 +632,50 @@ const previousContent = () => {
   }
 };
 
-const handleTimeUpdate = (durationMinutes) => {
-  // Time is logged by TimeTracker component
+const handleTimeUpdate = (_durationSeconds) => {
+  // Time is logged by TimeTracker component.
 };
+
+const sessionSeconds = ref(0);
+const handleSessionSeconds = (secs) => {
+  sessionSeconds.value = Number(secs || 0);
+};
+
+const showExpectedTimeWarning = ref(false);
+const dismissExpectedTimeWarning = () => {
+  showExpectedTimeWarning.value = false;
+};
+
+watchEffect(() => {
+  // Only show this once per user+module, and never in preview mode.
+  if (route.query.preview === 'true') return;
+  if (!hasStarted.value) return;
+  if (progress.value?.status === 'completed') return;
+
+  const moduleId = parseInt(route.params.id);
+  if (!Number.isFinite(moduleId) || moduleId <= 0) return;
+
+  const expectedMinutes = Number(module.value?.estimated_time_minutes || 0);
+  if (!Number.isFinite(expectedMinutes) || expectedMinutes <= 0) return;
+
+  const savedSecondsRaw = Number(progress.value?.time_spent_seconds || 0);
+  const savedMinutesRaw = Number(progress.value?.time_spent_minutes || 0);
+  const savedSeconds =
+    Number.isFinite(savedSecondsRaw) && savedSecondsRaw > 0
+      ? Math.floor(savedSecondsRaw)
+      : (Number.isFinite(savedMinutesRaw) && savedMinutesRaw > 0 ? Math.floor(savedMinutesRaw * 60) : 0);
+
+  const totalSeconds = savedSeconds + Math.max(0, Math.floor(Number(sessionSeconds.value || 0)));
+  const thresholdSeconds = Math.floor((expectedMinutes + 10) * 60);
+  if (totalSeconds < thresholdSeconds) return;
+
+  const userId = authStore.user?.id || 'anon';
+  const key = `expected-time-warning:${userId}:${moduleId}`;
+  if (localStorage.getItem(key) === '1') return;
+
+  localStorage.setItem(key, '1');
+  showExpectedTimeWarning.value = true;
+});
 
 const handleQuizCompleted = async (quizData) => {
   // Quiz completion handled by QuizForm
@@ -837,6 +896,27 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 55vh;
+}
+
+.expected-time-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 9999;
+}
+
+.expected-time-modal {
+  width: 100%;
+  max-width: 520px;
+  background: white;
+  border-radius: 12px;
+  padding: 18px 18px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
 }
 
 .splash-card {

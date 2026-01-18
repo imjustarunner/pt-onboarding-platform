@@ -37,9 +37,9 @@
           <label>Role *</label>
           <select v-model="selectedRole" required>
             <option value="">Select a role</option>
-            <option value="support">Support</option>
+            <option value="support">Staff</option>
             <option value="supervisor">Supervisor</option>
-            <option value="staff">Staff</option>
+            <option value="staff">Onboarding Staff</option>
             <option value="clinician">Clinician</option>
             <option value="facilitator">Facilitator</option>
             <option value="intern">Intern</option>

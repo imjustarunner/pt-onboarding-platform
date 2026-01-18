@@ -1,7 +1,7 @@
 <template>
   <div class="modal-overlay" @click="$emit('close')">
     <div class="modal-content" @click.stop>
-      <h2>Copy Module: {{ module.title }}</h2>
+      <h2>Duplicate Module: {{ module.title }}</h2>
       
       <div v-if="loadingPreview" class="loading">Loading preview...</div>
       <div v-else-if="previewError" class="error">{{ previewError }}</div>
@@ -63,13 +63,13 @@
         </div>
         
         <div class="info-box">
-          <p><strong>Note:</strong> This will create a completely independent copy of the module. All content (videos, slides, quizzes) will be copied with variable substitutions applied.</p>
+          <p><strong>Note:</strong> This will create a completely independent duplicate of the module. All content (videos, slides, quizzes) will be duplicated with variable substitutions applied.</p>
         </div>
         
         <div class="modal-actions">
           <button type="button" @click="$emit('close')" class="btn btn-secondary">Cancel</button>
           <button type="submit" class="btn btn-primary" :disabled="!targetAgencyId || copying">
-            {{ copying ? 'Copying...' : 'Copy Module' }}
+            {{ copying ? 'Duplicating...' : 'Duplicate Module' }}
           </button>
         </div>
       </form>

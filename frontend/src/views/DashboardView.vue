@@ -12,6 +12,7 @@
     <div v-else class="dashboard-header-user">
       <h1>{{ isPending ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
       <span class="badge badge-user">Personal</span>
+      <span v-if="tierBadgeText" class="badge badge-tier" :class="tierBadgeKind">{{ tierBadgeText }}</span>
     </div>
     
     <!-- Pending Completion Button -->
@@ -86,7 +87,10 @@
         v-for="card in dashboardCards"
         :key="card.id"
         class="dash-card"
-        :class="{ active: card.kind === 'content' && activeTab === card.id }"
+        :class="{
+          active: card.kind === 'content' && activeTab === card.id,
+          'dash-card-submit': card.id === 'submit'
+        }"
         :disabled="previewMode"
         @click="handleCardClick(card)"
       >
@@ -100,6 +104,131 @@
           <span class="dash-card-cta">{{ card.kind === 'link' ? 'Open' : 'View' }}</span>
         </div>
       </button>
+    </div>
+
+    <!-- Submit modal (claims hub) -->
+    <div v-if="showSubmitModal" class="modal-overlay" @click.self="closeSubmitModal">
+      <div class="modal-content" @click.stop>
+        <div class="section-header">
+          <h2 style="margin: 0;">Submit</h2>
+          <button class="btn btn-secondary btn-sm" @click="closeSubmitModal">Close</button>
+        </div>
+
+        <div v-if="submitModalView === 'root'">
+          <div class="fields-grid" style="margin-top: 12px;">
+            <button v-if="inSchoolEnabled" type="button" class="dash-card dash-card-submit" @click="openInSchoolClaims">
+              <div class="dash-card-title">In-School Claims</div>
+              <div class="dash-card-desc">School Mileage and Med Cancel.</div>
+              <div class="dash-card-meta">
+                <span class="dash-card-cta">Open</span>
+              </div>
+            </button>
+
+            <button type="button" class="dash-card" @click="goToSubmission('mileage')">
+              <div class="dash-card-title">Mileage</div>
+              <div class="dash-card-desc">Submit other mileage.</div>
+              <div class="dash-card-meta">
+                <span class="dash-card-cta">Open</span>
+              </div>
+            </button>
+
+            <button type="button" class="dash-card" @click="goToSubmission('reimbursement')">
+              <div class="dash-card-title">Reimbursement</div>
+              <div class="dash-card-desc">Upload a receipt and submit for approval.</div>
+              <div class="dash-card-meta">
+                <span class="dash-card-cta">Open</span>
+              </div>
+            </button>
+
+            <button
+              v-if="authStore.user?.companyCardEnabled"
+              type="button"
+              class="dash-card"
+              @click="goToSubmission('company_card_expense')"
+            >
+              <div class="dash-card-title">Submit Expense (Company Card)</div>
+              <div class="dash-card-desc">Submit company card purchases for tracking/review.</div>
+              <div class="dash-card-meta">
+                <span class="dash-card-cta">Open</span>
+              </div>
+            </button>
+
+            <button type="button" class="dash-card" @click="openTimeClaims">
+              <div class="dash-card-title">Time Claim</div>
+              <div class="dash-card-desc">Attendance, holiday/excess time, service corrections.</div>
+              <div class="dash-card-meta">
+                <span class="dash-card-cta">Open</span>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div v-else>
+          <div class="hint" style="margin-top: 6px;">{{ submitModalView === 'time' ? 'Time Claims' : 'In-School Claims' }}</div>
+          <div class="submit-grid-2" style="margin-top: 12px;">
+            <template v-if="submitModalView === 'time'">
+              <button type="button" class="dash-card" @click="goToSubmission('time_meeting_training')">
+                <div class="dash-card-title">Meeting / Training Attendance</div>
+                <div class="dash-card-desc">Log meeting/training minutes.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open</span>
+                </div>
+              </button>
+
+              <button type="button" class="dash-card" @click="goToSubmission('time_excess_holiday')">
+                <div class="dash-card-title">Excess / Holiday Time</div>
+                <div class="dash-card-desc">Submit direct/indirect minutes for review.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open</span>
+                </div>
+              </button>
+
+              <button type="button" class="dash-card" @click="goToSubmission('time_service_correction')">
+                <div class="dash-card-title">Service Correction</div>
+                <div class="dash-card-desc">Request correction review for a service.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open</span>
+                </div>
+              </button>
+
+              <button type="button" class="dash-card" @click="goToSubmission('time_overtime_evaluation')">
+                <div class="dash-card-title">Overtime Evaluation</div>
+                <div class="dash-card-desc">Submit overtime evaluation details.</div>
+                <div class="dash-card-meta">
+                  <span class="dash-card-cta">Open</span>
+                </div>
+              </button>
+            </template>
+
+            <template v-else>
+            <button type="button" class="dash-card" @click="goToSubmission('school_mileage')">
+              <div class="dash-card-title">School Mileage</div>
+              <div class="dash-card-desc">Home ↔ School minus Home ↔ Office (auto).</div>
+              <div class="dash-card-meta">
+                <span class="dash-card-cta">Open</span>
+              </div>
+            </button>
+
+            <button
+              v-if="authStore.user?.medcancelEnabled && medcancelEnabledForAgency"
+              type="button"
+              class="dash-card"
+              @click="goToSubmission('medcancel')"
+            >
+              <div class="dash-card-title">Med Cancel</div>
+              <div class="dash-card-desc">Missed Medicaid sessions.</div>
+              <div class="dash-card-meta">
+                <span class="dash-card-cta">Open</span>
+              </div>
+            </button>
+            </template>
+          </div>
+
+          <div class="actions" style="margin-top: 14px; justify-content: flex-start;">
+            <button type="button" class="btn btn-secondary" @click="submitModalView = 'root'">Back</button>
+          </div>
+        </div>
+      </div>
     </div>
     
     <!-- Card Content (for content cards) -->
@@ -121,6 +250,10 @@
         v-show="activeTab === 'checklist'"
         @update-count="updateChecklistCount"
       />
+
+      <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'payroll'" class="my-panel">
+        <MyPayrollTab />
+      </div>
 
       <!-- My Account (nested inside dashboard) -->
       <div
@@ -153,6 +286,22 @@
           >
             My Preferences
           </button>
+          <button
+            type="button"
+            class="subtab"
+            :class="{ active: myTab === 'payroll' }"
+            @click="setMyTab('payroll')"
+          >
+            My Payroll
+          </button>
+          <button
+            type="button"
+            class="subtab"
+            :class="{ active: myTab === 'compensation' }"
+            @click="setMyTab('compensation')"
+          >
+            My Compensation
+          </button>
         </div>
 
         <div v-show="myTab === 'account'">
@@ -167,6 +316,12 @@
             <p class="preferences-subtitle">Manage your personal settings and preferences</p>
           </div>
           <UserPreferencesHub v-if="authStore.user?.id" :userId="authStore.user.id" />
+        </div>
+        <div v-show="myTab === 'payroll'">
+          <MyPayrollTab />
+        </div>
+        <div v-show="myTab === 'compensation'">
+          <MyCompensationTab />
         </div>
       </div>
       
@@ -195,6 +350,8 @@ import BrandingLogo from '../components/BrandingLogo.vue';
 import UserPreferencesHub from '../components/UserPreferencesHub.vue';
 import CredentialsView from './CredentialsView.vue';
 import AccountInfoView from './AccountInfoView.vue';
+import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
+import MyCompensationTab from '../components/dashboard/MyCompensationTab.vue';
 
 const props = defineProps({
   previewMode: {
@@ -217,7 +374,7 @@ const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
 const activeTab = ref('checklist');
-const myTab = ref('account'); // 'account' | 'credentials' | 'preferences'
+const myTab = ref('account'); // 'account' | 'credentials' | 'preferences' | 'payroll'
 const onboardingCompletion = ref(100);
 const trainingCount = ref(0);
 const documentsCount = ref(0);
@@ -227,6 +384,13 @@ const daysRemaining = ref(null);
 const downloading = ref(false);
 const isPending = ref(false);
 const pendingCompletionStatus = ref(null);
+const tierBadgeText = ref('');
+const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
+
+const currentAgencyId = computed(() => {
+  const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  return a?.id || null;
+});
 
 const tabs = computed(() => [
   { id: 'checklist', label: 'Checklist', badgeCount: checklistCount.value },
@@ -235,10 +399,22 @@ const tabs = computed(() => [
 ]);
 
 const isOnboardingComplete = computed(() => {
+  // Privileged roles should always have access to the "My" area (account + payroll),
+  // even if their lifecycle status doesn't match the employee workflow.
+  const role = authStore.user?.role;
+  if (role === 'super_admin' || role === 'admin' || role === 'support') return true;
+
   const st = userStatus.value;
   // Approved employees should always be able to access on-demand + prefs.
   if (authStore.user?.type === 'approved_employee') return true;
-  return st === 'ACTIVE_EMPLOYEE' || st === 'active' || st === 'completed';
+  const lower = String(st || '').toLowerCase();
+  return (
+    lower === 'active_employee' ||
+    lower === 'active' ||
+    lower === 'completed' ||
+    lower === 'terminated_pending' ||
+    lower === 'terminated'
+  );
 });
 
 // Agency logo URL for preview mode
@@ -274,6 +450,22 @@ const dashboardCards = computed(() => {
   // Post-onboarding cards
   if (isOnboardingComplete.value) {
     cards.push({
+      id: 'submit',
+      label: 'Submit',
+      kind: 'action',
+      badgeCount: 0,
+      iconUrl: null,
+      description: 'Submit mileage, in-school claims, and more.'
+    });
+    cards.push({
+      id: 'payroll',
+      label: 'Payroll',
+      kind: 'content',
+      badgeCount: 0,
+      iconUrl: brandingStore.getDashboardCardIconUrl('payroll'),
+      description: 'Your payroll history by pay period.'
+    });
+    cards.push({
       id: 'my',
       label: 'My Account',
       kind: 'content',
@@ -297,6 +489,11 @@ const dashboardCards = computed(() => {
 
 const handleCardClick = (card) => {
   if (props.previewMode) return;
+  if (card.kind === 'action' && card.id === 'submit') {
+    showSubmitModal.value = true;
+    submitModalView.value = 'root';
+    return;
+  }
   if (card.kind === 'link' && card.to) {
     router.push(card.to);
     return;
@@ -320,14 +517,54 @@ const setMyTab = (tab) => {
 const syncFromQuery = () => {
   if (props.previewMode) return;
   const qTab = route.query?.tab;
-  if (typeof qTab === 'string' && ['checklist', 'training', 'documents', 'my'].includes(qTab)) {
+  if (typeof qTab === 'string' && ['checklist', 'training', 'documents', 'my', 'payroll'].includes(qTab)) {
     activeTab.value = qTab;
   }
 
   const qMy = route.query?.my;
-  if (typeof qMy === 'string' && ['account', 'credentials', 'preferences'].includes(qMy)) {
+  if (typeof qMy === 'string' && ['account', 'credentials', 'preferences', 'payroll', 'compensation'].includes(qMy)) {
     myTab.value = qMy;
   }
+};
+
+const showSubmitModal = ref(false);
+const submitModalView = ref('root'); // 'root' | 'in_school' | 'time'
+
+const closeSubmitModal = () => {
+  showSubmitModal.value = false;
+  submitModalView.value = 'root';
+};
+
+const openTimeClaims = () => {
+  submitModalView.value = 'time';
+};
+
+const parseFeatureFlags = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) || {}; } catch { return {}; }
+  }
+  return {};
+};
+
+const agencyFlags = computed(() => parseFeatureFlags(agencyStore.currentAgency?.feature_flags));
+const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
+const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
+
+const openInSchoolClaims = () => {
+  if (!inSchoolEnabled.value) {
+    window.alert('In-School submissions are disabled for this organization.');
+    return;
+  }
+  submitModalView.value = 'in_school';
+};
+
+const goToSubmission = (kind) => {
+  // Use My -> My Payroll as the actual submission surface (it already has the modals/forms).
+  closeSubmitModal();
+  setMyTab('payroll');
+  router.replace({ query: { ...route.query, tab: 'my', my: 'payroll', submission: kind } });
 };
 
 const updateTrainingCount = (count) => {
@@ -403,6 +640,31 @@ const fetchOnboardingStatus = async () => {
   }
 };
 
+const loadCurrentTier = async () => {
+  if (props.previewMode) return;
+  if (!isOnboardingComplete.value) return;
+  if (!currentAgencyId.value) return;
+  try {
+    const api = (await import('../services/api')).default;
+    const resp = await api.get('/payroll/me/current-tier', { params: { agencyId: currentAgencyId.value } });
+    const t = resp.data?.tier || null;
+    const label = String(t?.label || '').trim();
+    const status = String(t?.status || '').trim().toLowerCase();
+    tierBadgeText.value = label || '';
+    if (!tierBadgeText.value) {
+      tierBadgeKind.value = '';
+      return;
+    }
+    tierBadgeKind.value =
+      status === 'grace' ? 'tier-grace'
+        : status === 'current' ? 'tier-current'
+          : 'tier-ooc';
+  } catch {
+    tierBadgeText.value = '';
+    tierBadgeKind.value = '';
+  }
+};
+
 const handlePendingCompleted = () => {
   if (props.previewMode) return; // Disable in preview mode
   // Redirect to completion view
@@ -449,10 +711,26 @@ watch(() => [route.query?.tab, route.query?.my], () => {
 onMounted(async () => {
   await fetchOnboardingStatus();
   syncFromQuery();
+  await loadCurrentTier();
+});
+
+watch([currentAgencyId, isOnboardingComplete], async () => {
+  await loadCurrentTier();
 });
 </script>
 
 <style scoped>
+/* Tighter grid for In-School Claims options */
+.submit-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  .submit-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
 h1 {
   margin-bottom: 30px;
   color: #2c3e50;
@@ -538,6 +816,17 @@ h1 {
   padding: 14px;
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dash-card-submit {
+  background: #ecfeff;
+  border-color: #67e8f9;
+}
+.dash-card-submit .dash-card-title {
+  color: #0e7490;
+}
+.dash-card-submit .dash-card-cta {
+  color: #0e7490;
 }
 
 .dash-card-icon {
@@ -793,6 +1082,32 @@ h1 {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.badge-tier {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+}
+.badge-tier.tier-current {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #166534;
+}
+.badge-tier.tier-grace {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #92400e;
+}
+.badge-tier.tier-ooc {
+  background: rgba(239, 68, 68, 0.10);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #991b1b;
 }
 
 .dash-card:disabled {

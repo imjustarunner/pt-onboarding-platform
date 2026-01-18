@@ -58,7 +58,11 @@
         </thead>
         <tbody>
           <tr v-for="user in sortedUsers" :key="user.id">
-            <td>{{ user.first_name }} {{ user.last_name }}</td>
+            <td>
+              <router-link :to="`/admin/users/${user.id}`" class="user-name-link">
+                {{ user.first_name }} {{ user.last_name }}
+              </router-link>
+            </td>
             <td>{{ user.email }}</td>
             <td>{{ user.agencies || 'No Agency' }}</td>
             <td>
@@ -77,7 +81,6 @@
             <td class="actions-cell">
               <div class="action-buttons">
                 <router-link :to="`/admin/users/${user.id}`" class="btn btn-primary btn-sm">View Profile</router-link>
-                <button v-if="!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'" @click="editUser(user)" class="btn btn-secondary btn-sm">Edit</button>
                 <button 
                   v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'pending') && !user.pending_access_locked && !isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'" 
                   @click="showPendingCompleteModal(user)" 
@@ -314,17 +317,17 @@
                 <select v-model="userForm.role" required>
                   <option v-if="user?.role === 'super_admin'" value="super_admin">Super Admin</option>
                   <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="admin">Admin</option>
-                  <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Support</option>
+                  <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff</option>
                   <option value="supervisor">Supervisor</option>
                   <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
-                  <option value="staff">Staff</option>
+                  <option value="staff">Onboarding Staff</option>
                   <option value="clinician">Clinician</option>
                   <option value="facilitator">Facilitator</option>
                   <option value="intern">Intern</option>
                 </select>
                 <small v-if="userForm.role === 'super_admin' && user?.role !== 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
                 <small v-else-if="userForm.role === 'admin' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
-                <small v-else-if="userForm.role === 'support' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the support role</small>
+                <small v-else-if="userForm.role === 'support' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the staff role</small>
               </div>
 
               <div v-if="['admin','support','staff'].includes(userForm.role)" class="form-group">
@@ -457,13 +460,28 @@
               disabled
             />
           </div>
-          <div class="form-group">
-            <label>Password (leave blank to keep current)</label>
-            <input
-              v-model="userForm.password"
-              type="password"
-              minlength="6"
-            />
+          
+          <div v-if="canManageLoginAliasesForEditingUser" class="form-group">
+            <label>Additional login emails (for multi-organization users)</label>
+            <div class="form-help" style="margin-bottom: 8px;">
+              These emails can also be used to log into the same account. Useful for different agency brandings (e.g. `/agency` vs `/agency2`).
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input v-model="userForm.newLoginEmailAlias" type="email" placeholder="other-email@company.com" />
+              <button type="button" class="btn btn-secondary btn-sm" @click="addLoginEmailAlias">Add</button>
+            </div>
+            <div v-if="(userForm.loginEmailAliases || []).length > 0" style="margin-top: 10px;">
+              <div
+                v-for="e in userForm.loginEmailAliases"
+                :key="e"
+                style="display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px;"
+              >
+                <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+                  {{ e }}
+                </div>
+                <button type="button" class="btn btn-danger btn-sm" @click="removeLoginEmailAlias(e)">Remove</button>
+              </div>
+            </div>
           </div>
           <div class="form-group">
             <label>First Name</label>
@@ -491,17 +509,17 @@
             <select v-model="userForm.role" required>
               <option v-if="user?.role === 'super_admin'" value="super_admin">Super Admin</option>
               <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="admin">Admin</option>
-              <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Support</option>
+              <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff</option>
               <option value="supervisor">Supervisor</option>
               <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
-              <option value="staff">Staff</option>
+              <option value="staff">Onboarding Staff</option>
               <option value="clinician">Clinician</option>
               <option value="facilitator">Facilitator</option>
               <option value="intern">Intern</option>
             </select>
             <small v-if="userForm.role === 'super_admin' && user?.role !== 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
             <small v-else-if="userForm.role === 'admin' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
-            <small v-else-if="userForm.role === 'support' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the support role</small>
+            <small v-else-if="userForm.role === 'support' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the staff role</small>
           </div>
           <div v-if="userForm.role === 'admin' || userForm.role === 'super_admin' || userForm.role === 'clinical_practice_assistant'" class="form-group">
             <label class="toggle-label">
@@ -757,7 +775,8 @@ const userForm = ref({
   email: '',
   personalEmail: '',
   workEmail: '',
-  password: '',
+  loginEmailAliases: [],
+  newLoginEmailAlias: '',
   firstName: '',
   hasProviderAccess: false,
   hasStaffAccess: false,
@@ -872,11 +891,10 @@ watch(() => userForm.value.onboardingPackageId, async (newPackageId) => {
   }
 });
 
-const editUser = (user) => {
+const editUser = async (user) => {
   editingUser.value = user;
   userForm.value = {
     email: user.email,
-    password: '',
     firstName: user.first_name || '',
     lastName: user.last_name || '',
     phoneNumber: user.phone_number || '',
@@ -888,8 +906,48 @@ const editUser = (user) => {
     role: user.role,
     hasSupervisorPrivileges: user.has_supervisor_privileges === true || user.has_supervisor_privileges === 1 || user.has_supervisor_privileges === '1' || false,
     agencyIds: [],
-    onboardingPackageId: ''
+    onboardingPackageId: '',
+    loginEmailAliases: [],
+    newLoginEmailAlias: ''
   };
+
+  // Load existing login email aliases (only meaningful for users with 2+ orgs).
+  try {
+    const agencyIds = user?.agencyIds || [];
+    if (Array.isArray(agencyIds) && agencyIds.length >= 2) {
+      const r = await api.get(`/users/${user.id}/login-email-aliases`);
+      userForm.value.loginEmailAliases = (r.data?.loginEmailAliases || []).map(e => String(e || '').trim().toLowerCase()).filter(Boolean);
+    }
+  } catch (e) {
+    // Non-blocking; allow user edit even if this fails.
+  }
+};
+
+const canManageLoginAliasesForEditingUser = computed(() => {
+  if (!editingUser.value) return false;
+  const ids = editingUser.value?.agencyIds || [];
+  return Array.isArray(ids) && ids.length >= 2;
+});
+
+const addLoginEmailAlias = () => {
+  const v = String(userForm.value.newLoginEmailAlias || '').trim().toLowerCase();
+  if (!v) return;
+  if (!v.includes('@')) {
+    alert('Please enter a valid email address');
+    return;
+  }
+  const existing = (userForm.value.loginEmailAliases || []).map(e => String(e || '').trim().toLowerCase());
+  if (existing.includes(v)) {
+    userForm.value.newLoginEmailAlias = '';
+    return;
+  }
+  userForm.value.loginEmailAliases = [...existing, v];
+  userForm.value.newLoginEmailAlias = '';
+};
+
+const removeLoginEmailAlias = (email) => {
+  const v = String(email || '').trim().toLowerCase();
+  userForm.value.loginEmailAliases = (userForm.value.loginEmailAliases || []).filter(e => String(e || '').trim().toLowerCase() !== v);
 };
 
 const saveUser = async () => {
@@ -933,6 +991,10 @@ const saveUser = async () => {
         role: userForm.value.role
       };
       
+      if (canManageLoginAliasesForEditingUser.value) {
+        updateData.loginEmailAliases = (userForm.value.loginEmailAliases || []).map(e => String(e || '').trim().toLowerCase()).filter(Boolean);
+      }
+      
       // Include supervisor privileges if user has eligible role
       if (userForm.value.role === 'admin' || userForm.value.role === 'super_admin' || userForm.value.role === 'clinical_practice_assistant') {
         updateData.hasSupervisorPrivileges = Boolean(userForm.value.hasSupervisorPrivileges);
@@ -944,9 +1006,6 @@ const saveUser = async () => {
       }
       if (userForm.value.role === 'provider' || userForm.value.role === 'clinician') {
         updateData.hasStaffAccess = Boolean(userForm.value.hasStaffAccess);
-      }
-      if (userForm.value.password) {
-        updateData.password = userForm.value.password;
       }
       try {
         await api.put(`/users/${editingUser.value.id}`, updateData);
@@ -1497,10 +1556,10 @@ const formatRole = (role) => {
   const roleMap = {
     'super_admin': 'Super Admin',
     'admin': 'Admin',
-    'support': 'Support',
+    'support': 'Staff',
     'supervisor': 'Supervisor',
     'clinical_practice_assistant': 'CPA',
-    'staff': 'Staff',
+    'staff': 'Onboarding Staff',
     'clinician': 'Clinician',
     'facilitator': 'Facilitator',
     'intern': 'Intern'
@@ -1781,6 +1840,15 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.user-name-link {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 600;
+}
+.user-name-link:hover {
+  text-decoration: underline;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;

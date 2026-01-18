@@ -31,6 +31,13 @@ export const getCurrentUser = async (req, res, next) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
 
+    const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
+    const baseCaps = getUserCapabilities(user);
+    const canManagePayroll =
+      user.role === 'admin' ||
+      user.role === 'super_admin' ||
+      (user.role === 'staff' && payrollAgencyIds.length > 0);
+
     // Return user in same format as login response + capabilities
     res.json({
       id: user.id,
@@ -40,7 +47,15 @@ export const getCurrentUser = async (req, res, next) => {
       firstName: user.first_name,
       lastName: user.last_name,
       username: user.username || user.personal_email || user.email,
-      capabilities: getUserCapabilities(user)
+      medcancelEnabled: ['low', 'high'].includes(String(user.medcancel_rate_schedule || '').toLowerCase()),
+      medcancelRateSchedule: user.medcancel_rate_schedule || null,
+      companyCardEnabled: Boolean(user.company_card_enabled),
+      payrollAgencyIds,
+      capabilities: {
+        ...baseCaps,
+        canManagePayroll,
+        canViewMyPayroll: true
+      }
     });
   } catch (error) {
     next(error);
@@ -523,10 +538,52 @@ export const getUserById = async (req, res, next) => {
   }
 };
 
+export const getUserLoginEmailAliases = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    // Admin, super_admin, and support only (route is also protected with requireAdmin)
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const agencies = await User.getAgencies(id);
+    if (!Array.isArray(agencies) || agencies.length < 2) {
+      return res.json({ loginEmailAliases: [] });
+    }
+
+    const UserLoginEmail = (await import('../models/UserLoginEmail.model.js')).default;
+    const rows = await UserLoginEmail.listForUser(parseInt(id));
+    res.json({ loginEmailAliases: (rows || []).map((r) => r.email) });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { firstName, lastName, role, hasSupervisorPrivileges, hasProviderAccess, hasStaffAccess, personalPhone, workPhone, workPhoneExtension, billingAcknowledged } = req.body;
+    const {
+      email,
+      loginEmail,
+      firstName,
+      lastName,
+      role,
+      hasSupervisorPrivileges,
+      hasProviderAccess,
+      hasStaffAccess,
+      personalPhone,
+      workPhone,
+      workPhoneExtension,
+      homeStreetAddress,
+      homeCity,
+      homeState,
+      homePostalCode,
+      medcancelEnabled,
+      medcancelRateSchedule,
+      companyCardEnabled,
+      billingAcknowledged
+    } = req.body;
+    const loginEmailAliases = req.body?.loginEmailAliases;
     
     console.log('updateUser called with:', { id, role, hasSupervisorPrivileges, body: req.body });
 
@@ -624,6 +681,84 @@ export const updateUser = async (req, res, next) => {
 
     // Build update object
     const updateData = { firstName, lastName, role };
+
+    // Login email updates (does NOT change password).
+    const nextLoginEmailRaw = (loginEmail !== undefined ? loginEmail : email);
+    if (nextLoginEmailRaw !== undefined) {
+      // Only admins/super_admins/support can change login email (even for self) to avoid accidental lockouts.
+      if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+        return res.status(403).json({ error: { message: 'Only admins, super admins, or support can change login email' } });
+      }
+
+      const nextLoginEmail = String(nextLoginEmailRaw || '').trim().toLowerCase();
+      if (!nextLoginEmail || !nextLoginEmail.includes('@')) {
+        return res.status(400).json({ error: { message: 'email must be a valid email address' } });
+      }
+
+      const targetUser = await User.findById(id);
+      if (!targetUser) {
+        return res.status(404).json({ error: { message: 'User not found' } });
+      }
+      if (String(targetUser.email || '').toLowerCase() === 'superadmin@plottwistco.com' && nextLoginEmail !== 'superadmin@plottwistco.com') {
+        return res.status(403).json({ error: { message: 'Cannot change login email of superadmin@plottwistco.com' } });
+      }
+
+      // Prevent collisions across email/work_email/username (findByEmail checks all of these).
+      const existing = await User.findByEmail(nextLoginEmail);
+      if (existing && Number(existing.id) !== Number(id)) {
+        return res.status(409).json({ error: { message: 'That login email is already in use' } });
+      }
+
+      updateData.email = nextLoginEmail;
+    }
+
+    // Additional login emails (aliases) for multi-agency users.
+    // Only admins/super_admins/support can manage these to avoid accidental lockouts.
+    if (loginEmailAliases !== undefined) {
+      if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+        return res.status(403).json({ error: { message: 'Only admins, super admins, or support can change login email aliases' } });
+      }
+
+      const targetUser = await User.findById(id);
+      if (!targetUser) {
+        return res.status(404).json({ error: { message: 'User not found' } });
+      }
+
+      const agencies = await User.getAgencies(id);
+      if (!Array.isArray(agencies) || agencies.length < 2) {
+        return res.status(400).json({ error: { message: 'Login email aliases are only available for users with 2+ organizations' } });
+      }
+
+      const UserLoginEmail = (await import('../models/UserLoginEmail.model.js')).default;
+      const items = (Array.isArray(loginEmailAliases) ? loginEmailAliases : [])
+        .map((e) => ({ email: e }));
+
+      // Collision check: ensure none of these aliases belong to another user (or another identifier).
+      for (const it of items) {
+        const alias = String(it?.email || '').trim().toLowerCase();
+        if (!alias) continue;
+        if (!alias.includes('@')) {
+          return res.status(400).json({ error: { message: `Invalid login email alias: ${alias}` } });
+        }
+
+        // Skip if it matches the user's existing login identifiers.
+        if (
+          String(targetUser.email || '').toLowerCase() === alias ||
+          String(targetUser.work_email || '').toLowerCase() === alias ||
+          String(targetUser.username || '').toLowerCase() === alias
+        ) {
+          continue;
+        }
+
+        // If another user already matches this email/username/etc (including via aliases), block it.
+        const existing = await User.findByEmail(alias);
+        if (existing && Number(existing.id) !== Number(id)) {
+          return res.status(409).json({ error: { message: `Login email alias already in use: ${alias}` } });
+        }
+      }
+
+      await UserLoginEmail.replaceForUser(parseInt(id), items);
+    }
     
     // Auto-set has_supervisor_privileges when role changes to/from supervisor
     // This is handled in User.update() method, but we can also set it here for clarity
@@ -733,9 +868,27 @@ export const updateUser = async (req, res, next) => {
     if (workPhone !== undefined) updateData.workPhone = workPhone;
     if (workPhoneExtension !== undefined) updateData.workPhoneExtension = workPhoneExtension;
 
+    // Home address (used for mileage calculations)
+    if (homeStreetAddress !== undefined) updateData.homeStreetAddress = homeStreetAddress;
+    if (homeCity !== undefined) updateData.homeCity = homeCity;
+    if (homeState !== undefined) updateData.homeState = homeState;
+    if (homePostalCode !== undefined) updateData.homePostalCode = homePostalCode;
+
+    // Med Cancel flags (contract feature)
+    if (medcancelEnabled !== undefined) updateData.medcancelEnabled = Boolean(medcancelEnabled);
+    if (medcancelRateSchedule !== undefined) updateData.medcancelRateSchedule = medcancelRateSchedule;
+
+    // Company Card (contract feature)
+    if (companyCardEnabled !== undefined) updateData.companyCardEnabled = Boolean(companyCardEnabled);
+
     console.log('Calling User.update with updateData:', updateData);
     const user = await User.update(id, updateData);
-    console.log('User.update returned user:', user ? { id: user.id, role: user.role, has_supervisor_privileges: user.has_supervisor_privileges } : 'null');
+    console.log('User.update returned user:', user ? {
+      id: user.id,
+      role: user.role,
+      medcancel_rate_schedule: user.medcancel_rate_schedule,
+      medcancel_enabled: user.medcancel_enabled
+    } : 'null');
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
@@ -902,6 +1055,41 @@ export const removeUserFromAgency = async (req, res, next) => {
     
     await User.removeFromAgency(userId, agencyId);
     res.json({ message: 'User removed from agency successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const setUserAgencyPayrollAccess = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { agencyId, enabled } = req.body || {};
+
+    // Only admins/super_admins can grant payroll access.
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const userId = parseInt(id);
+    const agencyIdNum = agencyId ? parseInt(agencyId) : null;
+    if (!userId || !agencyIdNum) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: { message: 'enabled must be a boolean' } });
+    }
+
+    const membership = await User.getAgencyMembership(userId, agencyIdNum);
+    if (!membership) {
+      return res.status(400).json({ error: { message: 'User is not assigned to this agency' } });
+    }
+
+    const updated = await User.setAgencyPayrollAccess(userId, agencyIdNum, enabled);
+    res.json({
+      userId,
+      agencyId: agencyIdNum,
+      hasPayrollAccess: !!(updated?.has_payroll_access === 1 || updated?.has_payroll_access === true || updated?.has_payroll_access === '1')
+    });
   } catch (error) {
     next(error);
   }
@@ -1264,6 +1452,10 @@ export const getAccountInfo = async (req, res, next) => {
       personalPhone: user.personal_phone || null,
       workPhone: user.work_phone || null,
       workPhoneExtension: user.work_phone_extension || null,
+      homeStreetAddress: user.home_street_address || null,
+      homeCity: user.home_city || null,
+      homeState: user.home_state || null,
+      homePostalCode: user.home_postal_code || null,
       totalProgress: totalProgress,
       totalOnboardingTime: {
         seconds: totalTimeSeconds,
@@ -1412,6 +1604,24 @@ export const markUserComplete = async (req, res, next) => {
     const user = await User.findById(id);
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    // Allow admins to convert a PENDING_SETUP user directly to ACTIVE_EMPLOYEE (current employee).
+    // Note: This does NOT set/changing passwords. Use reset-password link flow for that.
+    if (user.status === 'PENDING_SETUP') {
+      const pool = (await import('../config/database.js')).default;
+      await pool.execute('UPDATE users SET is_active = TRUE WHERE id = ?', [parseInt(id)]);
+      try {
+        await User.generatePasswordlessToken(parseInt(id), 48);
+      } catch {
+        // If token flow isn't available in older DBs, skip
+      }
+
+      const updatedUser = await User.updateStatus(parseInt(id), 'ACTIVE_EMPLOYEE', req.user.id);
+      return res.json({
+        message: 'User marked as active employee',
+        user: updatedUser
+      });
     }
     
     // Admins can mark PREHIRE_OPEN, PREHIRE_REVIEW, ONBOARDING, or ACTIVE_EMPLOYEE users as ACTIVE_EMPLOYEE

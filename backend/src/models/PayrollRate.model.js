@@ -1,6 +1,13 @@
 import pool from '../config/database.js';
 
 class PayrollRate {
+  static async deleteAllForUser(agencyId, userId) {
+    await pool.execute(
+      `DELETE FROM payroll_rates WHERE agency_id = ? AND user_id = ?`,
+      [agencyId, userId]
+    );
+  }
+
   static async upsert({
     agencyId,
     userId,

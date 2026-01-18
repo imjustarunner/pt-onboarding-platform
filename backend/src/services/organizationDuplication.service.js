@@ -63,8 +63,8 @@ export default class OrganizationDuplicationService {
       }
 
       const sourceType = String(sourceOrg.organization_type || 'agency').toLowerCase();
-      if (!['school', 'program', 'learning'].includes(sourceType)) {
-        const err = new Error('Only school/program/learning organizations can be duplicated');
+      if (!['agency', 'school', 'program', 'learning'].includes(sourceType)) {
+        const err = new Error('Unsupported organization type for duplication');
         err.status = 400;
         throw err;
       }
@@ -80,11 +80,15 @@ export default class OrganizationDuplicationService {
         }
       }
 
-      // Keep existing affiliation (deep copy uses same parent agency by default).
-      const linkedAgencyId =
-        (await OrganizationAffiliation.getActiveAgencyIdForOrganization(sourceId)) ||
-        (await AgencySchool.getActiveAgencyIdForSchool(sourceId));
-      if (!linkedAgencyId) {
+      // Keep existing affiliation for child orgs (deep copy uses same parent agency by default).
+      // Agencies do not need an affiliation row.
+      const linkedAgencyId = (sourceType === 'agency')
+        ? null
+        : (
+            (await OrganizationAffiliation.getActiveAgencyIdForOrganization(sourceId)) ||
+            (await AgencySchool.getActiveAgencyIdForSchool(sourceId))
+          );
+      if (sourceType !== 'agency' && !linkedAgencyId) {
         const err = new Error('Source organization has no affiliated agency');
         err.status = 400;
         throw err;
@@ -103,9 +107,11 @@ export default class OrganizationDuplicationService {
         exclude: ['id', 'created_at', 'updated_at']
       });
 
-      // Create affiliation
-      await OrganizationAffiliation.deactivateAllForOrganization(newOrgId);
-      await OrganizationAffiliation.upsert({ agencyId: linkedAgencyId, organizationId: newOrgId, isActive: true });
+      // Create affiliation (child orgs only)
+      if (linkedAgencyId) {
+        await OrganizationAffiliation.deactivateAllForOrganization(newOrgId);
+        await OrganizationAffiliation.upsert({ agencyId: linkedAgencyId, organizationId: newOrgId, isActive: true });
+      }
 
       // ID maps
       const trackIdMap = new Map();
@@ -113,6 +119,55 @@ export default class OrganizationDuplicationService {
       const docTemplateIdMap = new Map();
       const checklistIdMap = new Map();
       const packageIdMap = new Map();
+
+      // Copy payroll settings for agencies only (these are the "settings only" payroll dictionaries/templates)
+      // IMPORTANT: do NOT copy per-user data (rate cards, per-user rates, payroll periods, imports, etc).
+      if (sourceType === 'agency') {
+        // payroll_service_code_rules (unit->hours/tier-credit dictionary)
+        try {
+          const [rules] = await conn.execute('SELECT * FROM payroll_service_code_rules WHERE agency_id = ?', [sourceId]);
+          for (const r of rules || []) {
+            await insertRow(conn, 'payroll_service_code_rules', r, { overrides: { agency_id: newOrgId } });
+          }
+        } catch {
+          // Older DBs may not have this table; ignore.
+        }
+
+        // payroll_rate_templates + payroll_rate_template_rates (reusable rate templates)
+        try {
+          const [templates] = await conn.execute('SELECT * FROM payroll_rate_templates WHERE agency_id = ?', [sourceId]);
+          const tplIdMap = new Map();
+          for (const t of templates || []) {
+            const newTplId = await insertRow(conn, 'payroll_rate_templates', t, {
+              overrides: {
+                agency_id: newOrgId,
+                created_by_user_id: requestingUser?.id || t.created_by_user_id || null,
+                updated_by_user_id: requestingUser?.id || t.updated_by_user_id || null
+              },
+              exclude: ['created_at', 'updated_at']
+            });
+            tplIdMap.set(t.id, newTplId);
+          }
+          if (tplIdMap.size > 0) {
+            const oldIds = Array.from(tplIdMap.keys());
+            const placeholders = oldIds.map(() => '?').join(', ');
+            const [rates] = await conn.execute(
+              `SELECT * FROM payroll_rate_template_rates WHERE template_id IN (${placeholders})`,
+              oldIds
+            );
+            for (const r of rates || []) {
+              const mappedTplId = tplIdMap.get(r.template_id);
+              if (!mappedTplId) continue;
+              await insertRow(conn, 'payroll_rate_template_rates', r, {
+                overrides: { template_id: mappedTplId, agency_id: newOrgId },
+                exclude: ['created_at', 'updated_at']
+              });
+            }
+          }
+        } catch {
+          // Older DBs may not have template tables; ignore.
+        }
+      }
 
       // Copy training_tracks scoped to source org
       const [tracks] = await conn.execute('SELECT * FROM training_tracks WHERE agency_id = ?', [sourceId]);
@@ -330,7 +385,7 @@ export default class OrganizationDuplicationService {
       await conn.commit();
 
       const created = await Agency.findById(newOrgId);
-      return { organization: created, affiliatedAgencyId: linkedAgencyId };
+      return { organization: created, affiliatedAgencyId: linkedAgencyId || null };
     } catch (e) {
       try { await conn.rollback(); } catch (_) {}
       throw e;

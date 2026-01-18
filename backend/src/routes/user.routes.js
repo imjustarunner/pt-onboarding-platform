@@ -1,5 +1,5 @@
 import express from 'express';
-import { getCurrentUser, getAllUsers, getUserById, updateUser, getUserAgencies, assignUserToAgency, removeUserFromAgency, generateInvitationToken, resetPasswordlessToken, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee } from '../controllers/user.controller.js';
+import { getCurrentUser, getAllUsers, getUserById, updateUser, getUserAgencies, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, generateInvitationToken, resetPasswordlessToken, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases } from '../controllers/user.controller.js';
 import { getUserTrainingFocuses } from '../controllers/track.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 
@@ -10,10 +10,12 @@ router.get('/me/agencies', authenticate, getUserAgencies);
 router.get('/', authenticate, requireAdmin, getAllUsers);
 router.get('/archived', authenticate, requireAdmin, getArchivedUsers); // Must come before /:id
 router.get('/:id/agencies', authenticate, getUserAgencies);
+router.get('/:id/login-email-aliases', authenticate, requireAdmin, getUserLoginEmailAliases);
 router.get('/:id', authenticate, getUserById);
 router.put('/:id', authenticate, updateUser);
 router.post('/assign/agency', authenticate, requireAdmin, assignUserToAgency);
 router.post('/remove/agency', authenticate, requireAdmin, removeUserFromAgency);
+router.put('/:id/payroll-access', authenticate, requireAdmin, setUserAgencyPayrollAccess);
 
 // New endpoints for tokens, passwords, account info, and checklist
 router.post('/:id/generate-token', authenticate, requireAdmin, generateInvitationToken);

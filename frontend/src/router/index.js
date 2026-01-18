@@ -265,7 +265,7 @@ const routes = [
     path: '/:organizationSlug/admin/payroll',
     name: 'OrganizationPayroll',
     component: () => import('../views/admin/PayrollView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
   },
   {
     path: '/:organizationSlug/notifications',
@@ -440,7 +440,7 @@ const routes = [
     path: '/admin/payroll',
     name: 'Payroll',
     component: () => import('../views/admin/PayrollView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
   },
   {
     path: '/notifications',
@@ -669,8 +669,10 @@ router.beforeEach(async (to, from, next) => {
       const required = to.meta.requiresCapability
         ? (Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability])
         : [];
-      const caps = authStore.user?.capabilities || {};
-      const hasAll = required.length === 0 ? true : required.every((k) => !!caps?.[k]);
+      const caps = authStore.user?.capabilities;
+      // Backward-compat: if capabilities are not present yet, don't block navigation.
+      const capsMissing = !caps || typeof caps !== 'object' || Object.keys(caps).length === 0;
+      const hasAll = capsMissing ? true : (required.length === 0 ? true : required.every((k) => !!caps?.[k]));
       if (hasAll) next();
       else next(getDashboardRoute());
     } else {
@@ -679,8 +681,10 @@ router.beforeEach(async (to, from, next) => {
     }
   } else if (to.meta.requiresCapability) {
     const required = Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability];
-    const caps = authStore.user?.capabilities || {};
-    const hasAll = required.every((k) => !!caps?.[k]);
+    const caps = authStore.user?.capabilities;
+    // Backward-compat: if capabilities are not present yet, don't block navigation.
+    const capsMissing = !caps || typeof caps !== 'object' || Object.keys(caps).length === 0;
+    const hasAll = capsMissing ? true : required.every((k) => !!caps?.[k]);
     if (hasAll) {
       next();
     } else {
@@ -732,8 +736,10 @@ router.beforeEach(async (to, from, next) => {
       const required = to.meta.requiresCapability
         ? (Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability])
         : [];
-      const caps = authStore.user?.capabilities || {};
-      const hasAll = required.length === 0 ? true : required.every((k) => !!caps?.[k]);
+      const caps = authStore.user?.capabilities;
+      // Backward-compat: if capabilities are not present yet, don't block navigation.
+      const capsMissing = !caps || typeof caps !== 'object' || Object.keys(caps).length === 0;
+      const hasAll = capsMissing ? true : (required.length === 0 ? true : required.every((k) => !!caps?.[k]));
       if (hasAll) next();
       else next(getDashboardRoute());
     } else {

@@ -102,6 +102,30 @@
             All
           </button>
         </div>
+        <div class="status-filter">
+          <label>Type:</label>
+          <button
+            @click="moduleTypeFilter = 'all'"
+            :class="['btn', 'btn-sm', moduleTypeFilter === 'all' ? 'btn-primary' : 'btn-secondary']"
+            type="button"
+          >
+            All
+          </button>
+          <button
+            @click="moduleTypeFilter = 'traditional'"
+            :class="['btn', 'btn-sm', moduleTypeFilter === 'traditional' ? 'btn-primary' : 'btn-secondary']"
+            type="button"
+          >
+            Traditional
+          </button>
+          <button
+            @click="moduleTypeFilter = 'custom'"
+            :class="['btn', 'btn-sm', moduleTypeFilter === 'custom' ? 'btn-primary' : 'btn-secondary']"
+            type="button"
+          >
+            Custom Input
+          </button>
+        </div>
         <select 
           v-model="filterAgencyId" 
           @change="handleTableAgencyFilterChange"
@@ -327,13 +351,6 @@
                   >
                     {{ isModuleOnDemand(module.id) ? 'Remove as On-Demand' : 'Assign as On-Demand' }}
                   </button>
-                  <button 
-                    v-if="canCreateEdit" 
-                    @click.stop="copyModule(module)" 
-                    class="btn btn-secondary btn-sm"
-                  >
-                    Copy
-                  </button>
                   <button
                     v-if="canCreateEdit"
                     @click.stop="duplicateModule(module)"
@@ -379,6 +396,14 @@
           </tr>
         </thead>
         <tbody>
+          <tr v-if="moduleTableRows.length === 0" class="empty-state-row">
+            <td colspan="8">
+              <strong>No modules match your current filters.</strong>
+              <div class="text-muted" style="margin-top: 4px;">
+                Try setting <strong>Status</strong> to <strong>All</strong>, <strong>Agency</strong> to <strong>All Agencies</strong>, and <strong>Type</strong> to <strong>All</strong>.
+              </div>
+            </td>
+          </tr>
           <template v-for="row in moduleTableRows" :key="row.id">
             <tr v-if="row.kind === 'header'" class="module-section-row">
               <td colspan="8">
@@ -416,7 +441,7 @@
               </div>
             </td>
             <td>
-              <span v-if="row.module.is_custom_input_module === 1 || row.module.is_custom_input_module === true" class="badge badge-primary">Custom Input</span>
+              <span v-if="isCustomInputModule(row.module)" class="badge badge-primary">Custom Input</span>
               <span v-if="row.module.is_shared" class="badge badge-warning" style="margin-left: 6px;">Shared</span>
               <span v-else-if="row.module.track_id" class="badge badge-secondary">Training Focus</span>
               <span v-else-if="row.module.agency_id" class="badge badge-secondary">Agency</span>
@@ -467,7 +492,6 @@
                   </div>
                 </div>
                 <button @click="assignModule(row.module)" class="btn btn-success btn-sm">Assign</button>
-                <button v-if="canCreateEdit" @click="copyModule(row.module)" class="btn btn-secondary btn-sm">Copy</button>
                 <button v-if="canCreateEdit" @click="duplicateModule(row.module)" class="btn btn-secondary btn-sm">Duplicate</button>
                 <button
                   v-if="canCreateEdit"
@@ -524,6 +548,13 @@
             <input v-model.number="moduleForm.orderIndex" type="number" min="0" />
           </div>
           <div class="form-group">
+            <label>Estimated time (minutes)</label>
+            <input v-model.number="moduleForm.estimatedTimeMinutes" type="number" min="0" placeholder="e.g., 20" />
+            <small style="display: block; margin-top: 4px; color: var(--text-secondary);">
+              Used for expected-time warnings and reviewer rollups.
+            </small>
+          </div>
+          <div class="form-group">
             <label>Status</label>
             <button 
               type="button" 
@@ -550,7 +581,7 @@
             <button 
               v-if="moduleForm.onDemandAgencyId"
               type="button"
-              @click="toggleModuleOnDemandInModal"
+              @click.stop.prevent="toggleModuleOnDemandInModal"
               :class="['btn', 'btn-sm', isModuleOnDemandForAgency ? 'btn-danger' : 'btn-info']"
               :disabled="savingOnDemandModule || !editingModule"
               style="margin-top: 8px;"
@@ -582,15 +613,15 @@
         </form>
       </div>
     </div>
-    
-    <!-- Copy Module Dialog -->
+
+    <!-- Duplicate Module Dialog (used for platform/shared modules) -->
     <ModuleCopyDialog
       v-if="showCopyModal && moduleToCopy"
       :module="moduleToCopy"
       @close="showCopyModal = false"
       @copied="handleModuleCopied"
     />
-
+    
     <!-- Module Assignment Dialog -->
     <ModuleAssignmentDialog
       v-if="showAssignModal && moduleToAssign"
@@ -914,14 +945,22 @@ const showContentMenu = ref(null); // Track which module's content menu is open
 const dropdownPosition = ref({}); // Track dropdown position for each module: 'up' or 'down'
 const dropdownRefs = ref({}); // Store refs to dropdown containers
 
-const isCustomInputModule = (m) => {
-  return m?.is_custom_input_module === true || m?.is_custom_input_module === 1;
+const isTruthyFlag = (v) => {
+  // MySQL / mysql2 can surface boolean-ish fields as 1/0, true/false, or strings.
+  return v === true || v === 1 || v === '1' || v === 'true';
 };
+
+const isCustomInputModule = (m) => {
+  return isTruthyFlag(m?.is_custom_input_module);
+};
+
+const moduleTypeFilter = ref('all'); // 'all' | 'traditional' | 'custom'
 
 const moduleForm = ref({
   title: '',
   description: '',
   orderIndex: 0,
+  estimatedTimeMinutes: null,
   isActive: true,
   agencyId: null,
   trackId: null,
@@ -950,13 +989,9 @@ const filteredModules = computed(() => {
       // When on-demand filter is ON: Show only modules assigned as on-demand for this agency
       filtered = filtered.filter(m => isModuleOnDemand(m.id, agencyId));
     } else {
-      // When on-demand filter is OFF: Show only modules that belong to this agency
-      // AND are NOT assigned as on-demand for this agency
-      filtered = filtered.filter(m => {
-        const belongsToAgency = m.agency_id === agencyId;
-        const isOnDemand = isModuleOnDemand(m.id, agencyId);
-        return belongsToAgency && !isOnDemand;
-      });
+      // When on-demand filter is OFF: Show modules that belong to this agency
+      // (Do NOT hide on-demand modules; admins still expect to see them here.)
+      filtered = filtered.filter(m => m.agency_id === agencyId);
     }
   } else if (showOnDemandModulesOnly.value) {
     // When no agency is selected but on-demand filter is ON: Show modules assigned as on-demand for ANY agency
@@ -992,8 +1027,11 @@ const filteredModules = computed(() => {
 
 const moduleTableRows = computed(() => {
   const list = filteredModules.value || [];
-  const custom = list.filter(isCustomInputModule);
-  const traditional = list.filter((m) => !isCustomInputModule(m));
+  const allCustom = list.filter(isCustomInputModule);
+  const allTraditional = list.filter((m) => !isCustomInputModule(m));
+
+  const custom = moduleTypeFilter.value === 'traditional' ? [] : allCustom;
+  const traditional = moduleTypeFilter.value === 'custom' ? [] : allTraditional;
 
   const rows = [];
   if (custom.length > 0) {
@@ -1728,6 +1766,7 @@ const editModule = async (module) => {
     title: module.title,
     description: module.description || '',
     orderIndex: module.order_index,
+    estimatedTimeMinutes: module.estimated_time_minutes ?? null,
     isActive: module.is_active === true || module.is_active === 1,
     agencyId: module.agency_id,
     trackId: module.track_id,
@@ -1838,6 +1877,7 @@ const saveModule = async (openContentEditor = false) => {
       title: moduleForm.value.title,
       description: moduleForm.value.description,
       orderIndex: moduleForm.value.orderIndex,
+      estimatedTimeMinutes: moduleForm.value.estimatedTimeMinutes,
       isActive: moduleForm.value.isActive,
       agencyId: moduleForm.value.agencyId,
       trackId: moduleForm.value.trackId || null,

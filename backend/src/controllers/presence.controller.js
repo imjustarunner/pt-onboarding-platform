@@ -23,6 +23,26 @@ function canViewAdminsOnly(viewerRole) {
   return viewerRole === 'admin' || viewerRole === 'super_admin';
 }
 
+function computePresenceStatus(row, viewerRole) {
+  const now = Date.now();
+  const hb = row?.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : null;
+  const act = row?.last_activity_at ? new Date(row.last_activity_at).getTime() : null;
+
+  let status = 'offline';
+  if (hb && now - hb <= OFFLINE_AFTER_MS) {
+    if (act && now - act >= IDLE_AFTER_MS) status = 'idle';
+    else status = 'online';
+  }
+
+  const availabilityLevel = normalizeAvailability(row?.availability_level) || defaultAvailabilityForRole(row?.role || viewerRole);
+
+  // Apply availability filter to the computed status.
+  if (availabilityLevel === 'offline') status = 'offline';
+  if (availabilityLevel === 'admins_only' && !canViewAdminsOnly(viewerRole)) status = 'offline';
+
+  return { status, availability_level: availabilityLevel };
+}
+
 async function assertAgencyAccess(reqUser, agencyId) {
   if (reqUser.role === 'super_admin') return true;
   const agencies = await User.getAgencies(reqUser.id);
@@ -145,22 +165,12 @@ export const getMyPresence = async (req, res, next) => {
       [userId]
     );
 
-    const now = Date.now();
-    const hb = row?.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : null;
-    const act = row?.last_activity_at ? new Date(row.last_activity_at).getTime() : null;
-
-    let status = 'offline';
-    if (hb && now - hb <= OFFLINE_AFTER_MS) {
-      if (act && now - act >= IDLE_AFTER_MS) status = 'idle';
-      else status = 'online';
-    }
-
-    const availabilityLevel = normalizeAvailability(row?.availability_level) || defaultAvailabilityForRole(req.user.role);
+    const computed = computePresenceStatus({ ...(row || {}), role: req.user.role }, req.user.role);
 
     res.json({
       user_id: userId,
-      availability_level: availabilityLevel,
-      heartbeat_status: status
+      availability_level: computed.availability_level,
+      heartbeat_status: computed.status
     });
   } catch (e) {
     next(e);
@@ -254,32 +264,62 @@ export const listAgencyPresence = async (req, res, next) => {
     }
     const rows = Array.from(dedup.values());
 
-    const now = Date.now();
     const withStatus = (rows || []).map((r) => {
-      const hb = r.last_heartbeat_at ? new Date(r.last_heartbeat_at).getTime() : null;
-      const act = r.last_activity_at ? new Date(r.last_activity_at).getTime() : null;
-
-      let status = 'offline';
-      if (hb && now - hb <= OFFLINE_AFTER_MS) {
-        if (act && now - act >= IDLE_AFTER_MS) status = 'idle';
-        else status = 'online';
-      }
-
-      const availabilityLevel = normalizeAvailability(r.availability_level) || defaultAvailabilityForRole(r.role);
-
-      // Apply availability filter to the computed status.
-      if (availabilityLevel === 'offline') status = 'offline';
-      if (availabilityLevel === 'admins_only' && !canViewAdminsOnly(req.user.role)) status = 'offline';
-
-      // Superadmin perspective: admins are always "online" so superadmins can reach them quickly.
-      if (req.user.role === 'super_admin' && r.role === 'admin') {
-        status = 'online';
-      }
-
-      return { ...r, status, availability_level: availabilityLevel };
+      const computed = computePresenceStatus(r, req.user.role);
+      return { ...r, status: computed.status, availability_level: computed.availability_level };
     });
 
     res.json(withStatus);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Super-admin view: list admin/support presence across all agencies.
+ * GET /api/presence/admins
+ */
+export const listAdminPresence = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Super admin access required' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT u.id,
+              u.first_name,
+              u.last_name,
+              u.email,
+              u.role,
+              up.last_heartbeat_at,
+              up.last_activity_at,
+              up.availability_level,
+              GROUP_CONCAT(DISTINCT a.name ORDER BY a.name SEPARATOR ', ') AS agency_names
+       FROM users u
+       LEFT JOIN user_presence up ON up.user_id = u.id
+       LEFT JOIN user_agencies ua ON ua.user_id = u.id
+       LEFT JOIN agencies a ON a.id = ua.agency_id
+       WHERE (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND u.role IN ('admin', 'support')
+       GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, up.last_heartbeat_at, up.last_activity_at, up.availability_level
+       ORDER BY u.first_name ASC, u.last_name ASC`
+    );
+
+    const out = (rows || []).map((r) => {
+      const computed = computePresenceStatus(r, req.user.role);
+      return {
+        id: r.id,
+        first_name: r.first_name,
+        last_name: r.last_name,
+        email: r.email,
+        role: r.role,
+        agency_names: r.agency_names || '',
+        status: computed.status,
+        availability_level: computed.availability_level
+      };
+    });
+
+    res.json(out);
   } catch (e) {
     next(e);
   }

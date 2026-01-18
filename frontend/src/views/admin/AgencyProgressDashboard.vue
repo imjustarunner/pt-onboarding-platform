@@ -290,10 +290,10 @@ const formatRole = (role) => {
   const roleMap = {
     'super_admin': 'Super Admin',
     'admin': 'Admin',
-    'support': 'Support',
+    'support': 'Staff',
     'supervisor': 'Supervisor',
     'clinical_practice_assistant': 'CPA',
-    'staff': 'Staff',
+    'staff': 'Onboarding Staff',
     'clinician': 'Clinician',
     'facilitator': 'Facilitator',
     'intern': 'Intern'
