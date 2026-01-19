@@ -310,18 +310,50 @@
           <div v-if="currentStep === 1" class="step-content">
             <form @submit.prevent="nextStep">
               <div class="form-group">
+                <label class="toggle-label">
+                  <span>Create as Current Employee (Active User)</span>
+                  <div class="toggle-switch">
+                    <input
+                      type="checkbox"
+                      v-model="userForm.createAsCurrentEmployee"
+                      id="create-current-employee-toggle-step1"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+                <small class="form-help">
+                  If enabled, we will create the user directly as <strong>ACTIVE</strong> and their <strong>Work Email</strong> will be their username/login.
+                </small>
+              </div>
+
+              <div v-if="userForm.createAsCurrentEmployee" class="form-group">
+                <label>Work Email *</label>
+                <input
+                  v-model="userForm.workEmail"
+                  type="email"
+                  required
+                  placeholder="employee@company.com"
+                />
+                <small class="form-help">Required for current employees. This will be their username and login email.</small>
+              </div>
+
+              <div class="form-group">
                 <label>Email (Optional)</label>
                 <input
                   v-model="userForm.email"
                   type="email"
+                  :disabled="userForm.createAsCurrentEmployee"
                 />
-                <small class="form-help">Optional - Work email will be set when user moves to active status</small>
+                <small class="form-help">
+                  Optional for onboarding users. If creating a current employee, this field is ignored (use Work Email).
+                </small>
               </div>
               <div class="form-group">
                 <label>Personal Email (Optional)</label>
                 <input
                   v-model="userForm.personalEmail"
                   type="email"
+                  :disabled="userForm.createAsCurrentEmployee"
                 />
                 <small class="form-help">For communications, not used for login</small>
               </div>
@@ -422,7 +454,7 @@
                     <span class="slider"></span>
                   </div>
                 </label>
-                <small class="form-help">Creates user directly as ACTIVE_EMPLOYEE, bypassing pre-hire and onboarding. Use for admins and current employees.</small>
+                <small class="form-help">Creates user directly as ACTIVE, bypassing pre-hire and onboarding.</small>
               </div>
               
               <div v-if="userForm.createAsCurrentEmployee" class="form-group">
@@ -1111,6 +1143,13 @@ const nextStep = () => {
       error.value = 'Please fill in all required fields (Last Name and Role)';
       return;
     }
+    if (userForm.value.createAsCurrentEmployee) {
+      if (!userForm.value.workEmail || !String(userForm.value.workEmail).trim()) {
+        error.value = 'Work email is required for current employees';
+        alert('Please enter a work email');
+        return;
+      }
+    }
     currentStep.value = 2;
     // Fetch packages when moving to step 2
     fetchPackages();
@@ -1191,6 +1230,7 @@ const removeLoginEmailAlias = (email) => {
 };
 
 const saveUser = async () => {
+  if (saving.value) return;
   let createData = null; // Declare in broader scope for error handling
   try {
     // Validate before submitting (for new users)

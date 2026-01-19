@@ -688,59 +688,6 @@
       </div>
     </div>
 
-    <!-- Billing acknowledgement modal (admin overage) -->
-    <div v-if="showBillingAckModal" class="modal-overlay" @click="closeBillingAckModal">
-      <div class="modal-content credentials-modal large" @click.stop>
-        <h2>Billing acknowledgement required</h2>
-        <p class="credentials-description">
-          Promoting this user to <strong>Admin</strong> will increase billing for the following agency account(s).
-        </p>
-
-        <div v-if="billingImpact?.impacts?.length" class="billing-impact-list">
-          <div v-for="imp in billingImpact.impacts" :key="String(imp.agencyId)" class="billing-impact-row">
-            <div class="billing-impact-left">
-              <div class="billing-impact-title">
-                <strong>{{ imp.agencyName || `Agency ${imp.agencyId}` }}</strong>
-              </div>
-              <div class="billing-impact-meta">
-                <span class="pill pill-on">+{{ formatCents(imp.deltaMonthlyCents) }}/mo</span>
-                <span class="muted">
-                  Included admins: {{ imp.includedAdmins }} · Current: {{ imp.currentAdmins }} · New: {{ imp.newAdmins }}
-                </span>
-              </div>
-              <div v-if="imp.message" class="billing-impact-message muted">
-                {{ imp.message }}
-              </div>
-            </div>
-            <div class="billing-impact-actions">
-              <button class="btn btn-secondary btn-sm" @click="openBillingForAgency(imp.agencyId)">View Billing</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="billing-ack-row">
-          <label class="toggle-label" style="margin: 0;">
-            <span>I acknowledge this billing change and want to proceed.</span>
-            <div class="toggle-switch">
-              <input id="billing-ack-toggle" type="checkbox" v-model="billingAckChecked" />
-              <span class="slider"></span>
-            </div>
-          </label>
-        </div>
-
-        <div class="credentials-actions">
-          <button @click="closeBillingAckModal" class="btn btn-secondary" :disabled="billingAckSaving">Cancel</button>
-          <button
-            @click="confirmBillingAckAndSave"
-            class="btn btn-primary"
-            :disabled="!billingAckChecked || billingAckSaving"
-          >
-            {{ billingAckSaving ? 'Saving…' : 'Acknowledge & Save' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
     <!-- User Credentials Modal -->
     <div v-if="showCredentialsModal" class="modal-overlay" @click="showCredentialsModal = false">
       <div class="modal-content credentials-modal large" @click.stop>
@@ -802,6 +749,47 @@
         </div>
       </div>
     </div>
+
+    <!-- Billing acknowledgement modal (admin overage gate) -->
+    <div v-if="showBillingAckModal" class="modal-overlay" @click="closeBillingAckModal">
+      <div class="modal-content" @click.stop style="max-width: 720px;">
+        <div style="display:flex; justify-content: space-between; align-items:center; gap: 10px;">
+          <h2 style="margin:0;">Billing acknowledgement required</h2>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeBillingAckModal">Close</button>
+        </div>
+        <div class="muted" style="margin-top: 8px;">
+          Promoting this user to <strong>Admin</strong> increases billing beyond included limits for one or more agencies.
+        </div>
+
+        <div v-if="billingImpact?.impacts?.length" style="margin-top: 14px;">
+          <div
+            v-for="imp in billingImpact.impacts"
+            :key="imp.agencyId"
+            style="border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--bg, #fff); margin-bottom: 10px;"
+          >
+            <div style="display:flex; justify-content: space-between; gap: 10px; align-items: baseline;">
+              <div style="font-weight: 700;">{{ imp.agencyName || `Agency ${imp.agencyId}` }}</div>
+              <div style="font-weight: 800;">+{{ formatMoneyCents(imp.deltaMonthlyCents || 0) }}/mo</div>
+            </div>
+            <div class="muted" style="margin-top: 4px;">
+              Included admins: <strong>{{ imp.includedAdmins }}</strong> • Current: <strong>{{ imp.currentAdmins }}</strong> • After: <strong>{{ imp.newAdmins }}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 14px;">
+          <button type="button" class="btn btn-secondary" @click="openBillingSettings">
+            Open Billing Settings
+          </button>
+          <button type="button" class="btn btn-secondary" @click="closeBillingAckModal">
+            Cancel
+          </button>
+          <button type="button" class="btn btn-primary" @click="acknowledgeBillingAndSave" :disabled="saving">
+            {{ saving ? 'Saving…' : 'Acknowledge & Save' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -835,6 +823,28 @@ const user = ref(null);
 // Initialize activeTab from query parameter or default to 'account'
 const activeTab = ref(route.query.tab || 'account');
 const saving = ref(false);
+
+// Billing acknowledgement gate when promoting to Admin beyond included limits
+const showBillingAckModal = ref(false);
+const billingImpact = ref(null); // { code, impacts: [...] }
+const pendingAccountUpdate = ref(null);
+
+const formatMoneyCents = (cents) => {
+  const n = Number(cents || 0);
+  return `$${(n / 100).toFixed(2)}`;
+};
+
+const closeBillingAckModal = () => {
+  showBillingAckModal.value = false;
+  billingImpact.value = null;
+};
+
+const openBillingSettings = () => {
+  const agencyId = billingImpact.value?.impacts?.[0]?.agencyId;
+  const suffix = agencyId ? `&agencyId=${encodeURIComponent(String(agencyId))}` : '';
+  router.push(`/admin/settings?category=general&item=billing${suffix}`);
+  closeBillingAckModal();
+};
 
 const canViewActivityLog = computed(() => {
   const user = authStore.user;
@@ -1289,10 +1299,9 @@ const saveAccount = async () => {
     return;
   }
   
-  let updateData = null;
   try {
     saving.value = true;
-    updateData = {
+    const updateData = {
       email: accountForm.value.email,
       firstName: accountForm.value.firstName,
       lastName: accountForm.value.lastName,
@@ -1327,71 +1336,40 @@ const saveAccount = async () => {
     }
     
     console.log('Update data being sent:', updateData);
+    pendingAccountUpdate.value = updateData;
     const response = await api.put(`/users/${userId.value}`, updateData);
     // Always fetch fresh user data to ensure all fields are up to date
     await fetchUser();
     isEditingAccount.value = false;
   } catch (err) {
-    // Billing hard-gate: backend returns 409 with billingImpact when admin overage applies
-    if (err?.response?.status === 409 && err?.response?.data?.billingImpact?.code === 'ADMIN_OVERAGE') {
-      billingImpact.value = err.response.data.billingImpact;
-      pendingAccountUpdate.value = updateData;
-      billingAckChecked.value = false;
+    const status = err?.response?.status;
+    const data = err?.response?.data;
+    if (status === 409 && data?.billingImpact?.code === 'ADMIN_OVERAGE') {
+      billingImpact.value = data.billingImpact;
       showBillingAckModal.value = true;
       return;
     }
-
-    error.value = err.response?.data?.error?.message || 'Failed to save changes';
+    error.value = data?.error?.message || 'Failed to save changes';
     alert(error.value);
   } finally {
     saving.value = false;
   }
 };
 
-// Billing acknowledgement (admin overage) flow
-const showBillingAckModal = ref(false);
-const billingImpact = ref(null);
-const pendingAccountUpdate = ref(null);
-const billingAckChecked = ref(false);
-const billingAckSaving = ref(false);
-
-const closeBillingAckModal = () => {
-  showBillingAckModal.value = false;
-  billingImpact.value = null;
-  pendingAccountUpdate.value = null;
-  billingAckChecked.value = false;
-  billingAckSaving.value = false;
-};
-
-const formatCents = (cents) => {
-  const n = Number(cents || 0);
-  const dollars = n / 100;
-  return `$${dollars.toFixed(2)}`;
-};
-
-const openBillingForAgency = (agencyId) => {
-  if (!agencyId) {
-    router.push('/admin/settings?category=general&item=billing');
-    return;
-  }
-  router.push(`/admin/settings?category=general&item=billing&agencyId=${encodeURIComponent(String(agencyId))}`);
-};
-
-const confirmBillingAckAndSave = async () => {
+const acknowledgeBillingAndSave = async () => {
   if (!pendingAccountUpdate.value) return;
-  if (!billingAckChecked.value) return;
-
   try {
-    billingAckSaving.value = true;
-    const data = { ...pendingAccountUpdate.value, billingAcknowledged: true };
-    await api.put(`/users/${userId.value}`, data);
+    saving.value = true;
+    const payload = { ...pendingAccountUpdate.value, billingAcknowledged: true };
+    await api.put(`/users/${userId.value}`, payload);
     await fetchUser();
     isEditingAccount.value = false;
     closeBillingAckModal();
   } catch (err) {
-    alert(err.response?.data?.error?.message || 'Failed to save changes');
+    const msg = err?.response?.data?.error?.message || 'Failed to save changes';
+    alert(msg);
   } finally {
-    billingAckSaving.value = false;
+    saving.value = false;
   }
 };
 
@@ -2466,44 +2444,6 @@ onMounted(async () => {
   justify-content: center;
   align-items: center;
   z-index: 1000;
-}
-
-.billing-impact-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 14px 0 10px;
-}
-
-.billing-impact-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #fafbfc;
-}
-
-.billing-impact-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 6px;
-  flex-wrap: wrap;
-}
-
-.billing-impact-message {
-  margin-top: 6px;
-}
-
-.billing-ack-row {
-  margin-top: 12px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #fff;
 }
 
 .credentials-modal.large {

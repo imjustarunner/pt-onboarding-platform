@@ -541,7 +541,7 @@ onMounted(async () => {
     }
   }
 
-  // Optional deep-link agency selection
+  // Optional deep-link agency selection (used by other pages/modals)
   const agencyIdParam = route.query.agencyId;
   if (agencyIdParam) {
     const id = parseInt(String(agencyIdParam), 10);

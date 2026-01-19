@@ -1193,7 +1193,7 @@ export const resetPasswordlessToken = async (req, res, next) => {
     // Get frontend URL for the link
     const config = (await import('../config/config.js')).default;
     const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
-    const userAgencies = await User.getAgencies(userId);
+    const userAgencies = await User.getAgencies(user.id);
     const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
     const passwordlessTokenLink = portalSlug
       ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`

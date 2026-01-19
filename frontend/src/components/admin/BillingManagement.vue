@@ -269,6 +269,17 @@ const applyAgencySelection = async () => {
   agencyStore.setCurrentAgency(agency);
 };
 
+const applyAgencyFromQuery = () => {
+  const raw = route.query.agencyId;
+  const id = parseInt(String(raw || ''), 10);
+  if (!id) return false;
+  const agency = billingAgencies.value.find((a) => a.id === id);
+  if (!agency) return false;
+  selectedAgencyId.value = String(id);
+  agencyStore.setCurrentAgency(agency);
+  return true;
+};
+
 const estimate = ref(null);
 const estimateError = ref('');
 const qboStatus = ref(null);
@@ -477,6 +488,9 @@ onMounted(async () => {
     }
   }
 
+  // Deep-link support (e.g. from admin billing overage acknowledgement)
+  applyAgencyFromQuery();
+
   const qboParam = String(route.query.qbo || '');
   if (qboParam === 'connected') {
     banner.value = { kind: 'success', title: 'QuickBooks connected.', message: 'Your agency is now connected to QuickBooks Online.' };
@@ -492,6 +506,10 @@ onMounted(async () => {
     loadAvailableSchools(),
     loadLinkedSchools()
   ]);
+});
+
+watch(billingAgencies, () => {
+  if (!currentAgencyId.value) applyAgencyFromQuery();
 });
 
 watch(currentAgencyId, async (newId, oldId) => {
