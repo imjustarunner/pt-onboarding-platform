@@ -541,6 +541,18 @@ onMounted(async () => {
     }
   }
 
+  // Optional deep-link agency selection
+  const agencyIdParam = route.query.agencyId;
+  if (agencyIdParam) {
+    const id = parseInt(String(agencyIdParam), 10);
+    if (!Number.isNaN(id)) {
+      const target = selectableAgencies.value.find((a) => Number(a?.id) === Number(id));
+      if (target) {
+        agencyStore.setCurrentAgency(target);
+      }
+    }
+  }
+
   selectedAgencyId.value = agencyStore.currentAgency?.id ? String(agencyStore.currentAgency.id) : '';
   
   // Check for deep link parameters
@@ -588,6 +600,15 @@ watch(() => route.query, (newQuery) => {
         selectedCategory.value = newQuery.category;
         selectedItem.value = newQuery.item;
       }
+    }
+  }
+
+  // Support deep-linking to an agency context
+  if (newQuery.agencyId) {
+    const id = parseInt(String(newQuery.agencyId), 10);
+    if (!Number.isNaN(id)) {
+      const target = selectableAgencies.value.find((a) => Number(a?.id) === Number(id));
+      if (target) agencyStore.setCurrentAgency(target);
     }
   }
 }, { immediate: true });
