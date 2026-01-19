@@ -517,7 +517,9 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds } = agencyData;
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+      companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
+    } = agencyData;
     
     // Check if icon_id column exists
     let hasIconId = false;
@@ -545,6 +547,17 @@ class Agency {
     const updates = [];
     const values = [];
 
+    // Branding template state (optional columns)
+    let hasTemplateState = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'default_branding_template_id'"
+      );
+      hasTemplateState = (cols || []).length > 0;
+    } catch {
+      hasTemplateState = false;
+    }
+
     // Check if tier system columns exist (optional)
     let hasTierSystemEnabled = false;
     let hasTierThresholdsJson = false;
@@ -563,6 +576,16 @@ class Agency {
     if (name !== undefined) {
       updates.push('name = ?');
       values.push(name);
+    }
+    if (hasTemplateState) {
+      if (agencyData.defaultBrandingTemplateId !== undefined) {
+        updates.push('default_branding_template_id = ?');
+        values.push(agencyData.defaultBrandingTemplateId ?? null);
+      }
+      if (agencyData.currentBrandingTemplateId !== undefined) {
+        updates.push('current_branding_template_id = ?');
+        values.push(agencyData.currentBrandingTemplateId ?? null);
+      }
     }
     if (slug !== undefined) {
       updates.push('slug = ?');
@@ -742,6 +765,64 @@ class Agency {
       if (settingsIconId !== undefined) {
         updates.push('settings_icon_id = ?');
         values.push(settingsIconId || null);
+      }
+    }
+
+    // Check if settings menu icon columns exist
+    let hasSettingsMenuIcons = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'company_profile_icon_id'"
+      );
+      hasSettingsMenuIcons = (cols || []).length > 0;
+    } catch {
+      hasSettingsMenuIcons = false;
+    }
+
+    if (hasSettingsMenuIcons) {
+      if (companyProfileIconId !== undefined) {
+        updates.push('company_profile_icon_id = ?');
+        values.push(companyProfileIconId || null);
+      }
+      if (teamRolesIconId !== undefined) {
+        updates.push('team_roles_icon_id = ?');
+        values.push(teamRolesIconId || null);
+      }
+      if (billingIconId !== undefined) {
+        updates.push('billing_icon_id = ?');
+        values.push(billingIconId || null);
+      }
+      if (packagesIconId !== undefined) {
+        updates.push('packages_icon_id = ?');
+        values.push(packagesIconId || null);
+      }
+      if (checklistItemsIconId !== undefined) {
+        updates.push('checklist_items_icon_id = ?');
+        values.push(checklistItemsIconId || null);
+      }
+      if (fieldDefinitionsIconId !== undefined) {
+        updates.push('field_definitions_icon_id = ?');
+        values.push(fieldDefinitionsIconId || null);
+      }
+      if (brandingTemplatesIconId !== undefined) {
+        updates.push('branding_templates_icon_id = ?');
+        values.push(brandingTemplatesIconId || null);
+      }
+      if (assetsIconId !== undefined) {
+        updates.push('assets_icon_id = ?');
+        values.push(assetsIconId || null);
+      }
+      if (communicationsIconId !== undefined) {
+        updates.push('communications_icon_id = ?');
+        values.push(communicationsIconId || null);
+      }
+      if (integrationsIconId !== undefined) {
+        updates.push('integrations_icon_id = ?');
+        values.push(integrationsIconId || null);
+      }
+      if (archiveIconId !== undefined) {
+        updates.push('archive_icon_id = ?');
+        values.push(archiveIconId || null);
       }
     }
 

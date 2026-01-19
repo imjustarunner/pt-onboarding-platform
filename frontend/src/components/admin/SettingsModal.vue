@@ -1,7 +1,7 @@
 <template>
-  <div class="settings-modal-overlay" @click.self="closeModal">
-    <div class="settings-modal">
-      <div class="modal-header">
+  <div :class="embedded ? 'settings-embedded' : 'settings-modal-overlay'" @click.self="embedded ? null : closeModal">
+    <div :class="embedded ? 'settings-modal settings-modal-embedded' : 'settings-modal'">
+      <div v-if="!embedded" class="modal-header">
         <h1>Settings</h1>
         <button @click="closeModal" class="btn-close" aria-label="Close settings">×</button>
       </div>
@@ -13,8 +13,16 @@
             :key="category.id"
             class="category-section"
           >
-            <h2 class="category-label">{{ category.label }}</h2>
-            <div class="category-items">
+            <button
+              type="button"
+              class="category-header"
+              :class="{ open: isCategoryOpen(category.id) }"
+              @click="toggleCategory(category.id)"
+            >
+              <span class="category-label">{{ category.label }}</span>
+              <span class="category-caret">{{ isCategoryOpen(category.id) ? '▾' : '▸' }}</span>
+            </button>
+            <div v-show="isCategoryOpen(category.id)" class="category-items">
               <button
                 v-for="item in category.items"
                 :key="item.id"
@@ -87,9 +95,11 @@ import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { useAgencyStore } from '../../store/agency';
 import { isSupervisor } from '../../utils/helpers.js';
+import api from '../../services/api';
 
 // Import all existing components
 import AgencyManagement from './AgencyManagement.vue';
+import BrandingConfig from './BrandingConfig.vue';
 import BrandingTemplatesManagement from './BrandingTemplatesManagement.vue';
 import EmailTemplateManagement from './EmailTemplateManagement.vue';
 import PlatformSettings from './PlatformSettings.vue';
@@ -111,6 +121,10 @@ import TeamRolesManagement from './TeamRolesManagement.vue';
 import BillingManagement from './BillingManagement.vue';
 import IntegrationsManagement from './IntegrationsManagement.vue';
 
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+});
+
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
@@ -120,6 +134,21 @@ const agencyStore = useAgencyStore();
 const selectedCategory = ref(null);
 const selectedItem = ref(null);
 const selectedAgencyId = ref(agencyStore.currentAgency?.id ? String(agencyStore.currentAgency.id) : '');
+
+// Sidebar accordion state
+const expandedCategoryIds = ref(new Set());
+
+const isCategoryOpen = (categoryId) => {
+  return expandedCategoryIds.value.has(String(categoryId));
+};
+
+const toggleCategory = (categoryId) => {
+  const id = String(categoryId);
+  const next = new Set(expandedCategoryIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  expandedCategoryIds.value = next;
+};
 
 // Define all settings categories and items
 const allCategories = [
@@ -254,6 +283,15 @@ const allCategories = [
     label: 'THEMING',
     items: [
       {
+        id: 'branding-config',
+        label: 'Branding Configuration',
+        icon: '✨',
+        component: 'BrandingConfig',
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
         id: 'branding-templates',
         label: 'Branding & Templates',
         icon: '🎨',
@@ -379,6 +417,7 @@ const visibleCategories = computed(() => {
 // Component mapping
 const componentMap = {
   AgencyManagement,
+  BrandingConfig,
   BrandingTemplatesManagement,
   EmailTemplateManagement,
   PlatformSettings,
@@ -455,6 +494,9 @@ const handleAgencySelection = () => {
 const selectItem = (categoryId, itemId) => {
   selectedCategory.value = categoryId;
   selectedItem.value = itemId;
+
+  // Auto-collapse to only the active category (still user-toggleable via header click).
+  expandedCategoryIds.value = new Set([String(categoryId)]);
   
   // Update URL for deep linking
   router.replace({
@@ -472,6 +514,7 @@ const closeModal = () => {
 
 // Initialize from URL query parameters
 onMounted(async () => {
+  const iconsPromise = loadIconsIndex();
   const userRole = authStore.user?.role;
   
   // Redirect CPAs and supervisors away from settings
@@ -512,6 +555,7 @@ onMounted(async () => {
       if (item) {
         selectedCategory.value = categoryParam;
         selectedItem.value = itemParam;
+        expandedCategoryIds.value = new Set([String(categoryParam)]);
         return;
       }
     }
@@ -523,8 +567,11 @@ onMounted(async () => {
     if (firstCategory.items.length > 0) {
       selectedCategory.value = firstCategory.id;
       selectedItem.value = firstCategory.items[0].id;
+      expandedCategoryIds.value = new Set([String(firstCategory.id)]);
     }
   }
+
+  await iconsPromise;
 });
 
 watch(() => agencyStore.currentAgency, (a) => {
@@ -547,54 +594,85 @@ watch(() => route.query, (newQuery) => {
 
 // Map settings item IDs to platform branding icon field names
 const settingsIconMap = {
-  'company-profile': 'company_profile_icon_path',
-  'team-roles': 'team_roles_icon_path',
-  'billing': 'billing_icon_path',
-  'packages': 'packages_icon_path',
-  'checklist-items': 'checklist_items_icon_path',
-  'checklist-items-agency': 'checklist_items_icon_path',
-  'field-definitions': 'field_definitions_icon_path',
-  'field-definitions-agency': 'field_definitions_icon_path',
-  'branding-templates': 'branding_templates_icon_path',
-  'assets': 'assets_icon_path',
-  'communications': 'communications_icon_path',
-  'integrations': 'integrations_icon_path',
-  'platform-security': 'platform_settings_icon_path', // Reuse existing field
-  'archive': 'archive_icon_path'
+  'company-profile': { idField: 'company_profile_icon_id', pathField: 'company_profile_icon_path' },
+  'team-roles': { idField: 'team_roles_icon_id', pathField: 'team_roles_icon_path' },
+  'billing': { idField: 'billing_icon_id', pathField: 'billing_icon_path' },
+  'packages': { idField: 'packages_icon_id', pathField: 'packages_icon_path' },
+  'checklist-items': { idField: 'checklist_items_icon_id', pathField: 'checklist_items_icon_path' },
+  'checklist-items-agency': { idField: 'checklist_items_icon_id', pathField: 'checklist_items_icon_path' },
+  'field-definitions': { idField: 'field_definitions_icon_id', pathField: 'field_definitions_icon_path' },
+  'field-definitions-agency': { idField: 'field_definitions_icon_id', pathField: 'field_definitions_icon_path' },
+  'branding-templates': { idField: 'branding_templates_icon_id', pathField: 'branding_templates_icon_path' },
+  'assets': { idField: 'assets_icon_id', pathField: 'assets_icon_path' },
+  'communications': { idField: 'communications_icon_id', pathField: 'communications_icon_path' },
+  'integrations': { idField: 'integrations_icon_id', pathField: 'integrations_icon_path' },
+  'platform-security': { idField: 'platform_settings_icon_id', pathField: 'platform_settings_icon_path' },
+  'archive': { idField: 'archive_icon_id', pathField: 'archive_icon_path' }
+};
+
+const iconsById = ref({});
+
+const getIconUrlFromFilePath = (filePath) => {
+  if (!filePath) return null;
+  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+
+  let cleanPath = String(filePath);
+  if (cleanPath.startsWith('/uploads/')) {
+    cleanPath = cleanPath.substring('/uploads/'.length);
+  } else if (cleanPath.startsWith('/')) {
+    cleanPath = cleanPath.substring(1);
+  }
+
+  if (!cleanPath.startsWith('uploads/') && !cleanPath.startsWith('icons/')) {
+    cleanPath = `uploads/${cleanPath}`;
+  } else if (cleanPath.startsWith('icons/')) {
+    cleanPath = `uploads/${cleanPath}`;
+  }
+
+  return `${apiBase}/${cleanPath}`;
+};
+
+const loadIconsIndex = async () => {
+  try {
+    const res = await api.get('/icons');
+    const rows = Array.isArray(res.data) ? res.data : [];
+    const map = {};
+    for (const i of rows) {
+      if (i && i.id != null) map[String(i.id)] = i;
+    }
+    iconsById.value = map;
+  } catch {
+    // best effort
+    iconsById.value = {};
+  }
 };
 
 // Get icon URL for a settings item
 const getSettingsIconUrl = (itemId) => {
-  const iconField = settingsIconMap[itemId];
-  if (!iconField) return null;
-  
+  const meta = settingsIconMap[itemId];
+  if (!meta) return null;
+
+  // 1) Agency override (if present)
+  const agency = agencyStore.currentAgency;
+  const agencyIconId = agency && meta.idField ? agency[meta.idField] : null;
+  if (agencyIconId && iconsById.value[String(agencyIconId)]?.file_path) {
+    return getIconUrlFromFilePath(iconsById.value[String(agencyIconId)].file_path);
+  }
+
+  // 2) Platform default
   const platformBranding = brandingStore.platformBranding;
   if (!platformBranding) return null;
-  
-  const iconPath = platformBranding[iconField];
-  if (!iconPath) return null;
-  
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  
-  // Handle both old format (icons/...) and new format (uploads/icons/...)
-  let cleanPath = iconPath;
-  if (iconPath.startsWith('/uploads/')) {
-    cleanPath = iconPath.substring('/uploads/'.length);
-  } else if (iconPath.startsWith('/')) {
-    cleanPath = iconPath.substring(1);
+
+  const platformPath = meta.pathField ? platformBranding[meta.pathField] : null;
+  if (platformPath) return getIconUrlFromFilePath(platformPath);
+
+  const platformIconId = meta.idField ? platformBranding[meta.idField] : null;
+  if (platformIconId && iconsById.value[String(platformIconId)]?.file_path) {
+    return getIconUrlFromFilePath(iconsById.value[String(platformIconId)].file_path);
   }
-  
-  // If path doesn't already include uploads/, add it
-  if (!cleanPath.startsWith('uploads/') && !cleanPath.startsWith('icons/')) {
-    // Assume it's an icon path
-    cleanPath = `uploads/${cleanPath}`;
-  } else if (cleanPath.startsWith('icons/')) {
-    // Convert old format to new format
-    cleanPath = `uploads/${cleanPath}`;
-  }
-  
-  return `${apiBase}/${cleanPath}`;
+
+  return null;
 };
 </script>
 
@@ -611,6 +689,12 @@ const getSettingsIconUrl = (itemId) => {
   justify-content: center;
   z-index: 1000;
   animation: fadeIn 0.2s ease;
+}
+
+.settings-embedded {
+  position: relative;
+  background: transparent;
+  padding: 0;
 }
 
 @keyframes fadeIn {
@@ -633,6 +717,37 @@ const getSettingsIconUrl = (itemId) => {
   flex-direction: column;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   animation: slideUp 0.3s ease;
+}
+
+.settings-modal-embedded {
+  width: 100%;
+  max-width: none;
+  height: auto;
+  max-height: none;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+
+.settings-modal-embedded .modal-body {
+  height: auto;
+  max-height: none;
+}
+
+@media (max-width: 1200px) {
+  .settings-modal.settings-modal-embedded {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+@media (max-width: 992px) {
+  .settings-modal.settings-modal-embedded {
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: none;
+  }
 }
 
 @keyframes slideUp {
@@ -696,6 +811,40 @@ const getSettingsIconUrl = (itemId) => {
   padding: 24px 0;
 }
 
+.category-header {
+  width: calc(100% - 48px);
+  margin: 0 24px 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+  text-align: left;
+}
+
+.category-header:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.category-header.open {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.category-header .category-label {
+  padding: 0;
+  margin: 0;
+}
+
+.category-caret {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .category-section {
   margin-bottom: 32px;
 }
@@ -712,6 +861,11 @@ const getSettingsIconUrl = (itemId) => {
   color: var(--text-secondary);
   padding: 0 24px;
   margin: 0 0 12px 0;
+}
+
+/* Category labels are now rendered inside `.category-header` */
+.category-section > .category-label {
+  display: none;
 }
 
 .category-items {

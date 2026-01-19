@@ -20,7 +20,7 @@ export const getRecentMessages = async (req, res, next) => {
     if (agencyIds.length === 0) return res.json([]);
 
     // Support feed: show all recent texts for their agencies.
-    if (!canViewSafetyNetFeed(role) && role !== 'clinician' && role !== 'staff') {
+    if (!canViewSafetyNetFeed(role) && role !== 'provider' && role !== 'clinician' && role !== 'staff' && role !== 'school_staff') {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 

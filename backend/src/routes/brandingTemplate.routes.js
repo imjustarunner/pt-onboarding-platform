@@ -7,6 +7,9 @@ import {
   updateTemplate,
   deleteTemplate,
   applyTemplate,
+  getTemplateState,
+  setDefaultTemplate,
+  clearCurrentTemplate,
   getSchedules,
   createSchedule,
   updateSchedule,
@@ -58,12 +61,15 @@ const validateApply = [
 
 // Template routes
 router.get('/', authenticate, getTemplates);
+router.get('/state', authenticate, getTemplateState);
 router.get('/:id', authenticate, getTemplate);
 // Admin or super admin can create templates (controller handles scope restrictions)
 router.post('/', authenticate, requireAdmin, validateTemplate, createTemplate);
 router.put('/:id', authenticate, requireAdmin, validateTemplate, updateTemplate);
 router.delete('/:id', authenticate, requireAdmin, deleteTemplate);
 router.post('/:id/apply', authenticate, requireAdmin, validateApply, applyTemplate);
+router.post('/:id/set-default', authenticate, requireAdmin, validateApply, setDefaultTemplate);
+router.post('/clear-current', authenticate, requireAdmin, validateApply, clearCurrentTemplate);
 
 // Schedule routes
 router.get('/:id/schedules', authenticate, getSchedules);

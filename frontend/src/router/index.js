@@ -80,6 +80,12 @@ const routes = [
     component: () => import('../views/OrganizationDashboardView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
+  {
+    path: '/:organizationSlug/guardian',
+    name: 'OrganizationGuardianPortal',
+    component: () => import('../views/guardian/GuardianPortalView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'client_guardian', organizationSlug: true }
+  },
   // Slug-prefixed authenticated routes (branded portal)
   {
     path: '/:organizationSlug/preferences',
@@ -268,6 +274,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/providers',
+    name: 'OrganizationProviderDirectory',
+    component: () => import('../views/admin/ProviderDirectoryView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/notifications',
     name: 'OrganizationSupervisorNotifications',
     component: () => import('../views/NotificationsHubView.vue'),
@@ -304,6 +316,12 @@ const routes = [
     name: 'Dashboard',
     component: () => import('../views/DashboardView.vue'),
     meta: { requiresAuth: true, blockApprovedEmployees: true }
+  },
+  {
+    path: '/guardian',
+    name: 'GuardianPortal',
+    component: () => import('../views/guardian/GuardianPortalView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'client_guardian' }
   },
   {
     path: '/preferences',
@@ -441,6 +459,12 @@ const routes = [
     name: 'Payroll',
     component: () => import('../views/admin/PayrollView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
+  },
+  {
+    path: '/admin/providers',
+    name: 'ProviderDirectory',
+    component: () => import('../views/admin/ProviderDirectoryView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/notifications',

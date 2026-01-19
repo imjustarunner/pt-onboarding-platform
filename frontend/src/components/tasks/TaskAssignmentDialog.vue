@@ -46,7 +46,8 @@
           <label>Role</label>
           <select v-model="formData.assignedToRole">
             <option value="supervisor">Supervisor</option>
-            <option value="clinician">Clinician</option>
+            <option value="provider">Provider</option>
+            <option value="school_staff">School Staff</option>
             <option value="facilitator">Facilitator</option>
             <option value="intern">Intern</option>
           </select>

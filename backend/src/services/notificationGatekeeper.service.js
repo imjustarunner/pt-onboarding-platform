@@ -3,7 +3,9 @@ import User from '../models/User.model.js';
 
 const employeeLikeRoles = new Set([
   'staff',
-  'clinician',
+  'provider',
+  'school_staff',
+  'clinician', // legacy
   'facilitator',
   'intern',
   'supervisor',

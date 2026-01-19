@@ -532,7 +532,7 @@ async function seedData() {
       passwordHash,
       firstName: 'John',
       lastName: 'Doe',
-      role: 'clinician'
+      role: 'provider'
     });
     await User.assignToAgency(users.itsco_user1.id, agencies.itsco.id);
     console.log(`  ✓ Created user: ${users.itsco_user1.email}`);
@@ -573,7 +573,7 @@ async function seedData() {
       passwordHash,
       firstName: 'Sarah',
       lastName: 'Williams',
-      role: 'clinician'
+      role: 'provider'
     });
     await User.assignToAgency(users.inner_user1.id, agencies.innerStrength.id);
     console.log(`  ✓ Created user: ${users.inner_user1.email}`);
@@ -614,7 +614,7 @@ async function seedData() {
       passwordHash,
       firstName: 'Chris',
       lastName: 'Wilson',
-      role: 'clinician'
+      role: 'provider'
     });
     await User.assignToAgency(users.next_user2.id, agencies.nextLevel.id);
     console.log(`  ✓ Created user: ${users.next_user2.email}`);
@@ -635,7 +635,7 @@ async function seedData() {
       passwordHash,
       firstName: 'Lisa',
       lastName: 'Anderson',
-      role: 'clinician'
+      role: 'provider'
     });
     await User.assignToAgency(users.multi_user.id, agencies.itsco.id);
     await User.assignToAgency(users.multi_user.id, agencies.innerStrength.id);

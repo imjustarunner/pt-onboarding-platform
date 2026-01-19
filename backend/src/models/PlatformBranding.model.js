@@ -358,7 +358,9 @@ class PlatformBranding {
       assetsIconId,
       communicationsIconId,
       integrationsIconId,
-      archiveIconId
+      archiveIconId,
+      defaultBrandingTemplateId,
+      currentBrandingTemplateId
     } = brandingData;
 
     // Check if branding exists
@@ -585,6 +587,28 @@ class PlatformBranding {
         console.warn('PlatformBranding.update: Dashboard icon columns do not exist. Migration 047 may not have run.');
       }
       
+      // Branding template state (optional)
+      let hasTemplateState = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'default_branding_template_id'"
+        );
+        hasTemplateState = (cols || []).length > 0;
+      } catch (e) {
+        hasTemplateState = false;
+      }
+
+      if (hasTemplateState) {
+        if (defaultBrandingTemplateId !== undefined) {
+          updates.push('default_branding_template_id = ?');
+          values.push(defaultBrandingTemplateId ?? null);
+        }
+        if (currentBrandingTemplateId !== undefined) {
+          updates.push('current_branding_template_id = ?');
+          values.push(currentBrandingTemplateId ?? null);
+        }
+      }
+
       // Check if organization fields exist
       let hasOrgFields = false;
       try {

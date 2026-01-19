@@ -251,6 +251,78 @@
           </div>
         </div>
       </div>
+
+      <div v-if="selectedAgencyId" class="comp-card">
+        <div class="comp-header">
+          <div>
+            <h3 class="comp-title">PTO (Sick Leave + Training PTO)</h3>
+            <div class="muted">Set employment type, eligibility, and starting balances “as of” a date. Provider balances are read-only in their dashboard.</div>
+          </div>
+          <div class="actions comp-toolbar">
+            <button class="btn btn-secondary" @click="loadPtoAccount" :disabled="ptoLoading || !selectedAgencyId">Refresh</button>
+            <button class="btn btn-primary" @click="savePtoAccount" :disabled="savingPto || !selectedAgencyId">Save</button>
+          </div>
+        </div>
+
+        <div v-if="ptoError" class="error-box" style="margin-top: 10px;">{{ ptoError }}</div>
+        <div v-if="ptoLoading" class="loading" style="margin-top: 10px;">Loading PTO…</div>
+
+        <div v-else class="fields-grid" style="margin-top: 10px;">
+          <div class="field-item">
+            <label>Employment type</label>
+            <select v-model="ptoForm.employmentType">
+              <option value="hourly">Hourly</option>
+              <option value="fee_for_service">Fee-for-service (credits)</option>
+              <option value="salaried">Salaried</option>
+            </select>
+            <div class="muted" style="margin-top: 6px;">
+              Determines accrual basis: Hourly uses payroll hours; Fee-for-service uses tier credits.
+            </div>
+          </div>
+
+          <div class="field-item">
+            <label class="toggle-label" style="display: flex; justify-content: space-between; align-items: center;">
+              <span>Training PTO eligible</span>
+              <input type="checkbox" v-model="ptoForm.trainingEligible" :disabled="agencyPtoPolicy?.trainingPtoEnabled !== true" />
+            </label>
+            <div class="muted" style="margin-top: 6px;">
+              <span v-if="agencyPtoPolicy?.trainingPtoEnabled !== true">
+                Training PTO is disabled for this agency. Enable it in Agency → Edit Organization → Payroll → PTO Policy.
+              </span>
+              <span v-else>
+                If enabled, the provider can submit Training PTO requests and earn Training PTO accrual.
+              </span>
+            </div>
+          </div>
+
+          <div class="field-item">
+            <label>Starting Sick Leave (hours)</label>
+            <input v-model="ptoForm.sickStartHours" type="number" step="0.01" min="0" />
+          </div>
+          <div class="field-item">
+            <label>Sick start effective date</label>
+            <input v-model="ptoForm.sickStartEffectiveDate" type="date" />
+          </div>
+
+          <div class="field-item">
+            <label>Starting Training PTO (hours)</label>
+            <input v-model="ptoForm.trainingStartHours" type="number" step="0.01" min="0" :disabled="agencyPtoPolicy?.trainingPtoEnabled !== true" />
+          </div>
+          <div class="field-item">
+            <label>Training start effective date</label>
+            <input v-model="ptoForm.trainingStartEffectiveDate" type="date" :disabled="agencyPtoPolicy?.trainingPtoEnabled !== true" />
+          </div>
+
+          <div class="field-item">
+            <label>Current Sick balance (hours)</label>
+            <input :value="fmtNum(Number(ptoAccount?.sick_balance_hours || 0))" type="text" disabled />
+          </div>
+          <div class="field-item">
+            <label>Current Training balance (hours)</label>
+            <input :value="(agencyPtoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Number(ptoAccount?.training_balance_hours || 0)) : '—'" type="text" disabled />
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -280,6 +352,20 @@ const hasPayrollAccessForAgency = ref(false);
 const rateCard = ref(null);
 const perCodeRates = ref([]);
 const serviceCodeRules = ref([]);
+
+const ptoLoading = ref(false);
+const savingPto = ref(false);
+const ptoError = ref('');
+const ptoAccount = ref(null);
+const agencyPtoPolicy = ref(null);
+const ptoForm = ref({
+  employmentType: 'hourly',
+  trainingEligible: false,
+  sickStartHours: 0,
+  sickStartEffectiveDate: '',
+  trainingStartHours: 0,
+  trainingStartEffectiveDate: ''
+});
 
 const ruleByCode = computed(() => {
   const m = new Map();
@@ -476,6 +562,57 @@ const loadComp = async () => {
     if (e.response?.status === 401 || e.response?.status === 403) hasPayrollAccessForAgency.value = false;
   } finally {
     compLoading.value = false;
+  }
+};
+
+const loadPtoAccount = async () => {
+  if (!selectedAgencyId.value) return;
+  try {
+    ptoLoading.value = true;
+    ptoError.value = '';
+    const [acctResp, polResp] = await Promise.all([
+      api.get(`/payroll/users/${props.userId}/pto-account`, { params: { agencyId: selectedAgencyId.value } }),
+      api.get('/payroll/pto-policy', { params: { agencyId: selectedAgencyId.value } })
+    ]);
+    agencyPtoPolicy.value = polResp.data?.policy || null;
+    const acct = acctResp.data?.account || acctResp.data || null;
+    ptoAccount.value = acct;
+    ptoForm.value = {
+      employmentType: String(acct?.employment_type || 'hourly'),
+      trainingEligible: !!acct?.training_pto_eligible,
+      sickStartHours: Number(acct?.sick_start_hours || 0),
+      sickStartEffectiveDate: String(acct?.sick_start_effective_date || '').slice(0, 10),
+      trainingStartHours: Number(acct?.training_start_hours || 0),
+      trainingStartEffectiveDate: String(acct?.training_start_effective_date || '').slice(0, 10)
+    };
+  } catch (e) {
+    ptoError.value = e.response?.data?.error?.message || e.message || 'Failed to load PTO account';
+    ptoAccount.value = null;
+    agencyPtoPolicy.value = null;
+  } finally {
+    ptoLoading.value = false;
+  }
+};
+
+const savePtoAccount = async () => {
+  if (!selectedAgencyId.value) return;
+  try {
+    savingPto.value = true;
+    ptoError.value = '';
+    await api.put(`/payroll/users/${props.userId}/pto-account`, {
+      agencyId: selectedAgencyId.value,
+      employmentType: ptoForm.value.employmentType,
+      trainingPtoEligible: ptoForm.value.trainingEligible ? 1 : 0,
+      sickStartHours: Number(ptoForm.value.sickStartHours || 0),
+      sickStartEffectiveDate: ptoForm.value.sickStartEffectiveDate || null,
+      trainingStartHours: Number(ptoForm.value.trainingStartHours || 0),
+      trainingStartEffectiveDate: ptoForm.value.trainingStartEffectiveDate || null
+    });
+    await loadPtoAccount();
+  } catch (e) {
+    ptoError.value = e.response?.data?.error?.message || e.message || 'Failed to save PTO account';
+  } finally {
+    savingPto.value = false;
   }
 };
 
@@ -699,6 +836,7 @@ watch(
   async () => {
     await load();
     await loadComp();
+    await loadPtoAccount();
   },
   { immediate: true }
 );

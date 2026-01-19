@@ -188,7 +188,7 @@ export const getAllUsers = async (req, res, next) => {
           INNER JOIN user_agencies ua ON u.id = ua.user_id
           LEFT JOIN agencies a ON ua.agency_id = a.id
           WHERE ua.agency_id IN (${agencyIds.map(() => '?').join(',')})
-          AND u.role IN ('staff', 'clinician', 'facilitator', 'intern')
+          AND u.role IN ('staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern')
         `;
         
         if (!includeArchived) {
@@ -504,9 +504,9 @@ export const getUserById = async (req, res, next) => {
         return res.status(404).json({ error: { message: 'User not found' } });
       }
       
-      // Check if target user is staff, clinician, facilitator, or intern
-      if (!['staff', 'clinician', 'facilitator', 'intern'].includes(targetUser.role)) {
-        return res.status(403).json({ error: { message: 'Clinical Practice Assistants can only view staff, clinician, facilitator, and intern users' } });
+      // Check if target user is staff/provider/facilitator/intern
+      if (!['staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern'].includes(targetUser.role)) {
+        return res.status(403).json({ error: { message: 'Clinical Practice Assistants can only view staff, provider, school staff, facilitator, and intern users' } });
       }
       
       // Check if CPA and target user share an agency
@@ -594,7 +594,7 @@ export const updateUser = async (req, res, next) => {
 
     // Validate role if provided
     if (role) {
-      const validRoles = ['super_admin', 'admin', 'support', 'supervisor', 'clinical_practice_assistant', 'staff', 'clinician', 'facilitator', 'intern'];
+      const validRoles = ['super_admin', 'admin', 'support', 'supervisor', 'clinical_practice_assistant', 'staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern'];
       if (!validRoles.includes(role)) {
         return res.status(400).json({ error: { message: `Invalid role. Must be one of: ${validRoles.join(', ')}` } });
       }
@@ -1789,7 +1789,7 @@ export const createCurrentEmployee = async (req, res, next) => {
     const bcrypt = (await import('bcrypt')).default;
 
     // Create user directly in ACTIVE_EMPLOYEE status (skips PENDING_SETUP, PREHIRE_OPEN, PREHIRE_REVIEW, ONBOARDING)
-    const finalRole = role || 'clinician';
+    const finalRole = role || 'provider';
 
     // Billing hard gate: adding an admin beyond included requires acknowledgement
     if (finalRole === 'admin') {

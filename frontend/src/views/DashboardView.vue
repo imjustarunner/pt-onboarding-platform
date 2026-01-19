@@ -140,6 +140,14 @@
               </div>
             </button>
 
+            <button type="button" class="dash-card" @click="goToSubmission('pto')">
+              <div class="dash-card-title">PTO</div>
+              <div class="dash-card-desc">Request Sick Leave or Training PTO.</div>
+              <div class="dash-card-meta">
+                <span class="dash-card-cta">Open</span>
+              </div>
+            </button>
+
             <button
               v-if="authStore.user?.companyCardEnabled"
               type="button"

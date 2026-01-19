@@ -1,6 +1,34 @@
 import pool from '../config/database.js';
 
 class PayrollPeriod {
+  static async findForAgencyByDate({ agencyId, dateYmd }) {
+    if (!agencyId || !dateYmd) return null;
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM payroll_periods
+       WHERE agency_id = ?
+         AND ? BETWEEN period_start AND period_end
+       ORDER BY period_start DESC, id DESC
+       LIMIT 1`,
+      [agencyId, String(dateYmd).slice(0, 10)]
+    );
+    return rows?.[0] || null;
+  }
+
+  static async findNextForAgencyAfter({ agencyId, afterDateYmd }) {
+    if (!agencyId || !afterDateYmd) return null;
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM payroll_periods
+       WHERE agency_id = ?
+         AND period_start > ?
+       ORDER BY period_start ASC, id ASC
+       LIMIT 1`,
+      [agencyId, String(afterDateYmd).slice(0, 10)]
+    );
+    return rows?.[0] || null;
+  }
+
   static async create({ agencyId, label, periodStart, periodEnd, createdByUserId }) {
     const [result] = await pool.execute(
       `INSERT INTO payroll_periods (agency_id, label, period_start, period_end, status, created_by_user_id)

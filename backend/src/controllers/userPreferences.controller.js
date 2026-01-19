@@ -7,7 +7,9 @@ const buildDefaultPreferences = (userRole) => {
   // - Employees/providers default to SMS ON; support staff SMS optional
   const employeeLikeRoles = new Set([
     'staff',
-    'clinician',
+    'provider',
+    'school_staff',
+    'clinician', // legacy
     'facilitator',
     'intern',
     'supervisor',

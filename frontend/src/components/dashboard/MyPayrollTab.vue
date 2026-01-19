@@ -13,6 +13,92 @@
       <details class="card claim-card" open>
         <summary class="claim-summary">
           <div>
+            <div class="claim-title">PTO Balances</div>
+            <div class="muted">Sick Leave and Training PTO (read-only).</div>
+          </div>
+          <button class="btn btn-primary btn-sm" @click.stop="openPtoChooserModal" type="button">
+            Request PTO
+          </button>
+        </summary>
+
+        <div v-if="ptoLoading" class="muted" style="margin-top: 10px;">Loading PTO…</div>
+        <div v-else>
+          <div v-if="ptoError" class="warn-box" style="margin-top: 10px;">{{ ptoError }}</div>
+          <div class="table-wrap" style="margin-top: 10px;">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Bucket</th>
+                  <th class="right">Balance (hours)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Sick Leave</td>
+                  <td class="right">{{ fmtNum(ptoBalances.sickHours || 0) }}</td>
+                </tr>
+                <tr>
+                  <td>Training PTO</td>
+                  <td class="right">
+                    {{ (ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(ptoBalances.trainingHours || 0) : '—' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="hint" style="margin-top: 10px;">
+            Policy reminders: Sick Leave accrues at {{ fmtNum(ptoPolicy?.sickAccrualPer30 ?? 1) }} hour per 30 {{ (ptoAccount?.employment_type === 'fee_for_service') ? 'credits' : 'hours' }}.
+            <span v-if="ptoPolicy?.trainingPtoEnabled === true">
+              Training PTO accrues at {{ fmtNum(ptoPolicy?.trainingAccrualPer30 ?? 0.25) }} hour per 30 {{ (ptoAccount?.employment_type === 'fee_for_service') ? 'credits' : 'hours' }} (if eligible).
+            </span>
+            PTO over {{ fmtNum(ptoPolicy?.ptoConsecutiveUseLimitHours ?? 15) }} hours consecutively requires {{ fmtNum(ptoPolicy?.ptoConsecutiveUseNoticeDays ?? 30) }} days notice and management approval.
+          </div>
+
+          <div class="section-divider" style="margin-top: 12px;"></div>
+          <div class="muted" style="margin-top: 10px;">PTO Requests</div>
+          <div v-if="ptoRequestsError" class="warn-box" style="margin-top: 10px;">{{ ptoRequestsError }}</div>
+          <div v-if="ptoRequestsLoading" class="muted" style="margin-top: 10px;">Loading requests…</div>
+          <div v-else-if="(ptoRequests || []).length" class="table-wrap" style="margin-top: 10px;">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Created</th>
+                  <th>Type</th>
+                  <th class="right">Hours</th>
+                  <th>Status</th>
+                  <th>Proof</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in ptoRequests" :key="r.id">
+                  <td>{{ String(r.created_at || '').slice(0, 10) }}</td>
+                  <td>{{ String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
+                  <td class="right">{{ fmtNum(Number(r.total_hours || 0)) }}</td>
+                  <td>
+                    <div>{{ String(r.status || '').toUpperCase() }}</div>
+                    <div v-if="String(r.status||'').toLowerCase()==='deferred' && r.rejection_reason" class="muted" style="margin-top: 4px;">
+                      Needs changes: {{ r.rejection_reason }}
+                    </div>
+                    <div v-if="String(r.status||'').toLowerCase()==='rejected' && r.rejection_reason" class="muted" style="margin-top: 4px;">
+                      Rejected: {{ r.rejection_reason }}
+                    </div>
+                  </td>
+                  <td>
+                    <a v-if="r.proof_file_path" :href="receiptUrl({ receipt_file_path: r.proof_file_path })" target="_blank" rel="noopener noreferrer">View</a>
+                    <span v-else class="muted">—</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="muted" style="margin-top: 10px;">No PTO requests yet.</div>
+        </div>
+      </details>
+
+      <details class="card claim-card" open>
+        <summary class="claim-summary">
+          <div>
             <div class="claim-title">School Mileage</div>
             <div class="muted">History of your submissions.</div>
           </div>
@@ -137,7 +223,7 @@
             </thead>
             <tbody>
               <tr v-for="c in medcancelClaims" :key="c.id">
-                <td>{{ c.claim_date }}</td>
+                <td>{{ dateYmd(c.claim_date) }}</td>
                 <td class="right">{{ fmtNum(Number((c.items || []).length || c.units || 0)) }}</td>
                 <td>
                   <div>{{ String(c.status || '').toUpperCase() }}</div>
@@ -145,7 +231,7 @@
                     Needs changes: {{ c.rejection_reason }}
                   </div>
                 </td>
-                <td class="right">{{ c.applied_amount ? fmtMoney(c.applied_amount) : '—' }}</td>
+                <td class="right">{{ medcancelAmountLabel(c) }}</td>
                 <td class="right">
                   <button
                     v-if="String(c.status||'').toLowerCase()==='deferred'"
@@ -751,6 +837,17 @@
         <span>I certify this mileage claim is accurate and has not been submitted elsewhere.</span>
       </label>
 
+      <div v-if="mileageForm.claimType === 'school_travel'" class="hint" style="margin-top: 10px;">
+        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
+        After the next pay period’s Sunday 11:59 PM deadline, you can’t submit it in-app.
+        If you are requesting an extension or consideration of an extension to submit a past claim, please reach out directly to your administrative team.
+      </div>
+      <div v-else class="hint" style="margin-top: 10px;">
+        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
+        If you submit more than 60 days after the drive date, you can’t submit it in-app.
+        If you are requesting an extension or consideration of an extension to submit a past claim, please reach out directly to your administrative team.
+      </div>
+
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
         <button class="btn btn-primary" @click="submitMileage" :disabled="submittingMileage">
           {{ submittingMileage ? 'Submitting…' : 'Submit for approval' }}
@@ -775,6 +872,12 @@
       <div class="warn-box" style="margin-top: 10px;">
         <strong>Reminder:</strong> Med Cancel submissions may be denied if the reason is not aligned with the workplace handbook.
         Include why the client missed and what you did to attempt the session.
+      </div>
+
+      <div class="hint" style="margin-top: 10px;">
+        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
+        If you submit more than 60 days after the reference date, you can’t submit it in-app.
+        If you are requesting an extension or consideration of an extension to submit a past claim, please reach out directly to your administrative team.
       </div>
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
@@ -816,6 +919,16 @@
               <textarea v-model="it.note" rows="2" placeholder="Why was the client missing? What did you do to attempt the session?"></textarea>
             </div>
           </div>
+          <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+            <div class="field">
+              <label>Client initials (required)</label>
+              <input v-model="it.clientInitials" type="text" placeholder="e.g., AB" />
+            </div>
+            <div class="field">
+              <label>Session time (required)</label>
+              <input v-model="it.sessionTime" type="time" />
+            </div>
+          </div>
           <label class="control" style="margin-top: 8px; display: flex; gap: 10px; align-items: center;">
             <input v-model="it.attestation" type="checkbox" />
             <span>I certify I attempted this session and it was missed.</span>
@@ -829,7 +942,7 @@
 
         <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
           <button class="btn btn-secondary btn-sm" type="button" @click="addMedcancelItem" :disabled="submittingMedcancel">
-            + Add missed service
+            + Add another missed service (same date)
           </button>
         </div>
       </div>
@@ -837,6 +950,189 @@
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
         <button class="btn btn-primary" @click="submitMedcancel" :disabled="submittingMedcancel">
           {{ submittingMedcancel ? 'Submitting…' : 'Submit for approval' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PTO chooser modal -->
+  <div v-if="showPtoChooser" class="modal-backdrop" @click.self="closePtoChooserModal">
+    <div class="modal" style="width: min(720px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Request PTO</div>
+          <div class="hint">Choose Sick Leave or Training PTO (if eligible).</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closePtoChooserModal">Close</button>
+      </div>
+
+      <div v-if="submitPtoError" class="warn-box" style="margin-top: 10px;">{{ submitPtoError }}</div>
+
+      <div class="table-wrap" style="margin-top: 10px;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Bucket</th>
+              <th class="right">Balance (hours)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Sick Leave</td>
+              <td class="right">{{ fmtNum(ptoBalances.sickHours || 0) }}</td>
+            </tr>
+            <tr>
+              <td>Training PTO</td>
+              <td class="right">{{ (ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(ptoBalances.trainingHours || 0) : '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="hint" style="margin-top: 10px;">
+        PTO over {{ fmtNum(ptoPolicy?.ptoConsecutiveUseLimitHours ?? 15) }} hours consecutively requires
+        {{ fmtNum(ptoPolicy?.ptoConsecutiveUseNoticeDays ?? 30) }} days notice and management approval.
+        Training PTO requires a description and proof of participation.
+      </div>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button class="btn btn-secondary" type="button" @click="openPtoSick">Sick Leave Request</button>
+        <button class="btn btn-secondary" type="button" @click="openPtoTraining" :disabled="ptoPolicy?.trainingPtoEnabled !== true || !ptoAccount?.training_pto_eligible">
+          Training PTO Request
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PTO: Sick Leave request modal -->
+  <div v-if="showPtoSickModal" class="modal-backdrop" @click.self="closePtoSick">
+    <div class="modal" style="width: min(720px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">PTO Request — Sick Leave</div>
+          <div class="hint">Submit date(s) and hours for Sick Leave.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closePtoSick">Close</button>
+      </div>
+
+      <div v-if="submitPtoError" class="warn-box" style="margin-top: 10px;">{{ submitPtoError }}</div>
+
+      <div class="hint" style="margin-top: 10px;">
+        Policy reminders: PTO over {{ fmtNum(ptoPolicy?.ptoConsecutiveUseLimitHours ?? 15) }} hours consecutively requires
+        {{ fmtNum(ptoPolicy?.ptoConsecutiveUseNoticeDays ?? 30) }} days notice and management approval.
+      </div>
+
+      <div class="card" style="margin-top: 12px;">
+        <div class="muted"><strong>Entries</strong></div>
+        <div v-for="(it, idx) in (ptoSickForm.items || [])" :key="idx" class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+          <div class="field">
+            <label>Date</label>
+            <input v-model="it.date" type="date" />
+          </div>
+          <div class="field">
+            <label>Hours</label>
+            <input v-model="it.hours" type="number" step="0.25" min="0" placeholder="0" />
+          </div>
+          <div class="actions" style="grid-column: 1 / -1; justify-content: flex-end; margin-top: 6px;">
+            <button class="btn btn-secondary btn-sm" type="button" @click="removePtoItem(ptoSickForm, idx)" :disabled="(ptoSickForm.items || []).length <= 1 || submittingPtoRequest">
+              Remove
+            </button>
+          </div>
+        </div>
+        <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+          <button class="btn btn-secondary btn-sm" type="button" @click="addPtoItem(ptoSickForm)" :disabled="submittingPtoRequest">
+            + Add date
+          </button>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Notes (optional)</label>
+        <textarea v-model="ptoSickForm.notes" rows="3" placeholder="Any context for payroll review…"></textarea>
+      </div>
+
+      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+        <input v-model="ptoSickForm.attestation" type="checkbox" />
+        <span>I certify this request is accurate and complies with the PTO policy.</span>
+      </label>
+
+      <div class="hint" style="margin-top: 10px;">
+        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
+      </div>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button class="btn btn-primary" @click="submitPtoSick" :disabled="submittingPtoRequest">
+          {{ submittingPtoRequest ? 'Submitting…' : 'Submit for approval' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PTO: Training PTO request modal -->
+  <div v-if="showPtoTrainingModal" class="modal-backdrop" @click.self="closePtoTraining">
+    <div class="modal" style="width: min(720px, 100%);">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">PTO Request — Training PTO</div>
+          <div class="hint">Training PTO requires a description and proof of participation.</div>
+        </div>
+        <button class="btn btn-secondary btn-sm" @click="closePtoTraining">Close</button>
+      </div>
+
+      <div v-if="submitPtoError" class="warn-box" style="margin-top: 10px;">{{ submitPtoError }}</div>
+
+      <div class="card" style="margin-top: 12px;">
+        <div class="muted"><strong>Entries</strong></div>
+        <div v-for="(it, idx) in (ptoTrainingForm.items || [])" :key="idx" class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+          <div class="field">
+            <label>Date</label>
+            <input v-model="it.date" type="date" />
+          </div>
+          <div class="field">
+            <label>Hours</label>
+            <input v-model="it.hours" type="number" step="0.25" min="0" placeholder="0" />
+          </div>
+          <div class="actions" style="grid-column: 1 / -1; justify-content: flex-end; margin-top: 6px;">
+            <button class="btn btn-secondary btn-sm" type="button" @click="removePtoItem(ptoTrainingForm, idx)" :disabled="(ptoTrainingForm.items || []).length <= 1 || submittingPtoRequest">
+              Remove
+            </button>
+          </div>
+        </div>
+        <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+          <button class="btn btn-secondary btn-sm" type="button" @click="addPtoItem(ptoTrainingForm)" :disabled="submittingPtoRequest">
+            + Add date
+          </button>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Description (required)</label>
+        <textarea v-model="ptoTrainingForm.description" rows="3" placeholder="Brief description of the training…"></textarea>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Proof of participation (required)</label>
+        <input type="file" accept="application/pdf,image/png,image/jpeg,image/jpg,image/gif,image/webp" @change="onPtoProofPick" />
+        <div class="hint" v-if="ptoTrainingForm.proofName">Selected: <strong>{{ ptoTrainingForm.proofName }}</strong></div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Notes (optional)</label>
+        <textarea v-model="ptoTrainingForm.notes" rows="3" placeholder="Any additional context…"></textarea>
+      </div>
+
+      <label class="control" style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+        <input v-model="ptoTrainingForm.attestation" type="checkbox" />
+        <span>I certify this request is accurate and I have provided required documentation.</span>
+      </label>
+
+      <div class="hint" style="margin-top: 10px;">
+        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
+      </div>
+
+      <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+        <button class="btn btn-primary" @click="submitPtoTraining" :disabled="submittingPtoRequest">
+          {{ submittingPtoRequest ? 'Submitting…' : 'Submit for approval' }}
         </button>
       </div>
     </div>
@@ -868,7 +1164,24 @@
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
         <div class="field">
-          <label>Who approved this purchase? (required)</label>
+          <label>Payment method (required)</label>
+          <select v-model="reimbursementForm.paymentMethod">
+            <option :value="null" disabled>Select…</option>
+            <option value="personal_card">Personal card</option>
+            <option value="cash">Cash</option>
+            <option value="check">Check</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Project / school / client initials (optional)</label>
+          <input v-model="reimbursementForm.projectRef" type="text" placeholder="Optional" />
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Supervisor / approver (required)</label>
           <input v-model="reimbursementForm.purchaseApprovedBy" type="text" placeholder="Name (or name + email)" />
           <div class="hint">Enter the approver who authorized this purchase prior to buying.</div>
         </div>
@@ -888,8 +1201,38 @@
           <input v-model="reimbursementForm.vendor" type="text" placeholder="Vendor" />
         </div>
         <div class="field">
-          <label>Category (optional)</label>
-          <input v-model="reimbursementForm.category" type="text" placeholder="Category" />
+          <label>Reason (required)</label>
+          <input v-model="reimbursementForm.reason" type="text" placeholder="Why was this expense needed?" />
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 10px;">
+        <h3 class="card-title" style="margin: 0 0 6px 0;">Category split (optional)</h3>
+        <div class="hint">If you split the amount across categories, the split total must match the amount.</div>
+        <div
+          v-for="(s, idx) in (reimbursementForm.splits || [])"
+          :key="idx"
+          class="field-row"
+          style="margin-top: 10px; grid-template-columns: 1fr 180px;"
+        >
+          <div class="field">
+            <label>Category</label>
+            <input v-model="s.category" type="text" placeholder="e.g., Supplies" />
+          </div>
+          <div class="field">
+            <label>Amount</label>
+            <input v-model="s.amount" type="number" step="0.01" min="0" placeholder="0.00" />
+          </div>
+          <div class="actions" style="grid-column: 1 / -1; justify-content: flex-end; margin-top: 6px;">
+            <button class="btn btn-secondary btn-sm" type="button" @click="(reimbursementForm.splits || []).splice(idx, 1)" :disabled="(reimbursementForm.splits || []).length <= 1 || submittingReimbursement">
+              Remove
+            </button>
+          </div>
+        </div>
+        <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+          <button class="btn btn-secondary btn-sm" type="button" @click="(reimbursementForm.splits || []).push({ category: '', amount: '' })" :disabled="submittingReimbursement">
+            + Add split
+          </button>
         </div>
       </div>
 
@@ -908,6 +1251,12 @@
         <input v-model="reimbursementForm.attestation" type="checkbox" />
         <span>I certify this reimbursement is accurate and I have not submitted it elsewhere.</span>
       </label>
+
+      <div class="hint" style="margin-top: 10px;">
+        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
+        If you submit more than 60 days after the expense date, you can’t submit it in-app.
+        If you are requesting an extension or consideration of an extension to submit a past claim, please reach out directly to your administrative team.
+      </div>
 
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
         <button class="btn btn-primary" @click="submitReimbursement" :disabled="submittingReimbursement">
@@ -943,12 +1292,64 @@
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
         <div class="field">
+          <label>Payment method</label>
+          <input :value="'Company card'" type="text" disabled />
+        </div>
+        <div class="field">
+          <label>Project / school / client initials (optional)</label>
+          <input v-model="companyCardExpenseForm.projectRef" type="text" placeholder="Optional" />
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
+          <label>Supervisor / approver (required)</label>
+          <input v-model="companyCardExpenseForm.supervisorName" type="text" placeholder="Name (or name + email)" />
+        </div>
+        <div class="field">
+          <label>Reason / purpose (required)</label>
+          <input v-model="companyCardExpenseForm.purpose" type="text" placeholder="What was this for?" />
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr;">
+        <div class="field">
           <label>Vendor (optional)</label>
           <input v-model="companyCardExpenseForm.vendor" type="text" placeholder="Vendor" />
         </div>
         <div class="field">
-          <label>Purpose (optional)</label>
-          <input v-model="companyCardExpenseForm.purpose" type="text" placeholder="What was this for?" />
+          <label>&nbsp;</label>
+          <div class="hint">Tip: use project/client initials so payroll can allocate correctly.</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 10px;">
+        <h3 class="card-title" style="margin: 0 0 6px 0;">Category split (optional)</h3>
+        <div class="hint">If you split the amount across categories, the split total must match the amount.</div>
+        <div
+          v-for="(s, idx) in (companyCardExpenseForm.splits || [])"
+          :key="idx"
+          class="field-row"
+          style="margin-top: 10px; grid-template-columns: 1fr 180px;"
+        >
+          <div class="field">
+            <label>Category</label>
+            <input v-model="s.category" type="text" placeholder="e.g., Training" />
+          </div>
+          <div class="field">
+            <label>Amount</label>
+            <input v-model="s.amount" type="number" step="0.01" min="0" placeholder="0.00" />
+          </div>
+          <div class="actions" style="grid-column: 1 / -1; justify-content: flex-end; margin-top: 6px;">
+            <button class="btn btn-secondary btn-sm" type="button" @click="(companyCardExpenseForm.splits || []).splice(idx, 1)" :disabled="(companyCardExpenseForm.splits || []).length <= 1 || submittingCompanyCardExpense">
+              Remove
+            </button>
+          </div>
+        </div>
+        <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+          <button class="btn btn-secondary btn-sm" type="button" @click="(companyCardExpenseForm.splits || []).push({ category: '', amount: '' })" :disabled="submittingCompanyCardExpense">
+            + Add split
+          </button>
         </div>
       </div>
 
@@ -967,6 +1368,12 @@
         <input v-model="companyCardExpenseForm.attestation" type="checkbox" />
         <span>I certify this purchase was for business use and the details above are accurate.</span>
       </label>
+
+      <div class="hint" style="margin-top: 10px;">
+        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
+        If you submit more than 60 days after the expense date, you can’t submit it in-app.
+        If you are requesting an extension or consideration of an extension to submit a past claim, please reach out directly to your administrative team.
+      </div>
 
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
         <button class="btn btn-primary" @click="submitCompanyCardExpense" :disabled="submittingCompanyCardExpense">
@@ -1053,6 +1460,12 @@
         <span>I certify that the information is accurate, complete, and in compliance with the workplace handbook.</span>
       </label>
 
+      <div class="hint" style="margin-top: 10px;">
+        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
+        If you submit more than 60 days after the date of service, you can’t submit it in-app.
+        If you are requesting an extension or consideration of an extension to submit a past claim, please reach out directly to your administrative team.
+      </div>
+
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
         <button
           class="btn btn-primary"
@@ -1123,6 +1536,12 @@
         <span>I certify the information is accurate and complete.</span>
       </label>
 
+      <div class="hint" style="margin-top: 10px;">
+        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
+        If you submit more than 60 days after the date of service, you can’t submit it in-app.
+        If you are requesting an extension or consideration of an extension to submit a past claim, please reach out directly to your administrative team.
+      </div>
+
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
         <button
           class="btn btn-primary"
@@ -1184,6 +1603,12 @@
         <input v-model="timeCorrectionForm.attestation" type="checkbox" />
         <span>I certify the information is accurate and complete.</span>
       </label>
+
+      <div class="hint" style="margin-top: 10px;">
+        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
+        If you submit more than 60 days after the date of service, you can’t submit it in-app.
+        If you are requesting an extension or consideration of an extension to submit a past claim, please reach out directly to your administrative team.
+      </div>
 
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
         <button
@@ -1267,6 +1692,12 @@
         <span>I certify the information is accurate and complete.</span>
       </label>
 
+      <div class="hint" style="margin-top: 10px;">
+        To be paid in the pay period that ends Friday, submit by Sunday 11:59 PM. After that, it will be considered for the next pay period.
+        If you submit more than 60 days after the date of service, you can’t submit it in-app.
+        If you are requesting an extension or consideration of an extension to submit a past claim, please reach out directly to your administrative team.
+      </div>
+
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
         <button
           class="btn btn-primary"
@@ -1342,6 +1773,35 @@ const submitMedcancelError = ref('');
 const medcancelClaims = ref([]);
 const medcancelClaimsLoading = ref(false);
 const medcancelClaimsError = ref('');
+
+const ptoLoading = ref(false);
+const ptoError = ref('');
+const ptoPolicy = ref(null);
+const ptoDefaultPayRate = ref(0);
+const ptoAccount = ref(null);
+const ptoBalances = ref({ sickHours: 0, trainingHours: 0 });
+const ptoRequests = ref([]);
+const ptoRequestsLoading = ref(false);
+const ptoRequestsError = ref('');
+const showPtoChooser = ref(false);
+const showPtoSickModal = ref(false);
+const showPtoTrainingModal = ref(false);
+const submittingPtoRequest = ref(false);
+const submitPtoError = ref('');
+
+const ptoSickForm = ref({
+  items: [{ date: '', hours: '' }],
+  notes: '',
+  attestation: false
+});
+const ptoTrainingForm = ref({
+  items: [{ date: '', hours: '' }],
+  description: '',
+  notes: '',
+  proofFile: null,
+  proofName: '',
+  attestation: false
+});
 const showReimbursementModal = ref(false);
 const submittingReimbursement = ref(false);
 const submitReimbursementError = ref('');
@@ -1454,6 +1914,12 @@ const timeOvertimeForm = ref({
   attestation: false
 });
 
+const dateYmd = (v) => {
+  if (!v) return '';
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+};
+
 const medcancelEstimatedAmount = computed(() => {
   const schedule = String(authStore.user?.medcancelRateSchedule || '').toLowerCase();
   const items = Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items : [];
@@ -1469,6 +1935,29 @@ const medcancelEstimatedAmount = computed(() => {
   sum = Math.round(sum * 100) / 100;
   return Number.isFinite(sum) ? sum : 0;
 });
+
+const medcancelEstimatedAmountForClaim = (c) => {
+  const schedule = String(authStore.user?.medcancelRateSchedule || '').toLowerCase();
+  const rates =
+    schedule === 'high'
+      ? { '90832': 10, '90834': 15, '90837': 20 }
+      : { '90832': 5, '90834': 7.5, '90837': 10 };
+  const items = Array.isArray(c?.items) ? c.items : [];
+  let sum = 0;
+  for (const it of items) {
+    const code = String(it?.missed_service_code || it?.missedServiceCode || it?.missedServiceCodeRaw || '').trim();
+    sum += Number(rates[code] || 0);
+  }
+  sum = Math.round(sum * 100) / 100;
+  return Number.isFinite(sum) ? sum : 0;
+};
+
+const medcancelAmountLabel = (c) => {
+  const applied = Number(c?.applied_amount || 0);
+  if (Number.isFinite(applied) && applied > 0) return fmtMoney(applied);
+  const est = medcancelEstimatedAmountForClaim(c);
+  return est > 0 ? `${fmtMoney(est)} (est.)` : '—';
+};
 
 const expandedId = ref(null);
 const expanded = computed(() => periods.value.find((p) => p.payroll_period_id === expandedId.value) || null);
@@ -2009,7 +2498,7 @@ const openMedcancelModal = () => {
   medcancelForm.value = {
     claimDate: ymd,
     schoolOrganizationId: null,
-    items: [{ missedServiceCode: '90832', note: '', attestation: false }]
+    items: [{ missedServiceCode: '90832', clientInitials: '', sessionTime: '', note: '', attestation: false }]
   };
   showMedcancelModal.value = true;
 };
@@ -2033,10 +2522,13 @@ const openReimbursementModal = () => {
   reimbursementForm.value = {
     expenseDate: ymd,
     amount: '',
+    paymentMethod: null,
     vendor: '',
     purchaseApprovedBy: '',
     purchasePreapproved: null,
-    category: '',
+    projectRef: '',
+    reason: '',
+    splits: [{ category: '', amount: '' }],
     notes: '',
     attestation: false,
     receiptFile: null,
@@ -2062,7 +2554,11 @@ const openCompanyCardExpenseModal = () => {
   companyCardExpenseForm.value = {
     expenseDate: ymd,
     amount: '',
+    paymentMethod: 'company_card',
     vendor: '',
+    supervisorName: '',
+    projectRef: '',
+    splits: [{ category: '', amount: '' }],
     purpose: '',
     notes: '',
     attestation: false,
@@ -2129,12 +2625,20 @@ const submitReimbursement = async () => {
       submitReimbursementError.value = 'Amount must be greater than 0.';
       return;
     }
+    if (!String(reimbursementForm.value.paymentMethod || '').trim()) {
+      submitReimbursementError.value = 'Payment method is required.';
+      return;
+    }
     if (!String(reimbursementForm.value.purchaseApprovedBy || '').trim()) {
       submitReimbursementError.value = 'Who approved this purchase is required.';
       return;
     }
     if (reimbursementForm.value.purchasePreapproved !== true && reimbursementForm.value.purchasePreapproved !== false) {
       submitReimbursementError.value = 'Please select whether the purchase was pre-approved.';
+      return;
+    }
+    if (!String(reimbursementForm.value.reason || '').trim()) {
+      submitReimbursementError.value = 'Reason is required.';
       return;
     }
     if (!String(reimbursementForm.value.notes || '').trim()) {
@@ -2150,14 +2654,30 @@ const submitReimbursement = async () => {
       return;
     }
 
+    const rawSplits = Array.isArray(reimbursementForm.value.splits) ? reimbursementForm.value.splits : [];
+    const splits = rawSplits
+      .map((s) => ({ category: String(s?.category || '').trim(), amount: Number(s?.amount || 0) }))
+      .filter((s) => s.category && Number.isFinite(s.amount) && s.amount > 0);
+    if (splits.length) {
+      const sum = Math.round(splits.reduce((a, s) => a + Number(s.amount || 0), 0) * 100) / 100;
+      const amt = Math.round(amount * 100) / 100;
+      if (Math.abs(sum - amt) > 0.009) {
+        submitReimbursementError.value = `Category splits must add up to ${amt.toFixed(2)}.`;
+        return;
+      }
+    }
+
     const fd = new FormData();
     fd.append('agencyId', String(agencyId.value));
     fd.append('expenseDate', expenseDate);
     fd.append('amount', String(amount));
+    fd.append('paymentMethod', String(reimbursementForm.value.paymentMethod || '').trim());
     if (String(reimbursementForm.value.vendor || '').trim()) fd.append('vendor', String(reimbursementForm.value.vendor || '').trim());
     fd.append('purchaseApprovedBy', String(reimbursementForm.value.purchaseApprovedBy || '').trim());
     fd.append('purchasePreapproved', reimbursementForm.value.purchasePreapproved ? '1' : '0');
-    if (String(reimbursementForm.value.category || '').trim()) fd.append('category', String(reimbursementForm.value.category || '').trim());
+    if (String(reimbursementForm.value.projectRef || '').trim()) fd.append('projectRef', String(reimbursementForm.value.projectRef || '').trim());
+    fd.append('reason', String(reimbursementForm.value.reason || '').trim());
+    if (splits.length) fd.append('splits', JSON.stringify(splits));
     fd.append('notes', String(reimbursementForm.value.notes || '').trim());
     fd.append('attestation', reimbursementForm.value.attestation ? '1' : '0');
     fd.append('receipt', reimbursementForm.value.receiptFile);
@@ -2193,6 +2713,14 @@ const submitCompanyCardExpense = async () => {
       submitCompanyCardExpenseError.value = 'Amount must be greater than 0.';
       return;
     }
+    if (!String(companyCardExpenseForm.value.supervisorName || '').trim()) {
+      submitCompanyCardExpenseError.value = 'Supervisor / approver is required.';
+      return;
+    }
+    if (!String(companyCardExpenseForm.value.purpose || '').trim()) {
+      submitCompanyCardExpenseError.value = 'Reason / purpose is required.';
+      return;
+    }
     if (!String(companyCardExpenseForm.value.notes || '').trim()) {
       submitCompanyCardExpenseError.value = 'Notes are required.';
       return;
@@ -2206,12 +2734,29 @@ const submitCompanyCardExpense = async () => {
       return;
     }
 
+    const rawSplits = Array.isArray(companyCardExpenseForm.value.splits) ? companyCardExpenseForm.value.splits : [];
+    const splits = rawSplits
+      .map((s) => ({ category: String(s?.category || '').trim(), amount: Number(s?.amount || 0) }))
+      .filter((s) => s.category && Number.isFinite(s.amount) && s.amount > 0);
+    if (splits.length) {
+      const sum = Math.round(splits.reduce((a, s) => a + Number(s.amount || 0), 0) * 100) / 100;
+      const amt = Math.round(amount * 100) / 100;
+      if (Math.abs(sum - amt) > 0.009) {
+        submitCompanyCardExpenseError.value = `Category splits must add up to ${amt.toFixed(2)}.`;
+        return;
+      }
+    }
+
     const fd = new FormData();
     fd.append('agencyId', String(agencyId.value));
     fd.append('expenseDate', expenseDate);
     fd.append('amount', String(amount));
     if (String(companyCardExpenseForm.value.vendor || '').trim()) fd.append('vendor', String(companyCardExpenseForm.value.vendor || '').trim());
-    if (String(companyCardExpenseForm.value.purpose || '').trim()) fd.append('purpose', String(companyCardExpenseForm.value.purpose || '').trim());
+    fd.append('paymentMethod', 'company_card');
+    fd.append('supervisorName', String(companyCardExpenseForm.value.supervisorName || '').trim());
+    if (String(companyCardExpenseForm.value.projectRef || '').trim()) fd.append('projectRef', String(companyCardExpenseForm.value.projectRef || '').trim());
+    if (splits.length) fd.append('splits', JSON.stringify(splits));
+    fd.append('purpose', String(companyCardExpenseForm.value.purpose || '').trim());
     fd.append('notes', String(companyCardExpenseForm.value.notes || '').trim());
     fd.append('attestation', companyCardExpenseForm.value.attestation ? '1' : '0');
     fd.append('receipt', companyCardExpenseForm.value.receiptFile);
@@ -2439,9 +2984,163 @@ const loadMedcancelClaims = async () => {
   }
 };
 
+const loadPto = async () => {
+  if (!agencyId.value) return;
+  try {
+    ptoLoading.value = true;
+    ptoError.value = '';
+    const resp = await api.get('/payroll/me/pto-balances', { params: { agencyId: agencyId.value } });
+    ptoPolicy.value = resp.data?.policy || null;
+    ptoDefaultPayRate.value = Number(resp.data?.defaultPayRate || 0);
+    ptoAccount.value = resp.data?.account || null;
+    ptoBalances.value = {
+      sickHours: Number(resp.data?.balances?.sickHours || 0),
+      trainingHours: Number(resp.data?.balances?.trainingHours || 0)
+    };
+  } catch (e) {
+    ptoError.value = e.response?.data?.error?.message || e.message || 'Failed to load PTO';
+    ptoPolicy.value = null;
+    ptoDefaultPayRate.value = 0;
+    ptoAccount.value = null;
+    ptoBalances.value = { sickHours: 0, trainingHours: 0 };
+  } finally {
+    ptoLoading.value = false;
+  }
+};
+
+const loadPtoRequests = async () => {
+  if (!agencyId.value) return;
+  try {
+    ptoRequestsLoading.value = true;
+    ptoRequestsError.value = '';
+    const resp = await api.get('/payroll/me/pto-requests', { params: { agencyId: agencyId.value } });
+    ptoRequests.value = resp.data || [];
+  } catch (e) {
+    ptoRequestsError.value = e.response?.data?.error?.message || e.message || 'Failed to load PTO requests';
+    ptoRequests.value = [];
+  } finally {
+    ptoRequestsLoading.value = false;
+  }
+};
+
+const openPtoChooserModal = async () => {
+  submitPtoError.value = '';
+  await loadPto();
+  showPtoChooser.value = true;
+};
+const closePtoChooserModal = () => { showPtoChooser.value = false; };
+
+const addPtoItem = (formRef) => {
+  const next = Array.isArray(formRef.value.items) ? formRef.value.items.slice() : [];
+  next.push({ date: '', hours: '' });
+  formRef.value.items = next;
+};
+const removePtoItem = (formRef, idx) => {
+  const next = Array.isArray(formRef.value.items) ? formRef.value.items.slice() : [];
+  next.splice(idx, 1);
+  formRef.value.items = next;
+};
+
+const openPtoSick = () => {
+  submitPtoError.value = '';
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  ptoSickForm.value = { items: [{ date: ymd, hours: '' }], notes: '', attestation: false };
+  showPtoChooser.value = false;
+  showPtoSickModal.value = true;
+};
+const closePtoSick = () => { showPtoSickModal.value = false; };
+
+const openPtoTraining = () => {
+  submitPtoError.value = '';
+  if (ptoPolicy.value?.trainingPtoEnabled !== true) {
+    submitPtoError.value = 'Training PTO is disabled for this organization.';
+    showPtoChooser.value = false;
+    return;
+  }
+  if (!ptoAccount.value?.training_pto_eligible) {
+    submitPtoError.value = 'Training PTO is not enabled for your account.';
+    showPtoChooser.value = false;
+    return;
+  }
+  const today = new Date();
+  const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  ptoTrainingForm.value = { items: [{ date: ymd, hours: '' }], description: '', notes: '', proofFile: null, proofName: '', attestation: false };
+  showPtoChooser.value = false;
+  showPtoTrainingModal.value = true;
+};
+const closePtoTraining = () => { showPtoTrainingModal.value = false; };
+
+const onPtoProofPick = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  ptoTrainingForm.value.proofFile = file;
+  ptoTrainingForm.value.proofName = file?.name || '';
+};
+
+const submitPto = async ({ requestType, form }) => {
+  if (!agencyId.value) return;
+  try {
+    submittingPtoRequest.value = true;
+    submitPtoError.value = '';
+
+    if (requestType === 'training' && ptoPolicy.value?.trainingPtoEnabled !== true) {
+      submitPtoError.value = 'Training PTO is disabled for this organization.';
+      return;
+    }
+    const items = (form.value.items || [])
+      .map((it) => ({ date: String(it?.date || '').slice(0, 10), hours: Number(it?.hours || 0) }))
+      .filter((it) => /^\d{4}-\d{2}-\d{2}$/.test(it.date) && Number.isFinite(it.hours) && it.hours > 0);
+
+    if (!items.length) {
+      submitPtoError.value = 'Add at least one PTO entry (date + hours).';
+      return;
+    }
+    if (!form.value.attestation) {
+      submitPtoError.value = 'Attestation is required.';
+      return;
+    }
+    if (requestType === 'training') {
+      if (!String(form.value.description || '').trim()) {
+        submitPtoError.value = 'Training description is required.';
+        return;
+      }
+      if (!form.value.proofFile) {
+        submitPtoError.value = 'Proof upload is required for Training PTO.';
+        return;
+      }
+    }
+
+    const fd = new FormData();
+    fd.append('agencyId', String(agencyId.value));
+    fd.append('requestType', requestType);
+    fd.append('items', JSON.stringify(items));
+    if (String(form.value.notes || '').trim()) fd.append('notes', String(form.value.notes || '').trim());
+    if (requestType === 'training') {
+      fd.append('trainingDescription', String(form.value.description || '').trim());
+      fd.append('proof', form.value.proofFile);
+    }
+    fd.append('policyAck', JSON.stringify({ attested: true }));
+
+    await api.post('/payroll/me/pto-requests', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+
+    showPtoSickModal.value = false;
+    showPtoTrainingModal.value = false;
+    submitSuccess.value = 'PTO request submitted successfully. Payroll will review and approve it.';
+    window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    await Promise.all([loadPto(), loadPtoRequests()]);
+  } catch (e) {
+    submitPtoError.value = e.response?.data?.error?.message || e.message || 'Failed to submit PTO request';
+  } finally {
+    submittingPtoRequest.value = false;
+  }
+};
+
+const submitPtoSick = async () => submitPto({ requestType: 'sick', form: ptoSickForm });
+const submitPtoTraining = async () => submitPto({ requestType: 'training', form: ptoTrainingForm });
+
 const addMedcancelItem = () => {
   const next = Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items.slice() : [];
-  next.push({ missedServiceCode: '90832', note: '', attestation: false });
+  next.push({ missedServiceCode: '90832', clientInitials: '', sessionTime: '', note: '', attestation: false });
   medcancelForm.value.items = next;
 };
 
@@ -2466,6 +3165,14 @@ const submitMedcancel = async () => {
         submitMedcancelError.value = 'Each missed service requires a code.';
         return;
       }
+      if (!String(it.clientInitials || '').trim()) {
+        submitMedcancelError.value = 'Each missed service requires client initials.';
+        return;
+      }
+      if (!String(it.sessionTime || '').trim()) {
+        submitMedcancelError.value = 'Each missed service requires the session time.';
+        return;
+      }
       if (!String(it.note || '').trim()) {
         submitMedcancelError.value = 'Each missed service requires a note.';
         return;
@@ -2481,6 +3188,8 @@ const submitMedcancel = async () => {
       schoolOrganizationId: medcancelForm.value.schoolOrganizationId,
       items: items.map((it) => ({
         missedServiceCode: String(it.missedServiceCode || '').trim(),
+        clientInitials: String(it.clientInitials || '').trim(),
+        sessionTime: String(it.sessionTime || '').trim(),
         note: String(it.note || '').trim(),
         attestation: !!it.attestation
       }))
@@ -2490,7 +3199,14 @@ const submitMedcancel = async () => {
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
     await loadMedcancelClaims();
   } catch (e) {
-    submitMedcancelError.value = e.response?.data?.error?.message || e.message || 'Failed to submit MedCancel';
+    const msg = e.response?.data?.error?.message || e.message || 'Failed to submit MedCancel';
+    submitMedcancelError.value = msg;
+    const meta = e.response?.data?.error?.meta || null;
+    if (meta) {
+      // Helpful for debugging pay-period window issues in dev without spamming the UI.
+      // eslint-disable-next-line no-console
+      console.warn('MedCancel submission window meta:', meta);
+    }
   } finally {
     submittingMedcancel.value = false;
   }
@@ -2557,6 +3273,8 @@ watch(agencyId, async () => {
     medcancelClaims.value = [];
     medcancelClaimsError.value = '';
   }
+  await loadPto();
+  await loadPtoRequests();
   await loadReimbursementClaims();
   await loadCompanyCardExpenses();
   await loadTimeClaims();
@@ -2598,6 +3316,8 @@ watch(
       openTimeCorrectionModal();
     } else if (key === 'time_overtime_evaluation') {
       openTimeOvertimeModal();
+    } else if (key === 'pto') {
+      await openPtoChooserModal();
     }
 
     // Clear the query so refresh/back doesn't keep reopening.
@@ -2615,6 +3335,8 @@ onMounted(async () => {
   if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
     await loadMedcancelClaims();
   }
+  await loadPto();
+  await loadPtoRequests();
   await loadReimbursementClaims();
   await loadCompanyCardExpenses();
   await loadTimeClaims();

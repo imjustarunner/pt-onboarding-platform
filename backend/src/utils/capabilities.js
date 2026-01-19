@@ -23,6 +23,19 @@ export function getUserCapabilities(user) {
   if (!user) return base;
   if (status === 'ARCHIVED') return base;
 
+  // Guardian portal accounts: non-clinical access.
+  // They should be able to access the platform shell + documents + links/materials, but not admin tooling.
+  if (role === 'client_guardian') {
+    return {
+      ...base,
+      canAccessPlatform: true,
+      canViewTraining: true, // used for "program materials" in non-clinical programs
+      canSignDocuments: true,
+      canJoinProgramEvents: true,
+      canUseChat: false
+    };
+  }
+
   // Existing status-based access model
   const access = checkAccess(user);
 

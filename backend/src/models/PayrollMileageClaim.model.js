@@ -36,9 +36,13 @@ class PayrollMileageClaim {
     costCenter = null,
     notes = null,
     attestation = 0,
-    tierLevel = null
+    tierLevel = null,
+    suggestedPayrollPeriodId = null
   }) {
-    const suggestedPayrollPeriodId = await PayrollMileageClaim.findSuggestedPeriodId({ agencyId, driveDate });
+    const resolvedSuggestedPayrollPeriodId =
+      Number.isFinite(Number(suggestedPayrollPeriodId)) && Number(suggestedPayrollPeriodId) > 0
+        ? Number(suggestedPayrollPeriodId)
+        : await PayrollMileageClaim.findSuggestedPeriodId({ agencyId, driveDate });
     const computedEligibleMiles =
       Number.isFinite(Number(eligibleMiles)) ? Number(eligibleMiles)
         : (Number.isFinite(Number(homeSchoolRoundtripMiles)) && Number.isFinite(Number(homeOfficeRoundtripMiles)))
@@ -82,7 +86,7 @@ class PayrollMileageClaim {
         costCenter,
         notes,
         attestation ? 1 : 0,
-        suggestedPayrollPeriodId,
+        resolvedSuggestedPayrollPeriodId,
         tierLevel
       ]
     );

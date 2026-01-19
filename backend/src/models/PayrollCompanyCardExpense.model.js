@@ -7,7 +7,12 @@ class PayrollCompanyCardExpense {
     status = 'submitted',
     expenseDate,
     amount,
+    paymentMethod = 'company_card',
     vendor = null,
+    supervisorName = null,
+    projectRef = null,
+    category = null,
+    splitsJson = null,
     purpose = null,
     notes,
     attestation = 0,
@@ -19,10 +24,10 @@ class PayrollCompanyCardExpense {
   }) {
     const [result] = await pool.execute(
       `INSERT INTO payroll_company_card_expenses
-       (agency_id, user_id, status, expense_date, amount, vendor, purpose, notes, attestation,
+       (agency_id, user_id, status, expense_date, amount, payment_method, vendor, supervisor_name, project_ref, category, splits_json, purpose, notes, attestation,
         receipt_file_path, receipt_original_name, receipt_mime_type, receipt_size_bytes,
         suggested_payroll_period_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                ?, ?, ?, ?,
                ?)`,
       [
@@ -31,7 +36,12 @@ class PayrollCompanyCardExpense {
         String(status || 'submitted'),
         expenseDate,
         amount,
+        paymentMethod,
         vendor,
+        supervisorName,
+        projectRef,
+        category,
+        splitsJson,
         purpose,
         notes,
         attestation ? 1 : 0,

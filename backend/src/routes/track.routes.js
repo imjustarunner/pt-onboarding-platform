@@ -16,7 +16,7 @@ const validateTrack = [
     }
     return Number.isInteger(Number(value)) && Number(value) > 0;
   }).withMessage('Agency ID must be a positive integer or null'),
-  body('role').optional().isIn(['admin', 'support', 'supervisor', 'staff', 'clinician', 'facilitator', 'intern']),
+  body('role').optional().isIn(['admin', 'support', 'supervisor', 'staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern']),
   body('isActive').optional().isBoolean()
 ];
 

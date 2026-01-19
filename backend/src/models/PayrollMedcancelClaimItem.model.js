@@ -9,10 +9,12 @@ class PayrollMedcancelClaimItem {
     const values = [];
     const placeholders = [];
     for (const it of rows) {
-      placeholders.push('(?, ?, ?, ?)');
+      placeholders.push('(?, ?, ?, ?, ?, ?)');
       values.push(
         Number(claimId),
         String(it.missedServiceCode || '').slice(0, 16),
+        String(it.clientInitials || '').trim().slice(0, 16) || null,
+        String(it.sessionTime || '').trim().slice(0, 16) || null,
         String(it.note || ''),
         it.attestation ? 1 : 0
       );
@@ -20,7 +22,7 @@ class PayrollMedcancelClaimItem {
 
     await pool.execute(
       `INSERT INTO payroll_medcancel_claim_items
-       (claim_id, missed_service_code, note, attestation)
+       (claim_id, missed_service_code, client_initials, session_time, note, attestation)
        VALUES ${placeholders.join(', ')}`,
       values
     );

@@ -14,17 +14,23 @@
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search by initials..."
+          placeholder="Search by client code..."
           class="search-input"
           @input="applyFilters"
         />
-        <select v-model="statusFilter" @change="applyFilters" class="filter-select">
-          <option value="">All Statuses</option>
+        <select v-model="workflowStatusFilter" @change="applyFilters" class="filter-select">
+          <option value="">All Workflows</option>
           <option value="PENDING_REVIEW">Pending Review</option>
           <option value="ACTIVE">Active</option>
           <option value="ON_HOLD">On Hold</option>
           <option value="DECLINED">Declined</option>
           <option value="ARCHIVED">Archived</option>
+        </select>
+        <select v-model="clientStatusFilter" @change="applyFilters" class="filter-select">
+          <option value="">All Client Statuses</option>
+          <option v-for="s in clientStatuses" :key="s.id" :value="String(s.id)">
+            {{ s.label }}
+          </option>
         </select>
         <select v-model="organizationFilter" @change="applyFilters" class="filter-select">
           <option value="">All Organizations</option>
@@ -43,8 +49,34 @@
           <option value="submission_date-asc">Sort: Submission Date (Oldest)</option>
           <option value="initials-asc">Sort: Initials (A-Z)</option>
           <option value="initials-desc">Sort: Initials (Z-A)</option>
-          <option value="status-asc">Sort: Status</option>
+          <option value="organization_name-asc">Sort: Organization (A-Z)</option>
+          <option value="organization_name-desc">Sort: Organization (Z-A)</option>
+          <option value="provider_name-asc">Sort: Provider (A-Z)</option>
+          <option value="provider_name-desc">Sort: Provider (Z-A)</option>
+          <option value="client_status_label-asc">Sort: Client Status (A-Z)</option>
         </select>
+      </div>
+
+      <div class="pagination-bar">
+        <div class="pagination-left">
+          <span class="pagination-meta">
+            Showing {{ pagedClients.length }} of {{ filteredClients.length }}
+          </span>
+          <select v-model="pageSize" class="filter-select page-size">
+            <option :value="25">25 / page</option>
+            <option :value="50">50 / page</option>
+            <option :value="100">100 / page</option>
+          </select>
+        </div>
+        <div class="pagination-right">
+          <button class="btn btn-secondary btn-sm" :disabled="currentPage <= 1" @click="currentPage--">
+            Prev
+          </button>
+          <span class="pagination-meta">Page {{ currentPage }} / {{ totalPages }}</span>
+          <button class="btn btn-secondary btn-sm" :disabled="currentPage >= totalPages" @click="currentPage++">
+            Next
+          </button>
+        </div>
       </div>
     </div>
 
@@ -61,23 +93,28 @@
           <tr>
             <th>Initials</th>
             <th>Organization</th>
-            <th>Status</th>
+            <th>Client Status</th>
+            <th>Workflow</th>
             <th>Provider</th>
             <th>Submission Date</th>
-            <th>Document Status</th>
+            <th>Paperwork</th>
+            <th>Insurance</th>
             <th>Last Activity</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           <tr 
-            v-for="client in filteredClients" 
+            v-for="client in pagedClients" 
             :key="client.id"
             @click="openClientDetail(client)"
             class="client-row"
           >
             <td>{{ client.initials }}</td>
             <td>{{ client.organization_name || '-' }}</td>
+            <td>
+              {{ client.client_status_label || '-' }}
+            </td>
             <td>
               <ClientStatusBadge :status="client.status" />
             </td>
@@ -101,10 +138,9 @@
             </td>
             <td>{{ formatDate(client.submission_date) }}</td>
             <td>
-              <span :class="['doc-status-badge', `doc-${client.document_status?.toLowerCase()}`]">
-                {{ formatDocumentStatus(client.document_status) }}
-              </span>
+              {{ client.paperwork_status_label || '-' }}
             </td>
+            <td>{{ client.insurance_type_label || '-' }}</td>
             <td>{{ formatDate(client.last_activity_at) || '-' }}</td>
             <td class="actions-cell" @click.stop>
               <button @click="openClientDetail(client)" class="btn btn-primary btn-sm">View</button>
@@ -234,7 +270,8 @@ const clients = ref([]);
 const loading = ref(false);
 const error = ref('');
 const searchQuery = ref('');
-const statusFilter = ref('');
+const workflowStatusFilter = ref('');
+const clientStatusFilter = ref('');
 const organizationFilter = ref('');
 const providerFilter = ref('');
 const sortBy = ref('submission_date-desc');
@@ -244,6 +281,10 @@ const showBulkImportModal = ref(false);
 const creating = ref(false);
 const linkedOrganizations = ref([]);
 const loadingOrganizations = ref(false);
+const clientStatuses = ref([]);
+
+const currentPage = ref(1);
+const pageSize = ref(50);
 
 // Inline editing state
 const editingStatusId = ref(null);
@@ -314,18 +355,29 @@ const fetchClients = async () => {
     error.value = '';
     
     const params = new URLSearchParams();
-    if (statusFilter.value) params.append('status', statusFilter.value);
+    if (workflowStatusFilter.value) params.append('status', workflowStatusFilter.value);
+    if (clientStatusFilter.value) params.append('client_status_id', clientStatusFilter.value);
     if (organizationFilter.value) params.append('organization_id', organizationFilter.value);
     if (providerFilter.value) params.append('provider_id', providerFilter.value);
     if (searchQuery.value) params.append('search', searchQuery.value);
 
     const response = await api.get(`/clients?${params.toString()}`);
     clients.value = response.data || [];
+    currentPage.value = 1;
   } catch (err) {
     console.error('Failed to fetch clients:', err);
     error.value = err.response?.data?.error?.message || 'Failed to load clients';
   } finally {
     loading.value = false;
+  }
+};
+
+const fetchClientStatuses = async () => {
+  try {
+    const response = await api.get('/client-settings/client-statuses');
+    clientStatuses.value = (response.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
+  } catch (err) {
+    clientStatuses.value = [];
   }
 };
 
@@ -352,8 +404,8 @@ const filteredClients = computed(() => {
     let bVal = b[sortField];
 
     if (sortField === 'submission_date' || sortField === 'last_activity_at') {
-      aVal = new Date(aVal || 0);
-      bVal = new Date(bVal || 0);
+      aVal = parseDateForDisplay(aVal);
+      bVal = parseDateForDisplay(bVal);
     } else {
       aVal = (aVal || '').toString().toLowerCase();
       bVal = (bVal || '').toString().toLowerCase();
@@ -369,13 +421,35 @@ const filteredClients = computed(() => {
   return filtered;
 });
 
+const totalPages = computed(() => {
+  return Math.max(1, Math.ceil(filteredClients.value.length / pageSize.value));
+});
+
+const pagedClients = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  return filteredClients.value.slice(start, start + pageSize.value);
+});
+
 const applyFilters = () => {
   fetchClients();
 };
 
+const parseDateForDisplay = (dateValue) => {
+  if (!dateValue) return new Date(0);
+  const s = String(dateValue);
+  const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymd) {
+    const y = parseInt(ymd[1], 10);
+    const m = parseInt(ymd[2], 10) - 1;
+    const d = parseInt(ymd[3], 10);
+    return new Date(y, m, d);
+  }
+  return new Date(s);
+};
+
 const formatDate = (dateString) => {
   if (!dateString) return '-';
-  const date = new Date(dateString);
+  const date = parseDateForDisplay(dateString);
   return date.toLocaleDateString();
 };
 
@@ -492,6 +566,7 @@ const handleBulkImported = () => {
 onMounted(async () => {
   await agencyStore.fetchUserAgencies();
   await fetchLinkedOrganizations();
+  await fetchClientStatuses();
   await fetchProviders();
   await fetchClients();
 });
@@ -539,6 +614,31 @@ onMounted(async () => {
   border-radius: 6px;
   font-size: 14px;
   min-width: 150px;
+}
+
+.pagination-bar {
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pagination-left,
+.pagination-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pagination-meta {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.page-size {
+  min-width: 140px;
 }
 
 .clients-table-container {

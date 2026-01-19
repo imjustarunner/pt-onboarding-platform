@@ -1,303 +1,180 @@
 <template>
   <div class="agency-management">
-    <div class="section-header">
-      <h2>Organization Management</h2>
-      <button @click="showCreateModal = true" class="btn btn-primary">Create Organization</button>
-    </div>
+    <div class="master-detail" :class="{ 'nav-collapsed': navCollapsed, 'no-selection': !showCreateModal && !editingAgency }">
+      <aside class="nav-pane">
+        <div class="section-header" :class="{ collapsed: navCollapsed }">
+          <h2 v-if="!navCollapsed">Organization Management</h2>
+          <div v-else class="section-header-collapsed-title">Orgs</div>
 
-    <div class="filters" v-if="!loading">
-      <div class="filters-row">
-        <div class="filters-group">
-          <label class="filters-label">Search</label>
-          <input v-model="searchQuery" class="filters-input" type="text" placeholder="Search by name or slug…" />
-        </div>
-
-        <div class="filters-group">
-          <label class="filters-label">Type</label>
-          <select v-model="typeFilter" class="filters-select">
-            <option value="all">All</option>
-            <option value="agency">Agencies</option>
-            <option value="school">Schools</option>
-            <option value="program">Programs</option>
-            <option value="learning">Learning</option>
-          </select>
-        </div>
-
-        <div class="filters-group">
-          <label class="filters-label">Sort</label>
-          <select v-model="sortMode" class="filters-select">
-            <option value="name_asc">Name (A→Z)</option>
-            <option value="name_desc">Name (Z→A)</option>
-            <option value="slug_asc">Slug (A→Z)</option>
-            <option value="type_asc">Type</option>
-            <option value="status_desc">Status (Active first)</option>
-          </select>
-        </div>
-
-        <div class="filters-group" v-if="userRole === 'super_admin' && parentAgencies.length > 1">
-          <label class="filters-label">Agency</label>
-          <select v-model="selectedAgencyFilterId" class="filters-select" @change="loadAffiliatedForSelectedAgency">
-            <option value="">All organizations</option>
-            <option v-for="a in parentAgencies" :key="a.id" :value="String(a.id)">
-              {{ a.name }} ({{ a.slug }})
-            </option>
-          </select>
-        </div>
-      </div>
-
-      <div v-if="selectedAgencyFilterId" class="filters-hint">
-        Showing the selected agency and its affiliated organizations.
-        <button class="btn-link" type="button" @click="clearAgencyFilter">Clear</button>
-      </div>
-    </div>
-    
-    <div v-if="loading" class="loading">Loading agencies...</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-if="error && (showCreateModal || editingAgency)" class="error-modal">{{ error }}</div>
-    
-    <div v-else class="agencies-list">
-      <div v-if="loadingAffiliates" class="loading">Loading affiliated organizations…</div>
-      <div v-else-if="organizationsToRender.length === 0" class="empty-state-inline">
-        No organizations found for the current filters.
-      </div>
-      <div
-        v-for="agency in organizationsToRender"
-        :key="agency.id"
-        class="agency-card"
-      >
-        <div class="agency-header">
-          <div class="agency-header-content">
-            <div v-if="(agency.logo_path || agency.logo_url) && !logoErrors[agency.id]" class="agency-logo">
-              <img
-                :src="getAgencyLogoUrl(agency)"
-                :alt="`${agency.name} logo`"
-                @error="(e) => handleLogoError(e, agency.id)"
-                class="logo-img"
-              />
-            </div>
-            <div class="agency-title-section">
-              <h3>{{ agency.name }}</h3>
-              <p class="agency-slug">{{ agency.slug }}</p>
-            </div>
-          </div>
-          <div class="badge-row">
-            <span class="badge badge-type">{{ String(agency.organization_type || 'agency').toLowerCase() }}</span>
-            <span :class="['badge', agency.is_active ? 'badge-success' : 'badge-secondary']">
-              {{ agency.is_active ? 'Active' : 'Inactive' }}
-            </span>
-          </div>
-        </div>
-        
-        <!-- Agency Login URL (if portal_url is set) -->
-        <div v-if="agency.portal_url" class="agency-login-url">
-          <strong>Login URL:</strong>
-          <div class="login-url-container">
-            <code class="login-url">{{ getAgencyLoginUrl(agency.portal_url) }}</code>
-            <button 
-              @click="copyLoginUrl(agency.portal_url)" 
-              class="btn-copy-url"
-              :title="copiedUrl === agency.portal_url ? 'Copied!' : 'Copy login URL'"
+          <div class="section-header-actions">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="toggleNavCollapsed"
+              :title="navCollapsed ? 'Expand list' : 'Collapse to icons'"
             >
-              {{ copiedUrl === agency.portal_url ? '✓ Copied' : 'Copy' }}
+              {{ navCollapsed ? 'Expand' : 'Collapse' }}
             </button>
-          </div>
-          <small class="login-url-help">Share this link with users for agency-branded login</small>
-        </div>
-        
-        <div v-if="agency.color_palette" class="agency-colors">
-          <span
-            v-for="(color, key) in getColorPalette(agency.color_palette)"
-            :key="key"
-            class="color-swatch"
-            :style="{ backgroundColor: color }"
-            :title="key"
-          ></span>
-        </div>
-        
-        <div class="agency-info-section">
-          <div class="agency-admins" v-if="agencyAdmins[agency.id] && agencyAdmins[agency.id].length > 0">
-            <strong>Admin Team:</strong>
-            <div class="admin-tags">
-              <span
-                v-for="admin in agencyAdmins[agency.id]"
-                :key="admin.id"
-                class="admin-tag"
-              >
-                {{ admin.first_name }} {{ admin.last_name }}
-                <button 
-                  v-if="userRole === 'super_admin'"
-                  @click="removeAdmin(agency.id, admin.id)" 
-                  class="remove-admin"
-                >×</button>
-              </span>
-            </div>
-          </div>
-          <div class="agency-support" v-if="agencySupport[agency.id] && agencySupport[agency.id].length > 0">
-            <strong>Staff Team:</strong>
-            <div class="admin-tags">
-              <span
-                v-for="support in agencySupport[agency.id]"
-                :key="support.id"
-                class="admin-tag"
-              >
-                {{ support.first_name }} {{ support.last_name }}
-                <button 
-                  v-if="userRole === 'super_admin'"
-                  @click="removeSupport(agency.id, support.id)" 
-                  class="remove-admin"
-                >×</button>
-              </span>
-            </div>
+            <button v-if="!navCollapsed" @click="startCreateOrganization" class="btn btn-primary">Create</button>
           </div>
         </div>
-        
-        <div class="agency-actions">
-          <button @click="editAgency(agency)" class="btn btn-secondary btn-sm">Edit</button>
-          <button
-            v-if="userRole === 'super_admin'"
-            @click="openDuplicateModal(agency)"
-            class="btn btn-secondary btn-sm"
-          >
-            Duplicate
-          </button>
-          <button
-            v-if="(agency.organization_type || 'agency') === 'school'"
-            @click="openSplashPreview(agency)"
-            class="btn btn-info btn-sm"
-          >
-            Preview Splash Page
-          </button>
-          <router-link :to="`/admin/settings?tab=tracks&agencyId=${agency.id}`" class="btn btn-primary btn-sm">Training Focuses</router-link>
-          <button
-            v-if="userRole === 'super_admin'"
-            @click="showAssignAdmin(agency)"
-            class="btn btn-success btn-sm"
-          >
-            Assign Admin
-          </button>
-          <button
-            v-if="userRole === 'super_admin'"
-            @click="showAssignSupport(agency)"
-            class="btn btn-support btn-sm"
-          >
-            Assign Staff
-          </button>
-          <button
-            v-if="userRole === 'super_admin' && !agency.is_archived"
-            @click="archiveAgency(agency.id)"
-            class="btn btn-warning btn-sm"
-          >
-            Archive
-          </button>
-          <button
-            v-if="userRole === 'super_admin' && agency.is_archived"
-            @click="restoreAgency(agency.id)"
-            class="btn btn-success btn-sm"
-          >
-            Restore
-          </button>
-        </div>
-      </div>
-    </div>
-    
-    <!-- Assign Admin Modal -->
-    <div v-if="showAssignAdminModal && selectedAgency" class="modal-overlay" @click="closeAssignAdminModal">
-      <div class="modal-content" @click.stop>
-        <h3>Assign Admin to {{ selectedAgency.name }}</h3>
-        <form @submit.prevent="assignAdmin">
-          <div class="form-group">
-            <label>Select User *</label>
-            <select v-model="selectedUserId" required>
-              <option value="">Select a user</option>
-              <option
-                v-for="user in availableUsers"
-                :key="user.id"
-                :value="user.id"
-                :disabled="agencyAdmins[selectedAgency.id]?.some(a => a.id === user.id)"
-              >
-                {{ user.first_name }} {{ user.last_name }} ({{ user.email }})
-                <span v-if="user.role === 'super_admin'"> - Super Admin</span>
-              </option>
-            </select>
-          </div>
-          <div class="modal-actions">
-            <button type="button" @click="closeAssignAdminModal" class="btn btn-secondary">Cancel</button>
-            <button type="submit" class="btn btn-primary" :disabled="assigning">
-              {{ assigning ? 'Assigning...' : 'Assign Admin' }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
 
-    <!-- Duplicate Organization Modal -->
-    <div v-if="showDuplicateModal && duplicatingOrganization" class="modal-overlay" @click.self="closeDuplicateModal">
-      <div class="modal-content" @click.stop>
-        <h3>Duplicate {{ duplicatingOrganization.name }}</h3>
-        <div v-if="duplicateError" class="error-modal">
-          <strong>Error:</strong> {{ duplicateError }}
+        <div class="filters" v-if="!loading && !navCollapsed">
+          <div class="filters-row">
+            <div class="filters-group">
+              <label class="filters-label">Search</label>
+              <input v-model="searchQuery" class="filters-input" type="text" placeholder="Search by name or slug…" />
+            </div>
+
+            <div class="filters-group">
+              <label class="filters-label">View</label>
+              <select v-model="typeFilter" class="filters-select">
+                <option value="agencies">Agencies</option>
+                <option value="organizations">Organizations</option>
+              </select>
+            </div>
+
+            <div class="filters-group">
+              <label class="filters-label">Sort</label>
+              <select v-model="sortMode" class="filters-select">
+                <option value="name_asc">Name (A→Z)</option>
+                <option value="name_desc">Name (Z→A)</option>
+                <option value="slug_asc">Slug (A→Z)</option>
+                <option value="type_asc">Type</option>
+                <option value="status_desc">Status (Active first)</option>
+              </select>
+            </div>
+
+          </div>
+
+          <div v-if="selectedAgencyFilterId" class="filters-hint">
+            <strong>Agency selected:</strong> {{ selectedAgencyForList?.name || '—' }}
+            <span v-if="String(typeFilter || '') === 'organizations'">• Showing affiliated organizations.</span>
+            <span v-else>• Showing agency + affiliated organizations.</span>
+            <button class="btn-link" type="button" @click="clearAgencyFilter">Clear</button>
+          </div>
         </div>
-        <form @submit.prevent="duplicateOrganization">
-          <div class="form-group">
-            <label>New Name *</label>
-            <input v-model="duplicateForm.name" type="text" required />
+
+        <div v-if="loading" class="loading">Loading agencies...</div>
+        <div v-else-if="error" class="error">{{ error }}</div>
+        <div v-else class="org-list">
+          <div v-if="loadingAffiliates" class="loading">Loading affiliated organizations…</div>
+          <div v-else-if="organizationsToRender.length === 0" class="empty-state-inline">
+            No organizations found for the current filters.
           </div>
-          <div class="form-group">
-            <label>New Slug *</label>
-            <input v-model="duplicateForm.slug" type="text" required pattern="[a-z0-9\\-]+" />
-            <small>Lowercase letters, numbers, and hyphens only</small>
+
+          <div
+            v-for="org in organizationsToRender"
+            :key="org.id"
+            class="org-row"
+            :class="{ active: editingAgency?.id === org.id, child: isChildOrgRow(org), collapsed: navCollapsed }"
+            role="button"
+            tabindex="0"
+            :style="{ borderLeftColor: getOrgAccentColor(org) }"
+            @click="editAgency(org)"
+            @keydown.enter.prevent="editAgency(org)"
+            @keydown.space.prevent="editAgency(org)"
+            :title="navCollapsed ? `${org.name} (${org.slug})` : ''"
+          >
+            <div class="org-main">
+              <div class="org-identity">
+                <div class="org-avatar" :style="{ borderColor: getOrgAccentColor(org) }">
+                  <img
+                    v-if="getOrgIconUrl(org) && !iconErrorsByOrgId[org.id]"
+                    :src="getOrgIconUrl(org)"
+                    :alt="`${org.name} icon`"
+                    @error="(e) => handleIconError(e, org.id)"
+                  />
+                  <span v-else class="org-avatar-fallback">
+                    {{ String(org.name || '?').trim().slice(0, 1).toUpperCase() }}
+                  </span>
+                </div>
+                <div v-if="!navCollapsed" class="org-title">
+                  <div class="org-name">{{ org.name }}</div>
+                  <div class="org-slug">{{ org.slug }}</div>
+                </div>
+              </div>
+              <div v-if="!navCollapsed" class="org-right">
+                <div class="org-badges">
+                  <span class="badge badge-type">{{ String(org.organization_type || 'agency').toLowerCase() }}</span>
+                  <span :class="['badge', org.is_active ? 'badge-success' : 'badge-secondary']">
+                    {{ org.is_active ? 'Active' : 'Inactive' }}
+                  </span>
+                </div>
+
+                <div class="org-actions">
+                  <button
+                    v-if="org.portal_url"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click.stop="copyLoginUrl(org.portal_url)"
+                  >
+                    Copy URL
+                  </button>
+                  <button
+                    v-if="userRole === 'super_admin'"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click.stop="openDuplicateModal(org)"
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    v-if="userRole === 'super_admin' && String(org.organization_type || 'agency').toLowerCase() === 'agency'"
+                    type="button"
+                    :class="['btn', org.is_active ? 'btn-danger' : 'btn-secondary', 'btn-sm']"
+                    @click.stop="org.is_active ? archiveAgency(org.id) : restoreAgency(org.id)"
+                  >
+                    {{ org.is_active ? 'Archive' : 'Restore' }}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="form-group">
-            <label>Portal URL (optional)</label>
-            <input v-model="duplicateForm.portalUrl" type="text" pattern="[a-z0-9\\-]+" placeholder="Defaults to slug" />
-          </div>
-          <div class="modal-actions">
-            <button type="button" class="btn btn-secondary" @click="closeDuplicateModal" :disabled="duplicating">
-              Cancel
-            </button>
-            <button type="submit" class="btn btn-primary" :disabled="duplicating">
-              {{ duplicating ? 'Duplicating…' : 'Duplicate' }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-    
-    <!-- Assign Staff Modal -->
-    <div v-if="showAssignSupportModal && selectedAgency" class="modal-overlay" @click="closeAssignSupportModal">
-      <div class="modal-content" @click.stop>
-        <h3>Assign Staff to {{ selectedAgency.name }}</h3>
-        <form @submit.prevent="assignSupport">
-          <div class="form-group">
-            <label>Select User *</label>
-            <select v-model="selectedSupportUserId" required>
-              <option value="">Select a user</option>
-              <option
-                v-for="user in availableUsers"
-                :key="user.id"
-                :value="user.id"
-                :disabled="agencySupport[selectedAgency?.id]?.some(s => s.id === user.id) || false"
+        </div>
+      </aside>
+
+      <section v-if="showCreateModal || editingAgency" class="detail-pane">
+        <div class="detail-content">
+          <div v-if="error && (showCreateModal || editingAgency)" class="error-modal">{{ error }}</div>
+
+          <div v-if="editingAgency" class="detail-summary" :style="{ borderLeftColor: getOrgAccentColor(editingAgency) }">
+            <div class="detail-summary-main">
+              <div class="detail-summary-avatar" :style="{ borderColor: getOrgAccentColor(editingAgency) }">
+                <img
+                  v-if="getOrgIconUrl(editingAgency) && !iconErrorsByOrgId[editingAgency.id]"
+                  :src="getOrgIconUrl(editingAgency)"
+                  :alt="`${editingAgency.name} icon`"
+                  @error="(e) => handleIconError(e, editingAgency.id)"
+                />
+                <span v-else class="detail-summary-fallback">
+                  {{ String(editingAgency.name || '?').trim().slice(0, 1).toUpperCase() }}
+                </span>
+              </div>
+              <div class="detail-summary-text">
+                <div class="detail-summary-name">{{ editingAgency.name }}</div>
+                <div class="detail-summary-meta">
+                  <span class="detail-summary-slug">{{ editingAgency.slug }}</span>
+                  <span class="detail-summary-sep">•</span>
+                  <span class="detail-summary-type">{{ String(editingAgency.organization_type || 'agency').toLowerCase() }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="detail-summary-actions">
+              <button
+                v-if="editingAgency.portal_url"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click.stop="copyLoginUrl(editingAgency.portal_url)"
               >
-                {{ user.first_name }} {{ user.last_name }} ({{ user.email }})
-                <span v-if="user.role === 'super_admin'"> - Super Admin</span>
-                <span v-else-if="user.role === 'admin'"> - Admin</span>
-                <span v-else-if="user.role === 'support'"> - Support</span>
-              </option>
-            </select>
+                Copy URL
+              </button>
+            </div>
           </div>
-          <div class="modal-actions">
-            <button type="button" @click="closeAssignSupportModal" class="btn btn-secondary">Cancel</button>
-            <button type="submit" class="btn btn-primary" :disabled="assigningSupport">
-              {{ assigningSupport ? 'Assigning...' : 'Assign Staff' }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-    
-    <!-- Create/Edit Modal -->
-    <div v-if="showCreateModal || editingAgency" class="modal-overlay" @click.self="closeModal">
-      <div class="modal-content large" @click.stop>
+
+    <div v-if="showCreateModal || editingAgency" class="detail-editor">
+      <div class="detail-editor-card">
         <h3>{{ editingAgency ? 'Edit Organization' : 'Create Organization' }}</h3>
         <div v-if="error" class="error-modal">
           <strong>Error:</strong> {{ error }}
@@ -305,20 +182,37 @@
         
         <!-- Tab Navigation -->
         <div class="modal-tabs">
-          <button 
+          <button type="button" :class="['tab-button', { active: activeTab === 'general' }]" @click="activeTab = 'general'">General</button>
+          <button type="button" :class="['tab-button', { active: activeTab === 'branding' }]" @click="activeTab = 'branding'">Branding</button>
+          <button
+            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'agency'"
             type="button"
-            :class="['tab-button', { active: activeTab === 'settings' }]"
-            @click="activeTab = 'settings'"
+            :class="['tab-button', { active: activeTab === 'features' }]"
+            @click="activeTab = 'features'"
           >
-            Settings
+            Features
           </button>
-          <button 
+          <button type="button" :class="['tab-button', { active: activeTab === 'contact' }]" @click="activeTab = 'contact'">Contact</button>
+          <button type="button" :class="['tab-button', { active: activeTab === 'address' }]" @click="activeTab = 'address'">Address</button>
+          <button
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             type="button"
-            :class="['tab-button', { active: activeTab === 'icons' }]"
-            @click="activeTab = 'icons'"
+            :class="['tab-button', { active: activeTab === 'sites' }]"
+            @click="activeTab = 'sites'"
           >
-            Customize Icons
+            Sites
           </button>
+          <button
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            type="button"
+            :class="['tab-button', { active: activeTab === 'notifications' }]"
+            @click="activeTab = 'notifications'"
+          >
+            Notifications
+          </button>
+          <button type="button" :class="['tab-button', { active: activeTab === 'theme' }]" @click="activeTab = 'theme'">Theme</button>
+          <button type="button" :class="['tab-button', { active: activeTab === 'terminology' }]" @click="activeTab = 'terminology'">Terminology</button>
+          <button type="button" :class="['tab-button', { active: activeTab === 'icons' }]" @click="activeTab = 'icons'">Icons</button>
           <button
             v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             type="button"
@@ -330,8 +224,9 @@
         </div>
         
         <form @submit.prevent="saveAgency">
-          <!-- Settings Tab -->
-          <div v-show="activeTab === 'settings'" class="tab-content">
+          <!-- Form-based tabs (all but Icons/Payroll) -->
+          <div v-show="activeTab !== 'icons' && activeTab !== 'payroll'" class="tab-content">
+          <div v-if="activeTab === 'general'" class="tab-section">
           <div class="form-group">
             <label>Organization Type *</label>
             <select v-model="agencyForm.organizationType" required :disabled="!!editingAgency">
@@ -381,6 +276,9 @@
             <input v-model="agencyForm.slug" type="text" required pattern="[a-z0-9\-]+" />
             <small>Lowercase letters, numbers, and hyphens only</small>
           </div>
+          </div>
+
+          <div v-if="activeTab === 'branding'" class="tab-section">
             <div class="form-group">
               <label>Organization Logo</label>
               <div class="logo-input-tabs">
@@ -514,33 +412,37 @@
             />
             <small>Lowercase letters, numbers, and hyphens only. This will be used for subdomain access (e.g., itsco.app.plottwistco.com)</small>
           </div>
+          </div>
 
           <div
             v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'agency'"
             class="form-group"
             style="padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);"
           >
+            <template v-if="activeTab === 'features'">
             <label style="margin-bottom: 8px; display: block;"><strong>Feature toggles (pricing / rollout)</strong></label>
 
-            <label class="toggle-label" style="margin-top: 8px;">
+            <div class="toggle-row" style="margin-top: 8px;">
               <span>Enable In‑School submissions</span>
-              <div class="toggle-switch">
-                <input type="checkbox" v-model="agencyForm.featureFlags.inSchoolSubmissionsEnabled" />
-                <span class="slider"></span>
-              </div>
-            </label>
+              <ToggleSwitch v-model="agencyForm.featureFlags.inSchoolSubmissionsEnabled" compact />
+            </div>
             <small class="hint">Controls School Mileage (and any other “In‑School Claims” modules).</small>
 
-            <label class="toggle-label" style="margin-top: 10px;">
+            <div class="toggle-row" style="margin-top: 10px;">
               <span>Enable Med Cancel</span>
-              <div class="toggle-switch">
-                <input type="checkbox" v-model="agencyForm.featureFlags.medcancelEnabled" />
-                <span class="slider"></span>
-              </div>
-            </label>
+              <ToggleSwitch v-model="agencyForm.featureFlags.medcancelEnabled" compact />
+            </div>
             <small class="hint">Controls Med Cancel claim submissions and related notifications.</small>
+
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Enable AI Provider Search (Gemini)</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.aiProviderSearchEnabled" compact />
+            </div>
+            <small class="hint">Enables the “AI Generate Filters” box in Provider Directory. Requires GEMINI_API_KEY in backend.</small>
+            </template>
           </div>
           
+          <div v-if="activeTab === 'contact'" class="tab-section">
           <div class="form-group">
             <label>Onboarding Team Email</label>
             <input 
@@ -571,7 +473,9 @@
             />
             <small>Optional phone extension</small>
           </div>
+          </div>
 
+          <div v-if="activeTab === 'address'" class="tab-section">
           <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);">
             <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Address</h4>
             <small class="hint">Used for mileage calculations (schools use this as their school address).</small>
@@ -593,9 +497,10 @@
             <label>Postal Code</label>
             <input v-model="agencyForm.postalCode" type="text" placeholder="ZIP" />
           </div>
+          </div>
 
           <div
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            v-if="activeTab === 'sites' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             class="form-section-divider"
             style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
           >
@@ -604,7 +509,7 @@
           </div>
 
           <div
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            v-if="activeTab === 'sites' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             class="form-group"
           >
             <div v-if="mileageRatesError" class="error-modal">
@@ -638,7 +543,7 @@
           </div>
 
           <div
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            v-if="activeTab === 'notifications' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             class="form-section-divider"
             style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
           >
@@ -647,13 +552,13 @@
           </div>
 
           <div
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            v-if="activeTab === 'notifications' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             class="form-group"
           >
-            <label style="display: flex; gap: 10px; align-items: center;">
-              <input type="checkbox" v-model="agencyForm.tierSystemEnabled" />
+            <div class="toggle-row">
+              <ToggleSwitch v-model="agencyForm.tierSystemEnabled" />
               <span><strong>Enable tier system</strong> (shows Tier badge + tier credits in payroll)</span>
-            </label>
+            </div>
 
             <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
               <div class="filters-group">
@@ -708,13 +613,21 @@
                 </thead>
                 <tbody>
                   <tr v-for="l in officeLocations" :key="l.id">
-                    <td><input v-model="officeLocationEdits[l.id].name" type="text" /></td>
-                    <td><input v-model="officeLocationEdits[l.id].timezone" type="text" /></td>
-                    <td><input v-model="officeLocationEdits[l.id].streetAddress" type="text" /></td>
-                    <td><input v-model="officeLocationEdits[l.id].city" type="text" /></td>
-                    <td><input v-model="officeLocationEdits[l.id].state" type="text" /></td>
-                    <td><input v-model="officeLocationEdits[l.id].postalCode" type="text" /></td>
-                    <td><input v-model="officeLocationEdits[l.id].isActive" type="checkbox" /></td>
+                    <td><input v-model="getOfficeLocationEdit(l.id).name" type="text" /></td>
+                    <td>
+                      <select v-model="getOfficeLocationEdit(l.id).timezone">
+                        <option v-for="tz in americaTimeZones" :key="tz" :value="tz">{{ tz }}</option>
+                        <option value="">Other…</option>
+                      </select>
+                      <div v-if="!getOfficeLocationEdit(l.id).timezone" style="margin-top: 6px;">
+                        <input v-model="getOfficeLocationEdit(l.id).timezoneCustom" type="text" placeholder="e.g., America/New_York" />
+                      </div>
+                    </td>
+                    <td><input v-model="getOfficeLocationEdit(l.id).streetAddress" type="text" /></td>
+                    <td><input v-model="getOfficeLocationEdit(l.id).city" type="text" /></td>
+                    <td><input v-model="getOfficeLocationEdit(l.id).state" type="text" /></td>
+                    <td><input v-model="getOfficeLocationEdit(l.id).postalCode" type="text" /></td>
+                    <td><ToggleSwitch v-model="getOfficeLocationEdit(l.id).isActive" compact /></td>
                     <td class="right">
                       <button type="button" class="btn btn-secondary btn-sm" @click="saveOfficeLocation(l)" :disabled="savingOfficeLocationId === l.id">
                         {{ savingOfficeLocationId === l.id ? 'Saving…' : 'Save' }}
@@ -735,7 +648,18 @@
               </div>
               <div class="filters-group">
                 <label class="filters-label">Timezone</label>
-                <input v-model="newOfficeLocationTimezone" class="filters-input" type="text" placeholder="America/New_York" />
+                <select v-model="newOfficeLocationTimezone" class="filters-input">
+                  <option v-for="tz in americaTimeZones" :key="tz" :value="tz">{{ tz }}</option>
+                  <option value="">Other…</option>
+                </select>
+                <input
+                  v-if="!newOfficeLocationTimezone"
+                  v-model="newOfficeLocationTimezoneCustom"
+                  class="filters-input"
+                  type="text"
+                  placeholder="e.g., America/New_York"
+                  style="margin-top: 6px;"
+                />
               </div>
               <div class="filters-group">
                 <button type="button" class="btn btn-primary btn-sm" @click="createOfficeLocation" :disabled="creatingOfficeLocation || !newOfficeLocationName">
@@ -751,7 +675,7 @@
           </div>
 
           <div
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            v-if="activeTab === 'notifications' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             class="form-section-divider"
             style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
           >
@@ -760,7 +684,7 @@
           </div>
 
           <div
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            v-if="activeTab === 'notifications' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             class="form-group"
           >
             <div v-if="notificationTriggersError" class="error-modal">
@@ -794,18 +718,18 @@
                       <div class="hint" style="margin-top: 4px;"><code>{{ t.triggerKey }}</code></div>
                     </td>
                     <td>
-                      <input v-model="getTriggerEdit(t.triggerKey).enabled" type="checkbox" />
+                      <ToggleSwitch v-model="getTriggerEdit(t.triggerKey).enabled" compact />
                     </td>
                     <td>
-                      <div class="hint"><label><input v-model="getTriggerEdit(t.triggerKey).recipients.provider" type="checkbox" /> Provider</label></div>
-                      <div class="hint"><label><input v-model="getTriggerEdit(t.triggerKey).recipients.supervisor" type="checkbox" /> Supervisor</label></div>
-                      <div class="hint"><label><input v-model="getTriggerEdit(t.triggerKey).recipients.clinicalPracticeAssistant" type="checkbox" /> Clinical Practice Assistant</label></div>
-                      <div class="hint"><label><input v-model="getTriggerEdit(t.triggerKey).recipients.admin" type="checkbox" /> Admin</label></div>
+                      <div class="hint"><ToggleSwitch v-model="getTriggerEdit(t.triggerKey).recipients.provider" label="Provider" compact /></div>
+                      <div class="hint"><ToggleSwitch v-model="getTriggerEdit(t.triggerKey).recipients.supervisor" label="Supervisor" compact /></div>
+                      <div class="hint"><ToggleSwitch v-model="getTriggerEdit(t.triggerKey).recipients.clinicalPracticeAssistant" label="Clinical Practice Assistant" compact /></div>
+                      <div class="hint"><ToggleSwitch v-model="getTriggerEdit(t.triggerKey).recipients.admin" label="Admin" compact /></div>
                     </td>
                     <td>
-                      <div class="hint"><label><input type="checkbox" checked disabled /> Web app (in-app)</label></div>
-                      <div class="hint"><label><input type="checkbox" disabled /> Text (SMS) <span class="muted">(coming soon)</span></label></div>
-                      <div class="hint"><label><input type="checkbox" disabled /> Email <span class="muted">(coming soon)</span></label></div>
+                      <div class="hint"><ToggleSwitch :model-value="true" disabled label="Web app (in-app)" compact /></div>
+                      <div class="hint"><ToggleSwitch :model-value="false" disabled label="Text (SMS) (coming soon)" compact /></div>
+                      <div class="hint"><ToggleSwitch :model-value="false" disabled label="Email (coming soon)" compact /></div>
                     </td>
                     <td class="right">
                       <button
@@ -827,6 +751,7 @@
           </div>
           
           <!-- Theme Settings Section -->
+          <div v-if="activeTab === 'theme'" class="tab-section">
           <div class="form-section-divider" style="margin-top: 24px; margin-bottom: 16px; padding-top: 24px; border-top: 2px solid var(--border);">
             <h4 style="margin: 0 0 16px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Theme Settings</h4>
           </div>
@@ -857,13 +782,11 @@
           </div>
           
           <div class="form-group">
-            <label>
-              <input v-model="agencyForm.isActive" type="checkbox" />
-              Active
-            </label>
+            <ToggleSwitch v-model="agencyForm.isActive" label="Active" />
+          </div>
           </div>
           
-          <div v-if="editingAgency" class="form-group">
+          <div v-if="activeTab === 'general' && editingAgency" class="form-group">
             <button 
               type="button" 
               @click="toggleAgencyStatus" 
@@ -879,6 +802,7 @@
             </small>
           </div>
           
+          <div v-if="activeTab === 'terminology'" class="tab-section">
           <div class="settings-section-divider">
             <h4>Agency Terminology Overrides</h4>
             <p class="section-description">
@@ -950,6 +874,7 @@
             >
               + Add Parameter
             </button>
+          </div>
           </div>
           </div>
           
@@ -1193,6 +1118,153 @@
               </div>
             </div>
 
+            <div class="settings-section-divider" style="margin-top: 18px;">
+              <h4>PTO Policy (Sick Leave + Training PTO)</h4>
+              <p class="section-description">
+                Configure PTO accrual, caps, and the default PTO pay rate used when PTO requests are approved.
+              </p>
+            </div>
+
+            <div v-if="ptoPolicyError" class="error-modal">
+              <strong>Error:</strong> {{ ptoPolicyError }}
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end;">
+              <div class="filters-group">
+                <label class="filters-label">PTO enabled</label>
+                <select v-model="ptoPolicyDraft.ptoEnabled" class="filters-select" :disabled="ptoPolicyLoading || savingPtoPolicy">
+                  <option :value="true">Enabled</option>
+                  <option :value="false">Disabled</option>
+                </select>
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Default PTO pay rate ($/hr)</label>
+                <input v-model="ptoPolicyDraft.defaultPayRate" class="filters-input" type="number" step="0.01" min="0" :disabled="ptoPolicyLoading || savingPtoPolicy" />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadPtoPolicy" :disabled="ptoPolicyLoading || !editingAgency?.id">
+                  {{ ptoPolicyLoading ? 'Loading…' : 'Reload' }}
+                </button>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="savePtoPolicy" :disabled="savingPtoPolicy || !editingAgency?.id">
+                  {{ savingPtoPolicy ? 'Saving…' : 'Save PTO policy' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
+              <div class="filters-group">
+                <label class="filters-label">Sick accrual (hours per 30)</label>
+                <input v-model="ptoPolicyDraft.sickAccrualPer30" class="filters-input" type="number" step="0.01" min="0" :disabled="ptoPolicyLoading || savingPtoPolicy" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Training PTO enabled</label>
+                <select v-model="ptoPolicyDraft.trainingPtoEnabled" class="filters-select" :disabled="ptoPolicyLoading || savingPtoPolicy">
+                  <option :value="true">Enabled</option>
+                  <option :value="false">Disabled</option>
+                </select>
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Sick annual rollover cap (hours)</label>
+                <input v-model="ptoPolicyDraft.sickAnnualRolloverCap" class="filters-input" type="number" step="0.01" min="0" :disabled="ptoPolicyLoading || savingPtoPolicy" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Sick max accrual (hours)</label>
+                <input v-model="ptoPolicyDraft.sickAnnualMaxAccrual" class="filters-input" type="number" step="0.01" min="0" :disabled="ptoPolicyLoading || savingPtoPolicy" />
+              </div>
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
+              <div class="filters-group">
+                <label class="filters-label">Training accrual (hours per 30)</label>
+                <input
+                  v-model="ptoPolicyDraft.trainingAccrualPer30"
+                  class="filters-input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  :disabled="ptoPolicyLoading || savingPtoPolicy || ptoPolicyDraft.trainingPtoEnabled !== true"
+                />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Training max balance (hours)</label>
+                <input
+                  v-model="ptoPolicyDraft.trainingMaxBalance"
+                  class="filters-input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  :disabled="ptoPolicyLoading || savingPtoPolicy || ptoPolicyDraft.trainingPtoEnabled !== true"
+                />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Forfeit Training PTO on termination</label>
+                <select v-model="ptoPolicyDraft.trainingForfeitOnTermination" class="filters-select" :disabled="ptoPolicyLoading || savingPtoPolicy || ptoPolicyDraft.trainingPtoEnabled !== true">
+                  <option :value="true">Yes</option>
+                  <option :value="false">No</option>
+                </select>
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Consecutive limit (hours)</label>
+                <input v-model="ptoPolicyDraft.ptoConsecutiveUseLimitHours" class="filters-input" type="number" step="0.01" min="0" :disabled="ptoPolicyLoading || savingPtoPolicy" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Notice days</label>
+                <input v-model="ptoPolicyDraft.ptoConsecutiveUseNoticeDays" class="filters-input" type="number" step="1" min="0" :disabled="ptoPolicyLoading || savingPtoPolicy" />
+              </div>
+            </div>
+
+            <div class="settings-section-divider" style="margin-top: 18px;">
+              <h4>Supervision Tracking (Pre-licensed)</h4>
+              <p class="section-description">
+                Enable supervision hour tracking for pre-licensed providers (based on their License Type/Number field), and configure the default schedule after 50 individual hours.
+              </p>
+            </div>
+
+            <div v-if="supervisionError" class="error-modal">
+              <strong>Error:</strong> {{ supervisionError }}
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end;">
+              <div class="filters-group">
+                <label class="filters-label">Enabled</label>
+                <select v-model="supervisionDraft.enabled" class="filters-select" :disabled="supervisionLoading || savingSupervision">
+                  <option :value="true">Enabled</option>
+                  <option :value="false">Disabled</option>
+                </select>
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Eligible credentials (comma-separated)</label>
+                <input v-model="supervisionDraft.eligibleCredentialCodesCsv" class="filters-input" type="text" :disabled="supervisionLoading || savingSupervision" />
+              </div>
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
+              <div class="filters-group">
+                <label class="filters-label">After 50 individual hours: cadence (weeks)</label>
+                <input v-model="supervisionDraft.after50CadenceWeeks" class="filters-input" type="number" step="1" min="1" :disabled="supervisionLoading || savingSupervision || supervisionDraft.enabled !== true" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">After 50 individual hours: minutes</label>
+                <input v-model="supervisionDraft.after50Minutes" class="filters-input" type="number" step="5" min="5" :disabled="supervisionLoading || savingSupervision || supervisionDraft.enabled !== true" />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadSupervisionPolicy" :disabled="supervisionLoading || !editingAgency?.id">
+                  {{ supervisionLoading ? 'Loading…' : 'Reload' }}
+                </button>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="saveSupervisionPolicy" :disabled="savingSupervision || !editingAgency?.id">
+                  {{ savingSupervision ? 'Saving…' : 'Save supervision policy' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="filters-hint" style="margin-top: 8px;">
+              CSV import is done per pay period in Payroll → selected pay period → Supervision import. Columns: <code>email</code> (or <code>user_id</code>), <code>individual_hours</code>, <code>group_hours</code>.
+            </div>
+
             <div class="settings-section-divider">
               <h4>Payroll Service Codes (Equivalencies)</h4>
               <p class="section-description">
@@ -1242,7 +1314,11 @@
                       <input v-model="r.credit_value" type="number" min="0" step="0.00000000001" style="width: 140px;" />
                     </td>
                     <td>
-                      <input v-model="r.counts_for_tier" type="checkbox" />
+                      <ToggleSwitch
+                        :model-value="!!r.counts_for_tier"
+                        compact
+                        @update:modelValue="(v) => (r.counts_for_tier = v ? 1 : 0)"
+                      />
                     </td>
                     <td>
                       <select v-model="r.other_slot" :disabled="!(r.category === 'other' || r.category === 'tutoring')" title="Used only for 'other'/'tutoring' codes to pick which hourly 'Other Rate' slot (1/2/3) applies.">
@@ -1325,6 +1401,110 @@
         </form>
       </div>
     </div>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="!showCreateModal && !editingAgency" class="empty-hint">
+      Select an organization to edit settings. Use filters above the list to switch between Agencies and Organizations.
+    </div>
+    
+    <!-- Assign Admin Modal -->
+    <div v-if="showAssignAdminModal && selectedAgency" class="modal-overlay" @click="closeAssignAdminModal">
+      <div class="modal-content" @click.stop>
+        <h3>Assign Admin to {{ selectedAgency.name }}</h3>
+        <form @submit.prevent="assignAdmin">
+          <div class="form-group">
+            <label>Select User *</label>
+            <select v-model="selectedUserId" required>
+              <option value="">Select a user</option>
+              <option
+                v-for="user in availableUsers"
+                :key="user.id"
+                :value="user.id"
+                :disabled="agencyAdmins[selectedAgency.id]?.some(a => a.id === user.id)"
+              >
+                {{ user.first_name }} {{ user.last_name }} ({{ user.email }})
+                <span v-if="user.role === 'super_admin'"> - Super Admin</span>
+              </option>
+            </select>
+          </div>
+          <div class="modal-actions">
+            <button type="button" @click="closeAssignAdminModal" class="btn btn-secondary">Cancel</button>
+            <button type="submit" class="btn btn-primary" :disabled="assigning">
+              {{ assigning ? 'Assigning...' : 'Assign Admin' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Duplicate Organization Modal -->
+    <div v-if="showDuplicateModal && duplicatingOrganization" class="modal-overlay" @click.self="closeDuplicateModal">
+      <div class="modal-content" @click.stop>
+        <h3>Duplicate {{ duplicatingOrganization.name }}</h3>
+        <div v-if="duplicateError" class="error-modal">
+          <strong>Error:</strong> {{ duplicateError }}
+        </div>
+        <form @submit.prevent="duplicateOrganization">
+          <div class="form-group">
+            <label>New Name *</label>
+            <input v-model="duplicateForm.name" type="text" required />
+          </div>
+          <div class="form-group">
+            <label>New Slug *</label>
+            <input v-model="duplicateForm.slug" type="text" required pattern="[a-z0-9\\-]+" />
+            <small>Lowercase letters, numbers, and hyphens only</small>
+          </div>
+          <div class="form-group">
+            <label>Portal URL (optional)</label>
+            <input v-model="duplicateForm.portalUrl" type="text" pattern="[a-z0-9\\-]+" placeholder="Defaults to slug" />
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" @click="closeDuplicateModal" :disabled="duplicating">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary" :disabled="duplicating">
+              {{ duplicating ? 'Duplicating…' : 'Duplicate' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    
+    <!-- Assign Staff Modal -->
+    <div v-if="showAssignSupportModal && selectedAgency" class="modal-overlay" @click="closeAssignSupportModal">
+      <div class="modal-content" @click.stop>
+        <h3>Assign Staff to {{ selectedAgency.name }}</h3>
+        <form @submit.prevent="assignSupport">
+          <div class="form-group">
+            <label>Select User *</label>
+            <select v-model="selectedSupportUserId" required>
+              <option value="">Select a user</option>
+              <option
+                v-for="user in availableUsers"
+                :key="user.id"
+                :value="user.id"
+                :disabled="agencySupport[selectedAgency?.id]?.some(s => s.id === user.id) || false"
+              >
+                {{ user.first_name }} {{ user.last_name }} ({{ user.email }})
+                <span v-if="user.role === 'super_admin'"> - Super Admin</span>
+                <span v-else-if="user.role === 'admin'"> - Admin</span>
+                <span v-else-if="user.role === 'support'"> - Support</span>
+              </option>
+            </select>
+          </div>
+          <div class="modal-actions">
+            <button type="button" @click="closeAssignSupportModal" class="btn btn-secondary">Cancel</button>
+            <button type="submit" class="btn btn-primary" :disabled="assigningSupport">
+              {{ assigningSupport ? 'Assigning...' : 'Assign Staff' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    
+    <!-- Create/Edit Panel (rendered inline in the right pane) -->
     
     <!-- Dashboard Preview Modal -->
     <DashboardPreviewModal 
@@ -1355,6 +1535,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -1362,14 +1543,20 @@ import IconSelector from './IconSelector.vue';
 import DashboardPreviewModal from './DashboardPreviewModal.vue';
 import IconTemplateModal from './IconTemplateModal.vue';
 import SplashPagePreviewModal from './SplashPagePreviewModal.vue';
+import ToggleSwitch from '../ui/ToggleSwitch.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const route = useRoute();
+const router = useRouter();
 const userRole = computed(() => authStore.user?.role);
 
 const agencies = ref([]);
 const searchQuery = ref('');
-const typeFilter = ref('all'); // all|agency|school|program|learning
+// Two-mode navigation filter:
+// - agencies: show only agencies
+// - organizations: show only non-agency orgs (schools/programs/learning)
+const typeFilter = ref('agencies'); // agencies|organizations
 const sortMode = ref('name_asc'); // name_asc|name_desc|slug_asc|type_asc|status_desc
 const selectedAgencyFilterId = ref(''); // superadmin: parent agency filter
 const affiliatedOrganizations = ref([]); // /agencies/:id/affiliated-organizations results
@@ -1382,6 +1569,37 @@ const loading = ref(true);
 const error = ref('');
 const showCreateModal = ref(false);
 const editingAgency = ref(null);
+
+// Left nav collapse (icon rail) for maximum editor space
+const navCollapsed = ref(false);
+const toggleNavCollapsed = () => {
+  // Expand should behave like "back to list" (no org selected)
+  if (navCollapsed.value) {
+    if ((showCreateModal.value || editingAgency.value) && !confirmDiscardUnsavedEdits()) return;
+    navCollapsed.value = false;
+    closeModal();
+    return;
+  }
+
+  navCollapsed.value = true;
+};
+
+const originalAgencyFormSnapshot = ref('');
+const isAgencyFormDirty = computed(() => {
+  if (!showCreateModal.value && !editingAgency.value) return false;
+  if (!originalAgencyFormSnapshot.value) return false;
+  try {
+    return JSON.stringify(agencyForm.value) !== originalAgencyFormSnapshot.value;
+  } catch {
+    return true;
+  }
+});
+
+const confirmDiscardUnsavedEdits = () => {
+  if (!isAgencyFormDirty.value) return true;
+  return window.confirm('You have unsaved changes. Discard them and continue?');
+};
+
 const showAssignAdminModal = ref(false);
 const showAssignSupportModal = ref(false);
 const showPreviewModal = ref(false);
@@ -1407,13 +1625,14 @@ const assigning = ref(false);
 const assigningSupport = ref(false);
 const logoError = ref(false);
 const logoErrors = ref({}); // Track logo errors per agency
+const iconErrorsByOrgId = ref({}); // Track main icon render errors per org row
 const logoInputMethod = ref('url'); // 'url' or 'upload'
 const logoFileInput = ref(null);
 const uploadingLogo = ref(false);
 const customParamKeys = ref([]);
   const customParameters = ref({});
   const copiedUrl = ref(null); // Track which URL was copied
-const activeTab = ref('settings'); // Tab navigation: 'settings' | 'icons' | 'payroll'
+const activeTab = ref('general'); // Tab navigation: general|branding|features|contact|address|sites|notifications|theme|terminology|icons|payroll
 
 // Payroll service code rules editor (agency-only)
 const payrollRulesLoading = ref(false);
@@ -1428,6 +1647,35 @@ const savingMileageRates = ref(false);
 const mileageRatesError = ref('');
 const mileageRatesDraft = ref({ tier1: 0, tier2: 0, tier3: 0 });
 
+// PTO policy (agency-only)
+const ptoPolicyLoading = ref(false);
+const savingPtoPolicy = ref(false);
+const ptoPolicyError = ref('');
+const ptoPolicyDraft = ref({
+  ptoEnabled: true,
+  defaultPayRate: 0,
+  sickAccrualPer30: 1.0,
+  trainingAccrualPer30: 0.25,
+  trainingPtoEnabled: false,
+  sickAnnualRolloverCap: 10,
+  sickAnnualMaxAccrual: 65,
+  trainingMaxBalance: 20,
+  trainingForfeitOnTermination: true,
+  ptoConsecutiveUseLimitHours: 15,
+  ptoConsecutiveUseNoticeDays: 30
+});
+
+// Supervision tracking (agency-only)
+const supervisionLoading = ref(false);
+const savingSupervision = ref(false);
+const supervisionError = ref('');
+const supervisionDraft = ref({
+  enabled: false,
+  eligibleCredentialCodesCsv: 'LPCC,LMFT,MFTC,LSW,SWC',
+  after50CadenceWeeks: 2,
+  after50Minutes: 30
+});
+
 // Office locations (sites) editor (agency-only)
 const officeLocations = ref([]);
 const officeLocationsLoading = ref(false);
@@ -1436,7 +1684,48 @@ const officeLocationEdits = ref({});
 const savingOfficeLocationId = ref(null);
 const newOfficeLocationName = ref('');
 const newOfficeLocationTimezone = ref('America/New_York');
+const newOfficeLocationTimezoneCustom = ref('');
 const creatingOfficeLocation = ref(false);
+
+const getOfficeLocationEdit = (locationId) => {
+  const id = Number(locationId);
+  if (!id) {
+    return {
+      name: '',
+      timezone: 'America/New_York',
+      timezoneCustom: '',
+      streetAddress: '',
+      city: '',
+      state: '',
+      postalCode: '',
+      isActive: true
+    };
+  }
+  if (!officeLocationEdits.value[id]) {
+    officeLocationEdits.value[id] = {
+      name: '',
+      timezone: 'America/New_York',
+      timezoneCustom: '',
+      streetAddress: '',
+      city: '',
+      state: '',
+      postalCode: '',
+      isActive: true
+    };
+  }
+  return officeLocationEdits.value[id];
+};
+
+// Common, Americas-focused IANA time zones (keep list short & practical).
+const americaTimeZones = [
+  'America/New_York',    // ET
+  'America/Chicago',     // CT
+  'America/Denver',      // MT
+  'America/Phoenix',     // AZ (no DST)
+  'America/Los_Angeles', // PT
+  'America/Anchorage',   // AK
+  'Pacific/Honolulu'     // HI
+];
 
 // Notification triggers (agency-only; platform list with per-agency overrides)
 const notificationTriggers = ref([]);
@@ -1530,8 +1819,115 @@ const saveNotificationTrigger = async (triggerRow) => {
 const openPayrollTab = async () => {
   activeTab.value = 'payroll';
   await loadMileageRates();
+  await loadPtoPolicy();
+  await loadSupervisionPolicy();
   await loadPayrollRules();
   await loadOfficeLocations();
+};
+
+const loadSupervisionPolicy = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    supervisionLoading.value = true;
+    supervisionError.value = '';
+    const resp = await api.get('/payroll/supervision-policy', { params: { agencyId: editingAgency.value.id } });
+    const pol = resp.data?.policy || {};
+    supervisionDraft.value = {
+      enabled: pol.enabled === true,
+      eligibleCredentialCodesCsv: Array.isArray(pol.eligibleCredentialCodes) ? pol.eligibleCredentialCodes.join(',') : 'LPCC,LMFT,MFTC,LSW,SWC',
+      after50CadenceWeeks: Number(pol?.after50Individual?.cadenceWeeks ?? 2),
+      after50Minutes: Number(pol?.after50Individual?.minutes ?? 30)
+    };
+  } catch (e) {
+    supervisionError.value = e.response?.data?.error?.message || e.message || 'Failed to load supervision policy';
+  } finally {
+    supervisionLoading.value = false;
+  }
+};
+
+const saveSupervisionPolicy = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    savingSupervision.value = true;
+    supervisionError.value = '';
+    const codes = String(supervisionDraft.value.eligibleCredentialCodesCsv || '')
+      .split(',')
+      .map((s) => String(s || '').trim().toUpperCase())
+      .filter(Boolean);
+    await api.put('/payroll/supervision-policy', {
+      agencyId: editingAgency.value.id,
+      enabled: supervisionDraft.value.enabled === true,
+      policy: {
+        eligibleCredentialCodes: codes,
+        after50Individual: {
+          cadenceWeeks: Number(supervisionDraft.value.after50CadenceWeeks || 2),
+          minutes: Number(supervisionDraft.value.after50Minutes || 30)
+        }
+      }
+    });
+    await loadSupervisionPolicy();
+  } catch (e) {
+    supervisionError.value = e.response?.data?.error?.message || e.message || 'Failed to save supervision policy';
+  } finally {
+    savingSupervision.value = false;
+  }
+};
+
+const loadPtoPolicy = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    ptoPolicyLoading.value = true;
+    ptoPolicyError.value = '';
+    const resp = await api.get('/payroll/pto-policy', { params: { agencyId: editingAgency.value.id } });
+    const policy = resp.data?.policy || {};
+    ptoPolicyDraft.value = {
+      ptoEnabled: resp.data?.policy?.ptoEnabled !== false && resp.data?.ptoEnabled !== false,
+      defaultPayRate: Number(resp.data?.defaultPayRate || 0),
+      sickAccrualPer30: Number(policy.sickAccrualPer30 ?? 1.0),
+      trainingAccrualPer30: Number(policy.trainingAccrualPer30 ?? 0.25),
+      trainingPtoEnabled: policy.trainingPtoEnabled === true,
+      sickAnnualRolloverCap: Number(policy.sickAnnualRolloverCap ?? 10),
+      sickAnnualMaxAccrual: Number(policy.sickAnnualMaxAccrual ?? 65),
+      trainingMaxBalance: Number(policy.trainingMaxBalance ?? 20),
+      trainingForfeitOnTermination: policy.trainingForfeitOnTermination !== false,
+      ptoConsecutiveUseLimitHours: Number(policy.ptoConsecutiveUseLimitHours ?? 15),
+      ptoConsecutiveUseNoticeDays: Number(policy.ptoConsecutiveUseNoticeDays ?? 30)
+    };
+  } catch (e) {
+    ptoPolicyError.value = e.response?.data?.error?.message || e.message || 'Failed to load PTO policy';
+  } finally {
+    ptoPolicyLoading.value = false;
+  }
+};
+
+const savePtoPolicy = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    savingPtoPolicy.value = true;
+    ptoPolicyError.value = '';
+    await api.put('/payroll/pto-policy', {
+      agencyId: editingAgency.value.id,
+      ptoEnabled: ptoPolicyDraft.value.ptoEnabled !== false,
+      defaultPayRate: Number(ptoPolicyDraft.value.defaultPayRate || 0),
+      policy: {
+        sickAccrualPer30: Number(ptoPolicyDraft.value.sickAccrualPer30 || 0),
+        trainingAccrualPer30: Number(ptoPolicyDraft.value.trainingAccrualPer30 || 0),
+        trainingPtoEnabled: ptoPolicyDraft.value.trainingPtoEnabled === true,
+        sickAnnualRolloverCap: Number(ptoPolicyDraft.value.sickAnnualRolloverCap || 0),
+        sickAnnualMaxAccrual: Number(ptoPolicyDraft.value.sickAnnualMaxAccrual || 0),
+        trainingMaxBalance: Number(ptoPolicyDraft.value.trainingMaxBalance || 0),
+        trainingForfeitOnTermination: ptoPolicyDraft.value.trainingForfeitOnTermination !== false,
+        ptoConsecutiveUseLimitHours: Number(ptoPolicyDraft.value.ptoConsecutiveUseLimitHours || 0),
+        ptoConsecutiveUseNoticeDays: Number(ptoPolicyDraft.value.ptoConsecutiveUseNoticeDays || 0),
+        ptoEnabled: ptoPolicyDraft.value.ptoEnabled !== false
+      }
+    });
+    await loadPtoPolicy();
+  } catch (e) {
+    ptoPolicyError.value = e.response?.data?.error?.message || e.message || 'Failed to save PTO policy';
+  } finally {
+    savingPtoPolicy.value = false;
+  }
 };
 
 const loadMileageRates = async () => {
@@ -1586,13 +1982,14 @@ const loadOfficeLocations = async () => {
       params: { agencyId: editingAgency.value.id, includeInactive: true }
     });
     const rows = resp.data || [];
-    officeLocations.value = rows;
-
     const nextEdits = { ...(officeLocationEdits.value || {}) };
     for (const l of rows) {
+      const tz = String(l.timezone || '').trim();
+      const tzKnown = tz && americaTimeZones.includes(tz);
       nextEdits[l.id] = {
         name: l.name || '',
-        timezone: l.timezone || 'America/New_York',
+        timezone: tzKnown ? tz : (tz ? '' : 'America/New_York'),
+        timezoneCustom: tzKnown ? '' : (tz || ''),
         streetAddress: l.street_address || '',
         city: l.city || '',
         state: l.state || '',
@@ -1600,7 +1997,9 @@ const loadOfficeLocations = async () => {
         isActive: !!l.is_active
       };
     }
+    // Set edits first, then rows, to avoid a render race where rows exist but edits don't.
     officeLocationEdits.value = nextEdits;
+    officeLocations.value = rows;
   } catch (e) {
     officeLocationsError.value = e.response?.data?.error?.message || e.message || 'Failed to load office locations';
     officeLocations.value = [];
@@ -1615,11 +2014,14 @@ const createOfficeLocation = async () => {
   try {
     creatingOfficeLocation.value = true;
     officeLocationsError.value = '';
+    const tz = String(newOfficeLocationTimezone.value || '').trim() || String(newOfficeLocationTimezoneCustom.value || '').trim() || 'America/New_York';
     await api.post('/payroll/office-locations', {
       name: newOfficeLocationName.value,
-      timezone: newOfficeLocationTimezone.value || 'America/New_York'
+      timezone: tz
     }, { params: { agencyId: editingAgency.value.id } });
     newOfficeLocationName.value = '';
+    newOfficeLocationTimezone.value = 'America/New_York';
+    newOfficeLocationTimezoneCustom.value = '';
     await loadOfficeLocations();
   } catch (e) {
     officeLocationsError.value = e.response?.data?.error?.message || e.message || 'Failed to create office location';
@@ -1636,9 +2038,10 @@ const saveOfficeLocation = async (loc) => {
   try {
     savingOfficeLocationId.value = loc.id;
     officeLocationsError.value = '';
+    const tz = String(draft.timezone || '').trim() || String(draft.timezoneCustom || '').trim() || 'America/New_York';
     await api.patch(`/payroll/office-locations/${loc.id}`, {
       name: draft.name,
-      timezone: draft.timezone,
+      timezone: tz,
       streetAddress: draft.streetAddress,
       city: draft.city,
       state: draft.state,
@@ -1829,7 +2232,9 @@ const agencyForm = ref({
   featureFlags: {
     // Defaults are "enabled" to preserve existing behavior until an admin turns them off.
     inSchoolSubmissionsEnabled: true,
-    medcancelEnabled: true
+    medcancelEnabled: true,
+    // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
+    aiProviderSearchEnabled: false
   },
   // Notification icon fields
   statusExpiredIconId: null,
@@ -1905,12 +2310,15 @@ const parentAgencies = computed(() => {
 
 const affiliableAgencies = computed(() => parentAgencies.value);
 
+const selectedAgencyForList = computed(() => {
+  const id = selectedAgencyFilterId.value ? parseInt(selectedAgencyFilterId.value, 10) : null;
+  if (!id) return null;
+  return parentAgencies.value.find((a) => a.id === id) || null;
+});
+
 const applyFilters = (list) => {
   const q = normalizeText(searchQuery.value);
-  const t = String(typeFilter.value || 'all').toLowerCase();
   return (list || []).filter((o) => {
-    const ot = String(o?.organization_type || 'agency').toLowerCase();
-    if (t !== 'all' && ot !== t) return false;
     if (!q) return true;
     const hay = `${normalizeText(o?.name)} ${normalizeText(o?.slug)} ${normalizeText(o?.portal_url)}`;
     return hay.includes(q);
@@ -1954,8 +2362,20 @@ const sortOrganizations = (list) => {
 };
 
 const organizationsToRender = computed(() => {
-  const base = selectedAgencyFilterId.value ? (affiliatedOrganizations.value || []) : (agencies.value || []);
-  return sortOrganizations(applyFilters(base));
+  const view = String(typeFilter.value || 'agencies').toLowerCase();
+  const selectedAgencyId = selectedAgencyFilterId.value ? parseInt(selectedAgencyFilterId.value, 10) : null;
+
+  if (view === 'agencies') {
+    // If an agency is selected, show that agency pinned plus all affiliated orgs below.
+    // Backend returns [agency, ...affiliated] for /affiliated-organizations.
+    const base = selectedAgencyId ? (affiliatedOrganizations.value || []) : parentAgencies.value;
+    return sortOrganizations(applyFilters(base));
+  }
+
+  // organizations view
+  const base = selectedAgencyId ? (affiliatedOrganizations.value || []) : (agencies.value || []);
+  const nonAgencies = (base || []).filter((o) => String(o?.organization_type || 'agency').toLowerCase() !== 'agency');
+  return sortOrganizations(applyFilters(nonAgencies));
 });
 
 const requiresAffiliatedAgency = computed(() => {
@@ -2101,6 +2521,47 @@ const saveIconTemplate = async ({ name, description, iconData }) => {
 const clearAgencyFilter = () => {
   selectedAgencyFilterId.value = '';
   affiliatedOrganizations.value = [];
+  // Return list to default "all agencies" mode
+  typeFilter.value = 'agencies';
+};
+
+watch(
+  () => typeFilter.value,
+  async (next) => {
+    const view = String(next || '').toLowerCase();
+    if (view === 'organizations' && selectedAgencyFilterId.value) {
+      await loadAffiliatedForSelectedAgency();
+    }
+  }
+);
+
+const buildAgencyTeamMapsFromUsers = (allUsers) => {
+  const adminsByAgency = {};
+  const supportByAgency = {};
+  const parseAgencyIds = (u) => {
+    if (Array.isArray(u?.agencyIds)) return u.agencyIds.map((x) => parseInt(x, 10)).filter((x) => Number.isFinite(x));
+    const raw = u?.agency_ids ?? u?.agencyIds ?? '';
+    if (typeof raw === 'string') return raw.split(',').map((x) => parseInt(String(x || '').trim(), 10)).filter((x) => Number.isFinite(x));
+    return [];
+  };
+
+  for (const u of allUsers || []) {
+    const ids = parseAgencyIds(u);
+    if (!ids.length) continue;
+    for (const id of ids) {
+      if (u.role === 'admin' || u.role === 'super_admin') {
+        if (!adminsByAgency[id]) adminsByAgency[id] = [];
+        adminsByAgency[id].push(u);
+      }
+      if (u.role === 'support') {
+        if (!supportByAgency[id]) supportByAgency[id] = [];
+        supportByAgency[id].push(u);
+      }
+    }
+  }
+
+  agencyAdmins.value = adminsByAgency;
+  agencySupport.value = supportByAgency;
 };
 
 const loadAffiliatedForSelectedAgency = async () => {
@@ -2116,13 +2577,6 @@ const loadAffiliatedForSelectedAgency = async () => {
     error.value = '';
     const res = await api.get(`/agencies/${agencyId}/affiliated-organizations`);
     affiliatedOrganizations.value = Array.isArray(res.data) ? res.data : [];
-
-    // Best-effort: ensure admin/support lists exist for all returned orgs.
-    for (const org of affiliatedOrganizations.value) {
-      if (!agencySupport.value[org.id]) agencySupport.value[org.id] = [];
-      await fetchAgencyAdmins(org.id);
-      await fetchAgencySupport(org.id);
-    }
   } catch (e) {
     affiliatedOrganizations.value = [];
     error.value = e.response?.data?.error?.message || 'Failed to load affiliated organizations';
@@ -2131,11 +2585,26 @@ const loadAffiliatedForSelectedAgency = async () => {
   }
 };
 
+const handleAgencyFilterChange = async () => {
+  // Only load affiliated orgs when the user is in the Organizations view.
+  if (!selectedAgencyFilterId.value) {
+    affiliatedOrganizations.value = [];
+    return;
+  }
+  if (String(typeFilter.value || '').toLowerCase() === 'organizations') {
+    await loadAffiliatedForSelectedAgency();
+  } else {
+    affiliatedOrganizations.value = [];
+  }
+};
+
 const fetchAgencies = async () => {
   try {
     loading.value = true;
-    const response = await api.get('/agencies');
-    agencies.value = response.data;
+    const [agenciesRes, usersRes] = await Promise.all([api.get('/agencies'), api.get('/users')]);
+    agencies.value = agenciesRes.data || [];
+    const allUsers = usersRes.data || [];
+    availableUsers.value = allUsers;
     
     // Initialize support ref for all agencies
     agencies.value.forEach(agency => {
@@ -2143,76 +2612,27 @@ const fetchAgencies = async () => {
         agencySupport.value[agency.id] = [];
       }
     });
-    
-    // Fetch admins and support for each agency
-    for (const agency of agencies.value) {
-      await fetchAgencyAdmins(agency.id);
-      await fetchAgencySupport(agency.id);
+
+    buildAgencyTeamMapsFromUsers(allUsers);
+
+    // If a parent agency is selected and we are in Organizations view, refresh affiliated orgs too.
+    if (selectedAgencyFilterId.value && String(typeFilter.value || '').toLowerCase() === 'organizations') {
+      await loadAffiliatedForSelectedAgency();
     }
 
-    // If a parent agency is selected, refresh affiliated view too.
-    if (selectedAgencyFilterId.value) {
-      await loadAffiliatedForSelectedAgency();
+    // Optional: restore selection from URL (?orgId=123)
+    const orgId = route.query?.orgId;
+    if (orgId && orgId !== 'create' && !showCreateModal.value && !editingAgency.value) {
+      const id = parseInt(String(orgId), 10);
+      if (!Number.isNaN(id)) {
+        const match = agencies.value.find((a) => a.id === id);
+        if (match) editAgency(match);
+      }
     }
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load agencies';
   } finally {
     loading.value = false;
-  }
-};
-
-const fetchAgencyAdmins = async (agencyId) => {
-  try {
-    // Get all users and filter for admins assigned to this agency
-    const usersResponse = await api.get('/users');
-    const allUsers = usersResponse.data;
-    
-    // Get users assigned to this agency
-    const agencyUsers = [];
-    for (const user of allUsers) {
-      const agenciesResponse = await api.get(`/users/${user.id}/agencies`);
-      const userAgencies = agenciesResponse.data;
-      if (userAgencies.some(a => a.id === agencyId) && (user.role === 'admin' || user.role === 'super_admin')) {
-        agencyUsers.push(user);
-      }
-    }
-    
-    agencyAdmins.value[agencyId] = agencyUsers;
-  } catch (err) {
-    console.error('Failed to load agency admins:', err);
-    agencyAdmins.value[agencyId] = [];
-  }
-};
-
-const fetchAgencySupport = async (agencyId) => {
-  try {
-    // Get all users and filter for support assigned to this agency
-    const usersResponse = await api.get('/users');
-    const allUsers = usersResponse.data;
-    
-    // Get users assigned to this agency with support role
-    const agencyUsers = [];
-    for (const user of allUsers) {
-      try {
-        // Only check users with support role to reduce API calls
-        if (user.role === 'support') {
-          const agenciesResponse = await api.get(`/users/${user.id}/agencies`);
-          const userAgencies = agenciesResponse.data;
-          if (userAgencies.some(a => a.id === agencyId)) {
-            agencyUsers.push(user);
-          }
-        }
-      } catch (err) {
-        console.error(`Failed to get agencies for user ${user.id}:`, err);
-        // Continue with next user
-      }
-    }
-    
-    agencySupport.value[agencyId] = agencyUsers;
-    console.log(`Fetched ${agencyUsers.length} support members for agency ${agencyId}:`, agencyUsers);
-  } catch (err) {
-    console.error('Failed to load agency support:', err);
-    agencySupport.value[agencyId] = [];
   }
 };
 
@@ -2228,17 +2648,13 @@ const fetchUsers = async () => {
 const showAssignAdmin = (agency) => {
   selectedAgency.value = agency;
   showAssignAdminModal.value = true;
-  if (availableUsers.value.length === 0) {
-    fetchUsers();
-  }
+  if (availableUsers.value.length === 0) fetchUsers();
 };
 
 const showAssignSupport = (agency) => {
   selectedAgency.value = agency;
   showAssignSupportModal.value = true;
-  if (availableUsers.value.length === 0) {
-    fetchUsers();
-  }
+  if (availableUsers.value.length === 0) fetchUsers();
 };
 
 const assignAdmin = async () => {
@@ -2394,28 +2810,40 @@ const handleTextColorChange = (colorType, value) => {
   }
 };
 
+const safeJsonObject = (value, fallback = {}) => {
+  if (value === null || value === undefined) return fallback;
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return fallback;
+    return parsed;
+  } catch {
+    return fallback;
+  }
+};
+
 const editAgency = (agency) => {
+  if ((showCreateModal.value || (editingAgency.value && editingAgency.value.id !== agency.id)) && !confirmDiscardUnsavedEdits()) {
+    return;
+  }
+
+  showCreateModal.value = false;
   editingAgency.value = agency;
+  // If selecting a parent agency, treat it as the "affiliation context" for the list and show its affiliated orgs below.
+  if (String(agency?.organization_type || 'agency').toLowerCase() === 'agency') {
+    selectedAgencyFilterId.value = String(agency.id);
+    // Best effort: load affiliates immediately so list updates without needing a second dropdown.
+    loadAffiliatedForSelectedAgency();
+  }
+  // Auto-collapse the left pane after selection, but allow expanding back.
+  navCollapsed.value = true;
   const palette = getColorPalette(agency.color_palette);
-  const terminology = agency.terminology_settings 
-    ? (typeof agency.terminology_settings === 'string' 
-        ? JSON.parse(agency.terminology_settings) 
-        : agency.terminology_settings)
-    : {};
+  const terminology = safeJsonObject(agency.terminology_settings, {});
   
   // Parse theme_settings if it exists
-  const themeSettings = agency.theme_settings 
-    ? (typeof agency.theme_settings === 'string' 
-        ? JSON.parse(agency.theme_settings) 
-        : agency.theme_settings)
-    : {};
+  const themeSettings = safeJsonObject(agency.theme_settings, {});
   
   // Parse custom parameters if they exist
-  const customParams = agency.custom_parameters 
-    ? (typeof agency.custom_parameters === 'string' 
-        ? JSON.parse(agency.custom_parameters) 
-        : agency.custom_parameters)
-    : {};
+  const customParams = safeJsonObject(agency.custom_parameters, {});
 
   // Parse feature flags if they exist
   const featureFlags = agency.feature_flags
@@ -2424,8 +2852,8 @@ const editAgency = (agency) => {
         : agency.feature_flags)
     : {};
   
-  customParamKeys.value = Object.keys(customParams);
-  customParameters.value = { ...customParams };
+  customParamKeys.value = Object.keys(customParams || {});
+  customParameters.value = { ...(customParams || {}) };
   
   // Set logo input method based on what's available
   if (agency.logo_path) {
@@ -2501,7 +2929,8 @@ const editAgency = (agency) => {
     },
     featureFlags: {
       inSchoolSubmissionsEnabled: featureFlags.inSchoolSubmissionsEnabled !== false,
-      medcancelEnabled: featureFlags.medcancelEnabled !== false
+      medcancelEnabled: featureFlags.medcancelEnabled !== false,
+      aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true
     },
     // Notification icon fields
     statusExpiredIconId: agency.status_expired_icon_id ?? null,
@@ -2545,6 +2974,15 @@ const applyAffiliatedAgencyBranding = async () => {
 const getColorPalette = (palette) => {
   if (!palette) return {};
   return typeof palette === 'string' ? JSON.parse(palette) : palette;
+};
+
+const getOrgAccentColor = (org) => {
+  try {
+    const p = getColorPalette(org?.color_palette);
+    return p?.primary || p?.accent || 'var(--primary)';
+  } catch {
+    return 'var(--primary)';
+  }
 };
 
 const handleLogoError = (event, agencyId = null) => {
@@ -2643,6 +3081,67 @@ const getAgencyLogoUrl = (agency) => {
   return null;
 };
 
+// Icons (used for org list + compact header)
+const iconsById = ref({}); // { [iconId]: icon }
+const loadIconsIndex = async () => {
+  try {
+    const res = await api.get('/icons', {
+      params: {
+        includePlatform: 'true',
+        sortBy: 'name',
+        sortOrder: 'asc'
+      }
+    });
+    const list = Array.isArray(res.data) ? res.data : [];
+    const idx = {};
+    for (const icon of list) {
+      if (!icon?.id) continue;
+      idx[icon.id] = icon;
+    }
+    iconsById.value = idx;
+  } catch {
+    iconsById.value = {};
+  }
+};
+
+const getAbsoluteUploadsUrl = (maybeRelativeUrl) => {
+  if (!maybeRelativeUrl) return '';
+  const u = String(maybeRelativeUrl || '').trim();
+  if (!u) return '';
+  if (u.startsWith('http://') || u.startsWith('https://')) return u;
+
+  // uploads are served from root (not under /api)
+  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+  const cleanUrl = u.startsWith('/') ? u : `/${u}`;
+  return `${apiBase}${cleanUrl}`;
+};
+
+const getIconUrlFromIcon = (icon) => {
+  if (!icon) return '';
+  let iconUrl = icon.url;
+  if (!iconUrl && icon.file_path) {
+    let fp = String(icon.file_path || '').trim();
+    if (fp.startsWith('/')) fp = fp.slice(1);
+    if (fp.startsWith('uploads/')) fp = fp.substring('uploads/'.length);
+    iconUrl = `/uploads/${fp}`;
+  }
+  return getAbsoluteUploadsUrl(iconUrl);
+};
+
+const getOrgIconUrl = (org) => {
+  const iconId = org?.icon_id || org?.iconId || null;
+  if (!iconId) return null;
+  const icon = iconsById.value?.[iconId];
+  if (!icon) return null;
+  const url = getIconUrlFromIcon(icon);
+  return url || null;
+};
+
+const handleIconError = (_e, orgId) => {
+  iconErrorsByOrgId.value = { ...iconErrorsByOrgId.value, [orgId]: true };
+};
+
 const toggleAgencyStatus = () => {
   agencyForm.value.isActive = !agencyForm.value.isActive;
 };
@@ -2662,6 +3161,13 @@ const openDuplicateModal = (org) => {
     slug: `${baseSlug}-copy`,
     portalUrl: ''
   };
+
+  originalAgencyFormSnapshot.value = JSON.stringify(agencyForm.value);
+  try {
+    router.replace({ query: { ...route.query, orgId: String(agency.id) } });
+  } catch {
+    // ignore
+  }
 };
 
 const closeDuplicateModal = () => {
@@ -3019,10 +3525,28 @@ const closePreviewModal = () => {
   previewAgencyId.value = null;
 };
 
+const startCreateOrganization = () => {
+  if (!confirmDiscardUnsavedEdits()) return;
+
+  // Reset editor state, then enter create mode.
+  closeModal();
+  showCreateModal.value = true;
+  originalAgencyFormSnapshot.value = JSON.stringify(agencyForm.value);
+
+  try {
+    router.replace({ query: { ...route.query, orgId: 'create' } });
+  } catch {
+    // ignore
+  }
+};
+
 const closeModal = () => {
   showCreateModal.value = false;
   editingAgency.value = null;
-  activeTab.value = 'settings'; // Reset to settings tab
+  activeTab.value = 'general'; // Reset to first tab
+  // Reset list context too (back to "all agencies")
+  selectedAgencyFilterId.value = '';
+  affiliatedOrganizations.value = [];
   notificationTriggers.value = [];
   notificationTriggerEdits.value = {};
   notificationTriggersError.value = '';
@@ -3030,6 +3554,15 @@ const closeModal = () => {
   savingNotificationTriggerKey.value = null;
   customParamKeys.value = [];
   customParameters.value = {};
+  originalAgencyFormSnapshot.value = '';
+
+  try {
+    const q = { ...route.query };
+    delete q.orgId;
+    router.replace({ query: q });
+  } catch {
+    // ignore
+  }
   agencyForm.value = {
     organizationType: userRole.value === 'super_admin' ? 'agency' : 'school',
     affiliatedAgencyId: '',
@@ -3160,15 +3693,363 @@ const copyLoginUrl = async (portalUrl) => {
 };
 
 onMounted(async () => {
+  const iconsPromise = loadIconsIndex();
   await fetchAgencies();
   if (userRole.value === 'super_admin') {
     await fetchUsers();
   }
   await fetchIconTemplates();
+  await iconsPromise;
 });
 </script>
 
 <style scoped>
+.master-detail {
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.master-detail.no-selection {
+  grid-template-columns: 1fr;
+}
+
+.master-detail.nav-collapsed {
+  grid-template-columns: 88px 1fr;
+}
+
+.nav-pane {
+  position: sticky;
+  top: 12px;
+  align-self: start;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.section-header.collapsed {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.section-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-header.collapsed .section-header-actions {
+  width: 100%;
+  justify-content: center;
+}
+
+.section-header.collapsed .section-header-actions .btn {
+  width: 100%;
+  max-width: 100%;
+}
+
+.section-header-collapsed-title {
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.section-header.collapsed .section-header-collapsed-title {
+  width: 100%;
+  text-align: center;
+}
+
+.detail-pane {
+  min-height: 500px;
+}
+
+.detail-content {
+  max-width: 100%;
+}
+
+.detail-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 12px;
+  background: var(--bg);
+  margin-bottom: 12px;
+}
+
+.detail-summary-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.detail-summary-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex: 0 0 auto;
+  background: var(--bg-alt);
+}
+
+.detail-summary-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.detail-summary-fallback {
+  font-weight: 800;
+  color: var(--text);
+}
+
+.detail-summary-text {
+  min-width: 0;
+}
+
+.detail-summary-name {
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detail-summary-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detail-summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.detail-empty {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.detail-empty-title {
+  font-weight: 800;
+  margin: 0;
+  color: var(--text);
+}
+
+.detail-empty-subtitle {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.empty-hint {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.org-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.org-row {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: all 0.15s;
+  border-left: 4px solid var(--primary);
+}
+
+.org-row.collapsed {
+  padding: 10px;
+  align-items: center;
+}
+
+.org-row.collapsed .org-main {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.org-row.collapsed .org-identity {
+  width: 100%;
+  justify-content: center;
+}
+
+.org-row:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+}
+
+.org-row.active {
+  border-color: var(--accent);
+}
+
+.org-row.child {
+  background: var(--bg-alt);
+}
+
+.org-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.org-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.org-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.org-avatar-fallback {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.org-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.org-title {
+  min-width: 0;
+}
+
+.org-name {
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.org-slug {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.org-badges {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.org-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.org-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.org-actions .btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  width: auto;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.detail-editor {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  width: 100%;
+  max-width: 100%;
+}
+
+.detail-editor-card {
+  padding: 20px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.detail-editor-card h3 {
+  margin-top: 0;
+}
+
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -3274,6 +4155,12 @@ onMounted(async () => {
 }
 
 @media (max-width: 1100px) {
+  .master-detail {
+    grid-template-columns: 1fr;
+  }
+  .nav-pane {
+    position: static;
+  }
   .filters-row {
     grid-template-columns: 1fr 1fr;
   }
@@ -3951,10 +4838,15 @@ small {
   margin-bottom: 24px;
   border-bottom: 2px solid var(--border);
   padding-bottom: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  box-sizing: border-box;
 }
 
 .tab-button {
-  padding: 12px 24px;
+  padding: 10px 14px;
   background: none;
   border: none;
   border-bottom: 3px solid transparent;
@@ -3964,6 +4856,7 @@ small {
   color: var(--text-secondary);
   transition: all 0.2s;
   margin-bottom: -2px;
+  white-space: nowrap;
 }
 
 .tab-button:hover {

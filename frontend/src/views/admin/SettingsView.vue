@@ -1,9 +1,9 @@
 <template>
-  <SettingsModal />
+  <SettingsPage />
 </template>
 
 <script setup>
-import SettingsModal from '../../components/admin/SettingsModal.vue';
+import SettingsPage from '../../components/admin/SettingsPage.vue';
 </script>
 
 <style scoped>

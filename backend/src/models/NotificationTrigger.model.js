@@ -14,7 +14,7 @@ function parseJsonMaybe(v) {
 class NotificationTrigger {
   static async listAll() {
     const [rows] = await pool.execute(
-      `SELECT trigger_key, name, description, default_enabled, default_channels_json, default_recipients_json, created_at, updated_at
+      `SELECT trigger_key, name, description, default_enabled, default_channels_json, default_recipients_json, default_sender_identity_id, created_at, updated_at
        FROM notification_triggers
        ORDER BY trigger_key ASC`
     );
@@ -26,6 +26,7 @@ class NotificationTrigger {
       defaultEnabled: !!r.default_enabled,
       defaultChannels: parseJsonMaybe(r.default_channels_json) || null,
       defaultRecipients: parseJsonMaybe(r.default_recipients_json) || null,
+      defaultSenderIdentityId: r.default_sender_identity_id || null,
       createdAt: r.created_at,
       updatedAt: r.updated_at
     }));
@@ -33,7 +34,7 @@ class NotificationTrigger {
 
   static async findByKey(triggerKey) {
     const [rows] = await pool.execute(
-      `SELECT trigger_key, name, description, default_enabled, default_channels_json, default_recipients_json, created_at, updated_at
+      `SELECT trigger_key, name, description, default_enabled, default_channels_json, default_recipients_json, default_sender_identity_id, created_at, updated_at
        FROM notification_triggers
        WHERE trigger_key = ?
        LIMIT 1`,
@@ -48,9 +49,21 @@ class NotificationTrigger {
       defaultEnabled: !!r.default_enabled,
       defaultChannels: parseJsonMaybe(r.default_channels_json) || null,
       defaultRecipients: parseJsonMaybe(r.default_recipients_json) || null,
+      defaultSenderIdentityId: r.default_sender_identity_id || null,
       createdAt: r.created_at,
       updatedAt: r.updated_at
     };
+  }
+
+  static async updateDefaultSenderIdentity(triggerKey, senderIdentityId = null) {
+    const key = String(triggerKey || '').trim();
+    if (!key) throw new Error('triggerKey is required');
+    const sid = senderIdentityId === null || senderIdentityId === undefined || senderIdentityId === '' ? null : Number(senderIdentityId);
+    await pool.execute(
+      `UPDATE notification_triggers SET default_sender_identity_id = ? WHERE trigger_key = ?`,
+      [sid, key]
+    );
+    return this.findByKey(key);
   }
 }
 

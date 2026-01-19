@@ -42,6 +42,8 @@ import platformBrandingRoutes from './routes/platformBranding.routes.js';
 import onboardingPackageRoutes from './routes/onboardingPackage.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import emailTemplateRoutes from './routes/emailTemplate.routes.js';
+import emailSenderIdentityRoutes from './routes/emailSenderIdentity.routes.js';
+import notificationTriggerAdminRoutes from './routes/notificationTriggerAdmin.routes.js';
 import userCommunicationRoutes from './routes/userCommunication.routes.js';
 import brandingTemplateRoutes from './routes/brandingTemplate.routes.js';
 import fontRoutes from './routes/font.routes.js';
@@ -64,12 +66,15 @@ import payrollRoutes from './routes/payroll.routes.js';
 import billingRoutes from './routes/billing.routes.js';
 import clientSettingsRoutes from './routes/clientSettings.routes.js';
 import providerSettingsRoutes from './routes/providerSettings.routes.js';
+import providerSearchRoutes from './routes/providerSearch.routes.js';
+import providerImportRoutes from './routes/providerImport.routes.js';
 import schoolSettingsRoutes from './routes/schoolSettings.routes.js';
 import bulkClientUploadRoutes from './routes/bulkClientUpload.routes.js';
 import providerSchedulingRoutes from './routes/providerScheduling.routes.js';
 import phiDocumentsRoutes from './routes/phiDocuments.routes.js';
 import agencySchoolsRoutes from './routes/agencySchools.routes.js';
 import clientRoutes from './routes/client.routes.js';
+import guardianPortalRoutes from './routes/guardianPortal.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -384,6 +389,8 @@ app.use('/api/platform-branding', platformBrandingRoutes);
 app.use('/api/onboarding-packages', onboardingPackageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/email-templates', emailTemplateRoutes);
+app.use('/api/email-senders', emailSenderIdentityRoutes);
+app.use('/api/notification-triggers', notificationTriggerAdminRoutes);
 app.use('/api', userCommunicationRoutes);
 app.use('/api/users', userPreferencesRoutes);
 app.use('/api/branding-templates', brandingTemplateRoutes);
@@ -394,6 +401,7 @@ app.use('/api/organizations', referralUploadRoutes); // Organization routes (ref
 app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
 app.use('/api/referrals', referralRoutes); // Referral pipeline routes
 app.use('/api/clients', clientRoutes); // Client management routes
+app.use('/api/guardian-portal', guardianPortalRoutes); // Guardian portal routes
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
 app.use('/api/office-schedule', officeScheduleRoutes);
 app.use('/api/twilio', twilioRoutes);
@@ -406,6 +414,8 @@ app.use('/api/payroll', payrollRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/client-settings', clientSettingsRoutes);
 app.use('/api/provider-settings', providerSettingsRoutes);
+app.use('/api/provider-search', providerSearchRoutes);
+app.use('/api/provider-import', providerImportRoutes);
 app.use('/api/school-settings', schoolSettingsRoutes);
 app.use('/api/bulk-client-upload', bulkClientUploadRoutes);
 app.use('/api/provider-scheduling', providerSchedulingRoutes);

@@ -153,11 +153,23 @@ class Client {
         org.slug as organization_slug,
         provider.first_name as provider_first_name,
         provider.last_name as provider_last_name,
+        cs.label as client_status_label,
+        cs.status_key as client_status_key,
+        ps.label as paperwork_status_label,
+        ps.status_key as paperwork_status_key,
+        it.label as insurance_type_label,
+        it.insurance_key as insurance_type_key,
+        pdm.label as paperwork_delivery_method_label,
+        pdm.method_key as paperwork_delivery_method_key,
         creator.first_name as created_by_first_name,
         creator.last_name as created_by_last_name
       FROM clients c
       LEFT JOIN agencies org ON c.organization_id = org.id
       LEFT JOIN users provider ON c.provider_id = provider.id
+      LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
+      LEFT JOIN paperwork_statuses ps ON c.paperwork_status_id = ps.id
+      LEFT JOIN insurance_types it ON c.insurance_type_id = it.id
+      LEFT JOIN paperwork_delivery_methods pdm ON c.paperwork_delivery_method_id = pdm.id
       LEFT JOIN users creator ON c.created_by_user_id = creator.id
       WHERE c.id = ?
     `;
@@ -202,6 +214,9 @@ class Client {
       provider_id,
       status,
       search,
+      client_status_id,
+      paperwork_status_id,
+      insurance_type_id,
       includeSensitive = true
     } = options;
 
@@ -211,10 +226,22 @@ class Client {
         org.name as organization_name,
         org.slug as organization_slug,
         provider.first_name as provider_first_name,
-        provider.last_name as provider_last_name
+        provider.last_name as provider_last_name,
+        cs.label as client_status_label,
+        cs.status_key as client_status_key,
+        ps.label as paperwork_status_label,
+        ps.status_key as paperwork_status_key,
+        it.label as insurance_type_label,
+        it.insurance_key as insurance_type_key,
+        pdm.label as paperwork_delivery_method_label,
+        pdm.method_key as paperwork_delivery_method_key
       FROM clients c
       LEFT JOIN agencies org ON c.organization_id = org.id
       LEFT JOIN users provider ON c.provider_id = provider.id
+      LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
+      LEFT JOIN paperwork_statuses ps ON c.paperwork_status_id = ps.id
+      LEFT JOIN insurance_types it ON c.insurance_type_id = it.id
+      LEFT JOIN paperwork_delivery_methods pdm ON c.paperwork_delivery_method_id = pdm.id
       WHERE 1=1
     `;
 
@@ -243,6 +270,19 @@ class Client {
     if (search) {
       query += ' AND c.initials LIKE ?';
       values.push(`%${search}%`);
+    }
+
+    if (client_status_id) {
+      query += ' AND c.client_status_id = ?';
+      values.push(client_status_id);
+    }
+    if (paperwork_status_id) {
+      query += ' AND c.paperwork_status_id = ?';
+      values.push(paperwork_status_id);
+    }
+    if (insurance_type_id) {
+      query += ' AND c.insurance_type_id = ?';
+      values.push(insurance_type_id);
     }
 
     query += ' ORDER BY c.submission_date DESC, c.created_at DESC';
@@ -280,6 +320,7 @@ class Client {
       'status',
       'submission_date',
       'document_status',
+      'guardian_portal_enabled',
       'source',
       'referral_date',
       'client_status_id',

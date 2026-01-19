@@ -4,7 +4,7 @@
       <div>
         <h2>Office Availability</h2>
         <p class="subtitle">
-          Read-only availability. Clinician name + last initial only. Login is required to request bookings.
+          Read-only availability. Provider name + last initial only. Login is required to request bookings.
         </p>
       </div>
       <div class="controls">

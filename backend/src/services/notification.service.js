@@ -383,6 +383,68 @@ class NotificationService {
     });
   }
 
+  // =========================
+  // Supervision tracking
+  // =========================
+
+  static async createSupervisionIndividual50Notification({ agencyId, userId, tierLevel, recommended, totals }) {
+    if (!agencyId || !userId) return null;
+    const existing = await Notification.findByUser(userId, { type: 'supervision_individual_50_reached', isResolved: false });
+    if ((existing || []).some((n) => n.related_entity_type === 'supervision_accounts' && Number(n.related_entity_id) === Number(userId))) {
+      // Best-effort de-dupe
+    }
+    const cadence = Number(recommended?.cadenceWeeks || 2);
+    const minutes = Number(recommended?.minutes || 30);
+    const msg =
+      `You have reached 50 individual supervision hours. Your supervision schedule is now set to the agency default: ` +
+      `${minutes} minutes every ${cadence} weeks.` +
+      ` Current totals: Individual ${Number(totals?.individual || 0).toFixed(2)} / 50, Group ${Number(totals?.group || 0).toFixed(2)} / 50.`;
+    return Notification.create({
+      type: 'supervision_individual_50_reached',
+      severity: 'info',
+      title: 'Supervision milestone reached (50 individual hours)',
+      message: msg,
+      userId,
+      agencyId,
+      relatedEntityType: 'supervision_accounts',
+      relatedEntityId: userId
+    });
+  }
+
+  static async createSupervisionTotal100Notification({ agencyId, userId, tierLevel, totals }) {
+    if (!agencyId || !userId) return null;
+    const msg =
+      `Congratulations — you have completed your required supervision hours (50 individual + 50 group). ` +
+      `Totals: Individual ${Number(totals?.individual || 0).toFixed(2)}, Group ${Number(totals?.group || 0).toFixed(2)}.`;
+    return Notification.create({
+      type: 'supervision_total_100_reached',
+      severity: 'info',
+      title: 'Supervision requirements completed (100 hours)',
+      message: msg,
+      userId,
+      agencyId,
+      relatedEntityType: 'supervision_accounts',
+      relatedEntityId: userId
+    });
+  }
+
+  static async createSupervisionSuperviseeCompletedNotification({ agencyId, supervisorUserId, superviseeUserId, totals }) {
+    if (!agencyId || !supervisorUserId || !superviseeUserId) return null;
+    const msg =
+      `A supervisee has completed supervision requirements (100 hours). ` +
+      `Totals: Individual ${Number(totals?.individual || 0).toFixed(2)}, Group ${Number(totals?.group || 0).toFixed(2)}.`;
+    return Notification.create({
+      type: 'supervision_supervisee_completed',
+      severity: 'info',
+      title: 'Supervisee completed supervision requirements',
+      message: msg,
+      userId: supervisorUserId,
+      agencyId,
+      relatedEntityType: 'supervision_accounts',
+      relatedEntityId: superviseeUserId
+    });
+  }
+
   /**
    * Generate all notifications for an agency
    */
@@ -473,13 +535,13 @@ class NotificationService {
         );
         users = userRows;
       } else if (supervisor.role === 'clinical_practice_assistant') {
-        // CPAs: Get all users in agency (staff, clinician, facilitator, intern)
+        // CPAs: Get all users in agency (staff/provider/school staff/facilitator/intern)
         const [userRows] = await pool.execute(
           `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
            FROM users u
            INNER JOIN user_agencies ua ON u.id = ua.user_id
            WHERE ua.agency_id = ?
-           AND u.role IN ('staff', 'clinician', 'facilitator', 'intern')
+           AND u.role IN ('staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern')
            AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
           [targetAgencyId]
         );

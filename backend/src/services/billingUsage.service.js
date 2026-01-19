@@ -7,12 +7,26 @@ class BillingUsageService {
       throw new Error('Invalid agencyId');
     }
 
-    // Schools (explicit linkage)
+    // Schools
+    // Historically: agency_schools linkage.
+    // Current org model: schools are organizations (agencies table with organization_type='school')
+    // linked via organization_affiliations. Count both, de-duplicated.
     const [schoolsRows] = await pool.execute(
-      `SELECT COUNT(*) as cnt
-       FROM agency_schools
-       WHERE agency_id = ? AND is_active = TRUE`,
-      [parsedAgencyId]
+      `SELECT COUNT(DISTINCT school_id) as cnt
+       FROM (
+         SELECT s.school_organization_id AS school_id
+         FROM agency_schools s
+         WHERE s.agency_id = ? AND s.is_active = TRUE
+         UNION
+         SELECT oa.organization_id AS school_id
+         FROM organization_affiliations oa
+         INNER JOIN agencies a ON a.id = oa.organization_id
+         WHERE oa.agency_id = ?
+           AND oa.is_active = TRUE
+           AND a.is_active = TRUE
+           AND a.organization_type = 'school'
+       ) t`,
+      [parsedAgencyId, parsedAgencyId]
     );
 
     // Programs (agency-owned training tracks)

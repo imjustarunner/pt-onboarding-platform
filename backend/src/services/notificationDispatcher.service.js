@@ -80,6 +80,8 @@ class NotificationDispatcherService {
       'supervisor',
       'clinical_practice_assistant',
       'staff',
+      'provider',
+      'school_staff',
       'clinician',
       'facilitator',
       'intern'

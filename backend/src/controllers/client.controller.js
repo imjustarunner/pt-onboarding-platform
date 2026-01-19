@@ -13,7 +13,7 @@ import { notifyClientBecameCurrent, notifyPaperworkReceived } from '../services/
  */
 export const getClients = async (req, res, next) => {
   try {
-    const { status, organization_id, provider_id, search } = req.query;
+    const { status, organization_id, provider_id, search, client_status_id, paperwork_status_id, insurance_type_id } = req.query;
     const userId = req.user.id;
     const userRole = req.user.role;
 
@@ -40,7 +40,10 @@ export const getClients = async (req, res, next) => {
       status,
       organization_id: organization_id ? parseInt(organization_id) : undefined,
       provider_id: provider_id ? parseInt(provider_id) : undefined,
-      search
+      search,
+      client_status_id: client_status_id ? parseInt(client_status_id, 10) : undefined,
+      paperwork_status_id: paperwork_status_id ? parseInt(paperwork_status_id, 10) : undefined,
+      insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : undefined
     };
 
     // Get clients for all user's agencies
@@ -551,6 +554,49 @@ export const assignProvider = async (req, res, next) => {
   } catch (error) {
     console.error('Assign provider error:', error);
     next(error);
+  }
+};
+
+/**
+ * Delete all bulk-imported clients for a given agency (leaves organizations/schools intact).
+ * DELETE /api/clients/bulk-import?agencyId=123&confirm=true
+ */
+export const deleteBulkImportedClients = async (req, res, next) => {
+  try {
+    const userRole = req.user.role;
+    if (!['super_admin', 'admin'].includes(userRole)) {
+      return res.status(403).json({ error: { message: 'Only admins can delete bulk-imported clients' } });
+    }
+
+    const agencyId = parseInt(req.query.agencyId, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const confirm = String(req.query.confirm || '').toLowerCase() === 'true';
+    if (!confirm) {
+      const [rows] = await pool.execute(
+        `SELECT COUNT(*) as cnt FROM clients WHERE agency_id = ? AND source = 'BULK_IMPORT'`,
+        [agencyId]
+      );
+      return res.json({
+        dryRun: true,
+        agencyId,
+        willDeleteClients: rows[0]?.cnt || 0,
+        note: "Pass confirm=true to actually delete. This deletes clients only (schools/providers are not deleted)."
+      });
+    }
+
+    const [result] = await pool.execute(
+      `DELETE FROM clients WHERE agency_id = ? AND source = 'BULK_IMPORT'`,
+      [agencyId]
+    );
+
+    res.json({
+      success: true,
+      agencyId,
+      deletedClients: result.affectedRows || 0
+    });
+  } catch (e) {
+    next(e);
   }
 };
 

@@ -323,6 +323,16 @@ const quickActions = computed(() => ([
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'provider_directory',
+    title: 'Provider Directory',
+    description: 'Search providers by profile (specialties, ages, interests)',
+    to: '/admin/providers',
+    emoji: '🔎',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'settings',
     title: 'Settings',
     description: 'Configure organizations, tracks, and branding',

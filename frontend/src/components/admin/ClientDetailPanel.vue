@@ -31,7 +31,11 @@
               <div class="info-value">{{ client.organization_name || '-' }}</div>
             </div>
             <div class="info-item">
-              <label>Status</label>
+              <label>Client Status</label>
+              <div class="info-value">{{ client.client_status_label || '-' }}</div>
+            </div>
+            <div class="info-item">
+              <label>Workflow</label>
               <div class="info-value">
                 <ClientStatusBadge :status="client.status" />
               </div>
@@ -62,7 +66,23 @@
               <div class="info-value">{{ formatDate(client.submission_date) }}</div>
             </div>
             <div class="info-item">
-              <label>Document Status</label>
+              <label>Paperwork Status</label>
+              <div class="info-value">{{ client.paperwork_status_label || '-' }}</div>
+            </div>
+            <div class="info-item">
+              <label>Insurance</label>
+              <div class="info-value">{{ client.insurance_type_label || '-' }}</div>
+            </div>
+            <div class="info-item">
+              <label>Doc Date</label>
+              <div class="info-value">{{ formatDate(client.doc_date) }}</div>
+            </div>
+            <div class="info-item">
+              <label>Referral Date</label>
+              <div class="info-value">{{ formatDate(client.referral_date) }}</div>
+            </div>
+            <div class="info-item">
+              <label>Document Status (legacy)</label>
               <div class="info-value">
                 <span :class="['doc-status-badge', `doc-${client.document_status?.toLowerCase()}`]">
                   {{ formatDocumentStatus(client.document_status) }}
@@ -205,6 +225,159 @@
           </div>
         </div>
 
+        <!-- Guardians Tab -->
+        <div v-if="activeTab === 'guardians'" class="detail-section">
+          <div class="phi-warning" style="margin-bottom: 12px;">
+            <strong>Non-clinical portal access:</strong> Guardians can be given access to docs, links, and program materials.
+          </div>
+
+          <div v-if="!canManageGuardians" class="empty-state">
+            <p>You don’t have permission to manage guardians for this client.</p>
+          </div>
+
+          <div v-else>
+            <div v-if="guardiansError" class="error" style="margin-bottom: 10px;">{{ guardiansError }}</div>
+            <div style="display:flex; justify-content: space-between; align-items:center; gap: 12px; margin-bottom: 12px;">
+              <div class="hint">Add one or more guardian accounts (e.g., divorced guardians) with their own logins.</div>
+              <button type="button" class="btn btn-primary" @click="openAddGuardian">Add Guardian</button>
+            </div>
+
+            <div v-if="guardiansLoading" class="loading">Loading guardians…</div>
+            <div v-else-if="(guardians || []).length === 0" class="empty-state">
+              <p>No guardians yet.</p>
+            </div>
+            <div v-else class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Relationship title</th>
+                    <th>Enabled</th>
+                    <th class="right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="g in guardians" :key="g.guardian_user_id">
+                    <td>{{ g.first_name }} {{ g.last_name }}</td>
+                    <td>{{ g.email }}</td>
+                    <td style="min-width: 220px;">
+                      <input v-model="g.relationship_title" type="text" />
+                    </td>
+                    <td>
+                      <input v-model="g.access_enabled" type="checkbox" :true-value="1" :false-value="0" />
+                    </td>
+                    <td class="right" style="white-space: nowrap;">
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        :disabled="updatingGuardianId === g.guardian_user_id"
+                        @click="updateGuardian(g)"
+                      >
+                        {{ updatingGuardianId === g.guardian_user_id ? 'Saving…' : 'Save' }}
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-danger btn-sm"
+                        :disabled="updatingGuardianId === g.guardian_user_id"
+                        @click="removeGuardian(g)"
+                        style="margin-left: 8px;"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div v-if="lastInviteLink" class="phi-warning" style="margin-top: 12px;">
+              <div style="display:flex; justify-content: space-between; align-items:center; gap: 10px;">
+                <div>
+                  <strong>Invite link generated</strong>
+                  <div class="hint">Send this to the guardian to set access (expires in 48 hours).</div>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" @click="copyText(lastInviteLink)">Copy link</button>
+              </div>
+              <div style="margin-top: 8px;">
+                <input :value="lastInviteLink" readonly style="width:100%; font-family: monospace; font-size: 12px;" @click="$event.target.select()" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Add Guardian Modal -->
+          <div v-if="showAddGuardianModal" class="modal-overlay" @click.self="closeAddGuardian">
+            <div class="modal-content" @click.stop style="max-width: 720px;">
+              <div class="modal-header" style="padding: 16px 18px;">
+                <h3 style="margin:0;">Add guardian access</h3>
+                <button class="btn-close" @click="closeAddGuardian">×</button>
+              </div>
+              <div style="padding: 18px;">
+                <div class="form-group">
+                  <label>Email *</label>
+                  <input v-model="addGuardianForm.email" type="email" placeholder="guardian@email.com" />
+                </div>
+                <div class="filters-row">
+                  <div class="filters-group" style="flex:1;">
+                    <label class="filters-label">First name *</label>
+                    <input v-model="addGuardianForm.firstName" class="filters-input" type="text" />
+                  </div>
+                  <div class="filters-group" style="flex:1;">
+                    <label class="filters-label">Last name *</label>
+                    <input v-model="addGuardianForm.lastName" class="filters-input" type="text" />
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>Relationship title</label>
+                  <input v-model="addGuardianForm.relationshipTitle" type="text" placeholder="e.g., Mom, Dad, Guardian" />
+                </div>
+                <div class="form-group">
+                  <label class="checkbox-label">
+                    <input v-model="addGuardianForm.accessEnabled" type="checkbox" />
+                    Enabled
+                  </label>
+                </div>
+                <div class="form-section-divider" style="margin-top: 14px; margin-bottom: 10px;">
+                  <h4 style="margin:0;">Permissions</h4>
+                </div>
+                <div class="filters-row" style="flex-wrap: wrap;">
+                  <label class="checkbox-label" style="min-width: 240px;">
+                    <input v-model="addGuardianForm.permissions.canViewDocs" type="checkbox" />
+                    Can view docs
+                  </label>
+                  <label class="checkbox-label" style="min-width: 240px;">
+                    <input v-model="addGuardianForm.permissions.canSignDocs" type="checkbox" />
+                    Can sign docs
+                  </label>
+                  <label class="checkbox-label" style="min-width: 240px;">
+                    <input v-model="addGuardianForm.permissions.canViewLinks" type="checkbox" />
+                    Can view links
+                  </label>
+                  <label class="checkbox-label" style="min-width: 240px;">
+                    <input v-model="addGuardianForm.permissions.canViewProgramMaterials" type="checkbox" />
+                    Can view program materials
+                  </label>
+                  <label class="checkbox-label" style="min-width: 240px;">
+                    <input v-model="addGuardianForm.permissions.canViewProgress" type="checkbox" />
+                    Can view progress
+                  </label>
+                  <label class="checkbox-label" style="min-width: 240px;">
+                    <input v-model="addGuardianForm.permissions.canMessage" type="checkbox" />
+                    Can message (rare)
+                  </label>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap: 10px; margin-top: 18px;">
+                  <button type="button" class="btn btn-secondary" @click="closeAddGuardian" :disabled="addingGuardian">Cancel</button>
+                  <button type="button" class="btn btn-primary" @click="addGuardian" :disabled="addingGuardian">
+                    {{ addingGuardian ? 'Creating…' : 'Create + Generate invite link' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- PHI Packets Tab -->
         <div v-if="activeTab === 'phi'" class="detail-section">
           <PhiDocumentsPanel :client-id="Number(client.id)" />
@@ -237,6 +410,7 @@ const tabs = [
   { id: 'overview', label: 'Overview' },
   { id: 'history', label: 'Status History' },
   { id: 'messages', label: 'Messages' },
+  { id: 'guardians', label: 'Guardians' },
   { id: 'phi', label: 'Referral Packets' }
 ];
 
@@ -263,14 +437,56 @@ const creatingNote = ref(false);
 
 const hasAgencyAccess = ref(false);
 
+// Guardians tab state (non-clinical portal access)
+const guardiansLoading = ref(false);
+const guardiansError = ref('');
+const guardians = ref([]);
+const showAddGuardianModal = ref(false);
+const addingGuardian = ref(false);
+const addGuardianForm = ref({
+  email: '',
+  firstName: '',
+  lastName: '',
+  relationshipTitle: 'Guardian',
+  accessEnabled: true,
+  permissions: {
+    canViewDocs: true,
+    canSignDocs: true,
+    canViewLinks: true,
+    canViewProgramMaterials: true,
+    canViewProgress: true,
+    canMessage: false
+  }
+});
+const lastInviteLink = ref('');
+const updatingGuardianId = ref(null);
+
+const canManageGuardians = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support'].includes(r) && hasAgencyAccess.value;
+});
+
 const canCreateInternalNotes = computed(() => {
   return hasAgencyAccess.value;
 });
 
 const formatDate = (dateString) => {
   if (!dateString) return '-';
-  const date = new Date(dateString);
+  const date = parseDateForDisplay(dateString);
   return date.toLocaleDateString();
+};
+
+const parseDateForDisplay = (dateValue) => {
+  if (!dateValue) return new Date(0);
+  const s = String(dateValue);
+  const ymd = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymd) {
+    const y = parseInt(ymd[1], 10);
+    const m = parseInt(ymd[2], 10) - 1;
+    const d = parseInt(ymd[3], 10);
+    return new Date(y, m, d);
+  }
+  return new Date(s);
 };
 
 const formatDateTime = (dateString) => {
@@ -381,6 +597,121 @@ const fetchNotes = async () => {
   }
 };
 
+const fetchGuardians = async () => {
+  if (!canManageGuardians.value) return;
+  try {
+    guardiansLoading.value = true;
+    guardiansError.value = '';
+    const resp = await api.get(`/clients/${props.client.id}/guardians`);
+    guardians.value = resp.data || [];
+  } catch (err) {
+    guardiansError.value = err.response?.data?.error?.message || 'Failed to load guardians';
+    guardians.value = [];
+  } finally {
+    guardiansLoading.value = false;
+  }
+};
+
+const openAddGuardian = () => {
+  lastInviteLink.value = '';
+  addGuardianForm.value = {
+    email: '',
+    firstName: '',
+    lastName: '',
+    relationshipTitle: 'Guardian',
+    accessEnabled: true,
+    permissions: {
+      canViewDocs: true,
+      canSignDocs: true,
+      canViewLinks: true,
+      canViewProgramMaterials: true,
+      canViewProgress: true,
+      canMessage: false
+    }
+  };
+  showAddGuardianModal.value = true;
+};
+
+const closeAddGuardian = () => {
+  showAddGuardianModal.value = false;
+};
+
+const copyText = async (text) => {
+  const t = String(text || '').trim();
+  if (!t) return;
+  try {
+    await navigator.clipboard.writeText(t);
+  } catch {
+    // fallback
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+};
+
+const addGuardian = async () => {
+  if (!canManageGuardians.value) return;
+  const email = String(addGuardianForm.value.email || '').trim();
+  const firstName = String(addGuardianForm.value.firstName || '').trim();
+  const lastName = String(addGuardianForm.value.lastName || '').trim();
+  if (!email || !firstName || !lastName) return;
+  try {
+    addingGuardian.value = true;
+    guardiansError.value = '';
+    const resp = await api.post(`/clients/${props.client.id}/guardians`, {
+      email,
+      firstName,
+      lastName,
+      relationshipTitle: String(addGuardianForm.value.relationshipTitle || 'Guardian').trim() || 'Guardian',
+      accessEnabled: addGuardianForm.value.accessEnabled !== false,
+      permissionsJson: addGuardianForm.value.permissions
+    });
+    lastInviteLink.value = resp.data?.passwordlessTokenLink || '';
+    await fetchGuardians();
+  } catch (err) {
+    guardiansError.value = err.response?.data?.error?.message || 'Failed to add guardian';
+  } finally {
+    addingGuardian.value = false;
+  }
+};
+
+const updateGuardian = async (g) => {
+  if (!canManageGuardians.value) return;
+  const id = Number(g?.guardian_user_id);
+  if (!id) return;
+  try {
+    updatingGuardianId.value = id;
+    await api.patch(`/clients/${props.client.id}/guardians/${id}`, {
+      relationshipTitle: String(g.relationship_title || 'Guardian').trim() || 'Guardian',
+      accessEnabled: g.access_enabled === 1 || g.access_enabled === true
+    });
+    await fetchGuardians();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to update guardian');
+  } finally {
+    updatingGuardianId.value = null;
+  }
+};
+
+const removeGuardian = async (g) => {
+  if (!canManageGuardians.value) return;
+  const id = Number(g?.guardian_user_id);
+  if (!id) return;
+  if (!window.confirm('Remove this guardian’s access to this client?')) return;
+  try {
+    updatingGuardianId.value = id;
+    await api.delete(`/clients/${props.client.id}/guardians/${id}`);
+    await fetchGuardians();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to remove guardian');
+  } finally {
+    updatingGuardianId.value = null;
+  }
+};
+
 const fetchAccess = async () => {
   try {
     const response = await api.get('/users/me/agencies');
@@ -445,6 +776,8 @@ watch(() => activeTab.value, (newTab) => {
     fetchHistory();
   } else if (newTab === 'messages' && notes.value.length === 0) {
     fetchNotes();
+  } else if (newTab === 'guardians' && guardians.value.length === 0) {
+    fetchGuardians();
   }
 });
 
@@ -461,6 +794,8 @@ onMounted(async () => {
     await fetchHistory();
   } else if (activeTab.value === 'messages') {
     await fetchNotes();
+  } else if (activeTab.value === 'guardians') {
+    await fetchGuardians();
   }
 });
 </script>
@@ -557,6 +892,77 @@ onMounted(async () => {
   flex: 1;
   overflow-y: auto;
   padding: 24px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background: white;
+}
+
+.table th,
+.table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: 14px;
+}
+
+.table th {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  background: var(--bg-alt);
+}
+
+.table td.right,
+.table th.right {
+  text-align: right;
+}
+
+.table input[type="text"],
+.table input[type="email"],
+.table input[type="url"],
+.table input[type="password"],
+.table input[type="number"],
+.table input[type="date"],
+.table input[type="time"],
+.table input[type="tel"],
+.table input[type="search"],
+.table input,
+.form-group input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  background: white;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.form-group > label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .detail-section {

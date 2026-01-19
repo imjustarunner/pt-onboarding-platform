@@ -577,6 +577,7 @@
                       <th>Provider</th>
                       <th>Date</th>
                       <th class="right">Amount</th>
+                      <th>Details</th>
                       <th>Receipt</th>
                       <th class="right">Pay period</th>
                       <th class="right">Actions</th>
@@ -587,6 +588,15 @@
                       <td>{{ nameForUserId(c.user_id) }}</td>
                       <td>{{ c.expense_date }}</td>
                       <td class="right">{{ fmtMoney(Number(c.amount || 0)) }}</td>
+                      <td>
+                        <div class="muted" style="line-height: 1.25;">
+                          <div v-if="c.payment_method"><strong>Payment:</strong> {{ String(c.payment_method || '').replaceAll('_',' ') }}</div>
+                          <div v-if="c.purchase_approved_by"><strong>Approver:</strong> {{ c.purchase_approved_by }}</div>
+                          <div v-if="c.project_ref"><strong>Project:</strong> {{ c.project_ref }}</div>
+                          <div v-if="c.reason"><strong>Reason:</strong> {{ c.reason }}</div>
+                          <div v-if="splitSummary(c)"><strong>Split:</strong> {{ splitSummary(c) }}</div>
+                        </div>
+                      </td>
                       <td>
                         <a v-if="c.receipt_file_path" :href="receiptUrl(c)" target="_blank" rel="noopener noreferrer">View</a>
                         <span v-else class="muted">—</span>
@@ -684,6 +694,96 @@
                 <button class="btn btn-secondary" @click="loadPendingTimeClaims" :disabled="pendingTimeLoading || !selectedPeriodId">
                   This pay period only
                 </button>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">PTO Requests (Pending)</h3>
+              <div class="hint">Approve to deduct PTO balances and post PTO pay into payroll adjustments (uses agency default PTO rate).</div>
+              <div v-if="pendingPtoError" class="warn-box" style="margin-top: 8px;">{{ pendingPtoError }}</div>
+              <div v-if="pendingPtoLoading" class="muted" style="margin-top: 8px;">Loading pending requests…</div>
+              <div v-else-if="!pendingPtoRequests.length" class="muted" style="margin-top: 8px;">No pending PTO requests.</div>
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Created</th>
+                      <th>Type</th>
+                      <th class="right">Hours</th>
+                      <th>First date</th>
+                      <th>Proof</th>
+                      <th class="right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in pendingPtoRequests" :key="r.id">
+                      <td>{{ nameForUserId(r.user_id) }}</td>
+                      <td>{{ String(r.created_at || '').slice(0, 10) }}</td>
+                      <td>{{ String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
+                      <td class="right">{{ fmtNum(Number(r.total_hours || 0)) }}</td>
+                      <td>
+                        {{
+                          (() => {
+                            const items = Array.isArray(r.items) ? r.items : [];
+                            const dates = items.map((it) => String(it.request_date || '').slice(0, 10)).filter(Boolean).sort();
+                            return dates[0] || '—';
+                          })()
+                        }}
+                      </td>
+                      <td>
+                        <a v-if="r.proof_file_path" :href="receiptUrl({ receipt_file_path: r.proof_file_path })" target="_blank" rel="noopener noreferrer">View</a>
+                        <span v-else class="muted">—</span>
+                      </td>
+                      <td class="right">
+                        <div class="actions" style="justify-content: flex-end; margin: 0;">
+                          <button class="btn btn-primary btn-sm" @click="approvePtoRequest(r)" :disabled="approvingPtoRequestId === r.id">
+                            {{ approvingPtoRequestId === r.id ? 'Approving…' : 'Approve' }}
+                          </button>
+                          <button class="btn btn-secondary btn-sm" @click="returnPtoRequest(r)" :disabled="approvingPtoRequestId === r.id">
+                            Send back…
+                          </button>
+                          <button class="btn btn-danger btn-sm" @click="rejectPtoRequest(r)" :disabled="approvingPtoRequestId === r.id">
+                            Reject
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+                <button class="btn btn-secondary" @click="loadAllPendingPtoRequests" :disabled="pendingPtoLoading || !agencyId">
+                  Show all pending (any period)
+                </button>
+                <button class="btn btn-secondary" @click="loadPendingPtoRequests" :disabled="pendingPtoLoading || !selectedPeriodId">
+                  This pay period only
+                </button>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Supervision Hours (Import CSV)</h3>
+              <div class="hint">
+                Upload a CSV for this pay period. Columns: <code>email</code> (or <code>user_id</code>), <code>individual_hours</code>, <code>group_hours</code>.
+              </div>
+              <div v-if="supervisionImportError" class="warn-box" style="margin-top: 8px;">{{ supervisionImportError }}</div>
+
+              <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr auto;">
+                <div class="field">
+                  <input type="file" accept=".csv,text/csv" @change="onSupervisionCsvPick" />
+                  <div class="muted" v-if="supervisionCsvName" style="margin-top: 6px;">Selected: <strong>{{ supervisionCsvName }}</strong></div>
+                </div>
+                <div class="actions" style="justify-content: flex-end; margin-top: 0;">
+                  <button class="btn btn-primary" @click="uploadSupervisionCsv" :disabled="supervisionImporting || !supervisionCsvFile || !selectedPeriodId">
+                    {{ supervisionImporting ? 'Uploading…' : 'Upload' }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="supervisionImportResult" class="muted" style="margin-top: 10px;">
+                Applied {{ supervisionImportResult.counts?.ok || 0 }} rows; skipped {{ supervisionImportResult.counts?.skipped || 0 }}.
               </div>
             </div>
 
@@ -2106,6 +2206,11 @@ const pendingTimeError = ref('');
 const approvingTimeClaimId = ref(null);
 const timeTargetPeriodByClaimId = ref({});
 
+const pendingPtoRequests = ref([]);
+const pendingPtoLoading = ref(false);
+const pendingPtoError = ref('');
+const approvingPtoRequestId = ref(null);
+
 const serviceCodeRules = ref([]);
 const serviceCodeRulesLoading = ref(false);
 const serviceCodeRulesError = ref('');
@@ -2219,6 +2324,13 @@ const loadApprovedMedcancelClaimsAmount = async () => {
 const approvedReimbursementClaimsLoading = ref(false);
 const approvedReimbursementClaimsAmount = ref(0);
 
+// Supervision import (CSV per pay period)
+const supervisionImporting = ref(false);
+const supervisionImportError = ref('');
+const supervisionImportResult = ref(null);
+const supervisionCsvFile = ref(null);
+const supervisionCsvName = ref('');
+
 const loadApprovedReimbursementClaimsAmount = async () => {
   const uid = selectedUserId.value;
   const pid = selectedPeriodId.value;
@@ -2302,6 +2414,52 @@ const receiptUrl = (c) => {
   if (raw.startsWith('/uploads/')) return raw;
   if (raw.startsWith('uploads/')) return `/uploads/${raw.substring('uploads/'.length)}`;
   return `/uploads/${raw}`;
+};
+
+const onSupervisionCsvPick = (e) => {
+  const file = e?.target?.files?.[0] || null;
+  supervisionCsvFile.value = file;
+  supervisionCsvName.value = file?.name || '';
+};
+
+const uploadSupervisionCsv = async () => {
+  if (!agencyId.value || !selectedPeriodId.value) return;
+  if (!supervisionCsvFile.value) return;
+  try {
+    supervisionImporting.value = true;
+    supervisionImportError.value = '';
+    supervisionImportResult.value = null;
+    const fd = new FormData();
+    fd.append('file', supervisionCsvFile.value);
+    const resp = await api.post(`/payroll/periods/${selectedPeriodId.value}/supervision/import`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    supervisionImportResult.value = resp.data || null;
+  } catch (e) {
+    supervisionImportError.value = e.response?.data?.error?.message || e.message || 'Failed to import supervision CSV';
+  } finally {
+    supervisionImporting.value = false;
+  }
+};
+
+const splitSummary = (c) => {
+  const raw = String(c?.splits_json || '').trim();
+  if (!raw) return '';
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr) || !arr.length) return '';
+    return arr
+      .map((s) => {
+        const cat = String(s?.category || '').trim();
+        const amt = Number(s?.amount || 0);
+        if (!cat || !(amt > 0)) return null;
+        return `${cat} ${fmtMoney(amt)}`;
+      })
+      .filter(Boolean)
+      .join(', ');
+  } catch {
+    return '';
+  }
 };
 
 const timeTypeLabel = (c) => {
@@ -2563,6 +2721,89 @@ const loadAllPendingTimeClaims = async () => {
     pendingTimeClaims.value = [];
   } finally {
     pendingTimeLoading.value = false;
+  }
+};
+
+const isPtoRequestInSelectedPeriod = (r) => {
+  const p = selectedPeriod.value || null;
+  if (!p) return true; // if no selection, treat as visible
+  const start = String(p.period_start || '').slice(0, 10);
+  const end = String(p.period_end || '').slice(0, 10);
+  if (!start || !end) return true;
+  const items = Array.isArray(r?.items) ? r.items : [];
+  return items.some((it) => {
+    const d = String(it?.request_date || it?.requestDate || '').slice(0, 10);
+    return d && d >= start && d <= end;
+  });
+};
+
+const loadAllPendingPtoRequests = async () => {
+  if (!agencyId.value) return;
+  try {
+    pendingPtoLoading.value = true;
+    pendingPtoError.value = '';
+    const resp = await api.get('/payroll/pto-requests', {
+      params: { agencyId: agencyId.value, status: 'submitted' }
+    });
+    pendingPtoRequests.value = resp.data || [];
+  } catch (e) {
+    pendingPtoError.value = e.response?.data?.error?.message || e.message || 'Failed to load pending PTO requests';
+    pendingPtoRequests.value = [];
+  } finally {
+    pendingPtoLoading.value = false;
+  }
+};
+
+const loadPendingPtoRequests = async () => {
+  await loadAllPendingPtoRequests();
+  if (!selectedPeriodId.value) return;
+  pendingPtoRequests.value = (pendingPtoRequests.value || []).filter(isPtoRequestInSelectedPeriod);
+};
+
+const approvePtoRequest = async (r) => {
+  if (!r?.id) return;
+  try {
+    approvingPtoRequestId.value = r.id;
+    pendingPtoError.value = '';
+    await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve' });
+    await loadAllPendingPtoRequests();
+    await loadPeriodDetails();
+  } catch (e) {
+    pendingPtoError.value = e.response?.data?.error?.message || e.message || 'Failed to approve PTO request';
+  } finally {
+    approvingPtoRequestId.value = null;
+  }
+};
+
+const rejectPtoRequest = async (r) => {
+  if (!r?.id) return;
+  const reason = window.prompt('Rejection reason (required):', '') || '';
+  if (!String(reason).trim()) return;
+  try {
+    approvingPtoRequestId.value = r.id;
+    pendingPtoError.value = '';
+    await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'reject', rejectionReason: String(reason).trim() });
+    await loadAllPendingPtoRequests();
+  } catch (e) {
+    pendingPtoError.value = e.response?.data?.error?.message || e.message || 'Failed to reject PTO request';
+  } finally {
+    approvingPtoRequestId.value = null;
+  }
+};
+
+const returnPtoRequest = async (r) => {
+  if (!r?.id) return;
+  const reason = window.prompt('Send back note (required):', '') || '';
+  if (!String(reason).trim()) return;
+  try {
+    approvingPtoRequestId.value = r.id;
+    pendingPtoError.value = '';
+    await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'return', reason: String(reason).trim() });
+    await loadAllPendingPtoRequests();
+  } catch (e) {
+    pendingPtoError.value = e.response?.data?.error?.message || e.message || 'Failed to send back PTO request';
+  } finally {
+    approvingPtoRequestId.value = null;
   }
 };
 
@@ -4624,6 +4865,8 @@ watch(showStageModal, async (open) => {
   await loadAllPendingMileageClaims();
   await loadAllPendingMedcancelClaims();
   await loadAllPendingReimbursementClaims();
+  await loadAllPendingTimeClaims();
+  await loadAllPendingPtoRequests();
   await loadApprovedMileageClaimsAmount();
   await loadApprovedMedcancelClaimsAmount();
   await loadApprovedReimbursementClaimsAmount();

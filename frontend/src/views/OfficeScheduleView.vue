@@ -41,7 +41,7 @@
         <div class="legend-item"><span class="dot available"></span> Available</div>
         <div class="legend-item"><span class="dot pending"></span> Pending</div>
         <div class="legend-item"><span class="dot occupied"></span> Occupied</div>
-        <div class="legend-item note">Clinician name + last initial shown only (no client data).</div>
+        <div class="legend-item note">Provider name + last initial shown only (no client data).</div>
       </div>
 
       <div class="grid">

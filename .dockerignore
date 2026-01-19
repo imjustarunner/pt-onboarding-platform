@@ -60,3 +60,5 @@ database/
 # Uploads (will be in Cloud Storage)
 backend/uploads/
 frontend/uploads/
+
+secrets/

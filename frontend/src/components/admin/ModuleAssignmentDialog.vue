@@ -40,7 +40,8 @@
             <option value="support">Staff</option>
             <option value="supervisor">Supervisor</option>
             <option value="staff">Onboarding Staff</option>
-            <option value="clinician">Clinician</option>
+            <option value="provider">Provider</option>
+            <option value="school_staff">School Staff</option>
             <option value="facilitator">Facilitator</option>
             <option value="intern">Intern</option>
           </select>
@@ -61,7 +62,8 @@
           <select v-model="selectedRole">
             <option value="">All roles</option>
             <option value="supervisor">Supervisor</option>
-            <option value="clinician">Clinician</option>
+            <option value="provider">Provider</option>
+            <option value="school_staff">School Staff</option>
             <option value="facilitator">Facilitator</option>
             <option value="intern">Intern</option>
           </select>

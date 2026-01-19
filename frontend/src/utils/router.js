@@ -40,6 +40,15 @@ export function getDashboardRoute() {
   if (user.type === 'approved_employee') {
     return '/on-demand-training';
   }
+
+  // Guardian portal accounts go to the guardian portal (prefer branded slug if available)
+  if (String(user.role || '').toLowerCase() === 'client_guardian') {
+    const slug =
+      organizationStore.organizationContext?.slug ||
+      user.agencies?.[0]?.slug ||
+      null;
+    return slug ? `/${slug}/guardian` : '/guardian';
+  }
   
   // Admins, super admins, support, supervisors, and CPAs go to admin dashboard
   // Check role with case-insensitive comparison and handle variations

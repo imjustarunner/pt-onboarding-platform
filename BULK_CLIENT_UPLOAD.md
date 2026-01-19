@@ -39,8 +39,9 @@ This document is **authoritative** for how bulk upload must behave.
 **Input:** First 3 letters of first name (capitalized first letter)
   * First letter of last name (capitalized)
   * Total length = 6 characters
-  * Example: `Messi Junior → MesJuv`
+  * Example: `Messi Junior → MesJun`
   *Sometimes the name is longer than six characters if they have a longer hyphenated last name, keep all that is there. 
+  *You aren't converting anything from the bulk import as they are already in the above format, you will attach their client name as the whole string MesJun.
 * This identifier:
 
   * Is used to create a **new client account**

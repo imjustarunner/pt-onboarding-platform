@@ -22,9 +22,13 @@ class PayrollMedcancelClaim {
     schoolOrganizationId = null,
     units = 0,
     notes = null,
-    attestation = 0
+    attestation = 0,
+    suggestedPayrollPeriodId = null
   }) {
-    const suggestedPayrollPeriodId = await PayrollMedcancelClaim.findSuggestedPeriodId({ agencyId, claimDate });
+    const resolvedSuggestedPayrollPeriodId =
+      Number.isFinite(Number(suggestedPayrollPeriodId)) && Number(suggestedPayrollPeriodId) > 0
+        ? Number(suggestedPayrollPeriodId)
+        : await PayrollMedcancelClaim.findSuggestedPeriodId({ agencyId, claimDate });
     const safeUnits = Number.isFinite(Number(units)) ? Number(units) : 0;
     const [result] = await pool.execute(
       `INSERT INTO payroll_medcancel_claims
@@ -38,7 +42,7 @@ class PayrollMedcancelClaim {
         safeUnits,
         notes || null,
         attestation ? 1 : 0,
-        suggestedPayrollPeriodId
+        resolvedSuggestedPayrollPeriodId
       ]
     );
     const id = result?.insertId || null;

@@ -7,6 +7,34 @@
         <button v-if="!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'" @click="showCreateModal = true" class="btn btn-primary">Create New User</button>
         <button v-if="user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support'" @click="showSupervisorsModal = true" class="btn btn-secondary">Supervisors</button>
       </div>
+      <div v-if="showAdditionalFilters" class="additional-filters">
+        <div class="sort-controls">
+          <label for="roleSort">Filter by Role:</label>
+          <select id="roleSort" v-model="roleSort" @change="applySorting">
+            <option value="">All Roles</option>
+            <option value="provider">Provider</option>
+            <option value="school_staff">School Staff</option>
+            <option value="supervisor">Supervisor</option>
+            <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
+            <option value="staff">Onboarding Staff</option>
+            <option value="support">Staff</option>
+            <option value="admin">Admin</option>
+            <option value="super_admin">Super Admin</option>
+            <option value="facilitator">Facilitator</option>
+            <option value="intern">Intern</option>
+          </select>
+        </div>
+        <div class="sort-controls">
+          <label for="userSearch">Search:</label>
+          <input
+            id="userSearch"
+            v-model="userSearch"
+            type="text"
+            placeholder="Name or email…"
+            style="padding: 8px 12px; border: 1px solid var(--border, #dee2e6); border-radius: 6px; font-size: 14px; min-width: 220px;"
+          />
+        </div>
+      </div>
     </div>
     
     <div v-if="loading" class="loading">Loading users...</div>
@@ -31,7 +59,7 @@
             <option value="PREHIRE_OPEN">Pre-Hire</option>
             <option value="PREHIRE_REVIEW">Ready for Review</option>
             <option value="ONBOARDING">Onboarding</option>
-            <option value="ACTIVE_EMPLOYEE">Active Employee</option>
+            <option value="ACTIVE_EMPLOYEE">Active</option>
             <option value="TERMINATED_PENDING">Terminated (Grace Period)</option>
             <option value="ARCHIVED">Archived</option>
             <!-- Legacy statuses for backward compatibility -->
@@ -41,6 +69,11 @@
             <option value="completed">Completed (Legacy)</option>
             <option value="terminated">Terminated (Legacy)</option>
           </select>
+        </div>
+        <div class="sort-controls">
+          <button type="button" class="btn btn-secondary btn-sm" @click="showAdditionalFilters = !showAdditionalFilters">
+            {{ showAdditionalFilters ? 'Hide' : 'Show' }} Additional Filters
+          </button>
         </div>
       </div>
       <div class="users-table">
@@ -321,7 +354,8 @@
                   <option value="supervisor">Supervisor</option>
                   <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
                   <option value="staff">Onboarding Staff</option>
-                  <option value="clinician">Clinician</option>
+                  <option value="provider">Provider</option>
+                  <option value="school_staff">School Staff</option>
                   <option value="facilitator">Facilitator</option>
                   <option value="intern">Intern</option>
                 </select>
@@ -513,7 +547,8 @@
               <option value="supervisor">Supervisor</option>
               <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
               <option value="staff">Onboarding Staff</option>
-              <option value="clinician">Clinician</option>
+              <option value="provider">Provider</option>
+              <option value="school_staff">School Staff</option>
               <option value="facilitator">Facilitator</option>
               <option value="intern">Intern</option>
             </select>
@@ -715,6 +750,188 @@
         </div>
       </div>
     </div>
+
+    <!-- Super-admin tools: small bottom buttons -->
+    <div v-if="isSuperAdmin" class="admin-tools-bar">
+      <button type="button" class="btn btn-secondary btn-sm" @click="openProviderUploadModal">
+        Provider Upload
+      </button>
+      <button type="button" class="btn btn-secondary btn-sm" @click="openRateSheetModal">
+        Pay Rate Matrix Upload
+      </button>
+      <button type="button" class="btn btn-secondary btn-sm" @click="openEmailUpdateModal">
+        Email Update Upload
+      </button>
+    </div>
+
+    <!-- Provider Upload Modal -->
+    <div v-if="showProviderUploadModal" class="modal-overlay" @click="closeProviderUploadModal">
+      <div class="modal-content large" @click.stop style="max-width: 820px;">
+        <div style="display:flex; justify-content: space-between; align-items:center; gap: 10px;">
+          <h2 style="margin:0;">Provider upload</h2>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeProviderUploadModal">Close</button>
+        </div>
+        <div class="muted" style="margin-top: 8px;">
+          Creates/updates provider accounts and stores your columns into Provider Info fields.
+        </div>
+
+        <div class="form-group" style="margin-top: 14px;">
+          <label>Agency *</label>
+          <select v-model="agencySort">
+            <option value="">Select an agency…</option>
+            <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
+          </select>
+          <small class="form-help">Pick the agency context for the import.</small>
+        </div>
+
+        <div class="form-group">
+          <label>File (CSV/XLSX)</label>
+          <input type="file" @change="onProviderListFileChange" accept=".csv,.xlsx,.xls" />
+          <small class="form-help">Works with comma-CSV or semicolon-CSV.</small>
+        </div>
+
+        <div class="form-group">
+          <label style="display:flex; align-items:center; gap: 10px;">
+            <input type="checkbox" v-model="providerUseAi" />
+            Use Gemini assist (best effort)
+          </label>
+          <small class="form-help">If enabled and Gemini is configured, we’ll try to map headers automatically.</small>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="closeProviderUploadModal">Cancel</button>
+          <button type="button" class="btn btn-primary" @click="runProviderBulkCreate" :disabled="!providerListFile || !agencySort || providerBulkRunning">
+            {{ providerBulkRunning ? 'Importing…' : 'Import Providers' }}
+          </button>
+        </div>
+
+        <div v-if="providerBulkResult" class="import-results">
+          <div><strong>Rows:</strong> {{ providerBulkResult.rowCount }}</div>
+          <div><strong>Created providers:</strong> {{ providerBulkResult.createdProviders }}</div>
+          <div><strong>Updated providers:</strong> {{ providerBulkResult.updatedProviders }}</div>
+          <div v-if="(providerBulkResult.errors || []).length" class="muted" style="margin-top: 8px;">
+            Showing up to 50 errors.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pay Rate Matrix Upload Modal -->
+    <div v-if="showRateSheetModal" class="modal-overlay" @click="closeRateSheetModal">
+      <div class="modal-content large" @click.stop style="max-width: 820px;">
+        <div style="display:flex; justify-content: space-between; align-items:center; gap: 10px;">
+          <h2 style="margin:0;">Pay rate matrix upload</h2>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeRateSheetModal">Close</button>
+        </div>
+        <div class="muted" style="margin-top: 8px;">
+          Imports direct/indirect rates and per-service-code rates into payroll for the selected agency.
+        </div>
+
+        <div class="form-group" style="margin-top: 14px;">
+          <label>Agency *</label>
+          <select v-model="agencySort">
+            <option value="">Select an agency…</option>
+            <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>File (CSV/XLSX)</label>
+          <input type="file" @change="onRateSheetFileChange" accept=".csv,.xlsx,.xls" />
+        </div>
+
+        <div class="form-group">
+          <label style="display:flex; align-items:center; gap: 10px;">
+            <input type="checkbox" v-model="rateSheetDryRun" />
+            Dry run (preview only)
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label style="display:flex; align-items:center; gap: 10px;">
+            <input type="checkbox" v-model="rateSheetUseAi" />
+            Use Gemini assist (best effort)
+          </label>
+          <small class="form-help">If enabled and Gemini is configured, we’ll try to map unusual headers automatically.</small>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="closeRateSheetModal">Cancel</button>
+          <button type="button" class="btn btn-primary" @click="runRateSheetImport" :disabled="!rateSheetFile || !agencySort || rateSheetImporting">
+            {{ rateSheetImporting ? (rateSheetDryRun ? 'Previewing…' : 'Importing…') : (rateSheetDryRun ? 'Preview Rate Sheet' : 'Import Rate Sheet') }}
+          </button>
+        </div>
+
+        <div v-if="rateSheetResult" class="import-results">
+          <div><strong>Processed rows:</strong> {{ rateSheetResult.processed }}</div>
+          <div><strong>Skipped inactive:</strong> {{ rateSheetResult.skippedInactive }}</div>
+          <div><strong>Created users:</strong> {{ (rateSheetResult.createdUsers || []).length }}</div>
+          <div><strong>Templates created:</strong> {{ rateSheetResult.templatesCreated || 0 }}</div>
+          <div><strong>Templates reused:</strong> {{ rateSheetResult.templatesReused || 0 }}</div>
+          <div><strong>Templates applied:</strong> {{ rateSheetResult.templatesApplied || 0 }}</div>
+          <div><strong>Updated rate cards:</strong> {{ rateSheetResult.updatedRateCards }}</div>
+          <div><strong>Replaced per-code rates (users):</strong> {{ rateSheetResult.replacedPerCodeRatesForUsers }}</div>
+          <div><strong>Upserted per-code rates:</strong> {{ rateSheetResult.upsertedPerCodeRates }}</div>
+          <div v-if="rateSheetResult.dryRun" class="muted" style="margin-top: 8px;">
+            Dry run: no payroll data was modified.
+          </div>
+          <div v-if="(rateSheetResult.errors || []).length" class="muted" style="margin-top: 8px;">
+            Showing up to 50 errors.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Provider Email Update Modal -->
+    <div v-if="showEmailUpdateModal" class="modal-overlay" @click="closeEmailUpdateModal">
+      <div class="modal-content large" @click.stop style="max-width: 820px;">
+        <div style="display:flex; justify-content: space-between; align-items:center; gap: 10px;">
+          <h2 style="margin:0;">Provider email update upload</h2>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeEmailUpdateModal">Close</button>
+        </div>
+        <div class="muted" style="margin-top: 8px;">
+          Updates provider login email by matching names. Assumes <strong>Column A</strong> is First Name, <strong>Column B</strong> is Last Name, and <strong>Column C</strong> is Email.
+        </div>
+
+        <div class="form-group" style="margin-top: 14px;">
+          <label>Agency *</label>
+          <select v-model="agencySort">
+            <option value="">Select an agency…</option>
+            <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>File (CSV/XLSX)</label>
+          <input type="file" @change="onEmailUpdateFileChange" accept=".csv,.xlsx,.xls" />
+        </div>
+
+        <div class="form-group">
+          <label style="display:flex; align-items:center; gap: 10px;">
+            <input type="checkbox" v-model="emailUpdateDryRun" />
+            Dry run (preview only)
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="closeEmailUpdateModal">Cancel</button>
+          <button type="button" class="btn btn-primary" @click="runEmailUpdateImport" :disabled="!emailUpdateFile || !agencySort || emailUpdateImporting">
+            {{ emailUpdateImporting ? (emailUpdateDryRun ? 'Previewing…' : 'Updating…') : (emailUpdateDryRun ? 'Preview Email Update' : 'Update Emails') }}
+          </button>
+        </div>
+
+        <div v-if="emailUpdateResult" class="import-results">
+          <div><strong>Processed rows:</strong> {{ emailUpdateResult.processed }}</div>
+          <div><strong>Matched users:</strong> {{ emailUpdateResult.matchedUsers }}</div>
+          <div><strong>Updated users:</strong> {{ emailUpdateResult.updatedUsers }}</div>
+          <div><strong>Skipped invalid email:</strong> {{ emailUpdateResult.skippedInvalidEmail }}</div>
+          <div><strong>Skipped no match:</strong> {{ emailUpdateResult.skippedNoMatch }}</div>
+          <div v-if="emailUpdateResult.dryRun" class="muted" style="margin-top: 8px;">
+            Dry run: no users were modified.
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -730,6 +947,7 @@ import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumen
 const router = useRouter();
 const authStore = useAuthStore();
 const user = computed(() => authStore.user);
+const isSuperAdmin = computed(() => user.value?.role === 'super_admin');
 const canArchiveDelete = computed(() => {
   const role = authStore.user?.role;
   return role === 'admin' || role === 'super_admin';
@@ -764,8 +982,30 @@ const showCreateModal = ref(false);
 const showBulkAssignModal = ref(false);
 const editingUser = ref(null);
 const saving = ref(false);
-const statusSort = ref('');
+// Default to Active Employee per admin workflow.
+const statusSort = ref('ACTIVE_EMPLOYEE');
 const agencySort = ref('');
+const showAdditionalFilters = ref(false);
+const roleSort = ref('');
+const userSearch = ref('');
+
+// Provider uploads (User Management)
+const providerListFile = ref(null);
+const providerBulkRunning = ref(false);
+const providerBulkResult = ref(null);
+const providerUseAi = ref(true);
+const rateSheetFile = ref(null);
+const rateSheetDryRun = ref(true);
+const rateSheetUseAi = ref(true);
+const rateSheetImporting = ref(false);
+const rateSheetResult = ref(null);
+const showProviderUploadModal = ref(false);
+const showRateSheetModal = ref(false);
+const showEmailUpdateModal = ref(false);
+const emailUpdateFile = ref(null);
+const emailUpdateDryRun = ref(true);
+const emailUpdateImporting = ref(false);
+const emailUpdateResult = ref(null);
 
 const currentStep = ref(1);
 const availablePackages = ref([]);
@@ -785,7 +1025,7 @@ const userForm = ref({
   personalPhone: '',
   workPhone: '',
   workPhoneExtension: '',
-  role: 'clinician',
+  role: 'provider',
   hasSupervisorPrivileges: false,
   agencyIds: [],
   onboardingPackageId: '',
@@ -1050,7 +1290,7 @@ const saveUser = async () => {
           lastName: userForm.value.lastName?.trim() || '',
           workEmail: userForm.value.workEmail.trim(),
           agencyId: parseInt(userForm.value.agencyIds[0]), // Use first agency
-          role: userForm.value.role || 'clinician'
+          role: userForm.value.role || 'provider'
         };
         
         console.log('Creating current employee with data:', currentEmployeeData);
@@ -1086,7 +1326,7 @@ const saveUser = async () => {
         // Create user (password is auto-generated, not sent)
         createData = {
           lastName: userForm.value.lastName?.trim() || '',
-          role: userForm.value.role || 'clinician',
+          role: userForm.value.role || 'provider',
           agencyIds: userForm.value.agencyIds && userForm.value.agencyIds.length > 0 
             ? userForm.value.agencyIds.map(id => parseInt(id)).filter(id => !isNaN(id))
             : []
@@ -1477,7 +1717,7 @@ const closeModal = () => {
     personalPhone: '',
     workPhone: '',
     workPhoneExtension: '',
-    role: 'clinician',
+    role: 'provider',
     agencyIds: [],
     onboardingPackageId: '',
     createAsCurrentEmployee: false
@@ -1560,7 +1800,9 @@ const formatRole = (role) => {
     'supervisor': 'Supervisor',
     'clinical_practice_assistant': 'CPA',
     'staff': 'Onboarding Staff',
-    'clinician': 'Clinician',
+    'provider': 'Provider',
+    'clinician': 'Provider',
+    'school_staff': 'School Staff',
     'facilitator': 'Facilitator',
     'intern': 'Intern'
   };
@@ -1749,11 +1991,35 @@ const sortedUsers = computed(() => {
     if (statusSort.value === 'inactive') {
       // Legacy inactive filter - map to ARCHIVED status
       filtered = filtered.filter(user => user.status === 'ARCHIVED');
+    } else if (statusSort.value === 'ACTIVE_EMPLOYEE') {
+      // Include legacy 'active' rows for older databases.
+      filtered = filtered.filter((user) => user.status === 'ACTIVE_EMPLOYEE' || user.status === 'active');
     } else {
       filtered = filtered.filter(user => {
         return user.status === statusSort.value;
       });
     }
+  }
+
+  // Filter by role
+  if (roleSort.value) {
+    filtered = filtered.filter((u) => {
+      const r = String(u.role || '').trim();
+      if (!r) return false;
+      if (roleSort.value === 'provider') return r === 'provider' || r === 'clinician';
+      return r === roleSort.value;
+    });
+  }
+
+  // Search
+  if (userSearch.value && String(userSearch.value).trim()) {
+    const q = String(userSearch.value).trim().toLowerCase();
+    filtered = filtered.filter((u) => {
+      const name = `${u.first_name || ''} ${u.last_name || ''}`.trim().toLowerCase();
+      const email = String(u.email || '').trim().toLowerCase();
+      const agenciesStr = String(u.agencies || '').toLowerCase();
+      return name.includes(q) || email.includes(q) || agenciesStr.includes(q);
+    });
   }
   
   return filtered;
@@ -1761,6 +2027,106 @@ const sortedUsers = computed(() => {
 
 const applySorting = () => {
   // Sorting is handled by computed property
+};
+
+const openProviderUploadModal = () => {
+  providerBulkResult.value = null;
+  providerListFile.value = null;
+  showProviderUploadModal.value = true;
+};
+const closeProviderUploadModal = () => {
+  showProviderUploadModal.value = false;
+};
+const openRateSheetModal = () => {
+  rateSheetResult.value = null;
+  rateSheetFile.value = null;
+  rateSheetUseAi.value = true;
+  showRateSheetModal.value = true;
+};
+const closeRateSheetModal = () => {
+  showRateSheetModal.value = false;
+};
+
+const openEmailUpdateModal = () => {
+  emailUpdateResult.value = null;
+  emailUpdateFile.value = null;
+  emailUpdateDryRun.value = true;
+  showEmailUpdateModal.value = true;
+};
+const closeEmailUpdateModal = () => {
+  showEmailUpdateModal.value = false;
+};
+
+const onProviderListFileChange = (e) => {
+  providerListFile.value = e?.target?.files?.[0] || null;
+  providerBulkResult.value = null;
+};
+
+const runProviderBulkCreate = async () => {
+  if (!providerListFile.value || !agencySort.value) return;
+  try {
+    providerBulkRunning.value = true;
+    providerBulkResult.value = null;
+    const fd = new FormData();
+    fd.append('file', providerListFile.value);
+    fd.append('agencyId', String(parseInt(agencySort.value, 10)));
+    fd.append('useAi', providerUseAi.value ? 'true' : 'false');
+    // Do NOT set Content-Type manually for FormData; the browser must set the boundary.
+    const r = await api.post('/provider-import/bulk-create', fd);
+    providerBulkResult.value = r.data;
+  } catch (e) {
+    alert(e.response?.data?.error?.message || e.message || 'Provider import failed');
+  } finally {
+    providerBulkRunning.value = false;
+  }
+};
+
+const onRateSheetFileChange = (e) => {
+  rateSheetFile.value = e?.target?.files?.[0] || null;
+  rateSheetResult.value = null;
+};
+
+const onEmailUpdateFileChange = (e) => {
+  emailUpdateFile.value = e?.target?.files?.[0] || null;
+  emailUpdateResult.value = null;
+};
+
+const runRateSheetImport = async () => {
+  if (!rateSheetFile.value || !agencySort.value) return;
+  try {
+    rateSheetImporting.value = true;
+    rateSheetResult.value = null;
+    const fd = new FormData();
+    fd.append('file', rateSheetFile.value);
+    fd.append('agencyId', String(parseInt(agencySort.value, 10)));
+    fd.append('dryRun', rateSheetDryRun.value ? 'true' : 'false');
+    fd.append('useAi', rateSheetUseAi.value ? 'true' : 'false');
+    // Do NOT set Content-Type manually for FormData; the browser must set the boundary.
+    const r = await api.post('/payroll/rate-sheet/import', fd);
+    rateSheetResult.value = r.data;
+  } catch (e) {
+    alert(e.response?.data?.error?.message || e.message || 'Rate sheet import failed');
+  } finally {
+    rateSheetImporting.value = false;
+  }
+};
+
+const runEmailUpdateImport = async () => {
+  if (!emailUpdateFile.value || !agencySort.value) return;
+  try {
+    emailUpdateImporting.value = true;
+    emailUpdateResult.value = null;
+    const fd = new FormData();
+    fd.append('file', emailUpdateFile.value);
+    fd.append('agencyId', String(parseInt(agencySort.value, 10)));
+    fd.append('dryRun', emailUpdateDryRun.value ? 'true' : 'false');
+    const r = await api.post('/provider-import/email-update', fd);
+    emailUpdateResult.value = r.data;
+  } catch (e) {
+    alert(e.response?.data?.error?.message || e.message || 'Email update import failed');
+  } finally {
+    emailUpdateImporting.value = false;
+  }
 };
 
 const canViewUser = (user) => {
@@ -1871,6 +2237,40 @@ onMounted(() => {
   gap: 20px;
   margin-bottom: 20px;
   flex-wrap: wrap;
+}
+
+.additional-filters {
+  display: flex;
+  gap: 20px;
+  margin: 0 0 18px 0;
+  flex-wrap: wrap;
+}
+
+.import-results {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border, #dee2e6);
+  font-size: 14px;
+}
+
+.muted {
+  color: var(--text-secondary, #6b7280);
+  font-size: 13px;
+}
+
+.admin-tools-bar {
+  position: sticky;
+  bottom: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 10px;
+  margin-top: 16px;
+  background: rgba(255,255,255,0.85);
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+  backdrop-filter: blur(8px);
 }
 
 .sort-controls {

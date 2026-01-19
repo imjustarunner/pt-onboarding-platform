@@ -13,14 +13,14 @@ export function getStatusLabel(status) {
     'PREHIRE_OPEN': 'Pre-Hire',
     'PREHIRE_REVIEW': 'Ready for Review',
     'ONBOARDING': 'Onboarding',
-    'ACTIVE_EMPLOYEE': 'Active Employee',
+    'ACTIVE_EMPLOYEE': 'Active',
     'TERMINATED_PENDING': 'Terminated (Grace Period)',
     'ARCHIVED': 'Archived',
     // Legacy statuses for backward compatibility during transition
     'pending': 'Pre-Hire',
     'ready_for_review': 'Ready for Review',
-    'active': 'Active Employee',
-    'completed': 'Active Employee',
+    'active': 'Active',
+    'completed': 'Active',
     'terminated': 'Terminated (Grace Period)'
   };
   

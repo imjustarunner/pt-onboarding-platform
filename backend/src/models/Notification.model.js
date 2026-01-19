@@ -44,7 +44,11 @@ class Notification {
     'medcancel_claim_rejected',
     'medcancel_claim_returned',
     // Payroll: documentation aging
-    'payroll_unpaid_notes_2_periods_old'
+    'payroll_unpaid_notes_2_periods_old',
+    // Supervision tracking
+    'supervision_individual_50_reached',
+    'supervision_total_100_reached',
+    'supervision_supervisee_completed'
   ];
 
   static async create(notificationData) {

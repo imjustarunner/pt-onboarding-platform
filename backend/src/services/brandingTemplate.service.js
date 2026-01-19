@@ -50,6 +50,12 @@ class BrandingTemplateService {
 
     // Icons
     if (includeFields.icons) {
+      // Default icons
+      if (includeFields.trainingFocusDefaultIcon !== false && branding.training_focus_default_icon_id) extracted.training_focus_default_icon_id = branding.training_focus_default_icon_id;
+      if (includeFields.moduleDefaultIcon !== false && branding.module_default_icon_id) extracted.module_default_icon_id = branding.module_default_icon_id;
+      if (includeFields.userDefaultIcon !== false && branding.user_default_icon_id) extracted.user_default_icon_id = branding.user_default_icon_id;
+      if (includeFields.documentDefaultIcon !== false && branding.document_default_icon_id) extracted.document_default_icon_id = branding.document_default_icon_id;
+
       if (includeFields.manageAgenciesIcon !== false && branding.manage_agencies_icon_id) extracted.manage_agencies_icon_id = branding.manage_agencies_icon_id;
       if (includeFields.manageModulesIcon !== false && branding.manage_modules_icon_id) extracted.manage_modules_icon_id = branding.manage_modules_icon_id;
       if (includeFields.manageDocumentsIcon !== false && branding.manage_documents_icon_id) extracted.manage_documents_icon_id = branding.manage_documents_icon_id;
@@ -60,6 +66,19 @@ class BrandingTemplateService {
       if (includeFields.settingsIcon !== false && branding.settings_icon_id) extracted.settings_icon_id = branding.settings_icon_id;
       if (includeFields.masterBrandIcon !== false && branding.master_brand_icon_id) extracted.master_brand_icon_id = branding.master_brand_icon_id;
       if (includeFields.allAgenciesNotificationsIcon !== false && branding.all_agencies_notifications_icon_id) extracted.all_agencies_notifications_icon_id = branding.all_agencies_notifications_icon_id;
+
+      // Settings navigation icons
+      if (includeFields.companyProfileIcon !== false && branding.company_profile_icon_id) extracted.company_profile_icon_id = branding.company_profile_icon_id;
+      if (includeFields.teamRolesIcon !== false && branding.team_roles_icon_id) extracted.team_roles_icon_id = branding.team_roles_icon_id;
+      if (includeFields.billingIcon !== false && branding.billing_icon_id) extracted.billing_icon_id = branding.billing_icon_id;
+      if (includeFields.packagesIcon !== false && branding.packages_icon_id) extracted.packages_icon_id = branding.packages_icon_id;
+      if (includeFields.checklistItemsIcon !== false && branding.checklist_items_icon_id) extracted.checklist_items_icon_id = branding.checklist_items_icon_id;
+      if (includeFields.fieldDefinitionsIcon !== false && branding.field_definitions_icon_id) extracted.field_definitions_icon_id = branding.field_definitions_icon_id;
+      if (includeFields.brandingTemplatesIcon !== false && branding.branding_templates_icon_id) extracted.branding_templates_icon_id = branding.branding_templates_icon_id;
+      if (includeFields.assetsIcon !== false && branding.assets_icon_id) extracted.assets_icon_id = branding.assets_icon_id;
+      if (includeFields.communicationsIcon !== false && branding.communications_icon_id) extracted.communications_icon_id = branding.communications_icon_id;
+      if (includeFields.integrationsIcon !== false && branding.integrations_icon_id) extracted.integrations_icon_id = branding.integrations_icon_id;
+      if (includeFields.archiveIcon !== false && branding.archive_icon_id) extracted.archive_icon_id = branding.archive_icon_id;
     }
 
     // Tagline
@@ -158,22 +177,62 @@ class BrandingTemplateService {
       }
 
       // Apply color template data to color palette
-      if (templateData.primary_color) colorPalette.primary = templateData.primary_color;
-      if (templateData.secondary_color) colorPalette.secondary = templateData.secondary_color;
-      if (templateData.accent_color) colorPalette.accent = templateData.accent_color;
-      if (templateData.success_color) colorPalette.success = templateData.success_color;
-      if (templateData.error_color) colorPalette.error = templateData.error_color;
-      if (templateData.warning_color) colorPalette.warning = templateData.warning_color;
-      if (templateData.background_color) colorPalette.background = templateData.background_color;
+      if (templateData.primary_color !== undefined) colorPalette.primary = templateData.primary_color;
+      if (templateData.secondary_color !== undefined) colorPalette.secondary = templateData.secondary_color;
+      if (templateData.accent_color !== undefined) colorPalette.accent = templateData.accent_color;
+      if (templateData.success_color !== undefined) colorPalette.success = templateData.success_color;
+      if (templateData.error_color !== undefined) colorPalette.error = templateData.error_color;
+      if (templateData.warning_color !== undefined) colorPalette.warning = templateData.warning_color;
+      if (templateData.background_color !== undefined) colorPalette.background = templateData.background_color;
 
-      // Update agency with new color palette
+      // Map template icons to agency icon override columns (where available).
+      // These match the agencies table columns used across dashboards/settings.
       const updateData = {
-        color_palette: JSON.stringify(colorPalette)
+        colorPalette
       };
 
-      // Apply other template data if present (fonts, terminology, etc.)
-      if (templateData.people_ops_term) {
-        updateData.onboarding_team_email = templateData.people_ops_term; // Map to appropriate field
+      // Dashboard / default icons
+      if (templateData.training_focus_default_icon_id !== undefined) updateData.trainingFocusDefaultIconId = templateData.training_focus_default_icon_id;
+      if (templateData.module_default_icon_id !== undefined) updateData.moduleDefaultIconId = templateData.module_default_icon_id;
+      if (templateData.user_default_icon_id !== undefined) updateData.userDefaultIconId = templateData.user_default_icon_id;
+      if (templateData.document_default_icon_id !== undefined) updateData.documentDefaultIconId = templateData.document_default_icon_id;
+
+      if (templateData.manage_agencies_icon_id !== undefined) updateData.manageAgenciesIconId = templateData.manage_agencies_icon_id;
+      if (templateData.manage_modules_icon_id !== undefined) updateData.manageModulesIconId = templateData.manage_modules_icon_id;
+      if (templateData.manage_documents_icon_id !== undefined) updateData.manageDocumentsIconId = templateData.manage_documents_icon_id;
+      if (templateData.manage_users_icon_id !== undefined) updateData.manageUsersIconId = templateData.manage_users_icon_id;
+      if (templateData.platform_settings_icon_id !== undefined) updateData.platformSettingsIconId = templateData.platform_settings_icon_id;
+      if (templateData.view_all_progress_icon_id !== undefined) updateData.viewAllProgressIconId = templateData.view_all_progress_icon_id;
+      if (templateData.progress_dashboard_icon_id !== undefined) updateData.progressDashboardIconId = templateData.progress_dashboard_icon_id;
+      if (templateData.settings_icon_id !== undefined) updateData.settingsIconId = templateData.settings_icon_id;
+
+      // Settings navigation icons (platform defaults + agency overrides)
+      if (templateData.company_profile_icon_id !== undefined) updateData.companyProfileIconId = templateData.company_profile_icon_id;
+      if (templateData.team_roles_icon_id !== undefined) updateData.teamRolesIconId = templateData.team_roles_icon_id;
+      if (templateData.billing_icon_id !== undefined) updateData.billingIconId = templateData.billing_icon_id;
+      if (templateData.packages_icon_id !== undefined) updateData.packagesIconId = templateData.packages_icon_id;
+      if (templateData.checklist_items_icon_id !== undefined) updateData.checklistItemsIconId = templateData.checklist_items_icon_id;
+      if (templateData.field_definitions_icon_id !== undefined) updateData.fieldDefinitionsIconId = templateData.field_definitions_icon_id;
+      if (templateData.branding_templates_icon_id !== undefined) updateData.brandingTemplatesIconId = templateData.branding_templates_icon_id;
+      if (templateData.assets_icon_id !== undefined) updateData.assetsIconId = templateData.assets_icon_id;
+      if (templateData.communications_icon_id !== undefined) updateData.communicationsIconId = templateData.communications_icon_id;
+      if (templateData.integrations_icon_id !== undefined) updateData.integrationsIconId = templateData.integrations_icon_id;
+      if (templateData.archive_icon_id !== undefined) updateData.archiveIconId = templateData.archive_icon_id;
+
+      // Terminology: keep support for templates that store a people ops term
+      // in the template_data (legacy naming).
+      if (templateData.people_ops_term !== undefined) {
+        // Store in terminology_settings (object) when possible.
+        let terminology = {};
+        try {
+          terminology = typeof agency.terminology_settings === 'string'
+            ? JSON.parse(agency.terminology_settings)
+            : (agency.terminology_settings || {});
+        } catch {
+          terminology = {};
+        }
+        terminology.peopleOpsTerm = templateData.people_ops_term;
+        updateData.terminologySettings = terminology;
       }
 
       return await Agency.update(targetAgencyId, updateData);
@@ -196,6 +255,12 @@ class BrandingTemplateService {
     if (platformTemplate) {
       try {
         await this.applyBrandingData(platformTemplate.template_data, 'platform');
+        // Best-effort: persist current template id if the columns exist
+        try {
+          await PlatformBranding.update({ currentBrandingTemplateId: platformTemplate.id }, null);
+        } catch {
+          // ignore
+        }
         console.log(`Applied scheduled platform template: ${platformTemplate.name}`);
       } catch (error) {
         console.error('Error applying scheduled platform template:', error);
@@ -210,6 +275,12 @@ class BrandingTemplateService {
       if (agencyTemplate) {
         try {
           await this.applyBrandingData(agencyTemplate.template_data, 'agency', agency.id);
+          // Best-effort: persist current template id if the columns exist
+          try {
+            await Agency.update(agency.id, { currentBrandingTemplateId: agencyTemplate.id });
+          } catch {
+            // ignore
+          }
           console.log(`Applied scheduled agency template: ${agencyTemplate.name} for agency ${agency.id}`);
         } catch (error) {
           console.error(`Error applying scheduled agency template for agency ${agency.id}:`, error);

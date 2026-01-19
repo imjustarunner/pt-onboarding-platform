@@ -1274,7 +1274,7 @@ export const register = async (req, res, next) => {
     }
 
     // CRITICAL: Protect superadmin email - always force super_admin role
-    let finalRole = role || 'clinician';
+    let finalRole = role || 'provider';
     if (email === 'superadmin@plottwistco.com') {
       finalRole = 'super_admin';
       console.warn('⚠️  Attempted to create user with superadmin email - forcing super_admin role');

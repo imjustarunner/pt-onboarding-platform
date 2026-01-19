@@ -56,6 +56,10 @@ import {
   ,deleteMyMedcancelClaim
   ,listMedcancelClaims
   ,patchMedcancelClaim
+  ,getSupervisionPolicy
+  ,putSupervisionPolicy
+  ,listSupervisionAccountsForAgency
+  ,importSupervisionCsv
   ,createMyReimbursementClaim
   ,listMyReimbursementClaims
   ,deleteMyReimbursementClaim
@@ -79,6 +83,15 @@ import {
   ,getMyHomeAddress
   ,updateOrganizationAddressForPayroll
   ,updateOfficeLocationAddressForPayroll
+  ,getPtoPolicy
+  ,putPtoPolicy
+  ,getUserPtoAccount
+  ,upsertUserPtoAccount
+  ,getMyPtoBalances
+  ,createMyPtoRequest
+  ,listMyPtoRequests
+  ,listPtoRequests
+  ,patchPtoRequest
 } from '../controllers/payroll.controller.js';
 
 const router = express.Router();
@@ -139,18 +152,30 @@ router.post('/office-locations', createOfficeLocationForPayroll);
 router.patch('/office-locations/:locationId', updateOfficeLocationForPayroll);
 router.get('/me/home-address', getMyHomeAddress);
 router.put('/me/home-address', updateMyHomeAddress);
+router.get('/me/pto-balances', getMyPtoBalances);
+router.post('/me/pto-requests', ...createMyPtoRequest);
+router.get('/me/pto-requests', listMyPtoRequests);
 router.patch('/org-address/:orgId', updateOrganizationAddressForPayroll);
 router.patch('/office-address/:locationId', updateOfficeLocationAddressForPayroll);
 router.get('/mileage-claims', listMileageClaims);
 router.patch('/mileage-claims/:id', patchMileageClaim);
 router.get('/medcancel-claims', listMedcancelClaims);
 router.patch('/medcancel-claims/:id', patchMedcancelClaim);
+router.get('/supervision-policy', getSupervisionPolicy);
+router.put('/supervision-policy', putSupervisionPolicy);
+router.get('/supervision-accounts', listSupervisionAccountsForAgency);
 router.get('/reimbursement-claims', listReimbursementClaims);
 router.patch('/reimbursement-claims/:id', patchReimbursementClaim);
 router.get('/company-card-expenses', listCompanyCardExpenses);
 router.patch('/company-card-expenses/:id', patchCompanyCardExpense);
 router.get('/time-claims', listTimeClaims);
 router.patch('/time-claims/:id', patchTimeClaim);
+router.get('/pto-policy', getPtoPolicy);
+router.put('/pto-policy', putPtoPolicy);
+router.get('/users/:userId/pto-account', getUserPtoAccount);
+router.put('/users/:userId/pto-account', upsertUserPtoAccount);
+router.get('/pto-requests', listPtoRequests);
+router.patch('/pto-requests/:id', patchPtoRequest);
 router.get('/agency-users', listPayrollAgencyUsers);
 router.post('/rate-sheet/import', ...importPayrollRateSheet);
 router.get('/rate-templates', listPayrollRateTemplates);
@@ -165,6 +190,7 @@ router.post('/rate-templates/:id/apply', applyPayrollRateTemplateToUser);
 router.post('/periods/auto/import', ...importPayrollAuto);
 router.post('/periods/auto/detect', ...detectPayrollAuto);
 router.post('/periods/:id(\\d+)/import', ...importPayrollCsv);
+router.post('/periods/:id(\\d+)/supervision/import', ...importSupervisionCsv);
 
 // User payroll history
 router.get('/users/:userId/periods', listUserPayroll);

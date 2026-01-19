@@ -40,3 +40,6 @@ src/scripts/
 # Development files
 .eslintrc*
 .prettierrc*
+
+
+secrets/

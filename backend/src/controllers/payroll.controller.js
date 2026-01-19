@@ -3,6 +3,7 @@ import { parse } from 'csv-parse/sync';
 import XLSX from 'xlsx';
 import crypto from 'crypto';
 import config from '../config/config.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import PayrollPeriod from '../models/PayrollPeriod.model.js';
@@ -28,6 +29,8 @@ import PayrollMedcancelClaimItem from '../models/PayrollMedcancelClaimItem.model
 import PayrollReimbursementClaim from '../models/PayrollReimbursementClaim.model.js';
 import PayrollCompanyCardExpense from '../models/PayrollCompanyCardExpense.model.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
+import PayrollPtoAccount from '../models/PayrollPtoAccount.model.js';
+import PayrollPtoRequest from '../models/PayrollPtoRequest.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import pool from '../config/database.js';
 import AdpPayrollService from '../services/adpPayroll.service.js';
@@ -38,6 +41,27 @@ import OfficeLocation from '../models/OfficeLocation.model.js';
 import { getDrivingDistanceMeters, metersToMiles } from '../services/googleDistance.service.js';
 import NotificationService from '../services/notification.service.js';
 import PayrollNotesAgingService from '../services/payrollNotesAging.service.js';
+import {
+  getAgencySupervisionPolicy,
+  upsertAgencySupervisionPolicy,
+  importSupervisionForPeriod,
+  listSupervisionAccounts
+} from '../services/supervision.service.js';
+import {
+  CLAIM_DEADLINE_ERROR_MESSAGE,
+  computeSubmissionWindow,
+  resolveClaimTimeZone
+} from '../utils/payrollSubmissionWindow.js';
+import {
+  getAgencyPtoPolicy,
+  upsertAgencyPtoPolicy,
+  ensurePtoAccount,
+  getPtoBalances,
+  applyStartingBalances,
+  computePtoPolicyWarnings,
+  approvePtoRequestAndPostToPayroll,
+  runPtoAccrualForPostedPeriod
+} from '../services/payrollPto.service.js';
 
 const TIER_WINDOW_PERIODS = 6; // 6 pay periods (~90 days)
 
@@ -46,6 +70,76 @@ const DEFAULT_TIER_THRESHOLDS = {
   tier2MinWeekly: 13,
   tier3MinWeekly: 25
 };
+
+function coerceDate(v) {
+  const d = v instanceof Date ? v : new Date(v || Date.now());
+  return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
+function parseBool(v) {
+  return v === true || v === 1 || v === '1' || String(v || '').toLowerCase() === 'true';
+}
+
+async function enforceTargetPeriodDeadline({
+  req,
+  res,
+  agencyId,
+  effectiveDateYmd,
+  submittedAt,
+  targetPayrollPeriodId,
+  targetPeriodRow = null,
+  officeLocationId = null,
+  hardStopPolicy = '60_days'
+}) {
+  const overrideDeadline = parseBool(req.body?.overrideDeadline);
+  if (overrideDeadline && !isAdminRole(req.user?.role)) {
+    res.status(403).json({ error: { message: 'overrideDeadline requires admin role' } });
+    return { ok: false };
+  }
+
+  // Determine timezone (mileage uses office location timezone when available).
+  let officeTz = null;
+  try {
+    if (officeLocationId) {
+      const loc = await OfficeLocation.findById(officeLocationId);
+      officeTz = loc?.timezone || null;
+    }
+  } catch { /* best-effort */ }
+  const timeZone = resolveClaimTimeZone({ officeLocationTimeZone: officeTz });
+
+  const target = targetPeriodRow || (await PayrollPeriod.findById(targetPayrollPeriodId));
+  if (!target) {
+    res.status(404).json({ error: { message: 'Target pay period not found' } });
+    return { ok: false };
+  }
+  if (Number(target.agency_id) !== Number(agencyId)) {
+    res.status(400).json({ error: { message: 'Target pay period does not belong to this agency' } });
+    return { ok: false };
+  }
+
+  if (overrideDeadline) return { ok: true, overrideDeadline: true, timeZone, target };
+
+  const win = await computeSubmissionWindow({
+    agencyId,
+    effectiveDateYmd: String(effectiveDateYmd || '').slice(0, 10),
+    submittedAt: coerceDate(submittedAt),
+    timeZone,
+    hardStopPolicy
+  });
+  if (!win.ok) {
+    res.status(win.status || 409).json({ error: { message: win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE } });
+    return { ok: false };
+  }
+
+  const minStart = String(win.eligibleMinPeriod?.period_start || '').slice(0, 10);
+  const targetStart = String(target.period_start || '').slice(0, 10);
+  if (minStart && targetStart && targetStart < minStart) {
+    res.status(409).json({ error: { message: 'This claim was submitted after the deadline and cannot be added to an earlier pay period.' } });
+    return { ok: false };
+  }
+
+  return { ok: true, overrideDeadline: false, timeZone, target, win };
+}
 
 function normalizeTierThresholds(raw) {
   let obj = raw;
@@ -373,7 +467,7 @@ async function ensureUserForProviderName({ agencyId, providerName }) {
 
   // Create a minimal user (email can be null in this codebase) and attach to the agency.
   const created = await User.create({
-    role: 'clinician',
+    role: 'provider',
     status: 'pending',
     firstName: first,
     lastName: last,
@@ -721,7 +815,7 @@ function toRateNum(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-function parseRateSheetRows(records) {
+function parseRateSheetRows(records, headerMapping = null) {
   const META = new Set([
     'employee name',
     'employee',
@@ -746,15 +840,26 @@ function parseRateSheetRows(records) {
       const normalized = {};
       for (const [k, v] of Object.entries(row || {})) normalized[normalizeHeaderKey(k)] = v;
 
-      const employeeName = firstNonEmpty(normalized, ['employee name', 'provider name', 'clinician name', 'name']);
+      const employeeName = firstNonEmpty(
+        normalized,
+        [
+          headerMapping?.employeeNameHeader,
+          'employee name',
+          'provider name',
+          'clinician name',
+          'name'
+        ].filter(Boolean)
+      );
       if (!employeeName) return null;
 
-      const statusRaw = firstNonEmpty(normalized, ['status']);
+      const statusRaw = firstNonEmpty(normalized, [headerMapping?.statusHeader, 'status'].filter(Boolean));
       const status = String(statusRaw || '').trim();
-      const isVariable = parseBoolish(firstNonEmpty(normalized, ['is variable?', 'is variable', 'variable']));
+      const isVariable = parseBoolish(
+        firstNonEmpty(normalized, [headerMapping?.isVariableHeader, 'is variable?', 'is variable', 'variable'].filter(Boolean))
+      );
 
-      const directRate = toRateNum(firstNonEmpty(normalized, ['direct rate']));
-      const indirectRate = toRateNum(firstNonEmpty(normalized, ['indirect rate']));
+      const directRate = toRateNum(firstNonEmpty(normalized, [headerMapping?.directRateHeader, 'direct rate'].filter(Boolean)));
+      const indirectRate = toRateNum(firstNonEmpty(normalized, [headerMapping?.indirectRateHeader, 'indirect rate'].filter(Boolean)));
 
       // Capture all service-code headers, even if the cell is blank.
       for (const header of Object.keys(row || {})) {
@@ -790,7 +895,58 @@ function parseRateSheetRows(records) {
   return { rows, serviceCodes: Array.from(serviceCodes) };
 }
 
-function parseRateSheetFile(buffer, originalName) {
+async function suggestRateSheetHeaderMapping({ normalizedHeaders }) {
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  if (!apiKey) return null;
+
+  const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: modelName });
+
+  const headers = (normalizedHeaders || []).map((h) => String(h || '').trim()).filter(Boolean);
+  if (!headers.length) return null;
+
+  const prompt = `
+You are helping map CSV/XLSX pay matrix (rate sheet) headers to our internal fields.
+
+Given this list of normalized headers (lowercase, spaces, no punctuation):
+${JSON.stringify(headers)}
+
+Return ONLY valid JSON with these keys:
+{
+  "employeeNameHeader": string|null,
+  "statusHeader": string|null,
+  "isVariableHeader": string|null,
+  "directRateHeader": string|null,
+  "indirectRateHeader": string|null
+}
+
+Rules:
+- Values must be one of the provided normalized headers, or null.
+- Pick the best match; be conservative.
+`;
+
+  const r = await model.generateContent(prompt);
+  const text = r?.response?.text?.() || r?.response?.text || '';
+  const raw = String(text || '').trim();
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  const jsonText = raw.slice(start, end + 1);
+  const parsed = JSON.parse(jsonText);
+  if (!parsed || typeof parsed !== 'object') return null;
+  return parsed;
+}
+
+function normalizeRateSheetFingerprint({ isVariable, directRate, indirectRate, perCodeRates }) {
+  const direct = Number.isFinite(Number(directRate)) ? Number(directRate) : 0;
+  const indirect = Number.isFinite(Number(indirectRate)) ? Number(indirectRate) : 0;
+  const perCode = perCodeRatesFingerprint(perCodeRates || []);
+  const v = isVariable ? 1 : 0;
+  return `v=${v}|direct=${direct.toFixed(4)}|indirect=${indirect.toFixed(4)}|rates=${perCode}`;
+}
+
+function parseRateSheetFile(buffer, originalName, headerMapping = null) {
   const name = String(originalName || '').toLowerCase();
   if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
     const wb = XLSX.read(buffer, { type: 'buffer' });
@@ -798,17 +954,48 @@ function parseRateSheetFile(buffer, originalName) {
     if (!sheetName) return { rows: [], serviceCodes: [] };
     const sheet = wb.Sheets[sheetName];
     const records = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
-    return parseRateSheetRows(records);
+    return parseRateSheetRows(records, headerMapping);
   }
 
-  const records = parse(buffer, {
+  // CSV: detect delimiter (comma vs semicolon) from first non-empty line
+  const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer || '');
+  const firstLine = (text.split(/\r?\n/).find((l) => String(l || '').trim()) || '').trim();
+  const delim = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
+
+  const records = parse(text, {
     columns: true,
     skip_empty_lines: true,
     trim: true,
     relax_quotes: true,
-    relax_column_count: true
+    relax_column_count: true,
+    delimiter: delim
   });
-  return parseRateSheetRows(records);
+  return parseRateSheetRows(records, headerMapping);
+}
+
+function readRateSheetRecords(buffer, originalName) {
+  const name = String(originalName || '').toLowerCase();
+  if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    const sheetName = wb.SheetNames?.[0];
+    if (!sheetName) return [];
+    const sheet = wb.Sheets[sheetName];
+    return XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+  }
+
+  const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer || '');
+  const firstLine = (text.split(/\r?\n/).find((l) => String(l || '').trim()) || '').trim();
+  const delim = firstLine.includes(';') && !firstLine.includes(',') ? ';' : ',';
+
+  const records = parse(text, {
+    columns: true,
+    skip_empty_lines: true,
+    trim: true,
+    relax_quotes: true,
+    relax_column_count: true,
+    delimiter: delim
+  });
+  return Array.isArray(records) ? records : [];
 }
 
 async function ensureServiceCodeRulesExist({ agencyId, serviceCodes }) {
@@ -1762,7 +1949,10 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     const otherTaxableAmount = Number(adj?.other_taxable_amount || 0);
     const bonusAmount = Number(adj?.bonus_amount || 0);
     const salaryAmount = Number(adj?.salary_amount || 0);
-    const ptoHours = Number(adj?.pto_hours || 0);
+    const sickPtoHours = Number(adj?.sick_pto_hours ?? 0);
+    const trainingPtoHours = Number(adj?.training_pto_hours ?? 0);
+    const legacyPtoHours = Number(adj?.pto_hours ?? 0);
+    const ptoHours = (sickPtoHours + trainingPtoHours) > 0 ? (sickPtoHours + trainingPtoHours) : legacyPtoHours;
     const ptoRate = Number(adj?.pto_rate || 0);
     const ptoPay = ptoHours * ptoRate;
 
@@ -1784,6 +1974,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       otherTaxableAmount,
       bonusAmount,
       ptoHours,
+      sickPtoHours,
+      trainingPtoHours,
       ptoRate,
       ptoPay,
       salaryAmount,
@@ -2197,25 +2389,43 @@ export const importPayrollRateSheet = [
       if (!requireSuperAdmin(req, res)) return;
       const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId) : (req.query?.agencyId ? parseInt(req.query.agencyId) : null);
       if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+      const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+      if (!resolvedAgencyId) return;
       if (!req.file) return res.status(400).json({ error: { message: 'No CSV/XLSX file uploaded' } });
+      const dryRun = req.body?.dryRun === 'true' || req.body?.dryRun === true;
+      const useAi = req.body?.useAi === 'true' || req.body?.useAi === true;
 
       let parsed = [];
       try {
-        parsed = parseRateSheetFile(req.file.buffer, req.file.originalname);
+        // Optionally ask Gemini to map headers if the sheet uses non-standard column names.
+        let headerMapping = null;
+        if (useAi) {
+          try {
+            const records = readRateSheetRecords(req.file.buffer, req.file.originalname);
+            const normalizedHeaders = Object.keys(records?.[0] || {}).map((h) => normalizeHeaderKey(h)).filter(Boolean);
+            headerMapping = await suggestRateSheetHeaderMapping({ normalizedHeaders });
+            parsed = parseRateSheetRows(records, headerMapping);
+          } catch {
+            // fallback to default parsing
+            parsed = parseRateSheetFile(req.file.buffer, req.file.originalname);
+          }
+        } else {
+          parsed = parseRateSheetFile(req.file.buffer, req.file.originalname);
+        }
       } catch (e) {
         return res.status(400).json({ error: { message: e.message || 'Failed to parse rate sheet' } });
       }
       if (!parsed?.rows?.length) return res.status(400).json({ error: { message: 'No rows found in rate sheet' } });
 
       // Seed service codes so the full rate sheet UI has columns, even if blank.
-      await ensureServiceCodeRulesExist({ agencyId, serviceCodes: parsed.serviceCodes || [] });
+      await ensureServiceCodeRulesExist({ agencyId: resolvedAgencyId, serviceCodes: parsed.serviceCodes || [] });
 
       const [agencyUsers] = await pool.execute(
         `SELECT DISTINCT u.id, u.first_name, u.last_name
          FROM users u
          JOIN user_agencies ua ON u.id = ua.user_id
          WHERE ua.agency_id = ?`,
-        [agencyId]
+        [resolvedAgencyId]
       );
       const nameToId = new Map();
       for (const u of agencyUsers || []) {
@@ -2229,7 +2439,9 @@ export const importPayrollRateSheet = [
 
       const createdUsers = [];
       const results = {
-        agencyId,
+        agencyId: resolvedAgencyId,
+        dryRun,
+        useAi: !!useAi,
         processed: 0,
         skippedInactive: 0,
         updatedRateCards: 0,
@@ -2237,64 +2449,14 @@ export const importPayrollRateSheet = [
         upsertedPerCodeRates: 0,
         createdUsers,
         errors: [],
-        createdTemplate: null,
+        templatesCreated: 0,
+        templatesReused: 0,
+        templatesApplied: 0,
+        createdTemplates: [],
         rowMatches: []
       };
 
-      // If the sheet represents a single provider, also auto-create a reusable template.
-      const activeRows = (parsed.rows || []).filter((r) => !(r.status && String(r.status).trim() && String(r.status).trim().toLowerCase() !== 'active'));
-      if (activeRows.length === 1) {
-        try {
-          const r = activeRows[0];
-          const now = new Date();
-          const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-          const templateName = `Imported - ${String(r.employeeName || 'Template').trim()} (${stamp})`;
-
-          const match = await findMatchingRateTemplateByPerCodeRates({ agencyId, perCodeRates: r.perCodeRates || [] });
-          if (match) {
-            results.createdTemplate = { id: match.id, name: match.name, reused: true };
-          } else {
-            const t = await PayrollRateTemplate.create({
-              agencyId,
-              name: templateName,
-              isVariable: r.isVariable ? 1 : 0,
-              directRate: r.directRate ?? 0,
-              indirectRate: r.indirectRate ?? 0,
-              otherRate1: 0,
-              otherRate2: 0,
-              otherRate3: 0,
-              createdByUserId: req.user.id,
-              updatedByUserId: req.user.id
-            });
-            await PayrollRateTemplateRate.replaceAllForTemplate({
-              templateId: t.id,
-              agencyId,
-              rates: (r.perCodeRates || []).map((x) => ({
-                serviceCode: x.serviceCode,
-                rateAmount: x.rateAmount,
-                // Default unit behavior:
-                // - Variable (fee-for-service): pay per service (per_unit), except flat categories.
-                // - Non-variable (hourly): time-based codes => per_hour; otherwise per_unit; flat categories => flat.
-                rateUnit: (() => {
-                  const d = payrollDefaultsForCode(x.serviceCode);
-                  const cat = String(d?.category || '').trim().toLowerCase();
-                  const isFlatCat = ['mileage', 'bonus', 'reimbursement', 'other_pay'].includes(cat);
-                  if (isFlatCat) return 'flat';
-                  if (r.isVariable) return 'per_unit';
-                  const dur = Number(d?.durationMinutes ?? 0) || 0;
-                  const div = Number(d?.payDivisor ?? 1) || 1;
-                  if (dur <= 0 && div === 1) return 'per_unit';
-                  return 'per_hour';
-                })()
-              }))
-            });
-            results.createdTemplate = { id: t.id, name: t.name, reused: false };
-          }
-        } catch (e) {
-          // Non-fatal: importing rates is more important than template creation.
-          results.errors.push({ row: 1, employeeName: activeRows[0]?.employeeName || '', error: `Template creation failed: ${e.message || e}` });
-        }
-      }
+      const templateCache = new Map(); // fingerprint -> { id, name, reused }
 
       for (const r of (parsed.rows || [])) {
         results.processed += 1;
@@ -2324,51 +2486,128 @@ export const importPayrollRateSheet = [
           match.matchedUserId = userId;
           results.rowMatches.push(match);
 
-          // Replace all per-code rates for this user from the sheet (authoritative import).
-          await PayrollRate.deleteAllForUser(agencyId, userId);
-          results.replacedPerCodeRatesForUsers += 1;
-          for (const pr of r.perCodeRates || []) {
-            await PayrollRate.upsert({
-              agencyId,
-              userId,
-              serviceCode: String(pr.serviceCode).trim(),
-              rateAmount: Number(pr.rateAmount),
-              // Default unit behavior:
-              // - Variable (fee-for-service): pay per service (per_unit), except flat categories.
-              // - Non-variable (hourly): time-based codes => per_hour; otherwise per_unit; flat categories => flat.
-              rateUnit: (() => {
-                const d = payrollDefaultsForCode(pr.serviceCode);
-                const cat = String(d?.category || '').trim().toLowerCase();
-                const isFlatCat = ['mileage', 'bonus', 'reimbursement', 'other_pay'].includes(cat);
-                if (isFlatCat) return 'flat';
-                if (r.isVariable) return 'per_unit';
-                const dur = Number(d?.durationMinutes ?? 0) || 0;
-                const div = Number(d?.payDivisor ?? 1) || 1;
-                if (dur <= 0 && div === 1) return 'per_unit';
-                return 'per_hour';
-              })(),
-              effectiveStart: null,
-              effectiveEnd: null
+          // Build per-code rates with default units so both templates and user rows are consistent.
+          const perCodeRatesWithUnit = (r.perCodeRates || []).map((pr) => {
+            const code = String(pr.serviceCode).trim();
+            const d = payrollDefaultsForCode(code);
+            const cat = String(d?.category || '').trim().toLowerCase();
+            const isFlatCat = ['mileage', 'bonus', 'reimbursement', 'other_pay'].includes(cat);
+            const rateUnit = (() => {
+              if (isFlatCat) return 'flat';
+              if (r.isVariable) return 'per_unit';
+              const dur = Number(d?.durationMinutes ?? 0) || 0;
+              const div = Number(d?.payDivisor ?? 1) || 1;
+              if (dur <= 0 && div === 1) return 'per_unit';
+              return 'per_hour';
+            })();
+            return { serviceCode: code, rateAmount: Number(pr.rateAmount), rateUnit };
+          });
+
+          // Create/reuse a unique pay-matrix template per unique rate signature, and apply it to the user.
+          let templateForRow = null;
+          if (!dryRun) {
+            const fpStr = normalizeRateSheetFingerprint({
+              isVariable: !!r.isVariable,
+              directRate: r.directRate ?? 0,
+              indirectRate: r.indirectRate ?? 0,
+              perCodeRates: perCodeRatesWithUnit
             });
+            const fingerprint = crypto.createHash('sha256').update(fpStr).digest('hex');
+
+            templateForRow = templateCache.get(fingerprint) || null;
+            if (!templateForRow) {
+              // Prefer direct fingerprint lookups if the column exists; otherwise fall back to per-code matching.
+              let existingTemplate = null;
+              try {
+                existingTemplate = await PayrollRateTemplate.findByFingerprint({ agencyId: resolvedAgencyId, fingerprint });
+              } catch {
+                existingTemplate = null;
+              }
+              if (!existingTemplate) {
+                // Backward-compatible fallback: exact per-code fingerprint match (older DBs without fingerprint column).
+                const matchByRates = await findMatchingRateTemplateByPerCodeRates({
+                  agencyId: resolvedAgencyId,
+                  perCodeRates: perCodeRatesWithUnit
+                });
+                if (matchByRates) {
+                  existingTemplate = await PayrollRateTemplate.findById(matchByRates.id);
+                }
+              }
+
+              if (existingTemplate) {
+                templateForRow = { id: existingTemplate.id, name: existingTemplate.name, reused: true, fingerprint };
+                results.templatesReused += 1;
+              } else {
+                const short = fingerprint.slice(0, 12).toUpperCase();
+                const templateName = `Pay Matrix ${short}`;
+                const t = await PayrollRateTemplate.create({
+                  agencyId: resolvedAgencyId,
+                  name: templateName,
+                  fingerprint,
+                  isVariable: r.isVariable ? 1 : 0,
+                  directRate: r.directRate ?? 0,
+                  indirectRate: r.indirectRate ?? 0,
+                  otherRate1: 0,
+                  otherRate2: 0,
+                  otherRate3: 0,
+                  createdByUserId: req.user.id,
+                  updatedByUserId: req.user.id
+                });
+                await PayrollRateTemplateRate.replaceAllForTemplate({
+                  templateId: t.id,
+                  agencyId: resolvedAgencyId,
+                  rates: perCodeRatesWithUnit
+                });
+                templateForRow = { id: t.id, name: t.name, reused: false, fingerprint };
+                results.templatesCreated += 1;
+                results.createdTemplates.push({ id: t.id, name: t.name, fingerprint });
+              }
+              templateCache.set(fingerprint, templateForRow);
+            }
+          }
+
+          // Replace all per-code rates for this user from the sheet (authoritative import).
+          if (!dryRun) {
+            await PayrollRate.deleteAllForUser(resolvedAgencyId, userId);
+          }
+          results.replacedPerCodeRatesForUsers += 1;
+          for (const pr of perCodeRatesWithUnit) {
+            if (!dryRun) {
+              await PayrollRate.upsert({
+                agencyId: resolvedAgencyId,
+                userId,
+                serviceCode: String(pr.serviceCode).trim(),
+                rateAmount: Number(pr.rateAmount),
+                rateUnit: pr.rateUnit || 'per_unit',
+                effectiveStart: null,
+                effectiveEnd: null
+              });
+            }
             results.upsertedPerCodeRates += 1;
           }
 
           if (r.isVariable) {
             // Fee-for-service: do not apply hourly rate card fallbacks.
-            await PayrollRateCard.deleteForUser(agencyId, userId);
+            if (!dryRun) await PayrollRateCard.deleteForUser(resolvedAgencyId, userId);
           } else {
             // Hourly: keep rate card (direct/indirect), but per-code overrides can still apply in payroll compute.
-            await PayrollRateCard.upsert({
-              agencyId,
-              userId,
-              directRate: r.directRate ?? 0,
-              indirectRate: r.indirectRate ?? 0,
-              otherRate1: 0,
-              otherRate2: 0,
-              otherRate3: 0,
-              updatedByUserId: req.user.id
-            });
+            if (!dryRun) {
+              await PayrollRateCard.upsert({
+                agencyId: resolvedAgencyId,
+                userId,
+                directRate: r.directRate ?? 0,
+                indirectRate: r.indirectRate ?? 0,
+                otherRate1: 0,
+                otherRate2: 0,
+                otherRate3: 0,
+                updatedByUserId: req.user.id
+              });
+            }
             results.updatedRateCards += 1;
+          }
+
+          if (templateForRow) {
+            results.templatesApplied += 1;
           }
         } catch (e) {
           results.errors.push({
@@ -3291,6 +3530,17 @@ export const postPayrollPeriod = async (req, res, next) => {
       // Do not block posting payroll if notifications fail.
     }
 
+    // Best-effort: accrue PTO balances for this posted pay period.
+    try {
+      await runPtoAccrualForPostedPeriod({
+        agencyId: period.agency_id,
+        payrollPeriodId,
+        postedByUserId: req.user.id
+      });
+    } catch {
+      // Do not block posting payroll if PTO accrual fails.
+    }
+
     res.json(await PayrollPeriod.findById(payrollPeriodId));
   } catch (e) {
     next(e);
@@ -3695,6 +3945,26 @@ export const createMyMileageClaim = async (req, res, next) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(driveDate)) {
       return res.status(400).json({ error: { message: 'driveDate (YYYY-MM-DD) is required' } });
     }
+
+    // Enforce submission deadlines (timezone: office location when available; otherwise default).
+    let officeTz = null;
+    try {
+      if (officeLocationId) {
+        const loc = await OfficeLocation.findById(officeLocationId);
+        officeTz = loc?.timezone || null;
+      }
+    } catch { /* best-effort */ }
+    const win = await computeSubmissionWindow({
+      agencyId,
+      effectiveDateYmd: driveDate,
+      submittedAt: new Date(),
+      timeZone: resolveClaimTimeZone({ officeLocationTimeZone: officeTz }),
+      hardStopPolicy: claimType === 'school_travel' ? 'in_school' : '60_days'
+    });
+    if (!win.ok) {
+      return res.status(win.status || 409).json({ error: { message: win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE } });
+    }
+    const suggestedPayrollPeriodIdOverride = win.suggestedPayrollPeriodId;
     if (claimType === 'school_travel') {
       if (!schoolOrganizationId) return res.status(400).json({ error: { message: 'schoolOrganizationId is required' } });
       if (!officeLocationId && !officeKey) return res.status(400).json({ error: { message: 'officeLocationId is required' } });
@@ -3811,7 +4081,8 @@ export const createMyMileageClaim = async (req, res, next) => {
       costCenter,
       notes,
       attestation,
-      tierLevel
+      tierLevel,
+      suggestedPayrollPeriodId: suggestedPayrollPeriodIdOverride
     });
     res.json({ claim });
   } catch (e) {
@@ -4139,6 +4410,24 @@ export const createMyMedcancelClaim = async (req, res, next) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(claimDate)) {
       return res.status(400).json({ error: { message: 'claimDate (YYYY-MM-DD) is required' } });
     }
+
+    // Enforce submission deadlines.
+    const win = await computeSubmissionWindow({
+      agencyId,
+      effectiveDateYmd: claimDate,
+      submittedAt: new Date(),
+      timeZone: resolveClaimTimeZone(),
+      hardStopPolicy: 'in_school'
+    });
+    if (!win.ok) {
+      return res.status(win.status || 409).json({
+        error: {
+          message: win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE,
+          code: 'submission_window',
+          meta: win.meta || win.cutoffs || null
+        }
+      });
+    }
     if (!schoolOrganizationId) return res.status(400).json({ error: { message: 'schoolOrganizationId is required' } });
     // Feature flag: only allow if contract includes Med Cancel.
     const me = await User.findById(userId);
@@ -4153,12 +4442,20 @@ export const createMyMedcancelClaim = async (req, res, next) => {
     const allowedCodes = new Set(['90832', '90834', '90837']);
     const items = itemsRaw.map((it) => ({
       missedServiceCode: String(it?.missedServiceCode || it?.serviceCode || '').trim(),
+      clientInitials: String(it?.clientInitials || it?.client_initials || '').trim(),
+      sessionTime: String(it?.sessionTime || it?.session_time || '').trim(),
       note: String(it?.note || it?.notes || '').trim(),
       attestation: !!it?.attestation
     }));
     for (const it of items) {
       if (!allowedCodes.has(it.missedServiceCode)) {
         return res.status(400).json({ error: { message: 'missedServiceCode must be one of 90832, 90834, 90837' } });
+      }
+      if (!it.clientInitials) {
+        return res.status(400).json({ error: { message: 'Each item requires client initials' } });
+      }
+      if (!it.sessionTime) {
+        return res.status(400).json({ error: { message: 'Each item requires session time' } });
       }
       if (!it.attestation) {
         return res.status(400).json({ error: { message: 'Each item requires attestation' } });
@@ -4180,7 +4477,8 @@ export const createMyMedcancelClaim = async (req, res, next) => {
       schoolOrganizationId,
       units: unitsRaw,
       notes,
-      attestation
+      attestation,
+      suggestedPayrollPeriodId: win.suggestedPayrollPeriodId
     });
 
     await PayrollMedcancelClaimItem.createMany({ claimId: claim.id, items });
@@ -4216,6 +4514,11 @@ export const createMyReimbursementClaim = [
 
       const expenseDate = String(body.expenseDate || '').slice(0, 10);
       const amount = body.amount === null || body.amount === undefined || body.amount === '' ? null : Number(body.amount);
+      const paymentMethodRaw = String(body.paymentMethod || body.payment_method || '').trim().toLowerCase();
+      const paymentMethod =
+        ['personal_card', 'cash', 'check', 'other'].includes(paymentMethodRaw)
+          ? paymentMethodRaw
+          : (paymentMethodRaw ? paymentMethodRaw.slice(0, 32) : null);
       const vendor = body.vendor ? String(body.vendor).slice(0, 255) : null;
       const purchaseApprovedBy = body.purchaseApprovedBy ? String(body.purchaseApprovedBy).trim().slice(0, 255) : null;
       const purchasePreapprovedRaw = body.purchasePreapproved;
@@ -4227,6 +4530,22 @@ export const createMyReimbursementClaim = [
             : (purchasePreapprovedRaw === false || purchasePreapprovedRaw === 0 || purchasePreapprovedRaw === '0' || String(purchasePreapprovedRaw).toLowerCase() === 'false')
               ? 0
               : null;
+      const projectRef = body.projectRef ? String(body.projectRef).trim().slice(0, 64) : null;
+      const reason = body.reason ? String(body.reason).trim().slice(0, 255) : null;
+      const splitsRaw = body.splits || body.splitsJson || body.splits_json || null;
+      let splits = [];
+      if (Array.isArray(splitsRaw)) {
+        splits = splitsRaw;
+      } else if (typeof splitsRaw === 'string' && splitsRaw.trim()) {
+        try { splits = JSON.parse(splitsRaw); } catch { splits = []; }
+      }
+      splits = Array.isArray(splits) ? splits : [];
+      const normalizedSplits = splits
+        .map((s) => ({
+          category: String(s?.category || '').trim().slice(0, 64),
+          amount: Number(s?.amount)
+        }))
+        .filter((s) => s.category && Number.isFinite(s.amount) && s.amount > 0);
       const category = body.category ? String(body.category).slice(0, 64) : null;
       const notes = body.notes ? String(body.notes) : '';
       const attestation = body.attestation ? 1 : 0;
@@ -4243,6 +4562,12 @@ export const createMyReimbursementClaim = [
       if (purchasePreapproved === null) {
         return res.status(400).json({ error: { message: 'purchasePreapproved must be true/false' } });
       }
+      if (!paymentMethod) {
+        return res.status(400).json({ error: { message: 'paymentMethod is required' } });
+      }
+      if (!reason) {
+        return res.status(400).json({ error: { message: 'reason is required' } });
+      }
       if (!String(notes || '').trim()) {
         return res.status(400).json({ error: { message: 'notes is required' } });
       }
@@ -4253,18 +4578,33 @@ export const createMyReimbursementClaim = [
         return res.status(400).json({ error: { message: 'receipt file is required' } });
       }
 
-      // Best-effort: suggest most recent open period for the agency.
-      let suggestedPayrollPeriodId = null;
-      try {
-        const periods = await PayrollPeriod.listByAgency(agencyId, { limit: 50, offset: 0 });
-        const open = (periods || []).find((p) => {
-          const st = String(p.status || '').toLowerCase();
-          return st === 'draft' || st === 'raw_imported' || st === 'staged' || st === 'ran';
-        });
-        suggestedPayrollPeriodId = open?.id || null;
-      } catch {
-        suggestedPayrollPeriodId = null;
+      // Validate split categories if provided (sum must match amount).
+      let splitsJson = null;
+      let resolvedCategory = category;
+      if (normalizedSplits.length) {
+        const sum = Math.round(normalizedSplits.reduce((a, s) => a + Number(s.amount || 0), 0) * 100) / 100;
+        const amt = Math.round(Number(amount || 0) * 100) / 100;
+        if (Math.abs(sum - amt) > 0.009) {
+          return res.status(400).json({ error: { message: `Category splits must add up to ${amt.toFixed(2)}.` } });
+        }
+        splitsJson = JSON.stringify(normalizedSplits);
+        if (normalizedSplits.length === 1) {
+          resolvedCategory = normalizedSplits[0].category;
+        }
       }
+
+      // Enforce submission deadlines (and choose suggested period accordingly).
+      const win = await computeSubmissionWindow({
+        agencyId,
+        effectiveDateYmd: expenseDate,
+        submittedAt: new Date(),
+        timeZone: resolveClaimTimeZone(),
+        hardStopPolicy: '60_days'
+      });
+      if (!win.ok) {
+        return res.status(win.status || 409).json({ error: { message: win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE } });
+      }
+      const suggestedPayrollPeriodId = win.suggestedPayrollPeriodId;
 
       const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
       const original = req.file.originalname || 'receipt';
@@ -4278,10 +4618,14 @@ export const createMyReimbursementClaim = [
         status: 'submitted',
         expenseDate,
         amount,
+        paymentMethod,
         vendor,
         purchaseApprovedBy,
         purchasePreapproved,
-        category,
+        projectRef,
+        reason,
+        splitsJson,
+        category: resolvedCategory,
         notes: String(notes || ''),
         attestation,
         receiptFilePath: storageResult.relativePath,
@@ -4374,8 +4718,27 @@ export const createMyCompanyCardExpense = [
 
       const expenseDate = String(body.expenseDate || '').slice(0, 10);
       const amount = body.amount === null || body.amount === undefined || body.amount === '' ? null : Number(body.amount);
+      const paymentMethodRaw = String(body.paymentMethod || body.payment_method || 'company_card').trim().toLowerCase();
+      const paymentMethod = paymentMethodRaw ? paymentMethodRaw.slice(0, 32) : 'company_card';
       const vendor = body.vendor ? String(body.vendor).slice(0, 255) : null;
-      const purpose = body.purpose ? String(body.purpose).slice(0, 255) : null;
+      const supervisorName = body.supervisorName ? String(body.supervisorName).trim().slice(0, 255) : null;
+      const projectRef = body.projectRef ? String(body.projectRef).trim().slice(0, 64) : null;
+      const purpose = body.purpose ? String(body.purpose).trim().slice(0, 255) : null;
+      const category = body.category ? String(body.category).trim().slice(0, 64) : null;
+      const splitsRaw = body.splits || body.splitsJson || body.splits_json || null;
+      let splits = [];
+      if (Array.isArray(splitsRaw)) {
+        splits = splitsRaw;
+      } else if (typeof splitsRaw === 'string' && splitsRaw.trim()) {
+        try { splits = JSON.parse(splitsRaw); } catch { splits = []; }
+      }
+      splits = Array.isArray(splits) ? splits : [];
+      const normalizedSplits = splits
+        .map((s) => ({
+          category: String(s?.category || '').trim().slice(0, 64),
+          amount: Number(s?.amount)
+        }))
+        .filter((s) => s.category && Number.isFinite(s.amount) && s.amount > 0);
       const notes = body.notes ? String(body.notes) : '';
       const attestation = body.attestation ? 1 : 0;
 
@@ -4384,6 +4747,12 @@ export const createMyCompanyCardExpense = [
       }
       if (!Number.isFinite(amount) || amount <= 0) {
         return res.status(400).json({ error: { message: 'amount must be a positive number' } });
+      }
+      if (!supervisorName) {
+        return res.status(400).json({ error: { message: 'supervisorName is required' } });
+      }
+      if (!String(purpose || '').trim()) {
+        return res.status(400).json({ error: { message: 'purpose is required' } });
       }
       if (!String(notes || '').trim()) {
         return res.status(400).json({ error: { message: 'notes is required' } });
@@ -4395,18 +4764,33 @@ export const createMyCompanyCardExpense = [
         return res.status(400).json({ error: { message: 'receipt file is required' } });
       }
 
-      // Best-effort: suggest most recent open period for the agency.
-      let suggestedPayrollPeriodId = null;
-      try {
-        const periods = await PayrollPeriod.listByAgency(agencyId, { limit: 50, offset: 0 });
-        const open = (periods || []).find((p) => {
-          const st = String(p.status || '').toLowerCase();
-          return st === 'draft' || st === 'raw_imported' || st === 'staged' || st === 'ran';
-        });
-        suggestedPayrollPeriodId = open?.id || null;
-      } catch {
-        suggestedPayrollPeriodId = null;
+      // Validate split categories if provided (sum must match amount).
+      let splitsJson = null;
+      let resolvedCategory = category;
+      if (normalizedSplits.length) {
+        const sum = Math.round(normalizedSplits.reduce((a, s) => a + Number(s.amount || 0), 0) * 100) / 100;
+        const amt = Math.round(Number(amount || 0) * 100) / 100;
+        if (Math.abs(sum - amt) > 0.009) {
+          return res.status(400).json({ error: { message: `Category splits must add up to ${amt.toFixed(2)}.` } });
+        }
+        splitsJson = JSON.stringify(normalizedSplits);
+        if (normalizedSplits.length === 1) {
+          resolvedCategory = normalizedSplits[0].category;
+        }
       }
+
+      // Enforce submission deadlines (and choose suggested period accordingly).
+      const win = await computeSubmissionWindow({
+        agencyId,
+        effectiveDateYmd: expenseDate,
+        submittedAt: new Date(),
+        timeZone: resolveClaimTimeZone(),
+        hardStopPolicy: '60_days'
+      });
+      if (!win.ok) {
+        return res.status(win.status || 409).json({ error: { message: win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE } });
+      }
+      const suggestedPayrollPeriodId = win.suggestedPayrollPeriodId;
 
       const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
       const original = req.file.originalname || 'receipt';
@@ -4421,6 +4805,11 @@ export const createMyCompanyCardExpense = [
         expenseDate,
         amount,
         vendor,
+        paymentMethod,
+        supervisorName,
+        projectRef,
+        category: resolvedCategory,
+        splitsJson,
         purpose,
         notes: String(notes || ''),
         attestation,
@@ -4528,6 +4917,16 @@ export const patchCompanyCardExpense = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
 
+      const ok = await enforceTargetPeriodDeadline({
+        req,
+        res,
+        agencyId: claim.agency_id,
+        effectiveDateYmd: claim.expense_date,
+        submittedAt: claim.created_at,
+        targetPayrollPeriodId
+      });
+      if (!ok.ok) return;
+
       const updated = await PayrollCompanyCardExpense.approve({
         id,
         approverUserId: req.user.id,
@@ -4561,6 +4960,17 @@ export const patchCompanyCardExpense = async (req, res, next) => {
       if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
+
+      const ok = await enforceTargetPeriodDeadline({
+        req,
+        res,
+        agencyId: claim.agency_id,
+        effectiveDateYmd: claim.expense_date,
+        submittedAt: claim.created_at,
+        targetPayrollPeriodId
+      });
+      if (!ok.ok) return;
+
       const updated = await PayrollCompanyCardExpense.moveTargetPeriod({ id, targetPayrollPeriodId });
       return res.json({ claim: updated });
     }
@@ -4613,6 +5023,16 @@ export const patchReimbursementClaim = async (req, res, next) => {
       if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
+
+      const ok = await enforceTargetPeriodDeadline({
+        req,
+        res,
+        agencyId: claim.agency_id,
+        effectiveDateYmd: claim.expense_date,
+        submittedAt: claim.created_at,
+        targetPayrollPeriodId
+      });
+      if (!ok.ok) return;
 
       const appliedAmount = Math.round((Number(claim.amount || 0)) * 100) / 100;
       if (!(appliedAmount > 0)) {
@@ -4723,6 +5143,18 @@ export const patchReimbursementClaim = async (req, res, next) => {
       if (Number(toPeriod.agency_id) !== Number(claim.agency_id)) {
         return res.status(400).json({ error: { message: 'Target pay period does not belong to this agency' } });
       }
+
+      const ok = await enforceTargetPeriodDeadline({
+        req,
+        res,
+        agencyId: claim.agency_id,
+        effectiveDateYmd: claim.expense_date,
+        submittedAt: claim.created_at,
+        targetPayrollPeriodId,
+        targetPeriodRow: toPeriod
+      });
+      if (!ok.ok) return;
+
       const toStatus = String(toPeriod.status || '').toLowerCase();
       if (toStatus === 'posted' || toStatus === 'finalized') {
         return res.status(409).json({ error: { message: 'Target pay period is posted/finalized' } });
@@ -4843,18 +5275,18 @@ export const createMyTimeClaim = async (req, res, next) => {
       if (!String(payload?.notesForPayroll || '').trim()) return res.status(400).json({ error: { message: 'notesForPayroll is required' } });
     }
 
-    // Best-effort: suggest most recent open period for the agency.
-    let suggestedPayrollPeriodId = null;
-    try {
-      const periods = await PayrollPeriod.listByAgency(agencyId, { limit: 50, offset: 0 });
-      const open = (periods || []).find((p) => {
-        const st = String(p.status || '').toLowerCase();
-        return st === 'draft' || st === 'raw_imported' || st === 'staged' || st === 'ran';
-      });
-      suggestedPayrollPeriodId = open?.id || null;
-    } catch {
-      suggestedPayrollPeriodId = null;
+    // Enforce submission deadlines (and choose suggested period accordingly).
+    const win = await computeSubmissionWindow({
+      agencyId,
+      effectiveDateYmd: claimDate,
+      submittedAt: new Date(),
+      timeZone: resolveClaimTimeZone(),
+      hardStopPolicy: '60_days'
+    });
+    if (!win.ok) {
+      return res.status(win.status || 409).json({ error: { message: win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE } });
     }
+    const suggestedPayrollPeriodId = win.suggestedPayrollPeriodId;
 
     const claim = await PayrollTimeClaim.create({
       agencyId,
@@ -4983,6 +5415,17 @@ export const patchTimeClaim = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
 
+      const ok = await enforceTargetPeriodDeadline({
+        req,
+        res,
+        agencyId: claim.agency_id,
+        effectiveDateYmd: claim.claim_date,
+        submittedAt: claim.created_at,
+        targetPayrollPeriodId,
+        hardStopPolicy: 'in_school'
+      });
+      if (!ok.ok) return;
+
       // Default: compute applied amount from rate card where possible; allow admin override.
       const rateCard = await PayrollRateCard.findForUser(claim.agency_id, claim.user_id);
       const computed = computeDefaultAppliedAmountForTimeClaim({ claim, rateCard });
@@ -5092,6 +5535,18 @@ export const patchTimeClaim = async (req, res, next) => {
       if (Number(toPeriod.agency_id) !== Number(claim.agency_id)) {
         return res.status(400).json({ error: { message: 'Target pay period does not belong to this agency' } });
       }
+
+      const ok = await enforceTargetPeriodDeadline({
+        req,
+        res,
+        agencyId: claim.agency_id,
+        effectiveDateYmd: claim.claim_date,
+        submittedAt: claim.created_at,
+        targetPayrollPeriodId,
+        targetPeriodRow: toPeriod
+      });
+      if (!ok.ok) return;
+
       const toStatus = String(toPeriod.status || '').toLowerCase();
       if (toStatus === 'posted' || toStatus === 'finalized') {
         return res.status(409).json({ error: { message: 'Target pay period is posted/finalized' } });
@@ -5259,6 +5714,16 @@ export const patchMedcancelClaim = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
 
+      const ok = await enforceTargetPeriodDeadline({
+        req,
+        res,
+        agencyId: claim.agency_id,
+        effectiveDateYmd: claim.claim_date,
+        submittedAt: claim.created_at,
+        targetPayrollPeriodId
+      });
+      if (!ok.ok) return;
+
       const items = await PayrollMedcancelClaimItem.listForClaim(id);
       if (!items || items.length === 0) {
         return res.status(409).json({ error: { message: 'Claim has no missed services to approve' } });
@@ -5423,6 +5888,428 @@ export const patchMedcancelClaim = async (req, res, next) => {
   }
 };
 
+// =========================
+// Supervision tracking
+// =========================
+
+export const getSupervisionPolicy = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const out = await getAgencySupervisionPolicy({ agencyId });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putSupervisionPolicy = async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const agencyId = body.agencyId ? parseInt(body.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const enabled = body.enabled === true || body.supervisionEnabled === true;
+    const policy = body.policy && typeof body.policy === 'object' ? body.policy : {};
+    const out = await upsertAgencySupervisionPolicy({ agencyId, enabled, policy });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const importSupervisionCsv = [
+  upload.single('file'),
+  async (req, res, next) => {
+    try {
+      const payrollPeriodId = parseInt(req.params.id, 10);
+      const period = await PayrollPeriod.findById(payrollPeriodId);
+      if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+      if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+      if (!req.file) return res.status(400).json({ error: { message: 'CSV file is required' } });
+
+      const result = await importSupervisionForPeriod({
+        agencyId: period.agency_id,
+        payrollPeriodId,
+        uploadedByUserId: req.user?.id || null,
+        fileBuffer: req.file.buffer,
+        originalName: req.file.originalname
+      });
+      if (!result.ok) {
+        return res.status(result.status || 409).json({ error: { message: result.error || 'Failed to import supervision CSV' } });
+      }
+      res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  }
+];
+
+export const listSupervisionAccountsForAgency = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const rows = await listSupervisionAccounts({ agencyId, limit: req.query.limit ? parseInt(req.query.limit, 10) : 500 });
+    res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+};
+
+// =========================
+// PTO (balances + requests)
+// =========================
+
+export const getPtoPolicy = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const out = await getAgencyPtoPolicy({ agencyId });
+    res.json({ ok: true, agencyId, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putPtoPolicy = async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const agencyId = body.agencyId ? parseInt(body.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const policy = body.policy && typeof body.policy === 'object' ? body.policy : {};
+    const defaultPayRate = Number(body.defaultPayRate ?? body.ptoDefaultPayRate ?? 0);
+    const ptoEnabled = body.ptoEnabled === false ? false : true;
+
+    const out = await upsertAgencyPtoPolicy({ agencyId, policy, defaultPayRate, ptoEnabled });
+    res.json({ ok: true, agencyId, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getUserPtoAccount = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    const userId = req.params.userId ? parseInt(req.params.userId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId: req.user.id });
+    res.json({ ok: true, agencyId, userId, account: acct });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const upsertUserPtoAccount = async (req, res, next) => {
+  try {
+    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : (req.query.agencyId ? parseInt(req.query.agencyId, 10) : null);
+    const userId = req.params.userId ? parseInt(req.params.userId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const body = req.body || {};
+    const employmentTypeRaw = String(body.employmentType || body.employment_type || '').trim().toLowerCase();
+    const employmentType = ['hourly', 'fee_for_service', 'salaried'].includes(employmentTypeRaw) ? employmentTypeRaw : 'hourly';
+    const trainingPtoEligible = body.trainingPtoEligible === true || body.trainingPtoEligible === 1 || body.trainingPtoEligible === '1';
+
+    const acct = await ensurePtoAccount({
+      agencyId,
+      userId,
+      updatedByUserId: req.user.id,
+      defaults: { employmentType, trainingPtoEligible }
+    });
+
+    // Update classification flags without touching balances.
+    await PayrollPtoAccount.upsert({
+      agencyId,
+      userId,
+      employmentType,
+      trainingPtoEligible,
+      sickStartHours: acct.sick_start_hours,
+      sickStartEffectiveDate: acct.sick_start_effective_date,
+      trainingStartHours: acct.training_start_hours,
+      trainingStartEffectiveDate: acct.training_start_effective_date,
+      sickBalanceHours: acct.sick_balance_hours,
+      trainingBalanceHours: acct.training_balance_hours,
+      lastAccruedPayrollPeriodId: acct.last_accrued_payroll_period_id,
+      lastSickRolloverYear: acct.last_sick_rollover_year,
+      trainingForfeitedAt: acct.training_forfeited_at,
+      updatedByUserId: req.user.id
+    });
+
+    // Starting balances + effective dates (optional)
+    const updated = await applyStartingBalances({
+      agencyId,
+      userId,
+      updatedByUserId: req.user.id,
+      sickStartHours: body.sickStartHours,
+      sickStartEffectiveDate: body.sickStartEffectiveDate,
+      trainingStartHours: body.trainingStartHours,
+      trainingStartEffectiveDate: body.trainingStartEffectiveDate
+    });
+
+    res.json({ ok: true, agencyId, userId, account: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getMyPtoBalances = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    // Ensure membership for non-admins.
+    if (!isAdminRole(req.user.role)) {
+      const [rows] = await pool.execute(
+        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+        [userId, agencyId]
+      );
+      if (!rows || rows.length === 0) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    }
+
+    const out = await getPtoBalances({ agencyId, userId });
+    res.json({ ok: true, agencyId, userId, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createMyPtoRequest = [
+  receiptUpload.single('proof'),
+  async (req, res, next) => {
+    try {
+      const userId = req.user?.id;
+      const body = req.body || {};
+      const agencyId = body.agencyId ? parseInt(body.agencyId, 10) : null;
+      if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+      if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+      // Ensure membership for non-admins.
+      if (!isAdminRole(req.user.role)) {
+        const [rows] = await pool.execute(
+          'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+          [userId, agencyId]
+        );
+        if (!rows || rows.length === 0) {
+          return res.status(403).json({ error: { message: 'Access denied' } });
+        }
+      }
+
+      const { policy } = await getAgencyPtoPolicy({ agencyId });
+      if (policy.ptoEnabled === false) {
+        return res.status(403).json({ error: { message: 'PTO is disabled for this organization' } });
+      }
+
+      const requestTypeRaw = String(body.requestType || body.request_type || '').trim().toLowerCase();
+      const requestType = requestTypeRaw === 'training' ? 'training' : 'sick';
+      const notes = body.notes ? String(body.notes) : null;
+      const trainingDescription = body.trainingDescription ? String(body.trainingDescription) : null;
+
+      let items = [];
+      if (Array.isArray(body.items)) {
+        items = body.items;
+      } else if (typeof body.items === 'string' && body.items.trim()) {
+        try { items = JSON.parse(body.items); } catch { items = []; }
+      }
+      items = (items || []).map((it) => ({
+        requestDate: String(it?.date || it?.requestDate || '').slice(0, 10),
+        hours: Number(it?.hours || 0)
+      })).filter((it) => /^\d{4}-\d{2}-\d{2}$/.test(it.requestDate) && Number.isFinite(it.hours) && it.hours > 0);
+
+      if (!items.length) {
+        return res.status(400).json({ error: { message: 'At least one (date, hours) entry is required' } });
+      }
+      const totalHours = Math.round(items.reduce((a, it) => a + Number(it.hours || 0), 0) * 100) / 100;
+
+      // Training eligibility + proof requirements.
+      const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId: userId });
+      if (requestType === 'training') {
+        if (policy.trainingPtoEnabled !== true) {
+          return res.status(403).json({ error: { message: 'Training PTO is disabled for this organization' } });
+        }
+        if (!acct.training_pto_eligible) {
+          return res.status(403).json({ error: { message: 'Training PTO is not enabled for your account' } });
+        }
+        if (!String(trainingDescription || '').trim()) {
+          return res.status(400).json({ error: { message: 'Training description is required' } });
+        }
+        if (!req.file) {
+          return res.status(400).json({ error: { message: 'Training proof upload is required' } });
+        }
+      }
+
+      const policyWarnings = computePtoPolicyWarnings({ policy, requestItems: items.map((x) => ({ requestDate: x.requestDate, hours: x.hours })) });
+
+      let proofMeta = null;
+      if (req.file) {
+        const saved = await StorageService.savePtoProof(req.file.buffer, req.file.originalname, req.file.mimetype);
+        proofMeta = {
+          filePath: saved.path,
+          originalName: req.file.originalname,
+          mimeType: req.file.mimetype,
+          sizeBytes: req.file.size
+        };
+      }
+
+      const created = await PayrollPtoRequest.create({
+        agencyId,
+        userId,
+        requestType,
+        notes,
+        trainingDescription,
+        proof: proofMeta,
+        policyWarningsJson: policyWarnings,
+        policyAckJson: body.policyAck ? body.policyAck : null,
+        totalHours
+      });
+      await PayrollPtoRequest.addItems({
+        requestId: created.id,
+        agencyId,
+        items: items.map((it) => ({ requestDate: it.requestDate, hours: it.hours }))
+      });
+      const withItems = { ...created, items: await PayrollPtoRequest.listItemsForRequest(created.id) };
+      res.status(201).json(withItems);
+    } catch (e) {
+      next(e);
+    }
+  }
+];
+
+export const listMyPtoRequests = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    // Ensure membership for non-admins.
+    if (!isAdminRole(req.user.role)) {
+      const [rows] = await pool.execute(
+        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+        [userId, agencyId]
+      );
+      if (!rows || rows.length === 0) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    }
+
+    const rows = await PayrollPtoRequest.listForAgencyUser({ agencyId, userId, limit: 200 });
+    const withItems = await Promise.all((rows || []).map(async (r) => ({ ...r, items: await PayrollPtoRequest.listItemsForRequest(r.id) })));
+    res.json(withItems);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listPtoRequests = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const status = req.query.status ? String(req.query.status) : 'submitted';
+    const rows = await PayrollPtoRequest.listForAgency({ agencyId, status, limit: 500 });
+    const withItems = await Promise.all((rows || []).map(async (r) => ({ ...r, items: await PayrollPtoRequest.listItemsForRequest(r.id) })));
+    res.json(withItems);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const patchPtoRequest = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'id is required' } });
+
+    const reqRow = await PayrollPtoRequest.findById(id);
+    if (!reqRow) return res.status(404).json({ error: { message: 'PTO request not found' } });
+    if (!(await requirePayrollAccess(req, res, reqRow.agency_id))) return;
+
+    const action = String(req.body?.action || '').trim().toLowerCase();
+    if (!action) return res.status(400).json({ error: { message: 'action is required' } });
+
+    if (action === 'approve') {
+      const result = await approvePtoRequestAndPostToPayroll({
+        agencyId: reqRow.agency_id,
+        requestId: id,
+        approvedByUserId: req.user.id
+      });
+
+      // If payroll has already been run for any affected pay period, recompute immediately
+      // so totals reflect the PTO approval.
+      try {
+        const ids = Array.isArray(result?.affectedPayrollPeriodIds) ? result.affectedPayrollPeriodIds : [];
+        for (const pid of ids) {
+          const period = await PayrollPeriod.findById(pid);
+          const st = String(period?.status || '').toLowerCase();
+          if (period && st === 'ran') {
+            await recomputeSummariesFromStaging({
+              payrollPeriodId: pid,
+              agencyId: period.agency_id,
+              periodStart: period.period_start,
+              periodEnd: period.period_end
+            });
+          }
+        }
+      } catch { /* best-effort */ }
+
+      const updated = await PayrollPtoRequest.findById(id);
+      res.json({ ...updated, items: await PayrollPtoRequest.listItemsForRequest(id) });
+      return;
+    }
+
+    if (action === 'reject') {
+      const reason = String(req.body?.rejectionReason || '').trim().slice(0, 255);
+      if (!reason) return res.status(400).json({ error: { message: 'rejectionReason is required' } });
+      const updated = await PayrollPtoRequest.updateStatus({
+        requestId: id,
+        agencyId: reqRow.agency_id,
+        status: 'rejected',
+        approvedByUserId: null,
+        approvedAt: null,
+        rejectedByUserId: req.user.id,
+        rejectedAt: new Date(),
+        rejectionReason: reason
+      });
+      res.json({ ...updated, items: await PayrollPtoRequest.listItemsForRequest(id) });
+      return;
+    }
+
+    if (action === 'return' || action === 'defer') {
+      const reason = String(req.body?.rejectionReason || req.body?.reason || '').trim().slice(0, 255);
+      if (!reason) return res.status(400).json({ error: { message: 'reason is required' } });
+      const updated = await PayrollPtoRequest.updateStatus({
+        requestId: id,
+        agencyId: reqRow.agency_id,
+        status: 'deferred',
+        approvedByUserId: null,
+        approvedAt: null,
+        rejectedByUserId: req.user.id,
+        rejectedAt: new Date(),
+        rejectionReason: reason
+      });
+      res.json({ ...updated, items: await PayrollPtoRequest.listItemsForRequest(id) });
+      return;
+    }
+
+    res.status(400).json({ error: { message: `Unsupported action: ${action}` } });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const patchMileageClaim = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -5494,6 +6381,24 @@ export const patchMileageClaim = async (req, res, next) => {
       if (Number(toPeriod.agency_id) !== Number(claim.agency_id)) {
         return res.status(400).json({ error: { message: 'Target pay period does not belong to this agency' } });
       }
+
+      const hardStopPolicy =
+        String(claim.claim_type || '').toLowerCase() === 'school_travel'
+          ? 'in_school'
+          : '60_days';
+      const ok = await enforceTargetPeriodDeadline({
+        req,
+        res,
+        agencyId: claim.agency_id,
+        effectiveDateYmd: claim.drive_date,
+        submittedAt: claim.created_at,
+        targetPayrollPeriodId,
+        targetPeriodRow: toPeriod,
+        officeLocationId: claim.office_location_id,
+        hardStopPolicy
+      });
+      if (!ok.ok) return;
+
       const toStatus = String(toPeriod.status || '').toLowerCase();
       if (toStatus === 'posted' || toStatus === 'finalized') {
         return res.status(409).json({ error: { message: 'Target pay period is posted/finalized' } });
@@ -5544,6 +6449,23 @@ export const patchMileageClaim = async (req, res, next) => {
       if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
+
+      const hardStopPolicy =
+        String(claim.claim_type || '').toLowerCase() === 'school_travel'
+          ? 'in_school'
+          : '60_days';
+      const ok = await enforceTargetPeriodDeadline({
+        req,
+        res,
+        agencyId: claim.agency_id,
+        effectiveDateYmd: claim.drive_date,
+        submittedAt: claim.created_at,
+        targetPayrollPeriodId,
+        officeLocationId: claim.office_location_id,
+        hardStopPolicy
+      });
+      if (!ok.ok) return;
+
       if (![1, 2, 3].includes(tierLevel)) {
         return res.status(400).json({ error: { message: 'tierLevel must be 1, 2, or 3' } });
       }

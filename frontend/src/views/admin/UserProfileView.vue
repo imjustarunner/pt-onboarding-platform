@@ -167,7 +167,8 @@
                     <option value="supervisor">Supervisor</option>
                     <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
                     <option value="staff">Onboarding Staff</option>
-                    <option value="clinician">Clinician</option>
+                    <option value="provider">Provider</option>
+                    <option value="school_staff">School Staff</option>
                     <option value="facilitator">Facilitator</option>
                     <option value="intern">Intern</option>
                   </select>
@@ -286,7 +287,7 @@
                     class="btn btn-success btn-sm"
                     :disabled="updatingStatus"
                   >
-                    {{ updatingStatus ? 'Processing...' : 'Mark as Active Employee' }}
+                    {{ updatingStatus ? 'Processing...' : 'Mark Active' }}
                   </button>
                   
                   <!-- Mark Terminated: Only for ACTIVE_EMPLOYEE users -->
@@ -522,18 +523,22 @@
               </div>
             </div>
           </div>
-          
+        </div>
+
+        <div v-if="activeTab === 'additional'" class="tab-panel">
+          <h2>Additional</h2>
+
           <div class="section-divider">
             <h3>Supervisor Assignments</h3>
           </div>
-          
+
           <div v-if="canManageAssignments" class="supervisor-assignments-section">
             <SupervisorAssignmentManager
               :supervisor-id="(user && (isSupervisor(user) || user.role === 'clinical_practice_assistant')) ? userId : null"
               :supervisee-id="['staff', 'clinician', 'facilitator', 'intern'].includes(user?.role) ? userId : null"
             />
           </div>
-          
+
           <div v-else class="supervisor-assignments-section">
             <div v-if="(user && isSupervisor(user)) || user?.role === 'clinical_practice_assistant'" class="assignments-info">
               <h4>Assigned Supervisees</h4>
@@ -566,10 +571,8 @@
           <div class="section-divider">
             <h3>Additional User Information</h3>
           </div>
-          
-          <UserInformationTab
-            :userId="userId"
-          />
+
+          <UserInformationTab :userId="userId" />
         </div>
 
         <ProviderInfoTab
@@ -811,6 +814,7 @@ const supervisorsLoading = ref(false);
 const tabs = computed(() => {
   const baseTabs = [
     { id: 'account', label: 'Account' },
+    { id: 'additional', label: 'Additional' },
     ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Provider Info' }] : []),
     { id: 'training', label: 'Training' },
     { id: 'documents', label: 'Documents' },
@@ -1356,7 +1360,7 @@ const getStatusLabel = (status, isActive = true) => {
     'PREHIRE_OPEN': 'Pre-Hire',
     'PREHIRE_REVIEW': 'Ready for Review',
     'ONBOARDING': 'Onboarding',
-    'ACTIVE_EMPLOYEE': 'Active Employee',
+    'ACTIVE_EMPLOYEE': 'Active',
     'TERMINATED_PENDING': 'Terminated (Grace Period)',
     'ARCHIVED': 'Archived',
 
@@ -1395,7 +1399,7 @@ const getStatusBadgeClass = (status, isActive = true) => {
 };
 
 const markComplete = async () => {
-  if (!confirm('Mark this user as Active Employee? (This does not change their password. Use “Send Reset Password Link” if they need to set one.)')) {
+  if (!confirm('Mark this user as Active? (This does not change their password. Use “Send Reset Password Link” if they need to set one.)')) {
     return;
   }
 
@@ -1403,9 +1407,9 @@ const markComplete = async () => {
     updatingStatus.value = true;
     await api.post(`/users/${userId.value}/mark-complete`);
     await fetchUser();
-    alert('User marked as Active Employee.');
+    alert('User marked as Active.');
   } catch (err) {
-    error.value = err.response?.data?.error?.message || 'Failed to mark user as Active Employee';
+    error.value = err.response?.data?.error?.message || 'Failed to mark user as Active';
     alert(error.value);
   } finally {
     updatingStatus.value = false;

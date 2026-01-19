@@ -53,7 +53,7 @@ router.post('/:id/assign', requireAdmin, [
   body('userIds').optional().isArray().withMessage('User IDs must be an array'),
   body('userIds.*').optional().isInt().withMessage('Each user ID must be an integer'),
   body('agencyId').optional().isInt().withMessage('Agency ID must be an integer'),
-  body('role').optional().isIn(['super_admin', 'admin', 'support', 'supervisor', 'clinical_practice_assistant', 'staff', 'clinician', 'facilitator', 'intern']).withMessage('Invalid role'),
+  body('role').optional().isIn(['super_admin', 'admin', 'support', 'supervisor', 'clinical_practice_assistant', 'staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern']).withMessage('Invalid role'),
   body('dueDate').optional().isISO8601().withMessage('Due date must be a valid ISO 8601 date'),
   body('title').optional().trim(),
   body('description').optional().trim()

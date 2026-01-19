@@ -449,7 +449,227 @@
             <div class="icon-description">Icon for the "All Agencies" notification card</div>
           </div>
         </div>
+
+        <div class="section-divider"></div>
+        <h3>Settings Navigation Icons</h3>
+        <p class="section-description">
+          Icons shown in the Settings sidebar navigation (replaces emojis). Agencies can override these per agency.
+        </p>
+
+        <div class="icons-table">
+          <div class="icon-row">
+            <div class="icon-label">Company Profile</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.companyProfileIconId" />
+              <button
+                v-if="platformForm.companyProfileIconId"
+                @click="platformForm.companyProfileIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Company Profile settings</div>
+          </div>
+
+          <div class="icon-row">
+            <div class="icon-label">Platform &amp; Security</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.platformSettingsIconId" />
+              <button
+                v-if="platformForm.platformSettingsIconId"
+                @click="platformForm.platformSettingsIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Platform &amp; Security settings</div>
+          </div>
+
+          <div class="icon-row">
+            <div class="icon-label">Team &amp; Roles</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.teamRolesIconId" />
+              <button
+                v-if="platformForm.teamRolesIconId"
+                @click="platformForm.teamRolesIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Team &amp; Roles settings</div>
+          </div>
+
+          <div class="icon-row">
+            <div class="icon-label">Billing</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.billingIconId" />
+              <button
+                v-if="platformForm.billingIconId"
+                @click="platformForm.billingIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Billing settings</div>
+          </div>
+
+          <div class="icon-row">
+            <div class="icon-label">Packages</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.packagesIconId" />
+              <button
+                v-if="platformForm.packagesIconId"
+                @click="platformForm.packagesIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Packages settings</div>
+          </div>
+
+          <div class="icon-row">
+            <div class="icon-label">Checklist Items</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.checklistItemsIconId" />
+              <button
+                v-if="platformForm.checklistItemsIconId"
+                @click="platformForm.checklistItemsIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Checklist Items settings</div>
+          </div>
+
+          <div class="icon-row">
+            <div class="icon-label">Field Definitions</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.fieldDefinitionsIconId" />
+              <button
+                v-if="platformForm.fieldDefinitionsIconId"
+                @click="platformForm.fieldDefinitionsIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Field Definitions settings</div>
+          </div>
+
+          <div class="icon-row">
+            <div class="icon-label">Branding &amp; Templates</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.brandingTemplatesIconId" />
+              <button
+                v-if="platformForm.brandingTemplatesIconId"
+                @click="platformForm.brandingTemplatesIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Branding &amp; Templates settings</div>
+          </div>
+
+          <div class="icon-row">
+            <div class="icon-label">Assets (Icons/Fonts)</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.assetsIconId" />
+              <button
+                v-if="platformForm.assetsIconId"
+                @click="platformForm.assetsIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Assets settings</div>
+          </div>
+
+          <div class="icon-row">
+            <div class="icon-label">Communications</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.communicationsIconId" />
+              <button
+                v-if="platformForm.communicationsIconId"
+                @click="platformForm.communicationsIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Communications settings</div>
+          </div>
+
+          <div class="icon-row">
+            <div class="icon-label">Integrations</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.integrationsIconId" />
+              <button
+                v-if="platformForm.integrationsIconId"
+                @click="platformForm.integrationsIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Integrations settings</div>
+          </div>
+
+          <div class="icon-row">
+            <div class="icon-label">Archive</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.archiveIconId" />
+              <button
+                v-if="platformForm.archiveIconId"
+                @click="platformForm.archiveIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for Archive settings</div>
+          </div>
+        </div>
         
+        <div
+          v-if="authStore.user?.role === 'super_admin' && selectedBrandingScope === 'platform' && templateState && !templateState.platform?.defaultTemplate"
+          style="margin: 12px 0; padding: 10px 12px; background: #fff7ed; border: 1px solid #fdba74; border-radius: 10px; color: #7c2d12;"
+        >
+          <strong>Platform default template required.</strong>
+          Create or select a template, then click <strong>Set as Default</strong> so it’s always clear which template the platform is using.
+        </div>
+
         <div class="form-actions">
           <div class="template-actions">
             <select v-model="selectedTemplateToApply" @change="applySelectedTemplate" class="form-select" style="max-width: 300px;">
@@ -458,12 +678,33 @@
                 {{ template.name }}
               </option>
             </select>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              :disabled="!selectedTemplateToApply"
+              @click="setSelectedTemplateAsDefault"
+              title="Set the selected template as the default for this scope"
+            >
+              Set as Default
+            </button>
             <button type="button" @click="saveAsTemplate" class="btn btn-secondary">
               Save as Template
             </button>
           </div>
-          <div v-if="currentlyAppliedTemplate" class="current-template-indicator" style="margin: 8px 0; padding: 8px 12px; background: #e3f2fd; border-left: 3px solid #2196f3; border-radius: 4px;">
-            <strong>Current Template:</strong> {{ currentlyAppliedTemplate.name }}
+          <div
+            v-if="templateState"
+            class="current-template-indicator"
+            style="margin: 8px 0; padding: 10px 12px; background: #f8fafc; border-left: 3px solid #0ea5e9; border-radius: 6px;"
+          >
+            <div>
+              <strong>Effective Template:</strong>
+              <span style="font-weight: 800;">{{ templateState.effectiveTemplate?.name || '—' }}</span>
+            </div>
+            <div style="margin-top: 4px; color: var(--text-secondary); font-size: 13px;">
+              <strong>Default:</strong> {{ templateState.platform?.defaultTemplate?.name || '—' }}
+              <span style="margin: 0 6px;">•</span>
+              <strong>Current:</strong> {{ templateState.platform?.currentTemplate?.name || '—' }}
+            </div>
             <button 
               type="button" 
               @click="clearAppliedTemplate" 
@@ -727,6 +968,109 @@
                 </button>
               </div>
               <div class="icon-description">Icon for the "Settings" action card</div>
+            </div>
+          </div>
+
+          <div class="section-divider"></div>
+          <h4>Settings Navigation Icons</h4>
+          <p class="section-description">Icons shown in the Settings sidebar navigation (overrides platform defaults).</p>
+
+          <div class="icons-table">
+            <div class="icon-row">
+              <div class="icon-label">Company Profile</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.companyProfileIconId" />
+                <button v-if="agencyBrandingForm.companyProfileIconId" @click="agencyBrandingForm.companyProfileIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Platform &amp; Security</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.platformSettingsIconId" />
+                <button v-if="agencyBrandingForm.platformSettingsIconId" @click="agencyBrandingForm.platformSettingsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Team &amp; Roles</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.teamRolesIconId" />
+                <button v-if="agencyBrandingForm.teamRolesIconId" @click="agencyBrandingForm.teamRolesIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Billing</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.billingIconId" />
+                <button v-if="agencyBrandingForm.billingIconId" @click="agencyBrandingForm.billingIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Packages</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.packagesIconId" />
+                <button v-if="agencyBrandingForm.packagesIconId" @click="agencyBrandingForm.packagesIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Checklist Items</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.checklistItemsIconId" />
+                <button v-if="agencyBrandingForm.checklistItemsIconId" @click="agencyBrandingForm.checklistItemsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Field Definitions</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.fieldDefinitionsIconId" />
+                <button v-if="agencyBrandingForm.fieldDefinitionsIconId" @click="agencyBrandingForm.fieldDefinitionsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Branding &amp; Templates</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.brandingTemplatesIconId" />
+                <button v-if="agencyBrandingForm.brandingTemplatesIconId" @click="agencyBrandingForm.brandingTemplatesIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Assets (Icons/Fonts)</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.assetsIconId" />
+                <button v-if="agencyBrandingForm.assetsIconId" @click="agencyBrandingForm.assetsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Communications</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.communicationsIconId" />
+                <button v-if="agencyBrandingForm.communicationsIconId" @click="agencyBrandingForm.communicationsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Integrations</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.integrationsIconId" />
+                <button v-if="agencyBrandingForm.integrationsIconId" @click="agencyBrandingForm.integrationsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Archive</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.archiveIconId" />
+                <button v-if="agencyBrandingForm.archiveIconId" @click="agencyBrandingForm.archiveIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+              </div>
+              <div class="icon-description">Settings sidebar icon</div>
             </div>
           </div>
           
@@ -1008,6 +1352,109 @@
             <div class="icon-description">Icon for the "Settings" action card</div>
           </div>
         </div>
+
+        <div class="section-divider"></div>
+        <h4>Settings Navigation Icons</h4>
+        <p class="section-description">Icons shown in the Settings sidebar navigation (overrides platform defaults).</p>
+
+        <div class="icons-table">
+          <div class="icon-row">
+            <div class="icon-label">Company Profile</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.companyProfileIconId" />
+              <button v-if="brandingForm.companyProfileIconId" @click="brandingForm.companyProfileIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Platform &amp; Security</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.platformSettingsIconId" />
+              <button v-if="brandingForm.platformSettingsIconId" @click="brandingForm.platformSettingsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Team &amp; Roles</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.teamRolesIconId" />
+              <button v-if="brandingForm.teamRolesIconId" @click="brandingForm.teamRolesIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Billing</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.billingIconId" />
+              <button v-if="brandingForm.billingIconId" @click="brandingForm.billingIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Packages</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.packagesIconId" />
+              <button v-if="brandingForm.packagesIconId" @click="brandingForm.packagesIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Checklist Items</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.checklistItemsIconId" />
+              <button v-if="brandingForm.checklistItemsIconId" @click="brandingForm.checklistItemsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Field Definitions</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.fieldDefinitionsIconId" />
+              <button v-if="brandingForm.fieldDefinitionsIconId" @click="brandingForm.fieldDefinitionsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Branding &amp; Templates</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.brandingTemplatesIconId" />
+              <button v-if="brandingForm.brandingTemplatesIconId" @click="brandingForm.brandingTemplatesIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Assets (Icons/Fonts)</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.assetsIconId" />
+              <button v-if="brandingForm.assetsIconId" @click="brandingForm.assetsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Communications</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.communicationsIconId" />
+              <button v-if="brandingForm.communicationsIconId" @click="brandingForm.communicationsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Integrations</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.integrationsIconId" />
+              <button v-if="brandingForm.integrationsIconId" @click="brandingForm.integrationsIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Archive</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.archiveIconId" />
+              <button v-if="brandingForm.archiveIconId" @click="brandingForm.archiveIconId = null" class="btn btn-sm btn-danger" type="button">Clear</button>
+            </div>
+            <div class="icon-description">Settings sidebar icon</div>
+          </div>
+        </div>
         
         <div class="form-actions">
           <div class="template-actions">
@@ -1017,8 +1464,45 @@
                 {{ template.name }}
               </option>
             </select>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              :disabled="!selectedTemplateToApply"
+              @click="setSelectedTemplateAsDefault"
+              title="Set the selected template as the default for this scope"
+            >
+              Set as Default
+            </button>
             <button type="button" @click="saveAsTemplate" class="btn btn-secondary">
               Save as Template
+            </button>
+          </div>
+          <div
+            v-if="templateState"
+            class="current-template-indicator"
+            style="margin: 8px 0; padding: 10px 12px; background: #f8fafc; border-left: 3px solid #0ea5e9; border-radius: 6px;"
+          >
+            <div>
+              <strong>Effective Template:</strong>
+              <span style="font-weight: 800;">{{ templateState.effectiveTemplate?.name || '—' }}</span>
+            </div>
+            <div style="margin-top: 4px; color: var(--text-secondary); font-size: 13px;">
+              <strong>Agency default:</strong> {{ templateState.agency?.defaultTemplate?.name || '—' }}
+              <span style="margin: 0 6px;">•</span>
+              <strong>Agency current:</strong> {{ templateState.agency?.currentTemplate?.name || '—' }}
+              <span style="margin: 0 6px;">•</span>
+              <strong>Platform current:</strong> {{ templateState.platform?.currentTemplate?.name || '—' }}
+              <span style="margin: 0 6px;">•</span>
+              <strong>Platform default:</strong> {{ templateState.platform?.defaultTemplate?.name || '—' }}
+            </div>
+            <button
+              type="button"
+              @click="clearAppliedTemplate"
+              class="btn btn-sm btn-link"
+              style="margin-left: 8px; padding: 0; text-decoration: underline;"
+              title="Clear current template selection"
+            >
+              Clear current
             </button>
           </div>
           <button type="submit" class="btn btn-primary" :disabled="saving">
@@ -1139,6 +1623,7 @@ const router = useRouter();
 const availableTemplates = ref([]);
 const selectedTemplateToApply = ref('');
 const currentlyAppliedTemplate = ref(null); // Track which template is currently applied
+const templateState = ref(null); // { platform, agency, effectiveTemplate }
 
 const savingPlatform = ref(false);
 const savingAgency = ref(false);
@@ -1175,7 +1660,20 @@ const platformForm = ref({
       organizationName: null,
       organizationLogoIconId: null,
       organizationLogoUrl: null,
-      organizationLogoPath: null
+      organizationLogoPath: null,
+
+  // Settings sidebar navigation icon defaults (replaces emojis)
+  companyProfileIconId: null,
+  teamRolesIconId: null,
+  billingIconId: null,
+  packagesIconId: null,
+  checklistItemsIconId: null,
+  fieldDefinitionsIconId: null,
+  brandingTemplatesIconId: null,
+  assetsIconId: null,
+  communicationsIconId: null,
+  integrationsIconId: null,
+  archiveIconId: null
     });
 
 const agencyBrandingForm = ref({
@@ -1193,7 +1691,21 @@ const agencyBrandingForm = ref({
   manageModulesIconId: null,
   manageDocumentsIconId: null,
   manageUsersIconId: null,
-  settingsIconId: null
+  settingsIconId: null,
+  platformSettingsIconId: null,
+
+  // Settings sidebar navigation icon overrides (agency-level)
+  companyProfileIconId: null,
+  teamRolesIconId: null,
+  billingIconId: null,
+  packagesIconId: null,
+  checklistItemsIconId: null,
+  fieldDefinitionsIconId: null,
+  brandingTemplatesIconId: null,
+  assetsIconId: null,
+  communicationsIconId: null,
+  integrationsIconId: null,
+  archiveIconId: null
 });
 
 const selectedAgency = computed(() => {
@@ -1227,7 +1739,21 @@ const brandingForm = ref({
   manageModulesIconId: null,
   manageDocumentsIconId: null,
   manageUsersIconId: null,
-  settingsIconId: null
+  settingsIconId: null,
+  platformSettingsIconId: null,
+
+  // Settings sidebar navigation icon overrides (agency-level)
+  companyProfileIconId: null,
+  teamRolesIconId: null,
+  billingIconId: null,
+  packagesIconId: null,
+  checklistItemsIconId: null,
+  fieldDefinitionsIconId: null,
+  brandingTemplatesIconId: null,
+  assetsIconId: null,
+  communicationsIconId: null,
+  integrationsIconId: null,
+  archiveIconId: null
 });
 
 const primaryColor = computed(() => {
@@ -1284,7 +1810,20 @@ watch(currentAgency, async (agency) => {
         manageModulesIconId: freshAgency.manage_modules_icon_id ?? null,
         manageDocumentsIconId: freshAgency.manage_documents_icon_id ?? null,
         manageUsersIconId: freshAgency.manage_users_icon_id ?? null,
-        settingsIconId: freshAgency.settings_icon_id ?? null
+        settingsIconId: freshAgency.settings_icon_id ?? null,
+        platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
+
+        companyProfileIconId: freshAgency.company_profile_icon_id ?? null,
+        teamRolesIconId: freshAgency.team_roles_icon_id ?? null,
+        billingIconId: freshAgency.billing_icon_id ?? null,
+        packagesIconId: freshAgency.packages_icon_id ?? null,
+        checklistItemsIconId: freshAgency.checklist_items_icon_id ?? null,
+        fieldDefinitionsIconId: freshAgency.field_definitions_icon_id ?? null,
+        brandingTemplatesIconId: freshAgency.branding_templates_icon_id ?? null,
+        assetsIconId: freshAgency.assets_icon_id ?? null,
+        communicationsIconId: freshAgency.communications_icon_id ?? null,
+        integrationsIconId: freshAgency.integrations_icon_id ?? null,
+        archiveIconId: freshAgency.archive_icon_id ?? null
       };
     } catch (err) {
       console.error('Failed to fetch fresh agency data:', err);
@@ -1307,7 +1846,20 @@ watch(currentAgency, async (agency) => {
         manageModulesIconId: agency.manage_modules_icon_id ?? null,
         manageDocumentsIconId: agency.manage_documents_icon_id ?? null,
         manageUsersIconId: agency.manage_users_icon_id ?? null,
-        settingsIconId: agency.settings_icon_id ?? null
+        settingsIconId: agency.settings_icon_id ?? null,
+        platformSettingsIconId: agency.platform_settings_icon_id ?? null,
+
+        companyProfileIconId: agency.company_profile_icon_id ?? null,
+        teamRolesIconId: agency.team_roles_icon_id ?? null,
+        billingIconId: agency.billing_icon_id ?? null,
+        packagesIconId: agency.packages_icon_id ?? null,
+        checklistItemsIconId: agency.checklist_items_icon_id ?? null,
+        fieldDefinitionsIconId: agency.field_definitions_icon_id ?? null,
+        brandingTemplatesIconId: agency.branding_templates_icon_id ?? null,
+        assetsIconId: agency.assets_icon_id ?? null,
+        communicationsIconId: agency.communications_icon_id ?? null,
+        integrationsIconId: agency.integrations_icon_id ?? null,
+        archiveIconId: agency.archive_icon_id ?? null
       };
     }
   }
@@ -1336,7 +1888,20 @@ const onBrandingScopeChange = async () => {
         manageModulesIconId: freshAgency.manage_modules_icon_id ?? null,
         manageDocumentsIconId: freshAgency.manage_documents_icon_id ?? null,
         manageUsersIconId: freshAgency.manage_users_icon_id ?? null,
-        settingsIconId: freshAgency.settings_icon_id ?? null
+        settingsIconId: freshAgency.settings_icon_id ?? null,
+        platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
+
+        companyProfileIconId: freshAgency.company_profile_icon_id ?? null,
+        teamRolesIconId: freshAgency.team_roles_icon_id ?? null,
+        billingIconId: freshAgency.billing_icon_id ?? null,
+        packagesIconId: freshAgency.packages_icon_id ?? null,
+        checklistItemsIconId: freshAgency.checklist_items_icon_id ?? null,
+        fieldDefinitionsIconId: freshAgency.field_definitions_icon_id ?? null,
+        brandingTemplatesIconId: freshAgency.branding_templates_icon_id ?? null,
+        assetsIconId: freshAgency.assets_icon_id ?? null,
+        communicationsIconId: freshAgency.communications_icon_id ?? null,
+        integrationsIconId: freshAgency.integrations_icon_id ?? null,
+        archiveIconId: freshAgency.archive_icon_id ?? null
       };
     } catch (err) {
       console.error('Failed to fetch agency data:', err);
@@ -1353,9 +1918,6 @@ watch(selectedBrandingScope, async (newScope) => {
   await fetchAvailableTemplates();
   if (newScope.startsWith('agency-')) {
     await onBrandingScopeChange();
-  } else if (newScope === 'platform') {
-    // When switching back to platform, detect which template is applied
-    await detectCurrentlyAppliedTemplate();
   }
 }, { immediate: false });
 
@@ -1394,7 +1956,21 @@ const saveAgencyBrandingForSuperAdmin = async () => {
       manageModulesIconId: agencyBrandingForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: agencyBrandingForm.value.manageDocumentsIconId ?? null,
       manageUsersIconId: agencyBrandingForm.value.manageUsersIconId ?? null,
-      settingsIconId: agencyBrandingForm.value.settingsIconId ?? null
+      settingsIconId: agencyBrandingForm.value.settingsIconId ?? null,
+      platformSettingsIconId: agencyBrandingForm.value.platformSettingsIconId ?? null,
+
+      // Settings sidebar navigation icon overrides
+      companyProfileIconId: agencyBrandingForm.value.companyProfileIconId ?? null,
+      teamRolesIconId: agencyBrandingForm.value.teamRolesIconId ?? null,
+      billingIconId: agencyBrandingForm.value.billingIconId ?? null,
+      packagesIconId: agencyBrandingForm.value.packagesIconId ?? null,
+      checklistItemsIconId: agencyBrandingForm.value.checklistItemsIconId ?? null,
+      fieldDefinitionsIconId: agencyBrandingForm.value.fieldDefinitionsIconId ?? null,
+      brandingTemplatesIconId: agencyBrandingForm.value.brandingTemplatesIconId ?? null,
+      assetsIconId: agencyBrandingForm.value.assetsIconId ?? null,
+      communicationsIconId: agencyBrandingForm.value.communicationsIconId ?? null,
+      integrationsIconId: agencyBrandingForm.value.integrationsIconId ?? null,
+      archiveIconId: agencyBrandingForm.value.archiveIconId ?? null
     };
     
     console.log('Saving agency branding:', requestData);
@@ -1431,7 +2007,20 @@ const saveAgencyBrandingForSuperAdmin = async () => {
           manageModulesIconId: freshAgency.manage_modules_icon_id ?? null,
           manageDocumentsIconId: freshAgency.manage_documents_icon_id ?? null,
           manageUsersIconId: freshAgency.manage_users_icon_id ?? null,
-          settingsIconId: freshAgency.settings_icon_id ?? null
+          settingsIconId: freshAgency.settings_icon_id ?? null,
+          platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
+
+          companyProfileIconId: freshAgency.company_profile_icon_id ?? null,
+          teamRolesIconId: freshAgency.team_roles_icon_id ?? null,
+          billingIconId: freshAgency.billing_icon_id ?? null,
+          packagesIconId: freshAgency.packages_icon_id ?? null,
+          checklistItemsIconId: freshAgency.checklist_items_icon_id ?? null,
+          fieldDefinitionsIconId: freshAgency.field_definitions_icon_id ?? null,
+          brandingTemplatesIconId: freshAgency.branding_templates_icon_id ?? null,
+          assetsIconId: freshAgency.assets_icon_id ?? null,
+          communicationsIconId: freshAgency.communications_icon_id ?? null,
+          integrationsIconId: freshAgency.integrations_icon_id ?? null,
+          archiveIconId: freshAgency.archive_icon_id ?? null
         };
       } catch (err) {
         console.error('Failed to refresh agency data:', err);
@@ -1473,7 +2062,21 @@ const saveBranding = async () => {
       manageModulesIconId: brandingForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: brandingForm.value.manageDocumentsIconId ?? null,
       manageUsersIconId: brandingForm.value.manageUsersIconId ?? null,
-      settingsIconId: brandingForm.value.settingsIconId ?? null
+      settingsIconId: brandingForm.value.settingsIconId ?? null,
+      platformSettingsIconId: brandingForm.value.platformSettingsIconId ?? null,
+
+      // Settings sidebar navigation icon overrides
+      companyProfileIconId: brandingForm.value.companyProfileIconId ?? null,
+      teamRolesIconId: brandingForm.value.teamRolesIconId ?? null,
+      billingIconId: brandingForm.value.billingIconId ?? null,
+      packagesIconId: brandingForm.value.packagesIconId ?? null,
+      checklistItemsIconId: brandingForm.value.checklistItemsIconId ?? null,
+      fieldDefinitionsIconId: brandingForm.value.fieldDefinitionsIconId ?? null,
+      brandingTemplatesIconId: brandingForm.value.brandingTemplatesIconId ?? null,
+      assetsIconId: brandingForm.value.assetsIconId ?? null,
+      communicationsIconId: brandingForm.value.communicationsIconId ?? null,
+      integrationsIconId: brandingForm.value.integrationsIconId ?? null,
+      archiveIconId: brandingForm.value.archiveIconId ?? null
     });
     
     // Refresh agency data
@@ -1582,11 +2185,44 @@ const fetchAvailableTemplates = async () => {
     const response = await api.get('/branding-templates', { params });
     availableTemplates.value = response.data || [];
     
-    // After loading templates, try to detect which one is currently applied
-    await detectCurrentlyAppliedTemplate();
+    // Load persisted template state (default/current/effective) for the selected scope
+    await fetchTemplateState();
   } catch (err) {
     console.error('Failed to load templates:', err);
     availableTemplates.value = [];
+  }
+};
+
+const getTemplateStateTarget = () => {
+  if (authStore.user?.role === 'admin') {
+    return { targetScope: 'agency', targetAgencyId: authStore.user?.agency_id || null };
+  }
+  if (authStore.user?.role === 'super_admin') {
+    if (selectedBrandingScope.value.startsWith('agency-')) {
+      return {
+        targetScope: 'agency',
+        targetAgencyId: parseInt(selectedBrandingScope.value.replace('agency-', ''), 10)
+      };
+    }
+    return { targetScope: 'platform', targetAgencyId: null };
+  }
+  return { targetScope: 'platform', targetAgencyId: null };
+};
+
+const fetchTemplateState = async () => {
+  try {
+    const { targetScope, targetAgencyId } = getTemplateStateTarget();
+    const res = await api.get('/branding-templates/state', { params: { targetScope, targetAgencyId } });
+    templateState.value = res.data || null;
+
+    const current =
+      targetScope === 'platform'
+        ? templateState.value?.platform?.currentTemplate
+        : templateState.value?.agency?.currentTemplate;
+    currentlyAppliedTemplate.value = current || null;
+  } catch (e) {
+    templateState.value = null;
+    currentlyAppliedTemplate.value = null;
   }
 };
 
@@ -1751,7 +2387,8 @@ const applySelectedTemplate = async (event) => {
     alert('Template applied successfully!');
     
     // Reload branding data and refresh templates list
-    await loadAvailableTemplates();
+    await fetchAvailableTemplates();
+    await fetchTemplateState();
     
     if (targetScope === 'platform') {
       // Force refresh platform branding
@@ -1791,7 +2428,19 @@ const applySelectedTemplate = async (event) => {
           organizationName: brandingStore.platformBranding.organization_name ?? null,
           organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null,
           organizationLogoUrl: brandingStore.platformBranding.organization_logo_url ?? null,
-          organizationLogoPath: brandingStore.platformBranding.organization_logo_path ?? null
+          organizationLogoPath: brandingStore.platformBranding.organization_logo_path ?? null,
+
+          companyProfileIconId: brandingStore.platformBranding.company_profile_icon_id ?? null,
+          teamRolesIconId: brandingStore.platformBranding.team_roles_icon_id ?? null,
+          billingIconId: brandingStore.platformBranding.billing_icon_id ?? null,
+          packagesIconId: brandingStore.platformBranding.packages_icon_id ?? null,
+          checklistItemsIconId: brandingStore.platformBranding.checklist_items_icon_id ?? null,
+          fieldDefinitionsIconId: brandingStore.platformBranding.field_definitions_icon_id ?? null,
+          brandingTemplatesIconId: brandingStore.platformBranding.branding_templates_icon_id ?? null,
+          assetsIconId: brandingStore.platformBranding.assets_icon_id ?? null,
+          communicationsIconId: brandingStore.platformBranding.communications_icon_id ?? null,
+          integrationsIconId: brandingStore.platformBranding.integrations_icon_id ?? null,
+          archiveIconId: brandingStore.platformBranding.archive_icon_id ?? null
         };
         
         // Set logo input method based on what's available
@@ -1829,7 +2478,20 @@ const applySelectedTemplate = async (event) => {
               manageModulesIconId: agency.manage_modules_icon_id ?? null,
               manageDocumentsIconId: agency.manage_documents_icon_id ?? null,
               manageUsersIconId: agency.manage_users_icon_id ?? null,
-              settingsIconId: agency.settings_icon_id ?? null
+              settingsIconId: agency.settings_icon_id ?? null,
+              platformSettingsIconId: agency.platform_settings_icon_id ?? null,
+
+              companyProfileIconId: agency.company_profile_icon_id ?? null,
+              teamRolesIconId: agency.team_roles_icon_id ?? null,
+              billingIconId: agency.billing_icon_id ?? null,
+              packagesIconId: agency.packages_icon_id ?? null,
+              checklistItemsIconId: agency.checklist_items_icon_id ?? null,
+              fieldDefinitionsIconId: agency.field_definitions_icon_id ?? null,
+              brandingTemplatesIconId: agency.branding_templates_icon_id ?? null,
+              assetsIconId: agency.assets_icon_id ?? null,
+              communicationsIconId: agency.communications_icon_id ?? null,
+              integrationsIconId: agency.integrations_icon_id ?? null,
+              archiveIconId: agency.archive_icon_id ?? null
             };
           } else if (currentAgency.value?.id === targetAgencyId) {
             brandingForm.value = {
@@ -1847,7 +2509,20 @@ const applySelectedTemplate = async (event) => {
               manageModulesIconId: agency.manage_modules_icon_id ?? null,
               manageDocumentsIconId: agency.manage_documents_icon_id ?? null,
               manageUsersIconId: agency.manage_users_icon_id ?? null,
-              settingsIconId: agency.settings_icon_id ?? null
+              settingsIconId: agency.settings_icon_id ?? null,
+              platformSettingsIconId: agency.platform_settings_icon_id ?? null,
+
+              companyProfileIconId: agency.company_profile_icon_id ?? null,
+              teamRolesIconId: agency.team_roles_icon_id ?? null,
+              billingIconId: agency.billing_icon_id ?? null,
+              packagesIconId: agency.packages_icon_id ?? null,
+              checklistItemsIconId: agency.checklist_items_icon_id ?? null,
+              fieldDefinitionsIconId: agency.field_definitions_icon_id ?? null,
+              brandingTemplatesIconId: agency.branding_templates_icon_id ?? null,
+              assetsIconId: agency.assets_icon_id ?? null,
+              communicationsIconId: agency.communications_icon_id ?? null,
+              integrationsIconId: agency.integrations_icon_id ?? null,
+              archiveIconId: agency.archive_icon_id ?? null
             };
           }
         }
@@ -1862,10 +2537,28 @@ const applySelectedTemplate = async (event) => {
   }
 };
 
-const clearAppliedTemplate = () => {
-  if (confirm('Clear the currently applied template? This will not affect your branding settings.')) {
-    currentlyAppliedTemplate.value = null;
+const clearAppliedTemplate = async () => {
+  if (!confirm('Clear the currently active template selection? (This does not delete templates.)')) return;
+  try {
+    const { targetScope, targetAgencyId } = getTemplateStateTarget();
+    await api.post('/branding-templates/clear-current', { targetScope, targetAgencyId });
     selectedTemplateToApply.value = '';
+    await fetchTemplateState();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to clear current template');
+  }
+};
+
+const setSelectedTemplateAsDefault = async () => {
+  const templateId = selectedTemplateToApply.value ? parseInt(selectedTemplateToApply.value, 10) : null;
+  if (!templateId) return;
+  try {
+    const { targetScope, targetAgencyId } = getTemplateStateTarget();
+    await api.post(`/branding-templates/${templateId}/set-default`, { targetScope, targetAgencyId });
+    await fetchTemplateState();
+    alert('Default template set.');
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to set default template');
   }
 };
 
@@ -1955,6 +2648,25 @@ const createTemplateFromCurrent = async () => {
     
     alert('Template created successfully!');
     showSaveTemplateModal.value = false;
+
+    // If no default template is set yet for this scope, make this template the default (and current if empty).
+    try {
+      const newId = response.data?.id;
+      if (newId) {
+        await fetchTemplateState();
+        const { targetScope, targetAgencyId } = getTemplateStateTarget();
+        const hasDefault =
+          targetScope === 'platform'
+            ? !!templateState.value?.platform?.defaultTemplate
+            : !!templateState.value?.agency?.defaultTemplate;
+        if (!hasDefault) {
+          await api.post(`/branding-templates/${newId}/set-default`, { targetScope, targetAgencyId });
+          await fetchTemplateState();
+        }
+      }
+    } catch {
+      // best effort
+    }
     
     // Reset form
     saveTemplateForm.value = {
@@ -2045,7 +2757,20 @@ const savePlatformBranding = async () => {
       organizationName: platformForm.value.organizationName?.trim() || null,
       organizationLogoIconId: platformForm.value.organizationLogoIconId ?? null,
       organizationLogoUrl: platformLogoInputMethod.value === 'url' ? (platformForm.value.organizationLogoUrl?.trim() || null) : null,
-      organizationLogoPath: platformLogoInputMethod.value === 'upload' ? (platformForm.value.organizationLogoPath || null) : null
+      organizationLogoPath: platformLogoInputMethod.value === 'upload' ? (platformForm.value.organizationLogoPath || null) : null,
+
+      // Settings sidebar navigation icon defaults
+      companyProfileIconId: platformForm.value.companyProfileIconId ?? null,
+      teamRolesIconId: platformForm.value.teamRolesIconId ?? null,
+      billingIconId: platformForm.value.billingIconId ?? null,
+      packagesIconId: platformForm.value.packagesIconId ?? null,
+      checklistItemsIconId: platformForm.value.checklistItemsIconId ?? null,
+      fieldDefinitionsIconId: platformForm.value.fieldDefinitionsIconId ?? null,
+      brandingTemplatesIconId: platformForm.value.brandingTemplatesIconId ?? null,
+      assetsIconId: platformForm.value.assetsIconId ?? null,
+      communicationsIconId: platformForm.value.communicationsIconId ?? null,
+      integrationsIconId: platformForm.value.integrationsIconId ?? null,
+      archiveIconId: platformForm.value.archiveIconId ?? null
     };
     
     const response = await api.put('/platform-branding', brandingData);
@@ -2282,7 +3007,19 @@ onMounted(async () => {
         manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,
         platformSettingsIconId: brandingStore.platformBranding.platform_settings_icon_id ?? null,
         viewAllProgressIconId: brandingStore.platformBranding.view_all_progress_icon_id ?? null,
-        allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null
+        allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
+
+        companyProfileIconId: brandingStore.platformBranding.company_profile_icon_id ?? null,
+        teamRolesIconId: brandingStore.platformBranding.team_roles_icon_id ?? null,
+        billingIconId: brandingStore.platformBranding.billing_icon_id ?? null,
+        packagesIconId: brandingStore.platformBranding.packages_icon_id ?? null,
+        checklistItemsIconId: brandingStore.platformBranding.checklist_items_icon_id ?? null,
+        fieldDefinitionsIconId: brandingStore.platformBranding.field_definitions_icon_id ?? null,
+        brandingTemplatesIconId: brandingStore.platformBranding.branding_templates_icon_id ?? null,
+        assetsIconId: brandingStore.platformBranding.assets_icon_id ?? null,
+        communicationsIconId: brandingStore.platformBranding.communications_icon_id ?? null,
+        integrationsIconId: brandingStore.platformBranding.integrations_icon_id ?? null,
+        archiveIconId: brandingStore.platformBranding.archive_icon_id ?? null
       };
       
       // After loading branding, detect which template is currently applied

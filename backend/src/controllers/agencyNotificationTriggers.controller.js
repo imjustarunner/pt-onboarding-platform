@@ -36,7 +36,12 @@ function resolveSetting(trigger, setting) {
       ? setting.recipients
       : (trigger.defaultRecipients && typeof trigger.defaultRecipients === 'object' ? trigger.defaultRecipients : { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true });
 
-  return { enabled, channels, recipients };
+  const senderIdentityId =
+    setting?.senderIdentityId !== null && setting?.senderIdentityId !== undefined
+      ? setting.senderIdentityId
+      : (trigger?.defaultSenderIdentityId || null);
+
+  return { enabled, channels, recipients, senderIdentityId };
 }
 
 export const listAgencyNotificationTriggers = async (req, res, next) => {
@@ -61,13 +66,15 @@ export const listAgencyNotificationTriggers = async (req, res, next) => {
         defaults: {
           enabled: !!t.defaultEnabled,
           channels: t.defaultChannels,
-          recipients: t.defaultRecipients
+          recipients: t.defaultRecipients,
+          senderIdentityId: t.defaultSenderIdentityId || null
         },
         agencyOverride: s
           ? {
               enabled: s.enabled,
               channels: s.channels,
-              recipients: s.recipients
+              recipients: s.recipients,
+              senderIdentityId: s.senderIdentityId || null
             }
           : null,
         resolved
@@ -96,14 +103,18 @@ export const updateAgencyNotificationTrigger = async (req, res, next) => {
     const enabled = normalizeBoolOrNull(req.body?.enabled);
     const channels = req.body?.channels && typeof req.body.channels === 'object' ? req.body.channels : null;
     const recipients = req.body?.recipients && typeof req.body.recipients === 'object' ? req.body.recipients : null;
+    const senderIdentityId =
+      req.body?.senderIdentityId === null || req.body?.senderIdentityId === undefined || req.body?.senderIdentityId === ''
+        ? null
+        : Number(req.body?.senderIdentityId);
 
-    const saved = await AgencyNotificationTriggerSetting.upsert({ agencyId, triggerKey, enabled, channels, recipients });
+    const saved = await AgencyNotificationTriggerSetting.upsert({ agencyId, triggerKey, enabled, channels, recipients, senderIdentityId });
     const resolved = resolveSetting(trigger, saved);
 
     res.json({
       triggerKey: trigger.triggerKey,
       agencyOverride: saved
-        ? { enabled: saved.enabled, channels: saved.channels, recipients: saved.recipients }
+        ? { enabled: saved.enabled, channels: saved.channels, recipients: saved.recipients, senderIdentityId: saved.senderIdentityId || null }
         : null,
       resolved
     });

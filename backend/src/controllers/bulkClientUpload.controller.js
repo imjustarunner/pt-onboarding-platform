@@ -82,7 +82,7 @@ export const listBulkClientUploadJobRows = async (req, res, next) => {
     if (!id) return res.status(400).json({ error: { message: 'jobId is required' } });
 
     const [rows] = await pool.execute(
-      `SELECT * FROM bulk_import_job_rows WHERE job_id = ? ORDER BY row_number ASC`,
+      `SELECT * FROM bulk_import_job_rows WHERE job_id = ? ORDER BY \`row_number\` ASC`,
       [id]
     );
     res.json(rows);

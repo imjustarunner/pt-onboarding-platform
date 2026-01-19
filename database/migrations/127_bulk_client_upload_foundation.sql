@@ -160,14 +160,14 @@ CREATE TABLE IF NOT EXISTS bulk_import_jobs (
 CREATE TABLE IF NOT EXISTS bulk_import_job_rows (
   id INT AUTO_INCREMENT PRIMARY KEY,
   job_id INT NOT NULL,
-  row_number INT NOT NULL,
-  status ENUM('success','failed') NOT NULL,
+  `row_number` INT NOT NULL,
+  `status` ENUM('success','failed') NOT NULL,
   message TEXT NULL,
   entity_ids JSON NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (job_id) REFERENCES bulk_import_jobs(id) ON DELETE CASCADE,
-  UNIQUE KEY uniq_job_row (job_id, row_number),
-  INDEX idx_job_status (job_id, status)
+  UNIQUE KEY uniq_job_row (job_id, `row_number`),
+  INDEX idx_job_status (job_id, `status`)
 );
 
 -- -----------------------------

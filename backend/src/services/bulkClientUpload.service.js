@@ -16,15 +16,12 @@ const titleCase = (s) => (s ? String(s)[0].toUpperCase() + String(s).slice(1).to
 
 const safeLetters = (s) => String(s || '').replace(/[^a-zA-Z]/g, '');
 
-const initialsFromName = (fullName) => {
-  const parts = String(fullName || '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (parts.length === 0) return 'NA';
-  const first = parts[0][0] || '';
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
-  return (first + last).toUpperCase().slice(0, 10) || 'NA';
+// In Bulk Client Upload, the "Client Name" column is a short identifier code (e.g. MesJuv / NevCas),
+// not a person's full legal name. We preserve the code verbatim (trimmed) so the UI shows it correctly.
+const normalizeClientCode = (value) => {
+  const s = String(value || '').trim();
+  // Keep original casing; only strip surrounding whitespace.
+  return s;
 };
 
 const generateIdentifierCode = (fullName) => {
@@ -48,6 +45,57 @@ const normalizeKey = (s) =>
     .replace(/^_+|_+$/g, '')
     .slice(0, 64);
 
+const normalizeClientStatusKey = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw.includes('pending')) return 'pending';
+  if (raw.includes('current') || raw === 'active') return 'current';
+  if (raw.includes('inactive')) return 'inactive';
+  if (raw.includes('terminated') || raw.includes('terminate')) return 'terminated';
+  if (raw.includes('waitlist')) return 'waitlist';
+  if (raw.includes('screener') || raw.includes('screen')) return 'screener';
+  if (raw.includes('packet')) return 'packet';
+  return normalizeKey(raw);
+};
+
+const normalizePaperworkStatusKey = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw.includes('completed')) return 'completed';
+  if (raw.includes('re-auth') || raw.includes('reauth')) return 're_auth';
+  if (raw.includes('new insurance')) return 'new_insurance';
+  if (raw.includes('insurance') || raw.includes('payment')) return 'insurance_payment_auth';
+  if (raw.includes('emailed')) return 'emailed_packet';
+  if (raw === 'roi' || raw.includes('release')) return 'roi';
+  if (raw.includes('renewal')) return 'renewal';
+  if (raw.includes('new docs') || raw.includes('new documents')) return 'new_docs';
+  if (raw.includes('disclosure') || raw.includes('consent')) return 'disclosure_consent';
+  if (raw.includes('balance')) return 'balance';
+  return normalizeKey(raw);
+};
+
+const normalizeInsuranceKey = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw.includes('medicaid')) return 'medicaid';
+  if (raw.includes('tricare')) return 'tricare';
+  if (raw.includes('self')) return 'self_pay';
+  if (raw.includes('commercial') || raw.includes('other')) return 'commercial_other';
+  if (raw.includes('none')) return 'none';
+  if (raw.includes('unknown')) return 'unknown';
+  return normalizeKey(raw);
+};
+
+const normalizeDeliveryMethodKey = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw.includes('upload')) return 'uploaded';
+  if (raw.includes('school') && raw.includes('email')) return 'school_emailed';
+  if (raw.includes('set home') || (raw.includes('sent') && raw.includes('home'))) return 'set_home';
+  if (raw.includes('unknown')) return 'unknown';
+  return normalizeKey(raw);
+};
+
 const parseIntOrNull = (v) => {
   if (v === null || v === undefined) return null;
   const n = parseInt(String(v).trim(), 10);
@@ -58,9 +106,9 @@ const todayYmd = () => new Date().toISOString().split('T')[0];
 
 async function upsertBulkJobRow(connection, { jobId, rowNumber, status, message, entityIds }) {
   await connection.execute(
-    `INSERT INTO bulk_import_job_rows (job_id, row_number, status, message, entity_ids)
+    `INSERT INTO bulk_import_job_rows (job_id, \`row_number\`, \`status\`, message, entity_ids)
      VALUES (?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE status = VALUES(status), message = VALUES(message), entity_ids = VALUES(entity_ids)`,
+     ON DUPLICATE KEY UPDATE \`status\` = VALUES(\`status\`), message = VALUES(message), entity_ids = VALUES(entity_ids)`,
     [jobId, rowNumber, status, message || null, entityIds ? JSON.stringify(entityIds) : null]
   );
 }
@@ -171,21 +219,32 @@ async function findOrCreateProvider(connection, { agencyId, providerName }) {
 
   // Try to match an existing agency user by name
   if (firstName && lastName) {
+    const firstToken = String(firstName).trim().split(/\s+/)[0] || firstName;
     const [rows] = await connection.execute(
       `SELECT u.id
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id
        WHERE ua.agency_id = ? AND u.first_name = ? AND u.last_name = ?
        LIMIT 1`,
-      [agencyId, firstName, lastName]
+      [agencyId, firstToken, lastName]
     );
     if (rows[0]?.id) return rows[0].id;
   }
 
-  const hash = crypto.createHash('sha256').update(`${agencyId}:${name}`).digest('hex').slice(0, 10);
-  const email = `provider+${hash}@example.invalid`;
+  // Use a canonical name key for placeholder-email hashing so imports match even if one file uses
+  // "Last, First" and another uses "First Last".
+  const firstToken = String(firstName).trim().split(/\s+/)[0] || '';
+  const canonicalName = (firstToken && lastName) ? `${firstToken} ${lastName}` : name;
+  const hashNew = crypto.createHash('sha256').update(`${agencyId}:${canonicalName.toLowerCase()}`).digest('hex').slice(0, 10);
+  const hashOld = crypto.createHash('sha256').update(`${agencyId}:${name}`).digest('hex').slice(0, 10);
+  const emailNew = `provider+${hashNew}@example.invalid`;
+  const emailOld = `provider+${hashOld}@example.invalid`;
 
-  const [existing] = await connection.execute(`SELECT id FROM users WHERE email = ? LIMIT 1`, [email]);
+  // Backward-compat: check both the old and new email hashes to avoid duplicates.
+  const [existing] = await connection.execute(
+    `SELECT id FROM users WHERE email IN (?, ?) LIMIT 1`,
+    [emailNew, emailOld]
+  );
   let userId = existing[0]?.id || null;
 
   if (!userId) {
@@ -197,8 +256,8 @@ async function findOrCreateProvider(connection, { agencyId, providerName }) {
       try {
         const [result] = await connection.execute(
           `INSERT INTO users (role, status, first_name, last_name, email)
-           VALUES ('clinician', ?, ?, ?, ?)`,
-          [status, firstName || 'Provider', lastName || 'User', email]
+           VALUES ('provider', ?, ?, ?, ?)`,
+          [status, firstName || 'Provider', lastName || 'User', emailNew]
         );
         userId = result.insertId;
         inserted = true;
@@ -299,24 +358,32 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
 
         const defaults = await ensureDefaultCatalogIds(connection, agencyId, schoolId);
 
-        const identifierCode = (row.identifierCode && row.identifierCode.length === 6 ? row.identifierCode : '') || generateIdentifierCode(row.clientName);
-        if (!row.clientName) throw new Error('Client Name is required');
+        const clientCode = normalizeClientCode(row.clientName || row.identifierCode);
+        if (!clientCode) throw new Error('Client Name is required');
+        // Preserve the client identifier code for UI + matching.
+        // Note: the DB column may be sized differently across environments; migrations should align it.
+        const identifierCode = clientCode;
 
         const existingClientQuery = `SELECT id, referral_date, provider_id, organization_id, service_day, paperwork_received_at FROM clients WHERE agency_id = ? AND identifier_code = ? LIMIT 1`;
         const [existingRows] = await connection.execute(existingClientQuery, [agencyId, identifierCode]);
         const existing = existingRows[0] || null;
 
+        const clientStatusKey = normalizeClientStatusKey(row.status);
+        const paperworkStatusKey = normalizePaperworkStatusKey(row.paperworkStatus);
+        const insuranceKey = normalizeInsuranceKey(row.insurance);
+        const deliveryKey = normalizeDeliveryMethodKey(row.paperworkDelivery);
+
         const clientStatusId =
-          (await getCatalogId(connection, { table: 'client_statuses', agencyId, label: row.status, keyColumn: 'status_key', labelColumn: 'label' })) ||
+          (await getCatalogId(connection, { table: 'client_statuses', agencyId, label: clientStatusKey || row.status, keyColumn: 'status_key', labelColumn: 'label' })) ||
           defaults.clientStatusId;
         const paperworkStatusId =
-          (await getCatalogId(connection, { table: 'paperwork_statuses', agencyId, label: row.paperworkStatus, keyColumn: 'status_key', labelColumn: 'label' })) ||
+          (await getCatalogId(connection, { table: 'paperwork_statuses', agencyId, label: paperworkStatusKey || row.paperworkStatus, keyColumn: 'status_key', labelColumn: 'label' })) ||
           defaults.paperworkStatusId;
         const insuranceTypeId =
-          (await getCatalogId(connection, { table: 'insurance_types', agencyId, label: row.insurance, keyColumn: 'insurance_key', labelColumn: 'label' })) ||
+          (await getCatalogId(connection, { table: 'insurance_types', agencyId, label: insuranceKey || row.insurance, keyColumn: 'insurance_key', labelColumn: 'label' })) ||
           defaults.insuranceTypeId;
         const deliveryMethodId =
-          (await getDeliveryMethodId(connection, { schoolId, label: row.paperworkDelivery })) || defaults.deliveryMethodId;
+          (await getDeliveryMethodId(connection, { schoolId, label: deliveryKey || row.paperworkDelivery })) || defaults.deliveryMethodId;
 
         // Determine if this assignment changes slots
         const newProviderId = providerUserId || null;
@@ -325,7 +392,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         const oldIsCurrent = !!(existing?.provider_id && existing?.service_day);
         const newIsCurrent = !!(newProviderId && newDay);
 
-        const paperworkKey = normalizeKey(row.paperworkStatus);
+        const paperworkKey = normalizeKey(paperworkStatusKey || row.paperworkStatus);
         const paperworkIsCompleted = paperworkKey === 'completed' || String(row.paperworkStatus || '').toLowerCase() === 'completed';
         const oldPaperworkReceived = !!existing?.paperwork_received_at;
         const willMarkPaperworkReceived = paperworkIsCompleted && !oldPaperworkReceived;
@@ -389,8 +456,8 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
               newSchoolId,
               agencyId,
               newProviderId,
-              initialsFromName(row.clientName),
-              String(row.clientName).trim(),
+              clientCode,
+              clientCode,
               newProviderId && newDay ? 'ACTIVE' : 'PENDING_REVIEW',
               submissionDate,
               'NONE',
@@ -425,8 +492,8 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           set('organization_id', newSchoolId);
           set('provider_id', newProviderId);
           set('service_day', newDay);
-          set('full_name', String(row.clientName).trim());
-          set('initials', initialsFromName(row.clientName));
+          set('full_name', clientCode);
+          set('initials', clientCode);
           set('client_status_id', clientStatusId);
           set('paperwork_status_id', paperworkStatusId);
           set('insurance_type_id', insuranceTypeId);

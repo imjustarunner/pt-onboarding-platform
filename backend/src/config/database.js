@@ -139,8 +139,10 @@ const testConnection = async () => {
   }
 };
 
-// Start connection test
-testConnection();
+// Start connection test (skip during unit tests)
+if (process.env.NODE_ENV !== 'test' && process.env.SKIP_DB_CONNECT !== '1') {
+  testConnection();
+}
 
 export default pool;
 

@@ -63,63 +63,13 @@
     </div>
     
     <div class="settings-section">
-      <h3>Settings Menu Icons</h3>
+      <h3>Settings Navigation Icons</h3>
       <p class="section-description">
-        Customize icons for settings menu items. These icons will replace the default emojis in the settings modal.
+        Settings navigation icons are managed under <strong>Branding Configuration</strong> so they can be overridden per agency.
       </p>
-      
-      <div class="settings-icons-grid">
-        <div class="icon-setting-item">
-          <label>Company Profile</label>
-          <IconSelector v-model="settingsIcons.companyProfileIconId" />
-        </div>
-        <div class="icon-setting-item">
-          <label>Team & Roles</label>
-          <IconSelector v-model="settingsIcons.teamRolesIconId" />
-        </div>
-        <div class="icon-setting-item">
-          <label>Billing</label>
-          <IconSelector v-model="settingsIcons.billingIconId" />
-        </div>
-        <div class="icon-setting-item">
-          <label>Packages</label>
-          <IconSelector v-model="settingsIcons.packagesIconId" />
-        </div>
-        <div class="icon-setting-item">
-          <label>Checklist Items</label>
-          <IconSelector v-model="settingsIcons.checklistItemsIconId" />
-        </div>
-        <div class="icon-setting-item">
-          <label>Field Definitions</label>
-          <IconSelector v-model="settingsIcons.fieldDefinitionsIconId" />
-        </div>
-        <div class="icon-setting-item">
-          <label>Branding & Templates</label>
-          <IconSelector v-model="settingsIcons.brandingTemplatesIconId" />
-        </div>
-        <div class="icon-setting-item">
-          <label>Assets (Icons/Fonts)</label>
-          <IconSelector v-model="settingsIcons.assetsIconId" />
-        </div>
-        <div class="icon-setting-item">
-          <label>Communications</label>
-          <IconSelector v-model="settingsIcons.communicationsIconId" />
-        </div>
-        <div class="icon-setting-item">
-          <label>Integrations</label>
-          <IconSelector v-model="settingsIcons.integrationsIconId" />
-        </div>
-        <div class="icon-setting-item">
-          <label>Archive</label>
-          <IconSelector v-model="settingsIcons.archiveIconId" />
-        </div>
-      </div>
-      
-      <div class="form-actions">
-        <button type="button" class="btn btn-primary" @click="saveSettingsIcons" :disabled="savingIcons">
-          {{ savingIcons ? 'Saving...' : 'Save Settings Icons' }}
-        </button>
-      </div>
+      <router-link to="/admin/settings?category=theming&item=branding-config" class="btn btn-secondary">
+        Open Branding Configuration
+      </router-link>
     </div>
 
     <div class="settings-section">
@@ -198,24 +148,12 @@ const settings = ref({
 });
 
 const saving = ref(false);
-const savingIcons = ref(false);
+// (settings navigation icons are configured in Branding Configuration)
 const savingMyDashboardIcons = ref(false);
 const superAdminCount = ref(0);
 const totalAgencies = ref(0);
 
-const settingsIcons = ref({
-  companyProfileIconId: null,
-  teamRolesIconId: null,
-  billingIconId: null,
-  packagesIconId: null,
-  checklistItemsIconId: null,
-  fieldDefinitionsIconId: null,
-  brandingTemplatesIconId: null,
-  assetsIconId: null,
-  communicationsIconId: null,
-  integrationsIconId: null,
-  archiveIconId: null
-});
+// settings navigation icons are configured in BrandingConfig
 
 const myDashboardIcons = ref({
   checklistIconId: null,
@@ -241,19 +179,6 @@ const fetchSettings = async () => {
     await brandingStore.fetchPlatformBranding();
     const pb = brandingStore.platformBranding;
     if (pb) {
-      settingsIcons.value = {
-        companyProfileIconId: pb.company_profile_icon_id ?? null,
-        teamRolesIconId: pb.team_roles_icon_id ?? null,
-        billingIconId: pb.billing_icon_id ?? null,
-        packagesIconId: pb.packages_icon_id ?? null,
-        checklistItemsIconId: pb.checklist_items_icon_id ?? null,
-        fieldDefinitionsIconId: pb.field_definitions_icon_id ?? null,
-        brandingTemplatesIconId: pb.branding_templates_icon_id ?? null,
-        assetsIconId: pb.assets_icon_id ?? null,
-        communicationsIconId: pb.communications_icon_id ?? null,
-        integrationsIconId: pb.integrations_icon_id ?? null,
-        archiveIconId: pb.archive_icon_id ?? null
-      };
       myDashboardIcons.value = {
         checklistIconId: pb.my_dashboard_checklist_icon_id ?? null,
         trainingIconId: pb.my_dashboard_training_icon_id ?? null,
@@ -267,31 +192,6 @@ const fetchSettings = async () => {
   }
 };
 
-const saveSettingsIcons = async () => {
-  try {
-    savingIcons.value = true;
-    await api.put('/platform-branding', {
-      companyProfileIconId: settingsIcons.value.companyProfileIconId,
-      teamRolesIconId: settingsIcons.value.teamRolesIconId,
-      billingIconId: settingsIcons.value.billingIconId,
-      packagesIconId: settingsIcons.value.packagesIconId,
-      checklistItemsIconId: settingsIcons.value.checklistItemsIconId,
-      fieldDefinitionsIconId: settingsIcons.value.fieldDefinitionsIconId,
-      brandingTemplatesIconId: settingsIcons.value.brandingTemplatesIconId,
-      assetsIconId: settingsIcons.value.assetsIconId,
-      communicationsIconId: settingsIcons.value.communicationsIconId,
-      integrationsIconId: settingsIcons.value.integrationsIconId,
-      archiveIconId: settingsIcons.value.archiveIconId
-    });
-    await brandingStore.fetchPlatformBranding();
-    alert('Settings icons saved successfully!');
-  } catch (err) {
-    console.error('Failed to save settings icons:', err);
-    alert('Failed to save settings icons');
-  } finally {
-    savingIcons.value = false;
-  }
-};
 
 const saveMyDashboardIcons = async () => {
   try {
