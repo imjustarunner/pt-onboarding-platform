@@ -714,10 +714,24 @@ function parsePayrollRows(records) {
     // Some reports can contain blank/footer rows; ignore rows with no identifying fields at all.
     if (!providerName && !serviceCode) return null;
     if (!providerName || !serviceCode) {
-      throw new Error(
+      const err = new Error(
         `Row ${idx + 2}: provider/clinician name and service code are required. ` +
-          `Expected columns like "Clinician Name" and "Service Code".`
+          `Expected columns like "Clinician Name" (or "Provider Name") and "Service Code" (or "CPT Code").`
       );
+      err.rowNumber = idx + 2;
+      err.detectedHeaders = detectedHeaders;
+      err.exampleExpected = [
+        'provider name',
+        'clinician name',
+        'rendering provider full name',
+        'service code',
+        'cpt code',
+        'hcpcs code',
+        'date of service',
+        'dos',
+        'units'
+      ];
+      throw err;
     }
 
     // Sanitize units: default empty/0 to 1.0 (counts the row).
@@ -2192,7 +2206,16 @@ export const importPayrollCsv = [
       try {
         parsed = parsePayrollFile(req.file.buffer, req.file.originalname);
       } catch (e) {
-        return res.status(400).json({ error: { message: e.message || 'Failed to parse report' } });
+        return res.status(400).json({
+          error: {
+            message: e.message || 'Failed to parse report',
+            errorMeta: {
+              rowNumber: e?.rowNumber || null,
+              detectedHeaders: Array.isArray(e?.detectedHeaders) ? e.detectedHeaders : null,
+              exampleExpected: Array.isArray(e?.exampleExpected) ? e.exampleExpected : null
+            }
+          }
+        });
       }
       if (!parsed || parsed.length === 0) {
         return res.status(400).json({ error: { message: 'No rows found in report' } });
