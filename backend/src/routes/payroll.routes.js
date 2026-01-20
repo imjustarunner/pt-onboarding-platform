@@ -79,6 +79,7 @@ import {
   ,patchTimeClaim
   ,createOfficeLocationForPayroll
   ,updateOfficeLocationForPayroll
+  ,listMyAssignedSchoolsForPayroll
   ,listAgencySchoolsForPayroll
   ,listOfficeLocationsForPayroll
   ,updateMyHomeAddress
@@ -149,6 +150,7 @@ router.delete('/me/company-card-expenses/:id', deleteMyCompanyCardExpense);
 router.post('/me/time-claims', createMyTimeClaim);
 router.get('/me/time-claims', listMyTimeClaims);
 router.delete('/me/time-claims/:id', deleteMyTimeClaim);
+router.get('/me/assigned-schools', listMyAssignedSchoolsForPayroll);
 router.get('/agency-schools', listAgencySchoolsForPayroll);
 router.get('/office-locations', listOfficeLocationsForPayroll);
 router.post('/office-locations', createOfficeLocationForPayroll);

@@ -4790,6 +4790,47 @@ export const listAgencySchoolsForPayroll = async (req, res, next) => {
   }
 };
 
+export const listMyAssignedSchoolsForPayroll = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!req.user?.id) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    // Membership for non-admins; admin/support can view.
+    if (!isAdminRole(req.user.role)) {
+      const [rows] = await pool.execute(
+        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+        [req.user.id, agencyId]
+      );
+      if (!rows || rows.length === 0) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    }
+
+    // "Assigned schools" for provider-based in-school claims come from provider_school_assignments.
+    // Use DISTINCT to collapse day-of-week rows into one school option.
+    const [schools] = await pool.execute(
+      `SELECT DISTINCT
+              psa.school_organization_id AS schoolOrganizationId,
+              s.name AS name
+       FROM provider_school_assignments psa
+       JOIN agencies s ON s.id = psa.school_organization_id
+       JOIN organization_affiliations oa
+         ON oa.organization_id = psa.school_organization_id
+        AND oa.agency_id = ?
+        AND oa.is_active = TRUE
+       WHERE psa.provider_user_id = ?
+         AND psa.is_active = TRUE
+       ORDER BY s.name ASC`,
+      [agencyId, req.user.id]
+    );
+
+    res.json(schools || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const listOfficeLocationsForPayroll = async (req, res, next) => {
   try {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
@@ -7518,9 +7559,10 @@ export const createPayrollRateTemplateFromUser = async (req, res, next) => {
       });
     }
 
-    const [rateCard, perCodeRates] = await Promise.all([
+    const [rateCard, perCodeRates, rules] = await Promise.all([
       PayrollRateCard.findForUser(resolvedAgencyId, userIdNum),
-      PayrollRate.listForUser(resolvedAgencyId, userIdNum)
+      PayrollRate.listForUser(resolvedAgencyId, userIdNum),
+      PayrollServiceCodeRule.listForAgency(resolvedAgencyId)
     ]);
 
     const isVariable = !rateCard; // Convention: no rate card => fee-for-service template
@@ -7537,13 +7579,24 @@ export const createPayrollRateTemplateFromUser = async (req, res, next) => {
       updatedByUserId: req.user.id
     });
 
+    const ruleByCode = new Map();
+    for (const r of rules || []) {
+      const code = String(r?.service_code || '').trim().toUpperCase();
+      if (!code) continue;
+      const visRaw = r?.show_in_rate_sheet;
+      const vis = visRaw === undefined || visRaw === null ? 1 : (visRaw ? 1 : 0);
+      ruleByCode.set(code, { showInRateSheet: vis });
+    }
+
     await PayrollRateTemplateRate.replaceAllForTemplate({
       templateId: t.id,
       agencyId: resolvedAgencyId,
       rates: (perCodeRates || []).map((r) => ({
         serviceCode: r.service_code,
         rateAmount: Number(r.rate_amount || 0),
-        rateUnit: r.rate_unit || 'per_unit'
+        rateUnit: r.rate_unit || 'per_unit',
+        // Persist visibility as part of the template so applying it also hides/shows the same codes.
+        showInRateSheet: (ruleByCode.get(String(r.service_code || '').trim().toUpperCase())?.showInRateSheet ?? 1)
       }))
     });
 
@@ -7651,6 +7704,35 @@ export const applyPayrollRateTemplateToUser = async (req, res, next) => {
         effectiveStart: null,
         effectiveEnd: null
       });
+    }
+
+    // Also apply rate sheet visibility settings captured in the template (best-effort).
+    // Visibility is stored on the agency-wide service code rules dictionary; only update codes present in the template.
+    try {
+      const desiredByCode = new Map();
+      for (const r of rates || []) {
+        const code = String(r?.service_code || '').trim().toUpperCase();
+        if (!code) continue;
+        if (r.show_in_rate_sheet === undefined || r.show_in_rate_sheet === null) continue; // older DB/template
+        desiredByCode.set(code, r.show_in_rate_sheet ? 1 : 0);
+      }
+      const codes = Array.from(desiredByCode.keys());
+      if (codes.length) {
+        await ensureServiceCodeRulesExist({ agencyId: resolvedAgencyId, serviceCodes: codes });
+        await Promise.all(
+          codes.map((code) =>
+            pool.execute(
+              `UPDATE payroll_service_code_rules
+               SET show_in_rate_sheet = ?
+               WHERE agency_id = ? AND service_code = ?
+               LIMIT 1`,
+              [desiredByCode.get(code) ? 1 : 0, resolvedAgencyId, code]
+            )
+          )
+        );
+      }
+    } catch {
+      // Do not block template application if visibility updates fail or column doesn't exist yet.
     }
 
     res.json({ ok: true });

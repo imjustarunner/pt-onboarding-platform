@@ -34,7 +34,7 @@
       </div>
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
-        <div class="field">
+          <div class="field">
           <label>Present pay period (destination)</label>
           <select v-model="processTargetPeriodId">
             <option :value="-1" v-if="suggestedCurrentPeriodRange">
@@ -44,13 +44,13 @@
             <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
           </select>
           <div class="hint" v-if="creatingCurrentPeriod">Creating present pay period…</div>
-        </div>
-        <div class="field">
+          </div>
+          <div class="field">
           <label>Upload updated prior pay period report</label>
           <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onProcessFilePick" />
           <div class="hint" v-if="processDetectedHint">{{ processDetectedHint }}</div>
-        </div>
-        <div class="field">
+          </div>
+          <div class="field">
           <label>Next</label>
           <div class="actions" style="margin: 0;">
             <button class="btn btn-secondary" @click="processAutoImport" :disabled="processingChanges || !processImportFile || !agencyId">
@@ -67,8 +67,8 @@
             Will add differences into: {{ processTargetEffectiveLabel }}
           </div>
           <div class="warn-box" v-if="processError">{{ processError }}</div>
+          </div>
         </div>
-      </div>
 
       <!-- Process Changes: prior-period confirmation modal -->
       <div v-if="processConfirmOpen" class="modal-backdrop" @click.self="processConfirmOpen = false">
@@ -126,11 +126,11 @@
           <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
             <button class="btn btn-primary" @click="confirmProcessImport" :disabled="processingChanges || !processImportFile || !agencyId">
               {{ processingChanges ? 'Importing...' : 'Confirm & Import prior period' }}
-            </button>
+          </button>
           </div>
         </div>
       </div>
-    </div>
+        </div>
 
     <div class="card" v-if="agencyId" style="margin-bottom: 12px;">
       <h2 class="card-title">Current Payroll Run</h2>
@@ -274,9 +274,18 @@
         <h2 class="card-title">Pay Periods (History)</h2>
         <div class="hint">Pay periods are created automatically when you import a report.</div>
 
+        <div class="field" style="margin-top: 10px;">
+          <input
+            v-model="historySearch"
+            type="text"
+            placeholder="Search pay periods…"
+            style="padding: 8px 12px; border: 1px solid var(--border, #dee2e6); border-radius: 6px; font-size: 14px; width: 100%;"
+          />
+        </div>
+
         <div class="list">
           <button
-            v-for="p in historyPeriods"
+            v-for="p in historyPeriodsFiltered"
             :key="p.id"
             class="list-item"
             :class="{ active: selectedPeriodId === p.id }"
@@ -302,7 +311,7 @@
               <option :value="null" disabled>Select a pay period…</option>
               <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
             </select>
-          </div>
+        </div>
           <div class="field">
             <label>Provider</label>
             <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;">
@@ -312,7 +321,7 @@
               </select>
               <button class="btn btn-secondary btn-sm" @click="clearSelectedProvider" :disabled="!selectedUserId">
                 Clear
-              </button>
+          </button>
             </div>
           </div>
           <div class="field">
@@ -335,11 +344,11 @@
 
         <div v-if="canSeeRunResults">
           <h3 class="section-title">Run Payroll (Totals)</h3>
-          <div class="table-wrap">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Provider</th>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Provider</th>
                   <th class="right">No Note</th>
                   <th class="right">Draft</th>
                   <th class="right">Finalized</th>
@@ -348,19 +357,19 @@
                   <th class="right">Direct Credits</th>
                   <th class="right">Indirect Credits</th>
                   <th class="right">Other Credits</th>
-                  <th class="right">Subtotal</th>
+                <th class="right">Subtotal</th>
                   <th class="right">Direct Hourly Rate</th>
                   <th class="right">Indirect Hourly Rate</th>
                   <th class="right">Effective Hourly Rate</th>
                   <th class="right">Adjustments</th>
-                  <th class="right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
+                <th class="right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
                 <tr v-for="s in summariesSortedByProvider" :key="s.id" @click="selectSummary(s)" class="clickable">
                   <!-- compute pay totals from breakdown (non-flat only) -->
                   <!-- eslint-disable-next-line vue/no-use-v-if-with-v-for -->
-                  <td>{{ s.first_name }} {{ s.last_name }}</td>
+                <td>{{ s.first_name }} {{ s.last_name }}</td>
                   <td class="right">{{ fmtNum(s.no_note_units ?? 0) }}</td>
                   <td class="right">{{ fmtNum(s.draft_units ?? 0) }}</td>
                   <td class="right">{{ fmtNum(s.finalized_units ?? s.total_units ?? 0) }}</td>
@@ -372,7 +381,7 @@
                   <td class="right">{{ fmtNum(s.direct_hours ?? 0) }}</td>
                   <td class="right">{{ fmtNum(s.indirect_hours ?? 0) }}</td>
                   <td class="right">{{ fmtNum(((s.total_hours ?? 0) - (s.direct_hours ?? 0) - (s.indirect_hours ?? 0)) || 0) }}</td>
-                  <td class="right">{{ fmtMoney(s.subtotal_amount) }}</td>
+                <td class="right">{{ fmtMoney(s.subtotal_amount) }}</td>
                   <td class="right muted">
                     {{
                       (() => {
@@ -407,13 +416,13 @@
                     }}
                   </td>
                   <td class="right">{{ fmtMoney(s.adjustments_amount) }}</td>
-                  <td class="right">{{ fmtMoney(s.total_amount) }}</td>
-                </tr>
-                <tr v-if="!summaries.length">
+                <td class="right">{{ fmtMoney(s.total_amount) }}</td>
+              </tr>
+              <tr v-if="!summaries.length">
                   <td colspan="15" class="muted">No run results yet. Click “Run Payroll”.</td>
-                </tr>
-              </tbody>
-            </table>
+              </tr>
+            </tbody>
+          </table>
           </div>
         </div>
         <div v-else class="hint" style="margin-top: 10px;">
@@ -429,6 +438,45 @@
                 <div class="hint">Edit the workspace + per-user adjustments before running payroll.</div>
               </div>
               <button class="btn btn-secondary btn-sm" @click="showStageModal = false">Close</button>
+            </div>
+
+            <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Providers in this payroll (Tier — live)</h3>
+              <div class="hint">
+                Based on the raw import for this pay period. Tier preview updates as you save workspace edits / draft-payable decisions.
+              </div>
+              <div v-if="!(payrollStageProviderTierRows.matched || []).length && !(payrollStageProviderTierRows.unmatched || []).length" class="muted" style="margin-top: 8px;">
+                No providers found in the raw import yet.
+              </div>
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Tier</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="p in (payrollStageProviderTierRows.matched || [])" :key="p.key">
+                      <td>{{ p.name }}</td>
+                      <td class="muted">{{ p.tierLabel }}</td>
+                      <td class="muted">{{ p.tierStatus || '—' }}</td>
+                    </tr>
+                    <tr v-if="(payrollStageProviderTierRows.unmatched || []).length">
+                      <td colspan="3" class="warn-box" style="margin-top: 8px;">
+                        <div><strong>Unmatched provider names in raw import</strong> (no user match):</div>
+                        <div class="muted" style="margin-top: 6px;">
+                          {{ (payrollStageProviderTierRows.unmatched || []).slice(0, 25).join(', ') }}
+                          <span v-if="(payrollStageProviderTierRows.unmatched || []).length > 25" class="muted">
+                            … (+{{ (payrollStageProviderTierRows.unmatched || []).length - 25 }} more)
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
 
             <div class="card" style="margin-top: 12px;">
@@ -486,12 +534,12 @@
                           <button class="btn btn-danger btn-sm" @click="rejectMileageClaim(c)" :disabled="approvingMileageClaimId === c.id">
                             Reject
                           </button>
-                        </div>
+            </div>
                       </td>
                     </tr>
                   </tbody>
                 </table>
-              </div>
+            </div>
 
               <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
                 <button class="btn btn-secondary" @click="loadAllPendingMileageClaims" :disabled="pendingMileageLoading || !agencyId">
@@ -1542,15 +1590,15 @@
                     <label>PTO Rate ($/hr)</label>
                     <input v-model="adjustments.ptoRate" type="number" step="0.01" :disabled="isPeriodPosted" />
                   </div>
-                  <div class="actions">
+        <div class="actions">
                     <button class="btn btn-secondary" @click="saveAdjustments" :disabled="savingAdjustments || isPeriodPosted">
                       {{ savingAdjustments ? 'Saving...' : 'Save Add-ons' }}
-                    </button>
+          </button>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
+        </div>
         </div>
 
         <!-- Preview Post modal -->
@@ -1798,7 +1846,7 @@
                 <input
                   v-model="rawDraftSearch"
                   type="text"
-                  :placeholder="rawMode === 'draft_audit' ? 'Search provider / code…' : 'Search provider / code / DOS…'"
+                  placeholder="Search provider / code / DOS…"
                 />
               </div>
               <div class="field">
@@ -1822,21 +1870,21 @@
                   <tr>
                     <th>Provider Name</th>
                     <th>Service Code</th>
-                    <th v-if="rawMode !== 'draft_audit'">Date</th>
+                    <th>DOS</th>
                     <th class="right">
                       <span v-if="rawMode === 'draft_audit'">Units</span>
                       <span v-else>Minutes</span>
                     </th>
                     <th>Note Status</th>
                     <th v-if="rawMode === 'draft_audit'">Draft Payable?</th>
-                    <th v-else>Done</th>
+                    <th v-else>Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="r in rawModeRows.slice(0, 200)" :key="r.id">
+                  <tr v-for="r in rawModeRowsLimited" :key="r.id">
                     <td>{{ r.provider_name }}</td>
                     <td>{{ r.service_code }}</td>
-                    <td v-if="rawMode !== 'draft_audit'" class="muted">{{ r.service_date || '' }}</td>
+                    <td class="muted">{{ ymd(r.service_date) }}</td>
                     <td class="right">
                       <span v-if="rawMode === 'draft_audit'">{{ fmtNum(r.unit_count) }}</span>
                       <input
@@ -1864,23 +1912,50 @@
                       <span v-else class="muted">—</span>
                     </td>
                     <td v-else>
-                      <label class="muted" style="display: inline-flex; align-items: center; gap: 8px;">
-                        <input
-                          type="checkbox"
-                          :checked="!!r.processed_at"
+                      <div style="display: flex; align-items: center; gap: 10px; justify-content: flex-end;">
+                        <label
+                          v-if="rawMode === 'process_h0031' || rawMode === 'process_h0032'"
+                          class="muted"
+                          style="display: inline-flex; align-items: center; gap: 6px; margin-right: 6px;"
+                          title="Local checklist only (not saved)"
+                        >
+                          <input
+                            type="checkbox"
+                            :checked="!!(rawProcessChecklistByRowId || {})[Number(r.id)]"
+                            @change="setRawProcessChecked(r.id, $event.target.checked)"
+                          />
+                          <span>Check</span>
+                        </label>
+                        <span class="muted">{{ r.processed_at ? 'Done' : 'Not done' }}</span>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm"
                           :disabled="isPeriodPosted || !(Number(r.requires_processing) === 1)"
-                          @change="toggleRawProcessed(r, $event.target.checked)"
-                        />
-                        <span>{{ r.processed_at ? 'Done' : 'Pending' }}</span>
-                      </label>
+                          @click="toggleRawProcessed(r, !r.processed_at)"
+                        >
+                          {{ r.processed_at ? 'Undo' : 'Mark done' }}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   <tr v-if="!rawModeRows.length">
-                    <td :colspan="rawMode === 'draft_audit' ? 5 : 6" class="muted">No rows found.</td>
+                    <td colspan="6" class="muted">No rows found.</td>
                   </tr>
                 </tbody>
               </table>
-              <div class="hint" v-if="rawModeRows.length">Showing first 200 rows.</div>
+              <div class="actions" style="margin-top: 10px; justify-content: space-between; align-items: center;">
+                <div class="hint" v-if="rawModeRows.length">
+                  Showing {{ Math.min(rawModeRows.length, rawRowLimit) }} of {{ rawModeRows.length }} rows.
+                </div>
+                <button
+                  v-if="rawModeRows.length > rawRowLimit"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="showNextRawRows"
+                >
+                  Show next 200
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2112,6 +2187,7 @@ const authStore = useAuthStore();
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 
 const orgSearch = ref('');
+const historySearch = ref('');
 const selectedOrgId = ref(null);
 
 const agencyId = computed(() => {
@@ -2249,6 +2325,8 @@ const showCarryoverModal = ref(false);
 const rawImportRows = ref([]);
 const rawDraftSearch = ref('');
 const rawDraftOnly = ref(true);
+const rawRowLimit = ref(200);
+const rawProcessChecklistByRowId = ref({}); // UI-only checklist (not saved anywhere)
 const updatingDraftPayable = ref(false);
 const rawDraftError = ref('');
 const runningPayroll = ref(false);
@@ -3223,6 +3301,24 @@ const historyPeriods = computed(() => {
   return [...pastOrCurrent, ...next];
 });
 
+const historyPeriodsFiltered = computed(() => {
+  const all = (historyPeriods.value || []).slice();
+  const q = String(historySearch.value || '').trim().toLowerCase();
+  if (!q) return all;
+  return all.filter((p) => {
+    const label = String(periodRangeLabel(p) || '').toLowerCase();
+    const status = String(p?.status || '').toLowerCase();
+    const ranBy = `${p?.finalized_by_first_name || ''} ${p?.finalized_by_last_name || ''}`.trim().toLowerCase();
+    const ranAt = String(p?.finalized_at || '').slice(0, 19).toLowerCase();
+    return (
+      label.includes(q) ||
+      status.includes(q) ||
+      ranBy.includes(q) ||
+      ranAt.includes(q)
+    );
+  });
+});
+
 
 const selectedUserName = computed(() => {
   const u = agencyUsers.value.find((x) => x.id === selectedUserId.value);
@@ -3931,6 +4027,28 @@ const rawDraftRows = computed(() => {
 
 const rawMode = ref('draft_audit'); // draft_audit | process_h0031 | process_h0032 | processed
 
+const rawModeRowsLimited = computed(() => {
+  const all = rawModeRows.value || [];
+  const lim = Number(rawRowLimit.value || 200);
+  if (!Number.isFinite(lim) || lim <= 0) return all.slice(0, 200);
+  return all.slice(0, lim);
+});
+
+const showNextRawRows = () => {
+  rawRowLimit.value = Number(rawRowLimit.value || 0) + 200;
+};
+
+const setRawProcessChecked = (rowId, checked) => {
+  const id = Number(rowId || 0);
+  if (!Number.isFinite(id) || id <= 0) return;
+  rawProcessChecklistByRowId.value = { ...(rawProcessChecklistByRowId.value || {}), [id]: !!checked };
+};
+
+watch([rawMode, rawDraftSearch, rawDraftOnly, showRawModal], ([mode, q, only, open]) => {
+  // Reset paging when changing modes/search or reopening modal.
+  if (open) rawRowLimit.value = 200;
+});
+
 const rawModeRows = computed(() => {
   const all = (rawImportRows.value || []).slice();
   const mode = String(rawMode.value || 'draft_audit');
@@ -3948,14 +4066,12 @@ const rawModeRows = computed(() => {
   } else if (mode === 'process_h0031') {
     rows = rows.filter((r) =>
       Number(r.requires_processing) === 1 &&
-      !r.processed_at &&
       willBePaid(r) &&
       String(r.service_code || '').trim().toUpperCase() === 'H0031'
     );
   } else if (mode === 'process_h0032') {
     rows = rows.filter((r) =>
       Number(r.requires_processing) === 1 &&
-      !r.processed_at &&
       willBePaid(r) &&
       String(r.service_code || '').trim().toUpperCase() === 'H0032'
     );
@@ -3972,7 +4088,17 @@ const rawModeRows = computed(() => {
       return prov.includes(q) || code.includes(q) || dos.includes(q);
     });
   }
-  rows.sort((a, b) => String(b.service_date || '').localeCompare(String(a.service_date || '')));
+  const processedRank = (r) => (r?.processed_at ? 1 : 0);
+  rows.sort((a, b) => {
+    // In processing views, keep unfinished rows at the top and done rows at the bottom,
+    // so users can undo mistakes without rows disappearing.
+    if (mode === 'process_h0031' || mode === 'process_h0032') {
+      const ra = processedRank(a);
+      const rb = processedRank(b);
+      if (ra !== rb) return ra - rb;
+    }
+    return String(b.service_date || '').localeCompare(String(a.service_date || ''));
+  });
   return rows;
 });
 
@@ -4143,8 +4269,8 @@ const loadPeriods = async () => {
     // Ensure upcoming pay periods exist so claims can be approved/targeted without waiting for a billing import.
     // Idempotent: creates only missing periods.
     await api.post('/payroll/periods/ensure-future', { months: 6, pastPeriods: 2 }, { params: { agencyId: agencyId.value } });
-    const resp = await api.get('/payroll/periods', { params: { agencyId: agencyId.value } });
-    periods.value = resp.data || [];
+  const resp = await api.get('/payroll/periods', { params: { agencyId: agencyId.value } });
+  periods.value = resp.data || [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load pay periods';
     periods.value = [];
@@ -4162,15 +4288,15 @@ const selectPeriod = async (id) => {
 const loadPeriodDetails = async () => {
   if (!selectedPeriodId.value) return;
   try {
-    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}`);
-    selectedPeriod.value = resp.data?.period || null;
+  const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}`);
+  selectedPeriod.value = resp.data?.period || null;
     rawImportRows.value = resp.data?.rows || [];
     const nextSummaries = (resp.data?.summaries || []).map((s) => {
-      if (typeof s.breakdown === 'string') {
-        try { s.breakdown = JSON.parse(s.breakdown); } catch { /* ignore */ }
-      }
-      return s;
-    });
+    if (typeof s.breakdown === 'string') {
+      try { s.breakdown = JSON.parse(s.breakdown); } catch { /* ignore */ }
+    }
+    return s;
+  });
     summaries.value = nextSummaries;
     if (selectedUserId.value) {
       const found = nextSummaries.find((x) => x.user_id === selectedUserId.value);
@@ -4194,6 +4320,8 @@ const openRawModal = async () => {
   if (!Array.isArray(rawImportRows.value) || rawImportRows.value.length === 0) {
     await loadPeriodDetails();
   }
+  rawProcessChecklistByRowId.value = {};
+  rawRowLimit.value = 200;
   showRawModal.value = true;
 };
 
@@ -4259,6 +4387,39 @@ const selectedTier = computed(() => {
   const uid = selectedUserId.value;
   if (!uid) return null;
   return tierByUserId.value?.[uid] || null;
+});
+
+const payrollStageProviderTierRows = computed(() => {
+  const rows = rawImportRows.value || [];
+
+  const matchedUserIds = new Set();
+  const unmatchedNames = new Set();
+  for (const r of rows || []) {
+    const uid = Number(r?.user_id || r?.userId || 0);
+    if (Number.isFinite(uid) && uid > 0) matchedUserIds.add(uid);
+    else {
+      const nm = String(r?.provider_name || r?.providerName || '').trim();
+      if (nm) unmatchedNames.add(nm);
+    }
+  }
+
+  const out = [];
+  for (const uid of Array.from(matchedUserIds)) {
+    const tier = tierByUserId.value?.[uid] || null;
+    out.push({
+      key: `u:${uid}`,
+      userId: uid,
+      name: nameForUserId(uid),
+      tierLabel: tier?.label || '—',
+      tierStatus: tier?.status || ''
+    });
+  }
+
+  // Sort by last name, first name if we have it; fallback to string compare.
+  out.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+
+  const unmatched = Array.from(unmatchedNames).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  return { matched: out, unmatched };
 });
 
 const loadServiceCodeRules = async () => {

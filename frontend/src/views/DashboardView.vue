@@ -116,7 +116,7 @@
 
         <div v-if="submitModalView === 'root'">
           <div class="fields-grid" style="margin-top: 12px;">
-            <button v-if="inSchoolEnabled" type="button" class="dash-card dash-card-submit" @click="openInSchoolClaims">
+            <button v-if="inSchoolEnabled && hasAssignedSchools" type="button" class="dash-card dash-card-submit" @click="openInSchoolClaims">
               <div class="dash-card-title">In-School Claims</div>
               <div class="dash-card-desc">School Mileage and Med Cancel.</div>
               <div class="dash-card-meta">
@@ -209,7 +209,7 @@
             </template>
 
             <template v-else>
-            <button type="button" class="dash-card" @click="goToSubmission('school_mileage')">
+            <button v-if="hasAssignedSchools" type="button" class="dash-card" @click="goToSubmission('school_mileage')">
               <div class="dash-card-title">School Mileage</div>
               <div class="dash-card-desc">Home ↔ School minus Home ↔ Office (auto).</div>
               <div class="dash-card-meta">
@@ -218,7 +218,7 @@
             </button>
 
             <button
-              v-if="authStore.user?.medcancelEnabled && medcancelEnabledForAgency"
+              v-if="authStore.user?.medcancelEnabled && medcancelEnabledForAgency && hasAssignedSchools"
               type="button"
               class="dash-card"
               @click="goToSubmission('medcancel')"
@@ -505,6 +505,7 @@ const handleCardClick = (card) => {
   if (card.kind === 'action' && card.id === 'submit') {
     showSubmitModal.value = true;
     submitModalView.value = 'root';
+    loadMyAssignedSchools();
     return;
   }
   if (card.kind === 'link' && card.to) {
@@ -565,9 +566,35 @@ const agencyFlags = computed(() => parseFeatureFlags(agencyStore.currentAgency?.
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
 
+const assignedSchools = ref([]);
+const assignedSchoolsLoading = ref(false);
+const hasAssignedSchools = computed(() => (assignedSchools.value || []).length > 0);
+
+const loadMyAssignedSchools = async () => {
+  if (props.previewMode) return;
+  if (!currentAgencyId.value) {
+    assignedSchools.value = [];
+    return;
+  }
+  try {
+    assignedSchoolsLoading.value = true;
+    const api = (await import('../services/api')).default;
+    const resp = await api.get('/payroll/me/assigned-schools', { params: { agencyId: currentAgencyId.value } });
+    assignedSchools.value = resp.data || [];
+  } catch {
+    assignedSchools.value = [];
+  } finally {
+    assignedSchoolsLoading.value = false;
+  }
+};
+
 const openInSchoolClaims = () => {
   if (!inSchoolEnabled.value) {
     window.alert('In-School submissions are disabled for this organization.');
+    return;
+  }
+  if (!hasAssignedSchools.value) {
+    window.alert('You do not have any assigned school locations, so In-School Claims are not available.');
     return;
   }
   submitModalView.value = 'in_school';
@@ -729,6 +756,7 @@ onMounted(async () => {
 
 watch([currentAgencyId, isOnboardingComplete], async () => {
   await loadCurrentTier();
+  await loadMyAssignedSchools();
 });
 </script>
 

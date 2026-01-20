@@ -154,7 +154,7 @@ steps:
       - '--set-env-vars'
       - 'NODE_ENV=production,DB_HOST=/cloudsql/${_CLOUD_SQL_CONNECTION_NAME},DB_PORT=3306,DB_NAME=onboarding_db,STORAGE_TYPE=gcs,GCS_PROJECT_ID=$PROJECT_ID,GCS_BUCKET_NAME=${_GCS_BUCKET_NAME}'
       - '--set-secrets'
-      - 'JWT_SECRET=JWT_SECRET:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_USER=DB_USER:latest,GCS_CREDENTIALS=GCS_CREDENTIALS:latest'
+      - 'JWT_SECRET=JWT_SECRET:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_USER=DB_USER:latest,GCS_CREDENTIALS=GCS_CREDENTIALS:latest,GOOGLE_MAPS_API_KEY=GOOGLE_MAPS_API_KEY:latest'
       - '--memory'
       - '512Mi'
       - '--cpu'

@@ -254,8 +254,13 @@ gcloud run deploy onboarding-backend \
   --service-account cloud-run-sa@your-project-id.iam.gserviceaccount.com \
   --add-cloudsql-instances=PROJECT_ID:REGION:INSTANCE_NAME \
   --set-env-vars="NODE_ENV=production,DB_HOST=/cloudsql/PROJECT_ID:REGION:INSTANCE_NAME,DB_PORT=3306,DB_NAME=onboarding_db,STORAGE_TYPE=gcs,GCS_PROJECT_ID=your-project-id,GCS_BUCKET_NAME=your-bucket-name" \
-  --set-secrets="JWT_SECRET=JWT_SECRET:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_USER=DB_USER:latest,GCS_CREDENTIALS=GCS_CREDENTIALS:latest"
+  --set-secrets="JWT_SECRET=JWT_SECRET:latest,DB_PASSWORD=DB_PASSWORD:latest,DB_USER=DB_USER:latest,GCS_CREDENTIALS=GCS_CREDENTIALS:latest,GOOGLE_MAPS_API_KEY=GOOGLE_MAPS_API_KEY:latest"
 ```
+
+**Google Maps (Distance Matrix)**
+
+- The backend reads the key from **`GOOGLE_MAPS_API_KEY`** (used for automatic mileage distance calculation).
+- Recommended: store it in Secret Manager and mount it as an env var (as shown above).
 
 **Frontend:**
 ```bash

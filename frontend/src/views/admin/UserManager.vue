@@ -27,7 +27,7 @@
             id="userSearch"
             v-model="userSearch"
             type="text"
-            placeholder="Name or email…"
+            placeholder="Name, email, agency, role, status, credential…"
             style="padding: 8px 12px; border: 1px solid var(--border, #dee2e6); border-radius: 6px; font-size: 14px; min-width: 220px;"
           />
         </div>
@@ -91,6 +91,7 @@
             <th>Email</th>
             <th>Agency</th>
             <th>Role</th>
+            <th>Credential</th>
             <th>Status</th>
             <th>Created</th>
             <th>Actions</th>
@@ -134,6 +135,9 @@
               </span>
               <span v-if="user.has_provider_access && (user.role === 'staff' || user.role === 'support')" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Provider</span>
               <span v-if="user.has_staff_access && (user.role === 'provider' || user.role === 'clinician')" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Staff</span>
+            </td>
+            <td class="muted">
+              {{ user.provider_credential || '—' }}
             </td>
             <td>
               <span :class="['badge', getStatusBadgeClassWrapper(user.status, user.is_active)]">
@@ -2217,7 +2221,19 @@ const sortedUsers = computed(() => {
       const name = `${u.first_name || ''} ${u.last_name || ''}`.trim().toLowerCase();
       const email = String(u.email || '').trim().toLowerCase();
       const agenciesStr = String(u.agencies || '').toLowerCase();
-      return name.includes(q) || email.includes(q) || agenciesStr.includes(q);
+      const role = String(u.role || '').trim().toLowerCase();
+      const status = String(u.status || '').trim().toLowerCase();
+      const statusLabel = String(getStatusLabelWrapper(u.status, u.is_active) || '').trim().toLowerCase();
+      const credential = String(u.provider_credential || '').trim().toLowerCase();
+      return (
+        name.includes(q) ||
+        email.includes(q) ||
+        agenciesStr.includes(q) ||
+        role.includes(q) ||
+        status.includes(q) ||
+        statusLabel.includes(q) ||
+        credential.includes(q)
+      );
     });
   }
 

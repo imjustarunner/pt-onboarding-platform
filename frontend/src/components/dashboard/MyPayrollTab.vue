@@ -18,7 +18,7 @@
           </div>
           <button class="btn btn-primary btn-sm" @click.stop="openPtoChooserModal" type="button">
             Request PTO
-          </button>
+        </button>
         </summary>
 
         <div v-if="ptoLoading" class="muted" style="margin-top: 10px;">Loading PTO…</div>
@@ -103,26 +103,26 @@
             <div class="muted">History of your submissions.</div>
           </div>
           <button class="btn btn-secondary btn-sm" @click.stop="loadMileageClaims" type="button" :disabled="mileageClaimsLoading">
-            {{ mileageClaimsLoading ? 'Loading…' : 'Refresh' }}
-          </button>
+          {{ mileageClaimsLoading ? 'Loading…' : 'Refresh' }}
+        </button>
         </summary>
 
-        <div v-if="mileageClaimsError" class="warn-box" style="margin-top: 10px;">{{ mileageClaimsError }}</div>
-        <div v-if="(mileageClaims || []).length" class="table-wrap" style="margin-top: 10px;">
-          <table class="table">
-            <thead>
-              <tr>
-                <th>Date</th>
+      <div v-if="mileageClaimsError" class="warn-box" style="margin-top: 10px;">{{ mileageClaimsError }}</div>
+      <div v-if="(mileageClaims || []).length" class="table-wrap" style="margin-top: 10px;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Date</th>
                 <th>Type</th>
                 <th class="right">Miles</th>
-                <th>Status</th>
-                <th class="right">Amount</th>
+              <th>Status</th>
+              <th class="right">Amount</th>
                 <th class="right"></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="c in mileageClaims" :key="c.id">
-                <td>{{ c.drive_date }}</td>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in mileageClaims" :key="c.id">
+              <td>{{ c.drive_date }}</td>
                 <td>{{ String(c.claim_type || '').toLowerCase() === 'school_travel' ? 'School' : 'Other' }}</td>
                 <td
                   class="right"
@@ -390,7 +390,7 @@
                     Needs changes: {{ c.rejection_reason }}
                   </div>
                 </td>
-                <td class="right">{{ c.applied_amount ? fmtMoney(c.applied_amount) : '—' }}</td>
+              <td class="right">{{ c.applied_amount ? fmtMoney(c.applied_amount) : '—' }}</td>
                 <td class="right">
                   <button
                     v-if="String(c.status||'').toLowerCase()==='deferred'"
@@ -401,10 +401,10 @@
                     Delete
                   </button>
                 </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+            </tr>
+          </tbody>
+        </table>
+      </div>
         <div v-else class="muted" style="margin-top: 10px;">No time claims yet.</div>
       </details>
     </div>
@@ -416,6 +416,15 @@
           <option value="desc">Newest → Oldest</option>
           <option value="asc">Oldest → Newest</option>
         </select>
+      </label>
+      <label class="control" style="flex: 1;">
+        <span class="label">Search</span>
+        <input
+          v-model="periodSearch"
+          type="text"
+          placeholder="Search pay periods…"
+          style="min-width: 220px;"
+        />
       </label>
       <label class="control">
         <span class="label">Show</span>
@@ -453,7 +462,7 @@
         </div>
         <div class="right tier-cell">
           {{ (p.breakdown && p.breakdown.__tier && p.breakdown.__tier.label) ? p.breakdown.__tier.label : '—' }}
-          <span v-if="p.grace_active" class="badge">Grace</span>
+              <span v-if="p.grace_active" class="badge">Grace</span>
         </div>
         <div class="right">{{ fmtNum(p.tier_credits_final ?? p.tier_credits_current ?? 0) }}</div>
         <div class="right">{{ fmtMoney(p.total_amount ?? 0) }}</div>
@@ -510,19 +519,19 @@
 
         <div class="card" style="margin-top: 10px;">
           <h3 class="card-title" style="margin: 0 0 6px 0;">Pay Summary (Posted Payroll)</h3>
-          <div class="muted" v-if="!payTypeSummary.rows.length">No pay-type summary available.</div>
-          <div v-else class="paytype">
-            <div class="paytype-head">
-              <div>Pay Type</div>
-              <div class="right">Hours</div>
-              <div class="right">Rate</div>
-              <div class="right">Pay</div>
-            </div>
-            <div v-for="r in payTypeSummary.rows" :key="r.key" class="paytype-row">
-              <div class="code">{{ r.label }}</div>
-              <div class="right">{{ fmtNum(r.hours) }}</div>
-              <div class="right muted">{{ r.rateLabel }}</div>
-              <div class="right">{{ fmtMoney(r.amount) }}</div>
+        <div class="muted" v-if="!payTypeSummary.rows.length">No pay-type summary available.</div>
+        <div v-else class="paytype">
+          <div class="paytype-head">
+            <div>Pay Type</div>
+            <div class="right">Hours</div>
+            <div class="right">Rate</div>
+            <div class="right">Pay</div>
+          </div>
+          <div v-for="r in payTypeSummary.rows" :key="r.key" class="paytype-row">
+            <div class="code">{{ r.label }}</div>
+            <div class="right">{{ fmtNum(r.hours) }}</div>
+            <div class="right muted">{{ r.rateLabel }}</div>
+            <div class="right">{{ fmtMoney(r.amount) }}</div>
             </div>
           </div>
         </div>
@@ -576,7 +585,7 @@
                   return h > 0 ? fmtMoney(amt / h) : '—';
                 })()
               }}
-            </div>
+          </div>
 
             <div><strong>Indirect</strong></div>
             <div class="right">{{ fmtNum(expanded.indirect_hours ?? 0) }}</div>
@@ -652,6 +661,24 @@
         </template>
       </div>
 
+      <div
+        v-if="mileageForm.claimType !== 'school_travel' && (mileageSchools || []).length"
+        class="card"
+        style="margin-top: 10px; border-left: 4px solid var(--brand, #4f46e5);"
+      >
+        <div class="row" style="display: flex; justify-content: space-between; gap: 12px; align-items: center;">
+          <div>
+            <strong>Did you mean to submit In‑School Mileage?</strong>
+            <div class="muted" style="margin-top: 4px;">
+              If this was travel to your assigned school, use School Mileage so the eligible miles are calculated correctly.
+            </div>
+          </div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="switchToSchoolMileage">
+            Go to School Mileage
+          </button>
+        </div>
+      </div>
+
       <div v-if="mileageForm.claimType === 'school_travel'" class="card" style="margin-top: 10px;">
         <div class="section-header" style="margin: 0;">
           <h3 class="card-title" style="margin: 0;">Home address</h3>
@@ -694,26 +721,26 @@
         </div>
 
         <div v-else>
-          <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
-            <div class="field">
-              <label>Street</label>
-              <input v-model="mileageForm.homeStreetAddress" type="text" placeholder="123 Main St" />
-            </div>
-            <div class="field">
-              <label>City</label>
-              <input v-model="mileageForm.homeCity" type="text" placeholder="City" />
-            </div>
+        <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+          <div class="field">
+            <label>Street</label>
+            <input v-model="mileageForm.homeStreetAddress" type="text" placeholder="123 Main St" />
           </div>
-          <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
-            <div class="field">
-              <label>State</label>
-              <input v-model="mileageForm.homeState" type="text" placeholder="State" />
-            </div>
-            <div class="field">
-              <label>Postal code</label>
-              <input v-model="mileageForm.homePostalCode" type="text" placeholder="ZIP" />
-            </div>
+          <div class="field">
+            <label>City</label>
+            <input v-model="mileageForm.homeCity" type="text" placeholder="City" />
           </div>
+        </div>
+        <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+          <div class="field">
+            <label>State</label>
+            <input v-model="mileageForm.homeState" type="text" placeholder="State" />
+          </div>
+          <div class="field">
+            <label>Postal code</label>
+            <input v-model="mileageForm.homePostalCode" type="text" placeholder="ZIP" />
+          </div>
+        </div>
         </div>
       </div>
 
@@ -2182,6 +2209,7 @@ const hourlyRateSummary = computed(() => {
 const periodShadeClass = (idx) => (Number(idx || 0) % 2 === 0 ? 'shade-a' : 'shade-b');
 const sortOrder = ref('desc');
 const showCount = ref(50);
+const periodSearch = ref('');
 
 const sortedPeriods = computed(() => {
   const copy = [...(periods.value || [])];
@@ -2217,7 +2245,29 @@ const historyPeriods = computed(() => {
   return [...pastOrCurrent, ...nextFuture];
 });
 
-const visiblePeriods = computed(() => historyPeriods.value.slice(0, Number(showCount.value) || 50));
+const filteredHistoryPeriods = computed(() => {
+  const all = historyPeriods.value || [];
+  const q = String(periodSearch.value || '').trim().toLowerCase();
+  if (!q) return all;
+  return all.filter((p) => {
+    const title = String(fmtPeriodTitle(p) || '').toLowerCase();
+    const range = String(fmtDateRange(p?.period_start, p?.period_end) || '').toLowerCase();
+    const status = String(p?.status || '').toLowerCase();
+    const tier = String(p?.breakdown?.__tier?.label || '').toLowerCase();
+    const amount = String(p?.total_amount ?? '').toLowerCase();
+    const credits = String(p?.tier_credits_final ?? p?.tier_credits_current ?? '').toLowerCase();
+    return (
+      title.includes(q) ||
+      range.includes(q) ||
+      status.includes(q) ||
+      tier.includes(q) ||
+      amount.includes(q) ||
+      credits.includes(q)
+    );
+  });
+});
+
+const visiblePeriods = computed(() => filteredHistoryPeriods.value.slice(0, Number(showCount.value) || 50));
 
 const fmtMoney = (v) => Number(v || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 const fmtNum = (v) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -2316,6 +2366,12 @@ const openMileageModal = (claimType = 'school_travel') => {
   showMileageModal.value = true;
 };
 
+const switchToSchoolMileage = () => {
+  const keepDate = mileageForm.value.driveDate;
+  openMileageModal('school_travel');
+  if (keepDate) mileageForm.value.driveDate = keepDate;
+};
+
 const closeMileageModal = () => {
   showMileageModal.value = false;
   editingHomeAddress.value = false;
@@ -2341,7 +2397,7 @@ const loadMileageClaims = async () => {
 const loadMileageSchools = async () => {
   if (!agencyId.value) return;
   try {
-    const resp = await api.get('/payroll/agency-schools', { params: { agencyId: agencyId.value } });
+    const resp = await api.get('/payroll/me/assigned-schools', { params: { agencyId: agencyId.value } });
     mileageSchools.value = resp.data || [];
   } catch {
     mileageSchools.value = [];

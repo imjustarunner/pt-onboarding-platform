@@ -225,6 +225,13 @@ gcloud run services update onboarding-frontend \
   --set-env-vars "VITE_API_URL=${BACKEND_URL}/api"
 ```
 
+### Google Maps API Key (automatic mileage)
+
+- The backend uses `GOOGLE_MAPS_API_KEY` (server-side) for Distance Matrix calls.
+- If you deploy via Cloud Build / `gcloud run deploy`, ensure the service has:
+  - Secret: `GOOGLE_MAPS_API_KEY` in Secret Manager
+  - Mounted env var: `GOOGLE_MAPS_API_KEY=GOOGLE_MAPS_API_KEY:latest`
+
 > Adjust `/api` if your backend routes differ.
 
 ---
