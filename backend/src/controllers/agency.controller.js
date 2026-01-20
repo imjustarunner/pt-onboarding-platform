@@ -3,6 +3,7 @@ import User from '../models/User.model.js';
 import { validationResult } from 'express-validator';
 import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import pool from '../config/database.js';
 
 export const getAllAgencies = async (req, res, next) => {
   try {
@@ -365,6 +366,52 @@ export const updateAgency = async (req, res, next) => {
     });
     if (!agency) {
       return res.status(404).json({ error: { message: 'Agency not found' } });
+    }
+
+    // School-specific profile fields (district, ITSCO email, primary contact, etc.)
+    // Persisted in school_profiles, but edited from the Organization Management UI.
+    try {
+      const orgType = String(agency.organization_type || organizationType || 'agency').toLowerCase();
+      const sp = req.body?.schoolProfile && typeof req.body.schoolProfile === 'object' ? req.body.schoolProfile : null;
+      if (orgType === 'school' && sp) {
+        const districtName = sp.districtName !== undefined ? String(sp.districtName || '').trim() : '';
+        const schoolNumber = sp.schoolNumber !== undefined ? String(sp.schoolNumber || '').trim() : '';
+        const itscoEmail = sp.itscoEmail !== undefined ? String(sp.itscoEmail || '').trim() : '';
+        const schoolDaysTimes = sp.schoolDaysTimes !== undefined ? String(sp.schoolDaysTimes || '').trim() : '';
+        const primaryContactName = sp.primaryContactName !== undefined ? String(sp.primaryContactName || '').trim() : '';
+        const primaryContactEmail = sp.primaryContactEmail !== undefined ? String(sp.primaryContactEmail || '').trim() : '';
+        const primaryContactRole = sp.primaryContactRole !== undefined ? String(sp.primaryContactRole || '').trim() : '';
+
+        await pool.execute(
+          `INSERT INTO school_profiles
+            (school_organization_id, district_name, school_number, itsco_email, school_days_times,
+             primary_contact_name, primary_contact_email, primary_contact_role)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             district_name = COALESCE(VALUES(district_name), district_name),
+             school_number = COALESCE(VALUES(school_number), school_number),
+             itsco_email = COALESCE(VALUES(itsco_email), itsco_email),
+             school_days_times = COALESCE(VALUES(school_days_times), school_days_times),
+             primary_contact_name = COALESCE(VALUES(primary_contact_name), primary_contact_name),
+             primary_contact_email = COALESCE(VALUES(primary_contact_email), primary_contact_email),
+             primary_contact_role = COALESCE(VALUES(primary_contact_role), primary_contact_role)`,
+          [
+            parseInt(id, 10),
+            districtName || null,
+            schoolNumber || null,
+            itscoEmail || null,
+            schoolDaysTimes || null,
+            primaryContactName || null,
+            primaryContactEmail || null,
+            primaryContactRole || null
+          ]
+        );
+      }
+    } catch (e) {
+      // Don't block saving the base agency record if school_profiles isn't migrated yet.
+      if (e?.code !== 'ER_NO_SUCH_TABLE') {
+        console.warn('School profile upsert failed:', e);
+      }
     }
 
     // Super admins can change affiliation for child org types (school/program/learning).

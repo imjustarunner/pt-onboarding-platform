@@ -231,6 +231,60 @@ class Agency {
     if (agency && !hasCompanyDefaultPassword) {
       agency.company_default_password_hash = null;
     }
+
+    // School-specific profile + contacts (best-effort; migration may not be applied yet).
+    // We keep these attached to the org object so admin UIs can render "School directory" fields.
+    if (agency && String(agency.organization_type || 'agency').toLowerCase() === 'school') {
+      try {
+        const [profiles] = await pool.execute(
+          `SELECT
+             district_name,
+             school_number,
+             itsco_email,
+             school_days_times,
+             school_address,
+             location_label,
+             primary_contact_name,
+             primary_contact_email,
+             primary_contact_role
+           FROM school_profiles
+           WHERE school_organization_id = ?
+           LIMIT 1`,
+          [id]
+        );
+        const schoolProfile = profiles?.[0] || null;
+        agency.school_profile = schoolProfile;
+
+        // Helpful UI backfill: the Address tab uses agencies.street_address. If it's empty but the
+        // school profile has a value (from bulk import), expose it via street_address so the admin
+        // immediately sees it and can Save.
+        if (!agency.street_address && schoolProfile?.school_address) {
+          agency.street_address = schoolProfile.school_address;
+        }
+
+        const [contacts] = await pool.execute(
+          `SELECT
+             id,
+             full_name,
+             email,
+             role_title,
+             notes,
+             raw_source_text,
+             is_primary,
+             created_at,
+             updated_at
+           FROM school_contacts
+           WHERE school_organization_id = ?
+           ORDER BY is_primary DESC, full_name ASC, email ASC`,
+          [id]
+        );
+        agency.school_contacts = Array.isArray(contacts) ? contacts : [];
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+        agency.school_profile = null;
+        agency.school_contacts = [];
+      }
+    }
     
     return agency;
   }

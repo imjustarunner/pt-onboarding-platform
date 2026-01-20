@@ -75,11 +75,35 @@ const brandingStyles = computed(() => {
 });
 
 onMounted(async () => {
-  // Fetch agency data if not already set
+  // Fetch organization + apply the same branding resolution used on live portal pages.
+  // For child orgs (school/program/learning), this should reflect the affiliated agency's branding.
   if (!agencyStore.currentAgency || agencyStore.currentAgency.id !== props.agencyId) {
     try {
       const response = await api.get(`/agencies/${props.agencyId}`);
-      agencyStore.setCurrentAgency(response.data);
+      const org = response.data;
+
+      // Best-effort: resolve portal theme (affiliation-aware) and override the branding fields
+      // on the preview org so preview matches production behavior.
+      if (org?.portal_url) {
+        try {
+          const themeResp = await api.get(`/agencies/portal/${org.portal_url}/theme`);
+          const theme = themeResp.data || {};
+          agencyStore.setCurrentAgency({
+            ...org,
+            // Override branding fields with resolved theme data
+            color_palette: theme.colorPalette || org.color_palette,
+            theme_settings: theme.themeSettings || org.theme_settings,
+            terminology_settings: theme.terminologySettings || org.terminology_settings,
+            logo_url: theme.logoUrl || org.logo_url,
+            branding_agency_id: theme.brandingAgencyId || null,
+            portal_organization_id: theme.portalOrganizationId || org.id
+          });
+        } catch (e) {
+          agencyStore.setCurrentAgency(org);
+        }
+      } else {
+        agencyStore.setCurrentAgency(org);
+      }
     } catch (error) {
       console.error('Failed to fetch agency for preview:', error);
     }

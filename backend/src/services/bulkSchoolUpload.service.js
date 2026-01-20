@@ -378,6 +378,28 @@ export async function processBulkSchoolUpload({ agencyId, userId, fileName, rows
           createdSchools.set(schoolName, schoolId);
         }
 
+        // Update core organization fields used across the app UI.
+        // (School address + school phone are stored on agencies, not only in school_profiles.)
+        // Overwrite when the spreadsheet provides a non-empty value.
+        const schoolPhone = row.schoolPhone ? String(row.schoolPhone).trim() : '';
+        const schoolAddress = row.schoolAddress ? String(row.schoolAddress).trim() : '';
+        await connection.execute(
+          `UPDATE agencies
+           SET
+             phone_number = CASE WHEN ? IS NOT NULL AND ? <> '' THEN ? ELSE phone_number END,
+             street_address = CASE WHEN ? IS NOT NULL AND ? <> '' THEN ? ELSE street_address END
+           WHERE id = ?`,
+          [
+            schoolPhone || null,
+            schoolPhone || null,
+            schoolPhone || null,
+            schoolAddress || null,
+            schoolAddress || null,
+            schoolAddress || null,
+            schoolId
+          ]
+        );
+
         // Parse primary contact (name/role/also-schools), with email coming from dedicated column.
         const primaryEmailHint = normalizeEmail(row.schoolContactEmail || '');
         const primaryParsed = await parseContactSmart({
@@ -394,6 +416,8 @@ export async function processBulkSchoolUpload({ agencyId, userId, fileName, rows
             schoolNumber: row.schoolNumber || null,
             itscoEmail: row.itscoEmail || null,
             schoolDaysTimes: row.schoolDaysTimes || null,
+            // Keep a copy in school_profiles for directory/export use,
+            // even though the canonical UI field is agencies.street_address.
             schoolAddress: row.schoolAddress || null,
             locationLabel: null,
             primaryContactName: primaryParsed?.fullName || (row.primarySchoolContact ? String(row.primarySchoolContact).trim() : null),

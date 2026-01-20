@@ -322,6 +322,76 @@
             <input v-model="agencyForm.slug" type="text" required pattern="[a-z0-9\-]+" />
             <small>Lowercase letters, numbers, and hyphens only</small>
           </div>
+
+          <!-- School directory fields -->
+          <div
+            v-if="String(agencyForm.organizationType || '').toLowerCase() === 'school'"
+            style="margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border);"
+          >
+            <h4 style="margin: 0 0 10px 0; color: var(--text-primary); font-size: 16px; font-weight: 700;">
+              School directory
+            </h4>
+            <small class="hint">These fields come from the school directory import and can be edited here.</small>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+              <div class="form-group">
+                <label>District</label>
+                <input v-model="agencyForm.schoolProfile.districtName" type="text" placeholder="e.g. District 12" />
+              </div>
+              <div class="form-group">
+                <label>School Number</label>
+                <input v-model="agencyForm.schoolProfile.schoolNumber" type="text" placeholder="e.g. 1234" />
+              </div>
+              <div class="form-group">
+                <label>ITSCO Group Email</label>
+                <input v-model="agencyForm.schoolProfile.itscoEmail" type="email" placeholder="group@example.org" />
+              </div>
+              <div class="form-group">
+                <label>School Days/Times</label>
+                <input v-model="agencyForm.schoolProfile.schoolDaysTimes" type="text" placeholder="Mon/Wed 8–12" />
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 10px;">
+              <div class="form-group">
+                <label>Primary Contact Name</label>
+                <input v-model="agencyForm.schoolProfile.primaryContactName" type="text" />
+              </div>
+              <div class="form-group">
+                <label>Primary Contact Email</label>
+                <input v-model="agencyForm.schoolProfile.primaryContactEmail" type="email" />
+              </div>
+              <div class="form-group">
+                <label>Primary Contact Role</label>
+                <input v-model="agencyForm.schoolProfile.primaryContactRole" type="text" />
+              </div>
+            </div>
+
+            <div v-if="schoolContactsForEditor.length" style="margin-top: 10px;">
+              <div style="font-weight: 700; font-size: 13px; margin-bottom: 6px;">Imported contacts</div>
+              <div style="display: grid; gap: 8px;">
+                <div
+                  v-for="c in schoolContactsForEditor"
+                  :key="c.id"
+                  style="border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: var(--card-bg);"
+                >
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <strong v-if="c.full_name">{{ c.full_name }}</strong>
+                    <span v-else style="color: var(--text-secondary);">(no name)</span>
+                    <span v-if="c.is_primary" class="badge badge-success">Primary</span>
+                    <span v-if="c.role_title" style="color: var(--text-secondary);">• {{ c.role_title }}</span>
+                    <span v-if="c.email" style="color: var(--text-secondary);">• {{ c.email }}</span>
+                  </div>
+                  <div v-if="c.notes" style="margin-top: 4px; color: var(--text-secondary); font-size: 12px;">
+                    {{ c.notes }}
+                  </div>
+                </div>
+              </div>
+              <small class="hint" style="display: block; margin-top: 6px;">
+                Contacts are currently read-only here; re-run the import to update them.
+              </small>
+            </div>
+          </div>
           </div>
 
           <div v-if="activeTab === 'branding'" class="tab-section">
@@ -1616,6 +1686,12 @@ const error = ref('');
 const showCreateModal = ref(false);
 const editingAgency = ref(null);
 
+// School org directory contacts (read-only in this UI; imported via bulk school upload)
+const schoolContactsForEditor = computed(() => {
+  const list = editingAgency.value?.school_contacts;
+  return Array.isArray(list) ? list : [];
+});
+
 // Left nav collapse (icon rail) for maximum editor space
 const navCollapsed = ref(false);
 const toggleNavCollapsed = () => {
@@ -2253,6 +2329,16 @@ const agencyForm = ref({
   onboardingTeamEmail: '',
   phoneNumber: '',
   phoneExtension: '',
+  // School-only directory enrichment fields (stored in school_profiles)
+  schoolProfile: {
+    districtName: '',
+    schoolNumber: '',
+    itscoEmail: '',
+    schoolDaysTimes: '',
+    primaryContactName: '',
+    primaryContactEmail: '',
+    primaryContactRole: ''
+  },
   streetAddress: '',
   city: '',
   state: '',
@@ -2978,6 +3064,15 @@ const editAgency = (agency) => {
     onboardingTeamEmail: agency.onboarding_team_email || '',
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
+    schoolProfile: {
+      districtName: agency?.school_profile?.district_name || '',
+      schoolNumber: agency?.school_profile?.school_number || '',
+      itscoEmail: agency?.school_profile?.itsco_email || '',
+      schoolDaysTimes: agency?.school_profile?.school_days_times || '',
+      primaryContactName: agency?.school_profile?.primary_contact_name || '',
+      primaryContactEmail: agency?.school_profile?.primary_contact_email || '',
+      primaryContactRole: agency?.school_profile?.primary_contact_role || ''
+    },
     streetAddress: agency.street_address || '',
     city: agency.city || '',
     state: agency.state || '',
@@ -3423,7 +3518,19 @@ const saveAgency = async () => {
       invitationExpiredIconId: agencyForm.value.invitationExpiredIconId ?? null,
       firstLoginIconId: agencyForm.value.firstLoginIconId ?? null,
       firstLoginPendingIconId: agencyForm.value.firstLoginPendingIconId ?? null,
-      passwordChangedIconId: agencyForm.value.passwordChangedIconId ?? null
+      passwordChangedIconId: agencyForm.value.passwordChangedIconId ?? null,
+      schoolProfile:
+        String(agencyForm.value.organizationType || '').toLowerCase() === 'school'
+          ? {
+              districtName: agencyForm.value.schoolProfile?.districtName?.trim() || null,
+              schoolNumber: agencyForm.value.schoolProfile?.schoolNumber?.trim() || null,
+              itscoEmail: agencyForm.value.schoolProfile?.itscoEmail?.trim() || null,
+              schoolDaysTimes: agencyForm.value.schoolProfile?.schoolDaysTimes?.trim() || null,
+              primaryContactName: agencyForm.value.schoolProfile?.primaryContactName?.trim() || null,
+              primaryContactEmail: agencyForm.value.schoolProfile?.primaryContactEmail?.trim() || null,
+              primaryContactRole: agencyForm.value.schoolProfile?.primaryContactRole?.trim() || null
+            }
+          : null
     };
     
     console.log('Saving agency with data:', JSON.stringify(data, null, 2));

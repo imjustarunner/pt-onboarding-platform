@@ -115,6 +115,15 @@ export default class BulkSchoolUploadParserService {
             'contact email'
           ]) || ''
         ).trim(),
+        schoolPhone: String(
+          firstNonEmpty(normalized, [
+            'school phone',
+            'school phone number',
+            'phone number',
+            'main phone',
+            'phone'
+          ]) || ''
+        ).trim(),
         schoolContactsEmailsAndRole: String(
           firstNonEmpty(normalized, [
             'school contacts emails and role',
