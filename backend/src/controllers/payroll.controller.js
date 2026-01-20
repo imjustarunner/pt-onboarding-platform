@@ -572,9 +572,10 @@ async function guessExistingPayrollPeriodByMajorityDates({ agencyId, dates }) {
   };
 }
 
-function parsePayrollRows(records) {
+function parsePayrollRows(records, opts = {}) {
   const rowsArr = Array.isArray(records) ? records : [];
   if (!rowsArr.length) return [];
+  const rowNumberBase = Number.isFinite(Number(opts?.rowNumberBase)) ? Number(opts.rowNumberBase) : 2;
 
   const detectedHeaders = Array.from(
     new Set(
@@ -713,26 +714,9 @@ function parsePayrollRows(records) {
 
     // Some reports can contain blank/footer rows; ignore rows with no identifying fields at all.
     if (!providerName && !serviceCode) return null;
-    if (!providerName || !serviceCode) {
-      const err = new Error(
-        `Row ${idx + 2}: provider/clinician name and service code are required. ` +
-          `Expected columns like "Clinician Name" (or "Provider Name") and "Service Code" (or "CPT Code").`
-      );
-      err.rowNumber = idx + 2;
-      err.detectedHeaders = detectedHeaders;
-      err.exampleExpected = [
-        'provider name',
-        'clinician name',
-        'rendering provider full name',
-        'service code',
-        'cpt code',
-        'hcpcs code',
-        'date of service',
-        'dos',
-        'units'
-      ];
-      throw err;
-    }
+    // Some exports include intermittent footer/summary rows where one key field is blank.
+    // Prefer skipping those instead of failing the entire import.
+    if (!providerName || !serviceCode) return null;
 
     // Sanitize units: default empty/0 to 1.0 (counts the row).
     let unitCount = Number(String(unitsRaw).replace(/[^0-9.\\-]/g, '')) || 0;
@@ -795,9 +779,23 @@ function parsePayrollRows(records) {
   const out = parsed.filter(Boolean);
   if (!out.length) {
     const hdr = detectedHeaders.slice(0, 40).join(', ');
-    throw new Error(
+    const err = new Error(
       `No rows found in report. Detected columns: ${hdr || '(none)'}`
     );
+    err.rowNumber = null;
+    err.detectedHeaders = detectedHeaders;
+    err.exampleExpected = [
+      'provider name',
+      'clinician name',
+      'rendering provider full name',
+      'service code',
+      'cpt code',
+      'hcpcs code',
+      'date of service',
+      'dos',
+      'units'
+    ];
+    throw err;
   }
   return out;
 }
@@ -853,18 +851,165 @@ function parsePayrollFile(buffer, originalName) {
     const sheetName = wb.SheetNames?.[0];
     if (!sheetName) return [];
     const sheet = wb.Sheets[sheetName];
+    const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+
+    const scoreHeaderRow = (cells) => {
+      const keys = (cells || []).map((c) => normalizeHeaderKey(c)).filter(Boolean);
+      const has = (rx) => keys.some((k) => rx.test(k));
+      let score = 0;
+      if (has(/service.*code/) || has(/cpt.*code/) || has(/hcpcs/)) score += 2;
+      if ((has(/provider/) || has(/clinician/) || has(/therapist/) || has(/employee/) || has(/staff/)) && has(/name/)) score += 2;
+      if (has(/date.*service/) || has(/\bdos\b/) || has(/service.*date/)) score += 1;
+      if (has(/\bunits?\b/) || has(/minutes?/) || has(/duration/) || has(/qty/) || has(/quantity/)) score += 1;
+      return score;
+    };
+
+    let bestIdx = null;
+    let bestScore = -1;
+    const maxScan = Math.min(80, Array.isArray(matrix) ? matrix.length : 0);
+    for (let i = 0; i < maxScan; i++) {
+      const row = matrix[i];
+      if (!Array.isArray(row) || row.length < 2) continue;
+      const sc = scoreHeaderRow(row);
+      if (sc > bestScore) {
+        bestScore = sc;
+        bestIdx = i;
+      }
+    }
+
+    // If the sheet has title rows above the real header, locate the best header row
+    // and build objects manually.
+    if (bestIdx !== null && bestScore >= 3) {
+      const headers = (matrix[bestIdx] || []).map((h) => String(h ?? '').trim());
+      const records = [];
+      for (const row of (matrix || []).slice(bestIdx + 1)) {
+        if (!Array.isArray(row)) continue;
+        const allBlank = row.every((c) => String(c ?? '').trim() === '');
+        if (allBlank) continue;
+        const obj = {};
+        for (let col = 0; col < headers.length; col++) {
+          const key = headers[col];
+          if (!key) continue;
+          obj[key] = row[col] ?? '';
+        }
+        records.push(obj);
+      }
+      return parsePayrollRows(records, { rowNumberBase: bestIdx + 2 });
+    }
+
+    // Fallback: treat the first row as headers (default XLSX behavior).
     const records = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
-    return parsePayrollRows(records);
+    return parsePayrollRows(records, { rowNumberBase: 2 });
   }
 
+  // CSV: some exports include title rows above the real header. Parse as arrays first,
+  // find the best header row, then map subsequent rows into objects.
+  const parseMatrixWithDelimiter = (delimiter) => {
+    try {
+      return parse(buffer, {
+        columns: false,
+        delimiter,
+        skip_empty_lines: true,
+        trim: true,
+        relax_quotes: true,
+        relax_column_count: true
+      });
+    } catch {
+      return [];
+    }
+  };
+
+  // Many payroll exports are TSV (tabs) even when users call them "CSV".
+  const candidateDelimiters = [',', '\t', ';', '|'];
+  const matrices = candidateDelimiters.map((d) => ({ delimiter: d, rows: parseMatrixWithDelimiter(d) }));
+
+  const scoreHeaderRow = (cells) => {
+    const keys = (cells || []).map((c) => normalizeHeaderKey(c)).filter(Boolean);
+    const has = (rx) => keys.some((k) => rx.test(k));
+    let score = 0;
+    if (has(/service.*code/) || has(/cpt.*code/) || has(/hcpcs/)) score += 2;
+    if ((has(/provider/) || has(/clinician/) || has(/therapist/) || has(/employee/) || has(/staff/)) && has(/name/)) score += 2;
+    if (has(/date.*service/) || has(/\bdos\b/) || has(/service.*date/)) score += 1;
+    if (has(/\bunits?\b/) || has(/minutes?/) || has(/duration/) || has(/qty/) || has(/quantity/)) score += 1;
+    return score;
+  };
+
+  const chooseBestMatrix = () => {
+    let best = { delimiter: ',', rows: [] };
+    let bestScore = -1;
+    let bestAvgCols = 0;
+    for (const m of matrices) {
+      const rows = Array.isArray(m.rows) ? m.rows : [];
+      if (!rows.length) continue;
+
+      // Prefer delimiters that actually split into multiple columns.
+      const sample = rows.slice(0, Math.min(25, rows.length)).filter((r) => Array.isArray(r));
+      const avgCols = sample.length ? (sample.reduce((acc, r) => acc + (r?.length || 0), 0) / sample.length) : 0;
+
+      // Score the best header row found within this matrix.
+      let localBest = -1;
+      const maxScan = Math.min(80, rows.length);
+      for (let i = 0; i < maxScan; i++) {
+        const row = rows[i];
+        if (!Array.isArray(row) || row.length < 2) continue;
+        localBest = Math.max(localBest, scoreHeaderRow(row));
+      }
+
+      // Primary: header score. Secondary: avg column count (helps TSV vs comma).
+      if (localBest > bestScore || (localBest === bestScore && avgCols > bestAvgCols)) {
+        best = m;
+        bestScore = localBest;
+        bestAvgCols = avgCols;
+      }
+    }
+    return { ...best, bestScore };
+  };
+
+  const picked = chooseBestMatrix();
+  const rows = Array.isArray(picked.rows) ? picked.rows : [];
+
+  if (rows.length) {
+    let bestIdx = null;
+    let bestScore = -1;
+    const maxScan = Math.min(80, rows.length);
+    for (let i = 0; i < maxScan; i++) {
+      const row = rows[i];
+      if (!Array.isArray(row) || row.length < 2) continue;
+      const sc = scoreHeaderRow(row);
+      if (sc > bestScore) {
+        bestScore = sc;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx !== null && bestScore >= 3) {
+      const headers = (rows[bestIdx] || []).map((h) => String(h ?? '').trim());
+      const records = [];
+      for (const row of rows.slice(bestIdx + 1)) {
+        if (!Array.isArray(row)) continue;
+        const allBlank = row.every((c) => String(c ?? '').trim() === '');
+        if (allBlank) continue;
+        const obj = {};
+        for (let col = 0; col < headers.length; col++) {
+          const key = headers[col];
+          if (!key) continue;
+          obj[key] = row[col] ?? '';
+        }
+        records.push(obj);
+      }
+      return parsePayrollRows(records, { rowNumberBase: bestIdx + 2 });
+    }
+  }
+
+  // Fallback: standard CSV with header row first.
   const records = parse(buffer, {
     columns: true,
+    delimiter: picked?.delimiter || ',',
     skip_empty_lines: true,
     trim: true,
     relax_quotes: true,
     relax_column_count: true
   });
-  return parsePayrollRows(records);
+  return parsePayrollRows(records, { rowNumberBase: 2 });
 }
 
 function normalizeHeaderKey(key) {
@@ -2366,7 +2511,16 @@ export const importPayrollAuto = [
       try {
         parsed = parsePayrollFile(req.file.buffer, req.file.originalname);
       } catch (e) {
-        return res.status(400).json({ error: { message: e.message || 'Failed to parse report' } });
+        return res.status(400).json({
+          error: {
+            message: e.message || 'Failed to parse report',
+            errorMeta: {
+              rowNumber: e?.rowNumber || null,
+              detectedHeaders: Array.isArray(e?.detectedHeaders) ? e.detectedHeaders : null,
+              exampleExpected: Array.isArray(e?.exampleExpected) ? e.exampleExpected : null
+            }
+          }
+        });
       }
       if (!parsed || parsed.length === 0) {
         return res.status(400).json({ error: { message: 'No rows found in report' } });
@@ -2564,7 +2718,16 @@ export const detectPayrollAuto = [
       try {
         parsed = parsePayrollFile(req.file.buffer, req.file.originalname);
       } catch (e) {
-        return res.status(400).json({ error: { message: e.message || 'Failed to parse report' } });
+        return res.status(400).json({
+          error: {
+            message: e.message || 'Failed to parse report',
+            errorMeta: {
+              rowNumber: e?.rowNumber || null,
+              detectedHeaders: Array.isArray(e?.detectedHeaders) ? e.detectedHeaders : null,
+              exampleExpected: Array.isArray(e?.exampleExpected) ? e.exampleExpected : null
+            }
+          }
+        });
       }
       if (!parsed || parsed.length === 0) {
         return res.status(400).json({ error: { message: 'No rows found in report' } });

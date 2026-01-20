@@ -2125,6 +2125,17 @@ const selectedPeriod = ref(null);
 const summaries = ref([]);
 const error = ref('');
 
+const formatPayrollImportError = (e, fallbackMessage) => {
+  const msg = e?.response?.data?.error?.message || e?.message || fallbackMessage || 'Request failed';
+  const meta = e?.response?.data?.error?.errorMeta || null;
+  const parts = [String(msg)];
+  if (meta?.rowNumber) parts.push(`Row: ${meta.rowNumber}`);
+  if (Array.isArray(meta?.detectedHeaders) && meta.detectedHeaders.length) {
+    parts.push(`Detected columns: ${meta.detectedHeaders.slice(0, 30).join(', ')}`);
+  }
+  return parts.join(' | ');
+};
+
 const importFile = ref(null);
 const importing = ref(false);
 const unmatchedProviders = ref([]);
@@ -4601,7 +4612,7 @@ const autoImport = async () => {
     autoImportCustomEnd.value = detected?.periodEnd || '';
     confirmAutoImportOpen.value = true;
   } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to auto-import payroll report';
+    error.value = formatPayrollImportError(e, 'Failed to auto-import payroll report');
   } finally {
     autoDetecting.value = false;
   }
@@ -4687,7 +4698,7 @@ const uploadCsv = async () => {
     lastImportedPeriodId.value = selectedPeriodId.value;
     await loadPeriodDetails();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to import CSV';
+    error.value = formatPayrollImportError(e, 'Failed to import payroll report');
   } finally {
     importing.value = false;
   }
