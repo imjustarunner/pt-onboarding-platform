@@ -151,7 +151,7 @@
           <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;">
             <select v-model="selectedUserId">
               <option :value="null" disabled>Select a provider…</option>
-              <option v-for="u in agencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+              <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
             </select>
             <button class="btn btn-secondary btn-sm" @click="clearSelectedProvider" :disabled="!selectedUserId">
               Clear
@@ -308,7 +308,7 @@
             <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;">
               <select v-model="selectedUserId">
                 <option :value="null" disabled>Select a provider…</option>
-                <option v-for="u in agencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+                <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
               </select>
               <button class="btn btn-secondary btn-sm" @click="clearSelectedProvider" :disabled="!selectedUserId">
                 Clear
@@ -357,7 +357,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="s in summaries" :key="s.id" @click="selectSummary(s)" class="clickable">
+                <tr v-for="s in summariesSortedByProvider" :key="s.id" @click="selectSummary(s)" class="clickable">
                   <!-- compute pay totals from breakdown (non-flat only) -->
                   <!-- eslint-disable-next-line vue/no-use-v-if-with-v-for -->
                   <td>{{ s.first_name }} {{ s.last_name }}</td>
@@ -1098,7 +1098,7 @@
               <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;">
                 <select v-model="selectedUserId">
                   <option :value="null">All providers</option>
-                  <option v-for="u in agencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+                  <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
                 </select>
                 <button class="btn btn-secondary btn-sm" @click="clearSelectedProvider" :disabled="!selectedUserId">
                   Clear
@@ -1577,7 +1577,7 @@
                 <label>Provider</label>
                 <select v-model="previewUserId">
                   <option :value="null" disabled>Select a provider…</option>
-                  <option v-for="s in summaries" :key="s.user_id" :value="s.user_id">{{ s.last_name }}, {{ s.first_name }}</option>
+                  <option v-for="s in summariesSortedByProvider" :key="s.user_id" :value="s.user_id">{{ s.last_name }}, {{ s.first_name }}</option>
                 </select>
               </div>
               <div class="field">
@@ -2159,6 +2159,29 @@ const selectedSummary = ref(null);
 const selectedUserId = ref(null);
 const agencyUsers = ref([]);
 const loadingUsers = ref(false);
+const sortedAgencyUsers = computed(() => {
+  const list = (agencyUsers.value || []).slice();
+  list.sort((a, b) => {
+    const al = String(a?.last_name || '').trim().toLowerCase();
+    const bl = String(b?.last_name || '').trim().toLowerCase();
+    const af = String(a?.first_name || '').trim().toLowerCase();
+    const bf = String(b?.first_name || '').trim().toLowerCase();
+    return al.localeCompare(bl) || af.localeCompare(bf) || (Number(a?.id || 0) - Number(b?.id || 0));
+  });
+  return list;
+});
+
+const summariesSortedByProvider = computed(() => {
+  const list = (summaries.value || []).slice();
+  list.sort((a, b) => {
+    const al = String(a?.last_name || '').trim().toLowerCase();
+    const bl = String(b?.last_name || '').trim().toLowerCase();
+    const af = String(a?.first_name || '').trim().toLowerCase();
+    const bf = String(b?.first_name || '').trim().toLowerCase();
+    return al.localeCompare(bl) || af.localeCompare(bf) || (Number(a?.user_id || 0) - Number(b?.user_id || 0));
+  });
+  return list;
+});
 const rateServiceCode = ref('');
 const rateAmount = ref('');
 const savingRate = ref(false);
@@ -4153,8 +4176,8 @@ const loadPeriodDetails = async () => {
       const found = nextSummaries.find((x) => x.user_id === selectedUserId.value);
       if (found) selectedSummary.value = found;
     }
-    if (!previewUserId.value && nextSummaries.length) {
-      previewUserId.value = nextSummaries[0].user_id;
+    if (!previewUserId.value && summariesSortedByProvider.value.length) {
+      previewUserId.value = summariesSortedByProvider.value[0].user_id;
     }
     await loadStaging();
   } catch (e) {
@@ -4738,7 +4761,7 @@ const clearSelectedProvider = () => {
 };
 
 const nextProvider = () => {
-  const ids = (agencyUsers.value || []).map((u) => u.id).filter(Boolean);
+  const ids = (sortedAgencyUsers.value || []).map((u) => u.id).filter(Boolean);
   if (!ids.length) return;
   if (!selectedUserId.value) {
     selectedUserId.value = ids[0];
@@ -4752,7 +4775,7 @@ const nextProvider = () => {
 };
 
 const nextRunProvider = () => {
-  const list = (summaries.value || []).slice();
+  const list = (summariesSortedByProvider.value || []).slice();
   if (!list.length) return;
   // If nothing selected yet, select first.
   if (!selectedSummary.value) {
@@ -4765,7 +4788,7 @@ const nextRunProvider = () => {
 };
 
 const nextPreviewProvider = () => {
-  const list = (summaries.value || []).slice();
+  const list = (summariesSortedByProvider.value || []).slice();
   if (!list.length) return;
   if (!previewUserId.value) {
     previewUserId.value = list[0].user_id;

@@ -68,7 +68,7 @@
         <div v-if="loading" class="loading">Loading agencies...</div>
         <div v-else-if="error" class="error">{{ error }}</div>
         <div v-else class="org-list">
-          <div v-if="loadingAffiliates" class="loading">Loading affiliated organizations…</div>
+          <div v-if="loadingAffiliates && selectedAgencyFilterId" class="loading">Loading affiliated organizations…</div>
           <div v-else-if="organizationsToRender.length === 0" class="empty-state-inline">
             No organizations found for the current filters.
           </div>
@@ -145,42 +145,11 @@
                 </div>
               </div>
             </div>
-
-            <!-- Always-visible affiliates list under the selected (but not opened) agency row -->
-            <div
-              v-if="showAffiliatesUnderSelectedAgency(org)"
-              class="affiliates-panel"
-              @click.stop
-              @keydown.stop
-            >
-              <div class="affiliates-title">Affiliated organizations</div>
-              <div v-if="loadingAffiliates" class="loading affiliates-loading">Loading affiliated organizations…</div>
-              <div v-else-if="affiliatesForSelectedAgency.length === 0" class="empty-hint">
-                No affiliated organizations found for this agency.
-              </div>
-              <div v-else class="affiliates-list">
-                <button
-                  v-for="child in affiliatesForSelectedAgency"
-                  :key="child.id"
-                  type="button"
-                  class="affiliate-item"
-                  :style="{ borderLeftColor: getOrgAccentColor(child) }"
-                  @click.stop="editAgency(child)"
-                >
-                  <span class="affiliate-name">{{ child.name }}</span>
-                  <span class="affiliate-meta">
-                    {{ String(child.organization_type || '').toLowerCase() }}
-                    <span class="affiliate-sep">•</span>
-                    {{ child.slug }}
-                  </span>
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       </aside>
 
-      <section v-if="showCreateModal || editingAgency" class="detail-pane">
+      <section v-if="showCreateModal || editingAgency" class="detail-pane" ref="detailPaneRef">
         <div class="detail-content">
           <div v-if="error && (showCreateModal || editingAgency)" class="error-modal">{{ error }}</div>
 
@@ -1746,7 +1715,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -1787,6 +1756,8 @@ const schoolContactsForEditor = computed(() => {
   const list = editingAgency.value?.school_contacts;
   return Array.isArray(list) ? list : [];
 });
+
+const detailPaneRef = ref(null);
 
 // Left nav collapse (icon rail) for maximum editor space
 const navCollapsed = ref(false);
@@ -2567,14 +2538,6 @@ const isSelectedAgencyFilterRow = (org) => {
   return org.id === agencyId;
 };
 
-const showAffiliatesUnderSelectedAgency = (org) => {
-  // Only render this "always-open" section in the expanded nav,
-  // and only for the selected agency row when in Agencies view.
-  if (navCollapsed.value) return false;
-  if (String(typeFilter.value || 'agencies').toLowerCase() !== 'agencies') return false;
-  return isSelectedAgencyFilterRow(org);
-};
-
 const applyFilters = (list) => {
   const q = normalizeText(searchQuery.value);
   return (list || []).filter((o) => {
@@ -2625,10 +2588,13 @@ const organizationsToRender = computed(() => {
   const selectedAgencyId = selectedAgencyIdForList.value;
 
   if (view === 'agencies') {
-    // If an agency is selected, show that agency pinned.
-    // Its affiliated orgs render inside the agency card (always visible) below.
-    const base = selectedAgencyId ? [selectedAgencyForList.value].filter(Boolean) : parentAgencies.value;
-    return sortOrganizations(applyFilters(base));
+    // If an agency is selected, pin it at the top and show its affiliated orgs below as full rows.
+    if (!selectedAgencyId) {
+      return sortOrganizations(applyFilters(parentAgencies.value));
+    }
+    const pinned = selectedAgencyForList.value ? [selectedAgencyForList.value] : [];
+    const children = sortOrganizations(applyFilters(affiliatesForSelectedAgency.value));
+    return [...pinned, ...children];
   }
 
   // organizations view
@@ -2849,6 +2815,8 @@ const handleAgencyFilterChange = async () => {
     affiliatedOrganizations.value = [];
     return;
   }
+  // Ensure the list is expanded so affiliates are visible.
+  navCollapsed.value = false;
   await loadAffiliatedForSelectedAgency();
 };
 
@@ -2869,8 +2837,8 @@ const fetchAgencies = async () => {
 
     buildAgencyTeamMapsFromUsers(allUsers);
 
-    // If a parent agency is selected and we are in Organizations view, refresh affiliated orgs too.
-    if (selectedAgencyFilterId.value && String(typeFilter.value || '').toLowerCase() === 'organizations') {
+    // If a parent agency is selected (either view), refresh affiliated orgs too.
+    if (selectedAgencyFilterId.value) {
       await loadAffiliatedForSelectedAgency();
     }
 
@@ -3099,6 +3067,8 @@ const editAgency = async (agency) => {
     selectedAgencyFilterId.value = String(agency.id);
     // Best effort: load affiliates immediately so list updates without needing a second dropdown.
     loadAffiliatedForSelectedAgency();
+    // Ensure the list is expanded so the affiliates are visible.
+    navCollapsed.value = false;
   }
   const palette = getColorPalette(agency.color_palette);
   const terminology = safeJsonObject(agency.terminology_settings, {});
@@ -3225,6 +3195,15 @@ const editAgency = async (agency) => {
     loadOfficeLocations();
     loadMileageRates();
     loadNotificationTriggers();
+  }
+
+  // Helpful on smaller screens where the detail pane stacks below the list:
+  // bring the editor into view so you don't have to scroll to find it.
+  await nextTick();
+  try {
+    detailPaneRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  } catch {
+    // ignore
   }
 };
 
@@ -4220,66 +4199,6 @@ onMounted(async () => {
 
 .org-row.selected-filter-agency {
   background: rgba(15, 23, 42, 0.03);
-}
-
-.affiliates-panel {
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-}
-
-.affiliates-title {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  margin-bottom: 8px;
-}
-
-.affiliates-loading {
-  font-size: 13px;
-}
-
-.affiliates-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.affiliate-item {
-  width: 100%;
-  text-align: left;
-  padding: 10px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--primary);
-  background: white;
-  cursor: pointer;
-}
-
-.affiliate-item:hover {
-  border-color: var(--primary);
-  box-shadow: var(--shadow);
-}
-
-.affiliate-name {
-  display: block;
-  font-weight: 800;
-  color: var(--text-primary);
-}
-
-.affiliate-meta {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.affiliate-sep {
-  margin: 0 6px;
 }
 
 .org-row.child {
