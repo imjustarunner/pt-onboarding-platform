@@ -428,6 +428,23 @@ function nameKeyCandidates(raw) {
   return Array.from(out).filter(Boolean);
 }
 
+function addNameKeyToIds(map, key, userId) {
+  if (!key || !userId) return;
+  const arr = map.get(key) || [];
+  if (!arr.includes(userId)) arr.push(userId);
+  map.set(key, arr);
+}
+
+function resolveUserIdForProviderName(nameToIds, providerName) {
+  const keys = nameKeyCandidates(providerName);
+  if (!keys.length) return null;
+  const ids = new Set();
+  for (const k of keys) {
+    for (const id of nameToIds.get(k) || []) ids.add(Number(id));
+  }
+  return ids.size === 1 ? Array.from(ids)[0] : null; // null if none or ambiguous
+}
+
 function titleCaseWords(s) {
   return String(s || '')
     .split(' ')
@@ -437,18 +454,16 @@ function titleCaseWords(s) {
 }
 
 async function ensureUserForProviderName({ agencyId, providerName }) {
-  const key = normalizeName(providerName);
-  if (!key) return null;
+  const { first: firstRaw, last: lastRaw } = parseHumanNameToFirstLast(providerName);
+  if (!firstRaw || !lastRaw) return null;
 
   // Avoid creating obvious non-person placeholders / footer labels.
   const deny = new Set(['unassigned', 'unknown', 'total', 'grand total', 'summary']);
-  if (deny.has(key)) return null;
+  const denyKey = normalizeName(providerName);
+  if (denyKey && deny.has(denyKey)) return null;
 
-  const parts = key.split(' ').filter(Boolean);
-  if (parts.length < 2) return null;
-
-  const last = titleCaseWords(parts[parts.length - 1]);
-  const first = titleCaseWords(parts.slice(0, -1).join(' '));
+  const first = titleCaseWords(firstRaw);
+  const last = titleCaseWords(lastRaw);
 
   // Try to find an existing user by name first (across agencies), then attach to this agency.
   const existing = await User.findByName(first, last);
@@ -2391,22 +2406,29 @@ export const importPayrollCsv = [
         // column may not exist yet
       }
 
-      const nameToId = new Map();
+      const nameToIds = new Map();
       for (const u of agencyUsers || []) {
-        const full = normalizeName(`${u.first_name || ''} ${u.last_name || ''}`);
-        if (full) nameToId.set(full, u.id);
+        const first = String(u.first_name || '').trim();
+        const last = String(u.last_name || '').trim();
+        const a = normalizeName(`${first} ${last}`);
+        const b = normalizeName(`${last} ${first}`);
+        if (a) addNameKeyToIds(nameToIds, a, u.id);
+        if (b) addNameKeyToIds(nameToIds, b, u.id);
       }
 
       // Auto-create missing provider users so rows can be matched immediately.
       const createdUsers = [];
       const seen = new Set();
       for (const r of parsed || []) {
-        const k = normalizeName(r.providerName);
-        if (!k || nameToId.has(k) || seen.has(k)) continue;
-        seen.add(k);
+        const keys = nameKeyCandidates(r.providerName);
+        const primaryKey = keys[0] || '';
+        if (!primaryKey || seen.has(primaryKey)) continue;
+        // If any key resolves uniquely already, no need to create.
+        if (resolveUserIdForProviderName(nameToIds, r.providerName)) continue;
+        seen.add(primaryKey);
         const ensured = await ensureUserForProviderName({ agencyId, providerName: r.providerName });
         if (ensured?.userId) {
-          nameToId.set(k, ensured.userId);
+          for (const k of keys) addNameKeyToIds(nameToIds, k, ensured.userId);
           createdUsers.push({ providerName: r.providerName, userId: ensured.userId, firstName: ensured.firstName, lastName: ensured.lastName });
         }
       }
@@ -2420,8 +2442,7 @@ export const importPayrollCsv = [
       });
 
       const rowsToInsert = parsed.map((r) => {
-        const key = normalizeName(r.providerName);
-        const userId = nameToId.get(key) || null;
+        const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
         const codeKey = String(r.serviceCode || '').trim().toUpperCase();
 
         // H0031: imported as 1 occurrence, but must be treated as minutes (default 60) and must be processed.
@@ -2589,22 +2610,28 @@ export const importPayrollAuto = [
         // column may not exist yet
       }
 
-      const nameToId = new Map();
+      const nameToIds = new Map();
       for (const u of agencyUsers || []) {
-        const full = normalizeName(`${u.first_name || ''} ${u.last_name || ''}`);
-        if (full) nameToId.set(full, u.id);
+        const first = String(u.first_name || '').trim();
+        const last = String(u.last_name || '').trim();
+        const a = normalizeName(`${first} ${last}`);
+        const b = normalizeName(`${last} ${first}`);
+        if (a) addNameKeyToIds(nameToIds, a, u.id);
+        if (b) addNameKeyToIds(nameToIds, b, u.id);
       }
 
       // Auto-create missing provider users so rows can be matched immediately.
       const createdUsers = [];
       const seen = new Set();
       for (const r of parsed || []) {
-        const k = normalizeName(r.providerName);
-        if (!k || nameToId.has(k) || seen.has(k)) continue;
-        seen.add(k);
+        const keys = nameKeyCandidates(r.providerName);
+        const primaryKey = keys[0] || '';
+        if (!primaryKey || seen.has(primaryKey)) continue;
+        if (resolveUserIdForProviderName(nameToIds, r.providerName)) continue;
+        seen.add(primaryKey);
         const ensured = await ensureUserForProviderName({ agencyId: resolvedAgencyId, providerName: r.providerName });
         if (ensured?.userId) {
-          nameToId.set(k, ensured.userId);
+          for (const k of keys) addNameKeyToIds(nameToIds, k, ensured.userId);
           createdUsers.push({ providerName: r.providerName, userId: ensured.userId, firstName: ensured.firstName, lastName: ensured.lastName });
         }
       }
@@ -2618,8 +2645,7 @@ export const importPayrollAuto = [
       });
 
       const rowsToInsert = parsed.map((r) => {
-        const key = normalizeName(r.providerName);
-        const userId = nameToId.get(key) || null;
+        const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
         const codeKey = String(r.serviceCode || '').trim().toUpperCase();
 
         const isH0031 = codeKey === 'H0031';
