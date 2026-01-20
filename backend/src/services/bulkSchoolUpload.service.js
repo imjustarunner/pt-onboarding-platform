@@ -32,6 +32,17 @@ const normalizePostalCode = (v) => {
   return m ? m[0] : s;
 };
 
+const looksLikePhone = (v) => {
+  const s = String(v || '').trim();
+  if (!s) return false;
+  // Count digits; US phone numbers usually have 10 digits.
+  const digits = (s.match(/\d/g) || []).length;
+  if (digits < 10) return false;
+  // Avoid mistaking long IDs for phones (very rough).
+  if (digits > 15) return false;
+  return true;
+};
+
 const parseAddressParts = (full) => {
   const s = String(full || '').trim();
   if (!s) return { street: '', city: '', state: '', postal: '' };
@@ -290,37 +301,74 @@ async function upsertSchoolProfile(connection, { schoolId, updates }) {
     locationLabel = null,
     primaryContactName = null,
     primaryContactEmail = null,
-    primaryContactRole = null
+    primaryContactRole = null,
+    secondaryContactText = null
   } = updates || {};
 
-  await connection.execute(
-    `INSERT INTO school_profiles
-      (school_organization_id, district_name, school_number, itsco_email, school_days_times, school_address, location_label,
-       primary_contact_name, primary_contact_email, primary_contact_role)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       district_name = COALESCE(VALUES(district_name), district_name),
-       school_number = COALESCE(VALUES(school_number), school_number),
-       itsco_email = COALESCE(VALUES(itsco_email), itsco_email),
-       school_days_times = COALESCE(VALUES(school_days_times), school_days_times),
-       school_address = COALESCE(VALUES(school_address), school_address),
-       location_label = COALESCE(VALUES(location_label), location_label),
-       primary_contact_name = COALESCE(VALUES(primary_contact_name), primary_contact_name),
-       primary_contact_email = COALESCE(VALUES(primary_contact_email), primary_contact_email),
-       primary_contact_role = COALESCE(VALUES(primary_contact_role), primary_contact_role)`,
-    [
-      schoolId,
-      districtName && String(districtName).trim() ? String(districtName).trim() : null,
-      schoolNumber && String(schoolNumber).trim() ? String(schoolNumber).trim() : null,
-      itscoEmail && normalizeEmail(itscoEmail) ? normalizeEmail(itscoEmail) : (itscoEmail && String(itscoEmail).trim() ? String(itscoEmail).trim() : null),
-      schoolDaysTimes && String(schoolDaysTimes).trim() ? String(schoolDaysTimes).trim() : null,
-      schoolAddress && String(schoolAddress).trim() ? String(schoolAddress).trim() : null,
-      locationLabel && String(locationLabel).trim() ? String(locationLabel).trim() : null,
-      primaryContactName && String(primaryContactName).trim() ? String(primaryContactName).trim() : null,
-      primaryContactEmail && normalizeEmail(primaryContactEmail) ? normalizeEmail(primaryContactEmail) : null,
-      primaryContactRole && String(primaryContactRole).trim() ? String(primaryContactRole).trim() : null
-    ]
-  );
+  // Prefer writing secondary_contact_text when the column exists (migration 207).
+  // Fall back gracefully if the column isn't present yet.
+  try {
+    await connection.execute(
+      `INSERT INTO school_profiles
+        (school_organization_id, district_name, school_number, itsco_email, school_days_times, school_address, location_label,
+         primary_contact_name, primary_contact_email, primary_contact_role, secondary_contact_text)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         district_name = COALESCE(VALUES(district_name), district_name),
+         school_number = COALESCE(VALUES(school_number), school_number),
+         itsco_email = COALESCE(VALUES(itsco_email), itsco_email),
+         school_days_times = COALESCE(VALUES(school_days_times), school_days_times),
+         school_address = COALESCE(VALUES(school_address), school_address),
+         location_label = COALESCE(VALUES(location_label), location_label),
+         primary_contact_name = COALESCE(VALUES(primary_contact_name), primary_contact_name),
+         primary_contact_email = COALESCE(VALUES(primary_contact_email), primary_contact_email),
+         primary_contact_role = COALESCE(VALUES(primary_contact_role), primary_contact_role),
+         secondary_contact_text = COALESCE(VALUES(secondary_contact_text), secondary_contact_text)`,
+      [
+        schoolId,
+        districtName && String(districtName).trim() ? String(districtName).trim() : null,
+        schoolNumber && String(schoolNumber).trim() ? String(schoolNumber).trim() : null,
+        itscoEmail && normalizeEmail(itscoEmail) ? normalizeEmail(itscoEmail) : (itscoEmail && String(itscoEmail).trim() ? String(itscoEmail).trim() : null),
+        schoolDaysTimes && String(schoolDaysTimes).trim() ? String(schoolDaysTimes).trim() : null,
+        schoolAddress && String(schoolAddress).trim() ? String(schoolAddress).trim() : null,
+        locationLabel && String(locationLabel).trim() ? String(locationLabel).trim() : null,
+        primaryContactName && String(primaryContactName).trim() ? String(primaryContactName).trim() : null,
+        primaryContactEmail && normalizeEmail(primaryContactEmail) ? normalizeEmail(primaryContactEmail) : null,
+        primaryContactRole && String(primaryContactRole).trim() ? String(primaryContactRole).trim() : null,
+        secondaryContactText && String(secondaryContactText).trim() ? String(secondaryContactText).trim() : null
+      ]
+    );
+  } catch (e) {
+    if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+    await connection.execute(
+      `INSERT INTO school_profiles
+        (school_organization_id, district_name, school_number, itsco_email, school_days_times, school_address, location_label,
+         primary_contact_name, primary_contact_email, primary_contact_role)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         district_name = COALESCE(VALUES(district_name), district_name),
+         school_number = COALESCE(VALUES(school_number), school_number),
+         itsco_email = COALESCE(VALUES(itsco_email), itsco_email),
+         school_days_times = COALESCE(VALUES(school_days_times), school_days_times),
+         school_address = COALESCE(VALUES(school_address), school_address),
+         location_label = COALESCE(VALUES(location_label), location_label),
+         primary_contact_name = COALESCE(VALUES(primary_contact_name), primary_contact_name),
+         primary_contact_email = COALESCE(VALUES(primary_contact_email), primary_contact_email),
+         primary_contact_role = COALESCE(VALUES(primary_contact_role), primary_contact_role)`,
+      [
+        schoolId,
+        districtName && String(districtName).trim() ? String(districtName).trim() : null,
+        schoolNumber && String(schoolNumber).trim() ? String(schoolNumber).trim() : null,
+        itscoEmail && normalizeEmail(itscoEmail) ? normalizeEmail(itscoEmail) : (itscoEmail && String(itscoEmail).trim() ? String(itscoEmail).trim() : null),
+        schoolDaysTimes && String(schoolDaysTimes).trim() ? String(schoolDaysTimes).trim() : null,
+        schoolAddress && String(schoolAddress).trim() ? String(schoolAddress).trim() : null,
+        locationLabel && String(locationLabel).trim() ? String(locationLabel).trim() : null,
+        primaryContactName && String(primaryContactName).trim() ? String(primaryContactName).trim() : null,
+        primaryContactEmail && normalizeEmail(primaryContactEmail) ? normalizeEmail(primaryContactEmail) : null,
+        primaryContactRole && String(primaryContactRole).trim() ? String(primaryContactRole).trim() : null
+      ]
+    );
+  }
 }
 
 async function setPrimaryFlagForSchool(connection, schoolId, email) {
@@ -369,7 +417,49 @@ async function upsertSchoolContact(connection, schoolId, contact, { isPrimary = 
 }
 
 async function parseAdditionalContacts({ cellText, hintSchoolName }) {
-  const parts = splitMulti(cellText);
+  const raw = String(cellText || '').trim();
+  if (!raw) return [];
+
+  // Special-case: comma-separated triples like:
+  // "Joyce Archuleta, joyce@dpsk12.org, Counselor, Other Name, other@dpsk12.org, Principal"
+  // This is common in spreadsheets and should create multiple contacts.
+  const hasEmails = extractEmails(raw).length > 0;
+  const looksLikeCommaTriples = hasEmails && raw.includes(',') && !raw.includes('\n') && !raw.includes(';') && !raw.includes('|');
+  if (looksLikeCommaTriples) {
+    const tokens = raw.split(',').map((t) => String(t || '').trim()).filter(Boolean);
+    const out = [];
+
+    let nameBuffer = [];
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      const emails = extractEmails(t);
+      if (emails.length) {
+        const email = emails[0];
+        const name = (nameBuffer.join(' ').trim() || null);
+        // Role is next token if present and not an email token.
+        const next = tokens[i + 1] ? tokens[i + 1] : '';
+        const nextHasEmail = extractEmails(next).length > 0;
+        const role = (!nextHasEmail && next) ? next : null;
+        if (role) i += 1; // consume role token
+
+        out.push({
+          fullName: name,
+          email,
+          roleTitle: role,
+          notes: null,
+          rawSourceText: raw
+        });
+        nameBuffer = [];
+        continue;
+      }
+      nameBuffer.push(t);
+    }
+
+    // If we parsed at least one contact, return them.
+    if (out.length) return out;
+  }
+
+  const parts = splitMulti(raw);
   const out = [];
   for (const p of parts) {
     const emails = extractEmails(p);
@@ -418,7 +508,12 @@ export async function processBulkSchoolUpload({ agencyId, userId, fileName, rows
         // Update core organization fields used across the app UI.
         // (School address + school phone are stored on agencies, not only in school_profiles.)
         // Overwrite when the spreadsheet provides a non-empty value.
-        const schoolPhone = row.schoolPhone ? String(row.schoolPhone).trim() : '';
+        // Your spreadsheet sometimes puts the school's phone in the "School Number" column.
+        // Treat it as phone when it looks like a phone number.
+        const schoolPhoneFromColumn = row.schoolPhone ? String(row.schoolPhone).trim() : '';
+        const schoolNumberRaw = row.schoolNumber ? String(row.schoolNumber).trim() : '';
+        const inferredPhone = (!schoolPhoneFromColumn && looksLikePhone(schoolNumberRaw)) ? schoolNumberRaw : '';
+        const schoolPhone = schoolPhoneFromColumn || inferredPhone;
         const schoolAddress = row.schoolAddress ? String(row.schoolAddress).trim() : '';
         const schoolAddress2 = row.schoolAddress2 ? String(row.schoolAddress2).trim() : '';
         const schoolCity = row.schoolCity ? String(row.schoolCity).trim() : '';
@@ -487,11 +582,14 @@ export async function processBulkSchoolUpload({ agencyId, userId, fileName, rows
             });
 
         // Update school profile fields
+        // Only store a "school_number" when it doesn't look like a phone number.
+        const schoolNumberForProfile = looksLikePhone(schoolNumberRaw) ? null : (schoolNumberRaw || null);
+
         await upsertSchoolProfile(connection, {
           schoolId,
           updates: {
             districtName,
-            schoolNumber: row.schoolNumber || null,
+            schoolNumber: schoolNumberForProfile,
             itscoEmail: row.itscoEmail || null,
             schoolDaysTimes: row.schoolDaysTimes || null,
             // Keep a copy in school_profiles for directory/export use,
