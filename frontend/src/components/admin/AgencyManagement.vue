@@ -241,6 +241,30 @@
           <button type="button" :class="['tab-button', { active: activeTab === 'contact' }]" @click="activeTab = 'contact'">Contact</button>
           <button type="button" :class="['tab-button', { active: activeTab === 'address' }]" @click="activeTab = 'address'">Address</button>
           <button
+            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'school'"
+            type="button"
+            :class="['tab-button', { active: activeTab === 'school_providers' }]"
+            @click="activeTab = 'school_providers'"
+          >
+            Providers
+          </button>
+          <button
+            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'school'"
+            type="button"
+            :class="['tab-button', { active: activeTab === 'school_staff' }]"
+            @click="activeTab = 'school_staff'"
+          >
+            School Staff
+          </button>
+          <button
+            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'school'"
+            type="button"
+            :class="['tab-button', { active: activeTab === 'school_soft_schedule' }]"
+            @click="activeTab = 'school_soft_schedule'"
+          >
+            Soft Schedule
+          </button>
+          <button
             v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             type="button"
             :class="['tab-button', { active: activeTab === 'sites' }]"
@@ -559,36 +583,108 @@
           </div>
           
           <div v-if="activeTab === 'contact'" class="tab-section">
-          <div class="form-group">
-            <label>Onboarding Team Email</label>
-            <input 
-              v-model="agencyForm.onboardingTeamEmail" 
-              type="email" 
-              placeholder="onboarding@agency.com"
-            />
-            <small>Email address for the onboarding team</small>
+          <template v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'school'">
+            <div class="form-group">
+              <label>Primary Contact</label>
+              <input v-model="agencyForm.schoolProfile.primaryContactName" type="text" placeholder="Full name" />
+            </div>
+            <div class="form-group">
+              <label>Title / Role (at school)</label>
+              <input v-model="agencyForm.schoolProfile.primaryContactRole" type="text" placeholder="e.g. Social Worker" />
+            </div>
+            <div class="form-group">
+              <label>Primary Contact Email</label>
+              <input v-model="agencyForm.schoolProfile.primaryContactEmail" type="email" placeholder="name@school.org" />
+            </div>
+            <div class="form-group">
+              <label>School Phone Number</label>
+              <input v-model="agencyForm.phoneNumber" type="tel" placeholder="(555) 123-4567" />
+              <small>Main phone number for this school</small>
+            </div>
+            <div class="form-group">
+              <label>Secondary Contact (string)</label>
+              <textarea
+                v-model="agencyForm.schoolProfile.secondaryContactText"
+                rows="2"
+                placeholder="Freeform: name, role, email, phone, notes…"
+              ></textarea>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="form-group">
+              <label>Onboarding Team Email</label>
+              <input 
+                v-model="agencyForm.onboardingTeamEmail" 
+                type="email" 
+                placeholder="onboarding@agency.com"
+              />
+              <small>Email address for the onboarding team</small>
+            </div>
+            
+            <div class="form-group">
+              <label>Phone Number</label>
+              <input 
+                v-model="agencyForm.phoneNumber" 
+                type="tel" 
+                placeholder="(555) 123-4567"
+              />
+              <small>Phone number for the agency</small>
+            </div>
+            
+            <div class="form-group">
+              <label>Phone Extension</label>
+              <input 
+                v-model="agencyForm.phoneExtension" 
+                type="text" 
+                maxlength="10"
+                placeholder="123"
+              />
+              <small>Optional phone extension</small>
+            </div>
+          </template>
           </div>
-          
-          <div class="form-group">
-            <label>Phone Number</label>
-            <input 
-              v-model="agencyForm.phoneNumber" 
-              type="tel" 
-              placeholder="(555) 123-4567"
-            />
-            <small>Phone number for the agency</small>
+
+          <div v-if="activeTab === 'school_providers'" class="tab-section">
+            <h4 style="margin: 0 0 8px 0;">Affiliated Providers</h4>
+            <small class="hint">This tab will list providers affiliated with the school (coming next).</small>
           </div>
-          
-          <div class="form-group">
-            <label>Phone Extension</label>
-            <input 
-              v-model="agencyForm.phoneExtension" 
-              type="text" 
-              maxlength="10"
-              placeholder="123"
-            />
-            <small>Optional phone extension</small>
+
+          <div v-if="activeTab === 'school_staff'" class="tab-section">
+            <h4 style="margin: 0 0 8px 0;">Affiliated School Staff</h4>
+            <small class="hint">This tab will list school staff accounts eligible for login (coming next).</small>
+
+            <div v-if="schoolContactsForEditor.length" style="margin-top: 12px;">
+              <div style="font-weight: 700; font-size: 13px; margin-bottom: 6px;">Imported contacts</div>
+              <div style="display: grid; gap: 8px;">
+                <div
+                  v-for="c in schoolContactsForEditor"
+                  :key="c.id"
+                  style="border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: var(--card-bg);"
+                >
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <strong v-if="c.full_name">{{ c.full_name }}</strong>
+                    <span v-else style="color: var(--text-secondary);">(no name)</span>
+                    <span v-if="c.is_primary" class="badge badge-success">Primary</span>
+                    <span v-if="c.role_title" style="color: var(--text-secondary);">• {{ c.role_title }}</span>
+                    <span v-if="c.email" style="color: var(--text-secondary);">• {{ c.email }}</span>
+                  </div>
+                  <div v-if="c.notes" style="margin-top: 4px; color: var(--text-secondary); font-size: 12px;">
+                    {{ c.notes }}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
+
+          <div v-if="activeTab === 'school_soft_schedule'" class="tab-section">
+            <h4 style="margin: 0 0 8px 0;">School Soft Schedule</h4>
+            <small class="hint">Lightweight schedule notes (not the full scheduler).</small>
+
+            <div class="form-group" style="margin-top: 10px;">
+              <label>School Days/Times</label>
+              <input v-model="agencyForm.schoolProfile.schoolDaysTimes" type="text" placeholder="Mon/Wed 8–12" />
+            </div>
           </div>
 
           <div v-if="activeTab === 'address'" class="tab-section">
@@ -2337,7 +2433,8 @@ const agencyForm = ref({
     schoolDaysTimes: '',
     primaryContactName: '',
     primaryContactEmail: '',
-    primaryContactRole: ''
+    primaryContactRole: '',
+    secondaryContactText: ''
   },
   streetAddress: '',
   city: '',
@@ -3071,7 +3168,8 @@ const editAgency = (agency) => {
       schoolDaysTimes: agency?.school_profile?.school_days_times || '',
       primaryContactName: agency?.school_profile?.primary_contact_name || '',
       primaryContactEmail: agency?.school_profile?.primary_contact_email || '',
-      primaryContactRole: agency?.school_profile?.primary_contact_role || ''
+      primaryContactRole: agency?.school_profile?.primary_contact_role || '',
+      secondaryContactText: agency?.school_profile?.secondary_contact_text || ''
     },
     streetAddress: agency.street_address || '',
     city: agency.city || '',
@@ -3491,7 +3589,11 @@ const saveAgency = async () => {
       myDashboardOnDemandTrainingIconId: agencyForm.value.myDashboardOnDemandTrainingIconId ?? null,
       onboardingTeamEmail: agencyForm.value.onboardingTeamEmail?.trim() || null,
       phoneNumber: agencyForm.value.phoneNumber?.trim() || null,
-      phoneExtension: agencyForm.value.phoneExtension?.trim() || null,
+      // Schools don't use extensions (per directory requirements)
+      phoneExtension:
+        String(agencyForm.value.organizationType || '').toLowerCase() === 'school'
+          ? null
+          : (agencyForm.value.phoneExtension?.trim() || null),
       streetAddress: agencyForm.value.streetAddress?.trim() || null,
       city: agencyForm.value.city?.trim() || null,
       state: agencyForm.value.state?.trim() || null,
@@ -3528,7 +3630,8 @@ const saveAgency = async () => {
               schoolDaysTimes: agencyForm.value.schoolProfile?.schoolDaysTimes?.trim() || null,
               primaryContactName: agencyForm.value.schoolProfile?.primaryContactName?.trim() || null,
               primaryContactEmail: agencyForm.value.schoolProfile?.primaryContactEmail?.trim() || null,
-              primaryContactRole: agencyForm.value.schoolProfile?.primaryContactRole?.trim() || null
+              primaryContactRole: agencyForm.value.schoolProfile?.primaryContactRole?.trim() || null,
+              secondaryContactText: agencyForm.value.schoolProfile?.secondaryContactText?.trim() || null
             }
           : null
     };

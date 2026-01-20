@@ -246,7 +246,8 @@ class Agency {
              location_label,
              primary_contact_name,
              primary_contact_email,
-             primary_contact_role
+             primary_contact_role,
+             secondary_contact_text
            FROM school_profiles
            WHERE school_organization_id = ?
            LIMIT 1`,

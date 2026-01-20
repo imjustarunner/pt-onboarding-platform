@@ -381,12 +381,13 @@ export const updateAgency = async (req, res, next) => {
         const primaryContactName = sp.primaryContactName !== undefined ? String(sp.primaryContactName || '').trim() : '';
         const primaryContactEmail = sp.primaryContactEmail !== undefined ? String(sp.primaryContactEmail || '').trim() : '';
         const primaryContactRole = sp.primaryContactRole !== undefined ? String(sp.primaryContactRole || '').trim() : '';
+        const secondaryContactText = sp.secondaryContactText !== undefined ? String(sp.secondaryContactText || '').trim() : '';
 
         await pool.execute(
           `INSERT INTO school_profiles
             (school_organization_id, district_name, school_number, itsco_email, school_days_times,
-             primary_contact_name, primary_contact_email, primary_contact_role)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             primary_contact_name, primary_contact_email, primary_contact_role, secondary_contact_text)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON DUPLICATE KEY UPDATE
              district_name = COALESCE(VALUES(district_name), district_name),
              school_number = COALESCE(VALUES(school_number), school_number),
@@ -394,7 +395,8 @@ export const updateAgency = async (req, res, next) => {
              school_days_times = COALESCE(VALUES(school_days_times), school_days_times),
              primary_contact_name = COALESCE(VALUES(primary_contact_name), primary_contact_name),
              primary_contact_email = COALESCE(VALUES(primary_contact_email), primary_contact_email),
-             primary_contact_role = COALESCE(VALUES(primary_contact_role), primary_contact_role)`,
+             primary_contact_role = COALESCE(VALUES(primary_contact_role), primary_contact_role),
+             secondary_contact_text = COALESCE(VALUES(secondary_contact_text), secondary_contact_text)`,
           [
             parseInt(id, 10),
             districtName || null,
@@ -403,7 +405,8 @@ export const updateAgency = async (req, res, next) => {
             schoolDaysTimes || null,
             primaryContactName || null,
             primaryContactEmail || null,
-            primaryContactRole || null
+            primaryContactRole || null,
+            secondaryContactText || null
           ]
         );
       }
