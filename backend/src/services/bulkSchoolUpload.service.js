@@ -463,13 +463,28 @@ export async function processBulkSchoolUpload({ agencyId, userId, fileName, rows
           ]
         );
 
-        // Parse primary contact (name/role/also-schools), with email coming from dedicated column.
-        const primaryEmailHint = normalizeEmail(row.schoolContactEmail || '');
-        const primaryParsed = await parseContactSmart({
-          text: String(row.primarySchoolContact || '').trim(),
-          emailHint: primaryEmailHint,
-          hintSchoolName: schoolName
-        });
+        // Primary contact:
+        // - New format: separate name/title/email columns (no Gemini needed).
+        // - Legacy format: messy string + separate email column (Gemini fallback).
+        const primaryEmailHint = normalizeEmail(row.primaryContactEmail || row.schoolContactEmail || '');
+        const primaryName = String(row.primaryContactName || '').trim() || String(row.primarySchoolContact || '').trim();
+        const primaryRole = String(row.primaryContactTitle || '').trim();
+        const hasStructuredPrimary = !!(primaryName || primaryRole || primaryEmailHint);
+
+        const primaryParsed = hasStructuredPrimary
+          ? {
+              fullName: primaryName || null,
+              email: primaryEmailHint || '',
+              roleTitle: primaryRole || null,
+              notes: null,
+              rawSourceText: null,
+              alsoSchools: []
+            }
+          : await parseContactSmart({
+              text: String(row.primarySchoolContact || '').trim(),
+              emailHint: primaryEmailHint,
+              hintSchoolName: schoolName
+            });
 
         // Update school profile fields
         await upsertSchoolProfile(connection, {
@@ -483,9 +498,10 @@ export async function processBulkSchoolUpload({ agencyId, userId, fileName, rows
             // even though the canonical UI field is agencies.street_address.
             schoolAddress: row.schoolAddress || null,
             locationLabel: null,
-            primaryContactName: primaryParsed?.fullName || (row.primarySchoolContact ? String(row.primarySchoolContact).trim() : null),
+            primaryContactName: primaryParsed?.fullName || primaryName || null,
             primaryContactEmail: primaryParsed?.email || primaryEmailHint || null,
-            primaryContactRole: primaryParsed?.roleTitle || null
+            primaryContactRole: primaryParsed?.roleTitle || primaryRole || null,
+            secondaryContactText: row.secondaryContactText || row.secondaryContact || null
           }
         });
 

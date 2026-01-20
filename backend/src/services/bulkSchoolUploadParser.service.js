@@ -101,19 +101,47 @@ export default class BulkSchoolUploadParserService {
         ]) || ''
       ).trim();
 
+      // New school directory headers (2026-01):
+      // School / Location | Primary Contact Name | Primary Contact Title | Primary Contact Email
+      // | Additional Contacts (Name, Email, Role) | School Number | ITSCO Email
+      // | Street Address | City | State | Zip | District
+
+      const primaryContactName = String(
+        firstNonEmpty(normalized, ['primary contact name', 'primary name', 'primary contact']) || ''
+      ).trim();
+      const primaryContactTitle = String(
+        firstNonEmpty(normalized, ['primary contact title', 'primary title', 'primary role', 'primary contact role', 'primary contact title role']) || ''
+      ).trim();
+      const primaryContactEmail = String(
+        firstNonEmpty(normalized, ['primary contact email', 'primary email', 'school contact email', 'contact email']) || ''
+      ).trim();
+      const additionalContacts = String(
+        firstNonEmpty(normalized, [
+          'additional contacts name email role',
+          'additional contacts',
+          'additional contacts name email',
+          'additional contacts name email roles',
+          'additional contacts name email role',
+          'additional contacts name email role ',
+          'additional contacts name email role',
+          'school contacts emails and role',
+          'school contacts',
+          'contacts'
+        ]) || ''
+      ).trim();
+
       const out = {
         rowNumber: i + 2, // header row is 1
         schoolLocation,
+        // Support both legacy + new formats
+        primaryContactName,
+        primaryContactTitle,
+        primaryContactEmail,
         primarySchoolContact: String(
-          firstNonEmpty(normalized, ['primary school contact', 'primary contact', 'school primary contact']) || ''
+          firstNonEmpty(normalized, ['primary school contact', 'school primary contact']) || primaryContactName || ''
         ).trim(),
-        schoolContactEmail: String(
-          firstNonEmpty(normalized, [
-            'school contact email',
-            'primary contact email',
-            'primary email',
-            'contact email'
-          ]) || ''
+        schoolContactEmail: primaryContactEmail || String(
+          firstNonEmpty(normalized, ['school contact email', 'contact email']) || ''
         ).trim(),
         schoolPhone: String(
           firstNonEmpty(normalized, [
@@ -128,16 +156,7 @@ export default class BulkSchoolUploadParserService {
             'phone'
           ]) || ''
         ).trim(),
-        schoolContactsEmailsAndRole: String(
-          firstNonEmpty(normalized, [
-            'school contacts emails and role',
-            'school contacts emails role',
-            'school contacts emails roles',
-            'school contacts',
-            'contacts',
-            'additional contacts'
-          ]) || ''
-        ).trim(),
+        schoolContactsEmailsAndRole: additionalContacts,
         schoolNumber: String(firstNonEmpty(normalized, ['school number', 'number', 'school #', 'site number']) || '').trim(),
         itscoEmail: String(firstNonEmpty(normalized, ['itsco email', 'itsco', 'group email', 'itsco group email', 'itsco group', 'itsco group address']) || '').trim(),
         schoolDaysTimes: String(
@@ -155,13 +174,14 @@ export default class BulkSchoolUploadParserService {
         // Address may come as one field, or split into components.
         schoolAddress: String(
           firstNonEmpty(normalized, [
+            'street address',
+            'street',
             'school address',
             'address',
             'site address',
             'address line 1',
             'address 1',
-            'street address',
-            'street'
+            'address1'
           ]) || ''
         ).trim(),
         schoolAddress2: String(firstNonEmpty(normalized, ['address line 2', 'address 2', 'suite', 'suite apt', 'apt suite']) || '').trim(),
@@ -180,13 +200,16 @@ export default class BulkSchoolUploadParserService {
         err.foundHeaders = Object.keys(raw || {});
         err.expectedHeaders = [
           'School / Location',
-          'Primary School Contact',
-          'School Contact Email',
-          'School Contacts, Emails, and Role',
+          'Primary Contact Name',
+          'Primary Contact Title',
+          'Primary Contact Email',
+          'Additional Contacts (Name, Email, Role)',
           'School Number',
           'ITSCO Email',
-          'School Days/Times',
-          'School Address',
+          'Street Address',
+          'City',
+          'State',
+          'Zip',
           'District'
         ];
         throw err;
