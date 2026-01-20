@@ -669,11 +669,15 @@ function parsePayrollRows(records, opts = {}) {
       ]) ||
       '';
 
+    // Some reports include refunds/payments/etc. We only want appointment rows.
+    // If the report has a "Type" column, enforce Type === "Appointment".
+    const hasTypeCol = Object.prototype.hasOwnProperty.call(normalized, 'type');
+    const typeStr = String(hasTypeCol ? normalized['type'] : '').trim().toLowerCase();
+    if (hasTypeCol && typeStr !== 'appointment') return null;
+
     const noteStatusRaw =
-      normalized['status'] ||
       normalized['note status'] ||
       normalized['note_status'] ||
-      normalized['note'] ||
       '';
 
     const apptType =
@@ -2478,7 +2482,8 @@ export const importPayrollCsv = [
           serviceCode: r.serviceCode,
           serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
           noteStatus: r.noteStatus,
-          draftPayable: r.noteStatus === 'DRAFT' ? 1 : 1, // default payable for drafts; ignored otherwise
+          // DRAFT rows default payable=true; other rows ignore this flag.
+          draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
           unitCount,
           rowFingerprint,
           requiresProcessing,
@@ -2679,7 +2684,8 @@ export const importPayrollAuto = [
           serviceCode: r.serviceCode,
           serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
           noteStatus: r.noteStatus,
-          draftPayable: r.noteStatus === 'DRAFT' ? 1 : 1,
+          // DRAFT rows default payable=true; other rows ignore this flag.
+          draftPayable: r.noteStatus === 'DRAFT' ? 1 : 0,
           unitCount,
           rowFingerprint,
           requiresProcessing,
