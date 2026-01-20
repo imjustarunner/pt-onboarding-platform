@@ -3075,12 +3075,27 @@ const safeJsonObject = (value, fallback = {}) => {
   }
 };
 
-const editAgency = (agency) => {
+const editAgency = async (agency) => {
   if ((showCreateModal.value || (editingAgency.value && editingAgency.value.id !== agency.id)) && !confirmDiscardUnsavedEdits()) {
     return;
   }
 
   showCreateModal.value = false;
+  // For school orgs, fetch full details so school_profile + school_contacts are available.
+  // (The org list endpoints return a lightweight org object.)
+  try {
+    const orgType = String(agency?.organization_type || agency?.organizationType || agencyForm.value?.organizationType || 'agency').toLowerCase();
+    const needsDetails =
+      orgType === 'school' &&
+      (agency?.school_profile === undefined || agency?.school_contacts === undefined);
+    if (needsDetails && agency?.id) {
+      const resp = await api.get(`/agencies/${agency.id}`);
+      agency = resp?.data || agency;
+    }
+  } catch {
+    // best effort; fall back to provided object
+  }
+
   editingAgency.value = agency;
   // If selecting a parent agency, treat it as the "affiliation context" for the list and show its affiliated orgs below.
   if (String(agency?.organization_type || 'agency').toLowerCase() === 'agency') {
