@@ -152,8 +152,27 @@ async function recomputeAccount({ agencyId, userId }) {
      WHERE agency_id = ? AND user_id = ?`,
     [agencyId, userId]
   );
-  const individualHours = clampHours(rows?.[0]?.individualHours || 0);
-  const groupHours = clampHours(rows?.[0]?.groupHours || 0);
+  let individualHours = clampHours(rows?.[0]?.individualHours || 0);
+  let groupHours = clampHours(rows?.[0]?.groupHours || 0);
+
+  // Baseline hours for prelicensed providers (best-effort; column may not exist yet).
+  try {
+    const [uaRows] = await pool.execute(
+      `SELECT supervision_is_prelicensed, supervision_start_individual_hours, supervision_start_group_hours
+       FROM user_agencies
+       WHERE agency_id = ? AND user_id = ?
+       LIMIT 1`,
+      [agencyId, userId]
+    );
+    const ua = uaRows?.[0] || null;
+    const isPre = ua?.supervision_is_prelicensed === 1 || ua?.supervision_is_prelicensed === true || String(ua?.supervision_is_prelicensed || '') === '1';
+    if (isPre) {
+      individualHours += clampHours(ua?.supervision_start_individual_hours || 0);
+      groupHours += clampHours(ua?.supervision_start_group_hours || 0);
+    }
+  } catch {
+    // ignore
+  }
 
   await pool.execute(
     `INSERT INTO supervision_accounts (agency_id, user_id, individual_hours, group_hours)
@@ -172,6 +191,101 @@ async function recomputeAccount({ agencyId, userId }) {
     [agencyId, userId]
   );
   return acctRows?.[0] || null;
+}
+
+export async function recomputeSupervisionAccountForUser({ agencyId, userId }) {
+  return recomputeAccount({ agencyId, userId });
+}
+
+export async function accruePrelicensedSupervisionFromPayroll({ agencyId, payrollPeriodId, uploadedByUserId }) {
+  const agencyIdNum = Number(agencyId);
+  const periodIdNum = Number(payrollPeriodId);
+  if (!agencyIdNum || !periodIdNum) return { ok: false, reason: 'missing_ids' };
+
+  // Ensure supervision feature is enabled for this agency (best-effort; if not enabled, do nothing).
+  const { policy } = await getAgencySupervisionPolicy({ agencyId: agencyIdNum });
+  if (!policy?.enabled) return { ok: true, skipped: true, reason: 'supervision_disabled' };
+
+  // Latest import for this pay period
+  const [impRows] = await pool.execute(
+    `SELECT id
+     FROM payroll_imports
+     WHERE payroll_period_id = ?
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+    [periodIdNum]
+  );
+  const latestImportId = impRows?.[0]?.id || null;
+  if (!latestImportId) return { ok: true, skipped: true, reason: 'no_payroll_import' };
+
+  // Pull prelicensed users and accrue supervision codes by DOS >= start_date.
+  // Assumes payroll_import_rows.unit_count stores minutes for 99414/99416.
+  const [rows] = await pool.execute(
+    `SELECT
+       pir.user_id,
+       SUM(CASE WHEN UPPER(TRIM(pir.service_code)) = '99414' THEN pir.unit_count ELSE 0 END) AS individual_minutes,
+       SUM(CASE WHEN UPPER(TRIM(pir.service_code)) = '99416' THEN pir.unit_count ELSE 0 END) AS group_minutes
+     FROM payroll_import_rows pir
+     JOIN user_agencies ua
+       ON ua.agency_id = pir.agency_id
+      AND ua.user_id = pir.user_id
+     WHERE pir.agency_id = ?
+       AND pir.payroll_period_id = ?
+       AND pir.payroll_import_id = ?
+       AND ua.supervision_is_prelicensed = 1
+       AND UPPER(TRIM(pir.service_code)) IN ('99414','99416')
+       AND (ua.supervision_start_date IS NULL OR pir.service_date >= ua.supervision_start_date)
+     GROUP BY pir.user_id`,
+    [agencyIdNum, periodIdNum, latestImportId]
+  );
+
+  const touchedUserIds = new Set();
+  for (const r of rows || []) {
+    const uid = Number(r.user_id || 0);
+    if (!uid) continue;
+    const indHours = clampHours(Number(r.individual_minutes || 0) / 60);
+    const grpHours = clampHours(Number(r.group_minutes || 0) / 60);
+    if (indHours <= 0 && grpHours <= 0) continue;
+
+    await pool.execute(
+      `INSERT INTO supervision_period_entries
+       (agency_id, payroll_period_id, user_id, individual_hours, group_hours, source_json, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         individual_hours = VALUES(individual_hours),
+         group_hours = VALUES(group_hours),
+         source_json = VALUES(source_json),
+         created_by_user_id = VALUES(created_by_user_id),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        agencyIdNum,
+        periodIdNum,
+        uid,
+        indHours,
+        grpHours,
+        JSON.stringify({ source: 'payroll', payrollImportId: latestImportId }),
+        uploadedByUserId || null
+      ]
+    );
+    touchedUserIds.add(uid);
+  }
+
+  // Recompute totals + trigger notifications for touched users.
+  const updatedAccounts = [];
+  for (const uid of Array.from(touchedUserIds)) {
+    const [prevRows] = await pool.execute(
+      `SELECT * FROM supervision_accounts WHERE agency_id = ? AND user_id = ? LIMIT 1`,
+      [agencyIdNum, uid]
+    );
+    const prev = prevRows?.[0] || null;
+    const next = await recomputeAccount({ agencyId: agencyIdNum, userId: uid });
+    if (next) {
+      await notifyThresholds({ agencyId: agencyIdNum, userId: uid, payrollPeriodId: periodIdNum, prevAcct: prev, nextAcct: next, policy });
+      updatedAccounts.push(next);
+    }
+  }
+
+  return { ok: true, agencyId: agencyIdNum, payrollPeriodId: periodIdNum, updatedUsers: updatedAccounts.length };
 }
 
 async function notifyThresholds({

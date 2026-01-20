@@ -36,6 +36,7 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import pool from '../config/database.js';
 import AdpPayrollService from '../services/adpPayroll.service.js';
 import StorageService from '../services/storage.service.js';
+import { accruePrelicensedSupervisionFromPayroll } from '../services/supervision.service.js';
 import { getUserCompensationForAgency } from '../models/PayrollCompensation.service.js';
 import { payrollDefaultsForCode } from '../services/payrollServiceCodeDefaults.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
@@ -1983,6 +1984,59 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     byUser.get(r.userId).push(r);
   }
 
+  // Prelicensed pay gating for supervision codes (99414/99416):
+  // pay is $0 until (individual>=50 AND total>=100) as of *prior* periods (pay-forward only).
+  const supervisionPayEligibleByUserId = new Map();
+  try {
+    const [uaRows] = await pool.execute(
+      `SELECT user_id, supervision_start_individual_hours, supervision_start_group_hours
+       FROM user_agencies
+       WHERE agency_id = ? AND supervision_is_prelicensed = 1`,
+      [agencyId]
+    );
+    const preIds = (uaRows || []).map((r) => Number(r.user_id)).filter((n) => Number.isFinite(n) && n > 0);
+    const baseByUser = new Map();
+    for (const r of uaRows || []) {
+      const uid = Number(r.user_id || 0);
+      if (!uid) continue;
+      baseByUser.set(uid, {
+        ind: Number(r.supervision_start_individual_hours || 0),
+        grp: Number(r.supervision_start_group_hours || 0)
+      });
+    }
+    if (preIds.length) {
+      const placeholders = preIds.map(() => '?').join(',');
+      const [sumRows] = await pool.execute(
+        `SELECT spe.user_id,
+                COALESCE(SUM(spe.individual_hours), 0) AS ind,
+                COALESCE(SUM(spe.group_hours), 0) AS grp
+         FROM supervision_period_entries spe
+         JOIN payroll_periods pp ON pp.id = spe.payroll_period_id
+         WHERE spe.agency_id = ?
+           AND pp.period_end < ?
+           AND spe.user_id IN (${placeholders})
+         GROUP BY spe.user_id`,
+        [agencyId, String(periodStart || '').slice(0, 10), ...preIds]
+      );
+      const sumsByUser = new Map();
+      for (const r of sumRows || []) {
+        const uid = Number(r.user_id || 0);
+        if (!uid) continue;
+        sumsByUser.set(uid, { ind: Number(r.ind || 0), grp: Number(r.grp || 0) });
+      }
+      for (const uid of preIds) {
+        const base = baseByUser.get(uid) || { ind: 0, grp: 0 };
+        const sums = sumsByUser.get(uid) || { ind: 0, grp: 0 };
+        const indTotal = Number(base.ind || 0) + Number(sums.ind || 0);
+        const grpTotal = Number(base.grp || 0) + Number(sums.grp || 0);
+        const eligible = indTotal >= 50 - 1e-9 && (indTotal + grpTotal) >= 100 - 1e-9;
+        supervisionPayEligibleByUserId.set(uid, eligible);
+      }
+    }
+  } catch {
+    // ignore (tables/columns may not exist yet)
+  }
+
   const rules = await PayrollServiceCodeRule.listForAgency(agencyId);
   const tierSettings = await getAgencyTierSettings(agencyId);
   const ruleByCode = new Map(
@@ -2130,6 +2184,13 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
 
       // Always compute wage math on pay-hours for non-flat categories.
       const computeLineAmount = ({ units, payHours }) => {
+        // Prelicensed pay gate for supervision codes.
+        if (codeKey === '99414' || codeKey === '99416') {
+          // Only apply if we know this user is prelicensed; non-prelicensed users aren't in the map.
+          if (supervisionPayEligibleByUserId.has(Number(userId)) && supervisionPayEligibleByUserId.get(Number(userId)) === false) {
+            return 0;
+          }
+        }
         if (perCode) {
           if (perCodeUnit === 'flat') return rateAmount;
           if (bucket !== 'flat') {
@@ -3971,6 +4032,21 @@ export const runPayrollPeriod = async (req, res, next) => {
     } catch (e) {
       // If the run history tables aren't migrated yet, don't block payroll runs.
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    // Best-effort: accrue supervision hours for prelicensed providers from payroll (99414/99416),
+    // and trigger existing supervision threshold notifications. This does NOT affect pay eligibility
+    // for the current period (pay-forward only, implemented in recomputeSummariesFromStaging()).
+    try {
+      await accruePrelicensedSupervisionFromPayroll({
+        agencyId: period.agency_id,
+        payrollPeriodId,
+        uploadedByUserId: req.user.id
+      });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') {
+        // ignore
+      }
     }
 
     // Best-effort: track and notify supervisors about draft notes submitted but not signed by them yet.

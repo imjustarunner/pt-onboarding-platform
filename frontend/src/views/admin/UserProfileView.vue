@@ -293,6 +293,56 @@
                           <option value="cat2_flat">Cat2 Flat (auto 30 min)</option>
                         </select>
                       </div>
+
+                      <div
+                        v-if="canEditUser && isProviderLikeRole"
+                        style="display:flex; align-items:center; gap: 8px; flex-wrap: wrap;"
+                        title="Prelicensed supervision tracking is per-organization. Baseline hours are added to accrued payroll supervision hours (99414/99416). Pay for 99414/99416 is $0 until the provider has already reached ≥50 individual and ≥100 total hours in prior pay periods."
+                      >
+                        <span class="muted" style="font-size: 12px; font-weight: 700;">Prelicensed</span>
+                        <label class="muted" style="display:flex; align-items:center; gap: 6px;">
+                          <input
+                            type="checkbox"
+                            :checked="isPrelicensedForAgency(agency)"
+                            :disabled="updatingPrelicensedAgencyId === agency.id"
+                            @change="savePrelicensedSettings(agency, { isPrelicensed: $event.target.checked })"
+                          />
+                          <span>{{ isPrelicensedForAgency(agency) ? 'On' : 'Off' }}</span>
+                        </label>
+                        <input
+                          v-if="isPrelicensedForAgency(agency)"
+                          type="date"
+                          class="agency-select"
+                          style="min-width: 155px;"
+                          :value="prelicensedStartDateForAgency(agency)"
+                          :disabled="updatingPrelicensedAgencyId === agency.id"
+                          @change="savePrelicensedSettings(agency, { startDate: $event.target.value })"
+                        />
+                        <input
+                          v-if="isPrelicensedForAgency(agency)"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          class="agency-select"
+                          style="min-width: 130px;"
+                          placeholder="Ind start"
+                          :value="prelicensedStartIndHoursForAgency(agency)"
+                          :disabled="updatingPrelicensedAgencyId === agency.id"
+                          @change="savePrelicensedSettings(agency, { startIndividualHours: $event.target.value })"
+                        />
+                        <input
+                          v-if="isPrelicensedForAgency(agency)"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          class="agency-select"
+                          style="min-width: 130px;"
+                          placeholder="Grp start"
+                          :value="prelicensedStartGrpHoursForAgency(agency)"
+                          :disabled="updatingPrelicensedAgencyId === agency.id"
+                          @change="savePrelicensedSettings(agency, { startGroupHours: $event.target.value })"
+                        />
+                      </div>
                     </div>
                     <button @click="removeAgency(agency.id)" class="btn btn-danger btn-sm">Remove</button>
                   </div>
@@ -1764,6 +1814,41 @@ const setH0032Mode = async (agencyId, mode) => {
     alert(err.response?.data?.error?.message || 'Failed to update H0032 mode');
   } finally {
     updatingH0032AgencyId.value = null;
+  }
+};
+
+const updatingPrelicensedAgencyId = ref(null);
+const isPrelicensedForAgency = (agency) => {
+  const v = agency?.supervision_is_prelicensed;
+  return v === true || v === 1 || v === '1';
+};
+const prelicensedStartDateForAgency = (agency) => String(agency?.supervision_start_date || '').slice(0, 10);
+const prelicensedStartIndHoursForAgency = (agency) => (agency?.supervision_start_individual_hours ?? 0);
+const prelicensedStartGrpHoursForAgency = (agency) => (agency?.supervision_start_group_hours ?? 0);
+
+const savePrelicensedSettings = async (agency, patch) => {
+  try {
+    const agencyId = agency?.id;
+    if (!agencyId) return;
+    updatingPrelicensedAgencyId.value = agencyId;
+
+    const nextIs = (patch?.isPrelicensed !== undefined) ? !!patch.isPrelicensed : isPrelicensedForAgency(agency);
+    const nextStartDate = (patch?.startDate !== undefined) ? (patch.startDate ? String(patch.startDate).slice(0, 10) : null) : prelicensedStartDateForAgency(agency) || null;
+    const nextInd = (patch?.startIndividualHours !== undefined) ? Number(patch.startIndividualHours || 0) : Number(prelicensedStartIndHoursForAgency(agency) || 0);
+    const nextGrp = (patch?.startGroupHours !== undefined) ? Number(patch.startGroupHours || 0) : Number(prelicensedStartGrpHoursForAgency(agency) || 0);
+
+    await api.put(`/users/${userId.value}/supervision-prelicensed`, {
+      agencyId,
+      isPrelicensed: nextIs,
+      startDate: nextIs ? nextStartDate : null,
+      startIndividualHours: nextIs ? nextInd : 0,
+      startGroupHours: nextIs ? nextGrp : 0
+    });
+    await fetchUserAgencies();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to update prelicensed supervision settings');
+  } finally {
+    updatingPrelicensedAgencyId.value = null;
   }
 };
 

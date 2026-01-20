@@ -1239,6 +1239,54 @@ export const getUserAgencies = async (req, res, next) => {
   }
 };
 
+export const setUserAgencySupervisionPrelicensed = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = parseInt(id, 10);
+    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
+    const isPrelicensed = req.body?.isPrelicensed === true || req.body?.isPrelicensed === 1 || req.body?.isPrelicensed === '1';
+    const startDate = req.body?.startDate ? String(req.body.startDate).slice(0, 10) : null;
+    const startIndividualHours = Number(req.body?.startIndividualHours || 0);
+    const startGroupHours = Number(req.body?.startGroupHours || 0);
+
+    if (!userId || !agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    if (!Number.isFinite(startIndividualHours) || startIndividualHours < 0) {
+      return res.status(400).json({ error: { message: 'startIndividualHours must be a non-negative number' } });
+    }
+    if (!Number.isFinite(startGroupHours) || startGroupHours < 0) {
+      return res.status(400).json({ error: { message: 'startGroupHours must be a non-negative number' } });
+    }
+    if (startDate && !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      return res.status(400).json({ error: { message: 'startDate must be YYYY-MM-DD' } });
+    }
+
+    const membership = await User.getAgencyMembership(userId, agencyId);
+    if (!membership) {
+      return res.status(400).json({ error: { message: 'User is not assigned to this organization' } });
+    }
+
+    const updated = await User.setAgencySupervisionPrelicensedSettings(userId, agencyId, {
+      isPrelicensed,
+      startDate,
+      startIndividualHours,
+      startGroupHours
+    });
+    // Best-effort: recompute supervision account so profile reflects baseline changes quickly.
+    let supervisionAccount = null;
+    try {
+      const { recomputeSupervisionAccountForUser } = await import('../services/supervision.service.js');
+      supervisionAccount = await recomputeSupervisionAccountForUser({ agencyId, userId });
+    } catch {
+      supervisionAccount = null;
+    }
+    return res.json({ ok: true, membership: updated, supervisionAccount });
+  } catch (error) {
+    next(error);
+  }
+};
+
 
 export const assignUserToAgency = async (req, res, next) => {
   try {

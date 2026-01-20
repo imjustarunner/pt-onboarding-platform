@@ -1040,21 +1040,35 @@ class User {
     // Best-effort: include membership fields from user_agencies.
     try {
       const [uaCols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','h0032_requires_manual_minutes')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','h0032_requires_manual_minutes','supervision_is_prelicensed','supervision_start_date','supervision_start_individual_hours','supervision_start_group_hours')"
       );
       const names = (uaCols || []).map((c) => c.COLUMN_NAME);
       hasPayrollAccess = names.includes('has_payroll_access');
       hasH0032ManualMinutes = names.includes('h0032_requires_manual_minutes');
+      // Prelicensed supervision settings
+      var hasSupervisionPrelicensed = names.includes('supervision_is_prelicensed'); // eslint-disable-line no-var
+      var hasSupervisionStartDate = names.includes('supervision_start_date'); // eslint-disable-line no-var
+      var hasSupervisionStartInd = names.includes('supervision_start_individual_hours'); // eslint-disable-line no-var
+      var hasSupervisionStartGrp = names.includes('supervision_start_group_hours'); // eslint-disable-line no-var
     } catch {
       hasPayrollAccess = false;
       hasH0032ManualMinutes = false;
+      // Prelicensed supervision settings
+      var hasSupervisionPrelicensed = false; // eslint-disable-line no-var
+      var hasSupervisionStartDate = false; // eslint-disable-line no-var
+      var hasSupervisionStartInd = false; // eslint-disable-line no-var
+      var hasSupervisionStartGrp = false; // eslint-disable-line no-var
     }
 
     const selectExtra = [
       hasIconId ? 'master_i.file_path as icon_file_path, master_i.name as icon_name' : null,
       hasChatIconId ? 'chat_i.file_path as chat_icon_path, chat_i.name as chat_icon_name' : null,
       hasPayrollAccess ? 'ua.has_payroll_access' : null,
-      hasH0032ManualMinutes ? 'ua.h0032_requires_manual_minutes' : null
+      hasH0032ManualMinutes ? 'ua.h0032_requires_manual_minutes' : null,
+      hasSupervisionPrelicensed ? 'ua.supervision_is_prelicensed' : null,
+      hasSupervisionStartDate ? 'ua.supervision_start_date' : null,
+      hasSupervisionStartInd ? 'ua.supervision_start_individual_hours' : null,
+      hasSupervisionStartGrp ? 'ua.supervision_start_group_hours' : null
     ].filter(Boolean).join(', ');
 
     const joins = [
@@ -1116,6 +1130,28 @@ class User {
     );
     const membership = await this.getAgencyMembership(userId, agencyId);
     return membership;
+  }
+
+  static async setAgencySupervisionPrelicensedSettings(userId, agencyId, {
+    isPrelicensed,
+    startDate,
+    startIndividualHours,
+    startGroupHours
+  }) {
+    const pre = isPrelicensed ? 1 : 0;
+    const sd = startDate ? String(startDate).slice(0, 10) : null;
+    const ind = Number(startIndividualHours || 0);
+    const grp = Number(startGroupHours || 0);
+    await pool.execute(
+      `UPDATE user_agencies
+       SET supervision_is_prelicensed = ?,
+           supervision_start_date = ?,
+           supervision_start_individual_hours = ?,
+           supervision_start_group_hours = ?
+       WHERE user_id = ? AND agency_id = ?`,
+      [pre, sd, ind, grp, userId, agencyId]
+    );
+    return this.getAgencyMembership(userId, agencyId);
   }
 
   static async listPayrollAgencyIds(userId) {
