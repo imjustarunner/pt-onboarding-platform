@@ -3081,15 +3081,12 @@ const editAgency = async (agency) => {
   }
 
   showCreateModal.value = false;
-  // For school orgs, fetch full details so school_profile + school_contacts are available.
-  // (The org list endpoints return a lightweight org object.)
+  // For school orgs, always fetch full details (cache-busted) so school_profile + school_contacts
+  // are available and up-to-date.
   try {
     const orgType = String(agency?.organization_type || agency?.organizationType || agencyForm.value?.organizationType || 'agency').toLowerCase();
-    const needsDetails =
-      orgType === 'school' &&
-      (agency?.school_profile === undefined || agency?.school_contacts === undefined);
-    if (needsDetails && agency?.id) {
-      const resp = await api.get(`/agencies/${agency.id}`);
+    if (orgType === 'school' && agency?.id) {
+      const resp = await api.get(`/agencies/${agency.id}`, { params: { _ts: Date.now() } });
       agency = resp?.data || agency;
     }
   } catch {
