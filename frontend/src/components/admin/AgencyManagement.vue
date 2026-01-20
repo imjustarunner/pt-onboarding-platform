@@ -1453,6 +1453,42 @@
               </p>
             </div>
 
+            <div class="settings-section-divider" style="margin-top: 18px;">
+              <h4>Other rate titles (1/2/3)</h4>
+              <p class="section-description">
+                These labels appear on provider compensation screens for the “Other” hourly rate slots.
+              </p>
+            </div>
+
+            <div v-if="otherRateTitlesError" class="error-modal">
+              <strong>Error:</strong> {{ otherRateTitlesError }}
+            </div>
+            <div v-if="otherRateTitlesLoading" class="loading">Loading other rate titles…</div>
+            <div v-else class="filters-row" style="align-items: flex-end;">
+              <div class="filters-group">
+                <label class="filters-label">Other 1 title</label>
+                <input v-model="otherRateTitlesDraft.title1" class="filters-input" type="text" :disabled="otherRateTitlesSaving" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Other 2 title</label>
+                <input v-model="otherRateTitlesDraft.title2" class="filters-input" type="text" :disabled="otherRateTitlesSaving" />
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Other 3 title</label>
+                <input v-model="otherRateTitlesDraft.title3" class="filters-input" type="text" :disabled="otherRateTitlesSaving" />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadOtherRateTitles" :disabled="otherRateTitlesLoading || !editingAgency?.id">
+                  Reload
+                </button>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="saveOtherRateTitles" :disabled="otherRateTitlesSaving || !editingAgency?.id">
+                  {{ otherRateTitlesSaving ? 'Saving…' : 'Save titles' }}
+                </button>
+              </div>
+            </div>
+
             <div v-if="payrollRulesError" class="error-modal">
               <strong>Error:</strong> {{ payrollRulesError }}
             </div>
@@ -1464,6 +1500,7 @@
                   <tr>
                     <th>Service Code</th>
                     <th>Category (rate type)</th>
+                    <th>Pay unit</th>
                     <th class="right">Pay Divisor</th>
                     <th class="right">Credit Value</th>
                     <th>Counts for Tier?</th>
@@ -1486,6 +1523,12 @@
                         <option value="bonus">bonus</option>
                         <option value="reimbursement">reimbursement</option>
                         <option value="other_pay">other_pay</option>
+                      </select>
+                    </td>
+                    <td>
+                      <select v-model="r.pay_rate_unit" title="Controls whether per-code rates pay by units or by computed pay-hours (units ÷ pay divisor).">
+                        <option value="per_unit">per_unit</option>
+                        <option value="per_hour">per_hour</option>
                       </select>
                     </td>
                     <td class="right">
@@ -1525,7 +1568,7 @@
                     </td>
                   </tr>
                   <tr v-if="!payrollRules.length">
-                    <td colspan="8" class="empty-state-inline">No service code rules found.</td>
+                    <td colspan="9" class="empty-state-inline">No service code rules found.</td>
                   </tr>
                 </tbody>
               </table>
@@ -1830,6 +1873,47 @@ const payrollRules = ref([]);
 const savingPayrollRule = ref(false);
 const newPayrollServiceCode = ref('');
 
+const otherRateTitlesLoading = ref(false);
+const otherRateTitlesSaving = ref(false);
+const otherRateTitlesError = ref('');
+const otherRateTitlesDraft = ref({ title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' });
+
+const loadOtherRateTitles = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    otherRateTitlesLoading.value = true;
+    otherRateTitlesError.value = '';
+    const resp = await api.get('/payroll/other-rate-titles', { params: { agencyId: editingAgency.value.id } });
+    otherRateTitlesDraft.value = {
+      title1: resp.data?.title1 || 'Other 1',
+      title2: resp.data?.title2 || 'Other 2',
+      title3: resp.data?.title3 || 'Other 3'
+    };
+  } catch (e) {
+    otherRateTitlesError.value = e.response?.data?.error?.message || e.message || 'Failed to load other rate titles';
+  } finally {
+    otherRateTitlesLoading.value = false;
+  }
+};
+
+const saveOtherRateTitles = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    otherRateTitlesSaving.value = true;
+    otherRateTitlesError.value = '';
+    await api.put('/payroll/other-rate-titles', {
+      agencyId: editingAgency.value.id,
+      title1: otherRateTitlesDraft.value.title1,
+      title2: otherRateTitlesDraft.value.title2,
+      title3: otherRateTitlesDraft.value.title3
+    });
+  } catch (e) {
+    otherRateTitlesError.value = e.response?.data?.error?.message || e.message || 'Failed to save other rate titles';
+  } finally {
+    otherRateTitlesSaving.value = false;
+  }
+};
+
 // Mileage reimbursement rates (agency-only; Tier 1/2/3 $/mile)
 const mileageRatesLoading = ref(false);
 const savingMileageRates = ref(false);
@@ -2011,6 +2095,7 @@ const openPayrollTab = async () => {
   await loadPtoPolicy();
   await loadSupervisionPolicy();
   await loadPayrollRules();
+  await loadOtherRateTitles();
   await loadOfficeLocations();
 };
 
@@ -2256,6 +2341,7 @@ const loadPayrollRules = async () => {
     payrollRules.value = rows.map((r) => ({
       ...r,
       category: r.category || 'direct',
+      pay_rate_unit: r.pay_rate_unit || 'per_unit',
       other_slot: Number(r.other_slot || 1),
       duration_minutes: r.duration_minutes ?? '',
       pay_divisor: r.pay_divisor ?? 1,
@@ -2280,6 +2366,7 @@ const savePayrollRule = async (row) => {
       serviceCode: row.service_code,
       category: row.category,
       otherSlot: row.other_slot,
+      payRateUnit: row.pay_rate_unit || 'per_unit',
       // Duration is intentionally hidden/not used for now (credits drive hours).
       durationMinutes: null,
       countsForTier: row.counts_for_tier ? 1 : 0,
@@ -2322,6 +2409,7 @@ const addPayrollRule = async () => {
     agency_id: editingAgency.value.id,
     service_code: code,
     category: 'direct',
+    pay_rate_unit: 'per_unit',
     other_slot: 1,
     duration_minutes: '',
     pay_divisor: 1,

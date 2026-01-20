@@ -80,6 +80,9 @@ import {
   ,createOfficeLocationForPayroll
   ,updateOfficeLocationForPayroll
   ,listMyAssignedSchoolsForPayroll
+  ,getPayrollOtherRateTitles
+  ,putPayrollOtherRateTitlesForAgency
+  ,putPayrollOtherRateTitlesForUser
   ,listAgencySchoolsForPayroll
   ,listOfficeLocationsForPayroll
   ,updateMyHomeAddress
@@ -151,6 +154,9 @@ router.post('/me/time-claims', createMyTimeClaim);
 router.get('/me/time-claims', listMyTimeClaims);
 router.delete('/me/time-claims/:id', deleteMyTimeClaim);
 router.get('/me/assigned-schools', listMyAssignedSchoolsForPayroll);
+router.get('/other-rate-titles', getPayrollOtherRateTitles);
+router.put('/other-rate-titles', putPayrollOtherRateTitlesForAgency);
+router.put('/other-rate-titles/users/:userId', putPayrollOtherRateTitlesForUser);
 router.get('/agency-schools', listAgencySchoolsForPayroll);
 router.get('/office-locations', listOfficeLocationsForPayroll);
 router.post('/office-locations', createOfficeLocationForPayroll);

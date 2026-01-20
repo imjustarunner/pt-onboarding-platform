@@ -1296,6 +1296,14 @@
               <label>Other Taxable ($)</label>
               <input v-model="adjustments.otherTaxableAmount" type="number" step="0.01" :disabled="isPeriodPosted" />
             </div>
+              <div class="field">
+                <label>IMatter ($)</label>
+                <input v-model="adjustments.imatterAmount" type="number" step="0.01" :disabled="isPeriodPosted" />
+              </div>
+              <div class="field">
+                <label>Missed Appointments ($)</label>
+                <input v-model="adjustments.missedAppointmentsAmount" type="number" step="0.01" :disabled="isPeriodPosted" />
+              </div>
             <div class="field">
               <label>Bonus ($)</label>
               <input v-model="adjustments.bonusAmount" type="number" step="0.01" :disabled="isPeriodPosted" />
@@ -1778,6 +1786,8 @@
                   <tbody>
                     <tr><td>Mileage</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.mileageAmount ?? 0) }}</td></tr>
                     <tr><td>Other Taxable</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.otherTaxableAmount ?? 0) }}</td></tr>
+                    <tr><td>IMatter</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.imatterAmount ?? 0) }}</td></tr>
+                    <tr><td>Missed Appointments</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.missedAppointmentsAmount ?? 0) }}</td></tr>
                     <tr><td>Bonus</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.bonusAmount ?? 0) }}</td></tr>
                     <tr><td>Reimbursement</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.reimbursementAmount ?? 0) }}</td></tr>
                     <tr><td>PTO Pay</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.ptoPay ?? 0) }}</td></tr>
@@ -2420,6 +2430,8 @@ const manualCarryover = ref({
 const adjustments = ref({
   mileageAmount: 0,
   otherTaxableAmount: 0,
+  imatterAmount: 0,
+  missedAppointmentsAmount: 0,
   bonusAmount: 0,
   reimbursementAmount: 0,
   salaryAmount: 0,
@@ -5000,6 +5012,8 @@ const loadAdjustments = async () => {
     adjustments.value = {
       mileageAmount: Number(a.mileage_amount || 0),
       otherTaxableAmount: Number(a.other_taxable_amount || 0),
+      imatterAmount: Number(a.imatter_amount || 0),
+      missedAppointmentsAmount: Number(a.missed_appointments_amount || 0),
       bonusAmount: Number(a.bonus_amount || 0),
       reimbursementAmount: Number(a.reimbursement_amount || 0),
       salaryAmount: Number(a.salary_amount || 0),
@@ -5022,6 +5036,8 @@ const saveAdjustments = async () => {
     const resp = await api.put(`/payroll/periods/${selectedPeriodId.value}/adjustments/${uid}`, {
       mileageAmount: Number(adjustments.value.mileageAmount || 0),
       otherTaxableAmount: Number(adjustments.value.otherTaxableAmount || 0),
+      imatterAmount: Number(adjustments.value.imatterAmount || 0),
+      missedAppointmentsAmount: Number(adjustments.value.missedAppointmentsAmount || 0),
       bonusAmount: Number(adjustments.value.bonusAmount || 0),
       reimbursementAmount: Number(adjustments.value.reimbursementAmount || 0),
       salaryAmount: Number(adjustments.value.salaryAmount || 0),
@@ -5157,6 +5173,31 @@ const runPayroll = async () => {
     await loadPeriods();
     await loadPeriodDetails();
   } catch (e) {
+    // If trying to re-run a historical pay period just to compare unpaid/no-note changes,
+    // allow bypassing the H0031/H0032 processing gate.
+    if (e.response?.status === 409 && e.response?.data?.pendingProcessing && selectedPeriod.value?.period_end) {
+      const endYmd = String(selectedPeriod.value.period_end || '').slice(0, 10);
+      const now = new Date();
+      const todayYmd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const isHistorical = endYmd && endYmd < todayYmd;
+      if (isHistorical) {
+        const ok = window.confirm(
+          'This looks like an older pay period. Run payroll anyway (skip H0031/H0032 minutes gate) so you can compare No-note/Draft unpaid?\n\nThis is intended for historical checks; do not use if you are paying this period.'
+        );
+        if (ok) {
+          try {
+            await api.post(`/payroll/periods/${selectedPeriodId.value}/run`, null, { params: { skipProcessingGate: 'true' } });
+            await loadPeriods();
+            await loadPeriodDetails();
+            return;
+          } catch (e2) {
+            const msg2 = e2.response?.data?.error?.message || e2.message || 'Failed to run payroll';
+            error.value = msg2;
+          }
+        }
+      }
+    }
+
     const msg = e.response?.data?.error?.message || e.message || 'Failed to run payroll';
     error.value = msg;
     // If blocked due to pending mileage approvals, open Payroll Stage and show the list.

@@ -17,9 +17,9 @@
       <div v-if="compensationMethod === 'Multi-rate card (hourly)'" class="grid">
         <div class="field"><div class="label">Direct rate</div><div class="value">{{ fmtMoney(rateCard.direct_rate) }}/hr</div></div>
         <div class="field"><div class="label">Indirect rate</div><div class="value">{{ fmtMoney(rateCard.indirect_rate) }}/hr</div></div>
-        <div class="field"><div class="label">Other rate 1</div><div class="value">{{ fmtMoney(rateCard.other_rate_1) }}/hr</div></div>
-        <div class="field"><div class="label">Other rate 2</div><div class="value">{{ fmtMoney(rateCard.other_rate_2) }}/hr</div></div>
-        <div class="field"><div class="label">Other rate 3</div><div class="value">{{ fmtMoney(rateCard.other_rate_3) }}/hr</div></div>
+        <div class="field"><div class="label">{{ otherRateTitles.title1 }}</div><div class="value">{{ fmtMoney(rateCard.other_rate_1) }}/hr</div></div>
+        <div class="field"><div class="label">{{ otherRateTitles.title2 }}</div><div class="value">{{ fmtMoney(rateCard.other_rate_2) }}/hr</div></div>
+        <div class="field"><div class="label">{{ otherRateTitles.title3 }}</div><div class="value">{{ fmtMoney(rateCard.other_rate_3) }}/hr</div></div>
       </div>
 
       <div class="sheet-title">Rate sheet</div>
@@ -45,8 +45,10 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
 
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 
 const agencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
@@ -56,6 +58,7 @@ const agencyId = computed(() => {
 const loading = ref(false);
 const error = ref('');
 const data = ref(null);
+const otherRateTitles = ref({ title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' });
 
 const rateCard = computed(() => data.value?.rateCard || null);
 const perCodeRates = computed(() => data.value?.perCodeRates || []);
@@ -113,6 +116,16 @@ const load = async () => {
     error.value = '';
     const resp = await api.get('/payroll/me/compensation', { params: { agencyId: agencyId.value } });
     data.value = resp.data || null;
+    try {
+      const tr = await api.get('/payroll/other-rate-titles', { params: { agencyId: agencyId.value, userId: authStore.user?.id || null } });
+      otherRateTitles.value = {
+        title1: tr.data?.title1 || 'Other 1',
+        title2: tr.data?.title2 || 'Other 2',
+        title3: tr.data?.title3 || 'Other 3'
+      };
+    } catch {
+      otherRateTitles.value = { title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' };
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load compensation';
   } finally {

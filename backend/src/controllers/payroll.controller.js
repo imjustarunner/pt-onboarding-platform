@@ -1662,6 +1662,8 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       'Mileage ($)',
       'MedCancel ($)',
       'Other Taxable ($)',
+      'IMatter ($)',
+      'Missed Appointments ($)',
       'Bonus ($)',
       'Reimbursement ($)',
       'PTO Pay ($)',
@@ -1693,6 +1695,8 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       const mileage = Number(adj.mileage_amount || 0);
       const medcancel = Number(adj.medcancel_amount || 0);
       const otherTaxable = Number(adj.other_taxable_amount || 0);
+      const imatter = Number(adj.imatter_amount || 0);
+      const missedAppointments = Number(adj.missed_appointments_amount || 0);
       const bonus = Number(adj.bonus_amount || 0);
       const reimbursement = Number(adj.reimbursement_amount || 0);
       const salary = Number(adj.salary_amount || 0);
@@ -1772,6 +1776,8 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
           fmt2(mileage),
           fmt2(medcancel),
           fmt2(otherTaxable),
+          fmt2(imatter),
+          fmt2(missedAppointments),
           fmt2(bonus),
           fmt2(reimbursement),
           fmt2(ptoPay),
@@ -1795,7 +1801,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
 
 export const upsertRate = async (req, res, next) => {
   try {
-    const { agencyId, userId, serviceCode, rateAmount, rateUnit, effectiveStart, effectiveEnd } = req.body || {};
+    const { agencyId, userId, serviceCode, rateAmount, effectiveStart, effectiveEnd } = req.body || {};
     if (!agencyId || !userId || !serviceCode || rateAmount === undefined) {
       return res.status(400).json({ error: { message: 'agencyId, userId, serviceCode, and rateAmount are required' } });
     }
@@ -1807,7 +1813,9 @@ export const upsertRate = async (req, res, next) => {
       userId: parseInt(userId),
       serviceCode: String(serviceCode).trim(),
       rateAmount: Number(rateAmount),
-      rateUnit: rateUnit || 'per_unit',
+      // Rate unit is agency-driven via payroll_service_code_rules.pay_rate_unit.
+      // Keep per-user rates stored as per_unit for backward compatibility.
+      rateUnit: 'per_unit',
       effectiveStart: effectiveStart || null,
       effectiveEnd: effectiveEnd || null
     });
@@ -1879,7 +1887,8 @@ async function recomputeSummaries({ payrollPeriodId, agencyId, periodStart, peri
         asOf: periodStart
       });
       const rateAmount = rate ? Number(rate.rate_amount) : 0;
-      const lineAmount = (rate?.rate_unit === 'flat') ? rateAmount : units * rateAmount;
+      // Per-user rate_unit is deprecated; treat "flat" the same as per_unit.
+      const lineAmount = units * rateAmount;
 
       totalUnits += units;
       subtotal += lineAmount;
@@ -2163,7 +2172,15 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       let rateAmount = 0;
       let rateSource = 'none';
       const perCode = bestPerCodeRate(codeKey);
-      const perCodeUnit = perCode ? String(perCode.rate_unit || 'per_unit') : null;
+      // Per-code rate unit is now driven by agency service-code rules (not per-user).
+      // Backward compatible: if agency column doesn't exist yet, fall back to the stored per-code rate_unit.
+      const rulePayUnitRaw = String(rule?.pay_rate_unit || '').trim().toLowerCase();
+      const rulePayUnit = (rulePayUnitRaw === 'per_hour') ? 'per_hour' : 'per_unit';
+      const legacyPerCodeUnit = perCode ? String(perCode.rate_unit || 'per_unit').trim().toLowerCase() : null;
+      const perCodePayUnit =
+        rulePayUnitRaw
+          ? rulePayUnit
+          : (legacyPerCodeUnit === 'per_hour' ? 'per_hour' : 'per_unit');
       if (perCode) {
         rateSource = 'per_code_rate';
         rateAmount = Number(perCode.rate_amount || 0);
@@ -2192,13 +2209,12 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
           }
         }
         if (perCode) {
-          if (perCodeUnit === 'flat') return rateAmount;
           if (bucket !== 'flat') {
-            // Per-code rates can be per-unit (fee-for-service) or per-hour (time-based).
-            if (String(perCodeUnit || '').toLowerCase() === 'per_hour') return payHours * rateAmount;
+            // Per-code rates can be per-unit or per-hour; unit is agency-driven.
+            if (perCodePayUnit === 'per_hour') return payHours * rateAmount;
             return units * rateAmount; // per_unit default
           }
-          return units * rateAmount;
+          return units * rateAmount; // flat bucket is treated like per_unit (no special "flat" behavior)
         }
         if (rateCard && bucket !== 'flat') return payHours * rateAmount;
         return units * rateAmount;
@@ -2224,7 +2240,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         creditValue: safeCreditValue,
         durationMinutes: Number.isFinite(durationMinutes) ? durationMinutes : null,
         rateAmount,
-        rateUnit: perCode ? (perCodeUnit || 'per_unit') : (rateSource === 'rate_card' ? 'per_hour' : 'per_unit'),
+        rateUnit: perCode ? perCodePayUnit : (rateSource === 'rate_card' ? 'per_hour' : 'per_unit'),
         amount: lineAmount,
         // For now, "hours" represents Credits/Hours (credits treated as hours).
         hours: creditsHours,
@@ -2325,6 +2341,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       userId
     });
     const otherTaxableAmount = Number(adj?.other_taxable_amount || 0);
+    const imatterAmount = Number(adj?.imatter_amount || 0);
+    const missedAppointmentsAmount = Number(adj?.missed_appointments_amount || 0);
     const bonusAmount = Number(adj?.bonus_amount || 0);
     const salaryAmount = Number(adj?.salary_amount || 0);
     const sickPtoHours = Number(adj?.sick_pto_hours ?? 0);
@@ -2334,7 +2352,16 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     const ptoRate = Number(adj?.pto_rate || 0);
     const ptoPay = ptoHours * ptoRate;
 
-    const adjustmentsAmount = mileageAmount + medcancelAmount + otherTaxableAmount + bonusAmount + reimbursementAmount + timeClaimsAmount + ptoPay;
+    const adjustmentsAmount =
+      mileageAmount +
+      medcancelAmount +
+      otherTaxableAmount +
+      imatterAmount +
+      missedAppointmentsAmount +
+      bonusAmount +
+      reimbursementAmount +
+      timeClaimsAmount +
+      ptoPay;
     const basePay = salaryAmount > 0.001 ? salaryAmount : subtotal;
     const totalAmount = basePay + adjustmentsAmount;
 
@@ -2350,6 +2377,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       manualReimbursementAmount,
       timeClaimsAmount,
       otherTaxableAmount,
+      imatterAmount,
+      missedAppointmentsAmount,
       bonusAmount,
       ptoHours,
       sickPtoHours,
@@ -3675,18 +3704,6 @@ export const applyPayrollCarryover = async (req, res, next) => {
         return res.status(404).json({ error: { message: 'Prior pay period not found for this agency' } });
       }
       sourcePayrollPeriodId = priorPeriodId;
-
-      // Gate: do not allow carryover apply if the source period still has unprocessed required rows.
-      const sourcePendingProcessingCount = await PayrollImportRow.countUnprocessedForPeriod({ payrollPeriodId: sourcePayrollPeriodId });
-      if (sourcePendingProcessingCount > 0) {
-        const sample = await PayrollImportRow.listUnprocessedForPeriod({ payrollPeriodId: sourcePayrollPeriodId, limit: 50 });
-        return res.status(409).json({
-          error: {
-            message: `Cannot apply carryover: ${sourcePendingProcessingCount} H0031/H0032 row(s) require processing (minutes + Done) in the source pay period.`
-          },
-          pendingProcessing: { payrollPeriodId: sourcePayrollPeriodId, count: sourcePendingProcessingCount, sample }
-        });
-      }
     }
 
     let rows = [];
@@ -3903,6 +3920,12 @@ export const runPayrollPeriod = async (req, res, next) => {
     if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
 
+    // For historical re-imports (e.g., re-running an old period purely to compare no-note/draft unpaid),
+    // allow admins to bypass the H0031/H0032 processing gate.
+    const skipProcessingGate =
+      String(req.query?.skipProcessingGate || '').toLowerCase() === 'true' ||
+      String(req.query?.skipProcessingGate || '') === '1';
+
     const st = String(period.status || '').toLowerCase();
     if (st === 'posted' || st === 'finalized') {
       return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
@@ -3998,7 +4021,7 @@ export const runPayrollPeriod = async (req, res, next) => {
 
     // Block running payroll if H0031/H0032 rows requiring minutes are not processed.
     const pendingProcessingCount = await PayrollImportRow.countUnprocessedForPeriod({ payrollPeriodId });
-    if (pendingProcessingCount > 0) {
+    if (!skipProcessingGate && pendingProcessingCount > 0) {
       const sample = await PayrollImportRow.listUnprocessedForPeriod({ payrollPeriodId, limit: 50 });
       const byCode = {};
       for (const r of sample || []) {
@@ -4373,6 +4396,8 @@ export const getPayrollAdjustmentsForUser = async (req, res, next) => {
       mileage_amount: 0,
       medcancel_amount: 0,
       other_taxable_amount: 0,
+      imatter_amount: 0,
+      missed_appointments_amount: 0,
       bonus_amount: 0,
       reimbursement_amount: 0,
       salary_amount: 0,
@@ -4401,13 +4426,26 @@ export const upsertPayrollAdjustmentsForUser = async (req, res, next) => {
     const mileageAmount = toNum(body.mileageAmount);
     const medcancelAmount = toNum(body.medcancelAmount);
     const otherTaxableAmount = toNum(body.otherTaxableAmount);
+    const imatterAmount = toNum(body.imatterAmount);
+    const missedAppointmentsAmount = toNum(body.missedAppointmentsAmount);
     const bonusAmount = toNum(body.bonusAmount);
     const reimbursementAmount = toNum(body.reimbursementAmount);
     const salaryAmount = toNum(body.salaryAmount);
     const ptoHours = toNum(body.ptoHours);
     const ptoRate = toNum(body.ptoRate);
 
-    const nums = [mileageAmount, medcancelAmount, otherTaxableAmount, bonusAmount, reimbursementAmount, salaryAmount, ptoHours, ptoRate];
+    const nums = [
+      mileageAmount,
+      medcancelAmount,
+      otherTaxableAmount,
+      imatterAmount,
+      missedAppointmentsAmount,
+      bonusAmount,
+      reimbursementAmount,
+      salaryAmount,
+      ptoHours,
+      ptoRate
+    ];
     if (!nums.every((n) => Number.isFinite(n) && n >= 0)) {
       return res.status(400).json({ error: { message: 'All adjustment fields must be non-negative numbers' } });
     }
@@ -4419,6 +4457,8 @@ export const upsertPayrollAdjustmentsForUser = async (req, res, next) => {
       mileageAmount,
       medcancelAmount,
       otherTaxableAmount,
+      imatterAmount,
+      missedAppointmentsAmount,
       bonusAmount,
       reimbursementAmount,
       salaryAmount,
@@ -4852,6 +4892,152 @@ export const listOfficeLocationsForPayroll = async (req, res, next) => {
     res.json(rows || []);
   } catch (e) {
     next(e);
+  }
+};
+
+export const getPayrollOtherRateTitles = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    // Defaults
+    const base = { title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' };
+    let agencyRow = null;
+    let userRow = null;
+
+    try {
+      const [aRows] = await pool.execute(
+        `SELECT title_1, title_2, title_3
+         FROM payroll_other_rate_titles
+         WHERE agency_id = ?
+         LIMIT 1`,
+        [agencyId]
+      );
+      agencyRow = aRows?.[0] || null;
+    } catch {
+      agencyRow = null;
+    }
+
+    if (userId) {
+      try {
+        const [uRows] = await pool.execute(
+          `SELECT title_1, title_2, title_3
+           FROM payroll_user_other_rate_titles
+           WHERE agency_id = ? AND user_id = ?
+           LIMIT 1`,
+          [agencyId, userId]
+        );
+        userRow = uRows?.[0] || null;
+      } catch {
+        userRow = null;
+      }
+    }
+
+    const agencyTitles = {
+      title1: String(agencyRow?.title_1 || '').trim() || base.title1,
+      title2: String(agencyRow?.title_2 || '').trim() || base.title2,
+      title3: String(agencyRow?.title_3 || '').trim() || base.title3
+    };
+    const userOverride = {
+      title1: userRow?.title_1 === null || userRow?.title_1 === undefined ? null : String(userRow.title_1 || '').trim(),
+      title2: userRow?.title_2 === null || userRow?.title_2 === undefined ? null : String(userRow.title_2 || '').trim(),
+      title3: userRow?.title_3 === null || userRow?.title_3 === undefined ? null : String(userRow.title_3 || '').trim()
+    };
+    const effective = {
+      title1: (userOverride.title1 ? userOverride.title1 : agencyTitles.title1),
+      title2: (userOverride.title2 ? userOverride.title2 : agencyTitles.title2),
+      title3: (userOverride.title3 ? userOverride.title3 : agencyTitles.title3)
+    };
+    const source =
+      (userOverride.title1 || userOverride.title2 || userOverride.title3)
+        ? 'user'
+        : (agencyRow ? 'agency' : 'default');
+
+    res.json({
+      ...effective,
+      source,
+      agencyTitle1: agencyTitles.title1,
+      agencyTitle2: agencyTitles.title2,
+      agencyTitle3: agencyTitles.title3,
+      userOverrideTitle1: userOverride.title1,
+      userOverrideTitle2: userOverride.title2,
+      userOverrideTitle3: userOverride.title3
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putPayrollOtherRateTitlesForAgency = async (req, res, next) => {
+  try {
+    const { agencyId, title1, title2, title3 } = req.body || {};
+    const aId = agencyId ? parseInt(agencyId, 10) : null;
+    if (!aId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, aId))) return;
+
+    const norm = (v, fallback) => {
+      const t = String(v ?? '').trim();
+      if (!t) return fallback;
+      if (t.length > 64) throw new Error('Titles must be 64 characters or fewer');
+      return t;
+    };
+    const t1 = norm(title1, 'Other 1');
+    const t2 = norm(title2, 'Other 2');
+    const t3 = norm(title3, 'Other 3');
+
+    await pool.execute(
+      `INSERT INTO payroll_other_rate_titles (agency_id, title_1, title_2, title_3, updated_by_user_id)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         title_1 = VALUES(title_1),
+         title_2 = VALUES(title_2),
+         title_3 = VALUES(title_3),
+         updated_by_user_id = VALUES(updated_by_user_id),
+         updated_at = CURRENT_TIMESTAMP`,
+      [aId, t1, t2, t3, req.user.id]
+    );
+
+    res.json({ ok: true, agencyId: aId, title1: t1, title2: t2, title3: t3 });
+  } catch (e) {
+    res.status(400).json({ error: { message: e.message || 'Failed to save other rate titles' } });
+  }
+};
+
+export const putPayrollOtherRateTitlesForUser = async (req, res, next) => {
+  try {
+    const { agencyId, title1, title2, title3 } = req.body || {};
+    const aId = agencyId ? parseInt(agencyId, 10) : null;
+    const userId = req.params.userId ? parseInt(req.params.userId, 10) : null;
+    if (!aId || !userId) return res.status(400).json({ error: { message: 'agencyId and userId are required' } });
+    if (!(await requirePayrollAccess(req, res, aId))) return;
+
+    const normNullable = (v) => {
+      if (v === null || v === undefined || String(v).trim() === '') return null;
+      const t = String(v).trim();
+      if (t.length > 64) throw new Error('Titles must be 64 characters or fewer');
+      return t;
+    };
+    const t1 = normNullable(title1);
+    const t2 = normNullable(title2);
+    const t3 = normNullable(title3);
+
+    await pool.execute(
+      `INSERT INTO payroll_user_other_rate_titles (agency_id, user_id, title_1, title_2, title_3, updated_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         title_1 = VALUES(title_1),
+         title_2 = VALUES(title_2),
+         title_3 = VALUES(title_3),
+         updated_by_user_id = VALUES(updated_by_user_id),
+         updated_at = CURRENT_TIMESTAMP`,
+      [aId, userId, t1, t2, t3, req.user.id]
+    );
+
+    res.json({ ok: true, agencyId: aId, userId, title1: t1, title2: t2, title3: t3 });
+  } catch (e) {
+    res.status(400).json({ error: { message: e.message || 'Failed to save user other rate title overrides' } });
   }
 };
 
@@ -7454,7 +7640,7 @@ export const listServiceCodeRules = async (req, res, next) => {
 
 export const upsertServiceCodeRule = async (req, res, next) => {
   try {
-    const { agencyId, serviceCode, category, otherSlot, unitToHourMultiplier, countsForTier, durationMinutes, tierCreditMultiplier, payDivisor, creditValue, showInRateSheet } = req.body || {};
+    const { agencyId, serviceCode, category, otherSlot, unitToHourMultiplier, countsForTier, durationMinutes, tierCreditMultiplier, payDivisor, payRateUnit, creditValue, showInRateSheet } = req.body || {};
     if (!agencyId || !serviceCode) return res.status(400).json({ error: { message: 'agencyId and serviceCode are required' } });
     const agencyIdNum = parseInt(agencyId);
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyIdNum);
@@ -7484,6 +7670,8 @@ export const upsertServiceCodeRule = async (req, res, next) => {
     if (!Number.isFinite(pd) || pd < 1) {
       return res.status(400).json({ error: { message: 'payDivisor must be an integer >= 1' } });
     }
+    const pru = String(payRateUnit || 'per_unit').trim().toLowerCase();
+    const payUnit = (pru === 'per_hour') ? 'per_hour' : 'per_unit';
     const cv = creditValue === null || creditValue === undefined || creditValue === '' ? 0 : Number(creditValue);
     if (!Number.isFinite(cv) || cv < 0) {
       return res.status(400).json({ error: { message: 'creditValue must be a number >= 0' } });
@@ -7503,6 +7691,7 @@ export const upsertServiceCodeRule = async (req, res, next) => {
       countsForTier: countsForTier === false || countsForTier === 0 ? 0 : 1,
       tierCreditMultiplier: tcm,
       payDivisor: Math.trunc(pd),
+      payRateUnit: payUnit,
       creditValue: cv,
       showInRateSheet: vis
     });

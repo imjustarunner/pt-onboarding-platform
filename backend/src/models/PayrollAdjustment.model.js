@@ -1,6 +1,21 @@
 import pool from '../config/database.js';
 
 class PayrollAdjustment {
+  static async _hasImatterColumns() {
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payroll_adjustments' AND COLUMN_NAME IN ('imatter_amount','missed_appointments_amount')"
+      );
+      const set = new Set((cols || []).map((c) => c.COLUMN_NAME));
+      return {
+        hasImatter: set.has('imatter_amount'),
+        hasMissed: set.has('missed_appointments_amount')
+      };
+    } catch {
+      return { hasImatter: false, hasMissed: false };
+    }
+  }
+
   static async upsert({
     payrollPeriodId,
     agencyId,
@@ -8,6 +23,8 @@ class PayrollAdjustment {
     mileageAmount = 0,
     medcancelAmount = 0,
     otherTaxableAmount = 0,
+    imatterAmount = 0,
+    missedAppointmentsAmount = 0,
     bonusAmount = 0,
     reimbursementAmount = 0,
     salaryAmount = 0,
@@ -17,39 +34,68 @@ class PayrollAdjustment {
     ptoRate = 0,
     updatedByUserId
   }) {
+    const { hasImatter, hasMissed } = await this._hasImatterColumns();
+    const fields = [
+      'payroll_period_id',
+      'agency_id',
+      'user_id',
+      'mileage_amount',
+      'medcancel_amount',
+      'other_taxable_amount',
+      ...(hasImatter ? ['imatter_amount'] : []),
+      ...(hasMissed ? ['missed_appointments_amount'] : []),
+      'bonus_amount',
+      'reimbursement_amount',
+      'salary_amount',
+      'pto_hours',
+      'sick_pto_hours',
+      'training_pto_hours',
+      'pto_rate',
+      'updated_by_user_id'
+    ];
+    const placeholders = fields.map(() => '?').join(', ');
+    const updates = [
+      'mileage_amount = VALUES(mileage_amount)',
+      'medcancel_amount = VALUES(medcancel_amount)',
+      'other_taxable_amount = VALUES(other_taxable_amount)',
+      ...(hasImatter ? ['imatter_amount = VALUES(imatter_amount)'] : []),
+      ...(hasMissed ? ['missed_appointments_amount = VALUES(missed_appointments_amount)'] : []),
+      'bonus_amount = VALUES(bonus_amount)',
+      'reimbursement_amount = VALUES(reimbursement_amount)',
+      'salary_amount = VALUES(salary_amount)',
+      'pto_hours = VALUES(pto_hours)',
+      'sick_pto_hours = VALUES(sick_pto_hours)',
+      'training_pto_hours = VALUES(training_pto_hours)',
+      'pto_rate = VALUES(pto_rate)',
+      'updated_by_user_id = VALUES(updated_by_user_id)',
+      'updated_at = CURRENT_TIMESTAMP'
+    ].join(',\n         ');
+    const values = [
+      payrollPeriodId,
+      agencyId,
+      userId,
+      mileageAmount,
+      medcancelAmount,
+      otherTaxableAmount,
+      ...(hasImatter ? [imatterAmount] : []),
+      ...(hasMissed ? [missedAppointmentsAmount] : []),
+      bonusAmount,
+      reimbursementAmount,
+      salaryAmount,
+      ptoHours,
+      sickPtoHours,
+      trainingPtoHours,
+      ptoRate,
+      updatedByUserId
+    ];
+
     await pool.execute(
       `INSERT INTO payroll_adjustments
-       (payroll_period_id, agency_id, user_id, mileage_amount, medcancel_amount, other_taxable_amount, bonus_amount, reimbursement_amount, salary_amount, pto_hours, sick_pto_hours, training_pto_hours, pto_rate, updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (${fields.join(', ')})
+       VALUES (${placeholders})
        ON DUPLICATE KEY UPDATE
-         mileage_amount = VALUES(mileage_amount),
-         medcancel_amount = VALUES(medcancel_amount),
-         other_taxable_amount = VALUES(other_taxable_amount),
-         bonus_amount = VALUES(bonus_amount),
-         reimbursement_amount = VALUES(reimbursement_amount),
-         salary_amount = VALUES(salary_amount),
-         pto_hours = VALUES(pto_hours),
-         sick_pto_hours = VALUES(sick_pto_hours),
-         training_pto_hours = VALUES(training_pto_hours),
-         pto_rate = VALUES(pto_rate),
-         updated_by_user_id = VALUES(updated_by_user_id),
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        payrollPeriodId,
-        agencyId,
-        userId,
-        mileageAmount,
-        medcancelAmount,
-        otherTaxableAmount,
-        bonusAmount,
-        reimbursementAmount,
-        salaryAmount,
-        ptoHours,
-        sickPtoHours,
-        trainingPtoHours,
-        ptoRate,
-        updatedByUserId
-      ]
+         ${updates}`,
+      values
     );
   }
 

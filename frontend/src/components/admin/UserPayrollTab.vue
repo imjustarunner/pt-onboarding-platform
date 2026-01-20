@@ -132,15 +132,41 @@
         <div class="template-card" style="margin-top: 10px;">
           <div class="template-title">Hourly rate card (fallback)</div>
           <div class="muted" style="margin-top: 6px;">Used when no per-code rate override exists (unless provider is fee-for-service).</div>
+        <div v-if="canEditRates" class="card" style="margin-top: 10px;">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Other rate titles</h3>
+          <div class="muted">Defaults are set at the agency level; you can optionally override them for this provider.</div>
+          <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr; margin-top: 10px;">
+            <div class="field">
+              <label>Other 1 title</label>
+              <input v-model="otherRateTitlesDraft.title1" type="text" placeholder="Leave blank to use agency default" :disabled="savingOtherRateTitles" />
+            </div>
+            <div class="field">
+              <label>Other 2 title</label>
+              <input v-model="otherRateTitlesDraft.title2" type="text" placeholder="Leave blank to use agency default" :disabled="savingOtherRateTitles" />
+            </div>
+            <div class="field">
+              <label>Other 3 title</label>
+              <input v-model="otherRateTitlesDraft.title3" type="text" placeholder="Leave blank to use agency default" :disabled="savingOtherRateTitles" />
+            </div>
+          </div>
+          <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+            <button class="btn btn-secondary" type="button" @click="clearOtherRateTitlesOverride" :disabled="savingOtherRateTitles">
+              Use agency defaults
+            </button>
+            <button class="btn btn-primary" type="button" @click="saveOtherRateTitlesOverride" :disabled="savingOtherRateTitles">
+              {{ savingOtherRateTitles ? 'Saving…' : 'Save titles' }}
+            </button>
+          </div>
+        </div>
           <div class="table-wrap" style="margin-top: 10px;">
             <table class="table rate-card-table">
               <thead>
                 <tr>
                   <th>Direct</th>
                   <th>Indirect</th>
-                  <th>Other 1</th>
-                  <th>Other 2</th>
-                  <th>Other 3</th>
+              <th>{{ otherRateTitles.title1 }}</th>
+              <th>{{ otherRateTitles.title2 }}</th>
+              <th>{{ otherRateTitles.title3 }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -189,7 +215,7 @@
               <tbody>
                 <tr v-for="r in (templateDetails.rates || [])" :key="r.service_code">
                   <td>{{ r.service_code }}</td>
-                  <td class="muted">{{ r.rate_unit || 'per_unit' }}</td>
+                  <td class="muted">Agency rule</td>
                   <td class="right">{{ fmtMoney(r.rate_amount) }}</td>
                 </tr>
                 <tr v-if="!(templateDetails.rates || []).length">
@@ -239,16 +265,6 @@
                     />
                   </svg>
                 </button>
-
-                <select
-                  v-model="rateUnitDraftByCode[r.serviceCode]"
-                  class="mini-select"
-                  title="Per hour uses the agency’s Pay Divisor/Duration to compute hours (e.g. 20 units with divisor 4 = 5 hours). Per unit multiplies report units. Flat pays once."
-                >
-                  <option value="per_unit">Per unit</option>
-                  <option value="per_hour">Per hour</option>
-                  <option value="flat">Flat</option>
-                </select>
 
                 <input v-model="rateDraftByCode[r.serviceCode]" type="number" step="0.01" min="0" class="mini-input" />
               </div>
@@ -399,11 +415,56 @@ const canEditRates = computed(() => {
   return false;
 });
 
+const otherRateTitles = ref({ title1: 'Other 1', title2: 'Other 2', title3: 'Other 3', source: 'default' });
+const otherRateTitlesDraft = ref({ title1: '', title2: '', title3: '' });
+const savingOtherRateTitles = ref(false);
+const loadOtherRateTitles = async () => {
+  if (!selectedAgencyId.value) return;
+  try {
+    const resp = await api.get('/payroll/other-rate-titles', { params: { agencyId: selectedAgencyId.value, userId: props.userId } });
+    const t = resp.data || {};
+    otherRateTitles.value = {
+      title1: t.title1 || 'Other 1',
+      title2: t.title2 || 'Other 2',
+      title3: t.title3 || 'Other 3',
+      source: t.source || 'default'
+    };
+    otherRateTitlesDraft.value = {
+      title1: t.userOverrideTitle1 || '',
+      title2: t.userOverrideTitle2 || '',
+      title3: t.userOverrideTitle3 || ''
+    };
+  } catch {
+    otherRateTitles.value = { title1: 'Other 1', title2: 'Other 2', title3: 'Other 3', source: 'default' };
+    otherRateTitlesDraft.value = { title1: '', title2: '', title3: '' };
+  }
+};
+
+const saveOtherRateTitlesOverride = async () => {
+  if (!selectedAgencyId.value || !canEditRates.value) return;
+  try {
+    savingOtherRateTitles.value = true;
+    await api.put(`/payroll/other-rate-titles/users/${props.userId}`, {
+      agencyId: selectedAgencyId.value,
+      title1: String(otherRateTitlesDraft.value.title1 || '').trim() || null,
+      title2: String(otherRateTitlesDraft.value.title2 || '').trim() || null,
+      title3: String(otherRateTitlesDraft.value.title3 || '').trim() || null
+    });
+    await loadOtherRateTitles();
+  } finally {
+    savingOtherRateTitles.value = false;
+  }
+};
+
+const clearOtherRateTitlesOverride = async () => {
+  otherRateTitlesDraft.value = { title1: '', title2: '', title3: '' };
+  await saveOtherRateTitlesOverride();
+};
+
 const editingRates = ref(false);
 const savingRates = ref(false);
 const editError = ref('');
 const rateDraftByCode = ref({});
-const rateUnitDraftByCode = ref({});
 const rateCardDraft = ref({
   directRate: '',
   indirectRate: '',
@@ -436,10 +497,8 @@ const splitBreakdownForDisplay = (breakdown) => {
     const creditValue = Number(v.creditValue || 0);
     const safeCv = Number.isFinite(creditValue) ? creditValue : 0;
     const bucket = payBucketForCategory(v.category);
-    const rateUnit = String(v.rateUnit || '');
-
-    // If there's no carryover, or this is a flat line, show as-is.
-    if (!(oldUnits > 1e-9) || rateUnit === 'flat') {
+    // If there's no carryover, or this is a flat bucket line, show as-is.
+    if (!(oldUnits > 1e-9) || bucket === 'flat') {
       out.push({ code, ...v });
       continue;
     }
@@ -512,7 +571,6 @@ const fullRateRows = computed(() => {
     return {
       serviceCode: x.serviceCode,
       rateAmount: r ? Number(r.rate_amount) : null,
-      rateUnit: r ? (r.rate_unit || 'per_unit') : 'per_unit',
       visible: rule ? (rule.show_in_rate_sheet === undefined || rule.show_in_rate_sheet === null ? true : !!rule.show_in_rate_sheet) : true
     };
   });
@@ -562,6 +620,7 @@ const loadComp = async () => {
     perCodeRates.value = rates.data || [];
     serviceCodeRules.value = rules.data || [];
     templates.value = tmpl.data || [];
+    await loadOtherRateTitles();
     hasPayrollAccessForAgency.value = true;
   } catch (e) {
     compError.value = e.response?.data?.error?.message || e.message || 'Failed to load compensation';
@@ -644,14 +703,11 @@ const beginEditRates = () => {
   editingRates.value = true;
 
   const next = {};
-  const nextUnit = {};
   for (const row of fullRateRows.value || []) {
     const code = row.serviceCode;
     next[code] = row.rateAmount === null || row.rateAmount === undefined ? '' : String(row.rateAmount);
-    nextUnit[code] = row.rateUnit || 'per_unit';
   }
   rateDraftByCode.value = next;
-  rateUnitDraftByCode.value = nextUnit;
 
   const rc = rateCard.value || {};
   rateCardDraft.value = {
@@ -668,7 +724,6 @@ const cancelEditRates = () => {
   savingRates.value = false;
   editError.value = '';
   rateDraftByCode.value = {};
-  rateUnitDraftByCode.value = {};
 };
 
 const saveRates = async () => {
@@ -701,7 +756,7 @@ const saveRates = async () => {
       otherRate3: o3 ?? 0
     });
 
-    const current = new Map((perCodeRates.value || []).map((r) => [String(r.service_code || '').trim(), { amount: Number(r.rate_amount), unit: (r.rate_unit || 'per_unit') }]));
+    const current = new Map((perCodeRates.value || []).map((r) => [String(r.service_code || '').trim(), { amount: Number(r.rate_amount) }]));
     const changes = [];
     const deletes = [];
     for (const [code, val] of Object.entries(rateDraftByCode.value || {})) {
@@ -716,9 +771,8 @@ const saveRates = async () => {
       }
       const n = Number(t);
       if (!Number.isFinite(n) || n < 0) throw new Error('Rates must be non-negative numbers');
-      const unit = String(rateUnitDraftByCode.value?.[trimmedCode] || 'per_unit');
-      if (!prev || Math.abs(prev.amount - n) > 0.000001 || String(prev.unit) !== unit) {
-        changes.push({ serviceCode: trimmedCode, rateAmount: n, rateUnit: unit });
+      if (!prev || Math.abs(prev.amount - n) > 0.000001) {
+        changes.push({ serviceCode: trimmedCode, rateAmount: n });
       }
     }
 
@@ -729,7 +783,6 @@ const saveRates = async () => {
           userId: props.userId,
           serviceCode: c.serviceCode,
           rateAmount: c.rateAmount,
-          rateUnit: c.rateUnit,
           effectiveStart: null,
           effectiveEnd: null
         })
