@@ -119,7 +119,11 @@ export default class BulkSchoolUploadParserService {
           firstNonEmpty(normalized, [
             'school phone',
             'school phone number',
+            'school main phone',
+            'main phone',
             'phone number',
+            'phone #',
+            'phone no',
             'main phone',
             'phone'
           ]) || ''
@@ -135,12 +139,36 @@ export default class BulkSchoolUploadParserService {
           ]) || ''
         ).trim(),
         schoolNumber: String(firstNonEmpty(normalized, ['school number', 'number', 'school #', 'site number']) || '').trim(),
-        itscoEmail: String(firstNonEmpty(normalized, ['itsco email', 'itsco', 'group email', 'itsco group email']) || '').trim(),
+        itscoEmail: String(firstNonEmpty(normalized, ['itsco email', 'itsco', 'group email', 'itsco group email', 'itsco group', 'itsco group address']) || '').trim(),
         schoolDaysTimes: String(
-          firstNonEmpty(normalized, ['school days times', 'school days/times', 'days times', 'days/times', 'schedule']) || ''
+          firstNonEmpty(normalized, [
+            'school days times',
+            'school days/times',
+            'days times',
+            'days/times',
+            'school schedule',
+            'provider days times',
+            'provider schedule',
+            'schedule'
+          ]) || ''
         ).trim(),
-        schoolAddress: String(firstNonEmpty(normalized, ['school address', 'address', 'site address']) || '').trim(),
-        district: String(firstNonEmpty(normalized, ['district', 'district name']) || '').trim(),
+        // Address may come as one field, or split into components.
+        schoolAddress: String(
+          firstNonEmpty(normalized, [
+            'school address',
+            'address',
+            'site address',
+            'address line 1',
+            'address 1',
+            'street address',
+            'street'
+          ]) || ''
+        ).trim(),
+        schoolAddress2: String(firstNonEmpty(normalized, ['address line 2', 'address 2', 'suite', 'suite apt', 'apt suite']) || '').trim(),
+        schoolCity: String(firstNonEmpty(normalized, ['city', 'school city']) || '').trim(),
+        schoolState: String(firstNonEmpty(normalized, ['state', 'school state', 'st']) || '').trim(),
+        schoolPostalCode: String(firstNonEmpty(normalized, ['zip', 'zip code', 'postal code', 'postcode']) || '').trim(),
+        district: String(firstNonEmpty(normalized, ['district', 'district name', 'school district', 'district/region', 'region']) || '').trim(),
         raw
       };
 

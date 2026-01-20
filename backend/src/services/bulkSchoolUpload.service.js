@@ -16,6 +16,43 @@ const normalizeEmail = (v) => {
   return s.includes('@') ? s : '';
 };
 
+const normalizeState = (v) => {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  // Prefer 2-letter state when it looks like one.
+  if (/^[A-Za-z]{2}$/.test(s)) return s.toUpperCase();
+  return s;
+};
+
+const normalizePostalCode = (v) => {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  // Best-effort: keep 5 or 5-4 when present.
+  const m = s.match(/\b\d{5}(?:-\d{4})?\b/);
+  return m ? m[0] : s;
+};
+
+const parseAddressParts = (full) => {
+  const s = String(full || '').trim();
+  if (!s) return { street: '', city: '', state: '', postal: '' };
+
+  // Handle multi-line forms by collapsing.
+  const compact = s.replace(/\r?\n/g, ', ').replace(/\s+/g, ' ').trim();
+
+  // "123 Main St, City, ST 12345"
+  const m = compact.match(/^(.*?),\s*([^,]+?),\s*([A-Za-z]{2})\s*(\d{5}(?:-\d{4})?)?\s*$/);
+  if (m) {
+    return {
+      street: String(m[1] || '').trim(),
+      city: String(m[2] || '').trim(),
+      state: normalizeState(m[3] || ''),
+      postal: normalizePostalCode(m[4] || '')
+    };
+  }
+
+  return { street: s, city: '', state: '', postal: '' };
+};
+
 const extractEmails = (text) => {
   const s = String(text || '');
   const matches = s.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
@@ -383,19 +420,45 @@ export async function processBulkSchoolUpload({ agencyId, userId, fileName, rows
         // Overwrite when the spreadsheet provides a non-empty value.
         const schoolPhone = row.schoolPhone ? String(row.schoolPhone).trim() : '';
         const schoolAddress = row.schoolAddress ? String(row.schoolAddress).trim() : '';
+        const schoolAddress2 = row.schoolAddress2 ? String(row.schoolAddress2).trim() : '';
+        const schoolCity = row.schoolCity ? String(row.schoolCity).trim() : '';
+        const schoolState = normalizeState(row.schoolState || '');
+        const schoolPostalCode = normalizePostalCode(row.schoolPostalCode || '');
+
+        // Prefer split components when present; otherwise try to parse the single string.
+        const parsed = parseAddressParts(schoolAddress);
+        const streetFinal =
+          (schoolAddress ? schoolAddress : '') +
+          (schoolAddress2 ? ` ${schoolAddress2}` : '');
+        const cityFinal = schoolCity || parsed.city || '';
+        const stateFinal = schoolState || parsed.state || '';
+        const postalFinal = schoolPostalCode || parsed.postal || '';
+
         await connection.execute(
           `UPDATE agencies
            SET
              phone_number = CASE WHEN ? IS NOT NULL AND ? <> '' THEN ? ELSE phone_number END,
-             street_address = CASE WHEN ? IS NOT NULL AND ? <> '' THEN ? ELSE street_address END
+             street_address = CASE WHEN ? IS NOT NULL AND ? <> '' THEN ? ELSE street_address END,
+             city = CASE WHEN ? IS NOT NULL AND ? <> '' THEN ? ELSE city END,
+             state = CASE WHEN ? IS NOT NULL AND ? <> '' THEN ? ELSE state END,
+             postal_code = CASE WHEN ? IS NOT NULL AND ? <> '' THEN ? ELSE postal_code END
            WHERE id = ?`,
           [
             schoolPhone || null,
             schoolPhone || null,
             schoolPhone || null,
-            schoolAddress || null,
-            schoolAddress || null,
-            schoolAddress || null,
+            streetFinal || null,
+            streetFinal || null,
+            streetFinal || null,
+            cityFinal || null,
+            cityFinal || null,
+            cityFinal || null,
+            stateFinal || null,
+            stateFinal || null,
+            stateFinal || null,
+            postalFinal || null,
+            postalFinal || null,
+            postalFinal || null,
             schoolId
           ]
         );
