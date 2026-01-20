@@ -36,7 +36,7 @@ async function getSchoolStaffUserIds(schoolOrganizationId) {
      JOIN user_agencies ua ON ua.user_id = u.id
      WHERE ua.agency_id = ?
        AND u.is_active = TRUE
-       AND u.role IN ('admin','staff','support')`,
+       AND u.role = 'school_staff'`,
     [schoolOrganizationId]
   );
   return rows.map(r => r.id);

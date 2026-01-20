@@ -235,7 +235,7 @@
       </div>
 
       <div class="actions" style="margin-top: 10px;">
-        <button class="btn btn-secondary" @click="showRawModal = true" :disabled="!rawImportRows.length">
+        <button class="btn btn-secondary" @click="openRawModal" :disabled="!selectedPeriodId">
           Raw Import (View)
         </button>
         <button class="btn btn-secondary" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">
@@ -1760,12 +1760,32 @@
           <div class="modal">
             <div class="modal-header">
               <div>
-                <div class="modal-title">Raw Import (Draft Audit)</div>
+                <div class="modal-title">
+                  <span v-if="rawMode === 'draft_audit'">Raw Import (Draft Audit)</span>
+                  <span v-else-if="rawMode === 'process_h0031'">Raw Import (Process H0031)</span>
+                  <span v-else-if="rawMode === 'process_h0032'">Raw Import (Process H0032)</span>
+                  <span v-else>Raw Import (Processed)</span>
+                </div>
                 <div class="hint">
-                  Review only DRAFT rows and mark which drafts are payable (default) vs not payable. This updates Payroll Stage immediately.
+                  <span v-if="rawMode === 'draft_audit'">
+                    Review only DRAFT rows and mark which drafts are payable (default) vs not payable. This updates Payroll Stage immediately.
+                  </span>
+                  <span v-else-if="rawMode === 'process_h0031'">
+                    Enter the correct minutes for H0031 rows, then mark Done. Payroll cannot run until these are processed.
+                  </span>
+                  <span v-else-if="rawMode === 'process_h0032'">
+                    Enter the correct minutes for H0032 Cat1 Hour rows, then mark Done. Payroll cannot run until these are processed. (Cat2 Flat providers do not appear here; they default to 30 minutes per line.)
+                  </span>
+                  <span v-else>
+                    Review rows that have been processed (Done).
+                  </span>
                 </div>
               </div>
               <div class="actions" style="margin: 0;">
+                <button class="btn btn-secondary btn-sm" @click="rawMode = 'draft_audit'">Draft Audit</button>
+                <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_h0031'">Process H0031</button>
+                <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_h0032'">Process H0032</button>
+                <button class="btn btn-secondary btn-sm" @click="rawMode = 'processed'">Processed</button>
                 <button class="btn btn-secondary btn-sm" @click="downloadRawCsv" :disabled="!selectedPeriodId">
                   Download CSV
                 </button>
@@ -1775,11 +1795,16 @@
             <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr; margin-top: 10px;">
               <div class="field">
                 <label>Search</label>
-                <input v-model="rawDraftSearch" type="text" placeholder="Search provider / code / DOS…" />
+                <input
+                  v-model="rawDraftSearch"
+                  type="text"
+                  :placeholder="rawMode === 'draft_audit' ? 'Search provider / code…' : 'Search provider / code / DOS…'"
+                />
               </div>
               <div class="field">
                 <label>Rows</label>
-                <select v-model="rawDraftOnly">
+                <div class="hint" v-if="rawMode !== 'draft_audit'">Filtered by mode</div>
+                <select v-else v-model="rawDraftOnly">
                   <option :value="true">Draft only</option>
                   <option :value="false">All (read-only)</option>
                 </select>
@@ -1797,20 +1822,36 @@
                   <tr>
                     <th>Provider Name</th>
                     <th>Service Code</th>
-                    <th>Date</th>
-                    <th class="right">Units</th>
+                    <th v-if="rawMode !== 'draft_audit'">Date</th>
+                    <th class="right">
+                      <span v-if="rawMode === 'draft_audit'">Units</span>
+                      <span v-else>Minutes</span>
+                    </th>
                     <th>Note Status</th>
-                    <th>Draft Payable?</th>
+                    <th v-if="rawMode === 'draft_audit'">Draft Payable?</th>
+                    <th v-else>Done</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="r in rawDraftRows.slice(0, 200)" :key="r.id">
+                  <tr v-for="r in rawModeRows.slice(0, 200)" :key="r.id">
                     <td>{{ r.provider_name }}</td>
                     <td>{{ r.service_code }}</td>
-                    <td class="muted">{{ r.service_date || '' }}</td>
-                    <td class="right">{{ fmtNum(r.unit_count) }}</td>
+                    <td v-if="rawMode !== 'draft_audit'" class="muted">{{ r.service_date || '' }}</td>
+                    <td class="right">
+                      <span v-if="rawMode === 'draft_audit'">{{ fmtNum(r.unit_count) }}</span>
+                      <input
+                        v-else
+                        type="number"
+                        step="1"
+                        min="1"
+                        :value="Number(r.unit_count || 0)"
+                        :disabled="isPeriodPosted"
+                        style="width: 90px;"
+                        @change="updateRawMinutes(r, $event.target.value)"
+                      />
+                    </td>
                     <td>{{ r.note_status || '' }}</td>
-                    <td>
+                    <td v-if="rawMode === 'draft_audit'">
                       <select
                         v-if="String(r.note_status || '').toUpperCase() === 'DRAFT'"
                         :disabled="isPeriodPosted || !rawDraftOnly"
@@ -1822,13 +1863,24 @@
                       </select>
                       <span v-else class="muted">—</span>
                     </td>
+                    <td v-else>
+                      <label class="muted" style="display: inline-flex; align-items: center; gap: 8px;">
+                        <input
+                          type="checkbox"
+                          :checked="!!r.processed_at"
+                          :disabled="isPeriodPosted || !(Number(r.requires_processing) === 1)"
+                          @change="toggleRawProcessed(r, $event.target.checked)"
+                        />
+                        <span>{{ r.processed_at ? 'Done' : 'Pending' }}</span>
+                      </label>
+                    </td>
                   </tr>
-                  <tr v-if="!rawDraftRows.length">
-                    <td colspan="6" class="muted">No rows found.</td>
+                  <tr v-if="!rawModeRows.length">
+                    <td :colspan="rawMode === 'draft_audit' ? 5 : 6" class="muted">No rows found.</td>
                   </tr>
                 </tbody>
               </table>
-              <div class="hint" v-if="rawDraftRows.length">Showing first 200 rows.</div>
+              <div class="hint" v-if="rawModeRows.length">Showing first 200 rows.</div>
             </div>
           </div>
         </div>
@@ -3288,6 +3340,12 @@ const isSupervisorUserId = (uid) => {
   return u.has_supervisor_privileges === 1 || u.has_supervisor_privileges === true || u.has_supervisor_privileges === '1';
 };
 
+const isCpaUserId = (uid) => {
+  const u = agencyUserById.value.get(Number(uid)) || null;
+  if (!u) return false;
+  return String(u.role || '').toLowerCase() === 'clinical_practice_assistant';
+};
+
 const median = (nums) => {
   const a = (nums || []).filter((n) => Number.isFinite(n)).slice().sort((x, y) => x - y);
   if (!a.length) return 0;
@@ -3328,6 +3386,19 @@ const auditProviders = computed(() => {
       const units = Number(v?.finalizedUnits ?? v?.units ?? 0);
       if (has99414 && isSupervisorUserId(uid) && (amt > 1e-9 || units > 1e-9)) {
         flags.push('Supervisor has service code 99414 (should not be included)');
+        score += 3;
+      }
+    } catch { /* ignore */ }
+
+    // 99415 should only be used by supervisors / CPA.
+    try {
+      const b = s?.breakdown || null;
+      const has99415 = b && typeof b === 'object' && Object.prototype.hasOwnProperty.call(b, '99415');
+      const v = has99415 ? b['99415'] : null;
+      const amt = Number(v?.amount || 0);
+      const units = Number(v?.finalizedUnits ?? v?.units ?? 0);
+      if (has99415 && !isSupervisorUserId(uid) && !isCpaUserId(uid) && (amt > 1e-9 || units > 1e-9)) {
+        flags.push('Non-supervisor/CPA has service code 99415 (review recommended)');
         score += 3;
       }
     } catch { /* ignore */ }
@@ -3824,6 +3895,45 @@ const rawDraftRows = computed(() => {
   return rows;
 });
 
+const rawMode = ref('draft_audit'); // draft_audit | process_h0031 | process_h0032 | processed
+
+const rawModeRows = computed(() => {
+  const all = (rawImportRows.value || []).slice();
+  const mode = String(rawMode.value || 'draft_audit');
+  const q = String(rawDraftSearch.value || '').trim().toLowerCase();
+
+  let rows = all;
+  if (mode === 'draft_audit') {
+    rows = rawDraftOnly.value ? rows.filter((r) => String(r.note_status || '').toUpperCase() === 'DRAFT') : rows;
+  } else if (mode === 'process_h0031') {
+    rows = rows.filter((r) =>
+      Number(r.requires_processing) === 1 &&
+      !r.processed_at &&
+      String(r.service_code || '').trim().toUpperCase() === 'H0031'
+    );
+  } else if (mode === 'process_h0032') {
+    rows = rows.filter((r) =>
+      Number(r.requires_processing) === 1 &&
+      !r.processed_at &&
+      String(r.service_code || '').trim().toUpperCase() === 'H0032'
+    );
+  } else {
+    // processed
+    rows = rows.filter((r) => Number(r.requires_processing) === 1 && !!r.processed_at);
+  }
+
+  if (q) {
+    rows = rows.filter((r) => {
+      const prov = String(r.provider_name || '').toLowerCase();
+      const code = String(r.service_code || '').toLowerCase();
+      const dos = String(r.service_date || '').toLowerCase();
+      return prov.includes(q) || code.includes(q) || dos.includes(q);
+    });
+  }
+  rows.sort((a, b) => String(b.service_date || '').localeCompare(String(a.service_date || '')));
+  return rows;
+});
+
 const toggleDraftPayable = async (row, nextVal) => {
   if (!row?.id) return;
   if (isPeriodPosted.value) return;
@@ -3854,6 +3964,79 @@ const toggleDraftPayable = async (row, nextVal) => {
     await loadStaging();
   } catch (e) {
     rawDraftError.value = e.response?.data?.error?.message || e.message || 'Failed to update draft payable';
+  } finally {
+    updatingDraftPayable.value = false;
+  }
+};
+
+const updateRawMinutes = async (row, nextValRaw) => {
+  if (!row?.id) return;
+  if (isPeriodPosted.value) return;
+  if (Number(row.requires_processing) !== 1) return;
+  try {
+    const nextMinutes = Math.round(Number(nextValRaw));
+    if (!Number.isFinite(nextMinutes) || nextMinutes <= 0) return;
+    updatingDraftPayable.value = true;
+    rawDraftError.value = '';
+    const resp = await api.patch(`/payroll/import-rows/${row.id}`, { unitCount: nextMinutes });
+    const idx = (rawImportRows.value || []).findIndex((r) => r.id === row.id);
+    if (idx >= 0) {
+      rawImportRows.value[idx] = { ...rawImportRows.value[idx], unit_count: nextMinutes };
+    }
+    if (resp?.data?.period) selectedPeriod.value = resp.data.period;
+    if (Array.isArray(resp?.data?.summaries)) {
+      const nextSummaries = resp.data.summaries.map((s) => {
+        if (typeof s.breakdown === 'string') {
+          try { s.breakdown = JSON.parse(s.breakdown); } catch { /* ignore */ }
+        }
+        return s;
+      });
+      summaries.value = nextSummaries;
+      if (selectedUserId.value) {
+        const found = nextSummaries.find((x) => x.user_id === selectedUserId.value);
+        if (found) selectedSummary.value = found;
+      }
+    }
+    await loadStaging();
+  } catch (e) {
+    rawDraftError.value = e.response?.data?.error?.message || e.message || 'Failed to update minutes';
+  } finally {
+    updatingDraftPayable.value = false;
+  }
+};
+
+const toggleRawProcessed = async (row, nextDone) => {
+  if (!row?.id) return;
+  if (isPeriodPosted.value) return;
+  if (Number(row.requires_processing) !== 1) return;
+  try {
+    updatingDraftPayable.value = true;
+    rawDraftError.value = '';
+    const resp = await api.patch(`/payroll/import-rows/${row.id}`, { processed: !!nextDone });
+    const idx = (rawImportRows.value || []).findIndex((r) => r.id === row.id);
+    if (idx >= 0) {
+      rawImportRows.value[idx] = {
+        ...rawImportRows.value[idx],
+        processed_at: nextDone ? (new Date().toISOString()) : null
+      };
+    }
+    if (resp?.data?.period) selectedPeriod.value = resp.data.period;
+    if (Array.isArray(resp?.data?.summaries)) {
+      const nextSummaries = resp.data.summaries.map((s) => {
+        if (typeof s.breakdown === 'string') {
+          try { s.breakdown = JSON.parse(s.breakdown); } catch { /* ignore */ }
+        }
+        return s;
+      });
+      summaries.value = nextSummaries;
+      if (selectedUserId.value) {
+        const found = nextSummaries.find((x) => x.user_id === selectedUserId.value);
+        if (found) selectedSummary.value = found;
+      }
+    }
+    await loadStaging();
+  } catch (e) {
+    rawDraftError.value = e.response?.data?.error?.message || e.message || 'Failed to update processed status';
   } finally {
     updatingDraftPayable.value = false;
   }
@@ -3961,6 +4144,15 @@ const loadPeriodDetails = async () => {
     rawImportRows.value = [];
     summaries.value = [];
   }
+};
+
+const openRawModal = async () => {
+  if (!selectedPeriodId.value) return;
+  // If the raw rows haven't loaded yet (or were cleared), refresh once before opening.
+  if (!Array.isArray(rawImportRows.value) || rawImportRows.value.length === 0) {
+    await loadPeriodDetails();
+  }
+  showRawModal.value = true;
 };
 
 const loadAgencyUsers = async () => {

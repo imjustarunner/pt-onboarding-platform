@@ -15,7 +15,7 @@ import {
   getAgencyPasswordSettings,
   uploadCsv
 } from '../controllers/approvedEmployee.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
 
 const router = express.Router();
@@ -25,7 +25,7 @@ router.get('/verify', verifyEmail);
 
 // All other routes require authentication and admin role
 router.use(authenticate);
-router.use(requireAdmin);
+router.use(requireBackofficeAdmin);
 
 router.get('/', getApprovedEmployees);
 

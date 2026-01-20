@@ -1,7 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { resetModule, resetTrack, markModuleComplete, markTrackComplete, getAuditLog } from '../controllers/adminActions.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -20,11 +20,11 @@ const validateTrackAction = [
   body('trackId').isInt({ min: 1 }).withMessage('Track ID is required')
 ];
 
-router.post('/reset-module', authenticate, requireAdmin, validateModuleAction, resetModule);
-router.post('/reset-track', authenticate, requireAdmin, validateTrackAction, resetTrack);
-router.post('/mark-module-complete', authenticate, requireAdmin, validateModuleAction, markModuleComplete);
-router.post('/mark-track-complete', authenticate, requireAdmin, validateTrackAction, markTrackComplete);
-router.get('/audit-log/:agencyId', authenticate, requireAdmin, getAuditLog);
+router.post('/reset-module', authenticate, requireBackofficeAdmin, validateModuleAction, resetModule);
+router.post('/reset-track', authenticate, requireBackofficeAdmin, validateTrackAction, resetTrack);
+router.post('/mark-module-complete', authenticate, requireBackofficeAdmin, validateModuleAction, markModuleComplete);
+router.post('/mark-track-complete', authenticate, requireBackofficeAdmin, validateTrackAction, markTrackComplete);
+router.get('/audit-log/:agencyId', authenticate, requireBackofficeAdmin, getAuditLog);
 
 export default router;
 

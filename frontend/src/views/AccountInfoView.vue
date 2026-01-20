@@ -8,6 +8,40 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     
     <div v-else class="account-info-content">
+      <!-- Profile Photo -->
+      <div class="info-section">
+        <div class="section-header">
+          <h2 style="margin: 0;">Profile Photo</h2>
+        </div>
+        <div class="profile-photo-row">
+          <div class="photo-preview">
+            <img
+              v-if="profilePhotoUrl"
+              :src="profilePhotoUrl"
+              alt="Profile photo"
+              class="photo-img"
+            />
+            <div v-else class="photo-fallback" aria-hidden="true">{{ initials }}</div>
+          </div>
+          <div class="photo-actions">
+            <input
+              ref="photoInput"
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+              style="display:none;"
+              @change="onPhotoSelected"
+            />
+            <button class="btn btn-secondary btn-large" @click="photoInput?.click()" :disabled="photoUploading || !userId">
+              {{ photoUploading ? 'Uploading…' : 'Upload Photo' }}
+            </button>
+            <div class="hint" style="margin-top: 6px;">
+              Used across the app (school portal provider cards, chat, and profile headers).
+            </div>
+            <div v-if="photoError" class="error" style="margin-top: 10px;">{{ photoError }}</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Personal Information Section -->
       <div class="info-section">
         <h2>Personal Information</h2>
@@ -296,6 +330,50 @@ import { useAuthStore } from '../store/auth';
 
 const authStore = useAuthStore();
 const userId = computed(() => authStore.user?.id);
+const profilePhotoUrl = computed(() => authStore.user?.profilePhotoUrl || null);
+const initials = computed(() => {
+  const f = String(authStore.user?.firstName || '').trim();
+  const l = String(authStore.user?.lastName || '').trim();
+  const a = f ? f[0] : '';
+  const b = l ? l[0] : '';
+  return `${a}${b}`.toUpperCase() || 'U';
+});
+
+const photoInput = ref(null);
+const photoUploading = ref(false);
+const photoError = ref('');
+
+const onPhotoSelected = async (event) => {
+  try {
+    photoError.value = '';
+    const file = event?.target?.files?.[0] || null;
+    if (!file) return;
+    if (!userId.value) {
+      photoError.value = 'User not loaded.';
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('photo', file);
+
+    photoUploading.value = true;
+    await api.post(`/users/${userId.value}/profile-photo`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+
+    await authStore.refreshUser();
+  } catch (e) {
+    photoError.value = e.response?.data?.error?.message || 'Failed to upload photo';
+  } finally {
+    photoUploading.value = false;
+    // allow selecting the same file again
+    try {
+      if (photoInput.value) photoInput.value.value = '';
+    } catch {
+      // ignore
+    }
+  }
+};
 
 const loading = ref(true);
 const error = ref('');
@@ -567,6 +645,40 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.profile-photo-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.photo-preview {
+  width: 86px;
+  height: 86px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+
+.photo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-fallback {
+  font-weight: 900;
+  font-size: 26px;
+  color: var(--text-primary);
+}
+
+.photo-actions {
+  min-width: 260px;
+}
+
 .page-header {
   margin-bottom: 32px;
 }

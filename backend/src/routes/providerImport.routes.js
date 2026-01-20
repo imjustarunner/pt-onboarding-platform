@@ -1,7 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, requireSuperAdmin } from '../middleware/auth.middleware.js';
-import { previewProviderImport, applyProviderImport, bulkCreateProvidersFromSchoolList, bulkUpdateProviderEmails } from '../controllers/providerImport.controller.js';
+import { previewProviderImport, applyProviderImport, bulkCreateProvidersFromSchoolList, bulkUpdateProviderEmails, importEmployeeInfo } from '../controllers/providerImport.controller.js';
 
 const router = express.Router();
 
@@ -25,6 +25,7 @@ router.post(
 // The controller performs manual validation instead.
 router.post('/bulk-create', bulkCreateProvidersFromSchoolList);
 router.post('/email-update', bulkUpdateProviderEmails);
+router.post('/employee-info', importEmployeeInfo);
 
 export default router;
 

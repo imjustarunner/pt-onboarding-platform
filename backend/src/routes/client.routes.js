@@ -10,10 +10,13 @@ import {
   deleteBulkImportedClients,
   getClientHistory,
   getClientNotes,
-  createClientNote
+  createClientNote,
+  markClientNotesRead,
+  updateClientComplianceChecklist,
+  getClientAccessLog
 } from '../controllers/client.controller.js';
 import { listClientGuardians, upsertClientGuardian, updateClientGuardian, removeClientGuardian } from '../controllers/clientGuardian.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -45,17 +48,26 @@ router.put('/:id/provider', assignProvider);
 // Get status history
 router.get('/:id/history', getClientHistory);
 
+// Access log (admin/support)
+router.get('/:id/access-log', getClientAccessLog);
+
 // Get notes
 router.get('/:id/notes', getClientNotes);
 
 // Create note
 router.post('/:id/notes', createClientNote);
 
+// Mark notes read (per-user)
+router.post('/:id/notes/read', markClientNotesRead);
+
+// Compliance checklist (provider/admin/staff)
+router.put('/:id/compliance-checklist', updateClientComplianceChecklist);
+
 // Guardians (admin-managed)
-router.get('/:id/guardians', requireAdmin, listClientGuardians);
+router.get('/:id/guardians', requireBackofficeAdmin, listClientGuardians);
 router.post(
   '/:id/guardians',
-  requireAdmin,
+  requireBackofficeAdmin,
   [
     body('email').isString().isLength({ min: 3, max: 255 }),
     body('firstName').isString().isLength({ min: 1, max: 255 }),
@@ -66,7 +78,7 @@ router.post(
   ],
   upsertClientGuardian
 );
-router.patch('/:id/guardians/:guardianUserId', requireAdmin, updateClientGuardian);
-router.delete('/:id/guardians/:guardianUserId', requireAdmin, removeClientGuardian);
+router.patch('/:id/guardians/:guardianUserId', requireBackofficeAdmin, updateClientGuardian);
+router.delete('/:id/guardians/:guardianUserId', requireBackofficeAdmin, removeClientGuardian);
 
 export default router;

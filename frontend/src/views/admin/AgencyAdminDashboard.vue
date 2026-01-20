@@ -62,8 +62,8 @@
           class="stat-card"
           :class="{ 'preview-disabled': previewMode }"
         >
-          <h3>Total Users</h3>
-          <p class="stat-value">{{ stats.totalUsers }}</p>
+          <h3>Active Users</h3>
+          <p class="stat-value">{{ stats.activeUsers }}</p>
         </component>
       </div>
       
@@ -78,33 +78,12 @@
         :icon-resolver="resolveQuickActionIcon"
       />
       
-      <div class="agencies-overview" v-if="myAgencies.length > 0 && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)">
-        <h2>My Agencies</h2>
-        <div class="agencies-list">
-          <div
-            v-for="agency in myAgencies"
-            :key="agency.id"
-            class="agency-card"
-            :class="{ active: currentAgency?.id === agency.id }"
-          >
-            <div class="agency-row">
-              <span class="agency-name" :title="agency.name">{{ agency.name }}</span>
-              <span class="agency-badges">
-                <span v-if="agency.is_active" class="badge badge-success">Active</span>
-                <span v-else class="badge badge-secondary">Inactive</span>
-              </span>
-            </div>
-            <component 
-              :is="previewMode ? 'button' : 'router-link'"
-              :to="previewMode ? null : `/admin/settings?tab=agencies`"
-              class="btn btn-primary btn-sm"
-              :disabled="previewMode"
-            >
-              Manage
-            </component>
-          </div>
-        </div>
-      </div>
+      <AgencySpecsPanel
+        v-if="!previewMode && myAgencies.length > 0 && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
+        title="Agency Specs"
+        v-model:organizationId="selectedOrgId"
+        :organizations="myAgencies"
+      />
     </div>
   </div>
 </template>
@@ -118,6 +97,7 @@ import { useAuthStore } from '../../store/auth';
 import { isSupervisor } from '../../utils/helpers.js';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
+import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
 
 const props = defineProps({
   previewMode: {
@@ -142,17 +122,36 @@ const stats = ref({
   myAgencies: 0,
   agencyModules: 0,
   trainingFocusTemplates: 0,
-  totalUsers: 0
+  activeUsers: 0
 });
 const myAgencies = ref([]);
 const branding = computed(() => brandingStore.platformBranding);
 const agencyData = ref(null);
 
+const selectedOrgId = computed({
+  get() {
+    return currentAgency.value?.id || null;
+  },
+  set(id) {
+    const targetId = Number(id);
+    if (!targetId || !Array.isArray(myAgencies.value)) return;
+    const next = myAgencies.value.find((a) => Number(a?.id) === targetId);
+    if (next && currentAgency.value?.id !== next.id) {
+      agencyStore.setCurrentAgency(next);
+    }
+  }
+});
+
 const fetchStats = async () => {
   // In preview mode, use mock data
   if (props.previewMode) {
     if (props.previewStats) {
-      stats.value = { ...props.previewStats };
+      // Backward compatible: old previews may provide totalUsers instead of activeUsers
+      const next = { ...props.previewStats };
+      if (next.activeUsers === undefined && next.totalUsers !== undefined) {
+        next.activeUsers = next.totalUsers;
+      }
+      stats.value = next;
     }
     myAgencies.value = [{ id: 1, name: 'Preview Agency', is_active: true }];
     loading.value = false;
@@ -164,7 +163,13 @@ const fetchStats = async () => {
     
     // Get all agencies the user has access to
     const agenciesRes = await api.get('/agencies');
-    myAgencies.value = agenciesRes.data;
+    const rawAgencies = Array.isArray(agenciesRes.data) ? agenciesRes.data : [];
+    const primaryAgencies = rawAgencies.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+    // If current selection isn't an agency (rare), keep it available as a secondary option.
+    const cur = currentAgency.value;
+    const needsCurrent =
+      cur?.id && !primaryAgencies.some((a) => Number(a?.id) === Number(cur.id));
+    myAgencies.value = needsCurrent ? [...primaryAgencies, cur] : primaryAgencies;
     
     // Fetch training focuses for each agency the admin has access to
     // Also include platform templates (agency_id IS NULL)
@@ -173,7 +178,7 @@ const fetchStats = async () => {
     ];
     
     // Add promises for each agency
-    agenciesRes.data.forEach(agency => {
+    rawAgencies.forEach(agency => {
       trainingFocusPromises.push(
         api.get('/training-focuses', { params: { agencyId: agency.id } }).catch(() => ({ data: [] }))
       );
@@ -206,7 +211,7 @@ const fetchStats = async () => {
     
     // Filter modules for user's agencies
     const agencyModules = modulesRes.data.filter(m => 
-      !m.is_shared && agenciesRes.data.some(a => a.id === m.agency_id)
+      !m.is_shared && rawAgencies.some(a => a.id === m.agency_id)
     );
     
     // Count all unique training focuses across platform templates and all user's agencies
@@ -215,10 +220,10 @@ const fetchStats = async () => {
     const totalTrainingFocuses = uniqueTrainingFocusIds.size;
     
     stats.value = {
-      myAgencies: agenciesRes.data.length,
+      myAgencies: rawAgencies.length,
       agencyModules: agencyModules.length,
       trainingFocusTemplates: totalTrainingFocuses,
-      totalUsers: usersRes.data.length
+      activeUsers: (usersRes.data || []).filter((u) => String(u?.status || '').toUpperCase() === 'ACTIVE_EMPLOYEE').length
     };
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load statistics';
@@ -285,6 +290,16 @@ const quickActions = computed(() => ([
     description: 'Create and manage clients',
     to: '/admin/clients',
     emoji: '🧾',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'import_school_directory',
+    title: 'Import School Directory',
+    description: 'Bulk import school contacts + ITSCO email + schedules',
+    to: '/admin/schools/import',
+    emoji: '🏫',
     category: 'Management',
     roles: ['admin', 'support', 'super_admin', 'staff'],
     capabilities: ['canAccessPlatform']

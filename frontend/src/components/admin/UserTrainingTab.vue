@@ -4,8 +4,8 @@
 
     <div v-if="loading" class="loading">Loading training data...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else-if="tracks.length === 0 && individualModules.length === 0" class="empty-state">
-      <p>No training focuses or modules assigned to this user.</p>
+    <div v-else-if="tracks.length === 0 && individualModules.length === 0 && checklistItems.length === 0" class="empty-state">
+      <p>No training focuses, modules, or checklist items found for this user.</p>
     </div>
     <div v-else>
       <!-- Individually Assigned Modules (from tasks) -->
@@ -115,6 +115,67 @@
           </div>
         </div>
       </div>
+
+      <!-- Checklist Items (platform/agency enabled) -->
+      <div class="checklist-items-section" style="margin-bottom: 32px;">
+        <h3 style="margin-bottom: 8px; font-size: 18px; font-weight: 600;">Checklist Items</h3>
+        <div class="text-muted" style="margin-bottom: 12px;">
+          These are enabled via agency checklist settings (including Platform Template items). The system creates per-user completion tracking records automatically.
+        </div>
+
+        <div v-if="checklistLoading" class="loading">Loading checklist items...</div>
+        <div v-else-if="checklistError" class="error">{{ checklistError }}</div>
+        <div v-else-if="checklistItems.length === 0" class="empty-state" style="margin-top: 10px;">
+          <p>No checklist items are enabled for this user.</p>
+        </div>
+        <div v-else class="modules-list">
+          <table class="modules-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Source</th>
+                <th>Status</th>
+                <th>Completed</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="it in checklistItems" :key="it.id">
+                <td>
+                  <strong>{{ it.item_label }}</strong>
+                  <br />
+                  <small class="text-muted">{{ it.description || 'No description' }}</small>
+                </td>
+                <td>
+                  <span v-if="it.is_platform_template" class="badge badge-info">Platform Template</span>
+                  <span v-else-if="it.agency_id" class="badge badge-secondary">{{ getOrgName(it.agency_id) || `Agency ${it.agency_id}` }}</span>
+                  <span v-else class="badge badge-secondary">Global</span>
+                </td>
+                <td>
+                  <span :class="['badge', it.is_completed ? 'badge-success' : 'badge-warning']">
+                    {{ it.is_completed ? 'Completed' : 'Incomplete' }}
+                  </span>
+                </td>
+                <td>
+                  <span v-if="it.completed_at">{{ formatDate(it.completed_at) }}</span>
+                  <span v-else class="text-muted">—</span>
+                </td>
+                <td>
+                  <button
+                    v-if="!viewOnly"
+                    class="btn btn-sm"
+                    :class="it.is_completed ? 'btn-secondary' : 'btn-success'"
+                    :disabled="checklistSavingKey === String(it.checklist_item_id)"
+                    @click="toggleChecklistCompletion(it)"
+                  >
+                    {{ checklistSavingKey === String(it.checklist_item_id) ? 'Saving…' : (it.is_completed ? 'Mark Incomplete' : 'Mark Complete') }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- Training Focus Detail View -->
@@ -151,6 +212,45 @@ const userAgencies = ref([]);
 const individualModules = ref([]);
 const selectedTrainingFocus = ref(null);
 
+const checklistLoading = ref(false);
+const checklistError = ref('');
+const checklistItems = ref([]);
+const checklistSavingKey = ref('');
+
+const getOrgName = (orgId) => {
+  const id = Number(orgId);
+  const match = (userAgencies.value || []).find(a => Number(a?.id) === id);
+  return match?.name || null;
+};
+
+const fetchChecklistItems = async () => {
+  checklistError.value = '';
+  checklistLoading.value = true;
+  try {
+    const res = await api.get(`/users/${props.userId}/custom-checklist`);
+    checklistItems.value = Array.isArray(res.data) ? res.data : [];
+  } catch (err) {
+    checklistError.value = err.response?.data?.error?.message || 'Failed to load checklist items';
+    checklistItems.value = [];
+  } finally {
+    checklistLoading.value = false;
+  }
+};
+
+const toggleChecklistCompletion = async (it) => {
+  if (!it?.checklist_item_id) return;
+  checklistSavingKey.value = String(it.checklist_item_id);
+  try {
+    const endpoint = it.is_completed ? 'incomplete' : 'complete';
+    await api.post(`/users/${props.userId}/custom-checklist/${it.checklist_item_id}/${endpoint}`);
+    await fetchChecklistItems();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to update checklist item');
+  } finally {
+    checklistSavingKey.value = '';
+  }
+};
+
 const fetchTrainingData = async () => {
   try {
     loading.value = true;
@@ -174,6 +274,8 @@ const fetchTrainingData = async () => {
     
     if (agenciesRes.data.length === 0) {
       tracks.value = [];
+      // Still try to load checklist items (may be global)
+      await fetchChecklistItems();
       return;
     }
     
@@ -197,6 +299,8 @@ const fetchTrainingData = async () => {
     } else {
       tracks.value = [];
     }
+
+    await fetchChecklistItems();
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load training data';
     console.error('Error fetching training data:', err);

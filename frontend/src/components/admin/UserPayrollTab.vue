@@ -118,6 +118,9 @@
             <button class="btn btn-secondary" @click="renameTemplate" :disabled="renamingTemplate || !selectedTemplateId || !renameTemplateName">
               Rename
             </button>
+              <button class="btn btn-danger" @click="deleteTemplate" :disabled="deletingTemplate || !selectedTemplateId">
+                {{ deletingTemplate ? 'Deleting…' : 'Delete' }}
+              </button>
           </div>
         </div>
 
@@ -179,16 +182,18 @@
               <thead>
                 <tr>
                   <th>Service code</th>
+                  <th>Unit</th>
                   <th class="right">Rate</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="r in (templateDetails.rates || [])" :key="r.service_code">
                   <td>{{ r.service_code }}</td>
+                  <td class="muted">{{ r.rate_unit || 'per_unit' }}</td>
                   <td class="right">{{ fmtMoney(r.rate_amount) }}</td>
                 </tr>
                 <tr v-if="!(templateDetails.rates || []).length">
-                  <td colspan="2" class="muted">This template has no per-code rates.</td>
+                  <td colspan="3" class="muted">This template has no per-code rates.</td>
                 </tr>
               </tbody>
             </table>
@@ -383,6 +388,7 @@ const templateDetails = ref(null);
 const applyingTemplate = ref(false);
 const creatingTemplate = ref(false);
 const renamingTemplate = ref(false);
+const deletingTemplate = ref(false);
 const newTemplateName = ref('');
 const renameTemplateName = ref('');
 
@@ -697,22 +703,27 @@ const saveRates = async () => {
 
     const current = new Map((perCodeRates.value || []).map((r) => [String(r.service_code || '').trim(), { amount: Number(r.rate_amount), unit: (r.rate_unit || 'per_unit') }]));
     const changes = [];
+    const deletes = [];
     for (const [code, val] of Object.entries(rateDraftByCode.value || {})) {
       const trimmedCode = String(code || '').trim();
       if (!trimmedCode) continue;
       const t = String(val ?? '').trim();
-      if (!t) continue; // empty = leave as-is (no create/delete)
+      const prev = current.get(trimmedCode);
+      if (!t) {
+        // Empty = delete existing override so it disappears from the sheet.
+        if (prev) deletes.push(trimmedCode);
+        continue;
+      }
       const n = Number(t);
       if (!Number.isFinite(n) || n < 0) throw new Error('Rates must be non-negative numbers');
       const unit = String(rateUnitDraftByCode.value?.[trimmedCode] || 'per_unit');
-      const prev = current.get(trimmedCode);
       if (!prev || Math.abs(prev.amount - n) > 0.000001 || String(prev.unit) !== unit) {
         changes.push({ serviceCode: trimmedCode, rateAmount: n, rateUnit: unit });
       }
     }
 
-    await Promise.all(
-      changes.map((c) =>
+    await Promise.all([
+      ...changes.map((c) =>
         api.post('/payroll/rates', {
           agencyId: selectedAgencyId.value,
           userId: props.userId,
@@ -722,8 +733,11 @@ const saveRates = async () => {
           effectiveStart: null,
           effectiveEnd: null
         })
+      ),
+      ...deletes.map((serviceCode) =>
+        api.delete('/payroll/rates', { params: { agencyId: selectedAgencyId.value, userId: props.userId, serviceCode } })
       )
-    );
+    ]);
 
     editingRates.value = false;
     await loadComp();
@@ -739,7 +753,9 @@ const toggleRuleVisibility = async (serviceCode) => {
   const code = String(serviceCode || '').trim();
   if (!code) return;
   const rule = ruleByCode.value.get(code);
-  const next = !(rule && rule.show_in_rate_sheet ? true : false);
+  // If a rule doesn't exist yet, treat it as visible by default and allow the first click to HIDE it.
+  const currentVisible = rule ? !!rule.show_in_rate_sheet : true;
+  const next = !currentVisible;
   try {
     savingRates.value = true;
     editError.value = '';
@@ -795,8 +811,33 @@ const createTemplateFromUser = async () => {
     if (createdId) selectedTemplateId.value = createdId;
   } catch (e) {
     compError.value = e.response?.data?.error?.message || e.message || 'Failed to create template';
+    // If the name already exists, auto-select it to reduce friction.
+    const existingId = e.response?.data?.existingTemplateId || null;
+    if (e.response?.status === 409 && existingId) {
+      selectedTemplateId.value = existingId;
+      await loadTemplate();
+    }
   } finally {
     creatingTemplate.value = false;
+  }
+};
+
+const deleteTemplate = async () => {
+  if (!selectedAgencyId.value || !selectedTemplateId.value) return;
+  const ok = window.confirm('Delete this template? This cannot be undone.');
+  if (!ok) return;
+  try {
+    deletingTemplate.value = true;
+    compError.value = '';
+    await api.delete(`/payroll/rate-templates/${selectedTemplateId.value}`, { params: { agencyId: selectedAgencyId.value } });
+    selectedTemplateId.value = null;
+    templateDetails.value = null;
+    renameTemplateName.value = '';
+    await loadComp();
+  } catch (e) {
+    compError.value = e.response?.data?.error?.message || e.message || 'Failed to delete template';
+  } finally {
+    deletingTemplate.value = false;
   }
 };
 

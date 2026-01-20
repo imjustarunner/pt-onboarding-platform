@@ -126,6 +126,54 @@
           </div>
         </div>
 
+        <!-- Compliance Checklist Tab -->
+        <div v-if="activeTab === 'checklist'" class="detail-section">
+          <h3 style="margin-top: 0;">Compliance Checklist</h3>
+          <p class="hint" style="margin-top:-6px;">
+            Operational tracking (non-clinical). Providers + admin/staff can update.
+          </p>
+
+          <div class="info-grid">
+            <div class="info-item">
+              <label>Parents Contacted</label>
+              <div class="info-value">
+                <input type="date" v-model="checklist.parentsContactedAt" class="inline-input" />
+              </div>
+            </div>
+            <div class="info-item">
+              <label>Contact Successful?</label>
+              <div class="info-value">
+                <select v-model="checklist.parentsContactedSuccessful" class="inline-select">
+                  <option :value="''">—</option>
+                  <option :value="'true'">Successful</option>
+                  <option :value="'false'">Unsuccessful</option>
+                </select>
+              </div>
+            </div>
+            <div class="info-item">
+              <label>Intake Date</label>
+              <div class="info-value">
+                <input type="date" v-model="checklist.intakeAt" class="inline-input" />
+              </div>
+            </div>
+            <div class="info-item">
+              <label>First Date of Service</label>
+              <div class="info-value">
+                <input type="date" v-model="checklist.firstServiceAt" class="inline-input" />
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions" style="margin-top: 12px;">
+            <button class="btn btn-primary" @click="saveChecklist" :disabled="savingChecklist">
+              {{ savingChecklist ? 'Saving…' : 'Save Checklist' }}
+            </button>
+            <span v-if="checklistAuditText" class="hint" style="margin-left: 10px;">
+              {{ checklistAuditText }}
+            </span>
+          </div>
+        </div>
+
         <!-- Status History Tab -->
         <div v-if="activeTab === 'history'" class="detail-section">
           <div v-if="historyLoading" class="loading">Loading history...</div>
@@ -155,6 +203,45 @@
                 <div v-if="entry.note" class="history-note">
                   Note: {{ entry.note }}
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Access Log Tab -->
+        <div v-if="activeTab === 'access'" class="detail-section">
+          <div v-if="!canViewAccessLog" class="empty-state">
+            <p>You don’t have permission to view access logs.</p>
+          </div>
+          <div v-else>
+            <div v-if="accessLoading" class="loading">Loading access log…</div>
+            <div v-else-if="accessError" class="error">{{ accessError }}</div>
+            <div v-else-if="accessLog.length === 0" class="empty-state">
+              <p>No access events recorded yet.</p>
+            </div>
+            <div v-else class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>User</th>
+                    <th>Role</th>
+                    <th>Action</th>
+                    <th>IP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="e in accessLog" :key="e.id">
+                    <td>{{ formatDateTime(e.created_at) }}</td>
+                    <td>{{ formatAccessUser(e) }}</td>
+                    <td>{{ e.user_role || '—' }}</td>
+                    <td>{{ e.action }}</td>
+                    <td>{{ e.ip_address || '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="hint" style="margin-top: 8px;">
+                Tracks access to client profile + notes (best-effort).
               </div>
             </div>
           </div>
@@ -408,7 +495,9 @@ const authStore = useAuthStore();
 const activeTab = ref('overview');
 const tabs = [
   { id: 'overview', label: 'Overview' },
+  { id: 'checklist', label: 'Checklist' },
   { id: 'history', label: 'Status History' },
+  { id: 'access', label: 'Access Log' },
   { id: 'messages', label: 'Messages' },
   { id: 'guardians', label: 'Guardians' },
   { id: 'phi', label: 'Referral Packets' }
@@ -426,6 +515,11 @@ const history = ref([]);
 const historyLoading = ref(false);
 const historyError = ref('');
 
+// Access log tab state
+const accessLog = ref([]);
+const accessLoading = ref(false);
+const accessError = ref('');
+
 // Messages tab state
 const notes = ref([]);
 const notesLoading = ref(false);
@@ -436,6 +530,16 @@ const newNoteCategory = ref('general');
 const creatingNote = ref(false);
 
 const hasAgencyAccess = ref(false);
+
+// Compliance checklist
+const savingChecklist = ref(false);
+const checklistAuditText = ref('');
+const checklist = ref({
+  parentsContactedAt: '',
+  parentsContactedSuccessful: '',
+  intakeAt: '',
+  firstServiceAt: ''
+});
 
 // Guardians tab state (non-clinical portal access)
 const guardiansLoading = ref(false);
@@ -774,6 +878,10 @@ const handleClose = () => {
 watch(() => activeTab.value, (newTab) => {
   if (newTab === 'history' && history.value.length === 0) {
     fetchHistory();
+  } else if (newTab === 'access' && accessLog.value.length === 0) {
+    fetchAccessLog();
+  } else if (newTab === 'checklist') {
+    hydrateChecklist();
   } else if (newTab === 'messages' && notes.value.length === 0) {
     fetchNotes();
   } else if (newTab === 'guardians' && guardians.value.length === 0) {
@@ -787,11 +895,80 @@ watch(() => props.client, () => {
   editingProvider.value = false;
 }, { deep: true });
 
+const hydrateChecklist = async () => {
+  try {
+    const r = await api.get(`/clients/${props.client.id}`);
+    const c = r.data || {};
+    checklist.value.parentsContactedAt = c.parents_contacted_at ? String(c.parents_contacted_at).slice(0, 10) : '';
+    checklist.value.parentsContactedSuccessful =
+      c.parents_contacted_successful === null || c.parents_contacted_successful === undefined
+        ? ''
+        : (c.parents_contacted_successful ? 'true' : 'false');
+    checklist.value.intakeAt = c.intake_at ? String(c.intake_at).slice(0, 10) : '';
+    checklist.value.firstServiceAt = c.first_service_at ? String(c.first_service_at).slice(0, 10) : '';
+    const who = c.checklist_updated_by_name || null;
+    const when = c.checklist_updated_at ? new Date(c.checklist_updated_at).toLocaleString() : null;
+    checklistAuditText.value = who && when ? `Last updated by ${who} on ${when}` : (when ? `Last updated on ${when}` : '');
+  } catch {
+    // ignore
+  }
+};
+
+const saveChecklist = async () => {
+  try {
+    savingChecklist.value = true;
+    const payload = {
+      parentsContactedAt: checklist.value.parentsContactedAt || null,
+      parentsContactedSuccessful: checklist.value.parentsContactedSuccessful === '' ? null : (checklist.value.parentsContactedSuccessful === 'true'),
+      intakeAt: checklist.value.intakeAt || null,
+      firstServiceAt: checklist.value.firstServiceAt || null
+    };
+    const r = await api.put(`/clients/${props.client.id}/compliance-checklist`, payload);
+    const c = r.data || {};
+    const who = c.checklist_updated_by_name || null;
+    const when = c.checklist_updated_at ? new Date(c.checklist_updated_at).toLocaleString() : null;
+    checklistAuditText.value = who && when ? `Last updated by ${who} on ${when}` : (when ? `Last updated on ${when}` : '');
+    emit('updated');
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to save checklist');
+  } finally {
+    savingChecklist.value = false;
+  }
+};
+
+const canViewAccessLog = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff';
+});
+
+const formatAccessUser = (e) => {
+  const name = `${e.user_first_name || ''} ${e.user_last_name || ''}`.trim();
+  return name || e.user_email || `User ${e.user_id}`;
+};
+
+const fetchAccessLog = async () => {
+  if (!canViewAccessLog.value) return;
+  try {
+    accessLoading.value = true;
+    accessError.value = '';
+    const r = await api.get(`/clients/${props.client.id}/access-log`);
+    accessLog.value = r.data || [];
+  } catch (e) {
+    accessError.value = e.response?.data?.error?.message || 'Failed to load access log';
+  } finally {
+    accessLoading.value = false;
+  }
+};
+
 onMounted(async () => {
   await fetchProviders();
   await fetchAccess();
   if (activeTab.value === 'history') {
     await fetchHistory();
+  } else if (activeTab.value === 'access') {
+    await fetchAccessLog();
+  } else if (activeTab.value === 'checklist') {
+    await hydrateChecklist();
   } else if (activeTab.value === 'messages') {
     await fetchNotes();
   } else if (activeTab.value === 'guardians') {

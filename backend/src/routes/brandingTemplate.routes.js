@@ -15,7 +15,7 @@ import {
   updateSchedule,
   deleteSchedule
 } from '../controllers/brandingTemplate.controller.js';
-import { authenticate, requireAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -60,21 +60,21 @@ const validateApply = [
 ];
 
 // Template routes
-router.get('/', authenticate, getTemplates);
-router.get('/state', authenticate, getTemplateState);
-router.get('/:id', authenticate, getTemplate);
+router.get('/', authenticate, requireBackofficeAdmin, getTemplates);
+router.get('/state', authenticate, requireBackofficeAdmin, getTemplateState);
+router.get('/:id', authenticate, requireBackofficeAdmin, getTemplate);
 // Admin or super admin can create templates (controller handles scope restrictions)
-router.post('/', authenticate, requireAdmin, validateTemplate, createTemplate);
-router.put('/:id', authenticate, requireAdmin, validateTemplate, updateTemplate);
-router.delete('/:id', authenticate, requireAdmin, deleteTemplate);
-router.post('/:id/apply', authenticate, requireAdmin, validateApply, applyTemplate);
-router.post('/:id/set-default', authenticate, requireAdmin, validateApply, setDefaultTemplate);
-router.post('/clear-current', authenticate, requireAdmin, validateApply, clearCurrentTemplate);
+router.post('/', authenticate, requireBackofficeAdmin, validateTemplate, createTemplate);
+router.put('/:id', authenticate, requireBackofficeAdmin, validateTemplate, updateTemplate);
+router.delete('/:id', authenticate, requireBackofficeAdmin, deleteTemplate);
+router.post('/:id/apply', authenticate, requireBackofficeAdmin, validateApply, applyTemplate);
+router.post('/:id/set-default', authenticate, requireBackofficeAdmin, validateApply, setDefaultTemplate);
+router.post('/clear-current', authenticate, requireBackofficeAdmin, validateApply, clearCurrentTemplate);
 
 // Schedule routes
-router.get('/:id/schedules', authenticate, getSchedules);
-router.post('/:id/schedules', authenticate, requireAdmin, validateSchedule, createSchedule);
-router.put('/schedules/:id', authenticate, requireAdmin, validateSchedule, updateSchedule);
-router.delete('/schedules/:id', authenticate, requireAdmin, deleteSchedule);
+router.get('/:id/schedules', authenticate, requireBackofficeAdmin, getSchedules);
+router.post('/:id/schedules', authenticate, requireBackofficeAdmin, validateSchedule, createSchedule);
+router.put('/schedules/:id', authenticate, requireBackofficeAdmin, validateSchedule, updateSchedule);
+router.delete('/schedules/:id', authenticate, requireBackofficeAdmin, deleteSchedule);
 
 export default router;

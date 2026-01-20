@@ -1,7 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { getModuleContent, addModuleContent, updateModuleContent, deleteModuleContent } from '../controllers/content.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -12,9 +12,9 @@ const validateContent = [
 ];
 
 router.get('/:id/content', authenticate, getModuleContent);
-router.post('/:id/content', authenticate, requireAdmin, validateContent, addModuleContent);
-router.put('/:id/content/:contentId', authenticate, requireAdmin, validateContent, updateModuleContent);
-router.delete('/:id/content/:contentId', authenticate, requireAdmin, deleteModuleContent);
+router.post('/:id/content', authenticate, requireBackofficeAdmin, validateContent, addModuleContent);
+router.put('/:id/content/:contentId', authenticate, requireBackofficeAdmin, validateContent, updateModuleContent);
+router.delete('/:id/content/:contentId', authenticate, requireBackofficeAdmin, deleteModuleContent);
 
 export default router;
 

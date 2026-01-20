@@ -8,6 +8,19 @@ class PayrollRate {
     );
   }
 
+  static async deleteForUserCode({ agencyId, userId, serviceCode }) {
+    const aId = agencyId ? parseInt(agencyId, 10) : null;
+    const uId = userId ? parseInt(userId, 10) : null;
+    const code = String(serviceCode || '').trim();
+    if (!aId || !uId || !code) return 0;
+    const [result] = await pool.execute(
+      `DELETE FROM payroll_rates
+       WHERE agency_id = ? AND user_id = ? AND service_code = ?`,
+      [aId, uId, code]
+    );
+    return result.affectedRows || 0;
+  }
+
   static async upsert({
     agencyId,
     userId,

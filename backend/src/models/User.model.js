@@ -263,7 +263,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -278,6 +278,7 @@ class User {
       if (existingColumns.includes('has_supervisor_privileges')) query += ', has_supervisor_privileges';
       if (existingColumns.includes('has_provider_access')) query += ', has_provider_access';
       if (existingColumns.includes('has_staff_access')) query += ', has_staff_access';
+      if (existingColumns.includes('provider_accepting_new_clients')) query += ', provider_accepting_new_clients';
       if (existingColumns.includes('personal_phone')) query += ', personal_phone';
       if (existingColumns.includes('work_phone')) query += ', work_phone';
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
@@ -289,6 +290,7 @@ class User {
       if (existingColumns.includes('medcancel_enabled')) query += ', medcancel_enabled';
       if (existingColumns.includes('medcancel_rate_schedule')) query += ', medcancel_rate_schedule';
       if (existingColumns.includes('company_card_enabled')) query += ', company_card_enabled';
+      if (existingColumns.includes('profile_photo_path')) query += ', profile_photo_path';
     } catch (err) {
       // If we can't check columns, just use the base query
       console.warn('Could not check for pending columns:', err.message);
@@ -596,6 +598,7 @@ class User {
       hasSupervisorPrivileges,
       hasProviderAccess,
       hasStaffAccess,
+      providerAcceptingNewClients,
       personalPhone,
       workPhone,
       workPhoneExtension,
@@ -962,6 +965,26 @@ class User {
       }
     }
 
+    // Provider availability flag (Open/Closed for new clients)
+    if (providerAcceptingNewClients !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'provider_accepting_new_clients'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('provider_accepting_new_clients = ?');
+          values.push(providerAcceptingNewClients ? 1 : 0);
+        } else {
+          // If caller provided this field but DB doesn't have column, fail loudly so admins know to run migrations.
+          throw new Error('Database is missing users.provider_accepting_new_clients. Run migrations (see database/migrations/196_users_add_provider_accepting_new_clients.sql).');
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+
     if (updates.length === 0) return this.findById(id);
 
     values.push(id);
@@ -1000,6 +1023,8 @@ class User {
     // Best-effort: include icon paths when columns exist (keeps older DBs working).
     let hasIconId = false;
     let hasChatIconId = false;
+    let hasPayrollAccess = false;
+    let hasH0032ManualMinutes = false;
     try {
       const [cols] = await pool.execute(
         "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('icon_id','chat_icon_id')"
@@ -1012,9 +1037,24 @@ class User {
       hasChatIconId = false;
     }
 
+    // Best-effort: include membership fields from user_agencies.
+    try {
+      const [uaCols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_agencies' AND COLUMN_NAME IN ('has_payroll_access','h0032_requires_manual_minutes')"
+      );
+      const names = (uaCols || []).map((c) => c.COLUMN_NAME);
+      hasPayrollAccess = names.includes('has_payroll_access');
+      hasH0032ManualMinutes = names.includes('h0032_requires_manual_minutes');
+    } catch {
+      hasPayrollAccess = false;
+      hasH0032ManualMinutes = false;
+    }
+
     const selectExtra = [
       hasIconId ? 'master_i.file_path as icon_file_path, master_i.name as icon_name' : null,
-      hasChatIconId ? 'chat_i.file_path as chat_icon_path, chat_i.name as chat_icon_name' : null
+      hasChatIconId ? 'chat_i.file_path as chat_icon_path, chat_i.name as chat_icon_name' : null,
+      hasPayrollAccess ? 'ua.has_payroll_access' : null,
+      hasH0032ManualMinutes ? 'ua.h0032_requires_manual_minutes' : null
     ].filter(Boolean).join(', ');
 
     const joins = [
@@ -1062,6 +1102,16 @@ class User {
     // Requires migrations to add user_agencies.has_payroll_access.
     await pool.execute(
       'UPDATE user_agencies SET has_payroll_access = ? WHERE user_id = ? AND agency_id = ?',
+      [enabled ? 1 : 0, userId, agencyId]
+    );
+    const membership = await this.getAgencyMembership(userId, agencyId);
+    return membership;
+  }
+
+  static async setAgencyH0032RequiresManualMinutes(userId, agencyId, enabled) {
+    // Requires migrations to add user_agencies.h0032_requires_manual_minutes.
+    await pool.execute(
+      'UPDATE user_agencies SET h0032_requires_manual_minutes = ? WHERE user_id = ? AND agency_id = ?',
       [enabled ? 1 : 0, userId, agencyId]
     );
     const membership = await this.getAgencyMembership(userId, agencyId);

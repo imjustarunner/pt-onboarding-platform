@@ -32,16 +32,19 @@ class PayrollImportRow {
         r.draftPayable === undefined || r.draftPayable === null ? 1 : (r.draftPayable ? 1 : 0),
         r.unitCount,
         null, // raw_row (do not store)
-        r.rowFingerprint || null
+        r.rowFingerprint || null,
+        r.requiresProcessing ? 1 : 0,
+        r.processedAt || null,
+        r.processedByUserId || null
       ]);
     }
 
-    // 15 columns inserted (see column list below) => 15 placeholders per row.
-    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+    // 18 columns inserted (see column list below) => 18 placeholders per row.
+    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
     const flat = values.flat();
     const [result] = await pool.execute(
       `INSERT INTO payroll_import_rows
-       (payroll_import_id, payroll_period_id, agency_id, user_id, provider_name, service_code, service_date, note_status, appt_type, amount_collected, paid_status, draft_payable, unit_count, raw_row, row_fingerprint)
+       (payroll_import_id, payroll_period_id, agency_id, user_id, provider_name, service_code, service_date, note_status, appt_type, amount_collected, paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
        VALUES ${placeholders}`,
       flat
     );
@@ -66,6 +69,9 @@ class PayrollImportRow {
          pir.note_status,
          pir.draft_payable,
          pir.unit_count,
+         pir.requires_processing,
+         pir.processed_at,
+         pir.processed_by_user_id,
          pir.created_at
        FROM payroll_import_rows pir
        LEFT JOIN users u ON pir.user_id = u.id
@@ -107,6 +113,68 @@ class PayrollImportRow {
       [draftPayable ? 1 : 0, rowId]
     );
     return result.affectedRows || 0;
+  }
+
+  static async updateUnitCount({ rowId, unitCount }) {
+    const [result] = await pool.execute(
+      `UPDATE payroll_import_rows
+       SET unit_count = ?
+       WHERE id = ?`,
+      [Number(unitCount), rowId]
+    );
+    return result.affectedRows || 0;
+  }
+
+  static async updateProcessed({ rowId, processedAt, processedByUserId }) {
+    const [result] = await pool.execute(
+      `UPDATE payroll_import_rows
+       SET processed_at = ?, processed_by_user_id = ?
+       WHERE id = ?`,
+      [processedAt || null, processedByUserId || null, rowId]
+    );
+    return result.affectedRows || 0;
+  }
+
+  static async countUnprocessedForPeriod({ payrollPeriodId }) {
+    const latestImportId = await this._latestImportIdForPeriod(payrollPeriodId);
+    if (!latestImportId) return 0;
+    const [rows] = await pool.execute(
+      `SELECT COUNT(1) AS c
+       FROM payroll_import_rows
+       WHERE payroll_period_id = ?
+         AND payroll_import_id = ?
+         AND requires_processing = 1
+         AND processed_at IS NULL`,
+      [payrollPeriodId, latestImportId]
+    );
+    return Number(rows?.[0]?.c || 0);
+  }
+
+  static async listUnprocessedForPeriod({ payrollPeriodId, limit = 200 }) {
+    const latestImportId = await this._latestImportIdForPeriod(payrollPeriodId);
+    if (!latestImportId) return [];
+    const lim = Math.max(1, Math.min(1000, Number(limit) || 200));
+    const [rows] = await pool.execute(
+      `SELECT
+         pir.id,
+         pir.user_id,
+         pir.provider_name,
+         pir.service_code,
+         pir.service_date,
+         pir.note_status,
+         pir.unit_count,
+         pir.requires_processing,
+         pir.processed_at
+       FROM payroll_import_rows pir
+       WHERE pir.payroll_period_id = ?
+         AND pir.payroll_import_id = ?
+         AND pir.requires_processing = 1
+         AND pir.processed_at IS NULL
+       ORDER BY pir.service_code ASC, pir.service_date DESC, pir.id DESC
+       LIMIT ${lim}`,
+      [payrollPeriodId, latestImportId]
+    );
+    return rows;
   }
 
   static async findById(rowId) {

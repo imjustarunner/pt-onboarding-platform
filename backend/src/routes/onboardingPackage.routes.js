@@ -16,7 +16,7 @@ import {
   removeChecklistItemFromPackage,
   assignPackage
 } from '../controllers/onboardingPackage.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -33,44 +33,44 @@ const validatePackage = [
   body('isActive').optional().isBoolean()
 ];
 
-router.get('/', authenticate, requireAdmin, getAllPackages);
-router.get('/:id', authenticate, requireAdmin, getPackageById);
-router.post('/', authenticate, requireAdmin, validatePackage, createPackage);
-router.put('/:id', authenticate, requireAdmin, validatePackage, updatePackage);
-router.delete('/:id', authenticate, requireAdmin, deletePackage);
+router.get('/', authenticate, requireBackofficeAdmin, getAllPackages);
+router.get('/:id', authenticate, requireBackofficeAdmin, getPackageById);
+router.post('/', authenticate, requireBackofficeAdmin, validatePackage, createPackage);
+router.put('/:id', authenticate, requireBackofficeAdmin, validatePackage, updatePackage);
+router.delete('/:id', authenticate, requireBackofficeAdmin, deletePackage);
 
 // Training Focus management
-router.post('/:id/training-focuses', authenticate, requireAdmin, [
+router.post('/:id/training-focuses', authenticate, requireBackofficeAdmin, [
   body('trackId').isInt({ min: 1 }).withMessage('Track ID is required'),
   body('orderIndex').optional().isInt({ min: 0 })
 ], addTrainingFocusToPackage);
-router.delete('/:id/training-focuses/:trackId', authenticate, requireAdmin, removeTrainingFocusFromPackage);
+router.delete('/:id/training-focuses/:trackId', authenticate, requireBackofficeAdmin, removeTrainingFocusFromPackage);
 
 // Module management
-router.post('/:id/modules', authenticate, requireAdmin, [
+router.post('/:id/modules', authenticate, requireBackofficeAdmin, [
   body('moduleId').isInt({ min: 1 }).withMessage('Module ID is required'),
   body('orderIndex').optional().isInt({ min: 0 })
 ], addModuleToPackage);
-router.delete('/:id/modules/:moduleId', authenticate, requireAdmin, removeModuleFromPackage);
+router.delete('/:id/modules/:moduleId', authenticate, requireBackofficeAdmin, removeModuleFromPackage);
 
 // Document management
-router.post('/:id/documents', authenticate, requireAdmin, [
+router.post('/:id/documents', authenticate, requireBackofficeAdmin, [
   body('documentTemplateId').isInt({ min: 1 }).withMessage('Document template ID is required'),
   body('orderIndex').optional().isInt({ min: 0 }),
   body('actionType').optional().isIn(['signature', 'review']),
   body('dueDateDays').optional().isInt({ min: 0 })
 ], addDocumentToPackage);
-router.delete('/:id/documents/:documentTemplateId', authenticate, requireAdmin, removeDocumentFromPackage);
+router.delete('/:id/documents/:documentTemplateId', authenticate, requireBackofficeAdmin, removeDocumentFromPackage);
 
 // Checklist Item management
-router.post('/:id/checklist-items', authenticate, requireAdmin, [
+router.post('/:id/checklist-items', authenticate, requireBackofficeAdmin, [
   body('checklistItemId').isInt({ min: 1 }).withMessage('Checklist item ID is required'),
   body('orderIndex').optional().isInt({ min: 0 })
 ], addChecklistItemToPackage);
-router.delete('/:id/checklist-items/:checklistItemId', authenticate, requireAdmin, removeChecklistItemFromPackage);
+router.delete('/:id/checklist-items/:checklistItemId', authenticate, requireBackofficeAdmin, removeChecklistItemFromPackage);
 
 // Assign package
-router.post('/:id/assign', authenticate, requireAdmin, [
+router.post('/:id/assign', authenticate, requireBackofficeAdmin, [
   body('userIds').isArray().withMessage('User IDs must be an array'),
   body('userIds.*').isInt({ min: 1 }).withMessage('Each user ID must be a positive integer'),
   body('agencyId').isInt({ min: 1 }).withMessage('Agency ID is required and must be a positive integer'),

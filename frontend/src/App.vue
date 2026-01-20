@@ -89,6 +89,19 @@
                 @click="closeMobileMenu"
                 class="nav-link"
               >Office Schedule</router-link>
+              <div v-if="showGlobalAvailabilityToggle" class="nav-availability" @click.stop>
+                <div class="nav-availability-label">Global availability</div>
+                <label class="switch" :title="globalAvailabilityTitle">
+                  <input type="checkbox" :checked="globalAvailabilityOpen" @change="onToggleGlobalAvailability" />
+                  <span class="slider" />
+                </label>
+                <button class="nav-availability-info" type="button" @click="showAvailabilityHint = !showAvailabilityHint" aria-label="Availability help">
+                  i
+                </button>
+                <div v-if="showAvailabilityHint" class="nav-availability-hint">
+                  <strong>Reminder:</strong> Please ensure your schedule is open in the EHR system for the times you are available via “Extra availability”.
+                </div>
+              </div>
               <button @click="handleLogout" class="btn btn-secondary">Logout</button>
               </div>
             </div>
@@ -191,6 +204,7 @@ import { useOrganizationStore } from './store/organization';
 import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
+import api from './services/api';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
 import BrandingProvider from './components/BrandingProvider.vue';
@@ -409,6 +423,39 @@ const isAdmin = computed(() => {
   const role = user.value?.role;
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
+
+const showAvailabilityHint = ref(false);
+const savingAvailability = ref(false);
+const showGlobalAvailabilityToggle = computed(() => {
+  const role = String(user.value?.role || '').toLowerCase();
+  return role === 'provider' || role === 'supervisor';
+});
+const globalAvailabilityOpen = computed(() => user.value?.provider_accepting_new_clients !== false);
+const globalAvailabilityTitle = computed(() =>
+  globalAvailabilityOpen.value ? 'Open globally for new clients' : 'Closed globally for new clients'
+);
+
+const onToggleGlobalAvailability = async (e) => {
+  try {
+    const nextVal = !!e?.target?.checked;
+    if (!user.value?.id) return;
+    savingAvailability.value = true;
+    await api.put(`/users/${user.value.id}`, { providerAcceptingNewClients: nextVal });
+    await authStore.refreshUser();
+    showAvailabilityHint.value = true;
+    // Auto-hide hint after a bit
+    window.setTimeout(() => {
+      showAvailabilityHint.value = false;
+    }, 8000);
+  } catch (err) {
+    console.error('Failed to update global availability:', err);
+    // revert via refresh
+    try { await authStore.refreshUser(); } catch {}
+    alert(err.response?.data?.error?.message || 'Failed to update global availability');
+  } finally {
+    savingAvailability.value = false;
+  }
+};
 
 const currentAgencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
@@ -748,6 +795,88 @@ onUnmounted(() => {
   flex-shrink: 0;
   min-width: max-content;
   padding-right: 10px;
+}
+
+.nav-availability {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+  position: relative;
+}
+.nav-availability-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+.nav-availability-info {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+  padding: 0;
+  cursor: pointer;
+}
+.nav-availability-hint {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: min(420px, 75vw);
+  background: white;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
+  z-index: 1000;
+}
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: .2s;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 2px;
+  background-color: white;
+  transition: .2s;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+}
+.switch input:checked + .slider {
+  background-color: var(--primary);
+}
+.switch input:checked + .slider:before {
+  transform: translateX(20px);
 }
 
 .nav-links a {

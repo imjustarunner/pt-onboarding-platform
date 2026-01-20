@@ -209,6 +209,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'provider'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/schools/import',
+    name: 'OrganizationSchoolContactsImport',
+    component: () => import('../views/admin/SchoolContactsImportView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/settings',
     name: 'OrganizationSettings',
     component: () => import('../views/admin/SettingsView.vue'),
@@ -394,6 +400,12 @@ const routes = [
     name: 'ClientManagement',
     component: () => import('../views/admin/ClientManagementView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'provider'] }
+  },
+  {
+    path: '/admin/schools/import',
+    name: 'SchoolContactsImport',
+    component: () => import('../views/admin/SchoolContactsImportView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
     path: '/admin/settings',
@@ -719,6 +731,16 @@ router.beforeEach(async (to, from, next) => {
     const requiredRole = to.meta.requiresRole;
     const requiredRoles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
     
+    // School staff should not use the employee "Office Schedule" or "Payroll" surfaces.
+    // They should stay within their school portal dashboard.
+    if (String(userRole || '').toLowerCase() === 'school_staff') {
+      const blockedForSchoolStaff = ['/schedule', '/admin/payroll', '/payroll', '/dashboard'];
+      if (blockedForSchoolStaff.some((p) => to.path === p || to.path.startsWith(`${p}/`))) {
+        next(getDashboardRoute());
+        return;
+      }
+    }
+
     // Block CPAs and supervisors from accessing restricted routes
     const restrictedRoutes = ['/admin/modules', '/admin/documents', '/admin/settings', '/admin/checklist-items'];
     if ((userRole === 'clinical_practice_assistant' || userRole === 'supervisor') && 

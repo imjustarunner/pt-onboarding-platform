@@ -1,6 +1,30 @@
 import pool from '../config/database.js';
 
 class Task {
+  static toMySQLDateTime(dueDate) {
+    if (!dueDate) return null;
+    try {
+      // If it's already in MySQL format (YYYY-MM-DD HH:MM:SS), use it as-is
+      if (typeof dueDate === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dueDate)) {
+        return dueDate;
+      }
+
+      const date = new Date(dueDate);
+      if (isNaN(date.getTime())) return null;
+
+      // Format as MySQL DATETIME: YYYY-MM-DD HH:MM:SS
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const seconds = String(date.getSeconds()).padStart(2, '0');
+      return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+    } catch (err) {
+      return null;
+    }
+  }
+
   static async create(taskData) {
     const {
       taskType,
@@ -27,35 +51,7 @@ class Task {
       referenceId
     });
 
-    // Convert dueDate to MySQL DATETIME format if provided
-    let dueDateMySQL = null;
-    if (dueDate) {
-      try {
-        // If it's already in MySQL format (YYYY-MM-DD HH:MM:SS), use it as-is
-        if (typeof dueDate === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dueDate)) {
-          dueDateMySQL = dueDate;
-        } else {
-          // Otherwise, parse as ISO 8601 or other format and convert to MySQL format
-          const date = new Date(dueDate);
-          if (isNaN(date.getTime())) {
-            console.warn('Task.create: Invalid dueDate format, ignoring:', dueDate);
-            dueDateMySQL = null;
-          } else {
-            // Format as MySQL DATETIME: YYYY-MM-DD HH:MM:SS
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            const hours = String(date.getHours()).padStart(2, '0');
-            const minutes = String(date.getMinutes()).padStart(2, '0');
-            const seconds = String(date.getSeconds()).padStart(2, '0');
-            dueDateMySQL = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-          }
-        }
-      } catch (err) {
-        console.warn('Task.create: Error converting dueDate, ignoring:', err);
-        dueDateMySQL = null;
-      }
-    }
+    const dueDateMySQL = this.toMySQLDateTime(dueDate);
 
     const [result] = await pool.execute(
       `INSERT INTO tasks (
@@ -231,38 +227,45 @@ class Task {
   }
 
   static async updateDueDate(taskId, dueDate) {
-    // Convert dueDate to MySQL DATETIME format if provided
-    let dueDateMySQL = null;
-    if (dueDate) {
-      try {
-        // If it's already in MySQL format (YYYY-MM-DD HH:MM:SS), use it as-is
-        if (typeof dueDate === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dueDate)) {
-          dueDateMySQL = dueDate;
-        } else {
-          // Otherwise, parse and convert to MySQL format
-          const date = new Date(dueDate);
-          if (isNaN(date.getTime())) {
-            throw new Error('Invalid dueDate format');
-          }
-          // Format as MySQL DATETIME: YYYY-MM-DD HH:MM:SS
-          const year = date.getFullYear();
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-          const hours = String(date.getHours()).padStart(2, '0');
-          const minutes = String(date.getMinutes()).padStart(2, '0');
-          const seconds = String(date.getSeconds()).padStart(2, '0');
-          dueDateMySQL = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-        }
-      } catch (err) {
-        throw new Error(`Invalid dueDate format: ${err.message}`);
-      }
-    }
+    const dueDateMySQL = this.toMySQLDateTime(dueDate);
     
     await pool.execute(
       'UPDATE tasks SET due_date = ? WHERE id = ?',
       [dueDateMySQL, taskId]
     );
     return this.findById(taskId);
+  }
+
+  static async findTrainingTrackTasksForUser({ userId, agencyId, trackId }) {
+    const [rows] = await pool.execute(
+      `
+      SELECT id, reference_id, status, due_date
+      FROM tasks
+      WHERE task_type = 'training'
+        AND assigned_to_user_id = ?
+        AND assigned_to_agency_id = ?
+        AND CAST(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.trackId')) AS UNSIGNED) = ?
+      `,
+      [parseInt(userId), parseInt(agencyId), parseInt(trackId)]
+    );
+    return rows || [];
+  }
+
+  static async updateDueDateByIds(taskIds, dueDate, { onlyActive = true } = {}) {
+    const ids = Array.isArray(taskIds) ? taskIds.filter(Boolean).map((x) => parseInt(x)) : [];
+    if (ids.length === 0) return { updated: 0 };
+
+    const dueDateMySQL = this.toMySQLDateTime(dueDate);
+    const placeholders = ids.map(() => '?').join(',');
+    const params = [dueDateMySQL, ...ids];
+
+    let sql = `UPDATE tasks SET due_date = ? WHERE id IN (${placeholders})`;
+    if (onlyActive) {
+      sql += ` AND status IN ('pending', 'in_progress')`;
+    }
+
+    const [result] = await pool.execute(sql, params);
+    return { updated: result?.affectedRows || 0 };
   }
 
   static async updateStatus(taskId, status) {

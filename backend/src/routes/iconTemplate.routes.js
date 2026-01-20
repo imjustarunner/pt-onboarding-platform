@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 import {
   getIconTemplates,
   getIconTemplate,
@@ -33,9 +33,9 @@ const validateIconTemplate = [
 
 router.get('/', authenticate, getIconTemplates);
 router.get('/:id', authenticate, getIconTemplate);
-router.post('/', authenticate, requireAdmin, validateIconTemplate, createIconTemplate);
-router.put('/:id', authenticate, requireAdmin, validateIconTemplate, updateIconTemplate);
-router.delete('/:id', authenticate, requireAdmin, deleteIconTemplate);
+router.post('/', authenticate, requireBackofficeAdmin, validateIconTemplate, createIconTemplate);
+router.put('/:id', authenticate, requireBackofficeAdmin, validateIconTemplate, updateIconTemplate);
+router.delete('/:id', authenticate, requireBackofficeAdmin, deleteIconTemplate);
 
 export default router;
 

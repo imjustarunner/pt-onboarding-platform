@@ -17,19 +17,44 @@ export const listProvidersForScheduling = async (req, res, next) => {
     const agencyId = parseAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
-    const [rows] = await pool.execute(
-      `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.has_provider_access
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ?
-         AND (
-           u.role IN ('clinician','provider')
-           OR (u.has_provider_access = TRUE)
-         )
-       ORDER BY u.last_name ASC, u.first_name ASC`,
-      [agencyId]
-    );
-    res.json(rows);
+    // Backward compatible: provider_accepting_new_clients may not exist yet.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT u.id,
+                u.first_name,
+                u.last_name,
+                u.email,
+                u.role,
+                u.has_provider_access,
+                u.provider_accepting_new_clients
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ?
+           AND (
+             u.role IN ('clinician','provider')
+             OR (u.has_provider_access = TRUE)
+           )
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [agencyId]
+      );
+      res.json(rows);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (!msg.includes('Unknown column')) throw e;
+      const [rows] = await pool.execute(
+        `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.has_provider_access
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ?
+           AND (
+             u.role IN ('clinician','provider')
+             OR (u.has_provider_access = TRUE)
+           )
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [agencyId]
+      );
+      res.json((rows || []).map((r) => ({ ...r, provider_accepting_new_clients: true })));
+    }
   } catch (e) {
     next(e);
   }
@@ -86,6 +111,10 @@ export const upsertProviderSchoolAssignment = async (req, res, next) => {
     const startTime = req.body.startTime || null;
     const endTime = req.body.endTime || null;
     const isActive = req.body.isActive === undefined ? true : (req.body.isActive === true || req.body.isActive === 'true');
+    const acceptingNewClientsOverride =
+      req.body.acceptingNewClientsOverride === undefined || req.body.acceptingNewClientsOverride === null || req.body.acceptingNewClientsOverride === ''
+        ? null
+        : (req.body.acceptingNewClientsOverride === true || req.body.acceptingNewClientsOverride === 'true' || req.body.acceptingNewClientsOverride === 1 || req.body.acceptingNewClientsOverride === '1');
 
     if (!providerUserId || !schoolOrganizationId || !dayOfWeek || !Number.isFinite(slotsTotal) || slotsTotal < 0) {
       return res.status(400).json({
@@ -104,7 +133,7 @@ export const upsertProviderSchoolAssignment = async (req, res, next) => {
 
     // Upsert: set slots_available to slotsTotal when creating; when updating, clamp slots_available to slotsTotal if needed.
     const [existing] = await pool.execute(
-      `SELECT id, slots_available FROM provider_school_assignments
+      `SELECT id, slots_total, slots_available FROM provider_school_assignments
        WHERE provider_user_id = ? AND school_organization_id = ? AND day_of_week = ?
        LIMIT 1`,
       [providerUserId, schoolOrganizationId, dayOfWeek]
@@ -113,20 +142,24 @@ export const upsertProviderSchoolAssignment = async (req, res, next) => {
     if (!existing[0]) {
       const [result] = await pool.execute(
         `INSERT INTO provider_school_assignments
-          (provider_user_id, school_organization_id, day_of_week, slots_total, slots_available, start_time, end_time, is_active)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [providerUserId, schoolOrganizationId, dayOfWeek, slotsTotal, slotsTotal, startTime, endTime, isActive ? 1 : 0]
+          (provider_user_id, school_organization_id, day_of_week, slots_total, slots_available, start_time, end_time, is_active, accepting_new_clients_override)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [providerUserId, schoolOrganizationId, dayOfWeek, slotsTotal, slotsTotal, startTime, endTime, isActive ? 1 : 0, acceptingNewClientsOverride]
       );
       const [rows] = await pool.execute(`SELECT * FROM provider_school_assignments WHERE id = ?`, [result.insertId]);
       return res.status(201).json(rows[0] || null);
     }
 
-    const nextSlotsAvailable = Math.min(parseInt(existing[0].slots_available ?? 0, 10), slotsTotal);
+    // Preserve used slots so reducing total doesn't incorrectly "refund" availability.
+    const oldTotal = parseInt(existing[0].slots_total ?? 0, 10);
+    const oldAvail = parseInt(existing[0].slots_available ?? 0, 10);
+    const used = Math.max(0, oldTotal - oldAvail);
+    const nextSlotsAvailable = Math.max(0, slotsTotal - used);
     await pool.execute(
       `UPDATE provider_school_assignments
-       SET slots_total = ?, slots_available = ?, start_time = ?, end_time = ?, is_active = ?
+       SET slots_total = ?, slots_available = ?, start_time = ?, end_time = ?, is_active = ?, accepting_new_clients_override = ?
        WHERE id = ?`,
-      [slotsTotal, nextSlotsAvailable, startTime, endTime, isActive ? 1 : 0, existing[0].id]
+      [slotsTotal, nextSlotsAvailable, startTime, endTime, isActive ? 1 : 0, acceptingNewClientsOverride, existing[0].id]
     );
     const [rows] = await pool.execute(`SELECT * FROM provider_school_assignments WHERE id = ?`, [existing[0].id]);
     res.json(rows[0] || null);

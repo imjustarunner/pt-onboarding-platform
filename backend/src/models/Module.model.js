@@ -164,6 +164,63 @@ class Module {
     
     return rows;
   }
+
+  // "Orphan" modules: created by a user, but not assigned to an agency and not shared.
+  // This can happen if the UI didn't collect agencyId at creation time. We surface these
+  // for admins/support so they can fix the agency assignment.
+  static async findUnassignedByCreator(createdByUserId, includeInactive = false) {
+    // Check if icon_id column exists
+    let hasIconColumn = false;
+    try {
+      const [columns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'modules' AND COLUMN_NAME = 'icon_id'"
+      );
+      hasIconColumn = columns.length > 0;
+    } catch (err) {
+      console.error('Error checking for icon_id column:', err);
+    }
+
+    const customFlag = Module.customInputFlagSql();
+    let query;
+    if (hasIconColumn) {
+      query = `SELECT m.*, i.file_path as icon_file_path, i.name as icon_name, ${customFlag}
+        FROM modules m
+        LEFT JOIN icons i ON m.icon_id = i.id
+        WHERE m.created_by_user_id = ?
+          AND m.is_shared = FALSE
+          AND m.agency_id IS NULL
+          AND (m.is_archived = FALSE OR m.is_archived IS NULL)
+      `;
+    } else {
+      query = `SELECT m.*, ${customFlag}
+        FROM modules m
+        WHERE m.created_by_user_id = ?
+          AND m.is_shared = FALSE
+          AND m.agency_id IS NULL
+          AND (m.is_archived = FALSE OR m.is_archived IS NULL)
+      `;
+    }
+
+    const params = [createdByUserId];
+
+    if (!includeInactive) {
+      query += ' AND m.is_active = TRUE';
+    }
+    query += ' ORDER BY m.order_index ASC, m.created_at ASC';
+
+    const [rows] = await pool.execute(query, params);
+
+    // If icon_id column doesn't exist, set icon fields to null for all rows
+    if (!hasIconColumn) {
+      rows.forEach(row => {
+        row.icon_id = null;
+        row.icon_file_path = null;
+        row.icon_name = null;
+      });
+    }
+
+    return rows;
+  }
   
   static async findByTrack(trackId, includeInactive = false) {
     // Check if icon_id column exists

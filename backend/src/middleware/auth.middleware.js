@@ -57,6 +57,17 @@ export const requireAdmin = async (req, res, next) => {
   next();
 };
 
+/**
+ * Backoffice admin access only (no supervisors/CPAs).
+ * Use this for actions that should be limited to true admins/support/super admins.
+ */
+export const requireBackofficeAdmin = (req, res, next) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+    return res.status(403).json({ error: { message: 'Admin access required' } });
+  }
+  next();
+};
+
 export const requireSuperAdmin = (req, res, next) => {
   if (req.user.role !== 'super_admin') {
     return res.status(403).json({ error: { message: 'Super admin access required' } });

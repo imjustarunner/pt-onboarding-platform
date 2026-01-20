@@ -33,6 +33,10 @@ export const getAllModules = async (req, res, next) => {
       
       // Get shared modules (platform-level)
       const sharedModules = await Module.findShared();
+
+      // Also include any orphan modules created by this admin/support user
+      // (agency_id IS NULL but not shared) so they can be assigned to an agency.
+      const orphanModules = await Module.findUnassignedByCreator(req.user.id, includeInactive);
       
       // Get modules for user's agencies
       const agencyModules = [];
@@ -42,7 +46,7 @@ export const getAllModules = async (req, res, next) => {
       }
       
       // Combine and deduplicate
-      const allModules = [...sharedModules, ...agencyModules];
+      const allModules = [...sharedModules, ...agencyModules, ...orphanModules];
       const uniqueModules = Array.from(new Map(allModules.map(m => [m.id, m])).values());
       
       return res.json(uniqueModules);
@@ -107,13 +111,31 @@ export const createModule = async (req, res, next) => {
       iconId
     } = req.body;
     
-    // Agency Admin/Support can only create modules for their agencies
-    if ((req.user.role === 'admin' || req.user.role === 'support') && agencyId) {
+    let finalAgencyId = agencyId ?? null;
+
+    // Agency Admin/Support: agency is required (auto-default if exactly one agency)
+    if (req.user.role === 'admin' || req.user.role === 'support') {
       const userAgencies = await User.getAgencies(req.user.id);
-      const hasAccess = userAgencies.some(a => a.id === parseInt(agencyId));
+      const agencyIds = userAgencies.map(a => a.id);
+
+      if (finalAgencyId === null || finalAgencyId === undefined || finalAgencyId === '') {
+        if (agencyIds.length === 1) {
+          finalAgencyId = agencyIds[0];
+        } else {
+          return res.status(400).json({ error: { message: 'Agency is required to create a module' } });
+        }
+      }
+
+      const parsedAgencyId = parseInt(finalAgencyId);
+      const hasAccess = agencyIds.includes(parsedAgencyId);
       if (!hasAccess) {
         return res.status(403).json({ error: { message: 'You can only create modules for your agencies' } });
       }
+      finalAgencyId = parsedAgencyId;
+    } else if (finalAgencyId !== null && finalAgencyId !== undefined && finalAgencyId !== '') {
+      finalAgencyId = parseInt(finalAgencyId);
+    } else {
+      finalAgencyId = null;
     }
     
     const module = await Module.create({ 
@@ -121,7 +143,7 @@ export const createModule = async (req, res, next) => {
       description, 
       orderIndex, 
       isActive,
-      agencyId: agencyId || null,
+      agencyId: finalAgencyId,
       trackId: trackId || null,
       isShared: false,
       createdByUserId: req.user.id,
@@ -267,6 +289,19 @@ export const updateModule = async (req, res, next) => {
       estimatedTimeMinutes,
       iconId
     } = req.body;
+
+    // If changing agency assignment, enforce permissions (and don't allow null for admin/support).
+    if ((req.user.role === 'admin' || req.user.role === 'support') && agencyId !== undefined) {
+      if (agencyId === null || agencyId === '') {
+        return res.status(400).json({ error: { message: 'Agency is required for modules created/managed by agencies' } });
+      }
+      const parsedAgencyId = parseInt(agencyId);
+      const userAgencies = await User.getAgencies(req.user.id);
+      const hasAccess = userAgencies.some(a => a.id === parsedAgencyId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: { message: 'You can only assign modules to your agencies' } });
+      }
+    }
     
     const module = await Module.update(id, { 
       title, 

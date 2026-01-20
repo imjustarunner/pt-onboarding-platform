@@ -21,8 +21,8 @@
         </router-link>
         
         <router-link to="/admin/users" class="stat-card">
-          <h3>Total Users</h3>
-          <p class="stat-value">{{ stats.totalUsers }}</p>
+          <h3>Active Users</h3>
+          <p class="stat-value">{{ stats.activeUsers }}</p>
         </router-link>
         
         <router-link to="/admin/modules?filter=templates" class="stat-card">
@@ -46,70 +46,36 @@
         :icon-resolver="resolveQuickActionIcon"
       />
       
-      <div class="agencies-overview">
-        <h2>Agencies Overview</h2>
-        <div v-if="agencies.length === 0" class="empty-state">
-          <p>No agencies created yet</p>
-        </div>
-        <div v-else class="agencies-list">
-          <div
-            v-for="agency in agencies"
-            :key="agency.id"
-            class="agency-card"
-            @click="viewAgencyProgress(agency.id)"
-          >
-            <div class="agency-row">
-              <span class="agency-name" :title="agency.name">{{ agency.name }}</span>
-              <span class="agency-badges">
-                <span v-if="agency.is_active" class="badge badge-success">Active</span>
-                <span v-else class="badge badge-secondary">Inactive</span>
-                <span v-if="agency.user_count !== undefined" class="badge badge-secondary">{{ agency.user_count }} users</span>
-              </span>
-            </div>
-            <div class="agency-actions" @click.stop>
-              <router-link 
-                :to="`/admin/agencies/${agency.id}/progress`" 
-                class="btn btn-primary btn-sm"
-                @click.stop
-              >
-                View Progress
-              </router-link>
-              <router-link 
-                :to="`/admin/settings?tab=agencies`" 
-                class="btn btn-secondary btn-sm"
-                @click.stop
-              >
-                Manage
-              </router-link>
-            </div>
-          </div>
-        </div>
-      </div>
+      <AgencySpecsPanel
+        title="Agency Specs"
+        v-model:organizationId="selectedOrgId"
+        :organizations="agencies"
+      />
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
-import { useRouter } from 'vue-router';
 import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
+import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
 
-const router = useRouter();
 const brandingStore = useBrandingStore();
 
 const loading = ref(true);
 const error = ref('');
 const stats = ref({
   totalAgencies: 0,
-  totalUsers: 0,
+  activeUsers: 0,
   trainingFocusTemplates: 0,
   totalModules: 0
 });
 const agencies = ref([]);
+const selectedOrgId = ref(null);
 
 // Use branding from store instead of local ref
 const branding = computed(() => brandingStore.platformBranding);
@@ -129,10 +95,13 @@ const fetchStats = async () => {
       api.get('/modules'),
       api.get('/training-focuses/templates')
     ]);
+
+    const rawOrgs = Array.isArray(agenciesRes.data) ? agenciesRes.data : [];
+    const primaryAgencies = rawOrgs.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
     
     stats.value = {
-      totalAgencies: agenciesRes.data.length,
-      totalUsers: usersRes.data.length,
+      totalAgencies: rawOrgs.length,
+      activeUsers: (usersRes.data || []).filter((u) => String(u?.status || '').toUpperCase() === 'ACTIVE_EMPLOYEE').length,
       trainingFocusTemplates: templatesRes.data.length,
       totalModules: modulesRes.data.length
     };
@@ -152,24 +121,14 @@ const fetchStats = async () => {
       view_all_progress_icon_path: branding.value?.view_all_progress_icon_path
     });
     
-    // Fetch user count for each agency
-    agencies.value = await Promise.all(
-      agenciesRes.data.map(async (agency) => {
-        try {
-          const usersRes = await api.get(`/agencies/${agency.id}/users`);
-          return {
-            ...agency,
-            user_count: usersRes.data.length
-          };
-        } catch (err) {
-          console.error(`Failed to fetch users for agency ${agency.id}:`, err);
-          return {
-            ...agency,
-            user_count: 0
-          };
-        }
-      })
-    );
+    // Agency Specs should focus on agencies; other org types are secondary.
+    agencies.value = primaryAgencies;
+
+    // Default to the first org (prefer active)
+    if (!selectedOrgId.value && Array.isArray(agencies.value) && agencies.value.length > 0) {
+      const active = agencies.value.find((a) => a?.is_active) || agencies.value[0];
+      selectedOrgId.value = active?.id || null;
+    }
     
     // Show all agencies, not just first 6
     // agencies.value = agenciesRes.data.slice(0, 6); // Removed limit
@@ -232,6 +191,16 @@ const quickActions = computed(() => ([
     description: 'Create and manage clients',
     to: '/admin/clients',
     emoji: '🧾',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'import_school_directory',
+    title: 'Import School Directory',
+    description: 'Bulk import school contacts + ITSCO email + schedules',
+    to: '/admin/schools/import',
+    emoji: '🏫',
     category: 'Management',
     roles: ['admin', 'support', 'super_admin', 'staff'],
     capabilities: ['canAccessPlatform']
@@ -356,11 +325,6 @@ const defaultQuickActionIds = computed(() => ([
 const resolveQuickActionIcon = (action) => {
   if (!action?.iconKey) return null;
   return getActionIcon(action.iconKey);
-};
-
-const viewAgencyProgress = (agencyId) => {
-  // Navigate to agency progress dashboard
-  router.push(`/admin/agencies/${agencyId}/progress`);
 };
 
 // Watch for branding changes and refetch if needed

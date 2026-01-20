@@ -11,6 +11,19 @@ class PayrollRateTemplate {
     return rows || [];
   }
 
+  static async findByAgencyAndName({ agencyId, name }) {
+    const aId = agencyId ? parseInt(agencyId, 10) : null;
+    const nm = String(name || '').trim();
+    if (!aId || !nm) return null;
+    const [rows] = await pool.execute(
+      `SELECT * FROM payroll_rate_templates
+       WHERE agency_id = ? AND name = ?
+       LIMIT 1`,
+      [aId, nm]
+    );
+    return rows?.[0] || null;
+  }
+
   static async findById(id) {
     const [rows] = await pool.execute(
       `SELECT * FROM payroll_rate_templates WHERE id = ? LIMIT 1`,
@@ -97,6 +110,17 @@ class PayrollRateTemplate {
       [name, updatedByUserId, templateId, agencyId]
     );
     return this.findById(templateId);
+  }
+
+  static async deleteForAgency({ templateId, agencyId }) {
+    const id = templateId ? parseInt(templateId, 10) : null;
+    const aId = agencyId ? parseInt(agencyId, 10) : null;
+    if (!id || !aId) return 0;
+    const [result] = await pool.execute(
+      `DELETE FROM payroll_rate_templates WHERE id = ? AND agency_id = ?`,
+      [id, aId]
+    );
+    return result.affectedRows || 0;
   }
 }
 

@@ -70,11 +70,15 @@ import providerSearchRoutes from './routes/providerSearch.routes.js';
 import providerImportRoutes from './routes/providerImport.routes.js';
 import schoolSettingsRoutes from './routes/schoolSettings.routes.js';
 import bulkClientUploadRoutes from './routes/bulkClientUpload.routes.js';
+import bulkSchoolUploadRoutes from './routes/bulkSchoolUpload.routes.js';
 import providerSchedulingRoutes from './routes/providerScheduling.routes.js';
 import phiDocumentsRoutes from './routes/phiDocuments.routes.js';
 import agencySchoolsRoutes from './routes/agencySchools.routes.js';
 import clientRoutes from './routes/client.routes.js';
 import guardianPortalRoutes from './routes/guardianPortal.routes.js';
+import providerSelfRoutes from './routes/providerSelf.routes.js';
+import supportTicketsRoutes from './routes/supportTickets.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -418,7 +422,11 @@ app.use('/api/provider-search', providerSearchRoutes);
 app.use('/api/provider-import', providerImportRoutes);
 app.use('/api/school-settings', schoolSettingsRoutes);
 app.use('/api/bulk-client-upload', bulkClientUploadRoutes);
+app.use('/api/bulk-school-upload', bulkSchoolUploadRoutes);
 app.use('/api/provider-scheduling', providerSchedulingRoutes);
+app.use('/api/provider-self', providerSelfRoutes);
+app.use('/api/support-tickets', supportTicketsRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/phi-documents', phiDocumentsRoutes);
 
 // Error handling middleware

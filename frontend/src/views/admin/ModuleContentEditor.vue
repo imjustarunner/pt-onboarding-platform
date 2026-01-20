@@ -32,7 +32,25 @@
           >
             <span class="page-number">{{ index + 1 }}</span>
             <span class="page-type">{{ getPageTypeLabel(item.type) }}</span>
-            <button @click.stop="deletePage(index)" class="btn-icon">×</button>
+            <div class="content-item-actions">
+              <button
+                class="btn-icon btn-icon-neutral"
+                :disabled="index === 0"
+                title="Move up"
+                @click.stop="movePage(index, -1)"
+              >
+                ↑
+              </button>
+              <button
+                class="btn-icon btn-icon-neutral"
+                :disabled="index === contentPages.length - 1"
+                title="Move down"
+                @click.stop="movePage(index, 1)"
+              >
+                ↓
+              </button>
+              <button @click.stop="deletePage(index)" class="btn-icon" title="Delete page">×</button>
+            </div>
           </div>
           <button @click="showAddPageMenu = true" class="btn-add-page">
             + Add Page
@@ -52,7 +70,22 @@
 
         <div v-else class="page-editor">
           <div class="page-header">
-            <h2>Page {{ currentPageIndex + 1 }}: {{ getPageTypeLabel(currentPage.type) }}</h2>
+            <div class="page-header-left">
+              <h2>Page {{ currentPageIndex + 1 }}: {{ getPageTypeLabel(currentPage.type) }}</h2>
+              <div class="page-type-switcher">
+                <label style="font-size: 12px; font-weight: 600; color: #6c757d;">Page type</label>
+                <select :value="currentPage.type" @change="handlePageTypeChange($event)" class="page-type-select">
+                  <option value="intro">Intro Screen</option>
+                  <option value="document">Document</option>
+                  <option value="video">Video</option>
+                  <option value="slides">Slides</option>
+                  <option value="quiz">Quiz</option>
+                  <option value="form">Form (User Info)</option>
+                  <option value="response">Response</option>
+                  <option value="google-form">Google Form</option>
+                </select>
+              </div>
+            </div>
             <div class="page-nav">
               <button 
                 @click="currentPageIndex--" 
@@ -751,7 +784,20 @@ const fetchContent = async () => {
 };
 
 const addPage = (type) => {
-  const defaultData = {
+  const defaultData = getDefaultPageData(type);
+  
+  contentPages.value.push({
+    id: null,
+    type: type,
+    data: { ...defaultData }
+  });
+  
+  currentPageIndex.value = contentPages.value.length - 1;
+  showAddPageMenu.value = false;
+};
+
+const getDefaultPageData = (type) => {
+  const defaults = {
     intro: { title: '', description: '' },
     document: { title: '', source: 'google', googleUrl: '', textContent: '' },
     video: { title: '', videoUrl: '' },
@@ -761,15 +807,51 @@ const addPage = (type) => {
     form: { categoryKey: '', fieldDefinitionIds: [], requireAll: true },
     'google-form': { title: '', formUrl: '' }
   };
-  
-  contentPages.value.push({
-    id: null,
-    type: type,
-    data: { ...defaultData[type] }
-  });
-  
-  currentPageIndex.value = contentPages.value.length - 1;
-  showAddPageMenu.value = false;
+  return { ...(defaults[type] || defaults.intro) };
+};
+
+const handlePageTypeChange = (event) => {
+  const nextType = event?.target?.value;
+  if (!nextType || !currentPage.value) return;
+  const prevType = currentPage.value.type;
+  if (nextType === prevType) return;
+
+  const ok = confirm(
+    `Change this page from "${getPageTypeLabel(prevType)}" to "${getPageTypeLabel(nextType)}"?\n\n` +
+    `This will reset any fields that don't apply to the new page type.`
+  );
+  if (!ok) return;
+
+  const prevData = currentPage.value.data || {};
+  const nextData = getDefaultPageData(nextType);
+
+  // Preserve common fields when possible
+  if (typeof prevData.title === 'string' && 'title' in nextData) {
+    nextData.title = prevData.title;
+  }
+  if (typeof prevData.description === 'string' && 'description' in nextData) {
+    nextData.description = prevData.description;
+  }
+
+  currentPage.value.type = nextType;
+  currentPage.value.data = nextData;
+};
+
+const movePage = (fromIndex, delta) => {
+  const toIndex = fromIndex + delta;
+  if (toIndex < 0 || toIndex >= contentPages.value.length) return;
+
+  const pages = contentPages.value;
+  const tmp = pages[fromIndex];
+  pages[fromIndex] = pages[toIndex];
+  pages[toIndex] = tmp;
+
+  // Keep selection stable relative to the moved items
+  if (currentPageIndex.value === fromIndex) {
+    currentPageIndex.value = toIndex;
+  } else if (currentPageIndex.value === toIndex) {
+    currentPageIndex.value = fromIndex;
+  }
 };
 
 const deletePage = async (index) => {
@@ -1198,6 +1280,42 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.btn-icon:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-icon-neutral {
+  color: #6c757d;
+  font-size: 16px;
+}
+
+.content-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.page-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.page-type-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-type-select {
+  padding: 6px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
 }
 
 .btn-add-page {

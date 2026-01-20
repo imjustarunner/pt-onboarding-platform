@@ -17,20 +17,29 @@
         <thead>
           <tr>
             <th>Status</th>
+            <th>Doc Status</th>
             <th>Assigned Provider</th>
-            <th>Admin Notes</th>
+            <th>Assigned Day</th>
+            <th></th>
             <th>Submission Date</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="client in clients" :key="client.id" class="client-row" @click="openClient(client)">
+          <tr v-for="client in clients" :key="client.id" class="client-row">
             <td>
               <span :class="['status-badge', `status-${client.status.toLowerCase().replace('_', '-')}`]">
                 {{ formatStatus(client.status) }}
               </span>
             </td>
+            <td>{{ formatDocStatus(client.document_status) }}</td>
             <td>{{ client.provider_name || 'Not assigned' }}</td>
-            <td>{{ getAdminNotes(client.id) }}</td>
+            <td>{{ client.service_day || '—' }}</td>
+            <td>
+              <button class="btn btn-secondary btn-sm comment-btn" @click="openClient(client)">
+                <span v-if="(client.unread_notes_count || 0) > 0" class="unread-dot" aria-hidden="true" />
+                View & Comment
+              </button>
+            </td>
             <td>{{ formatDate(client.submission_date) }}</td>
           </tr>
         </tbody>
@@ -40,6 +49,7 @@
     <SchoolClientChatModal
       v-if="selectedClient"
       :client="selectedClient"
+      :schoolOrganizationId="organizationId"
       @close="selectedClient = null"
     />
   </div>
@@ -65,7 +75,6 @@ const props = defineProps({
 const clients = ref([]);
 const loading = ref(false);
 const error = ref('');
-const clientNotes = ref({}); // Map of clientId -> shared notes
 const selectedClient = ref(null);
 
 const fetchClients = async () => {
@@ -81,22 +90,6 @@ const fetchClients = async () => {
   try {
     const response = await api.get(`/school-portal/${props.organizationId}/clients`);
     clients.value = response.data || [];
-    
-    // Fetch shared notes for each client (for admin notes column)
-    for (const client of clients.value) {
-      try {
-        const notesResponse = await api.get(`/clients/${client.id}/notes`);
-        const notes = notesResponse.data || [];
-        // Only show shared notes (non-internal)
-        const sharedNotes = notes.filter(n => !n.is_internal_only);
-        // Get the most recent shared note as "admin notes"
-        if (sharedNotes.length > 0) {
-          clientNotes.value[client.id] = sharedNotes[0].message;
-        }
-      } catch (err) {
-        console.error(`Failed to fetch notes for client ${client.id}:`, err);
-      }
-    }
   } catch (err) {
     console.error('Failed to fetch clients:', err);
     if (err.response?.status === 404) {
@@ -118,8 +111,11 @@ const formatDate = (dateString) => {
   return date.toLocaleDateString();
 };
 
-const getAdminNotes = (clientId) => {
-  return clientNotes.value[clientId] || '-';
+const formatDocStatus = (s) => {
+  const v = String(s || '').trim();
+  if (!v) return '—';
+  if (v.toUpperCase() === 'NONE') return 'None';
+  return v.replace(/_/g, ' ');
 };
 
 const openClient = (client) => {
@@ -190,5 +186,23 @@ td {
 
 .client-row:hover {
   background: var(--bg-alt);
+}
+
+.client-row {
+  cursor: default;
+}
+
+.comment-btn {
+  position: relative;
+}
+
+.unread-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--danger, #d92d20);
+  margin-right: 8px;
+  vertical-align: middle;
 }
 </style>

@@ -10,7 +10,7 @@ import {
   deleteFieldDefinition,
   pushToAgency
 } from '../controllers/userInfoFieldDefinition.controller.js';
-import { authenticate, requireAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -35,9 +35,9 @@ router.get('/platform-templates', authenticate, getPlatformTemplates);
 router.get('/agencies/:agencyId/fields', authenticate, getAgencyFields);
 router.get('/', authenticate, getAllFieldDefinitions);
 router.get('/:id', authenticate, getFieldDefinitionById);
-router.post('/', authenticate, requireAdmin, validateFieldDefinition, createFieldDefinition);
-router.put('/:id', authenticate, requireAdmin, validateFieldDefinition, updateFieldDefinition);
-router.delete('/:id', authenticate, requireAdmin, deleteFieldDefinition);
+router.post('/', authenticate, requireBackofficeAdmin, validateFieldDefinition, createFieldDefinition);
+router.put('/:id', authenticate, requireBackofficeAdmin, validateFieldDefinition, updateFieldDefinition);
+router.delete('/:id', authenticate, requireBackofficeAdmin, deleteFieldDefinition);
 router.post('/:id/push-to-agency', authenticate, requireSuperAdmin, pushToAgency);
 
 export default router;

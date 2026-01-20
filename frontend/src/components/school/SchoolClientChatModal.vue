@@ -13,6 +13,31 @@
       <div v-if="loading" class="loading">Loading…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="body">
+        <div v-if="checklist" class="checklist">
+          <div class="checklist-title">Compliance checklist (read-only)</div>
+          <div class="checklist-grid">
+            <div class="check-item">
+              <div class="k">Parents Contacted</div>
+              <div class="v">{{ formatDateOnly(checklist.parents_contacted_at) }}</div>
+            </div>
+            <div class="check-item">
+              <div class="k">Successful?</div>
+              <div class="v">
+                {{ checklist.parents_contacted_successful === null ? '—' : (checklist.parents_contacted_successful ? 'Yes' : 'No') }}
+              </div>
+            </div>
+            <div class="check-item">
+              <div class="k">Intake Date</div>
+              <div class="v">{{ formatDateOnly(checklist.intake_at) }}</div>
+            </div>
+            <div class="check-item">
+              <div class="k">First Service</div>
+              <div class="v">{{ formatDateOnly(checklist.first_service_at) }}</div>
+            </div>
+          </div>
+          <div v-if="checklistAudit" class="checklist-audit">{{ checklistAudit }}</div>
+        </div>
+
         <div class="messages">
           <div v-if="notes.length === 0" class="empty">No messages yet.</div>
           <div v-for="n in notes" :key="n.id" class="msg">
@@ -20,6 +45,7 @@
               <span class="author">{{ n.author_name || 'Unknown' }}</span>
               <span class="date">{{ formatDateTime(n.created_at) }}</span>
               <span v-if="n.category" class="category">{{ formatCategory(n.category) }}</span>
+              <span v-if="n.urgency" class="category">{{ formatUrgency(n.urgency) }}</span>
             </div>
             <div class="text">{{ n.message }}</div>
           </div>
@@ -30,11 +56,17 @@
             <label>
               Category
               <select v-model="category">
-                <option value="general">General</option>
-                <option value="status">Status update</option>
-                <option value="administrative">Administrative</option>
-                <option value="billing">Billing</option>
-                <option value="clinical">Clinical question</option>
+                <option v-for="c in categoryOptions" :key="c.key" :value="c.key">
+                  {{ c.label }}
+                </option>
+              </select>
+            </label>
+            <label style="margin-left: 12px;">
+              Urgency
+              <select v-model="urgency">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
               </select>
             </label>
           </div>
@@ -53,7 +85,8 @@ import { onMounted, ref } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  client: { type: Object, required: true }
+  client: { type: Object, required: true },
+  schoolOrganizationId: { type: Number, default: null }
 });
 defineEmits(['close']);
 
@@ -61,17 +94,63 @@ const loading = ref(false);
 const sending = ref(false);
 const error = ref('');
 const notes = ref([]);
+const checklist = ref(null);
+const checklistAudit = ref('');
 
 const message = ref('');
 const category = ref('general');
+const urgency = ref('low');
+const categoryOptions = ref([
+  { key: 'general', label: 'General' },
+  { key: 'behavior', label: 'Behavior' },
+  { key: 'logistics', label: 'Logistics' },
+  { key: 'medical', label: 'Medical' }
+]);
 
 const load = async () => {
   try {
     loading.value = true;
     error.value = '';
+    // Load category options from school settings (best-effort)
+    if (props.schoolOrganizationId) {
+      try {
+        const cr = await api.get(`/school-settings/${props.schoolOrganizationId}/comment-categories`);
+        if (Array.isArray(cr.data?.categories) && cr.data.categories.length) {
+          categoryOptions.value = cr.data.categories;
+          // If current category is not in options, reset.
+          const keys = new Set(cr.data.categories.map((c) => c.key));
+          if (!keys.has(category.value)) category.value = 'general';
+        }
+      } catch {
+        // ignore
+      }
+    }
     const resp = await api.get(`/clients/${props.client.id}/notes`);
     // School users only ever see shared notes (backend filters).
     notes.value = (resp.data || []).filter((n) => !n.is_internal_only);
+
+    // Compliance checklist (read-only for school staff)
+    try {
+      const c = (await api.get(`/clients/${props.client.id}`)).data || {};
+      checklist.value = {
+        parents_contacted_at: c.parents_contacted_at || null,
+        parents_contacted_successful: c.parents_contacted_successful === null || c.parents_contacted_successful === undefined ? null : !!c.parents_contacted_successful,
+        intake_at: c.intake_at || null,
+        first_service_at: c.first_service_at || null
+      };
+      const who = c.checklist_updated_by_name || null;
+      const when = c.checklist_updated_at ? new Date(c.checklist_updated_at).toLocaleString() : null;
+      checklistAudit.value = who && when ? `Last updated by ${who} on ${when}` : (when ? `Last updated on ${when}` : '');
+    } catch {
+      checklist.value = null;
+      checklistAudit.value = '';
+    }
+    // Mark as read (best-effort).
+    try {
+      await api.post(`/clients/${props.client.id}/notes/read`);
+    } catch {
+      // ignore
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load messages';
   } finally {
@@ -86,10 +165,12 @@ const send = async () => {
     await api.post(`/clients/${props.client.id}/notes`, {
       message: message.value.trim(),
       is_internal_only: false,
-      category: category.value
+      category: category.value,
+      urgency: urgency.value
     });
     message.value = '';
     category.value = 'general';
+    urgency.value = 'low';
     await load();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to send message';
@@ -106,6 +187,14 @@ const formatCategory = (c) => ({
   billing: 'Billing',
   clinical: 'Clinical'
 }[c] || c);
+
+const formatUrgency = (u) => ({
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High'
+}[String(u || '').toLowerCase()] || u);
+
+const formatDateOnly = (d) => (d ? String(d).slice(0, 10) : '—');
 
 onMounted(load);
 </script>
@@ -137,6 +226,35 @@ onMounted(load);
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.checklist {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--bg);
+  margin-bottom: 12px;
+}
+.checklist-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.checklist-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.check-item .k {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+.check-item .v {
+  margin-top: 2px;
+}
+.checklist-audit {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .close { border: none; background: none; font-size: 28px; cursor: pointer; }
 .phi-warning {

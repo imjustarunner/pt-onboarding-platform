@@ -6,14 +6,14 @@ import {
   removeTrainingFocus,
   removeModule
 } from '../controllers/agencyPublicTraining.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
 
 const router = express.Router();
 
 // All routes require authentication and admin/support role
 router.use(authenticate);
-router.use(requireAdmin); // This now includes support users
+router.use(requireBackofficeAdmin); // admin/super_admin/support only
 
 router.post(
   '/training-focus',

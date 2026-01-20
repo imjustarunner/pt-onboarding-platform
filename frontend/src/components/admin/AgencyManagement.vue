@@ -27,6 +27,16 @@
             </div>
 
             <div class="filters-group">
+              <label class="filters-label">Agency</label>
+              <select v-model="selectedAgencyFilterId" class="filters-select" @change="handleAgencyFilterChange">
+                <option value="">All agencies</option>
+                <option v-for="a in parentAgencies" :key="a.id" :value="String(a.id)">
+                  {{ a.name }}
+                </option>
+              </select>
+            </div>
+
+            <div class="filters-group">
               <label class="filters-label">View</label>
               <select v-model="typeFilter" class="filters-select">
                 <option value="agencies">Agencies</option>
@@ -67,7 +77,12 @@
             v-for="org in organizationsToRender"
             :key="org.id"
             class="org-row"
-            :class="{ active: editingAgency?.id === org.id, child: isChildOrgRow(org), collapsed: navCollapsed }"
+            :class="{
+              active: editingAgency?.id === org.id,
+              child: isChildOrgRow(org),
+              collapsed: navCollapsed,
+              'selected-filter-agency': isSelectedAgencyFilterRow(org)
+            }"
             role="button"
             tabindex="0"
             :style="{ borderLeftColor: getOrgAccentColor(org) }"
@@ -128,6 +143,37 @@
                     {{ org.is_active ? 'Archive' : 'Restore' }}
                   </button>
                 </div>
+              </div>
+            </div>
+
+            <!-- Always-visible affiliates list under the selected (but not opened) agency row -->
+            <div
+              v-if="showAffiliatesUnderSelectedAgency(org)"
+              class="affiliates-panel"
+              @click.stop
+              @keydown.stop
+            >
+              <div class="affiliates-title">Affiliated organizations</div>
+              <div v-if="loadingAffiliates" class="loading affiliates-loading">Loading affiliated organizations…</div>
+              <div v-else-if="affiliatesForSelectedAgency.length === 0" class="empty-hint">
+                No affiliated organizations found for this agency.
+              </div>
+              <div v-else class="affiliates-list">
+                <button
+                  v-for="child in affiliatesForSelectedAgency"
+                  :key="child.id"
+                  type="button"
+                  class="affiliate-item"
+                  :style="{ borderLeftColor: getOrgAccentColor(child) }"
+                  @click.stop="editAgency(child)"
+                >
+                  <span class="affiliate-name">{{ child.name }}</span>
+                  <span class="affiliate-meta">
+                    {{ String(child.organization_type || '').toLowerCase() }}
+                    <span class="affiliate-sep">•</span>
+                    {{ child.slug }}
+                  </span>
+                </button>
               </div>
             </div>
           </div>
@@ -2316,6 +2362,36 @@ const selectedAgencyForList = computed(() => {
   return parentAgencies.value.find((a) => a.id === id) || null;
 });
 
+const selectedAgencyIdForList = computed(() => {
+  const id = selectedAgencyFilterId.value ? parseInt(selectedAgencyFilterId.value, 10) : null;
+  return Number.isFinite(id) && id ? id : null;
+});
+
+const affiliatesForSelectedAgency = computed(() => {
+  const agencyId = selectedAgencyIdForList.value;
+  if (!agencyId) return [];
+  const list = Array.isArray(affiliatedOrganizations.value) ? affiliatedOrganizations.value : [];
+  return list
+    .filter((o) => o && o.id && o.id !== agencyId)
+    .filter((o) => String(o?.organization_type || 'agency').toLowerCase() !== 'agency');
+});
+
+const isSelectedAgencyFilterRow = (org) => {
+  const agencyId = selectedAgencyIdForList.value;
+  if (!agencyId) return false;
+  if (!org?.id) return false;
+  if (String(org?.organization_type || 'agency').toLowerCase() !== 'agency') return false;
+  return org.id === agencyId;
+};
+
+const showAffiliatesUnderSelectedAgency = (org) => {
+  // Only render this "always-open" section in the expanded nav,
+  // and only for the selected agency row when in Agencies view.
+  if (navCollapsed.value) return false;
+  if (String(typeFilter.value || 'agencies').toLowerCase() !== 'agencies') return false;
+  return isSelectedAgencyFilterRow(org);
+};
+
 const applyFilters = (list) => {
   const q = normalizeText(searchQuery.value);
   return (list || []).filter((o) => {
@@ -2363,12 +2439,12 @@ const sortOrganizations = (list) => {
 
 const organizationsToRender = computed(() => {
   const view = String(typeFilter.value || 'agencies').toLowerCase();
-  const selectedAgencyId = selectedAgencyFilterId.value ? parseInt(selectedAgencyFilterId.value, 10) : null;
+  const selectedAgencyId = selectedAgencyIdForList.value;
 
   if (view === 'agencies') {
-    // If an agency is selected, show that agency pinned plus all affiliated orgs below.
-    // Backend returns [agency, ...affiliated] for /affiliated-organizations.
-    const base = selectedAgencyId ? (affiliatedOrganizations.value || []) : parentAgencies.value;
+    // If an agency is selected, show that agency pinned.
+    // Its affiliated orgs render inside the agency card (always visible) below.
+    const base = selectedAgencyId ? [selectedAgencyForList.value].filter(Boolean) : parentAgencies.value;
     return sortOrganizations(applyFilters(base));
   }
 
@@ -2586,16 +2662,11 @@ const loadAffiliatedForSelectedAgency = async () => {
 };
 
 const handleAgencyFilterChange = async () => {
-  // Only load affiliated orgs when the user is in the Organizations view.
   if (!selectedAgencyFilterId.value) {
     affiliatedOrganizations.value = [];
     return;
   }
-  if (String(typeFilter.value || '').toLowerCase() === 'organizations') {
-    await loadAffiliatedForSelectedAgency();
-  } else {
-    affiliatedOrganizations.value = [];
-  }
+  await loadAffiliatedForSelectedAgency();
 };
 
 const fetchAgencies = async () => {
@@ -2834,8 +2905,6 @@ const editAgency = (agency) => {
     // Best effort: load affiliates immediately so list updates without needing a second dropdown.
     loadAffiliatedForSelectedAgency();
   }
-  // Auto-collapse the left pane after selection, but allow expanding back.
-  navCollapsed.value = true;
   const palette = getColorPalette(agency.color_palette);
   const terminology = safeJsonObject(agency.terminology_settings, {});
   
@@ -3925,6 +3994,70 @@ onMounted(async () => {
 
 .org-row.active {
   border-color: var(--accent);
+}
+
+.org-row.selected-filter-agency {
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.affiliates-panel {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.affiliates-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 8px;
+}
+
+.affiliates-loading {
+  font-size: 13px;
+}
+
+.affiliates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.affiliate-item {
+  width: 100%;
+  text-align: left;
+  padding: 10px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  background: white;
+  cursor: pointer;
+}
+
+.affiliate-item:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+}
+
+.affiliate-name {
+  display: block;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.affiliate-meta {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.affiliate-sep {
+  margin: 0 6px;
 }
 
 .org-row.child {

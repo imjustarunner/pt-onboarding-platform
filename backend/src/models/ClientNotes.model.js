@@ -20,14 +20,30 @@ class ClientNotes {
   ]);
 
   static normalizeCategory(category) {
-    const c = String(category || '').trim().toLowerCase();
-    if (!c) return 'general';
+    const raw = String(category || '').trim().toLowerCase();
+    if (!raw) return 'general';
     // Accept a couple common synonyms
-    if (c === 'admin') return 'administrative';
-    if (c === 'clinical_question') return 'clinical';
-    if (c === 'billing_question') return 'billing';
-    if (c === 'general_question') return 'general';
-    return this.ALLOWED_CATEGORIES.has(c) ? c : 'general';
+    if (raw === 'admin') return 'administrative';
+    if (raw === 'clinical_question') return 'clinical';
+    if (raw === 'billing_question') return 'billing';
+    if (raw === 'general_question') return 'general';
+    if (this.ALLOWED_CATEGORIES.has(raw)) return raw;
+
+    // Allow custom categories coming from school settings:
+    // normalize to snake-ish keys, keep short and safe.
+    const normalized = raw
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 32);
+    return normalized || 'general';
+  }
+
+  static normalizeUrgency(urgency) {
+    const u = String(urgency || '').trim().toLowerCase();
+    if (u === 'high') return 'high';
+    if (u === 'medium') return 'medium';
+    return 'low';
   }
 
   static hydrateDecryptedMessage(row) {
@@ -60,6 +76,7 @@ class ClientNotes {
   static async create(noteData, access = { hasAgencyAccess: false }) {
     const { client_id, author_id, message, is_internal_only = false } = noteData;
     const category = this.normalizeCategory(noteData.category);
+    const urgency = this.normalizeUrgency(noteData.urgency);
     const scrubbedMessage = scrubClientNamesToCode(message);
 
     // Validation: only agency members can create internal notes
@@ -73,9 +90,9 @@ class ClientNotes {
         throw new Error('Chat encryption key not configured');
       }
       const [result] = await pool.execute(
-        `INSERT INTO client_notes (client_id, author_id, category, message, is_internal_only)
-         VALUES (?, ?, ?, ?, ?)`,
-        [client_id, author_id, category, String(scrubbedMessage || ''), is_internal_only]
+        `INSERT INTO client_notes (client_id, author_id, category, urgency, message, is_internal_only)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [client_id, author_id, category, urgency, String(scrubbedMessage || ''), is_internal_only]
       );
       return this.findById(result.insertId);
     }
@@ -84,12 +101,13 @@ class ClientNotes {
     try {
       const [result] = await pool.execute(
         `INSERT INTO client_notes
-         (client_id, author_id, category, message, message_ciphertext, message_iv, message_auth_tag, encryption_key_id, is_internal_only)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (client_id, author_id, category, urgency, message, message_ciphertext, message_iv, message_auth_tag, encryption_key_id, is_internal_only)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           client_id,
           author_id,
           category,
+          urgency,
           null,
           enc.ciphertextB64,
           enc.ivB64,
@@ -108,9 +126,9 @@ class ClientNotes {
         throw new Error('client_notes encryption columns missing; run migrations (120_add_encrypted_categories_to_client_notes.sql)');
       }
       const [result] = await pool.execute(
-        `INSERT INTO client_notes (client_id, author_id, category, message, is_internal_only)
-         VALUES (?, ?, ?, ?, ?)`,
-        [client_id, author_id, category, String(message || ''), is_internal_only]
+        `INSERT INTO client_notes (client_id, author_id, category, urgency, message, is_internal_only)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [client_id, author_id, category, urgency, String(message || ''), is_internal_only]
       );
       return this.findById(result.insertId);
     }

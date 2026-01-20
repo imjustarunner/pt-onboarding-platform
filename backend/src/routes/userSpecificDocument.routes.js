@@ -7,13 +7,13 @@ import {
   deleteUserSpecificDocument,
   upload
 } from '../controllers/userSpecificDocument.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 // All routes require authentication and admin access
 router.use(authenticate);
-router.use(requireAdmin);
+router.use(requireBackofficeAdmin);
 
 router.post('/upload', upload.single('file'), createUserSpecificDocument);
 router.post('/', createUserSpecificDocument); // For HTML content

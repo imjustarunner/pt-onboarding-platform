@@ -2,6 +2,7 @@ import TrainingTrack from '../models/TrainingTrack.model.js';
 import TrackCopyService from '../services/trackCopy.service.js';
 import User from '../models/User.model.js';
 import UserTrack from '../models/UserTrack.model.js';
+import Task from '../models/Task.model.js';
 import ProgressCalculationService from '../services/progressCalculation.service.js';
 import { validationResult } from 'express-validator';
 
@@ -85,17 +86,27 @@ export const getAllTracks = async (req, res, next) => {
           }
           
           // Build query to get training focuses from user's agencies OR platform templates (agency_id IS NULL)
+          // Also return module_count without requiring per-focus expansion in the UI.
+          const moduleCountSql = `
+            (
+              SELECT COUNT(DISTINCT m.id)
+              FROM modules m
+              LEFT JOIN track_modules tm ON tm.module_id = m.id
+              WHERE (m.track_id = tt.id OR tm.track_id = tt.id)
+                AND (m.is_archived = FALSE OR m.is_archived IS NULL)
+            ) AS module_count
+          `;
           let query;
           if (hasIconColumn) {
             query = `
-              SELECT DISTINCT tt.*, i.file_path as icon_file_path, i.name as icon_name
+              SELECT DISTINCT tt.*, i.file_path as icon_file_path, i.name as icon_name, ${moduleCountSql}
               FROM training_tracks tt
               LEFT JOIN icons i ON tt.icon_id = i.id
               WHERE (tt.agency_id IN (${agencyIds.map(() => '?').join(',')}) OR tt.agency_id IS NULL)
             `;
           } else {
             query = `
-              SELECT DISTINCT tt.*
+              SELECT DISTINCT tt.*, ${moduleCountSql}
               FROM training_tracks tt
               WHERE (tt.agency_id IN (${agencyIds.map(() => '?').join(',')}) OR tt.agency_id IS NULL)
             `;
@@ -539,6 +550,7 @@ export const assignTrainingFocus = async (req, res, next) => {
 
     const { id } = req.params;
     const { userIds, agencyId, dueDate } = req.body;
+    const hasDueDateField = Object.prototype.hasOwnProperty.call(req.body, 'dueDate');
     const assignedByUserId = req.user.id;
 
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
@@ -567,6 +579,7 @@ export const assignTrainingFocus = async (req, res, next) => {
     // Assign training focus to each user
     const assignments = [];
     let totalTasksCreated = 0;
+    let totalTasksUpdated = 0;
     
     for (const userId of userIds) {
       // Assign the training focus (creates user_tracks entry)
@@ -574,26 +587,47 @@ export const assignTrainingFocus = async (req, res, next) => {
       
       // Create tasks for all modules in the training focus
       const moduleTasks = [];
+
+      // Idempotency: if tasks already exist for this training focus assignment, don't create duplicates.
+      // If dueDate is explicitly provided in the request, update existing tasks' due dates instead.
+      const existingTasks = await Task.findTrainingTrackTasksForUser({
+        userId: parseInt(userId),
+        agencyId: parseInt(agencyId),
+        trackId: parseInt(id)
+      });
+      const existingByModuleId = new Map(
+        (existingTasks || []).map((t) => [Number(t.reference_id), t])
+      );
+      const existingTaskIdsToUpdate = [];
+      let userTasksUpdated = 0;
+
       for (const module of modules) {
         try {
           const moduleData = await Module.findById(module.id);
           if (moduleData) {
-            const task = await TaskAssignmentService.assignTrainingTask({
-              title: `Complete ${moduleData.title}`,
-              description: moduleData.description || 'Please complete this training module.',
-              referenceId: module.id,
-              assignedByUserId,
-              assignedToUserId: parseInt(userId),
-              assignedToAgencyId: parseInt(agencyId),
-              dueDate: dueDate || null,
-              metadata: {
-                trackId: parseInt(id),
-                trackName: trainingFocus.name,
-                moduleOrder: module.track_order || module.order_index
+            const existing = existingByModuleId.get(Number(module.id));
+            if (existing) {
+              if (hasDueDateField) {
+                existingTaskIdsToUpdate.push(existing.id);
               }
-            });
-            moduleTasks.push(task);
-            totalTasksCreated++;
+            } else {
+              const task = await TaskAssignmentService.assignTrainingTask({
+                title: `Complete ${moduleData.title}`,
+                description: moduleData.description || 'Please complete this training module.',
+                referenceId: module.id,
+                assignedByUserId,
+                assignedToUserId: parseInt(userId),
+                assignedToAgencyId: parseInt(agencyId),
+                dueDate: hasDueDateField ? (dueDate || null) : null,
+                metadata: {
+                  trackId: parseInt(id),
+                  trackName: trainingFocus.name,
+                  moduleOrder: module.track_order || module.order_index
+                }
+              });
+              moduleTasks.push(task);
+              totalTasksCreated++;
+            }
             
             // Assign checklist items nested under this module
             const moduleChecklistItems = await CustomChecklistItem.findByModule(module.id);
@@ -609,6 +643,12 @@ export const assignTrainingFocus = async (req, res, next) => {
           console.error(`Failed to create task for module ${module.id}:`, moduleError);
           // Continue with other modules even if one fails
         }
+      }
+
+      if (hasDueDateField && existingTaskIdsToUpdate.length > 0) {
+        const { updated } = await Task.updateDueDateByIds(existingTaskIdsToUpdate, dueDate || null, { onlyActive: true });
+        userTasksUpdated = updated;
+        totalTasksUpdated += updated;
       }
       
       // Assign checklist items nested under this training focus (not under specific modules)
@@ -626,7 +666,8 @@ export const assignTrainingFocus = async (req, res, next) => {
         trainingFocusId: parseInt(id),
         agencyId: parseInt(agencyId),
         modulesCount: modules.length,
-        tasksCreated: moduleTasks.length
+        tasksCreated: moduleTasks.length,
+        tasksUpdated: userTasksUpdated
       });
     }
 
@@ -634,7 +675,8 @@ export const assignTrainingFocus = async (req, res, next) => {
       message: 'Training Focus assigned successfully',
       assignments,
       modulesAssigned: modules.length,
-      totalTasksCreated
+      totalTasksCreated,
+      totalTasksUpdated
     });
   } catch (error) {
     next(error);

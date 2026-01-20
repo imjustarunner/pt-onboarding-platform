@@ -442,6 +442,8 @@ const filteredTabs = computed(() => {
   return tabs.value;
 });
 
+const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
+
 const dashboardCards = computed(() => {
   const cards = filteredTabs.value.map((t) => ({
     ...t,
@@ -457,22 +459,25 @@ const dashboardCards = computed(() => {
 
   // Post-onboarding cards
   if (isOnboardingComplete.value) {
-    cards.push({
-      id: 'submit',
-      label: 'Submit',
-      kind: 'action',
-      badgeCount: 0,
-      iconUrl: null,
-      description: 'Submit mileage, in-school claims, and more.'
-    });
-    cards.push({
-      id: 'payroll',
-      label: 'Payroll',
-      kind: 'content',
-      badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('payroll'),
-      description: 'Your payroll history by pay period.'
-    });
+    // School staff should not see payroll/claims submission surfaces.
+    if (!isSchoolStaff.value) {
+      cards.push({
+        id: 'submit',
+        label: 'Submit',
+        kind: 'action',
+        badgeCount: 0,
+        iconUrl: null,
+        description: 'Submit mileage, in-school claims, and more.'
+      });
+      cards.push({
+        id: 'payroll',
+        label: 'Payroll',
+        kind: 'content',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('payroll'),
+        description: 'Your payroll history by pay period.'
+      });
+    }
     cards.push({
       id: 'my',
       label: 'My Account',

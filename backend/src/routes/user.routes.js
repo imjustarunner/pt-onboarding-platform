@@ -1,53 +1,57 @@
 import express from 'express';
-import { getCurrentUser, getAllUsers, getUserById, updateUser, getUserAgencies, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, generateInvitationToken, resetPasswordlessToken, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases } from '../controllers/user.controller.js';
+import { getCurrentUser, getAllUsers, getUserById, updateUser, getUserAgencies, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyH0032Mode, generateInvitationToken, resetPasswordlessToken, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias } from '../controllers/user.controller.js';
+import { upload as uploadProfilePhoto, uploadUserProfilePhoto } from '../controllers/userProfilePhoto.controller.js';
 import { getUserTrainingFocuses } from '../controllers/track.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 router.get('/me', authenticate, getCurrentUser);
 router.get('/me/agencies', authenticate, getUserAgencies);
-router.get('/', authenticate, requireAdmin, getAllUsers);
-router.get('/archived', authenticate, requireAdmin, getArchivedUsers); // Must come before /:id
+router.get('/', authenticate, requireBackofficeAdmin, getAllUsers);
+router.get('/archived', authenticate, requireBackofficeAdmin, getArchivedUsers); // Must come before /:id
 router.get('/:id/agencies', authenticate, getUserAgencies);
-router.get('/:id/login-email-aliases', authenticate, requireAdmin, getUserLoginEmailAliases);
+router.get('/:id/login-email-aliases', authenticate, requireBackofficeAdmin, getUserLoginEmailAliases);
+router.post('/:id/login-email-alias', authenticate, requireBackofficeAdmin, addUserLoginEmailAlias);
 router.get('/:id', authenticate, getUserById);
 router.put('/:id', authenticate, updateUser);
-router.post('/assign/agency', authenticate, requireAdmin, assignUserToAgency);
-router.post('/remove/agency', authenticate, requireAdmin, removeUserFromAgency);
-router.put('/:id/payroll-access', authenticate, requireAdmin, setUserAgencyPayrollAccess);
+router.post('/:id/profile-photo', authenticate, uploadProfilePhoto.single('photo'), uploadUserProfilePhoto);
+router.post('/assign/agency', authenticate, requireBackofficeAdmin, assignUserToAgency);
+router.post('/remove/agency', authenticate, requireBackofficeAdmin, removeUserFromAgency);
+router.put('/:id/payroll-access', authenticate, requireBackofficeAdmin, setUserAgencyPayrollAccess);
+router.put('/:id/h0032-mode', authenticate, requireBackofficeAdmin, setUserAgencyH0032Mode);
 
 // New endpoints for tokens, passwords, account info, and checklist
-router.post('/:id/generate-token', authenticate, requireAdmin, generateInvitationToken);
+router.post('/:id/generate-token', authenticate, requireBackofficeAdmin, generateInvitationToken);
 router.post('/:id/reset-passwordless-token', authenticate, resetPasswordlessToken);
-router.post('/:id/send-reset-password-link', authenticate, requireAdmin, sendResetPasswordLink);
-router.post('/:id/send-reset-password-link-sms', authenticate, requireAdmin, sendResetPasswordLinkSms);
+router.post('/:id/send-reset-password-link', authenticate, requireBackofficeAdmin, sendResetPasswordLink);
+router.post('/:id/send-reset-password-link-sms', authenticate, requireBackofficeAdmin, sendResetPasswordLinkSms);
 router.post('/change-password', authenticate, changePassword); // For users to change their own password
 router.post('/:id/change-password', authenticate, changePassword); // For admins to change other users' passwords
-router.get('/:id/credentials', authenticate, requireAdmin, getUserCredentials);
+router.get('/:id/credentials', authenticate, requireBackofficeAdmin, getUserCredentials);
 router.get('/:id/account-info', authenticate, getAccountInfo);
 router.post('/:id/toggle-supervisor-privileges', authenticate, toggleSupervisorPrivileges);
 router.get('/:id/completion-package', authenticate, downloadCompletionPackage);
 router.get('/:id/onboarding-checklist', authenticate, getOnboardingChecklist);
 router.post('/:id/onboarding-checklist/:itemId/complete', authenticate, markChecklistItemComplete);
 router.get('/:id/training-focuses', authenticate, getUserTrainingFocuses);
-router.post('/:id/mark-complete', authenticate, requireAdmin, markUserComplete);
-router.post('/:id/mark-terminated', authenticate, requireAdmin, markUserTerminated);
-router.post('/:id/mark-active', authenticate, requireAdmin, markUserActive);
-router.post('/:id/promote-to-onboarding', authenticate, requireAdmin, promoteToOnboarding);
-router.post('/current-employee', authenticate, requireAdmin, createCurrentEmployee);
-router.post('/:id/deactivate', authenticate, requireAdmin, deactivateUser);
-router.post('/:id/archive', authenticate, requireAdmin, archiveUser);
-router.post('/:id/restore', authenticate, requireAdmin, restoreUser);
-router.delete('/:id', authenticate, requireAdmin, deleteUser);
+router.post('/:id/mark-complete', authenticate, requireBackofficeAdmin, markUserComplete);
+router.post('/:id/mark-terminated', authenticate, requireBackofficeAdmin, markUserTerminated);
+router.post('/:id/mark-active', authenticate, requireBackofficeAdmin, markUserActive);
+router.post('/:id/promote-to-onboarding', authenticate, requireBackofficeAdmin, promoteToOnboarding);
+router.post('/current-employee', authenticate, requireBackofficeAdmin, createCurrentEmployee);
+router.post('/:id/deactivate', authenticate, requireBackofficeAdmin, deactivateUser);
+router.post('/:id/archive', authenticate, requireBackofficeAdmin, archiveUser);
+router.post('/:id/restore', authenticate, requireBackofficeAdmin, restoreUser);
+router.delete('/:id', authenticate, requireBackofficeAdmin, deleteUser);
 router.get('/:id/onboarding-document', authenticate, getOnboardingDocument);
 
 // Pending status endpoints
 router.get('/:id/pending/status', authenticate, checkPendingCompletionStatus);
 router.post('/:id/pending/complete', authenticate, markPendingComplete);
 router.get('/:id/pending/completion-summary', authenticate, getPendingCompletionSummary);
-router.post('/:id/move-to-active', authenticate, requireAdmin, movePendingToActive); // Also allows support role via requireAdmin middleware
-router.delete('/:id/pending/wipe-data', authenticate, requireAdmin, wipePendingUserData);
+router.post('/:id/move-to-active', authenticate, requireBackofficeAdmin, movePendingToActive); // Admin/support/super admin only
+router.delete('/:id/pending/wipe-data', authenticate, requireBackofficeAdmin, wipePendingUserData);
 
 export default router;
 

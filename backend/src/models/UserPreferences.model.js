@@ -42,6 +42,7 @@ class UserPreferences {
           'auto_reply_enabled', 'auto_reply_message',
           'emergency_override',
           'notification_categories',
+          'dashboard_notification_org_types',
           'work_modality', 'scheduling_preferences',
           'show_read_receipts', 'allow_staff_step_in', 'staff_step_in_after_minutes',
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
@@ -52,7 +53,7 @@ class UserPreferences {
           if (field in preferences) {
             fields.push(`${field} = ?`);
             // Handle JSON fields
-            if (field === 'quiet_hours_allowed_days' || field === 'notification_categories' || field === 'scheduling_preferences') {
+            if (field === 'quiet_hours_allowed_days' || field === 'notification_categories' || field === 'scheduling_preferences' || field === 'dashboard_notification_org_types') {
               values.push(JSON.stringify(preferences[field]));
             } else {
               values.push(preferences[field]);
@@ -84,6 +85,7 @@ class UserPreferences {
           'auto_reply_enabled', 'auto_reply_message',
           'emergency_override',
           'notification_categories',
+          'dashboard_notification_org_types',
           'work_modality', 'scheduling_preferences',
           'show_read_receipts', 'allow_staff_step_in', 'staff_step_in_after_minutes',
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
@@ -95,7 +97,7 @@ class UserPreferences {
             fields.push(field);
             placeholders.push('?');
             // Handle JSON fields
-            if (field === 'quiet_hours_allowed_days' || field === 'notification_categories' || field === 'scheduling_preferences') {
+            if (field === 'quiet_hours_allowed_days' || field === 'notification_categories' || field === 'scheduling_preferences' || field === 'dashboard_notification_org_types') {
               values.push(JSON.stringify(preferences[field]));
             } else {
               values.push(preferences[field]);

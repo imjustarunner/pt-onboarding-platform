@@ -12,7 +12,7 @@ import {
   deleteChecklistItem,
   pushToAgency
 } from '../controllers/customChecklistItem.controller.js';
-import { authenticate, requireAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -49,10 +49,10 @@ router.get('/agencies/:agencyId/items', authenticate, getAgencyItems);
 router.get('/agencies/:agencyId/enabled', authenticate, getEnabledItemsForAgency);
 router.get('/', authenticate, getAllChecklistItems);
 router.get('/:id', authenticate, getChecklistItemById);
-router.post('/', authenticate, requireAdmin, validateChecklistItem, createChecklistItem);
-router.put('/:id', authenticate, requireAdmin, validateChecklistItem, updateChecklistItem);
-router.delete('/:id', authenticate, requireAdmin, deleteChecklistItem);
-router.post('/:itemId/toggle-agency/:agencyId', authenticate, requireAdmin, toggleItemForAgency);
+router.post('/', authenticate, requireBackofficeAdmin, validateChecklistItem, createChecklistItem);
+router.put('/:id', authenticate, requireBackofficeAdmin, validateChecklistItem, updateChecklistItem);
+router.delete('/:id', authenticate, requireBackofficeAdmin, deleteChecklistItem);
+router.post('/:itemId/toggle-agency/:agencyId', authenticate, requireBackofficeAdmin, toggleItemForAgency);
 router.post('/:id/push-to-agency', authenticate, requireSuperAdmin, pushToAgency);
 
 export default router;

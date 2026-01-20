@@ -1,7 +1,7 @@
 import express from 'express';
 import { uploadReferralPacket } from '../controllers/referralUpload.controller.js';
 import { duplicateOrganization, getOrganizationAffiliation, applyAffiliatedAgencyBranding } from '../controllers/organization.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
 
 const router = express.Router();
@@ -15,7 +15,7 @@ router.post('/:slug/upload-referral', uploadReferralPacket);
 router.post(
   '/:id/duplicate',
   authenticate,
-  requireAdmin,
+  requireBackofficeAdmin,
   [
     body('name').trim().notEmpty().withMessage('name is required'),
     body('slug').trim().notEmpty().withMessage('slug is required').matches(/^[a-z0-9-]+$/).withMessage('slug must be lowercase alphanumeric with hyphens only'),
@@ -25,9 +25,9 @@ router.post(
 );
 
 // GET /api/organizations/:id/affiliation
-router.get('/:id/affiliation', authenticate, requireAdmin, getOrganizationAffiliation);
+router.get('/:id/affiliation', authenticate, requireBackofficeAdmin, getOrganizationAffiliation);
 
 // POST /api/organizations/:id/apply-affiliated-agency-branding
-router.post('/:id/apply-affiliated-agency-branding', authenticate, requireAdmin, applyAffiliatedAgencyBranding);
+router.post('/:id/apply-affiliated-agency-branding', authenticate, requireBackofficeAdmin, applyAffiliatedAgencyBranding);
 
 export default router;

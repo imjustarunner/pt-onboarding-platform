@@ -1,11 +1,11 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 import { rebuildProviderSearchIndex, searchProviders, compileProviderSearch } from '../controllers/providerSearch.controller.js';
 
 const router = express.Router();
 
-router.use(authenticate, requireAdmin);
+router.use(authenticate, requireBackofficeAdmin);
 
 router.post('/rebuild', [body('agencyId').isInt({ min: 1 })], rebuildProviderSearchIndex);
 

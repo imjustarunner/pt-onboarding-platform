@@ -11,6 +11,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getUserCapabilities } from '../utils/capabilities.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,6 +48,12 @@ export const getCurrentUser = async (req, res, next) => {
       firstName: user.first_name,
       lastName: user.last_name,
       username: user.username || user.personal_email || user.email,
+      profilePhotoUrl: publicUploadsUrlFromStoredPath(user.profile_photo_path),
+      // Provider global availability (best-effort; defaults true for older DBs)
+      provider_accepting_new_clients:
+        user.provider_accepting_new_clients === undefined || user.provider_accepting_new_clients === null
+          ? true
+          : Boolean(user.provider_accepting_new_clients),
       medcancelEnabled: ['low', 'high'].includes(String(user.medcancel_rate_schedule || '').toLowerCase()),
       medcancelRateSchedule: user.medcancel_rate_schedule || null,
       companyCardEnabled: Boolean(user.company_card_enabled),
@@ -281,7 +288,97 @@ export const getAllUsers = async (req, res, next) => {
         users = rows;
       }
     }
-    
+
+    // Attach provider credential for client-side sorting (best-effort).
+    try {
+      if (Array.isArray(users) && users.length > 0) {
+        const pool = (await import('../config/database.js')).default;
+        const ids = users.map((u) => parseInt(u.id, 10)).filter(Boolean);
+        if (ids.length > 0) {
+          const placeholders = ids.map(() => '?').join(',');
+          const [rows] = await pool.execute(
+            `SELECT uiv.user_id, MAX(uiv.value) AS value
+             FROM user_info_values uiv
+             JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+             WHERE uifd.field_key = 'provider_credential'
+               AND uiv.user_id IN (${placeholders})
+             GROUP BY uiv.user_id`,
+            ids
+          );
+          const byUserId = new Map((rows || []).map((r) => [Number(r.user_id), r.value]));
+          users = users.map((u) => ({
+            ...u,
+            provider_credential: byUserId.get(Number(u.id)) || null
+          }));
+        }
+      }
+    } catch {
+      // Ignore if schema doesn't exist yet.
+    }
+
+    // Attach provider accepting-new-clients flag (best-effort).
+    try {
+      if (Array.isArray(users) && users.length > 0) {
+        const pool = (await import('../config/database.js')).default;
+        const ids = users.map((u) => parseInt(u.id, 10)).filter(Boolean);
+        if (ids.length > 0) {
+          const placeholders = ids.map(() => '?').join(',');
+          const [rows] = await pool.execute(
+            `SELECT id, provider_accepting_new_clients
+             FROM users
+             WHERE id IN (${placeholders})`,
+            ids
+          );
+          const byId = new Map((rows || []).map((r) => [Number(r.id), r.provider_accepting_new_clients]));
+          users = users.map((u) => ({
+            ...u,
+            provider_accepting_new_clients:
+              byId.has(Number(u.id)) ? Boolean(byId.get(Number(u.id))) : true
+          }));
+        }
+      }
+    } catch {
+      // Ignore if column doesn't exist yet.
+      users = (users || []).map((u) => ({ ...u, provider_accepting_new_clients: true }));
+    }
+
+    // Attach provider school availability summary (best-effort):
+    // provider_has_open_school_slots = any active assignment with slots_available > 0
+    // AND effective accepting_new_clients for that school (override/global) is true.
+    try {
+      if (Array.isArray(users) && users.length > 0) {
+        const pool = (await import('../config/database.js')).default;
+        const ids = users.map((u) => parseInt(u.id, 10)).filter(Boolean);
+        if (ids.length > 0) {
+          const placeholders = ids.map(() => '?').join(',');
+          const [rows] = await pool.execute(
+            `SELECT psa.provider_user_id,
+                    MAX(
+                      CASE
+                        WHEN psa.is_active = TRUE
+                         AND psa.slots_available > 0
+                         AND COALESCE(psa.accepting_new_clients_override, u.provider_accepting_new_clients, TRUE) = TRUE
+                        THEN 1 ELSE 0
+                      END
+                    ) AS has_open
+             FROM provider_school_assignments psa
+             JOIN users u ON u.id = psa.provider_user_id
+             WHERE psa.provider_user_id IN (${placeholders})
+             GROUP BY psa.provider_user_id`,
+            ids
+          );
+          const byId = new Map((rows || []).map((r) => [Number(r.provider_user_id), Number(r.has_open || 0)]));
+          users = users.map((u) => ({
+            ...u,
+            provider_has_open_school_slots: Boolean(byId.get(Number(u.id)) || 0)
+          }));
+        }
+      }
+    } catch {
+      // Ignore if table/columns don't exist yet.
+      users = (users || []).map((u) => ({ ...u, provider_has_open_school_slots: false }));
+    }
+
     res.json(users);
   } catch (error) {
     next(error);
@@ -459,6 +556,13 @@ export const getArchivedUsers = async (req, res, next) => {
 export const getUserById = async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    // Allow any authenticated user to view their own profile.
+    if (parseInt(id) === req.user.id) {
+      const self = await User.findById(id);
+      if (!self) return res.status(404).json({ error: { message: 'User not found' } });
+      return res.json({ ...self, profile_photo_url: publicUploadsUrlFromStoredPath(self.profile_photo_path) });
+    }
     
     // Users can see their own profile
     if (parseInt(id) === req.user.id) {
@@ -466,7 +570,7 @@ export const getUserById = async (req, res, next) => {
       if (!user) {
         return res.status(404).json({ error: { message: 'User not found' } });
       }
-      return res.json(user);
+      return res.json({ ...user, profile_photo_url: publicUploadsUrlFromStoredPath(user.profile_photo_path) });
     }
     
     // Supervisors can ONLY view their assigned supervisees
@@ -494,7 +598,7 @@ export const getUserById = async (req, res, next) => {
         return res.status(403).json({ error: { message: 'You can only view users assigned to you as supervisees' } });
       }
       
-      return res.json(targetUser);
+      return res.json({ ...targetUser, profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path) });
     }
 
     // CPAs can view all users in their agencies
@@ -520,7 +624,7 @@ export const getUserById = async (req, res, next) => {
         return res.status(403).json({ error: { message: 'You can only view users from your assigned agencies' } });
       }
       
-      return res.json(targetUser);
+      return res.json({ ...targetUser, profile_photo_url: publicUploadsUrlFromStoredPath(targetUser.profile_photo_path) });
     }
     
     // Admin, super_admin, and support can view any user
@@ -529,7 +633,7 @@ export const getUserById = async (req, res, next) => {
       if (!user) {
         return res.status(404).json({ error: { message: 'User not found' } });
       }
-      return res.json(user);
+      return res.json({ ...user, profile_photo_url: publicUploadsUrlFromStoredPath(user.profile_photo_path) });
     }
     
     return res.status(403).json({ error: { message: 'Access denied' } });
@@ -553,7 +657,89 @@ export const getUserLoginEmailAliases = async (req, res, next) => {
 
     const UserLoginEmail = (await import('../models/UserLoginEmail.model.js')).default;
     const rows = await UserLoginEmail.listForUser(parseInt(id));
-    res.json({ loginEmailAliases: (rows || []).map((r) => r.email) });
+    res.json({
+      loginEmailAliases: (rows || []).map((r) => r.email),
+      loginEmailAliasesDetailed: (rows || []).map((r) => ({
+        id: r.id,
+        agency_id: r.agency_id,
+        email: r.email
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const addUserLoginEmailAlias = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = parseInt(id, 10);
+    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
+    const email = String(req.body?.email || '').trim().toLowerCase();
+
+    if (!userId || !agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ error: { message: 'email must be a valid email address' } });
+    }
+
+    // Admin/super_admin/support only
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!['admin', 'super_admin', 'support'].includes(role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const membership = await User.getAgencyMembership(userId, agencyId);
+    if (!membership) {
+      return res.status(400).json({ error: { message: 'User is not assigned to this organization' } });
+    }
+
+    const targetUser = await User.findById(userId);
+    if (!targetUser) return res.status(404).json({ error: { message: 'User not found' } });
+
+    // Don’t allow alias to equal primary identifiers.
+    const primary = new Set([
+      String(targetUser.email || '').toLowerCase(),
+      String(targetUser.work_email || '').toLowerCase(),
+      String(targetUser.username || '').toLowerCase()
+    ].filter(Boolean));
+    if (primary.has(email)) {
+      return res.status(400).json({ error: { message: 'Alias matches an existing login identifier for this user' } });
+    }
+
+    // Ensure alias isn't used by another user (including via aliases)
+    const existing = await User.findByEmail(email);
+    if (existing && Number(existing.id) !== Number(userId)) {
+      return res.status(409).json({ error: { message: `Login email already in use: ${email}` } });
+    }
+
+    const dbName = process.env.DB_NAME || 'onboarding_stage';
+    const [tables] = await pool.execute(
+      "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'user_login_emails' LIMIT 1",
+      [dbName]
+    );
+    if (!tables || tables.length === 0) {
+      return res.status(400).json({ error: { message: 'Login email aliases are not enabled (missing user_login_emails table).' } });
+    }
+
+    try {
+      await pool.execute(
+        `INSERT INTO user_login_emails (user_id, agency_id, email)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), agency_id = VALUES(agency_id)`,
+        [userId, agencyId, email]
+      );
+    } catch (e) {
+      // Unique constraint violation on email is surfaced as 409
+      const msg = String(e?.message || '');
+      if (msg.includes('Duplicate') || e?.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({ error: { message: `Login email already in use: ${email}` } });
+      }
+      throw e;
+    }
+
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }
@@ -567,10 +753,11 @@ export const updateUser = async (req, res, next) => {
       loginEmail,
       firstName,
       lastName,
-      role,
+      role: roleRaw,
       hasSupervisorPrivileges,
       hasProviderAccess,
       hasStaffAccess,
+      providerAcceptingNewClients,
       personalPhone,
       workPhone,
       workPhoneExtension,
@@ -584,6 +771,19 @@ export const updateUser = async (req, res, next) => {
       billingAcknowledged
     } = req.body;
     const loginEmailAliases = req.body?.loginEmailAliases;
+
+    // Normalize legacy / label-only roles into the current model.
+    // Provider is the catch-all; credential/classification should be stored separately.
+    const normalizeRole = (r) => {
+      const v = String(r || '').trim().toLowerCase();
+      if (!v) return null;
+      if (v === 'clinician' || v === 'intern' || v === 'facilitator') return 'provider';
+      if (v === 'supervisor') return 'provider'; // supervisor is represented by has_supervisor_privileges
+      return v;
+    };
+
+    const role = roleRaw !== undefined ? normalizeRole(roleRaw) : undefined;
+    const forceSupervisorPrivileges = String(roleRaw || '').trim().toLowerCase() === 'supervisor';
     
     console.log('updateUser called with:', { id, role, hasSupervisorPrivileges, body: req.body });
 
@@ -594,7 +794,9 @@ export const updateUser = async (req, res, next) => {
 
     // Validate role if provided
     if (role) {
-      const validRoles = ['super_admin', 'admin', 'support', 'supervisor', 'clinical_practice_assistant', 'staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern'];
+      // Note: we still accept legacy inputs (clinician/intern/facilitator/supervisor) via roleRaw,
+      // but they are normalized above.
+      const validRoles = ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'staff', 'provider', 'school_staff', 'client_guardian'];
       if (!validRoles.includes(role)) {
         return res.status(400).json({ error: { message: `Invalid role. Must be one of: ${validRoles.join(', ')}` } });
       }
@@ -777,9 +979,9 @@ export const updateUser = async (req, res, next) => {
       }
     }
     
-    // Handle supervisor privileges for non-supervisor roles (admins, superadmins, CPAs)
-    // This allows them to have supervisor privileges while keeping their primary role
-    if (hasSupervisorPrivileges !== undefined) {
+    // Handle supervisor privileges for non-supervisor roles (providers/admins/superadmins/CPAs)
+    // This allows them to have supervisor privileges while keeping their primary role.
+    if (hasSupervisorPrivileges !== undefined || forceSupervisorPrivileges) {
       const targetUser = await User.findById(id);
       if (!targetUser) {
         return res.status(404).json({ error: { message: 'User not found' } });
@@ -793,7 +995,7 @@ export const updateUser = async (req, res, next) => {
         requestingUserId: req.user.id
       });
       
-      // Don't allow manual toggle if role is being set to 'supervisor' (it's automatic)
+      // Don't allow manual toggle if role is being set to 'supervisor' (legacy; it's automatic)
       const finalRole = role !== undefined ? role : targetUser.role;
       if (finalRole === 'supervisor') {
         // Supervisor role automatically gets privileges, skip manual toggle
@@ -802,14 +1004,14 @@ export const updateUser = async (req, res, next) => {
         updateData.hasSupervisorPrivileges = true;
       } else {
         // Only allow toggle for eligible roles
-        const eligibleRoles = ['admin', 'super_admin', 'clinical_practice_assistant'];
+        const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant'];
         const currentRole = targetUser.role;
         const newRole = role !== undefined ? role : currentRole;
         
         if (!eligibleRoles.includes(currentRole) && !eligibleRoles.includes(newRole)) {
           console.log('User role not eligible for supervisor privileges:', { currentRole, newRole });
           return res.status(400).json({ 
-            error: { message: 'Supervisor privileges can only be enabled for admins, super admins, or clinical practice assistants' } 
+            error: { message: 'Supervisor privileges can only be enabled for providers, admins, super admins, or clinical practice assistants' } 
           });
         }
         
@@ -824,12 +1026,12 @@ export const updateUser = async (req, res, next) => {
           const userRole = role || targetUser.role;
           if (!eligibleRoles.includes(userRole)) {
             console.log('User cannot toggle their own privileges - not eligible role:', userRole);
-            return res.status(403).json({ error: { message: 'You can only toggle supervisor privileges if you are an admin, super admin, or clinical practice assistant' } });
+            return res.status(403).json({ error: { message: 'You can only toggle supervisor privileges if you are a provider, admin, super admin, or clinical practice assistant' } });
           }
         }
         
         // Ensure boolean value is properly converted
-        const boolValue = Boolean(hasSupervisorPrivileges);
+        const boolValue = forceSupervisorPrivileges ? true : Boolean(hasSupervisorPrivileges);
         console.log('Setting supervisor privileges to:', boolValue);
         updateData.hasSupervisorPrivileges = boolValue;
       }
@@ -860,6 +1062,17 @@ export const updateUser = async (req, res, next) => {
         if (targetUser.role === 'provider' || targetUser.role === 'clinician' || (role && (role === 'provider' || role === 'clinician'))) {
           updateData.hasStaffAccess = Boolean(hasStaffAccess);
         }
+      }
+    }
+
+    // Provider Open/Closed (accepting new clients) - allow self and admins/support.
+    if (providerAcceptingNewClients !== undefined) {
+      const targetUser = await User.findById(id);
+      if (!targetUser) return res.status(404).json({ error: { message: 'User not found' } });
+      const targetRole = String(role || targetUser.role || '').toLowerCase();
+      const providerLike = targetRole === 'provider' || targetRole === 'clinician' || Boolean(targetUser.has_provider_access);
+      if (providerLike) {
+        updateData.providerAcceptingNewClients = Boolean(providerAcceptingNewClients);
       }
     }
     
@@ -1089,6 +1302,48 @@ export const setUserAgencyPayrollAccess = async (req, res, next) => {
       userId,
       agencyId: agencyIdNum,
       hasPayrollAccess: !!(updated?.has_payroll_access === 1 || updated?.has_payroll_access === true || updated?.has_payroll_access === '1')
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const setUserAgencyH0032Mode = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { agencyId, mode } = req.body || {};
+
+    // Only admins/super_admins can edit agency membership flags.
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const userId = parseInt(id);
+    const agencyIdNum = agencyId ? parseInt(agencyId) : null;
+    if (!userId || !agencyIdNum) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    const rawMode = String(mode || '').trim().toLowerCase();
+    if (!rawMode || !['cat1_hour', 'cat2_flat'].includes(rawMode)) {
+      return res.status(400).json({ error: { message: 'mode must be one of: cat1_hour, cat2_flat' } });
+    }
+
+    const membership = await User.getAgencyMembership(userId, agencyIdNum);
+    if (!membership) {
+      return res.status(400).json({ error: { message: 'User is not assigned to this agency' } });
+    }
+
+    // cat1_hour => requires manual minutes (shows in H0032 processing queue)
+    // cat2_flat => auto 30 minutes per line (does NOT show in queue)
+    const requiresManualMinutes = rawMode === 'cat1_hour';
+    const updated = await User.setAgencyH0032RequiresManualMinutes(userId, agencyIdNum, requiresManualMinutes);
+
+    res.json({
+      userId,
+      agencyId: agencyIdNum,
+      mode: requiresManualMinutes ? 'cat1_hour' : 'cat2_flat',
+      h0032RequiresManualMinutes: !!(updated?.h0032_requires_manual_minutes === 1 || updated?.h0032_requires_manual_minutes === true || updated?.h0032_requires_manual_minutes === '1')
     });
   } catch (error) {
     next(error);
@@ -1789,7 +2044,14 @@ export const createCurrentEmployee = async (req, res, next) => {
     const bcrypt = (await import('bcrypt')).default;
 
     // Create user directly in ACTIVE_EMPLOYEE status (skips PENDING_SETUP, PREHIRE_OPEN, PREHIRE_REVIEW, ONBOARDING)
-    const finalRole = role || 'provider';
+    const normalizeRole = (r) => {
+      const v = String(r || '').trim().toLowerCase();
+      if (!v) return 'provider';
+      if (v === 'clinician' || v === 'intern' || v === 'facilitator') return 'provider';
+      if (v === 'supervisor') return 'provider';
+      return v;
+    };
+    const finalRole = normalizeRole(role || 'provider');
 
     // Billing hard gate: adding an admin beyond included requires acknowledgement
     if (finalRole === 'admin') {

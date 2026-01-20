@@ -1,6 +1,6 @@
 import express from 'express';
 import { createReferral, getReferrals, updateReferralStatus } from '../controllers/referral.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -12,6 +12,6 @@ router.post('/', authenticate, createReferral);
 router.get('/', authenticate, getReferrals);
 
 // PUT /api/referrals/:id/status - Update referral status (admin only)
-router.put('/:id/status', authenticate, requireAdmin, updateReferralStatus);
+router.put('/:id/status', authenticate, requireBackofficeAdmin, updateReferralStatus);
 
 export default router;

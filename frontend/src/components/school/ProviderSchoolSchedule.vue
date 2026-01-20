@@ -6,7 +6,7 @@
         <select v-model="selectedProviderId" class="select">
           <option value="">Select…</option>
           <option v-for="p in providers" :key="p.provider_user_id" :value="String(p.provider_user_id)">
-            {{ p.last_name }}, {{ p.first_name }}
+            {{ p.last_name }}, {{ p.first_name }}<span v-if="p.accepting_new_clients === false"> (Closed)</span>
           </option>
         </select>
       </div>
@@ -24,6 +24,9 @@
         </div>
         <div class="chip" v-if="selectedAssignment && (selectedAssignment.start_time || selectedAssignment.end_time)">
           <strong>Hours:</strong> {{ selectedAssignment.start_time || '—' }}–{{ selectedAssignment.end_time || '—' }}
+        </div>
+        <div class="chip" v-if="selectedProvider">
+          <strong>Accepting:</strong> {{ selectedProvider.accepting_new_clients === false ? 'Closed' : 'Open' }}
         </div>
         <button class="btn btn-secondary btn-sm" @click="reloadAll" :disabled="loading">
           Refresh
@@ -48,7 +51,7 @@
           <label>Client</label>
           <select v-model="newEntry.clientId" class="select">
             <option value="">Select…</option>
-            <option v-for="c in clients" :key="c.id" :value="String(c.id)">
+            <option v-for="c in assignedClients" :key="c.id" :value="String(c.id)">
               {{ c.initials }}
             </option>
           </select>
@@ -104,6 +107,16 @@
               <td>{{ e.room || '—' }}</td>
               <td>{{ e.teacher || '—' }}</td>
               <td class="actions-cell">
+                <button class="btn btn-secondary btn-sm" @click="openCommentForEntry(e)">
+                  <span v-if="unreadForClientId(e.client_id) > 0" class="unread-dot" aria-hidden="true" />
+                  Comment
+                </button>
+                <button class="btn btn-secondary btn-sm" @click="moveEntry(e, 'up')" :disabled="movingId === e.id || deletingId === e.id">
+                  ↑
+                </button>
+                <button class="btn btn-secondary btn-sm" style="margin-left:6px;" @click="moveEntry(e, 'down')" :disabled="movingId === e.id || deletingId === e.id">
+                  ↓
+                </button>
                 <button class="btn btn-danger btn-sm" @click="removeEntry(e)" :disabled="deletingId === e.id">
                   {{ deletingId === e.id ? 'Deleting…' : 'Delete' }}
                 </button>
@@ -113,12 +126,20 @@
         </table>
       </div>
     </div>
+
+    <SchoolClientChatModal
+      v-if="commentClient"
+      :client="commentClient"
+      :schoolOrganizationId="props.organizationId"
+      @close="commentClient = null"
+    />
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import SchoolClientChatModal from './SchoolClientChatModal.vue';
 
 const props = defineProps({
   organizationId: { type: Number, required: true }
@@ -127,7 +148,8 @@ const props = defineProps({
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 const providers = ref([]);
-const clients = ref([]);
+const clients = ref([]); // All school clients (for admin/support/provider assignment UI)
+const assignedClients = ref([]); // Assigned to selected provider/day (for schedule entry creation)
 const entries = ref([]);
 
 const selectedProviderId = ref('');
@@ -136,6 +158,7 @@ const selectedDay = ref('Monday');
 const loading = ref(false);
 const saving = ref(false);
 const deletingId = ref(null);
+const movingId = ref(null);
 const error = ref('');
 const warnings = ref([]);
 
@@ -146,6 +169,20 @@ const newEntry = ref({
   room: '',
   teacher: ''
 });
+
+const commentClient = ref(null);
+
+const unreadForClientId = (clientId) => {
+  const c = assignedClients.value.find((x) => parseInt(x.id, 10) === parseInt(clientId, 10));
+  return Number(c?.unread_notes_count || 0);
+};
+
+const openCommentForEntry = (entry) => {
+  const cid = parseInt(entry.client_id, 10);
+  if (!cid) return;
+  const c = assignedClients.value.find((x) => parseInt(x.id, 10) === cid) || clients.value.find((x) => parseInt(x.id, 10) === cid) || null;
+  commentClient.value = c ? { id: cid, initials: c.initials } : { id: cid, initials: entry.client_initials || `Client ${cid}` };
+};
 
 const selectedProvider = computed(() => {
   const pid = parseInt(selectedProviderId.value, 10);
@@ -178,6 +215,18 @@ const reloadClients = async () => {
   clients.value = resp.data || [];
 };
 
+const reloadAssignedClients = async () => {
+  if (!selectedProviderId.value) {
+    assignedClients.value = [];
+    return;
+  }
+  const resp = await api.get(
+    `/school-portal/${props.organizationId}/providers/${selectedProviderId.value}/assigned-clients`,
+    { params: { dayOfWeek: selectedDay.value } }
+  );
+  assignedClients.value = resp.data || [];
+};
+
 const reloadEntries = async () => {
   if (!selectedProviderId.value) {
     entries.value = [];
@@ -196,6 +245,7 @@ const reloadAll = async () => {
     error.value = '';
     warnings.value = [];
     await Promise.all([reloadProviders(), reloadClients()]);
+    await reloadAssignedClients();
     await reloadEntries();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load provider schedule';
@@ -219,12 +269,6 @@ const createEntry = async () => {
     error.value = '';
     warnings.value = [];
 
-    // Always enforce provider/day assignment with slot safety (non-admin school endpoint).
-    await api.post(`/school-portal/${props.organizationId}/clients/${newEntry.value.clientId}/assign-provider`, {
-      providerUserId: Number(selectedProviderId.value),
-      serviceDay: selectedDay.value
-    });
-
     const resp = await api.post(`/school-portal/${props.organizationId}/providers/${selectedProviderId.value}/schedule-entries`, {
       dayOfWeek: selectedDay.value,
       clientId: Number(newEntry.value.clientId),
@@ -238,6 +282,7 @@ const createEntry = async () => {
     newEntry.value = { clientId: '', startTime: '', endTime: '', room: '', teacher: '' };
 
     await reloadProviders();
+    await reloadAssignedClients();
     await reloadEntries();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to create schedule entry';
@@ -261,9 +306,27 @@ const removeEntry = async (entry) => {
   }
 };
 
+const moveEntry = async (entry, direction) => {
+  try {
+    movingId.value = entry.id;
+    error.value = '';
+    warnings.value = [];
+    const resp = await api.post(
+      `/school-portal/${props.organizationId}/providers/${selectedProviderId.value}/schedule-entries/${entry.id}/move`,
+      { direction }
+    );
+    entries.value = resp.data?.entries || entries.value;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to reorder entry';
+  } finally {
+    movingId.value = null;
+  }
+};
+
 watch([selectedProviderId, selectedDay], async () => {
   warnings.value = [];
   error.value = '';
+  await reloadAssignedClients();
   await reloadEntries();
 });
 
@@ -346,6 +409,15 @@ onMounted(async () => {
 }
 .actions-cell {
   text-align: right;
+}
+.unread-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  margin-right: 6px;
+  vertical-align: middle;
 }
 .loading,
 .empty {

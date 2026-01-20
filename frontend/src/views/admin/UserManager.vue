@@ -14,14 +14,11 @@
             <option value="">All Roles</option>
             <option value="provider">Provider</option>
             <option value="school_staff">School Staff</option>
-            <option value="supervisor">Supervisor</option>
             <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
-            <option value="staff">Onboarding Staff</option>
-            <option value="support">Staff</option>
+            <option value="staff">Staff</option>
+            <option value="support">Staff (Admin Tools)</option>
             <option value="admin">Admin</option>
             <option value="super_admin">Super Admin</option>
-            <option value="facilitator">Facilitator</option>
-            <option value="intern">Intern</option>
           </select>
         </div>
         <div class="sort-controls">
@@ -71,6 +68,16 @@
           </select>
         </div>
         <div class="sort-controls">
+          <label for="userSort">Sort:</label>
+          <select id="userSort" v-model="userSort" @change="applySorting">
+            <option value="name_az">A–Z</option>
+            <option value="name_za">Z–A</option>
+            <option value="first_last">First name, last name</option>
+            <option value="last_first">Last name, first name</option>
+            <option value="credential">Credential</option>
+          </select>
+        </div>
+        <div class="sort-controls">
           <button type="button" class="btn btn-secondary btn-sm" @click="showAdditionalFilters = !showAdditionalFilters">
             {{ showAdditionalFilters ? 'Hide' : 'Show' }} Additional Filters
           </button>
@@ -101,6 +108,29 @@
             <td>
               <span :class="['badge', user.role === 'admin' ? 'badge-success' : 'badge-info']">
                 {{ formatRole(user.role) }}
+              </span>
+              <span
+                v-if="(String(user.role || '').toLowerCase() === 'provider' || String(user.role || '').toLowerCase() === 'clinician')"
+                :class="['badge', availabilityBadgeClass(user)]"
+                style="margin-left: 6px; font-size: 10px;"
+                :title="availabilityBadgeTitle(user)"
+              >
+                {{ availabilityBadgeText(user) }}
+              </span>
+              <span
+                v-if="canQuickToggleAvailability(user)"
+                class="inline-availability-toggle"
+                title="Global availability (provider can also toggle this themselves)."
+              >
+                <label class="mini-switch">
+                  <input
+                    type="checkbox"
+                    :checked="user.provider_accepting_new_clients !== false"
+                    :disabled="availabilitySavingId === user.id"
+                    @change="toggleUserAvailability(user, $event.target.checked)"
+                  />
+                  <span class="mini-slider" />
+                </label>
               </span>
               <span v-if="user.has_provider_access && (user.role === 'staff' || user.role === 'support')" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Provider</span>
               <span v-if="user.has_staff_access && (user.role === 'provider' || user.role === 'clinician')" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Staff</span>
@@ -382,14 +412,11 @@
                 <select v-model="userForm.role" required>
                   <option v-if="user?.role === 'super_admin'" value="super_admin">Super Admin</option>
                   <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="admin">Admin</option>
-                  <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff</option>
-                  <option value="supervisor">Supervisor</option>
+                  <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff (Admin Tools)</option>
                   <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
-                  <option value="staff">Onboarding Staff</option>
+                  <option value="staff">Staff</option>
                   <option value="provider">Provider</option>
                   <option value="school_staff">School Staff</option>
-                  <option value="facilitator">Facilitator</option>
-                  <option value="intern">Intern</option>
                 </select>
                 <small v-if="userForm.role === 'super_admin' && user?.role !== 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
                 <small v-else-if="userForm.role === 'admin' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
@@ -423,23 +450,14 @@
           <div v-if="currentStep === 2" class="step-content">
             <form @submit.prevent="saveUser">
               <div class="form-group">
-                <label>Assign to Organizations *</label>
-                <div class="agency-selector">
-                  <div v-for="agency in agencies" :key="agency.id" class="agency-checkbox">
-                    <label>
-                      <input
-                        type="checkbox"
-                        :value="agency.id"
-                        v-model="userForm.agencyIds"
-                      />
-                      {{ agency.name }}
-                      <span v-if="agency.organization_type" style="color: var(--text-secondary); font-size: 12px;">
-                        ({{ agency.organization_type }})
-                      </span>
-                    </label>
-                  </div>
-                </div>
-                <small v-if="userForm.agencyIds.length === 0" class="form-help">Please select at least one agency</small>
+                <label>Affiliated Agency *</label>
+                <select v-model="userForm.primaryAgencyId" class="form-select" required>
+                  <option value="" disabled>Select an agency</option>
+                  <option v-for="agency in parentAgenciesForUserCreate" :key="agency.id" :value="String(agency.id)">
+                    {{ agency.name }}
+                  </option>
+                </select>
+                <small v-if="!userForm.primaryAgencyId" class="form-help">Select one agency now. You can add schools/programs later from the user profile.</small>
               </div>
               
               <div class="form-group">
@@ -502,14 +520,14 @@
                 <button 
                   type="submit" 
                   class="btn btn-primary" 
-                  :disabled="saving || userForm.agencyIds.length === 0 || (userForm.createAsCurrentEmployee && !userForm.workEmail)"
-                  :title="userForm.agencyIds.length === 0 ? 'Please select at least one agency' : (userForm.createAsCurrentEmployee && !userForm.workEmail ? 'Work email is required for current employees' : '')"
+                  :disabled="saving || !userForm.primaryAgencyId || (userForm.createAsCurrentEmployee && !userForm.workEmail)"
+                  :title="!userForm.primaryAgencyId ? 'Please select an agency' : (userForm.createAsCurrentEmployee && !userForm.workEmail ? 'Work email is required for current employees' : '')"
                 >
                   {{ saving ? 'Creating...' : (userForm.createAsCurrentEmployee ? 'Create Current Employee' : 'Create User') }}
                 </button>
               </div>
-              <div v-if="userForm.agencyIds.length === 0" class="form-error" style="margin-top: 10px; color: #dc3545;">
-                ⚠️ Please select at least one agency to continue
+              <div v-if="!userForm.primaryAgencyId" class="form-error" style="margin-top: 10px; color: #dc3545;">
+                ⚠️ Please select an agency to continue
               </div>
             </form>
           </div>
@@ -575,20 +593,17 @@
             <select v-model="userForm.role" required>
               <option v-if="user?.role === 'super_admin'" value="super_admin">Super Admin</option>
               <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="admin">Admin</option>
-              <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff</option>
-              <option value="supervisor">Supervisor</option>
+              <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff (Admin Tools)</option>
               <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
-              <option value="staff">Onboarding Staff</option>
+              <option value="staff">Staff</option>
               <option value="provider">Provider</option>
               <option value="school_staff">School Staff</option>
-              <option value="facilitator">Facilitator</option>
-              <option value="intern">Intern</option>
             </select>
             <small v-if="userForm.role === 'super_admin' && user?.role !== 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
             <small v-else-if="userForm.role === 'admin' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
             <small v-else-if="userForm.role === 'support' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the staff role</small>
           </div>
-          <div v-if="userForm.role === 'admin' || userForm.role === 'super_admin' || userForm.role === 'clinical_practice_assistant'" class="form-group">
+          <div v-if="userForm.role === 'provider' || userForm.role === 'admin' || userForm.role === 'super_admin' || userForm.role === 'clinical_practice_assistant'" class="form-group">
             <label class="toggle-label">
               <span>Supervisor Privileges</span>
               <div class="toggle-switch">
@@ -794,6 +809,9 @@
       <button type="button" class="btn btn-secondary btn-sm" @click="openEmailUpdateModal">
         Email Update Upload
       </button>
+      <button type="button" class="btn btn-secondary btn-sm" @click="openEmployeeInfoModal">
+        Employee Info Import
+      </button>
     </div>
 
     <!-- Provider Upload Modal -->
@@ -945,6 +963,16 @@
           </label>
         </div>
 
+        <div class="form-group">
+          <label style="display:flex; align-items:center; gap: 10px;">
+            <input type="checkbox" v-model="emailUpdateCreateIfMissing" />
+            Create provider profiles if missing
+          </label>
+          <small class="form-help">
+            If a provider is not found in the selected agency, we’ll create a Provider user, assign them to the agency, and store this email as an agency login alias.
+          </small>
+        </div>
+
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" @click="closeEmailUpdateModal">Cancel</button>
           <button type="button" class="btn btn-primary" @click="runEmailUpdateImport" :disabled="!emailUpdateFile || !agencySort || emailUpdateImporting">
@@ -956,10 +984,72 @@
           <div><strong>Processed rows:</strong> {{ emailUpdateResult.processed }}</div>
           <div><strong>Matched users:</strong> {{ emailUpdateResult.matchedUsers }}</div>
           <div><strong>Updated users:</strong> {{ emailUpdateResult.updatedUsers }}</div>
+          <div v-if="emailUpdateResult.createdUsers !== undefined"><strong>Created users:</strong> {{ emailUpdateResult.createdUsers }}</div>
+          <div v-if="emailUpdateResult.assignedToAgency !== undefined"><strong>Assigned to agency:</strong> {{ emailUpdateResult.assignedToAgency }}</div>
+          <div v-if="emailUpdateResult.createdAliases !== undefined"><strong>Login aliases created:</strong> {{ emailUpdateResult.createdAliases }}</div>
           <div><strong>Skipped invalid email:</strong> {{ emailUpdateResult.skippedInvalidEmail }}</div>
           <div><strong>Skipped no match:</strong> {{ emailUpdateResult.skippedNoMatch }}</div>
           <div v-if="emailUpdateResult.dryRun" class="muted" style="margin-top: 8px;">
             Dry run: no users were modified.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Employee Info Import Modal -->
+    <div v-if="showEmployeeInfoModal" class="modal-overlay" @click="closeEmployeeInfoModal">
+      <div class="modal-content large" @click.stop style="max-width: 860px;">
+        <div style="display:flex; justify-content: space-between; align-items:center; gap: 10px;">
+          <h2 style="margin:0;">Employee Info import</h2>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeEmployeeInfoModal">Close</button>
+        </div>
+        <div class="muted" style="margin-top: 8px;">
+          Imports legacy employee/provider info (Start date, personal email, address, phone, education, license, NPI, Medicaid location). Dry run is recommended first.
+        </div>
+
+        <div class="form-group" style="margin-top: 14px;">
+          <label>Agency *</label>
+          <select v-model="employeeInfoAgencyId">
+            <option value="">Select an agency…</option>
+            <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>File (CSV/XLSX)</label>
+          <input type="file" @change="onEmployeeInfoFileChange" accept=".csv,.xlsx,.xls" />
+        </div>
+
+        <div class="form-group">
+          <label style="display:flex; align-items:center; gap: 10px;">
+            <input type="checkbox" v-model="employeeInfoDryRun" />
+            Dry run (preview only)
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label style="display:flex; align-items:center; gap: 10px;">
+            <input type="checkbox" v-model="employeeInfoUseAi" />
+            Use Gemini assist (best effort)
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" @click="closeEmployeeInfoModal">Cancel</button>
+          <button type="button" class="btn btn-primary" @click="runEmployeeInfoImport" :disabled="!employeeInfoFile || !employeeInfoAgencyId || employeeInfoImporting">
+            {{ employeeInfoImporting ? (employeeInfoDryRun ? 'Previewing…' : 'Importing…') : (employeeInfoDryRun ? 'Preview Import' : 'Import') }}
+          </button>
+        </div>
+
+        <div v-if="employeeInfoResult" class="import-results">
+          <div><strong>Processed rows:</strong> {{ employeeInfoResult.processed }}</div>
+          <div><strong>Matched users:</strong> {{ employeeInfoResult.matchedUsers }}</div>
+          <div><strong>Created users:</strong> {{ employeeInfoResult.createdUsers }}</div>
+          <div><strong>Updated users:</strong> {{ employeeInfoResult.updatedUsers }}</div>
+          <div><strong>User info fields updated:</strong> {{ employeeInfoResult.updatedUserInfoFields }}</div>
+          <div v-if="employeeInfoResult.dryRun" class="muted" style="margin-top: 8px;">Dry run: no data was written.</div>
+          <div v-if="(employeeInfoResult.errors || []).length" class="muted" style="margin-top: 8px;">
+            Showing up to {{ (employeeInfoResult.errors || []).length }} errors.
           </div>
         </div>
       </div>
@@ -1017,6 +1107,7 @@ const saving = ref(false);
 // Default to Active Employee per admin workflow.
 const statusSort = ref('ACTIVE_EMPLOYEE');
 const agencySort = ref('');
+const userSort = ref('name_az');
 const showAdditionalFilters = ref(false);
 const roleSort = ref('');
 const userSearch = ref('');
@@ -1034,10 +1125,20 @@ const rateSheetResult = ref(null);
 const showProviderUploadModal = ref(false);
 const showRateSheetModal = ref(false);
 const showEmailUpdateModal = ref(false);
+const showEmployeeInfoModal = ref(false);
 const emailUpdateFile = ref(null);
 const emailUpdateDryRun = ref(true);
+const emailUpdateCreateIfMissing = ref(true);
 const emailUpdateImporting = ref(false);
 const emailUpdateResult = ref(null);
+
+// Employee info import
+const employeeInfoAgencyId = ref('');
+const employeeInfoFile = ref(null);
+const employeeInfoDryRun = ref(true);
+const employeeInfoUseAi = ref(true);
+const employeeInfoImporting = ref(false);
+const employeeInfoResult = ref(null);
 
 const currentStep = ref(1);
 const availablePackages = ref([]);
@@ -1060,8 +1161,16 @@ const userForm = ref({
   role: 'provider',
   hasSupervisorPrivileges: false,
   agencyIds: [],
+  primaryAgencyId: '',
   onboardingPackageId: '',
   createAsCurrentEmployee: false
+});
+
+const parentAgenciesForUserCreate = computed(() => {
+  const list = Array.isArray(agencies.value) ? agencies.value : [];
+  return list
+    .filter((o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency')
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
 
 const showCredentialsModal = ref(false);
@@ -1153,6 +1262,10 @@ const nextStep = () => {
     currentStep.value = 2;
     // Fetch packages when moving to step 2
     fetchPackages();
+    // If user only has access to one agency, preselect it.
+    if (!userForm.value.primaryAgencyId && parentAgenciesForUserCreate.value.length === 1) {
+      userForm.value.primaryAgencyId = String(parentAgenciesForUserCreate.value[0].id);
+    }
   }
 };
 
@@ -1248,10 +1361,10 @@ const saveUser = async () => {
         alert('Please select a role');
         return;
       }
-      if (!userForm.value.agencyIds || userForm.value.agencyIds.length === 0) {
-        error.value = 'Please select at least one agency';
+      if (!userForm.value.primaryAgencyId) {
+        error.value = 'Please select an agency';
         saving.value = false;
-        alert('Please select at least one agency');
+        alert('Please select an agency');
         return;
       }
     }
@@ -1276,7 +1389,7 @@ const saveUser = async () => {
       }
       
       // Include supervisor privileges if user has eligible role
-      if (userForm.value.role === 'admin' || userForm.value.role === 'super_admin' || userForm.value.role === 'clinical_practice_assistant') {
+      if (userForm.value.role === 'provider' || userForm.value.role === 'admin' || userForm.value.role === 'super_admin' || userForm.value.role === 'clinical_practice_assistant') {
         updateData.hasSupervisorPrivileges = Boolean(userForm.value.hasSupervisorPrivileges);
       }
       
@@ -1284,7 +1397,7 @@ const saveUser = async () => {
       if (userForm.value.role === 'staff' || userForm.value.role === 'support') {
         updateData.hasProviderAccess = Boolean(userForm.value.hasProviderAccess);
       }
-      if (userForm.value.role === 'provider' || userForm.value.role === 'clinician') {
+      if (userForm.value.role === 'provider') {
         updateData.hasStaffAccess = Boolean(userForm.value.hasStaffAccess);
       }
       try {
@@ -1317,10 +1430,10 @@ const saveUser = async () => {
           alert('Please enter a work email');
           return;
         }
-        if (userForm.value.agencyIds.length === 0) {
-          error.value = 'Please select at least one agency';
+        if (!userForm.value.primaryAgencyId) {
+          error.value = 'Please select an agency';
           saving.value = false;
-          alert('Please select at least one agency');
+          alert('Please select an agency');
           return;
         }
         
@@ -1329,7 +1442,7 @@ const saveUser = async () => {
           firstName: userForm.value.firstName?.trim() || '',
           lastName: userForm.value.lastName?.trim() || '',
           workEmail: userForm.value.workEmail.trim(),
-          agencyId: parseInt(userForm.value.agencyIds[0]), // Use first agency
+          agencyId: parseInt(userForm.value.primaryAgencyId, 10),
           role: userForm.value.role || 'provider'
         };
         
@@ -1364,12 +1477,11 @@ const saveUser = async () => {
         fetchUsers();
       } else {
         // Create user (password is auto-generated, not sent)
+        const primaryAgencyId = parseInt(userForm.value.primaryAgencyId, 10);
         createData = {
           lastName: userForm.value.lastName?.trim() || '',
           role: userForm.value.role || 'provider',
-          agencyIds: userForm.value.agencyIds && userForm.value.agencyIds.length > 0 
-            ? userForm.value.agencyIds.map(id => parseInt(id)).filter(id => !isNaN(id))
-            : []
+          agencyIds: !isNaN(primaryAgencyId) ? [primaryAgencyId] : []
         };
 
         // Include provider-selectable capability for admin/support/staff if enabled
@@ -1439,10 +1551,10 @@ const saveUser = async () => {
         const newUserId = response.data.user.id;
         
         // Assign onboarding package if selected
-        if (userForm.value.onboardingPackageId && userForm.value.agencyIds.length > 0) {
+        if (userForm.value.onboardingPackageId && userForm.value.primaryAgencyId) {
           try {
             // Use the first selected agency for package assignment
-            const primaryAgencyId = parseInt(userForm.value.agencyIds[0]);
+            const primaryAgencyId = parseInt(userForm.value.primaryAgencyId, 10);
             const packageId = parseInt(userForm.value.onboardingPackageId);
             
             if (isNaN(primaryAgencyId) || isNaN(packageId) || isNaN(newUserId)) {
@@ -1759,6 +1871,7 @@ const closeModal = () => {
     workPhoneExtension: '',
     role: 'provider',
     agencyIds: [],
+    primaryAgencyId: '',
     onboardingPackageId: '',
     createAsCurrentEmployee: false
   };
@@ -1836,17 +1949,63 @@ const formatRole = (role) => {
   const roleMap = {
     'super_admin': 'Super Admin',
     'admin': 'Admin',
-    'support': 'Staff',
-    'supervisor': 'Supervisor',
+    'support': 'Staff (Admin Tools)',
+    'supervisor': 'Provider',
     'clinical_practice_assistant': 'CPA',
-    'staff': 'Onboarding Staff',
+    'staff': 'Staff',
     'provider': 'Provider',
     'clinician': 'Provider',
     'school_staff': 'School Staff',
-    'facilitator': 'Facilitator',
-    'intern': 'Intern'
+    'facilitator': 'Provider',
+    'intern': 'Provider'
   };
   return roleMap[role] || role;
+};
+
+const availabilityBadgeText = (u) => {
+  const globalOpen = u?.provider_accepting_new_clients !== false;
+  if (globalOpen) return 'OPEN';
+  const openSchool = !!u?.provider_has_open_school_slots;
+  return openSchool ? 'OPEN School' : 'CLOSED';
+};
+
+const availabilityBadgeTitle = (u) => {
+  const globalOpen = u?.provider_accepting_new_clients !== false;
+  if (globalOpen) return 'Open globally for new clients';
+  const openSchool = !!u?.provider_has_open_school_slots;
+  return openSchool ? 'Closed globally, but Open for at least one school (override + slots available)' : 'Closed for new clients';
+};
+
+const availabilityBadgeClass = (u) => {
+  const globalOpen = u?.provider_accepting_new_clients !== false;
+  if (globalOpen) return 'badge-success';
+  const openSchool = !!u?.provider_has_open_school_slots;
+  return openSchool ? 'badge-info' : 'badge-warning';
+};
+
+const availabilitySavingId = ref(null);
+const canQuickToggleAvailability = (u) => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const can = role === 'super_admin' || role === 'admin' || role === 'support';
+  const isProviderLike = ['provider', 'clinician'].includes(String(u?.role || '').toLowerCase());
+  return can && isProviderLike;
+};
+
+const toggleUserAvailability = async (u, checked) => {
+  try {
+    if (!u?.id) return;
+    availabilitySavingId.value = u.id;
+    await api.put(`/users/${u.id}`, { providerAcceptingNewClients: !!checked });
+    // Update local row immediately
+    u.provider_accepting_new_clients = !!checked;
+    // Reload users to refresh OPEN School calculation + consistency
+    await fetchUsers();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to update availability');
+    await fetchUsers();
+  } finally {
+    availabilitySavingId.value = null;
+  }
 };
 
 const fetchSupervisorsList = async () => {
@@ -1926,10 +2085,10 @@ const openAddSuperviseeModal = async (supervisor) => {
     const agenciesResponse = await api.get(`/users/${supervisor.id}/agencies`);
     availableAgenciesForAssignment.value = agenciesResponse.data || [];
     
-    // Get all users that could be supervisees (staff, clinician, facilitator, intern)
+    // Get all users that could be supervisees (providers/staff)
     const usersResponse = await api.get('/users');
     let users = usersResponse.data.filter(u => 
-      ['staff', 'clinician', 'facilitator', 'intern'].includes(u.role)
+      ['provider', 'staff', 'clinician', 'facilitator', 'intern'].includes(u.role)
     );
     
     // Filter by supervisor's agencies
@@ -2061,8 +2220,43 @@ const sortedUsers = computed(() => {
       return name.includes(q) || email.includes(q) || agenciesStr.includes(q);
     });
   }
-  
-  return filtered;
+
+  const get = (u, k) => String(u?.[k] || '').trim().toLowerCase();
+  const nameLastFirst = (u) => `${get(u, 'last_name')}\u0000${get(u, 'first_name')}`;
+  const nameFirstLast = (u) => `${get(u, 'first_name')}\u0000${get(u, 'last_name')}`;
+
+  const sorted = [...filtered];
+  switch (userSort.value) {
+    case 'name_za':
+      sorted.sort((a, b) => nameLastFirst(b).localeCompare(nameLastFirst(a)));
+      break;
+    case 'first_last':
+      sorted.sort((a, b) => nameFirstLast(a).localeCompare(nameFirstLast(b)));
+      break;
+    case 'last_first':
+      sorted.sort((a, b) => nameLastFirst(a).localeCompare(nameLastFirst(b)));
+      break;
+    case 'credential':
+      sorted.sort((a, b) => {
+        const ac = get(a, 'provider_credential');
+        const bc = get(b, 'provider_credential');
+        if (ac && bc) {
+          const c = ac.localeCompare(bc);
+          if (c !== 0) return c;
+          return nameLastFirst(a).localeCompare(nameLastFirst(b));
+        }
+        if (ac && !bc) return -1;
+        if (!ac && bc) return 1;
+        return nameLastFirst(a).localeCompare(nameLastFirst(b));
+      });
+      break;
+    case 'name_az':
+    default:
+      sorted.sort((a, b) => nameLastFirst(a).localeCompare(nameLastFirst(b)));
+      break;
+  }
+
+  return sorted;
 });
 
 const applySorting = () => {
@@ -2091,10 +2285,23 @@ const openEmailUpdateModal = () => {
   emailUpdateResult.value = null;
   emailUpdateFile.value = null;
   emailUpdateDryRun.value = true;
+  emailUpdateCreateIfMissing.value = true;
   showEmailUpdateModal.value = true;
 };
 const closeEmailUpdateModal = () => {
   showEmailUpdateModal.value = false;
+};
+
+const openEmployeeInfoModal = () => {
+  employeeInfoResult.value = null;
+  employeeInfoFile.value = null;
+  employeeInfoAgencyId.value = agencySort.value || '';
+  employeeInfoDryRun.value = true;
+  employeeInfoUseAi.value = true;
+  showEmployeeInfoModal.value = true;
+};
+const closeEmployeeInfoModal = () => {
+  showEmployeeInfoModal.value = false;
 };
 
 const onProviderListFileChange = (e) => {
@@ -2131,6 +2338,11 @@ const onEmailUpdateFileChange = (e) => {
   emailUpdateResult.value = null;
 };
 
+const onEmployeeInfoFileChange = (e) => {
+  employeeInfoFile.value = e?.target?.files?.[0] || null;
+  employeeInfoResult.value = null;
+};
+
 const runRateSheetImport = async () => {
   if (!rateSheetFile.value || !agencySort.value) return;
   try {
@@ -2160,12 +2372,32 @@ const runEmailUpdateImport = async () => {
     fd.append('file', emailUpdateFile.value);
     fd.append('agencyId', String(parseInt(agencySort.value, 10)));
     fd.append('dryRun', emailUpdateDryRun.value ? 'true' : 'false');
+    fd.append('createIfMissing', emailUpdateCreateIfMissing.value ? 'true' : 'false');
     const r = await api.post('/provider-import/email-update', fd);
     emailUpdateResult.value = r.data;
   } catch (e) {
     alert(e.response?.data?.error?.message || e.message || 'Email update import failed');
   } finally {
     emailUpdateImporting.value = false;
+  }
+};
+
+const runEmployeeInfoImport = async () => {
+  if (!employeeInfoFile.value || !employeeInfoAgencyId.value) return;
+  try {
+    employeeInfoImporting.value = true;
+    employeeInfoResult.value = null;
+    const fd = new FormData();
+    fd.append('file', employeeInfoFile.value);
+    fd.append('agencyId', String(parseInt(employeeInfoAgencyId.value, 10)));
+    fd.append('dryRun', employeeInfoDryRun.value ? 'true' : 'false');
+    fd.append('useAi', employeeInfoUseAi.value ? 'true' : 'false');
+    const r = await api.post('/provider-import/employee-info', fd);
+    employeeInfoResult.value = r.data;
+  } catch (e) {
+    alert(e.response?.data?.error?.message || e.message || 'Employee info import failed');
+  } finally {
+    employeeInfoImporting.value = false;
   }
 };
 
@@ -2615,6 +2847,49 @@ th {
 .badge-secondary {
   background: #e5e7eb;
   color: #374151;
+}
+
+.inline-availability-toggle {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.mini-switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 18px;
+}
+.mini-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.mini-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: #cbd5e1;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition: .15s;
+}
+.mini-slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  top: 1px;
+  background-color: white;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+  transition: .15s;
+}
+.mini-switch input:checked + .mini-slider {
+  background-color: var(--primary);
+}
+.mini-switch input:checked + .mini-slider:before {
+  transform: translateX(16px);
 }
 
 .btn-warning {

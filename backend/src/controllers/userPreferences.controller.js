@@ -41,7 +41,10 @@ const buildDefaultPreferences = (userRole) => {
     reduced_motion: false,
     high_contrast_mode: false,
     larger_text: false,
-    default_landing_page: 'dashboard'
+    default_landing_page: 'dashboard',
+
+    // Dashboard preferences
+    dashboard_notification_org_types: ['agency']
   };
 };
 

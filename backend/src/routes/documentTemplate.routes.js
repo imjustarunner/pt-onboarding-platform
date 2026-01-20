@@ -17,7 +17,7 @@ import {
   duplicateTemplate,
   upload
 } from '../controllers/documentTemplate.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -122,20 +122,20 @@ const validateUserSpecificUpload = [
 ];
 
 // All routes require authentication and admin access
-router.get('/variables', authenticate, requireAdmin, getTemplateVariables); // Public endpoint for variables
-router.post('/upload', authenticate, requireAdmin, upload.single('file'), uploadTemplate);
-router.post('/', authenticate, requireAdmin, validateTemplate, createTemplate);
-router.get('/', authenticate, requireAdmin, getTemplates);
-router.get('/archived', authenticate, requireAdmin, getArchivedTemplates); // Must come before /:id
+router.get('/variables', authenticate, requireBackofficeAdmin, getTemplateVariables); // Public endpoint for variables
+router.post('/upload', authenticate, requireBackofficeAdmin, upload.single('file'), uploadTemplate);
+router.post('/', authenticate, requireBackofficeAdmin, validateTemplate, createTemplate);
+router.get('/', authenticate, requireBackofficeAdmin, getTemplates);
+router.get('/archived', authenticate, requireBackofficeAdmin, getArchivedTemplates); // Must come before /:id
 router.get('/:id/task', authenticate, getTemplateForTask); // Allow users to access templates for their assigned tasks
-router.get('/:id', authenticate, requireAdmin, getTemplate);
-router.get('/:id/acroform-fields', authenticate, requireAdmin, getAcroFormFields);
-router.put('/:id', authenticate, requireAdmin, validateTemplateUpdate, updateTemplate);
-router.post('/:id/archive', authenticate, requireAdmin, archiveTemplate);
-router.post('/:id/restore', authenticate, requireAdmin, restoreTemplate);
-router.post('/:id/duplicate', authenticate, requireAdmin, duplicateTemplate);
-router.delete('/:id', authenticate, requireAdmin, deleteTemplate);
-router.get('/versions/history', authenticate, requireAdmin, getVersionHistory);
+router.get('/:id', authenticate, requireBackofficeAdmin, getTemplate);
+router.get('/:id/acroform-fields', authenticate, requireBackofficeAdmin, getAcroFormFields);
+router.put('/:id', authenticate, requireBackofficeAdmin, validateTemplateUpdate, updateTemplate);
+router.post('/:id/archive', authenticate, requireBackofficeAdmin, archiveTemplate);
+router.post('/:id/restore', authenticate, requireBackofficeAdmin, restoreTemplate);
+router.post('/:id/duplicate', authenticate, requireBackofficeAdmin, duplicateTemplate);
+router.delete('/:id', authenticate, requireBackofficeAdmin, deleteTemplate);
+router.get('/versions/history', authenticate, requireBackofficeAdmin, getVersionHistory);
 
 export default router;
 

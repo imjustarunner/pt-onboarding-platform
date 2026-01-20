@@ -11,14 +11,14 @@ import {
   upload,
   uploadMultiple
 } from '../controllers/icon.controller.js';
-import { authenticate, requireAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
 
 const router = express.Router();
 
 // All routes require authentication and admin role (admin or super_admin)
 router.use(authenticate);
-router.use(requireAdmin);
+router.use(requireBackofficeAdmin);
 
 router.get('/', getAllIcons);
 router.get('/:id', getIconById);

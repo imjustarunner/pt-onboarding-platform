@@ -32,6 +32,7 @@ import {
   getPayrollRateTemplate,
   createPayrollRateTemplateFromUser,
   renamePayrollRateTemplate,
+  deletePayrollRateTemplate,
   applyPayrollRateTemplateToUser,
   importPayrollAuto,
   detectPayrollAuto,
@@ -40,6 +41,7 @@ import {
   listPayrollAgencyUsers,
   upsertRate,
   listRatesForUser,
+  deleteRateForUser,
   listUserPayroll,
   requestAdpExport,
   ensureFuturePayrollPeriods,
@@ -123,6 +125,7 @@ router.put('/periods/:id/adjustments/:userId', upsertPayrollAdjustmentsForUser);
 // Rates
 router.post('/rates', upsertRate);
 router.get('/rates', listRatesForUser);
+router.delete('/rates', deleteRateForUser);
 router.get('/rate-cards', getPayrollRateCard);
 router.post('/rate-cards', upsertPayrollRateCard);
 router.get('/service-code-rules', listServiceCodeRules);
@@ -182,6 +185,7 @@ router.get('/rate-templates', listPayrollRateTemplates);
 router.get('/rate-templates/:id', getPayrollRateTemplate);
 router.post('/rate-templates/from-user', createPayrollRateTemplateFromUser);
 router.patch('/rate-templates/:id', renamePayrollRateTemplate);
+router.delete('/rate-templates/:id', deletePayrollRateTemplate);
 router.post('/rate-templates/:id/apply', applyPayrollRateTemplateToUser);
 
 // CSV import into a period

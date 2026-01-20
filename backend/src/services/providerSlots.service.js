@@ -3,7 +3,7 @@
  * Callers should be inside a transaction on the same connection.
  */
 
-export async function adjustProviderSlots(connection, { providerUserId, schoolId, dayOfWeek, delta }) {
+export async function adjustProviderSlots(connection, { providerUserId, schoolId, dayOfWeek, delta, allowNegative = false }) {
   const [rows] = await connection.execute(
     `SELECT id, slots_available
      FROM provider_school_assignments
@@ -16,9 +16,9 @@ export async function adjustProviderSlots(connection, { providerUserId, schoolId
   if (!rows[0]?.id) return { ok: false, reason: 'Provider is not scheduled for that school/day' };
 
   const next = (rows[0].slots_available ?? 0) + delta;
-  if (next < 0) return { ok: false, reason: 'No provider slots available for that school/day' };
+  if (next < 0 && !allowNegative) return { ok: false, reason: 'No provider slots available for that school/day' };
 
   await connection.execute(`UPDATE provider_school_assignments SET slots_available = ? WHERE id = ?`, [next, rows[0].id]);
-  return { ok: true };
+  return { ok: true, nextSlotsAvailable: next };
 }
 

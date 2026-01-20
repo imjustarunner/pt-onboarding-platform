@@ -6,6 +6,7 @@ import Agency from '../models/Agency.model.js';
 import pool from '../config/database.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { notifyClientBecameCurrent, notifyPaperworkReceived } from '../services/clientNotifications.service.js';
+import { logClientAccess } from '../services/clientAccessLog.service.js';
 
 /**
  * Get all clients (agency view)
@@ -83,6 +84,7 @@ export const getClientById = async (req, res, next) => {
     // Permission check: Verify user has access to this client
     // Super admin: Full access
     if (userRole === 'super_admin') {
+      logClientAccess(req, client.id, 'view_client').catch(() => {});
       return res.json(client);
     }
 
@@ -115,12 +117,37 @@ export const getClientById = async (req, res, next) => {
         submission_date: client.submission_date,
         document_status: client.document_status,
         organization_name: client.organization_name,
-        organization_slug: client.organization_slug
+        organization_slug: client.organization_slug,
+
+        // Compliance checklist fields (non-clinical / operational)
+        parents_contacted_at: client.parents_contacted_at || null,
+        parents_contacted_successful:
+          client.parents_contacted_successful === null || client.parents_contacted_successful === undefined
+            ? null
+            : !!client.parents_contacted_successful,
+        intake_at: client.intake_at || null,
+        first_service_at: client.first_service_at || null,
+        checklist_updated_at: client.checklist_updated_at || null,
+        checklist_updated_by_name: client.checklist_updated_by_name || null
       };
+      logClientAccess(req, client.id, 'view_client_restricted').catch(() => {});
       return res.json(restrictedClient);
     }
 
     // Agency user: Return full client data
+    // Best-effort: attach checklist audit name if present.
+    try {
+      if (client?.checklist_updated_by_user_id) {
+        const u = await User.findById(client.checklist_updated_by_user_id);
+        if (u?.first_name || u?.last_name) {
+          client.checklist_updated_by_name = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    logClientAccess(req, client.id, 'view_client').catch(() => {});
     res.json(client);
   } catch (error) {
     console.error('Get client by ID error:', error);
@@ -403,6 +430,112 @@ export const updateClientStatus = async (req, res, next) => {
 };
 
 /**
+ * Update client compliance checklist (operational)
+ * PUT /api/clients/:id/compliance-checklist
+ */
+export const updateClientComplianceChecklist = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const clientId = parseInt(id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const currentClient = await Client.findById(clientId, { includeSensitive: true });
+    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    // Permission: provider assigned to client, or agency staff/admin/support/super_admin.
+    const isSuper = userRole === 'super_admin';
+    const isAgencyStaffRole = ['admin', 'support', 'staff'].includes(String(userRole || '').toLowerCase());
+    const isAssignedProvider = String(userRole || '').toLowerCase() === 'provider' && parseInt(currentClient.provider_id || 0, 10) === parseInt(userId, 10);
+    if (!isSuper && !isAgencyStaffRole && !isAssignedProvider) {
+      return res.status(403).json({ error: { message: 'You do not have permission to update this checklist' } });
+    }
+
+    // Validate user has access to the agency/org (unless super admin).
+    if (!isSuper) {
+      const userOrgs = await User.getAgencies(userId);
+      const ids = (userOrgs || []).map((o) => o.id);
+      const hasAgencyAccess = ids.includes(currentClient.agency_id);
+      const hasOrgAccess = ids.includes(currentClient.organization_id);
+      if (!hasAgencyAccess && !hasOrgAccess && !isAssignedProvider) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    }
+
+    const parseDate = (v) => {
+      if (v === null || v === undefined || v === '') return null;
+      const s = String(v).trim();
+      // Expect YYYY-MM-DD from <input type="date">
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+      return s;
+    };
+
+    const parentsContactedAt = parseDate(req.body?.parentsContactedAt);
+    const intakeAt = parseDate(req.body?.intakeAt);
+    const firstServiceAt = parseDate(req.body?.firstServiceAt);
+    const pcs = req.body?.parentsContactedSuccessful;
+    const parentsContactedSuccessful =
+      pcs === null || pcs === undefined || pcs === ''
+        ? null
+        : (pcs === true || pcs === 'true' || pcs === 1 || pcs === '1');
+
+    await pool.execute(
+      `UPDATE clients
+       SET parents_contacted_at = ?,
+           parents_contacted_successful = ?,
+           intake_at = ?,
+           first_service_at = ?,
+           checklist_updated_by_user_id = ?,
+           checklist_updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [
+        parentsContactedAt,
+        parentsContactedSuccessful === null ? null : (parentsContactedSuccessful ? 1 : 0),
+        intakeAt,
+        firstServiceAt,
+        userId,
+        clientId
+      ]
+    );
+
+    // History entry (lightweight)
+    try {
+      await pool.execute(
+        `INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
+         VALUES (?, ?, 'compliance_checklist', ?, ?, ?)`,
+        [
+          clientId,
+          userId,
+          null,
+          JSON.stringify({ parentsContactedAt, parentsContactedSuccessful, intakeAt, firstServiceAt }),
+          'Updated compliance checklist'
+        ]
+      );
+    } catch {
+      // ignore
+    }
+
+    const updated = await Client.findById(clientId, { includeSensitive: true });
+    // Attach audit name for display (best-effort)
+    let updatedByName = null;
+    if (updated?.checklist_updated_by_user_id) {
+      try {
+        const u = await User.findById(updated.checklist_updated_by_user_id);
+        if (u?.first_name || u?.last_name) updatedByName = `${u.first_name || ''} ${u.last_name || ''}`.trim();
+      } catch {
+        updatedByName = null;
+      }
+    }
+
+    res.json({ ...updated, checklist_updated_by_name: updatedByName });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * Assign provider to client
  * PUT /api/clients/:id/provider
  */
@@ -675,6 +808,7 @@ export const getClientNotes = async (req, res, next) => {
 
     // Get notes (filtered by permission)
     const notes = await ClientNotes.findByClientId(id, { hasAgencyAccess: userRole === 'super_admin' ? true : hasAgencyAccess });
+    logClientAccess(req, parseInt(id, 10), 'view_client_notes').catch(() => {});
     res.json(notes);
   } catch (error) {
     console.error('Get client notes error:', error);
@@ -689,7 +823,7 @@ export const getClientNotes = async (req, res, next) => {
 export const createClientNote = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { message, is_internal_only = false, category = 'general' } = req.body;
+    const { message, is_internal_only = false, category = 'general', urgency = 'low' } = req.body;
     const userId = req.user.id;
     const userRole = req.user.role;
 
@@ -729,8 +863,10 @@ export const createClientNote = async (req, res, next) => {
       author_id: userId,
       message: message.trim(),
       is_internal_only,
-      category
+      category,
+      urgency
     }, { hasAgencyAccess: userRole === 'super_admin' ? true : hasAgencyAccess });
+    logClientAccess(req, parseInt(id, 10), 'create_client_note').catch(() => {});
 
     // Notify support staff (and assigned provider) about new note
     try {
@@ -779,6 +915,95 @@ export const createClientNote = async (req, res, next) => {
     if (error.message.includes('internal notes')) {
       return res.status(403).json({ error: { message: error.message } });
     }
+    next(error);
+  }
+};
+
+/**
+ * Get client access log (admin/support/staff)
+ * GET /api/clients/:id/access-log
+ */
+export const getClientAccessLog = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userRole = String(req.user?.role || '').toLowerCase();
+    if (!['super_admin', 'admin', 'support', 'staff'].includes(userRole)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    if (userRole !== 'super_admin') {
+      const userOrgs = await User.getAgencies(req.user.id);
+      const ids = (userOrgs || []).map((o) => o.id);
+      const hasAgencyAccess = ids.includes(client.agency_id);
+      if (!hasAgencyAccess) return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT l.*,
+              u.first_name AS user_first_name,
+              u.last_name AS user_last_name,
+              u.email AS user_email
+       FROM client_access_logs l
+       LEFT JOIN users u ON u.id = l.user_id
+       WHERE l.client_id = ?
+       ORDER BY l.created_at DESC
+       LIMIT 200`,
+      [clientId]
+    );
+
+    res.json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Mark client notes as read for the current user (per-client thread).
+ * POST /api/clients/:id/notes/read
+ */
+export const markClientNotesRead = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    // Permission check: reuse the same access rule as notes fetch.
+    const currentClient = await Client.findById(clientId);
+    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    if (req.user.role !== 'super_admin') {
+      const userAgencies = await User.getAgencies(userId);
+      const userOrgIds = (userAgencies || []).map(a => a.id);
+      const hasAgencyAccess = userOrgIds.includes(currentClient.agency_id);
+      const hasSchoolAccess = userOrgIds.includes(currentClient.organization_id);
+      if (!hasAgencyAccess && !hasSchoolAccess) {
+        return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+      }
+    }
+
+    // Best-effort insert/update; table may not exist yet in older environments.
+    try {
+      await pool.execute(
+        `INSERT INTO client_note_reads (client_id, user_id, last_read_at)
+         VALUES (?, ?, CURRENT_TIMESTAMP)
+         ON DUPLICATE KEY UPDATE last_read_at = CURRENT_TIMESTAMP`,
+        [clientId, userId]
+      );
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (!missing) throw e;
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
     next(error);
   }
 };

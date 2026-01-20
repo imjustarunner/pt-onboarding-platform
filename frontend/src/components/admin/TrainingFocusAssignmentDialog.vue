@@ -138,11 +138,17 @@ const handleAssign = async () => {
     assigning.value = true;
     error.value = '';
 
-    await api.post(`/training-focuses/${props.trainingFocus.id}/assign`, {
+    const payload = {
       userIds: selectedUserIds.value,
-      agencyId: selectedAgencyId.value,
-      dueDate: dueDate.value || null
-    });
+      agencyId: selectedAgencyId.value
+    };
+    // Only send dueDate when explicitly set, so re-opening this dialog doesn't
+    // unintentionally overwrite existing due dates.
+    if (dueDate.value) {
+      payload.dueDate = new Date(dueDate.value).toISOString();
+    }
+
+    await api.post(`/training-focuses/${props.trainingFocus.id}/assign`, payload);
 
     emit('assigned');
     emit('close');

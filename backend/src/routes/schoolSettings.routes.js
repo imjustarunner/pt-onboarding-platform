@@ -3,7 +3,9 @@ import { body } from 'express-validator';
 import { authenticate, requireAgencyAdmin } from '../middleware/auth.middleware.js';
 import {
   listPaperworkDeliveryMethods,
-  upsertPaperworkDeliveryMethod
+  upsertPaperworkDeliveryMethod,
+  getSchoolCommentCategories,
+  setSchoolCommentCategories
 } from '../controllers/schoolSettings.controller.js';
 
 const router = express.Router();
@@ -35,6 +37,10 @@ router.put(
   },
   upsertPaperworkDeliveryMethod
 );
+
+// Comment categories for school client notes
+router.get('/:schoolId/comment-categories', authenticate, getSchoolCommentCategories);
+router.put('/:schoolId/comment-categories', authenticate, requireAgencyAdmin, setSchoolCommentCategories);
 
 export default router;
 

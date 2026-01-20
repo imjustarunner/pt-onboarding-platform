@@ -2,7 +2,7 @@ import express from 'express';
 import { body } from 'express-validator';
 import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations } from '../controllers/agency.controller.js';
 import { listAgencyNotificationTriggers, updateAgencyNotificationTrigger } from '../controllers/agencyNotificationTriggers.controller.js';
-import { authenticate, requireAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -210,12 +210,12 @@ router.get('/portal/:portalUrl/login-theme', getLoginThemeByPortalUrl);
 // Protected routes
 router.get('/', authenticate, getAllAgencies);
 router.get('/archived', authenticate, requireSuperAdmin, getArchivedAgencies);
-router.get('/:id/affiliated-organizations', authenticate, requireAdmin, listAffiliatedOrganizations);
+router.get('/:id/affiliated-organizations', authenticate, requireBackofficeAdmin, listAffiliatedOrganizations);
 router.get('/:id', authenticate, getAgencyById);
-router.get('/:id/notification-triggers', authenticate, requireAdmin, listAgencyNotificationTriggers);
-router.put('/:id/notification-triggers/:triggerKey', authenticate, requireAdmin, updateAgencyNotificationTrigger);
-router.post('/', authenticate, requireAdmin, validateCreateAgency, createAgency);
-router.put('/:id', authenticate, requireAdmin, validateUpdateAgency, updateAgency);
+router.get('/:id/notification-triggers', authenticate, requireBackofficeAdmin, listAgencyNotificationTriggers);
+router.put('/:id/notification-triggers/:triggerKey', authenticate, requireBackofficeAdmin, updateAgencyNotificationTrigger);
+router.post('/', authenticate, requireBackofficeAdmin, validateCreateAgency, createAgency);
+router.put('/:id', authenticate, requireBackofficeAdmin, validateUpdateAgency, updateAgency);
 router.post('/:id/archive', authenticate, requireSuperAdmin, archiveAgency);
 router.post('/:id/restore', authenticate, requireSuperAdmin, restoreAgency);
 

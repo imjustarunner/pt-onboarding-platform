@@ -15,11 +15,21 @@ class TrainingFocus {
     }
 
     const { agencyId, assignmentLevel, role, includeInactive, isTemplate, includeArchived } = filters;
+    const moduleCountSql = `(
+      SELECT COUNT(DISTINCT m.id)
+      FROM modules m
+      LEFT JOIN track_modules tm ON tm.module_id = m.id
+      WHERE (m.track_id = tt.id OR tm.track_id = tt.id)
+        AND (m.is_archived = FALSE OR m.is_archived IS NULL)
+    ) AS module_count`;
+
     let query;
     if (hasIconColumn) {
-      query = 'SELECT tt.*, i.file_path as icon_file_path, i.name as icon_name FROM training_tracks tt LEFT JOIN icons i ON tt.icon_id = i.id';
+      query = `SELECT tt.*, i.file_path as icon_file_path, i.name as icon_name, ${moduleCountSql}
+        FROM training_tracks tt
+        LEFT JOIN icons i ON tt.icon_id = i.id`;
     } else {
-      query = 'SELECT * FROM training_tracks';
+      query = `SELECT tt.*, ${moduleCountSql} FROM training_tracks tt`;
     }
     const params = [];
     const conditions = [];

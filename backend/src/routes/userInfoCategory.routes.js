@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 import {
   getAllCategories,
   createCategory,
@@ -19,9 +19,9 @@ const validateCategory = [
 ];
 
 router.get('/', authenticate, getAllCategories);
-router.post('/', authenticate, requireAdmin, validateCategory, createCategory);
-router.put('/:id', authenticate, requireAdmin, validateCategory, updateCategory);
-router.delete('/:id', authenticate, requireAdmin, deleteCategory);
+router.post('/', authenticate, requireBackofficeAdmin, validateCategory, createCategory);
+router.put('/:id', authenticate, requireBackofficeAdmin, validateCategory, updateCategory);
+router.delete('/:id', authenticate, requireBackofficeAdmin, deleteCategory);
 
 export default router;
 

@@ -573,32 +573,84 @@ async function guessExistingPayrollPeriodByMajorityDates({ agencyId, dates }) {
 }
 
 function parsePayrollRows(records) {
-  const parsed = records.map((row, idx) => {
+  const rowsArr = Array.isArray(records) ? records : [];
+  if (!rowsArr.length) return [];
+
+  const detectedHeaders = Array.from(
+    new Set(
+      Object.keys(rowsArr[0] || {})
+        .map((k) => normalizeHeaderKey(k))
+        .filter(Boolean)
+    )
+  );
+
+  const firstMatchByRegexes = (normalizedRow, regexes) => {
+    const entries = Object.entries(normalizedRow || {});
+    for (const [k, v] of entries) {
+      if (!k) continue;
+      for (const rx of regexes || []) {
+        if (rx?.test(k)) {
+          if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+        }
+      }
+    }
+    return '';
+  };
+
+  const parsed = rowsArr.map((row, idx) => {
     const normalized = {};
-    for (const [k, v] of Object.entries(row)) normalized[String(k).toLowerCase().trim()] = v;
+    for (const [k, v] of Object.entries(row || {})) {
+      const nk = normalizeHeaderKey(k);
+      if (!nk) continue;
+      normalized[nk] = v;
+    }
 
     const providerName =
       normalized['provider name'] ||
       normalized['provider'] ||
       normalized['provider full name'] ||
+      normalized['rendering provider full name'] ||
       normalized['rendering provider'] ||
       normalized['rendering provider name'] ||
       normalized['clinician'] ||
       normalized['clinician name'] ||
       normalized['clinician_name'] ||
+      normalized['rendering clinician'] ||
+      normalized['rendering clinician name'] ||
       normalized['therapist'] ||
       normalized['therapist name'] ||
+      normalized['employee name'] ||
+      normalized['staff name'] ||
+      normalized['staff'] ||
       normalized['name'] ||
+      firstMatchByRegexes(normalized, [
+        /provider.*name/,
+        /rendering.*provider/,
+        /clinician.*name/,
+        /rendering.*clinician/,
+        /therapist.*name/,
+        /employee.*name/,
+        /staff.*name/
+      ]) ||
       '';
 
     let serviceCode =
       normalized['service code'] ||
-      normalized['service_code'] ||
       normalized['service'] ||
       normalized['code'] ||
       normalized['cpt'] ||
       normalized['cpt code'] ||
-      normalized['cpt_code'] ||
+      normalized['hcpcs'] ||
+      normalized['hcpcs code'] ||
+      normalized['procedure code'] ||
+      normalized['procedure'] ||
+      firstMatchByRegexes(normalized, [
+        /service.*code/,
+        /procedure.*code/,
+        /hcpcs/,
+        /cpt.*code/,
+        /\bcode\b/
+      ]) ||
       '';
 
     const noteStatusRaw =
@@ -630,19 +682,33 @@ function parsePayrollRows(records) {
 
     const serviceDateRaw =
       normalized['date of service'] ||
+      normalized['date of service dos'] ||
       normalized['service date'] ||
       normalized['dos'] ||
+      normalized['dos date'] ||
+      normalized['date of svc'] ||
+      normalized['date of service date'] ||
       normalized['date'] ||
       normalized['appointment date'] ||
       normalized['session date'] ||
+      firstMatchByRegexes(normalized, [
+        /date.*service/,
+        /service.*date/,
+        /\bdos\b/,
+        /appointment.*date/,
+        /session.*date/
+      ]) ||
       '';
 
     const unitsRaw =
       normalized['units'] ||
-      normalized['unit_count'] ||
+      normalized['unit count'] ||
       normalized['count'] ||
       normalized['qty'] ||
       normalized['quantity'] ||
+      normalized['duration'] ||
+      normalized['minutes'] ||
+      normalized['mins'] ||
       '';
 
     // Some reports can contain blank/footer rows; ignore rows with no identifying fields at all.
@@ -712,7 +778,14 @@ function parsePayrollRows(records) {
       }
     };
   });
-  return parsed.filter(Boolean);
+  const out = parsed.filter(Boolean);
+  if (!out.length) {
+    const hdr = detectedHeaders.slice(0, 40).join(', ');
+    throw new Error(
+      `No rows found in report. Detected columns: ${hdr || '(none)'}`
+    );
+  }
+  return out;
 }
 
 function ymdOrEmpty(d) {
@@ -1229,9 +1302,14 @@ export const patchPayrollImportRow = async (req, res, next) => {
   try {
     const rowId = parseInt(req.params.rowId);
     const draftPayable = req.body?.draftPayable;
+    const unitCount = req.body?.unitCount;
+    const processed = req.body?.processed;
     if (!rowId) return res.status(400).json({ error: { message: 'rowId is required' } });
-    if (draftPayable === undefined || draftPayable === null) {
-      return res.status(400).json({ error: { message: 'draftPayable is required' } });
+    const wantsDraftPayable = !(draftPayable === undefined || draftPayable === null);
+    const wantsUnitCount = !(unitCount === undefined || unitCount === null);
+    const wantsProcessed = !(processed === undefined || processed === null);
+    if (!wantsDraftPayable && !wantsUnitCount && !wantsProcessed) {
+      return res.status(400).json({ error: { message: 'Provide at least one of: draftPayable, unitCount, processed' } });
     }
     const row = await PayrollImportRow.findById(rowId);
     if (!row) return res.status(404).json({ error: { message: 'Import row not found' } });
@@ -1243,11 +1321,42 @@ export const patchPayrollImportRow = async (req, res, next) => {
     if (st === 'finalized' || st === 'posted') {
       return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
     }
-    if (String(row.note_status || '').toUpperCase() !== 'DRAFT') {
-      return res.status(409).json({ error: { message: 'Only DRAFT rows can be toggled' } });
+
+    // Draft payable toggle (draft rows only)
+    if (wantsDraftPayable) {
+      if (String(row.note_status || '').toUpperCase() !== 'DRAFT') {
+        return res.status(409).json({ error: { message: 'Only DRAFT rows can be toggled' } });
+      }
+      await PayrollImportRow.updateDraftPayable({ rowId, draftPayable: !!draftPayable });
     }
 
-    await PayrollImportRow.updateDraftPayable({ rowId, draftPayable: !!draftPayable });
+    // Minutes + done processing for required rows
+    if (wantsUnitCount || wantsProcessed) {
+      if (!Number(row.requires_processing)) {
+        return res.status(409).json({ error: { message: 'This row does not require processing' } });
+      }
+      const codeKey = String(row.service_code || '').trim().toUpperCase();
+      if (codeKey !== 'H0031' && codeKey !== 'H0032') {
+        return res.status(409).json({ error: { message: 'Only H0031/H0032 rows can be processed' } });
+      }
+
+      if (wantsUnitCount) {
+        const next = Number(unitCount);
+        if (!Number.isFinite(next) || next <= 0) {
+          return res.status(400).json({ error: { message: 'unitCount must be a positive number (minutes)' } });
+        }
+        await PayrollImportRow.updateUnitCount({ rowId, unitCount: next });
+      }
+
+      if (wantsProcessed) {
+        const wantsDone = !!processed;
+        await PayrollImportRow.updateProcessed({
+          rowId,
+          processedAt: wantsDone ? new Date() : null,
+          processedByUserId: wantsDone ? req.user.id : null
+        });
+      }
+    }
 
     // If payroll has already been run, recompute summaries so results stay visible and accurate.
     if (st === 'ran') {
@@ -1542,6 +1651,28 @@ export const listRatesForUser = async (req, res, next) => {
   }
 };
 
+export const deleteRateForUser = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : (req.body?.agencyId ? parseInt(req.body.agencyId) : null);
+    const userId = req.query.userId ? parseInt(req.query.userId) : (req.body?.userId ? parseInt(req.body.userId) : null);
+    const serviceCode = req.query.serviceCode || req.body?.serviceCode || null;
+    if (!agencyId || !userId || !serviceCode) {
+      return res.status(400).json({ error: { message: 'agencyId, userId, and serviceCode are required' } });
+    }
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
+
+    const deleted = await PayrollRate.deleteForUserCode({
+      agencyId: resolvedAgencyId,
+      userId,
+      serviceCode: String(serviceCode).trim()
+    });
+    res.json({ ok: true, deleted });
+  } catch (e) {
+    next(e);
+  }
+};
+
 async function recomputeSummaries({ payrollPeriodId, agencyId, periodStart, periodEnd }) {
   // Load import rows
   const rows = await PayrollImportRow.listForPeriod(payrollPeriodId);
@@ -1771,8 +1902,10 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       const safeDivisor = (!Number.isFinite(d) || d <= 0) ? 1 : d;
       const safeCreditValue = Number.isFinite(creditValue) ? creditValue : 0;
 
-      const creditsHours = finalizedUnits * safeCreditValue;
-      const payHours = finalizedUnits / safeDivisor;
+      // Credits/Hours: minute-based rows use unit_count minutes and credit_value = 1/60.
+      // Pay-hours: unit_count / pay_divisor (e.g. minutes / 60).
+      const creditsHours = (finalizedUnits * safeCreditValue);
+      const payHours = (finalizedUnits / safeDivisor);
 
       totalHours += creditsHours;
       const bucket =
@@ -1790,7 +1923,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       // - Matches the Payroll Stage "Credits/Hours" column for direct rows
       if (bucket === 'direct' && tierSettings.enabled) {
         const baseUnitsForTier = Math.max(0, finalizedUnits - oldDoneNotesUnits);
-        tierCreditsCurrent += baseUnitsForTier * safeCreditValue;
+        const tierCreditsForRow = (baseUnitsForTier * safeCreditValue);
+        tierCreditsCurrent += tierCreditsForRow;
       }
 
       let rateAmount = 0;
@@ -1819,7 +1953,11 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       const computeLineAmount = ({ units, payHours }) => {
         if (perCode) {
           if (perCodeUnit === 'flat') return rateAmount;
-          if (bucket !== 'flat') return payHours * rateAmount;
+          if (bucket !== 'flat') {
+            // Per-code rates can be per-unit (fee-for-service) or per-hour (time-based).
+            if (String(perCodeUnit || '').toLowerCase() === 'per_hour') return payHours * rateAmount;
+            return units * rateAmount; // per_unit default
+          }
           return units * rateAmount;
         }
         if (rateCard && bucket !== 'flat') return payHours * rateAmount;
@@ -2056,6 +2194,9 @@ export const importPayrollCsv = [
       } catch (e) {
         return res.status(400).json({ error: { message: e.message || 'Failed to parse report' } });
       }
+      if (!parsed || parsed.length === 0) {
+        return res.status(400).json({ error: { message: 'No rows found in report' } });
+      }
 
       // Build name->user map for users in agency
       const [agencyUsers] = await pool.execute(
@@ -2065,6 +2206,22 @@ export const importPayrollCsv = [
          WHERE ua.agency_id = ?`,
         [agencyId]
       );
+
+      // H0032 per-user manual minutes toggle (Category 2).
+      const h0032ManualMinutesByUserId = new Map();
+      try {
+        const [uaRows] = await pool.execute(
+          `SELECT user_id, h0032_requires_manual_minutes
+           FROM user_agencies
+           WHERE agency_id = ?`,
+          [agencyId]
+        );
+        for (const r of uaRows || []) {
+          h0032ManualMinutesByUserId.set(Number(r.user_id), Number(r.h0032_requires_manual_minutes) ? 1 : 0);
+        }
+      } catch {
+        // column may not exist yet
+      }
 
       const nameToId = new Map();
       for (const u of agencyUsers || []) {
@@ -2097,13 +2254,29 @@ export const importPayrollCsv = [
       const rowsToInsert = parsed.map((r) => {
         const key = normalizeName(r.providerName);
         const userId = nameToId.get(key) || null;
+        const codeKey = String(r.serviceCode || '').trim().toUpperCase();
+
+        // H0031: imported as 1 occurrence, but must be treated as minutes (default 60) and must be processed.
+        // H0032: default to 30 minutes for everyone; Category-2 users additionally require processing (Done).
+        const isH0031 = codeKey === 'H0031';
+        const isH0032 = codeKey === 'H0032';
+        const h0032NeedsManualMinutes = isH0032 ? !!h0032ManualMinutesByUserId.get(userId) : false;
+
+        let unitCount = Number(r.unitCount) || 0;
+        if (isH0031) {
+          if (Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
+        } else if (isH0032) {
+          if (Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
+        }
+
+        const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManualMinutes);
         const rowFingerprint = computeRowFingerprint({
           agencyId,
           userId,
           providerName: r.providerName,
           serviceCode: r.serviceCode,
           serviceDate: r.serviceDate,
-          unitCount: r.unitCount,
+          unitCount,
           noteStatus: r.noteStatus,
           fingerprintFields: r.fingerprintFields
         });
@@ -2117,8 +2290,11 @@ export const importPayrollCsv = [
           serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
           noteStatus: r.noteStatus,
           draftPayable: r.noteStatus === 'DRAFT' ? 1 : 1, // default payable for drafts; ignored otherwise
-          unitCount: r.unitCount,
-          rowFingerprint
+          unitCount,
+          rowFingerprint,
+          requiresProcessing,
+          processedAt: null,
+          processedByUserId: null
         };
       });
 
@@ -2220,6 +2396,22 @@ export const importPayrollAuto = [
         [resolvedAgencyId]
       );
 
+      // H0032 per-user manual minutes toggle (Category 2).
+      const h0032ManualMinutesByUserId = new Map();
+      try {
+        const [uaRows] = await pool.execute(
+          `SELECT user_id, h0032_requires_manual_minutes
+           FROM user_agencies
+           WHERE agency_id = ?`,
+          [resolvedAgencyId]
+        );
+        for (const r of uaRows || []) {
+          h0032ManualMinutesByUserId.set(Number(r.user_id), Number(r.h0032_requires_manual_minutes) ? 1 : 0);
+        }
+      } catch {
+        // column may not exist yet
+      }
+
       const nameToId = new Map();
       for (const u of agencyUsers || []) {
         const full = normalizeName(`${u.first_name || ''} ${u.last_name || ''}`);
@@ -2251,13 +2443,27 @@ export const importPayrollAuto = [
       const rowsToInsert = parsed.map((r) => {
         const key = normalizeName(r.providerName);
         const userId = nameToId.get(key) || null;
+        const codeKey = String(r.serviceCode || '').trim().toUpperCase();
+
+        const isH0031 = codeKey === 'H0031';
+        const isH0032 = codeKey === 'H0032';
+        const h0032NeedsManualMinutes = isH0032 ? !!h0032ManualMinutesByUserId.get(userId) : false;
+
+        let unitCount = Number(r.unitCount) || 0;
+        if (isH0031) {
+          if (Math.abs(unitCount - 1) < 1e-9) unitCount = 60;
+        } else if (isH0032) {
+          if (Math.abs(unitCount - 1) < 1e-9) unitCount = 30;
+        }
+
+        const requiresProcessing = isH0031 || (isH0032 && h0032NeedsManualMinutes);
         const rowFingerprint = computeRowFingerprint({
           agencyId: resolvedAgencyId,
           userId,
           providerName: r.providerName,
           serviceCode: r.serviceCode,
           serviceDate: r.serviceDate,
-          unitCount: r.unitCount,
+          unitCount,
           noteStatus: r.noteStatus,
           fingerprintFields: r.fingerprintFields
         });
@@ -2271,8 +2477,11 @@ export const importPayrollAuto = [
           serviceDate: r.serviceDate ? formatYmd(r.serviceDate) : null,
           noteStatus: r.noteStatus,
           draftPayable: r.noteStatus === 'DRAFT' ? 1 : 1,
-          unitCount: r.unitCount,
-          rowFingerprint
+          unitCount,
+          rowFingerprint,
+          requiresProcessing,
+          processedAt: null,
+          processedByUserId: null
         };
       });
 
@@ -3166,6 +3375,19 @@ export const applyPayrollCarryover = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
     }
 
+    // Gate: do not allow carryover apply if this period still has unprocessed H0031/H0032 rows
+    // (unpaid NO_NOTE/DRAFT rows also must be corrected before they can be carried/paid).
+    const pendingProcessingCount = await PayrollImportRow.countUnprocessedForPeriod({ payrollPeriodId });
+    if (pendingProcessingCount > 0) {
+      const sample = await PayrollImportRow.listUnprocessedForPeriod({ payrollPeriodId, limit: 50 });
+      return res.status(409).json({
+        error: {
+          message: `Cannot apply carryover: ${pendingProcessingCount} H0031/H0032 row(s) require processing (minutes + Done) in the current pay period.`
+        },
+        pendingProcessing: { count: pendingProcessingCount, sample }
+      });
+    }
+
     let sourcePayrollPeriodId = null;
     if (priorPeriodId) {
       const prior = await PayrollPeriod.findById(priorPeriodId);
@@ -3173,20 +3395,41 @@ export const applyPayrollCarryover = async (req, res, next) => {
         return res.status(404).json({ error: { message: 'Prior pay period not found for this agency' } });
       }
       sourcePayrollPeriodId = priorPeriodId;
+
+      // Gate: do not allow carryover apply if the source period still has unprocessed required rows.
+      const sourcePendingProcessingCount = await PayrollImportRow.countUnprocessedForPeriod({ payrollPeriodId: sourcePayrollPeriodId });
+      if (sourcePendingProcessingCount > 0) {
+        const sample = await PayrollImportRow.listUnprocessedForPeriod({ payrollPeriodId: sourcePayrollPeriodId, limit: 50 });
+        return res.status(409).json({
+          error: {
+            message: `Cannot apply carryover: ${sourcePendingProcessingCount} H0031/H0032 row(s) require processing (minutes + Done) in the source pay period.`
+          },
+          pendingProcessing: { payrollPeriodId: sourcePayrollPeriodId, count: sourcePendingProcessingCount, sample }
+        });
+      }
     }
 
     let rows = [];
     if (hasRequestRows) {
       // Manual/editable apply (rare): use client-provided rows directly.
       const userIds = new Set();
+      const h0032ManualCarryoverUserIds = new Set();
       for (let i = 0; i < requestRows.length; i++) {
         const r = requestRows[i] || {};
         const userId = r.userId ? parseInt(r.userId) : null;
         const serviceCode = String(r.serviceCode || '').trim();
+        const codeKey = serviceCode.toUpperCase();
         const carry = Number(r.carryoverFinalizedUnits);
         if (!userId || !serviceCode) {
           return res.status(400).json({ error: { message: `rows[${i}] must include userId and serviceCode` } });
         }
+        // H0031 carryover requires the source period processing workflow (minutes + Done).
+        if (codeKey === 'H0031') {
+          return res.status(409).json({
+            error: { message: `Cannot apply manual carryover for ${codeKey}: these rows must be processed (minutes + Done) in their source pay period before carryover can be applied.` }
+          });
+        }
+        if (codeKey === 'H0032') h0032ManualCarryoverUserIds.add(userId);
         if (!Number.isFinite(carry) || carry <= 1e-9) {
           return res.status(400).json({ error: { message: `rows[${i}].carryoverFinalizedUnits must be a positive number` } });
         }
@@ -3213,6 +3456,30 @@ export const applyPayrollCarryover = async (req, res, next) => {
       const missing = ids.filter((id) => !okIds.has(id));
       if (missing.length) {
         return res.status(400).json({ error: { message: 'One or more selected providers are not assigned to this organization' } });
+      }
+
+      // H0032 manual-minutes toggle gate (Category-2 only).
+      if (h0032ManualCarryoverUserIds.size) {
+        const hIds = Array.from(h0032ManualCarryoverUserIds);
+        const ph = hIds.map(() => '?').join(',');
+        try {
+          const [hrows] = await pool.execute(
+            `SELECT user_id
+             FROM user_agencies
+             WHERE agency_id = ?
+               AND user_id IN (${ph})
+               AND h0032_requires_manual_minutes = 1`,
+            [period.agency_id, ...hIds]
+          );
+          if ((hrows || []).length) {
+            return res.status(409).json({
+              error: { message: 'Cannot apply manual carryover for H0032 Category-2 providers: these rows must be processed (minutes + Done) in their source pay period before carryover can be applied.' },
+              pendingProcessing: { code: 'H0032', userIds: (hrows || []).map((x) => x.user_id) }
+            });
+          }
+        } catch {
+          // column may not exist yet
+        }
       }
     } else {
       const runs = await PayrollPeriodRun.listForPeriod(priorPeriodId);
@@ -3445,6 +3712,27 @@ export const runPayrollPeriod = async (req, res, next) => {
         pendingTime: {
           count: pendingTimeCount,
           claims: sample
+        }
+      });
+    }
+
+    // Block running payroll if H0031/H0032 rows requiring minutes are not processed.
+    const pendingProcessingCount = await PayrollImportRow.countUnprocessedForPeriod({ payrollPeriodId });
+    if (pendingProcessingCount > 0) {
+      const sample = await PayrollImportRow.listUnprocessedForPeriod({ payrollPeriodId, limit: 50 });
+      const byCode = {};
+      for (const r of sample || []) {
+        const k = String(r.service_code || '').trim().toUpperCase() || 'UNKNOWN';
+        byCode[k] = (byCode[k] || 0) + 1;
+      }
+      return res.status(409).json({
+        error: {
+          message: `Cannot run payroll: ${pendingProcessingCount} H0031/H0032 row(s) require processing (minutes + Done).`
+        },
+        pendingProcessing: {
+          count: pendingProcessingCount,
+          sample,
+          sampleCountsByCode: byCode
         }
       });
     }
@@ -6836,6 +7124,15 @@ export const createPayrollRateTemplateFromUser = async (req, res, next) => {
     const resolvedAgencyId = await requirePayrollAccess(req, res, agencyIdNum);
     if (!resolvedAgencyId) return;
 
+    const trimmedName = String(name).trim();
+    const existing = await PayrollRateTemplate.findByAgencyAndName({ agencyId: resolvedAgencyId, name: trimmedName });
+    if (existing?.id) {
+      return res.status(409).json({
+        error: { message: `Template name already exists: "${trimmedName}". Please pick a different name or rename the existing template.` },
+        existingTemplateId: existing.id
+      });
+    }
+
     const [rateCard, perCodeRates] = await Promise.all([
       PayrollRateCard.findForUser(resolvedAgencyId, userIdNum),
       PayrollRate.listForUser(resolvedAgencyId, userIdNum)
@@ -6844,7 +7141,7 @@ export const createPayrollRateTemplateFromUser = async (req, res, next) => {
     const isVariable = !rateCard; // Convention: no rate card => fee-for-service template
     const t = await PayrollRateTemplate.create({
       agencyId: resolvedAgencyId,
-      name: String(name).trim(),
+      name: trimmedName,
       isVariable: isVariable ? 1 : 0,
       directRate: Number(rateCard?.direct_rate || 0),
       indirectRate: Number(rateCard?.indirect_rate || 0),
@@ -6867,6 +7164,24 @@ export const createPayrollRateTemplateFromUser = async (req, res, next) => {
 
     const rates = await PayrollRateTemplateRate.listForTemplate(t.id);
     res.status(201).json({ template: t, rates });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deletePayrollRateTemplate = async (req, res, next) => {
+  try {
+    const templateId = parseInt(req.params.id);
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : (req.body?.agencyId ? parseInt(req.body.agencyId) : null);
+    if (!templateId || !agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const resolvedAgencyId = await requirePayrollAccess(req, res, agencyId);
+    if (!resolvedAgencyId) return;
+
+    const t = await PayrollRateTemplate.findById(templateId);
+    if (!t || t.agency_id !== resolvedAgencyId) return res.status(404).json({ error: { message: 'Template not found' } });
+
+    await PayrollRateTemplate.deleteForAgency({ templateId, agencyId: resolvedAgencyId });
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

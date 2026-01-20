@@ -11,7 +11,7 @@ import {
   upload
 } from '../controllers/font.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { requireAdmin } from '../middleware/auth.middleware.js';
+import { requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -33,8 +33,8 @@ router.get('/', getAllFonts);
 router.get('/:id', getFontById);
 
 // Admin routes
-router.post('/', requireAdmin, upload.single('fontFile'), validateFont, uploadFont);
-router.put('/:id', requireAdmin, upload.single('fontFile'), validateFont, updateFont);
-router.delete('/:id', requireAdmin, deleteFont);
+router.post('/', requireBackofficeAdmin, upload.single('fontFile'), validateFont, uploadFont);
+router.put('/:id', requireBackofficeAdmin, upload.single('fontFile'), validateFont, updateFont);
+router.delete('/:id', requireBackofficeAdmin, deleteFont);
 
 export default router;

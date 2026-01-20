@@ -56,14 +56,14 @@
             All
           </button>
         </div>
-        <select 
-          v-model="filterAgencyIdForFocus" 
+        <select
+          v-model="filterAgencyIdForFocus"
           @change="handleAgencyFilterChange"
           class="filter-select"
-          :disabled="!shouldShowAgencyFilter"
+          :disabled="isAgencyFilterLocked"
         >
           <option value="">All Agencies</option>
-          <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
+          <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
             {{ agency.name }}
           </option>
         </select>
@@ -126,13 +126,14 @@
             Custom Input
           </button>
         </div>
-        <select 
-          v-model="filterAgencyId" 
+        <select
+          v-model="filterAgencyId"
           @change="handleTableAgencyFilterChange"
           class="filter-select"
+          :disabled="isAgencyFilterLocked"
         >
           <option value="">All Agencies</option>
-          <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
+          <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
             {{ agency.name }}
           </option>
         </select>
@@ -531,6 +532,27 @@
           <div class="form-group">
             <IconSelector v-model="moduleForm.iconId" label="Select Module Icon" />
           </div>
+          <div class="form-group" v-if="userRole !== 'super_admin'">
+            <label>Agency *</label>
+            <select v-model="moduleForm.agencyId" class="filter-select" :disabled="isAgencySelectionLocked" required>
+              <option value="">Select agency</option>
+              <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
+                {{ agency.name }}
+              </option>
+            </select>
+            <small style="display: block; margin-top: 4px; color: var(--text-secondary);">
+              Modules must belong to an agency. You can change this later if needed (with permissions).
+            </small>
+          </div>
+          <div class="form-group" v-else>
+            <label>Agency (Optional)</label>
+            <select v-model="moduleForm.agencyId" class="filter-select">
+              <option :value="null">Platform (No Agency)</option>
+              <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
+                {{ agency.name }}
+              </option>
+            </select>
+          </div>
           <div class="form-group">
             <label>Training Focus</label>
             <select v-model="moduleForm.trackId" class="filter-select">
@@ -574,7 +596,7 @@
             <label>Assign as On-Demand</label>
             <select v-model="moduleForm.onDemandAgencyId" @change="handleModuleOnDemandAgencyChange" class="filter-select">
               <option value="">Select Agency</option>
-              <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
+              <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
                 {{ agency.name }}
               </option>
             </select>
@@ -650,7 +672,7 @@
             <label>Agency *</label>
             <select v-model="trainingFocusForm.agencyId" required>
               <option value="">Select agency</option>
-              <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
+              <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
                 {{ agency.name }}
               </option>
             </select>
@@ -779,7 +801,7 @@
             <label>Assign as On-Demand</label>
             <select v-model="trainingFocusForm.onDemandAgencyId" @change="handleTrainingFocusOnDemandAgencyChange" class="filter-select">
               <option value="">Select Agency</option>
-              <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
+              <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
                 {{ agency.name }}
               </option>
             </select>
@@ -870,17 +892,30 @@ const userRole = computed(() => authStore.user?.role);
 const user = computed(() => authStore.user);
 const canCreateEdit = computed(() => {
   const role = authStore.user?.role;
-  return role === 'admin' || role === 'super_admin';
+  return role === 'admin' || role === 'super_admin' || role === 'support';
 });
 
-const shouldShowAgencyFilter = computed(() => {
-  if (userRole.value === 'super_admin') {
-    return true;
-  }
-  if (userRole.value === 'admin' && agencyStore.userAgencies && agencyStore.userAgencies.length > 1) {
-    return true;
-  }
-  return false;
+const availableAgencies = computed(() => {
+  if (userRole.value === 'super_admin') return agencies.value || [];
+  return agencyStore.userAgencies || [];
+});
+
+const singleAgencyId = computed(() => {
+  if (userRole.value === 'super_admin') return null;
+  const list = availableAgencies.value || [];
+  return list.length === 1 ? list[0].id : null;
+});
+
+const isAgencyFilterLocked = computed(() => {
+  // "Gray out" the selector when the user only has one agency affiliation.
+  if (userRole.value === 'super_admin') return false;
+  return (availableAgencies.value || []).length <= 1;
+});
+
+const isAgencySelectionLocked = computed(() => {
+  // For module create/edit: lock agency selection if user only has one agency.
+  if (userRole.value === 'super_admin') return false;
+  return (availableAgencies.value || []).length <= 1;
 });
 
 const modules = ref([]);
@@ -989,9 +1024,14 @@ const filteredModules = computed(() => {
       // When on-demand filter is ON: Show only modules assigned as on-demand for this agency
       filtered = filtered.filter(m => isModuleOnDemand(m.id, agencyId));
     } else {
-      // When on-demand filter is OFF: Show modules that belong to this agency
-      // (Do NOT hide on-demand modules; admins still expect to see them here.)
-      filtered = filtered.filter(m => m.agency_id === agencyId);
+      // When on-demand filter is OFF: Show modules that belong to this agency OR shared modules.
+      // Also keep "orphan" modules created by this user visible so they can be fixed.
+      const myId = Number(user.value?.id);
+      filtered = filtered.filter(m =>
+        m.agency_id === agencyId ||
+        m.is_shared === true || m.is_shared === 1 ||
+        (m.agency_id === null && (m.is_shared === false || m.is_shared === 0 || m.is_shared === null) && Number(m.created_by_user_id) === myId)
+      );
     }
   } else if (showOnDemandModulesOnly.value) {
     // When no agency is selected but on-demand filter is ON: Show modules assigned as on-demand for ANY agency
@@ -1055,6 +1095,16 @@ const fetchModules = async () => {
     error.value = err.response?.data?.error?.message || 'Failed to load modules';
   } finally {
     loading.value = false;
+  }
+};
+
+const applyDefaultAgencyContext = async () => {
+  // If a user only has one agency, default filters to it (and the UI will be disabled).
+  if (singleAgencyId.value) {
+    filterAgencyId.value = String(singleAgencyId.value);
+    filterAgencyIdForFocus.value = String(singleAgencyId.value);
+    // Ensure on-demand assignments are loaded for that agency (used by table toggle + modal)
+    await fetchOnDemandForAgency(singleAgencyId.value);
   }
 };
 
@@ -1264,7 +1314,12 @@ const getModuleCountForFocus = (focusId) => {
   } else if (statusFilter.value === 'inactive') {
     return focusModulesFromList.filter(m => m.is_active === false || m.is_active === 0 || m.is_active === null).length;
   }
-  return focusModulesFromList.length;
+  if (focusModulesFromList.length > 0) return focusModulesFromList.length;
+
+  // Fallback: use backend-provided module_count (covers track_modules pivot).
+  const focus = (trainingFocuses.value || []).find((f) => f.id === focusId);
+  const count = Number(focus?.module_count ?? focus?.modules_count ?? 0);
+  return Number.isFinite(count) ? count : 0;
 };
 
 const toggleTrainingFocusStatus = async (focus) => {
@@ -1873,6 +1928,14 @@ const toggleModuleActive = async (module) => {
 const saveModule = async (openContentEditor = false) => {
   try {
     saving.value = true;
+    // Enforce agency assignment for agency-scoped admins/support.
+    if (userRole.value !== 'super_admin') {
+      if (!moduleForm.value.agencyId) {
+        alert('Please select an agency for this module.');
+        saving.value = false;
+        return;
+      }
+    }
     const data = {
       title: moduleForm.value.title,
       description: moduleForm.value.description,
@@ -2024,6 +2087,7 @@ const closeModal = () => {
     title: '',
     description: '',
     orderIndex: 0,
+    estimatedTimeMinutes: null,
     isActive: true,
     agencyId: null,
     trackId: null,
@@ -2031,6 +2095,17 @@ const closeModal = () => {
     onDemandAgencyId: null
   };
 };
+
+watch(showCreateModal, (isOpen) => {
+  if (!isOpen) return;
+  if (editingModule.value) return;
+  // Default agency assignment when opening the create modal.
+  if (userRole.value !== 'super_admin') {
+    moduleForm.value.agencyId = singleAgencyId.value || (filterAgencyId.value ? parseInt(filterAgencyId.value, 10) : null);
+  } else {
+    moduleForm.value.agencyId = filterAgencyId.value ? parseInt(filterAgencyId.value, 10) : null;
+  }
+});
 
 const isModuleOnDemandForAgency = computed(() => {
   if (!moduleForm.value.onDemandAgencyId || !editingModule.value) {
@@ -2400,6 +2475,8 @@ const createModuleForTrainingFocus = async () => {
   if (editingTrainingFocus.value) {
     closeTrainingFocusModal();
     moduleForm.value.trackId = editingTrainingFocus.value.id;
+    // Default agency based on the training focus agency (or user's only agency)
+    moduleForm.value.agencyId = editingTrainingFocus.value.agency_id || singleAgencyId.value || moduleForm.value.agencyId;
     showCreateModal.value = true;
   }
 };
@@ -2572,6 +2649,7 @@ onMounted(async () => {
     await fetchTrainingFocuses();
     await fetchAllChecklistItems(); // Load all checklist items for lookup
     fetchModules();
+    await applyDefaultAgencyContext();
     // Only fetch on-demand assignments if user has agencies
     if (userRole.value !== 'super_admin' && agencyStore.userAgencies && agencyStore.userAgencies.length > 0) {
       await fetchOnDemandAssignments();
@@ -2853,7 +2931,9 @@ th {
   background: white;
   border-radius: 12px;
   box-shadow: var(--shadow);
-  overflow: hidden;
+  /* Allow dropdowns to overflow (content menu) */
+  overflow-x: hidden;
+  overflow-y: visible;
   border: 1px solid var(--border);
 }
 
@@ -2877,7 +2957,7 @@ th {
   transition: background-color 0.2s;
   gap: 12px;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   min-width: 0;
 }
 
@@ -2964,6 +3044,7 @@ th {
   background-color: #f8f9fa;
   border-top: 1px solid var(--border);
   padding: 0;
+  overflow: visible;
 }
 
 .loading-modules,
@@ -2986,7 +3067,7 @@ th {
   transition: background-color 0.2s;
   gap: 16px;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   min-width: 0;
 }
 
@@ -3124,7 +3205,8 @@ th {
   border: 1px solid #ddd;
   border-radius: 6px;
   box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-  z-index: 1000;
+  /* Must sit above focus containers and modals */
+  z-index: 3000;
   min-width: 160px;
   overflow: hidden;
 }

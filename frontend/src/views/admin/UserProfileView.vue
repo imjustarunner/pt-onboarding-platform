@@ -4,6 +4,10 @@
       <div>
         <router-link to="/admin/users" class="back-link">← Back to Users</router-link>
         <div class="user-header-info">
+          <div class="header-avatar">
+            <img v-if="headerPhotoUrl" :src="headerPhotoUrl" alt="Profile photo" class="header-photo" />
+            <div v-else class="header-photo-fallback" aria-hidden="true">{{ headerInitials }}</div>
+          </div>
           <h1>{{ user?.first_name }} {{ user?.last_name }}</h1>
           <span 
             v-if="user" 
@@ -11,8 +15,48 @@
           >
             {{ getStatusLabel(user.status, user.is_active) }}
           </span>
+
+          <!-- Global availability (providers) -->
+          <div
+            v-if="showGlobalAvailabilityInHeader"
+            class="header-availability"
+            :title="providerAcceptingNewClients ? 'OPEN (global)' : 'CLOSED (global)'"
+          >
+            <span class="header-availability-label">Global</span>
+            <div class="toggle-switch toggle-switch-sm">
+              <input
+                type="checkbox"
+                v-model="providerAcceptingNewClients"
+                :disabled="!canToggleGlobalAvailability || updatingGlobalAvailability"
+                @change="saveGlobalAvailability"
+              />
+              <span class="slider"></span>
+            </div>
+            <button type="button" class="header-availability-info" @click="showGlobalAvailabilityHint = !showGlobalAvailabilityHint">
+              i
+            </button>
+            <div v-if="showGlobalAvailabilityHint" class="header-availability-hint">
+              <strong>Reminder:</strong> Please ensure your schedule is open in the EHR system for the times that you are available via “Extra availability”.
+            </div>
+          </div>
         </div>
         <p class="subtitle">{{ user?.email }}</p>
+
+        <div v-if="canEditUser" style="margin-top: 10px;">
+          <input
+            ref="profilePhotoInput"
+            type="file"
+            accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+            style="display:none;"
+            @change="onAdminPhotoSelected"
+          />
+          <div style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap;">
+            <button class="btn btn-secondary btn-sm" type="button" @click="profilePhotoInput?.click()" :disabled="photoUploading">
+              {{ photoUploading ? 'Uploading…' : 'Upload Profile Photo' }}
+            </button>
+            <div v-if="photoError" class="error" style="margin:0;">{{ photoError }}</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -163,19 +207,29 @@
                   <select v-model="accountForm.role" :disabled="!isEditingAccount || !canChangeRole">
                     <option v-if="canAssignSuperAdmin" value="super_admin">Super Admin</option>
                     <option v-if="canAssignAdmin" value="admin">Admin</option>
-                    <option v-if="canAssignSupport" value="support">Staff</option>
-                    <option value="supervisor">Supervisor</option>
+                    <option v-if="canAssignSupport" value="support">Staff (Admin Tools)</option>
                     <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
-                    <option value="staff">Onboarding Staff</option>
+                    <option value="staff">Staff</option>
                     <option value="provider">Provider</option>
                     <option value="school_staff">School Staff</option>
-                    <option value="facilitator">Facilitator</option>
-                    <option value="intern">Intern</option>
                   </select>
                   <small v-if="!canChangeRole" class="form-help">You don't have permission to change roles</small>
                   <small v-else-if="!canAssignSuperAdmin && accountForm.role === 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
                   <small v-else-if="!canAssignAdmin && accountForm.role === 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
                   <small v-else-if="!canAssignSupport && accountForm.role === 'support'" class="form-help">Only super admins and admins can assign the staff role</small>
+                </div>
+
+                <div class="form-group form-group-full">
+                  <label>Credential</label>
+                  <input
+                    v-model="accountForm.credential"
+                    type="text"
+                    placeholder="e.g., LCSW, LPC, Intern, CSW, etc."
+                    :disabled="!isEditingAccount"
+                  />
+                  <small class="form-help">
+                    Used for classification/display. This does not change permissions.
+                  </small>
                 </div>
               </div>
               
@@ -203,7 +257,43 @@
                 </div>
                 <div v-else class="agencies-list">
                   <div v-for="agency in userAgencies" :key="agency.id" class="agency-item">
-                    <span class="agency-name">{{ agency.name }}</span>
+                    <div style="display:flex; align-items:center; gap: 10px; flex-wrap: wrap;">
+                      <span class="agency-name">{{ agency.name }}</span>
+
+                      <div
+                        v-if="canEditUser"
+                        style="display:flex; align-items:center; gap: 6px;"
+                        title="Optional per-organization login email alias. This email can be used to log into the same account under this organization."
+                      >
+                        <span class="muted" style="font-size: 12px; font-weight: 700;">Login Email</span>
+                        <input
+                          class="agency-select"
+                          style="min-width: 240px;"
+                          :value="aliasForAgency(agency.id)"
+                          :disabled="savingAgencyAliasId === agency.id"
+                          placeholder="alias@domain.com"
+                          @change="saveAliasForAgency(agency.id, $event.target.value)"
+                        />
+                      </div>
+
+                      <div
+                        v-if="canEditUser && isProviderLikeRole"
+                        style="display:flex; align-items:center; gap: 6px;"
+                        title="H0032 mode is per-organization. Cat1 Hour means H0032 rows require manual minutes entry and will appear in Payroll → Raw Import → Process H0032. Cat2 Flat means H0032 defaults to 30 minutes and will not appear in that queue."
+                      >
+                        <span class="muted" style="font-size: 12px; font-weight: 700;">H0032</span>
+                        <select
+                          :value="h0032ModeForAgency(agency)"
+                          class="agency-select"
+                          style="min-width: 170px;"
+                          :disabled="updatingH0032AgencyId === agency.id"
+                          @change="setH0032Mode(agency.id, $event.target.value)"
+                        >
+                          <option value="cat1_hour">Cat1 Hour (manual minutes)</option>
+                          <option value="cat2_flat">Cat2 Flat (auto 30 min)</option>
+                        </select>
+                      </div>
+                    </div>
                     <button @click="removeAgency(agency.id)" class="btn btn-danger btn-sm">Remove</button>
                   </div>
                 </div>
@@ -216,6 +306,13 @@
                       <span v-if="agency.organization_type">({{ agency.organization_type }})</span>
                     </option>
                   </select>
+                  <input
+                    v-model="newAgencyLoginEmail"
+                    class="agency-select"
+                    style="min-width: 260px;"
+                    placeholder="Optional login email alias for this org"
+                    :disabled="!selectedAgencyId || assigningAgency"
+                  />
                   <button @click="addAgency" class="btn btn-primary btn-sm" :disabled="!selectedAgencyId || assigningAgency">
                     {{ assigningAgency ? 'Assigning...' : 'Assign' }}
                   </button>
@@ -533,9 +630,9 @@
           </div>
 
           <div v-if="canManageAssignments" class="supervisor-assignments-section">
-            <SupervisorAssignmentManager
+              <SupervisorAssignmentManager
               :supervisor-id="(user && (isSupervisor(user) || user.role === 'clinical_practice_assistant')) ? userId : null"
-              :supervisee-id="['staff', 'clinician', 'facilitator', 'intern'].includes(user?.role) ? userId : null"
+              :supervisee-id="(['provider', 'staff'].includes(user?.role)) ? userId : null"
             />
           </div>
 
@@ -553,7 +650,7 @@
                 </div>
               </div>
             </div>
-            <div v-else-if="['staff', 'clinician', 'facilitator', 'intern'].includes(user?.role)" class="assignments-info">
+            <div v-else-if="['provider', 'staff'].includes(user?.role)" class="assignments-info">
               <h4>Assigned Supervisors</h4>
               <div v-if="supervisorsLoading" class="loading">Loading supervisors...</div>
               <div v-else-if="supervisors.length === 0" class="empty-state">
@@ -579,6 +676,122 @@
           v-if="activeTab === 'provider_info'"
           :userId="userId"
         />
+
+        <div v-if="activeTab === 'school_affiliation'" class="tab-panel">
+          <h2>School Affiliation</h2>
+          <p class="hint" style="margin-top: -6px;">
+            Configure provider availability for schools/programs: global Open/Closed, per-school override, and day/hour slots.
+          </p>
+
+          <div v-if="schoolAffiliationsLoading" class="loading">Loading affiliations…</div>
+          <div v-else-if="schoolAffiliationsError" class="error">{{ schoolAffiliationsError }}</div>
+          <div v-else-if="schoolAffiliations.length === 0" class="empty-state">
+            <p>No school/program affiliations found for this provider.</p>
+          </div>
+          <div v-else class="school-affiliation-panel">
+            <div class="form-grid" style="grid-template-columns: minmax(240px, 1fr) minmax(240px, 1fr); gap: 12px;">
+              <div class="form-group">
+                <label>School / Program</label>
+                <select v-model="selectedSchoolAffiliationId" :disabled="savingSchoolAffiliation">
+                  <option value="">Select…</option>
+                  <option v-for="o in schoolAffiliations" :key="o.id" :value="String(o.id)">
+                    {{ o.name }} <span v-if="o.organization_type">({{ o.organization_type }})</span>
+                  </option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="toggle-label">
+                  <span>Global accepting new clients</span>
+                  <div class="toggle-switch">
+                    <input
+                      type="checkbox"
+                      v-model="providerAcceptingNewClients"
+                      :disabled="!canEditUser || savingSchoolAffiliation"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+                <small class="form-help">
+                  If turned off, this provider is closed everywhere unless a school override is enabled.
+                </small>
+              </div>
+            </div>
+
+            <div v-if="selectedSchoolAffiliationId" style="margin-top: 14px;">
+              <div class="form-group form-group-full">
+                <label class="toggle-label">
+                  <span>Open for this school even if globally closed</span>
+                  <div class="toggle-switch">
+                    <input
+                      type="checkbox"
+                      v-model="schoolOverrideOpen"
+                      :disabled="!canEditUser || savingSchoolAffiliation"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+                <small class="form-help">
+                  When enabled, assignments can proceed for this school even if the provider is globally closed.
+                </small>
+              </div>
+
+              <div class="card" style="margin-top: 12px;">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                  <h3 style="margin:0;">Days & slots</h3>
+                  <button class="btn btn-primary btn-sm" @click="saveSchoolAffiliation" :disabled="!canEditUser || savingSchoolAffiliation">
+                    {{ savingSchoolAffiliation ? 'Saving…' : 'Save' }}
+                  </button>
+                </div>
+
+                <div v-if="schoolAssignmentsLoading" class="loading">Loading schedule…</div>
+                <div v-else-if="schoolAssignmentsError" class="error">{{ schoolAssignmentsError }}</div>
+                <div v-else class="table-wrap">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Day</th>
+                        <th>Active</th>
+                        <th>Start</th>
+                        <th>End</th>
+                        <th>Total slots</th>
+                        <th>Available</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="d in schoolDayEdits" :key="d.dayOfWeek">
+                        <td>{{ d.dayOfWeek }}</td>
+                        <td><input type="checkbox" v-model="d.isActive" :disabled="!canEditUser || savingSchoolAffiliation" /></td>
+                        <td><input type="time" v-model="d.startTime" :disabled="!canEditUser || savingSchoolAffiliation" /></td>
+                        <td><input type="time" v-model="d.endTime" :disabled="!canEditUser || savingSchoolAffiliation" /></td>
+                        <td>
+                          <input
+                            type="number"
+                            min="0"
+                            v-model.number="d.slotsTotal"
+                            :disabled="!canEditUser || savingSchoolAffiliation"
+                            @input="d.slotsAuto = false"
+                            style="max-width: 110px;"
+                          />
+                          <button
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            style="margin-left: 6px;"
+                            :disabled="!canEditUser || savingSchoolAffiliation"
+                            @click="applyAutoSlots(d)"
+                            title="Auto (1 per hour)"
+                          >
+                            Auto
+                          </button>
+                        </td>
+                        <td>{{ d.slotsAvailableDisplay }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <UserTrainingTab
           v-if="activeTab === 'training'"
@@ -824,6 +1037,57 @@ const user = ref(null);
 const activeTab = ref(route.query.tab || 'account');
 const saving = ref(false);
 
+const profilePhotoInput = ref(null);
+const photoUploading = ref(false);
+const photoError = ref('');
+
+const uploadsBase = computed(() => {
+  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+  return baseURL.replace('/api', '') || 'http://localhost:3000';
+});
+
+const headerPhotoUrl = computed(() => {
+  const rel = user.value?.profile_photo_url || null;
+  if (!rel) return null;
+  return `${uploadsBase.value}${String(rel).startsWith('/') ? rel : `/${rel}`}`;
+});
+
+const headerInitials = computed(() => {
+  const f = String(user.value?.first_name || '').trim();
+  const l = String(user.value?.last_name || '').trim();
+  const a = f ? f[0] : '';
+  const b = l ? l[0] : '';
+  return `${a}${b}`.toUpperCase() || 'U';
+});
+
+const onAdminPhotoSelected = async (event) => {
+  try {
+    photoError.value = '';
+    const file = event?.target?.files?.[0] || null;
+    if (!file) return;
+    if (!userId.value) return;
+
+    const formData = new FormData();
+    formData.append('photo', file);
+
+    photoUploading.value = true;
+    await api.post(`/users/${userId.value}/profile-photo`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+
+    await fetchUser();
+  } catch (e) {
+    photoError.value = e.response?.data?.error?.message || 'Failed to upload photo';
+  } finally {
+    photoUploading.value = false;
+    try {
+      if (profilePhotoInput.value) profilePhotoInput.value.value = '';
+    } catch {
+      // ignore
+    }
+  }
+};
+
 // Billing acknowledgement gate when promoting to Admin beyond included limits
 const showBillingAckModal = ref(false);
 const billingImpact = ref(null); // { code, impacts: [...] }
@@ -866,7 +1130,7 @@ const canViewProviderInfo = computed(() => {
   const u = user.value;
   if (!u) return false;
   // Show for provider-like roles, or anyone explicitly provider-selectable.
-  return ['clinician', 'intern', 'facilitator'].includes(u.role) || u.has_provider_access === 1 || u.has_provider_access === true;
+  return u.role === 'provider' || u.has_provider_access === 1 || u.has_provider_access === true;
 });
 
 const supervisees = ref([]);
@@ -879,6 +1143,7 @@ const tabs = computed(() => {
     { id: 'account', label: 'Account' },
     { id: 'additional', label: 'Additional' },
     ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Provider Info' }] : []),
+    ...(canViewProviderInfo.value ? [{ id: 'school_affiliation', label: 'School Affiliation' }] : []),
     { id: 'training', label: 'Training' },
     { id: 'documents', label: 'Documents' },
     { id: 'communications', label: 'Communications' },
@@ -911,10 +1176,190 @@ const accountForm = ref({
   medcancelRateSchedule: 'none',
   companyCardEnabled: false,
   role: '',
+  credential: '',
   hasSupervisorPrivileges: false,
   hasProviderAccess: false,
   hasStaffAccess: false
 });
+
+// School affiliation (provider scheduling / availability)
+const schoolAffiliationsLoading = ref(false);
+const schoolAffiliationsError = ref('');
+const schoolAffiliations = ref([]);
+const selectedSchoolAffiliationId = ref('');
+
+const providerAcceptingNewClients = ref(true);
+const updatingGlobalAvailability = ref(false);
+const showGlobalAvailabilityHint = ref(false);
+
+const showGlobalAvailabilityInHeader = computed(() => {
+  const r = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
+  const isProviderLike = r === 'provider' || r === 'clinician' || r === 'intern' || r === 'facilitator' || r === 'supervisor';
+  return !!user.value && isProviderLike;
+});
+
+const canToggleGlobalAvailability = computed(() => {
+  const current = authStore.user;
+  if (!current) return false;
+  const currentRole = String(current.role || '').toLowerCase();
+  const isAdminLike = currentRole === 'super_admin' || currentRole === 'admin' || currentRole === 'support';
+  const isSelf = parseInt(current.id || 0, 10) === parseInt(userId.value || 0, 10);
+  return isAdminLike || isSelf;
+});
+
+const saveGlobalAvailability = async () => {
+  try {
+    if (!canToggleGlobalAvailability.value) return;
+    updatingGlobalAvailability.value = true;
+    await api.put(`/users/${userId.value}`, { providerAcceptingNewClients: Boolean(providerAcceptingNewClients.value) });
+    await fetchUser();
+    // If the user is toggling themselves, refresh the auth store so navbar reflects it.
+    try {
+      if (parseInt(authStore.user?.id || 0, 10) === parseInt(userId.value || 0, 10)) {
+        await authStore.refreshUser();
+      }
+    } catch {
+      // ignore
+    }
+    showGlobalAvailabilityHint.value = true;
+    window.setTimeout(() => { showGlobalAvailabilityHint.value = false; }, 8000);
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to update global availability');
+    // revert from server
+    await fetchUser();
+  } finally {
+    updatingGlobalAvailability.value = false;
+  }
+};
+
+const schoolAssignmentsLoading = ref(false);
+const schoolAssignmentsError = ref('');
+const savingSchoolAffiliation = ref(false);
+const schoolOverrideOpen = ref(false);
+
+const schoolDayEdits = ref([
+  { dayOfWeek: 'Monday', isActive: true, startTime: '', endTime: '', slotsTotal: 0, slotsAuto: true, slotsAvailableDisplay: '—' },
+  { dayOfWeek: 'Tuesday', isActive: true, startTime: '', endTime: '', slotsTotal: 0, slotsAuto: true, slotsAvailableDisplay: '—' },
+  { dayOfWeek: 'Wednesday', isActive: true, startTime: '', endTime: '', slotsTotal: 0, slotsAuto: true, slotsAvailableDisplay: '—' },
+  { dayOfWeek: 'Thursday', isActive: true, startTime: '', endTime: '', slotsTotal: 0, slotsAuto: true, slotsAvailableDisplay: '—' },
+  { dayOfWeek: 'Friday', isActive: true, startTime: '', endTime: '', slotsTotal: 0, slotsAuto: true, slotsAvailableDisplay: '—' }
+]);
+
+const calcAutoSlots = (start, end) => {
+  const s = String(start || '').slice(0, 5);
+  const e = String(end || '').slice(0, 5);
+  if (!/^\d{2}:\d{2}$/.test(s) || !/^\d{2}:\d{2}$/.test(e)) return 0;
+  const [sh, sm] = s.split(':').map((n) => parseInt(n, 10));
+  const [eh, em] = e.split(':').map((n) => parseInt(n, 10));
+  const mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (!Number.isFinite(mins) || mins <= 0) return 0;
+  return Math.ceil(mins / 60);
+};
+
+const applyAutoSlots = (d) => {
+  d.slotsTotal = calcAutoSlots(d.startTime, d.endTime);
+  d.slotsAuto = true;
+};
+
+const loadSchoolAffiliations = async () => {
+  try {
+    schoolAffiliationsLoading.value = true;
+    schoolAffiliationsError.value = '';
+    const r = await api.get('/provider-self/affiliations', { params: { providerUserId: userId.value } });
+    schoolAffiliations.value = r.data?.affiliations || [];
+    if (!selectedSchoolAffiliationId.value && schoolAffiliations.value.length > 0) {
+      selectedSchoolAffiliationId.value = String(schoolAffiliations.value[0].id);
+    }
+  } catch (e) {
+    schoolAffiliationsError.value = e.response?.data?.error?.message || 'Failed to load affiliations';
+    schoolAffiliations.value = [];
+  } finally {
+    schoolAffiliationsLoading.value = false;
+  }
+};
+
+const loadSchoolAssignments = async () => {
+  if (!selectedSchoolAffiliationId.value) return;
+  try {
+    schoolAssignmentsLoading.value = true;
+    schoolAssignmentsError.value = '';
+    const r = await api.get(`/provider-self/affiliations/${selectedSchoolAffiliationId.value}/assignments`, {
+      params: { providerUserId: userId.value }
+    });
+    const assignments = r.data?.assignments || [];
+    const override = r.data?.schoolAcceptingNewClientsOverride;
+    schoolOverrideOpen.value = override === true;
+
+    const byDay = new Map(assignments.map((a) => [String(a.day_of_week), a]));
+    schoolDayEdits.value = (schoolDayEdits.value || []).map((d) => {
+      const a = byDay.get(d.dayOfWeek);
+      const start = a?.start_time ? String(a.start_time).slice(0, 5) : '';
+      const end = a?.end_time ? String(a.end_time).slice(0, 5) : '';
+      const autoSlots = calcAutoSlots(start, end);
+      const slotsTotal = a?.slots_total !== undefined && a?.slots_total !== null ? Number(a.slots_total) : autoSlots;
+      const slotsAvail = a?.slots_available !== undefined && a?.slots_available !== null ? Number(a.slots_available) : null;
+      return {
+        ...d,
+        isActive: a ? Boolean(a.is_active) : false,
+        startTime: start,
+        endTime: end,
+        slotsTotal: Number.isFinite(slotsTotal) ? slotsTotal : 0,
+        slotsAuto: slotsTotal === autoSlots,
+        slotsAvailableDisplay: slotsAvail === null ? '—' : String(slotsAvail)
+      };
+    });
+  } catch (e) {
+    schoolAssignmentsError.value = e.response?.data?.error?.message || 'Failed to load school assignments';
+  } finally {
+    schoolAssignmentsLoading.value = false;
+  }
+};
+
+const saveSchoolAffiliation = async () => {
+  if (!selectedSchoolAffiliationId.value) return;
+  try {
+    savingSchoolAffiliation.value = true;
+
+    // Save global open/closed flag via users endpoint.
+    await api.put(`/users/${userId.value}`, {
+      providerAcceptingNewClients: Boolean(providerAcceptingNewClients.value)
+    });
+
+    const days = (schoolDayEdits.value || []).map((d) => {
+      const next = { ...d };
+      if (next.slotsAuto) {
+        next.slotsTotal = calcAutoSlots(next.startTime, next.endTime);
+      }
+      return {
+        dayOfWeek: next.dayOfWeek,
+        isActive: Boolean(next.isActive),
+        startTime: next.startTime || null,
+        endTime: next.endTime || null,
+        slotsTotal: Number(next.slotsTotal || 0)
+      };
+    });
+
+    await api.put(
+      `/provider-self/affiliations/${selectedSchoolAffiliationId.value}/assignments`,
+      {
+        schoolAcceptingNewClientsOverride: schoolOverrideOpen.value ? true : null,
+        days
+      },
+      { params: { providerUserId: userId.value } }
+    );
+
+    await fetchUser();
+    await loadSchoolAssignments();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to save school affiliation');
+  } finally {
+    savingSchoolAffiliation.value = false;
+  }
+};
+
+// Provider credential (classification) stored in user_info_values (field_key: provider_credential)
+const providerCredentialFieldId = ref(null);
+const providerCredentialLoaded = ref(false);
 
 const isEditingAccount = ref(false);
 
@@ -933,13 +1378,14 @@ const canToggleSupervisorPrivileges = computed(() => {
   if (!role) {
     return false;
   }
-  const eligibleRoles = ['admin', 'super_admin', 'clinical_practice_assistant'];
+  // Supervisors are represented by this boolean; "provider + supervisor privileges" is the preferred model.
+  const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant'];
   return eligibleRoles.includes(role);
 });
 
 // Watch for role changes to reset supervisor privileges if role becomes ineligible
 watch(() => accountForm.value.role, (newRole) => {
-  const eligibleRoles = ['admin', 'super_admin', 'clinical_practice_assistant'];
+  const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant'];
   if (!eligibleRoles.includes(newRole)) {
     accountForm.value.hasSupervisorPrivileges = false;
   }
@@ -947,9 +1393,20 @@ watch(() => accountForm.value.role, (newRole) => {
   if (newRole !== 'staff' && newRole !== 'support') {
     accountForm.value.hasProviderAccess = false;
   }
-  if (newRole !== 'provider' && newRole !== 'clinician') {
+  if (newRole !== 'provider') {
     accountForm.value.hasStaffAccess = false;
   }
+});
+
+watch(activeTab, async (t) => {
+  if (t === 'school_affiliation') {
+    await loadSchoolAffiliations();
+    await loadSchoolAssignments();
+  }
+});
+
+watch(selectedSchoolAffiliationId, async () => {
+  await loadSchoolAssignments();
 });
 
 const showResetPasswordLinkModal = ref(false);
@@ -961,6 +1418,11 @@ const userAgencies = ref([]);
 const availableAgencies = ref([]);
 const selectedAgencyId = ref('');
 const assigningAgency = ref(false);
+
+// Per-organization login email alias (stored in user_login_emails)
+const newAgencyLoginEmail = ref('');
+const loginEmailAliasesDetailed = ref([]);
+const savingAgencyAliasId = ref(null);
 
 const accountInfo = ref({ loginEmail: '', personalEmail: '', phoneNumber: '', personalPhone: '', workPhone: '', workPhoneExtension: '', supervisors: [], status: null, passwordlessLoginLink: null, passwordlessTokenExpiresAt: null, passwordlessTokenExpiresInHours: null, passwordlessTokenIsExpired: false });
 const accountInfoLoading = ref(false);
@@ -1013,9 +1475,25 @@ const fetchUser = async () => {
     loading.value = true;
     const response = await api.get(`/users/${userId.value}`);
     user.value = response.data;
+
+    // Provider open/closed flag (best-effort; defaults to open if missing)
+    if (user.value?.provider_accepting_new_clients !== undefined && user.value?.provider_accepting_new_clients !== null) {
+      providerAcceptingNewClients.value = Boolean(user.value.provider_accepting_new_clients);
+    } else {
+      providerAcceptingNewClients.value = true;
+    }
     
     // Preserve the current form values if user data is missing to prevent toggles/settings from disappearing
-    const currentRole = user.value?.role || accountForm.value?.role || '';
+    const normalizeRole = (r) => {
+      const v = String(r || '').trim().toLowerCase();
+      if (!v) return '';
+      if (v === 'clinician' || v === 'intern' || v === 'facilitator') return 'provider';
+      if (v === 'supervisor') return 'provider';
+      return v;
+    };
+
+    const currentRoleRaw = user.value?.role || accountForm.value?.role || '';
+    const currentRole = normalizeRole(currentRoleRaw);
     const currentHasSupervisorPrivileges = user.value?.has_supervisor_privileges !== undefined 
       ? (user.value.has_supervisor_privileges === true || user.value.has_supervisor_privileges === 1 || user.value.has_supervisor_privileges === '1')
       : accountForm.value?.hasSupervisorPrivileges || false;
@@ -1041,7 +1519,8 @@ const fetchUser = async () => {
       medcancelRateSchedule: ['low', 'high', 'none'].includes(currentMedcancelRateSchedule) ? currentMedcancelRateSchedule : 'none',
       companyCardEnabled: currentCompanyCardEnabled,
       role: currentRole,
-      hasSupervisorPrivileges: currentHasSupervisorPrivileges,
+      hasSupervisorPrivileges: currentHasSupervisorPrivileges || String(currentRoleRaw || '').trim().toLowerCase() === 'supervisor',
+      credential: accountForm.value?.credential || '',
       hasProviderAccess: user.value.has_provider_access === true || user.value.has_provider_access === 1 || user.value.has_provider_access === '1' || false,
       hasStaffAccess: user.value.has_staff_access === true || user.value.has_staff_access === 1 || user.value.has_staff_access === '1' || false
     };
@@ -1052,11 +1531,33 @@ const fetchUser = async () => {
     await fetchAvailableAgencies();
     // Fetch account info
     await fetchAccountInfo();
+    // Fetch provider credential value (best-effort)
+    await fetchProviderCredential();
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load user';
     console.error('Error fetching user:', err);
   } finally {
     loading.value = false;
+  }
+};
+
+const fetchProviderCredential = async () => {
+  try {
+    const res = await api.get(`/users/${userId.value}/user-info`);
+    const rows = Array.isArray(res.data) ? res.data : [];
+    const field = rows.find((f) => String(f?.field_key || '').toLowerCase() === 'provider_credential')
+      || rows.find((f) => String(f?.field_label || '').toLowerCase() === 'credential');
+    if (!field) {
+      providerCredentialFieldId.value = null;
+      providerCredentialLoaded.value = true;
+      return;
+    }
+    providerCredentialFieldId.value = field.id;
+    accountForm.value.credential = field.value || '';
+    providerCredentialLoaded.value = true;
+  } catch {
+    // non-blocking
+    providerCredentialLoaded.value = true;
   }
 };
 
@@ -1202,9 +1703,67 @@ const fetchUserAgencies = async () => {
   try {
     const response = await api.get(`/users/${userId.value}/agencies`);
     userAgencies.value = response.data || [];
+
+    // Best-effort: load alias list (includes agency_id)
+    try {
+      const r = await api.get(`/users/${userId.value}/login-email-aliases`);
+      loginEmailAliasesDetailed.value = r.data?.loginEmailAliasesDetailed || [];
+    } catch {
+      loginEmailAliasesDetailed.value = [];
+    }
   } catch (err) {
     console.error('Failed to load user agencies:', err);
     userAgencies.value = [];
+  }
+};
+
+const aliasForAgency = (agencyId) => {
+  const aId = parseInt(agencyId, 10);
+  const row = (loginEmailAliasesDetailed.value || []).find((x) => parseInt(x.agency_id || 0, 10) === aId);
+  return row?.email || '';
+};
+
+const saveAliasForAgency = async (agencyId, email) => {
+  try {
+    const aId = parseInt(agencyId, 10);
+    if (!aId) return;
+    const e = String(email || '').trim().toLowerCase();
+    if (!e || !e.includes('@')) {
+      alert('Please enter a valid email address for the login alias.');
+      return;
+    }
+    savingAgencyAliasId.value = aId;
+    await api.post(`/users/${userId.value}/login-email-alias`, { agencyId: aId, email: e });
+    await fetchUserAgencies();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to save login email alias');
+  } finally {
+    savingAgencyAliasId.value = null;
+  }
+};
+
+const isProviderLikeRole = computed(() => {
+  const r = String(user.value?.role || '').trim().toLowerCase();
+  return r === 'provider' || r === 'clinician' || r === 'intern' || r === 'facilitator';
+});
+
+const updatingH0032AgencyId = ref(null);
+const h0032ModeForAgency = (agency) => {
+  const v = agency?.h0032_requires_manual_minutes;
+  const on = (v === true || v === 1 || v === '1');
+  return on ? 'cat1_hour' : 'cat2_flat';
+};
+
+const setH0032Mode = async (agencyId, mode) => {
+  try {
+    if (!agencyId) return;
+    updatingH0032AgencyId.value = agencyId;
+    await api.put(`/users/${userId.value}/h0032-mode`, { agencyId, mode });
+    await fetchUserAgencies();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to update H0032 mode');
+  } finally {
+    updatingH0032AgencyId.value = null;
   }
 };
 
@@ -1253,8 +1812,21 @@ const addAgency = async () => {
       userId: userId.value,
       agencyId: parseInt(selectedAgencyId.value)
     });
+
+    // Optional: set per-org login email alias immediately.
+    if (newAgencyLoginEmail.value && String(newAgencyLoginEmail.value).includes('@')) {
+      try {
+        await api.post(`/users/${userId.value}/login-email-alias`, {
+          agencyId: parseInt(selectedAgencyId.value),
+          email: String(newAgencyLoginEmail.value).trim().toLowerCase()
+        });
+      } catch (e) {
+        alert(e.response?.data?.error?.message || 'Agency assigned, but failed to set login email alias.');
+      }
+    }
     await fetchUserAgencies();
     selectedAgencyId.value = '';
+    newAgencyLoginEmail.value = '';
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to assign agency';
     alert(error.value);
@@ -1331,13 +1903,24 @@ const saveAccount = async () => {
     if (accountForm.value.role === 'staff' || accountForm.value.role === 'support') {
       updateData.hasProviderAccess = Boolean(accountForm.value.hasProviderAccess);
     }
-    if (accountForm.value.role === 'provider' || accountForm.value.role === 'clinician') {
+    if (accountForm.value.role === 'provider') {
       updateData.hasStaffAccess = Boolean(accountForm.value.hasStaffAccess);
     }
     
     console.log('Update data being sent:', updateData);
     pendingAccountUpdate.value = updateData;
     const response = await api.put(`/users/${userId.value}`, updateData);
+
+    // Save credential (user info field) if present
+    if (providerCredentialFieldId.value) {
+      try {
+        const v = String(accountForm.value.credential || '').trim();
+        await api.put(`/users/${userId.value}/user-info/${providerCredentialFieldId.value}`, { value: v || null });
+      } catch (e) {
+        console.error('Failed to save credential:', e);
+      }
+    }
+
     // Always fetch fresh user data to ensure all fields are up to date
     await fetchUser();
     isEditingAccount.value = false;
@@ -1773,7 +2356,7 @@ const fetchSupervisees = async () => {
 };
 
 const fetchSupervisors = async () => {
-  if (!user.value || !['staff', 'clinician', 'facilitator', 'intern'].includes(user.value.role)) {
+  if (!user.value || !['staff', 'provider'].includes(user.value.role)) {
     return;
   }
   
@@ -1821,6 +2404,29 @@ onMounted(async () => {
   margin-bottom: 4px;
 }
 
+.header-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.header-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.header-photo-fallback {
+  font-weight: 900;
+  color: var(--text-primary);
+}
+
 .page-header h1 {
   margin: 0;
   color: var(--text-primary);
@@ -1833,6 +2439,50 @@ onMounted(async () => {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.header-availability {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+.header-availability-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+}
+.toggle-switch-sm {
+  transform: scale(0.85);
+  transform-origin: left center;
+}
+.header-availability-info {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+  padding: 0;
+  cursor: pointer;
+}
+.header-availability-hint {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  width: min(420px, 80vw);
+  background: white;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
+  z-index: 10;
 }
 
 .subtitle {

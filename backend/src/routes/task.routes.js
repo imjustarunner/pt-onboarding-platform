@@ -12,7 +12,7 @@ import {
   sendReminder,
   getAllTasks
 } from '../controllers/task.controller.js';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -37,12 +37,12 @@ router.get('/counts', authenticate, getTaskCounts);
 router.put('/:id/complete', authenticate, completeTask);
 
 // Admin routes - specific routes must come before parameterized routes
-router.get('/all', authenticate, requireAdmin, getAllTasks); // Must be before /:id
-router.post('/', authenticate, requireAdmin, validateTaskAssignment, assignTask);
-router.post('/bulk', authenticate, requireAdmin, validateTaskAssignment, bulkAssignTasks);
-router.put('/:id/override', authenticate, requireAdmin, overrideTask);
-router.put('/:id/due-date', authenticate, requireAdmin, validateDueDate, updateDueDate);
-router.post('/:id/reminder', authenticate, requireAdmin, sendReminder);
+router.get('/all', authenticate, requireBackofficeAdmin, getAllTasks); // Must be before /:id
+router.post('/', authenticate, requireBackofficeAdmin, validateTaskAssignment, assignTask);
+router.post('/bulk', authenticate, requireBackofficeAdmin, validateTaskAssignment, bulkAssignTasks);
+router.put('/:id/override', authenticate, requireBackofficeAdmin, overrideTask);
+router.put('/:id/due-date', authenticate, requireBackofficeAdmin, validateDueDate, updateDueDate);
+router.post('/:id/reminder', authenticate, requireBackofficeAdmin, sendReminder);
 
 // Parameterized routes (must come after specific routes)
 router.get('/:id', authenticate, getTask);
