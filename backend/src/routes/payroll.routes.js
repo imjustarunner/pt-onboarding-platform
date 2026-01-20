@@ -83,6 +83,9 @@ import {
   ,getPayrollOtherRateTitles
   ,putPayrollOtherRateTitlesForAgency
   ,putPayrollOtherRateTitlesForUser
+  ,listPayrollManualPayLines
+  ,createPayrollManualPayLine
+  ,deletePayrollManualPayLine
   ,listAgencySchoolsForPayroll
   ,listOfficeLocationsForPayroll
   ,updateMyHomeAddress
@@ -157,6 +160,9 @@ router.get('/me/assigned-schools', listMyAssignedSchoolsForPayroll);
 router.get('/other-rate-titles', getPayrollOtherRateTitles);
 router.put('/other-rate-titles', putPayrollOtherRateTitlesForAgency);
 router.put('/other-rate-titles/users/:userId', putPayrollOtherRateTitlesForUser);
+router.get('/periods/:id/manual-pay-lines', listPayrollManualPayLines);
+router.post('/periods/:id/manual-pay-lines', createPayrollManualPayLine);
+router.delete('/periods/:id/manual-pay-lines/:lineId', deletePayrollManualPayLine);
 router.get('/agency-schools', listAgencySchoolsForPayroll);
 router.get('/office-locations', listOfficeLocationsForPayroll);
 router.post('/office-locations', createOfficeLocationForPayroll);

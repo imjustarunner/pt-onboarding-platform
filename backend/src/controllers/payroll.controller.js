@@ -13,6 +13,7 @@ import PayrollImportRow from '../models/PayrollImportRow.model.js';
 import PayrollStagingOverride from '../models/PayrollStagingOverride.model.js';
 import PayrollStageCarryover from '../models/PayrollStageCarryover.model.js';
 import PayrollAdjustment from '../models/PayrollAdjustment.model.js';
+import PayrollManualPayLine from '../models/PayrollManualPayLine.model.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollServiceCodeRule from '../models/PayrollServiceCodeRule.model.js';
 import PayrollSummary from '../models/PayrollSummary.model.js';
@@ -1993,6 +1994,20 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     byUser.get(r.userId).push(r);
   }
 
+  // Manual pay lines (one-off corrections): include in totals + posted breakdown.
+  let manualPayLinesByUserId = new Map();
+  let manualPayLinesSumByUserId = new Map();
+  try {
+    const grouped = await PayrollManualPayLine.listForPeriodGroupedByUser({ payrollPeriodId, agencyId });
+    manualPayLinesByUserId = grouped?.byUserId || new Map();
+    const sums = await PayrollManualPayLine.sumByUserForPeriod({ payrollPeriodId, agencyId });
+    manualPayLinesSumByUserId = new Map((sums || []).map((r) => [Number(r.user_id), Number(r.amount || 0)]));
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    manualPayLinesByUserId = new Map();
+    manualPayLinesSumByUserId = new Map();
+  }
+
   // Prelicensed pay gating for supervision codes (99414/99416):
   // pay is $0 until (individual>=50 AND total>=100) as of *prior* periods (pay-forward only).
   const supervisionPayEligibleByUserId = new Map();
@@ -2352,6 +2367,12 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     const ptoRate = Number(adj?.pto_rate || 0);
     const ptoPay = ptoHours * ptoRate;
 
+    const manualPayLinesAmount = Number(manualPayLinesSumByUserId.get(Number(userId)) || 0);
+    const manualPayLines = (manualPayLinesByUserId.get(Number(userId)) || []).map((l) => ({
+      id: Number(l?.id || 0),
+      label: String(l?.label || ''),
+      amount: Number(l?.amount || 0)
+    }));
     const adjustmentsAmount =
       mileageAmount +
       medcancelAmount +
@@ -2361,7 +2382,8 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       bonusAmount +
       reimbursementAmount +
       timeClaimsAmount +
-      ptoPay;
+      ptoPay +
+      manualPayLinesAmount;
     const basePay = salaryAmount > 0.001 ? salaryAmount : subtotal;
     const totalAmount = basePay + adjustmentsAmount;
 
@@ -2385,9 +2407,14 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       trainingPtoHours,
       ptoRate,
       ptoPay,
+      manualPayLinesAmount,
+      manualPayLines,
       salaryAmount,
       basePayIsSalaryOverride: salaryAmount > 0.001
     };
+
+    // Backward-compatible: some clients render manual lines from this top-level key.
+    breakdown.__manualPayLines = manualPayLines;
 
     breakdown.__carryover = {
       oldDoneNotesUnitsTotal
@@ -3188,6 +3215,13 @@ export const getPayrollStaging = async (req, res, next) => {
     const aggregates = await PayrollImportRow.listAggregatedForPeriod(payrollPeriodId);
     const overrides = await PayrollStagingOverride.listForPeriod(payrollPeriodId);
     const carryovers = await PayrollStageCarryover.listForPeriod(payrollPeriodId);
+    let manualPayLines = [];
+    try {
+      manualPayLines = await PayrollManualPayLine.listForPeriod({ payrollPeriodId, agencyId: period.agency_id });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      manualPayLines = [];
+    }
     const rules = await PayrollServiceCodeRule.listForAgency(period.agency_id);
     const ruleByCode = new Map(
       (rules || []).map((r) => [String(r.service_code || '').trim().toUpperCase(), r])
@@ -3408,9 +3442,161 @@ export const getPayrollStaging = async (req, res, next) => {
       period,
       matched,
       unmatched,
-      tierByUserId
+      tierByUserId,
+      manualPayLines
     });
   } catch (e) {
+    next(e);
+  }
+};
+
+export const listPayrollManualPayLines = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    try {
+      const rows = await PayrollManualPayLine.listForPeriod({ payrollPeriodId, agencyId: period.agency_id });
+      res.json(rows || []);
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return res.json([]);
+      throw e;
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createPayrollManualPayLine = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const st = String(period.status || '').toLowerCase();
+    if (st === 'finalized' || st === 'posted') {
+      return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
+    }
+
+    const userId = req.body?.userId ? parseInt(req.body.userId, 10) : null;
+    const label = String(req.body?.label || '').trim();
+    const amount = Number(req.body?.amount);
+    if (!userId || !label) return res.status(400).json({ error: { message: 'userId and label are required' } });
+    if (!Number.isFinite(amount)) return res.status(400).json({ error: { message: 'amount must be a number' } });
+    if (Math.abs(amount) < 1e-9) return res.status(400).json({ error: { message: 'amount cannot be 0' } });
+    if (label.length > 128) return res.status(400).json({ error: { message: 'label must be 128 characters or fewer' } });
+
+    // Ensure user is in this agency.
+    const [ua] = await pool.execute(
+      `SELECT 1 FROM user_agencies WHERE agency_id = ? AND user_id = ? LIMIT 1`,
+      [period.agency_id, userId]
+    );
+    if (!ua?.length) return res.status(400).json({ error: { message: 'Selected provider is not assigned to this organization' } });
+
+    const id = await PayrollManualPayLine.create({
+      payrollPeriodId,
+      agencyId: period.agency_id,
+      userId,
+      label,
+      amount,
+      createdByUserId: req.user.id
+    });
+
+    // Keep run view consistent if already ran.
+    if (st === 'ran') {
+      await recomputeSummariesFromStaging({
+        payrollPeriodId,
+        agencyId: period.agency_id,
+        periodStart: period.period_start,
+        periodEnd: period.period_end
+      });
+      const updated = await PayrollPeriod.findById(payrollPeriodId);
+      const summaries = await PayrollSummary.listForPeriod(payrollPeriodId);
+      return res.status(201).json({ ok: true, id, period: updated, summaries });
+    }
+
+    // Otherwise mark staged + clear run results.
+    await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
+    await pool.execute(
+      `UPDATE payroll_periods
+       SET status = 'staged',
+           ran_at = NULL,
+           ran_by_user_id = NULL,
+           posted_at = NULL,
+           posted_by_user_id = NULL,
+           finalized_at = NULL,
+           finalized_by_user_id = NULL
+       WHERE id = ?`,
+      [payrollPeriodId]
+    );
+
+    res.status(201).json({ ok: true, id });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(409).json({
+        error: { message: 'Manual pay lines table is not available yet (run database migrations first).' }
+      });
+    }
+    next(e);
+  }
+};
+
+export const deletePayrollManualPayLine = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const lineId = parseInt(req.params.lineId, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const st = String(period.status || '').toLowerCase();
+    if (st === 'finalized' || st === 'posted') {
+      return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
+    }
+
+    await pool.execute(
+      `DELETE FROM payroll_manual_pay_lines
+       WHERE id = ? AND payroll_period_id = ? AND agency_id = ?
+       LIMIT 1`,
+      [lineId, payrollPeriodId, period.agency_id]
+    );
+
+    if (st === 'ran') {
+      await recomputeSummariesFromStaging({
+        payrollPeriodId,
+        agencyId: period.agency_id,
+        periodStart: period.period_start,
+        periodEnd: period.period_end
+      });
+      const updated = await PayrollPeriod.findById(payrollPeriodId);
+      const summaries = await PayrollSummary.listForPeriod(payrollPeriodId);
+      return res.json({ ok: true, period: updated, summaries });
+    }
+
+    await pool.execute('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
+    await pool.execute(
+      `UPDATE payroll_periods
+       SET status = 'staged',
+           ran_at = NULL,
+           ran_by_user_id = NULL,
+           posted_at = NULL,
+           posted_by_user_id = NULL,
+           finalized_at = NULL,
+           finalized_by_user_id = NULL
+       WHERE id = ?`,
+      [payrollPeriodId]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(409).json({
+        error: { message: 'Manual pay lines table is not available yet (run database migrations first).' }
+      });
+    }
     next(e);
   }
 };
@@ -3795,7 +3981,7 @@ export const applyPayrollCarryover = async (req, res, next) => {
     }
 
     await PayrollStageCarryover.replaceForPeriod({
-      payrollPeriodId,
+        payrollPeriodId,
       agencyId: period.agency_id,
       sourcePayrollPeriodId,
       computedByUserId: req.user.id,
@@ -4141,7 +4327,7 @@ export const runPayrollPeriod = async (req, res, next) => {
             title: 'Unsigned draft notes pending',
             message: `Payroll was run for ${label}. You have ${unsignedDraftCount} supervisee note(s) submitted as draft that still need your signature.`,
             userId: supervisorUserId,
-            agencyId,
+        agencyId,
             relatedEntityType: 'payroll_period',
             relatedEntityId: payrollPeriodId
           });
@@ -4305,6 +4491,7 @@ export const deletePayrollPeriod = async (req, res, next) => {
     await safeDelete('DELETE FROM payroll_adp_export_jobs WHERE payroll_period_id = ?', [payrollPeriodId]);
     await safeDelete('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
     await safeDelete('DELETE FROM payroll_adjustments WHERE payroll_period_id = ?', [payrollPeriodId]);
+    await safeDelete('DELETE FROM payroll_manual_pay_lines WHERE payroll_period_id = ?', [payrollPeriodId]);
     await safeDelete('DELETE FROM payroll_stage_carryovers WHERE payroll_period_id = ?', [payrollPeriodId]);
     await safeDelete('DELETE FROM payroll_period_run_rows WHERE payroll_period_id = ?', [payrollPeriodId]);
     await safeDelete('DELETE FROM payroll_period_runs WHERE payroll_period_id = ?', [payrollPeriodId]);
@@ -4348,6 +4535,7 @@ export const resetPayrollPeriod = async (req, res, next) => {
     await safeExec('DELETE FROM payroll_adp_export_jobs WHERE payroll_period_id = ?', [payrollPeriodId]);
     await safeExec('DELETE FROM payroll_summaries WHERE payroll_period_id = ?', [payrollPeriodId]);
     await safeExec('DELETE FROM payroll_adjustments WHERE payroll_period_id = ?', [payrollPeriodId]);
+    await safeExec('DELETE FROM payroll_manual_pay_lines WHERE payroll_period_id = ?', [payrollPeriodId]);
     await safeExec('DELETE FROM payroll_stage_carryovers WHERE payroll_period_id = ?', [payrollPeriodId]);
     await safeExec('DELETE FROM payroll_period_run_rows WHERE payroll_period_id = ?', [payrollPeriodId]);
     await safeExec('DELETE FROM payroll_period_runs WHERE payroll_period_id = ?', [payrollPeriodId]);
@@ -4955,7 +5143,7 @@ export const getPayrollOtherRateTitles = async (req, res, next) => {
         ? 'user'
         : (agencyRow ? 'agency' : 'default');
 
-    res.json({
+      res.json({
       ...effective,
       source,
       agencyTitle1: agencyTitles.title1,

@@ -632,7 +632,17 @@
             <div class="row"><strong>Missed appointments:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.missedAppointmentsAmount ?? 0) }}</div>
             <div class="row"><strong>Bonus:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.bonusAmount ?? 0) }}</div>
             <div class="row"><strong>Reimbursement:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.reimbursementAmount ?? 0) }}</div>
-          <div class="row"><strong>Time claims:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.timeClaimsAmount ?? 0) }}</div>
+            <div class="row"><strong>Time claims:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.timeClaimsAmount ?? 0) }}</div>
+            <div class="row"><strong>Manual pay lines:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.manualPayLinesAmount ?? 0) }}</div>
+            <div
+              v-if="(expanded.breakdown.__adjustments.manualPayLines || expanded.breakdown.__manualPayLines || []).length"
+              class="muted"
+              style="margin-top: 6px;"
+            >
+              <div v-for="(l, i) in (expanded.breakdown.__adjustments.manualPayLines || expanded.breakdown.__manualPayLines || [])" :key="`${l.id || i}`">
+                - {{ l.label }}: {{ fmtMoney(l.amount ?? 0) }}
+              </div>
+            </div>
             <div class="row"><strong>PTO:</strong> {{ fmtNum(expanded.breakdown.__adjustments.ptoHours ?? 0) }} hrs @ {{ fmtMoney(expanded.breakdown.__adjustments.ptoRate ?? 0) }} = {{ fmtMoney(expanded.breakdown.__adjustments.ptoPay ?? 0) }}</div>
             <div class="row"><strong>Salary override:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.salaryAmount ?? 0) }}</div>
           </div>

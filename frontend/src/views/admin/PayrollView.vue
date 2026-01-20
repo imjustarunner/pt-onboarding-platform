@@ -445,6 +445,17 @@
               <div class="hint">
                 Based on the raw import for this pay period. Tier preview updates as you save workspace edits / draft-payable decisions.
               </div>
+              <div class="field-row" style="grid-template-columns: 1fr auto; margin-top: 10px; align-items: end;">
+                <div />
+                <div class="field" style="min-width: 220px;">
+                  <label>Sort</label>
+                  <select v-model="payrollStageTierSort">
+                    <option value="tier_desc">Tier (high → low)</option>
+                    <option value="tier_asc">Tier (low → high)</option>
+                    <option value="name_asc">Name (A → Z)</option>
+                  </select>
+                </div>
+              </div>
               <div v-if="!(payrollStageProviderTierRows.matched || []).length && !(payrollStageProviderTierRows.unmatched || []).length" class="muted" style="margin-top: 8px;">
                 No providers found in the raw import yet.
               </div>
@@ -1084,6 +1095,105 @@
                 <button class="btn btn-secondary" @click="loadApprovedTimeClaimsList" :disabled="approvedTimeListLoading || !selectedPeriodId">
                   Refresh approved time claims
                 </button>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Manual Pay Lines (This pay period)</h3>
+              <div class="hint">
+                One-off fixes that should appear in Run Payroll and Posted Payroll for this pay period.
+              </div>
+              <div v-if="manualPayLinesError" class="warn-box" style="margin-top: 8px;">{{ manualPayLinesError }}</div>
+
+              <div class="hint" style="margin-top: 8px;">
+                Add as many rows as you need, then save them in one click. Amount can be negative for corrections.
+              </div>
+
+              <div v-if="isPeriodPosted" class="muted" style="margin-top: 8px;">This pay period is posted (manual lines are locked).</div>
+
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th style="width: 260px;">Provider</th>
+                      <th>Service / note</th>
+                      <th class="right" style="width: 160px;">Amount ($)</th>
+                      <th class="right" style="width: 140px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(r, idx) in manualPayLineDraftRows" :key="r._key">
+                      <td>
+                        <select v-model="r.userId" :disabled="savingManualPayLines">
+                          <option :value="null">Select provider…</option>
+                          <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+                        </select>
+                      </td>
+                      <td>
+                        <input v-model="r.label" type="text" placeholder="e.g., Manual correction" :disabled="savingManualPayLines" />
+                      </td>
+                      <td class="right">
+                        <input v-model="r.amount" type="number" step="0.01" placeholder="0.00" :disabled="savingManualPayLines" />
+                      </td>
+                      <td class="right">
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          type="button"
+                          @click="removeManualPayLineDraftRow(idx)"
+                          :disabled="savingManualPayLines || manualPayLineDraftRows.length <= 1"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="actions" style="margin-top: 10px; justify-content: space-between;">
+                <button class="btn btn-secondary" type="button" @click="addManualPayLineDraftRow" :disabled="savingManualPayLines || isPeriodPosted">
+                  Add another row
+                </button>
+                <button
+                  class="btn btn-primary"
+                  type="button"
+                  @click="saveManualPayLines"
+                  :disabled="savingManualPayLines || isPeriodPosted || !hasValidManualPayLineDraft"
+                >
+                  {{ savingManualPayLines ? 'Saving…' : 'Save manual lines' }}
+                </button>
+              </div>
+
+              <div v-if="manualPayLinesLoading" class="muted" style="margin-top: 8px;">Loading manual pay lines…</div>
+              <div v-else-if="!manualPayLines.length" class="muted" style="margin-top: 8px;">No manual lines yet.</div>
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Service</th>
+                      <th class="right">Amount</th>
+                      <th class="right"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="l in manualPayLines" :key="l.id">
+                      <td>{{ nameForUserId(l.user_id) }}</td>
+                      <td>{{ l.label }}</td>
+                      <td class="right">{{ fmtMoney(Number(l.amount || 0)) }}</td>
+                      <td class="right">
+                        <button
+                          class="btn btn-danger btn-sm"
+                          type="button"
+                          @click="deleteManualPayLine(l)"
+                          :disabled="isPeriodPosted || deletingManualPayLineId === l.id"
+                        >
+                          {{ deletingManualPayLineId === l.id ? 'Deleting…' : 'Delete' }}
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
@@ -2429,6 +2539,7 @@ const manualCarryover = ref({
 
 const adjustments = ref({
   mileageAmount: 0,
+  medcancelAmount: 0,
   otherTaxableAmount: 0,
   imatterAmount: 0,
   missedAppointmentsAmount: 0,
@@ -2583,6 +2694,98 @@ const approvedTimeListError = ref('');
 const approvedTimeClaims = ref([]);
 const approvedTimeMoveTargetByClaimId = ref({});
 const movingTimeClaimId = ref(null);
+
+// Manual pay lines (one-off corrections)
+const manualPayLinesLoading = ref(false);
+const manualPayLinesError = ref('');
+const manualPayLines = ref([]);
+const savingManualPayLines = ref(false);
+const deletingManualPayLineId = ref(null);
+const manualPayLineDraftRowSeq = ref(1);
+const manualPayLineDraftRows = ref([{ _key: manualPayLineDraftRowSeq.value++, userId: null, label: '', amount: '' }]);
+
+const addManualPayLineDraftRow = () => {
+  manualPayLineDraftRows.value = [
+    ...(manualPayLineDraftRows.value || []),
+    { _key: manualPayLineDraftRowSeq.value++, userId: null, label: '', amount: '' }
+  ];
+};
+
+const removeManualPayLineDraftRow = (idx) => {
+  const rows = [...(manualPayLineDraftRows.value || [])];
+  rows.splice(idx, 1);
+  manualPayLineDraftRows.value = rows.length ? rows : [{ _key: manualPayLineDraftRowSeq.value++, userId: null, label: '', amount: '' }];
+};
+
+const isValidManualPayLineDraftRow = (r) => {
+  const uid = Number(r?.userId || 0);
+  const label = String(r?.label || '').trim();
+  const amount = Number(r?.amount);
+  if (!uid || !label) return false;
+  if (!Number.isFinite(amount) || Math.abs(amount) < 1e-9) return false;
+  return true;
+};
+
+const hasValidManualPayLineDraft = computed(() => (manualPayLineDraftRows.value || []).some(isValidManualPayLineDraftRow));
+
+const loadManualPayLines = async () => {
+  if (!selectedPeriodId.value) return;
+  try {
+    manualPayLinesLoading.value = true;
+    manualPayLinesError.value = '';
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/manual-pay-lines`);
+    manualPayLines.value = resp.data || [];
+  } catch (e) {
+    manualPayLinesError.value = e.response?.data?.error?.message || e.message || 'Failed to load manual pay lines';
+    manualPayLines.value = [];
+  } finally {
+    manualPayLinesLoading.value = false;
+  }
+};
+
+const saveManualPayLines = async () => {
+  if (!selectedPeriodId.value) return;
+  try {
+    savingManualPayLines.value = true;
+    manualPayLinesError.value = '';
+    const rows = [...(manualPayLineDraftRows.value || [])];
+    const kept = [];
+    for (const r of rows) {
+      if (!isValidManualPayLineDraftRow(r)) {
+        kept.push(r);
+        continue;
+      }
+      const uid = Number(r.userId || 0);
+      const label = String(r.label || '').trim();
+      const amount = Number(r.amount);
+      await api.post(`/payroll/periods/${selectedPeriodId.value}/manual-pay-lines`, { userId: uid, label, amount });
+    }
+    manualPayLineDraftRows.value = kept.length ? kept : [{ _key: manualPayLineDraftRowSeq.value++, userId: null, label: '', amount: '' }];
+    await loadManualPayLines();
+    await loadPeriodDetails();
+  } catch (e) {
+    manualPayLinesError.value = e.response?.data?.error?.message || e.message || 'Failed to add manual pay line';
+  } finally {
+    savingManualPayLines.value = false;
+  }
+};
+
+const deleteManualPayLine = async (line) => {
+  if (!selectedPeriodId.value || !line?.id) return;
+  const ok = window.confirm('Delete this manual pay line?');
+  if (!ok) return;
+  try {
+    deletingManualPayLineId.value = line.id;
+    manualPayLinesError.value = '';
+    await api.delete(`/payroll/periods/${selectedPeriodId.value}/manual-pay-lines/${line.id}`);
+    await loadManualPayLines();
+    await loadPeriodDetails();
+  } catch (e) {
+    manualPayLinesError.value = e.response?.data?.error?.message || e.message || 'Failed to delete manual pay line';
+  } finally {
+    deletingManualPayLineId.value = null;
+  }
+};
 
 const receiptUrl = (c) => {
   const raw = String(c?.receipt_file_path || '').trim();
@@ -4401,6 +4604,8 @@ const selectedTier = computed(() => {
   return tierByUserId.value?.[uid] || null;
 });
 
+const payrollStageTierSort = ref('tier_desc'); // tier_desc | tier_asc | name_asc
+
 const payrollStageProviderTierRows = computed(() => {
   const rows = rawImportRows.value || [];
 
@@ -4422,13 +4627,26 @@ const payrollStageProviderTierRows = computed(() => {
       key: `u:${uid}`,
       userId: uid,
       name: nameForUserId(uid),
+      tierLevel: Number(tier?.tierLevel ?? 0),
       tierLabel: tier?.label || '—',
       tierStatus: tier?.status || ''
     });
   }
 
-  // Sort by last name, first name if we have it; fallback to string compare.
-  out.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
+  out.sort((a, b) => {
+    const byName = String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+    const byTierAsc = (Number(a.tierLevel || 0) - Number(b.tierLevel || 0)) || byName;
+    const byTierDesc = (Number(b.tierLevel || 0) - Number(a.tierLevel || 0)) || byName;
+    switch (String(payrollStageTierSort.value || 'tier_desc')) {
+      case 'tier_asc':
+        return byTierAsc;
+      case 'name_asc':
+        return byName;
+      case 'tier_desc':
+      default:
+        return byTierDesc;
+    }
+  });
 
   const unmatched = Array.from(unmatchedNames).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
   return { matched: out, unmatched };
@@ -5011,6 +5229,7 @@ const loadAdjustments = async () => {
     const a = resp.data || {};
     adjustments.value = {
       mileageAmount: Number(a.mileage_amount || 0),
+      medcancelAmount: Number(a.medcancel_amount || 0),
       otherTaxableAmount: Number(a.other_taxable_amount || 0),
       imatterAmount: Number(a.imatter_amount || 0),
       missedAppointmentsAmount: Number(a.missed_appointments_amount || 0),
@@ -5035,6 +5254,7 @@ const saveAdjustments = async () => {
     adjustmentsError.value = '';
     const resp = await api.put(`/payroll/periods/${selectedPeriodId.value}/adjustments/${uid}`, {
       mileageAmount: Number(adjustments.value.mileageAmount || 0),
+      medcancelAmount: Number(adjustments.value.medcancelAmount || 0),
       otherTaxableAmount: Number(adjustments.value.otherTaxableAmount || 0),
       imatterAmount: Number(adjustments.value.imatterAmount || 0),
       missedAppointmentsAmount: Number(adjustments.value.missedAppointmentsAmount || 0),
@@ -5291,6 +5511,7 @@ watch(selectedPeriodId, async (id) => {
   await loadApprovedMedcancelClaimsAmount();
   await loadApprovedMileageClaimsList();
   await loadApprovedMedcancelClaimsList();
+  await loadManualPayLines();
 });
 
 watch(showStageModal, async (open) => {
@@ -5309,6 +5530,7 @@ watch(showStageModal, async (open) => {
   await loadApprovedMileageClaimsList();
   await loadApprovedMedcancelClaimsList();
   await loadApprovedReimbursementClaimsList();
+  await loadManualPayLines();
 });
 
 watch(selectedUserId, async () => {
