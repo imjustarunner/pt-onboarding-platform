@@ -144,7 +144,12 @@ class PayrollImportRow {
        WHERE payroll_period_id = ?
          AND payroll_import_id = ?
          AND requires_processing = 1
-         AND processed_at IS NULL`,
+         AND processed_at IS NULL
+         AND UPPER(TRIM(service_code)) IN ('H0031','H0032')
+         AND (
+           note_status = 'FINALIZED'
+           OR (note_status = 'DRAFT' AND draft_payable = 1)
+         )`,
       [payrollPeriodId, latestImportId]
     );
     return Number(rows?.[0]?.c || 0);
@@ -162,6 +167,7 @@ class PayrollImportRow {
          pir.service_code,
          pir.service_date,
          pir.note_status,
+         pir.draft_payable,
          pir.unit_count,
          pir.requires_processing,
          pir.processed_at
@@ -170,6 +176,11 @@ class PayrollImportRow {
          AND pir.payroll_import_id = ?
          AND pir.requires_processing = 1
          AND pir.processed_at IS NULL
+         AND UPPER(TRIM(pir.service_code)) IN ('H0031','H0032')
+         AND (
+           pir.note_status = 'FINALIZED'
+           OR (pir.note_status = 'DRAFT' AND pir.draft_payable = 1)
+         )
        ORDER BY pir.service_code ASC, pir.service_date DESC, pir.id DESC
        LIMIT ${lim}`,
       [payrollPeriodId, latestImportId]

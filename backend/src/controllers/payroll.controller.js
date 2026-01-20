@@ -21,6 +21,7 @@ import PayrollPeriodRun from '../models/PayrollPeriodRun.model.js';
 import PayrollPeriodRunRow from '../models/PayrollPeriodRunRow.model.js';
 import PayrollRateTemplate from '../models/PayrollRateTemplate.model.js';
 import PayrollRateTemplateRate from '../models/PayrollRateTemplateRate.model.js';
+import Notification from '../models/Notification.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencyMileageRate from '../models/AgencyMileageRate.model.js';
 import PayrollMileageClaim from '../models/PayrollMileageClaim.model.js';
@@ -3970,6 +3971,96 @@ export const runPayrollPeriod = async (req, res, next) => {
     } catch (e) {
       // If the run history tables aren't migrated yet, don't block payroll runs.
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    // Best-effort: track and notify supervisors about draft notes submitted but not signed by them yet.
+    // Definition: note_status='DRAFT' and draft_payable=1 (supervisee signed; supervisor unsigned).
+    try {
+      const agencyId = period.agency_id;
+      // Use the latest import for this pay period.
+      const [impRows] = await pool.execute(
+        `SELECT id
+         FROM payroll_imports
+         WHERE payroll_period_id = ?
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1`,
+        [payrollPeriodId]
+      );
+      const latestImportId = impRows?.[0]?.id || null;
+      if (latestImportId) {
+        const [counts] = await pool.execute(
+          `SELECT
+             sa.supervisor_id AS supervisor_user_id,
+             COUNT(1) AS unsigned_draft_count
+           FROM payroll_import_rows pir
+           JOIN supervisor_assignments sa
+             ON sa.agency_id = pir.agency_id
+            AND sa.supervisee_id = pir.user_id
+           WHERE pir.agency_id = ?
+             AND pir.payroll_period_id = ?
+             AND pir.payroll_import_id = ?
+             AND pir.note_status = 'DRAFT'
+             AND pir.draft_payable = 1
+           GROUP BY sa.supervisor_id`,
+          [agencyId, payrollPeriodId, latestImportId]
+        );
+
+        const periodStart = String(period.period_start || '').slice(0, 10);
+        const periodEnd = String(period.period_end || '').slice(0, 10);
+        const label = period.label || (periodStart && periodEnd ? `${periodStart} → ${periodEnd}` : `Pay period #${payrollPeriodId}`);
+
+        for (const r of counts || []) {
+          const supervisorUserId = Number(r.supervisor_user_id || 0);
+          const unsignedDraftCount = Number(r.unsigned_draft_count || 0);
+          if (!supervisorUserId || unsignedDraftCount <= 0) continue;
+
+          // Upsert metric row.
+          await pool.execute(
+            `INSERT INTO payroll_supervisor_unsigned_draft_metrics
+             (agency_id, payroll_period_id, supervisor_user_id, unsigned_draft_count)
+             VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+               unsigned_draft_count = VALUES(unsigned_draft_count),
+               updated_at = CURRENT_TIMESTAMP`,
+            [agencyId, payrollPeriodId, supervisorUserId, unsignedDraftCount]
+          );
+
+          // Idempotent notify: only if not already notified for this period.
+          const [mRows] = await pool.execute(
+            `SELECT id, notified_at
+             FROM payroll_supervisor_unsigned_draft_metrics
+             WHERE agency_id = ? AND payroll_period_id = ? AND supervisor_user_id = ?
+             LIMIT 1`,
+            [agencyId, payrollPeriodId, supervisorUserId]
+          );
+          const metric = mRows?.[0] || null;
+          if (!metric?.id || metric.notified_at) continue;
+
+          await Notification.create({
+            type: 'payroll_unsigned_draft_notes',
+            severity: 'warning',
+            title: 'Unsigned draft notes pending',
+            message: `Payroll was run for ${label}. You have ${unsignedDraftCount} supervisee note(s) submitted as draft that still need your signature.`,
+            userId: supervisorUserId,
+            agencyId,
+            relatedEntityType: 'payroll_period',
+            relatedEntityId: payrollPeriodId
+          });
+
+          await pool.execute(
+            `UPDATE payroll_supervisor_unsigned_draft_metrics
+             SET notified_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+             LIMIT 1`,
+            [metric.id]
+          );
+        }
+      }
+    } catch (e) {
+      // Do not block payroll runs if metrics/notifications fail (or migration not applied yet).
+      if (e?.code !== 'ER_NO_SUCH_TABLE') {
+        // ignore
+      }
     }
 
     await pool.execute(

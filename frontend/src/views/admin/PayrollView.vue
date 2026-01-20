@@ -3914,23 +3914,31 @@ const rawModeRows = computed(() => {
   const q = String(rawDraftSearch.value || '').trim().toLowerCase();
 
   let rows = all;
+  const willBePaid = (r) => {
+    const st = String(r?.note_status || '').trim().toUpperCase();
+    if (st === 'FINALIZED') return true;
+    if (st === 'DRAFT') return Number(r?.draft_payable) === 1;
+    return false;
+  };
   if (mode === 'draft_audit') {
     rows = rawDraftOnly.value ? rows.filter((r) => String(r.note_status || '').toUpperCase() === 'DRAFT') : rows;
   } else if (mode === 'process_h0031') {
     rows = rows.filter((r) =>
       Number(r.requires_processing) === 1 &&
       !r.processed_at &&
+      willBePaid(r) &&
       String(r.service_code || '').trim().toUpperCase() === 'H0031'
     );
   } else if (mode === 'process_h0032') {
     rows = rows.filter((r) =>
       Number(r.requires_processing) === 1 &&
       !r.processed_at &&
+      willBePaid(r) &&
       String(r.service_code || '').trim().toUpperCase() === 'H0032'
     );
   } else {
     // processed
-    rows = rows.filter((r) => Number(r.requires_processing) === 1 && !!r.processed_at);
+    rows = rows.filter((r) => Number(r.requires_processing) === 1 && !!r.processed_at && willBePaid(r));
   }
 
   if (q) {
