@@ -1512,7 +1512,7 @@
                   <tr v-for="r in payrollRules" :key="r.service_code">
                     <td><strong>{{ r.service_code }}</strong></td>
                     <td>
-                      <select v-model="r.category">
+                      <select v-model="r.category" @change="queueSavePayrollRule(r)">
                         <option value="direct">direct</option>
                         <option value="indirect">indirect</option>
                         <option value="admin">admin</option>
@@ -1526,26 +1526,26 @@
                       </select>
                     </td>
                     <td>
-                      <select v-model="r.pay_rate_unit" title="Controls whether per-code rates pay by units or by computed pay-hours (units ÷ pay divisor).">
+                      <select v-model="r.pay_rate_unit" @change="queueSavePayrollRule(r)" title="Controls whether per-code rates pay by units or by computed pay-hours (units ÷ pay divisor).">
                         <option value="per_unit">per_unit</option>
                         <option value="per_hour">per_hour</option>
                       </select>
                     </td>
                     <td class="right">
-                      <input v-model="r.pay_divisor" type="number" min="1" step="1" style="width: 110px;" />
+                      <input v-model="r.pay_divisor" @change="queueSavePayrollRule(r)" type="number" min="1" step="1" style="width: 110px;" />
                     </td>
                     <td class="right">
-                      <input v-model="r.credit_value" type="number" min="0" step="0.00000000001" style="width: 140px;" />
+                      <input v-model="r.credit_value" @change="queueSavePayrollRule(r)" type="number" min="0" step="0.00000000001" style="width: 140px;" />
                     </td>
                     <td>
                       <ToggleSwitch
                         :model-value="!!r.counts_for_tier"
                         compact
-                        @update:modelValue="(v) => (r.counts_for_tier = v ? 1 : 0)"
+                        @update:modelValue="(v) => { r.counts_for_tier = v ? 1 : 0; queueSavePayrollRule(r); }"
                       />
                     </td>
                     <td>
-                      <select v-model="r.other_slot" :disabled="!(r.category === 'other' || r.category === 'tutoring')" title="Used only for 'other'/'tutoring' codes to pick which hourly 'Other Rate' slot (1/2/3) applies.">
+                      <select v-model="r.other_slot" @change="queueSavePayrollRule(r)" :disabled="!(r.category === 'other' || r.category === 'tutoring')" title="Used only for 'other'/'tutoring' codes to pick which hourly 'Other Rate' slot (1/2/3) applies.">
                         <option :value="1">1</option>
                         <option :value="2">2</option>
                         <option :value="3">3</option>
@@ -1553,9 +1553,6 @@
                     </td>
                     <td class="right">
                       <div class="payroll-rule-actions">
-                        <button type="button" class="btn btn-secondary btn-sm" @click="savePayrollRule(r)" :disabled="savingPayrollRule">
-                          Save
-                        </button>
                         <button
                           type="button"
                           class="btn btn-danger btn-sm"
@@ -1564,6 +1561,10 @@
                         >
                           Delete
                         </button>
+                        <span v-if="savingPayrollRuleByCode[r.service_code]" class="muted" style="margin-left: 8px;">Saving…</span>
+                        <span v-else-if="(payrollRuleSaveErrorByCode[r.service_code] || '').trim()" class="muted" style="margin-left: 8px;">
+                          {{ payrollRuleSaveErrorByCode[r.service_code] }}
+                        </span>
                       </div>
                     </td>
                   </tr>
@@ -1871,6 +1872,8 @@ const payrollRulesLoading = ref(false);
 const payrollRulesError = ref('');
 const payrollRules = ref([]);
 const savingPayrollRule = ref(false);
+const savingPayrollRuleByCode = ref({}); // service_code -> boolean
+const payrollRuleSaveErrorByCode = ref({}); // service_code -> string
 const newPayrollServiceCode = ref('');
 
 const otherRateTitlesLoading = ref(false);
@@ -2358,12 +2361,16 @@ const loadPayrollRules = async () => {
 
 const savePayrollRule = async (row) => {
   if (!editingAgency.value?.id || !row?.service_code) return;
+  const code = String(row.service_code || '').trim();
+  if (!code) return;
   try {
     savingPayrollRule.value = true;
+    savingPayrollRuleByCode.value = { ...(savingPayrollRuleByCode.value || {}), [code]: true };
+    payrollRuleSaveErrorByCode.value = { ...(payrollRuleSaveErrorByCode.value || {}), [code]: '' };
     payrollRulesError.value = '';
     await api.post('/payroll/service-code-rules', {
       agencyId: editingAgency.value.id,
-      serviceCode: row.service_code,
+      serviceCode: code,
       category: row.category,
       otherSlot: row.other_slot,
       payRateUnit: row.pay_rate_unit || 'per_unit',
@@ -2374,10 +2381,30 @@ const savePayrollRule = async (row) => {
       creditValue: row.credit_value
     });
   } catch (e) {
-    payrollRulesError.value = e.response?.data?.error?.message || e.message || 'Failed to save service code rule';
+    const msg = e.response?.data?.error?.message || e.message || 'Failed to save service code rule';
+    payrollRulesError.value = msg;
+    payrollRuleSaveErrorByCode.value = { ...(payrollRuleSaveErrorByCode.value || {}), [code]: msg };
   } finally {
     savingPayrollRule.value = false;
+    savingPayrollRuleByCode.value = { ...(savingPayrollRuleByCode.value || {}), [code]: false };
   }
+};
+
+// Auto-save changes with a short debounce.
+const payrollRuleSaveTimers = new Map(); // service_code -> timeout id
+const queueSavePayrollRule = (row) => {
+  if (!editingAgency.value?.id || !row?.service_code) return;
+  const code = String(row.service_code || '').trim();
+  if (!code) return;
+  const t = payrollRuleSaveTimers.get(code);
+  if (t) clearTimeout(t);
+  payrollRuleSaveTimers.set(
+    code,
+    setTimeout(async () => {
+      payrollRuleSaveTimers.delete(code);
+      await savePayrollRule(row);
+    }, 450)
+  );
 };
 
 const deletePayrollRule = async (row) => {

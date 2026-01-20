@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="220" viewBox="0 0 560 220" fill="none">
+  <rect x="0" y="0" width="560" height="220" rx="18" fill="#0B1220"/>
+  <circle cx="86" cy="110" r="46" fill="#111827"/>
+  <path d="M70 112l10 10 22-26" stroke="#34D399" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="155" y="108" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="18" fill="#E5E7EB">Results ready</text>
+  <text x="155" y="136" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="13" fill="#9CA3AF">Review the list and copy the semicolon-separated emails.</text>
+</svg>

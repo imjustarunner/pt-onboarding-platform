@@ -289,7 +289,9 @@ export const getAllUsers = async (req, res, next) => {
       }
     }
 
-    // Attach provider credential for client-side sorting (best-effort).
+    // Attach provider credential for client-side sorting/search (best-effort).
+    // Note: Some environments store the useful “credential” text in other provider_* fields
+    // (e.g. the license type/number). We expose a single `provider_credential` field to the UI.
     try {
       if (Array.isArray(users) && users.length > 0) {
         const pool = (await import('../config/database.js')).default;
@@ -297,15 +299,22 @@ export const getAllUsers = async (req, res, next) => {
         if (ids.length > 0) {
           const placeholders = ids.map(() => '?').join(',');
           const [rows] = await pool.execute(
-            `SELECT uiv.user_id, MAX(uiv.value) AS value
+            `SELECT uiv.user_id,
+                    MAX(CASE WHEN uifd.field_key = 'provider_credential' THEN uiv.value END) AS credential,
+                    MAX(CASE WHEN uifd.field_key = 'provider_credential_license_type_number' THEN uiv.value END) AS license_type_number
              FROM user_info_values uiv
              JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
-             WHERE uifd.field_key = 'provider_credential'
+             WHERE uifd.field_key IN ('provider_credential', 'provider_credential_license_type_number')
                AND uiv.user_id IN (${placeholders})
              GROUP BY uiv.user_id`,
             ids
           );
-          const byUserId = new Map((rows || []).map((r) => [Number(r.user_id), r.value]));
+          const byUserId = new Map(
+            (rows || []).map((r) => [
+              Number(r.user_id),
+              (r.credential || r.license_type_number || null)
+            ])
+          );
           users = users.map((u) => ({
             ...u,
             provider_credential: byUserId.get(Number(u.id)) || null
@@ -380,6 +389,148 @@ export const getAllUsers = async (req, res, next) => {
     }
 
     res.json(users);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Gemini-ready AI user search endpoint.
+ *
+ * Today: lightweight heuristic keyword extraction + SQL LIKE search across *all* user_info_values.value
+ * for the users the requester can access.
+ *
+ * Later: swap keyword extraction with Gemini → structured filters, keep this endpoint stable.
+ */
+export const aiQueryUsers = async (req, res, next) => {
+  try {
+    const raw = String(req.query.query || '').trim();
+    const includeArchived = req.query.includeArchived === 'true';
+    const limitRaw = parseInt(String(req.query.limit || '100'), 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 100;
+
+    if (!raw) {
+      return res.json({ results: [], emailsSemicolon: '', meta: { keywords: [], total: 0 } });
+    }
+
+    const extractKeywords = (text) => {
+      const s = String(text || '').trim();
+      if (!s) return [];
+
+      // Prefer a quoted phrase if present.
+      const quoted = s.match(/["“”']([^"“”']{2,80})["“”']/);
+      if (quoted?.[1]) return [quoted[1].trim().toLowerCase()];
+
+      // Prefer “interested in X” phrase.
+      const interested = s.match(/\binterested\s+in\s+([a-z0-9][a-z0-9\s\-]{1,60})/i);
+      if (interested?.[1]) {
+        const phrase = interested[1].trim().replace(/\s+/g, ' ');
+        // If they typed multiple words, keep the whole phrase as one keyword.
+        return [phrase.toLowerCase()];
+      }
+
+      // Fallback: tokens with stopword filtering.
+      const stop = new Set([
+        'list', 'show', 'give', 'find', 'all', 'any', 'the', 'a', 'an', 'of', 'for', 'to', 'from',
+        'with', 'without', 'and', 'or', 'but', 'who', 'that', 'which', 'where', 'when',
+        'is', 'are', 'was', 'were', 'be', 'been', 'being', 'mentioned', 'say', 'said',
+        'they', 'them', 'their', 'people', 'person', 'users', 'user', 'in', 'on', 'at', 'as'
+      ]);
+      const tokens = s
+        .toLowerCase()
+        .replace(/[^a-z0-9\s\-]/g, ' ')
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 3 && !stop.has(t));
+
+      const uniq = [];
+      for (const t of tokens) {
+        if (!uniq.includes(t)) uniq.push(t);
+        if (uniq.length >= 3) break;
+      }
+      return uniq;
+    };
+
+    const keywords = extractKeywords(raw);
+    const terms = keywords.length > 0 ? keywords : [raw.toLowerCase()];
+
+    const pool = (await import('../config/database.js')).default;
+
+    // Scope: same as /users for backoffice admins.
+    // - super_admin: all users
+    // - admin/support: users in the requester's agencies
+    const isSuperAdmin = req.user.role === 'super_admin';
+    const joinAgency = isSuperAdmin ? '' : 'INNER JOIN user_agencies ua ON ua.user_id = u.id';
+    const whereParts = [];
+    const params = [];
+
+    if (!includeArchived) {
+      whereParts.push('(u.is_archived = FALSE OR u.is_archived IS NULL)');
+    }
+
+    if (!isSuperAdmin) {
+      const userAgencies = await User.getAgencies(req.user.id);
+      const agencyIds = (userAgencies || []).map((a) => a.id).filter(Boolean);
+      if (agencyIds.length === 0) {
+        return res.json({ results: [], emailsSemicolon: '', meta: { keywords: terms, total: 0 } });
+      }
+      whereParts.push(`ua.agency_id IN (${agencyIds.map(() => '?').join(',')})`);
+      params.push(...agencyIds);
+    }
+
+    // Search all user_info_values (across all user info fields).
+    const termClauses = terms.map(
+      () =>
+        `(LOWER(COALESCE(uiv.value, '')) LIKE ? OR LOWER(COALESCE(uifd.field_label, '')) LIKE ? OR LOWER(COALESCE(uifd.field_key, '')) LIKE ?)`
+    );
+    const existsClause = `
+      EXISTS (
+        SELECT 1
+        FROM user_info_values uiv
+        JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+        WHERE uiv.user_id = u.id
+          AND (${termClauses.join(' OR ')})
+      )
+    `;
+    whereParts.push(existsClause);
+    for (const t of terms) {
+      const like = `%${String(t).toLowerCase()}%`;
+      params.push(like, like, like);
+    }
+
+    const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT u.id, u.email, u.first_name, u.last_name
+       FROM users u
+       ${joinAgency}
+       ${whereSql}
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC
+       LIMIT ?`,
+      [...params, limit]
+    );
+
+    const results = (rows || []).map((r) => ({
+      id: r.id,
+      email: r.email,
+      first_name: r.first_name,
+      last_name: r.last_name
+    }));
+
+    const emailsSemicolon = results
+      .map((u) => {
+        const name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || String(u.email || '').trim();
+        const email = String(u.email || '').trim();
+        if (!email) return '';
+        return `${name} <${email}>`;
+      })
+      .filter(Boolean)
+      .join('; ');
+
+    res.json({
+      results,
+      emailsSemicolon,
+      meta: { keywords: terms, total: results.length, limit }
+    });
   } catch (error) {
     next(error);
   }

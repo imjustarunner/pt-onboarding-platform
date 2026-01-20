@@ -38,6 +38,75 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     
     <div v-else>
+      <div class="ai-query-card">
+        <div class="ai-query-banner">
+          <img :src="aiBannerSrc" alt="AI status" class="ai-query-banner-img" />
+        </div>
+
+        <div class="ai-query-body">
+          <div class="ai-query-header">
+            <div class="ai-query-title">
+              <img :src="aiIconSrc" alt="AI" class="ai-query-icon" />
+              <div>
+                <div class="ai-query-title-text">AI Search (Gemini-ready)</div>
+                <div class="ai-query-subtitle">Ask questions across all user info fields and get a copyable email list.</div>
+              </div>
+            </div>
+
+            <div class="ai-query-actions">
+              <button class="btn btn-secondary btn-sm" type="button" @click="clearAiQuery" :disabled="aiState === 'thinking'">
+                Clear
+              </button>
+              <button class="btn btn-primary btn-sm" type="button" @click="runAiQuery" :disabled="aiState === 'thinking' || !String(aiQueryText || '').trim()">
+                {{ aiState === 'thinking' ? 'Searching…' : 'Search' }}
+              </button>
+            </div>
+          </div>
+
+          <div class="ai-query-input-row">
+            <input
+              v-model="aiQueryText"
+              type="text"
+              class="ai-query-input"
+              placeholder="Type your query here… e.g. list all the people who mentioned that they are interested in hiking"
+              @keydown.enter.prevent="runAiQuery"
+            />
+          </div>
+
+          <div v-if="aiState === 'thinking'" class="ai-query-status muted">Thinking… searching user info fields.</div>
+          <div v-else-if="aiState === 'error'" class="ai-query-status error">{{ aiError || 'No results found.' }}</div>
+          <div v-else-if="aiState === 'success'" class="ai-query-status success">
+            Found {{ aiResults.length }} user{{ aiResults.length === 1 ? '' : 's' }}.
+          </div>
+
+          <div v-if="aiState === 'success' && aiResults.length" class="ai-query-results">
+            <div class="ai-query-results-header">
+              <div class="ai-query-results-title">Results</div>
+              <div class="ai-query-results-meta muted">Showing up to 50 here. Use copy for the full list.</div>
+            </div>
+
+            <ul class="ai-query-results-list">
+              <li v-for="u in aiResults.slice(0, 50)" :key="u.id">
+                <router-link :to="`/admin/users/${u.id}`">
+                  {{ u.first_name }} {{ u.last_name }}
+                </router-link>
+                <span class="muted"> — {{ u.email }}</span>
+              </li>
+            </ul>
+
+            <div class="ai-query-copy">
+              <label class="ai-query-copy-label">Semicolon-separated</label>
+              <textarea class="ai-query-copy-text" readonly :value="aiEmailsSemicolon" rows="3"></textarea>
+              <div class="ai-query-copy-actions">
+                <button class="btn btn-secondary btn-sm" type="button" @click="copyAiEmails" :disabled="!aiEmailsSemicolon">
+                  Copy
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="table-controls">
         <div class="sort-controls">
           <label for="agencySort">Filter by Agency:</label>
@@ -59,12 +128,6 @@
             <option value="ACTIVE_EMPLOYEE">Active</option>
             <option value="TERMINATED_PENDING">Terminated (Grace Period)</option>
             <option value="ARCHIVED">Archived</option>
-            <!-- Legacy statuses for backward compatibility -->
-            <option value="pending">Pre-Hire (Legacy)</option>
-            <option value="ready_for_review">Ready for Review (Legacy)</option>
-            <option value="active">Active (Legacy)</option>
-            <option value="completed">Completed (Legacy)</option>
-            <option value="terminated">Terminated (Legacy)</option>
           </select>
         </div>
         <div class="sort-controls">
@@ -1069,6 +1132,11 @@ import { useAuthStore } from '../../store/auth';
 import { isSupervisor } from '../../utils/helpers.js';
 import { getStatusLabel, getStatusBadgeClass } from '../../utils/statusUtils.js';
 import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumentAssignmentDialog.vue';
+import aiIconAsset from '../../assets/ai/ai-icon.svg';
+import aiReadyAsset from '../../assets/ai/ready.svg';
+import aiThinkingAsset from '../../assets/ai/thinking.svg';
+import aiSuccessAsset from '../../assets/ai/success.svg';
+import aiErrorAsset from '../../assets/ai/error.svg';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -1115,6 +1183,82 @@ const userSort = ref('name_az');
 const showAdditionalFilters = ref(false);
 const roleSort = ref('');
 const userSearch = ref('');
+
+// AI Search (Gemini-ready)
+const aiQueryText = ref('');
+const aiState = ref('ready'); // 'ready' | 'thinking' | 'success' | 'error'
+const aiResults = ref([]);
+const aiEmailsSemicolon = ref('');
+const aiError = ref('');
+const aiMeta = ref(null);
+
+const aiIconSrc = aiIconAsset;
+const aiBannerSrc = computed(() => {
+  if (aiState.value === 'thinking') return aiThinkingAsset;
+  if (aiState.value === 'success') return aiSuccessAsset;
+  if (aiState.value === 'error') return aiErrorAsset;
+  return aiReadyAsset;
+});
+
+const clearAiQuery = () => {
+  aiQueryText.value = '';
+  aiState.value = 'ready';
+  aiResults.value = [];
+  aiEmailsSemicolon.value = '';
+  aiError.value = '';
+  aiMeta.value = null;
+};
+
+const runAiQuery = async () => {
+  const q = String(aiQueryText.value || '').trim();
+  if (!q) {
+    clearAiQuery();
+    return;
+  }
+
+  try {
+    aiState.value = 'thinking';
+    aiError.value = '';
+    aiResults.value = [];
+    aiEmailsSemicolon.value = '';
+    aiMeta.value = null;
+
+    const response = await api.get('/users/ai-query', { params: { query: q, limit: 500 } });
+    const data = response.data || {};
+    aiResults.value = Array.isArray(data.results) ? data.results : [];
+    aiEmailsSemicolon.value = String(data.emailsSemicolon || '');
+    aiMeta.value = data.meta || null;
+
+    if (!aiResults.value.length) {
+      aiState.value = 'error';
+      aiError.value = 'No matching users found.';
+      return;
+    }
+    aiState.value = 'success';
+  } catch (e) {
+    aiState.value = 'error';
+    aiError.value = e?.response?.data?.error?.message || 'AI search failed. Please try again.';
+  }
+};
+
+const copyAiEmails = async () => {
+  const text = String(aiEmailsSemicolon.value || '').trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Fallback for older browsers / blocked clipboard API
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', 'readonly');
+    ta.style.position = 'absolute';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+};
 
 // Provider uploads (User Management)
 const providerListFile = ref(null);
@@ -2178,6 +2322,7 @@ const getStatusBadgeClassWrapper = (status, isActive = true) => {
 
 const sortedUsers = computed(() => {
   let filtered = users.value;
+  const hasSearch = !!(userSearch.value && String(userSearch.value).trim());
   
   // Filter by agency
   if (agencySort.value) {
@@ -2190,7 +2335,10 @@ const sortedUsers = computed(() => {
   }
   
   // Filter by status
-  if (statusSort.value) {
+  // Keep default status = Active for workflow, but when the user types a search query
+  // we temporarily search across ALL statuses (unless they explicitly changed the status filter).
+  const shouldOverrideDefaultActiveStatus = hasSearch && statusSort.value === 'ACTIVE_EMPLOYEE';
+  if (statusSort.value && !shouldOverrideDefaultActiveStatus) {
     if (statusSort.value === 'inactive') {
       // Legacy inactive filter - map to ARCHIVED status
       filtered = filtered.filter(user => user.status === 'ARCHIVED');
@@ -2215,7 +2363,7 @@ const sortedUsers = computed(() => {
   }
 
   // Search
-  if (userSearch.value && String(userSearch.value).trim()) {
+  if (hasSearch) {
     const q = String(userSearch.value).trim().toLowerCase();
     filtered = filtered.filter((u) => {
       const name = `${u.first_name || ''} ${u.last_name || ''}`.trim().toLowerCase();
@@ -2525,6 +2673,142 @@ onMounted(() => {
   gap: 20px;
   margin-bottom: 20px;
   flex-wrap: wrap;
+}
+
+.ai-query-card {
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  background: var(--bg, #fff);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+}
+
+.ai-query-banner {
+  background: #0B1220;
+}
+
+.ai-query-banner-img {
+  display: block;
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+}
+
+.ai-query-body {
+  padding: 12px 14px 14px 14px;
+}
+
+.ai-query-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ai-query-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-query-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.ai-query-title-text {
+  font-weight: 700;
+  color: var(--text-primary, #2c3e50);
+}
+
+.ai-query-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+  margin-top: 2px;
+}
+
+.ai-query-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-query-input-row {
+  margin-bottom: 8px;
+}
+
+.ai-query-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.ai-query-status {
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+.ai-query-results {
+  margin-top: 10px;
+  border-top: 1px solid var(--border, #dee2e6);
+  padding-top: 10px;
+}
+
+.ai-query-results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.ai-query-results-title {
+  font-weight: 700;
+  color: var(--text-primary, #2c3e50);
+}
+
+.ai-query-results-list {
+  margin: 0;
+  padding-left: 18px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.ai-query-results-list li {
+  margin: 6px 0;
+}
+
+.ai-query-copy {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 12px;
+  background: var(--bg-alt, #f9fafb);
+}
+
+.ai-query-copy-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.ai-query-copy-text {
+  width: 100%;
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.ai-query-copy-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .additional-filters {
