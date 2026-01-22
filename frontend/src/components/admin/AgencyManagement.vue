@@ -249,6 +249,14 @@
           >
             Notifications
           </button>
+          <button
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            type="button"
+            :class="['tab-button', { active: activeTab === 'announcements' }]"
+            @click="activeTab = 'announcements'"
+          >
+            Announcements
+          </button>
           <button type="button" :class="['tab-button', { active: activeTab === 'theme' }]" @click="activeTab = 'theme'">Theme</button>
           <button type="button" :class="['tab-button', { active: activeTab === 'terminology' }]" @click="activeTab = 'terminology'">Terminology</button>
           <button type="button" :class="['tab-button', { active: activeTab === 'icons' }]" @click="activeTab = 'icons'">Icons</button>
@@ -719,6 +727,54 @@
                 <button type="button" class="btn btn-primary btn-sm" @click="saveMileageRates" :disabled="savingMileageRates || !editingAgency?.id">
                   {{ savingMileageRates ? 'Saving…' : 'Save rates' }}
                 </button>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="activeTab === 'announcements' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="tab-section"
+          >
+            <div class="form-section-divider" style="margin-top: 6px; margin-bottom: 16px; padding-top: 6px;">
+              <h4 style="margin: 0 0 8px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Agency announcements</h4>
+              <small class="hint">Controls top-of-dashboard banners shown to users in this agency.</small>
+            </div>
+
+            <div v-if="announcementsError" class="error-modal">
+              <strong>Error:</strong> {{ announcementsError }}
+            </div>
+            <div v-if="announcementsLoading" class="loading">Loading announcements…</div>
+
+            <div v-else class="form-group" style="margin-top: 10px;">
+              <div class="toggle-row" style="margin-top: 8px;">
+                <span><strong>Birthday banner</strong> (shows on Dashboard for everyone in this agency)</span>
+                <ToggleSwitch v-model="announcementsDraft.birthdayEnabled" />
+              </div>
+              <small class="hint" style="display:block; margin-top: 6px;">
+                Uses Birthdate from employee info. Message template supports <code>{fullName}</code>.
+              </small>
+
+              <div class="form-group" style="margin-top: 12px;">
+                <label>Birthday message template</label>
+                <input
+                  v-model="announcementsDraft.birthdayTemplate"
+                  type="text"
+                  :disabled="announcementsSaving"
+                  placeholder="Happy Birthday, {fullName}"
+                />
+              </div>
+
+              <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
+                <div class="filters-group">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="loadAgencyAnnouncements" :disabled="announcementsLoading || announcementsSaving || !editingAgency?.id">
+                    Reload
+                  </button>
+                </div>
+                <div class="filters-group">
+                  <button type="button" class="btn btn-primary btn-sm" @click="saveAgencyAnnouncements" :disabled="announcementsSaving || !editingAgency?.id">
+                    {{ announcementsSaving ? 'Saving…' : 'Save announcements' }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1984,6 +2040,60 @@ const supervisionDraft = ref({
   after50CadenceWeeks: 2,
   after50Minutes: 30
 });
+
+// Agency announcements (Dashboard banners)
+const announcementsLoading = ref(false);
+const announcementsSaving = ref(false);
+const announcementsError = ref('');
+const announcementsLoadedAgencyId = ref(null);
+const announcementsDraft = ref({
+  birthdayEnabled: false,
+  birthdayTemplate: 'Happy Birthday, {fullName}'
+});
+
+const loadAgencyAnnouncements = async () => {
+  if (!editingAgency.value?.id) return;
+  const agencyId = Number(editingAgency.value.id);
+  if (!agencyId) return;
+  try {
+    announcementsLoading.value = true;
+    announcementsError.value = '';
+    const resp = await api.get(`/agencies/${agencyId}/announcements`);
+    announcementsDraft.value = {
+      birthdayEnabled: Boolean(resp.data?.birthdayEnabled),
+      birthdayTemplate: resp.data?.birthdayTemplate || 'Happy Birthday, {fullName}'
+    };
+    announcementsLoadedAgencyId.value = agencyId;
+  } catch (e) {
+    announcementsError.value = e.response?.data?.error?.message || e.message || 'Failed to load announcements';
+  } finally {
+    announcementsLoading.value = false;
+  }
+};
+
+const saveAgencyAnnouncements = async () => {
+  if (!editingAgency.value?.id) return;
+  const agencyId = Number(editingAgency.value.id);
+  if (!agencyId) return;
+  try {
+    announcementsSaving.value = true;
+    announcementsError.value = '';
+    const payload = {
+      birthdayEnabled: Boolean(announcementsDraft.value.birthdayEnabled),
+      birthdayTemplate: String(announcementsDraft.value.birthdayTemplate || '').trim()
+    };
+    const resp = await api.put(`/agencies/${agencyId}/announcements`, payload);
+    announcementsDraft.value = {
+      birthdayEnabled: Boolean(resp.data?.birthdayEnabled),
+      birthdayTemplate: resp.data?.birthdayTemplate || 'Happy Birthday, {fullName}'
+    };
+    announcementsLoadedAgencyId.value = agencyId;
+  } catch (e) {
+    announcementsError.value = e.response?.data?.error?.message || e.message || 'Failed to save announcements';
+  } finally {
+    announcementsSaving.value = false;
+  }
+};
 
 // Office locations (sites) editor (agency-only)
 const officeLocations = ref([]);
@@ -3396,6 +3506,8 @@ const editAgency = async (agency) => {
     loadOfficeLocations();
     loadMileageRates();
     loadNotificationTriggers();
+    // Load announcements so the tab is instantly ready when clicked.
+    loadAgencyAnnouncements();
   }
 
   // Helpful on smaller screens where the detail pane stacks below the list:
@@ -3407,6 +3519,20 @@ const editAgency = async (agency) => {
     // ignore
   }
 };
+
+watch(
+  () => activeTab.value,
+  (next) => {
+    if (String(next || '') !== 'announcements') return;
+    if (!editingAgency.value?.id) return;
+    if (String(editingAgency.value.organization_type || 'agency').toLowerCase() !== 'agency') return;
+    const agencyId = Number(editingAgency.value.id);
+    if (!agencyId) return;
+    if (announcementsLoadedAgencyId.value !== agencyId) {
+      loadAgencyAnnouncements();
+    }
+  }
+);
 
 const applyAffiliatedAgencyBranding = async () => {
   if (!editingAgency.value) return;
@@ -4018,6 +4144,11 @@ const closeModal = () => {
   // Reset list context too (back to "all agencies")
   selectedAgencyFilterId.value = '';
   affiliatedOrganizations.value = [];
+  announcementsLoading.value = false;
+  announcementsSaving.value = false;
+  announcementsError.value = '';
+  announcementsLoadedAgencyId.value = null;
+  announcementsDraft.value = { birthdayEnabled: false, birthdayTemplate: 'Happy Birthday, {fullName}' };
   notificationTriggers.value = [];
   notificationTriggerEdits.value = {};
   notificationTriggersError.value = '';

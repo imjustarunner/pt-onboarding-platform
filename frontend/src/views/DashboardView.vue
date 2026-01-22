@@ -14,6 +14,13 @@
       <span class="badge badge-user">Personal</span>
       <span v-if="tierBadgeText" class="badge badge-tier" :class="tierBadgeKind">{{ tierBadgeText }}</span>
     </div>
+
+    <!-- Agency announcement banner (Dashboard) -->
+    <div v-if="!previewMode && dashboardBanner && dashboardBanner.message" class="agency-announcement-banner">
+      <div class="agency-announcement-content">
+        <strong>{{ dashboardBanner.message }}</strong>
+      </div>
+    </div>
     
     <!-- Pending Completion Button -->
     <div v-if="isPending && pendingCompletionStatus?.allComplete && !pendingCompletionStatus?.accessLocked && (userStatus === 'PREHIRE_OPEN' || userStatus === 'pending')" class="pending-completion-banner">
@@ -353,6 +360,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useBrandingStore } from '../store/branding';
+import api from '../services/api';
 import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
 import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue';
@@ -398,6 +406,10 @@ const isPending = ref(false);
 const pendingCompletionStatus = ref(null);
 const tierBadgeText = ref('');
 const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
+
+const dashboardBannerLoading = ref(false);
+const dashboardBannerError = ref('');
+const dashboardBanner = ref(null); // { type, message, agencyId, names } | null
 
 const currentAgencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
@@ -752,6 +764,29 @@ watch(() => [route.query?.tab, route.query?.my], () => {
   syncFromQuery();
 });
 
+const loadAgencyDashboardBanner = async () => {
+  if (props.previewMode) {
+    dashboardBanner.value = null;
+    return;
+  }
+  if (!currentAgencyId.value) {
+    dashboardBanner.value = null;
+    return;
+  }
+  try {
+    dashboardBannerLoading.value = true;
+    dashboardBannerError.value = '';
+    const resp = await api.get(`/agencies/${currentAgencyId.value}/dashboard-banner`);
+    dashboardBanner.value = resp.data?.banner || null;
+  } catch (e) {
+    // Non-blocking; don't break dashboard if this fails.
+    dashboardBanner.value = null;
+    dashboardBannerError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load banner';
+  } finally {
+    dashboardBannerLoading.value = false;
+  }
+};
+
 onMounted(async () => {
   await fetchOnboardingStatus();
   syncFromQuery();
@@ -762,11 +797,13 @@ onMounted(async () => {
     myTab.value = 'account';
   }
   await loadCurrentTier();
+  await loadAgencyDashboardBanner();
 });
 
 watch([currentAgencyId, isOnboardingComplete], async () => {
   await loadCurrentTier();
   await loadMyAssignedSchools();
+  await loadAgencyDashboardBanner();
 });
 </script>
 
@@ -1003,6 +1040,18 @@ h1 {
   justify-content: space-between;
   align-items: center;
   gap: 20px;
+}
+
+.agency-announcement-banner {
+  background: #e0f2fe;
+  border-left: 4px solid #0284c7;
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-bottom: 20px;
+}
+
+.agency-announcement-content strong {
+  color: #075985;
 }
 
 .warning-content {

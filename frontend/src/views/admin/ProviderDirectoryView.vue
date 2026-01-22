@@ -123,7 +123,7 @@
 
     <div class="card" style="margin-top: 14px;">
       <h3 class="card-title" style="margin: 0 0 10px 0;">Import legacy answers (CSV/XLSX)</h3>
-      <div class="muted">Uploads a spreadsheet (e.g., your original Google Form export), matches by personal email, and writes into Provider Info fields.</div>
+      <div class="muted">Uploads a spreadsheet (e.g., your original Google Form export), matches by personal email, and writes into canonical profile fields by field_key.</div>
 
       <div class="field-row" style="grid-template-columns: 1fr auto; gap: 10px; align-items: end; margin-top: 10px;">
         <div class="field">
@@ -155,7 +155,7 @@
 
         <div class="card" style="margin-top: 10px;">
           <h4 style="margin: 0 0 8px 0;">Column mapping</h4>
-          <div class="muted">Map spreadsheet columns to Provider Info fields. Only `provider_*` fields are imported.</div>
+          <div class="muted">Map spreadsheet columns to canonical profile fields (by `field_key`). Sensitive fields like passwords/SSN are blocked.</div>
 
           <div v-for="fd in searchableFields" :key="fd.fieldKey" class="field-row" style="grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;">
             <div class="field">
@@ -187,6 +187,45 @@
           <div v-if="(importResult.unmatchedRows || []).length" class="muted" style="margin-top: 8px;">
             Showing up to 50 unmatched rows.
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 14px;">
+      <h3 class="card-title" style="margin: 0 0 10px 0;">Quick paste import (field_key: value)</h3>
+      <div class="muted">
+        Paste key/value lines to backfill a single user. Format: <code>field_key: value</code> (or <code>field_key[TAB]value</code>).
+        Sensitive keys (password/SSN) are blocked.
+      </div>
+
+      <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+        <div class="field">
+          <label>Personal email (match key)</label>
+          <input v-model="kvPersonalEmail" type="email" placeholder="name@example.com" />
+        </div>
+        <div class="field">
+          <label>Agency (for reindex)</label>
+          <select v-model.number="agencyId">
+            <option v-for="a in userAgencies" :key="a.id" :value="a.id">{{ a.name }}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Paste</label>
+        <textarea v-model="kvText" rows="8" placeholder="work_location: Colorado Springs&#10;specialties_general: ADHD, Anxiety"></textarea>
+      </div>
+
+      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px;">
+        <button class="btn btn-primary" type="button" @click="runKvPaste" :disabled="kvRunning || !kvPersonalEmail.trim() || !kvText.trim()">
+          {{ kvRunning ? 'Importing…' : 'Import' }}
+        </button>
+      </div>
+
+      <div v-if="kvResult" class="card" style="margin-top: 10px;">
+        <div><strong>Updates applied:</strong> {{ kvResult.updatesApplied }}</div>
+        <div v-if="(kvResult.unknownKeys || []).length" class="muted" style="margin-top: 6px;">
+          Unknown keys: {{ kvResult.unknownKeys.slice(0, 20).join(', ') }}<span v-if="kvResult.unknownKeys.length > 20">…</span>
         </div>
       </div>
     </div>
@@ -268,6 +307,11 @@ const dryRun = ref(true);
 const importing = ref(false);
 const importResult = ref(null);
 
+const kvPersonalEmail = ref('');
+const kvText = ref('');
+const kvRunning = ref(false);
+const kvResult = ref(null);
+
 const providerListFile = ref(null);
 const providerBulkRunning = ref(false);
 const providerBulkResult = ref(null);
@@ -290,11 +334,10 @@ const userProfileLink = (userId) => {
 };
 
 const loadSearchableFields = async () => {
-  // Use user-info field definitions; filter to provider_* fields.
+  // Use canonical user-info field definitions (spec-driven). No provider_* gating.
   const r = await api.get('/user-info-fields');
   const defs = Array.isArray(r.data) ? r.data : [];
   searchableFields.value = defs
-    .filter((d) => String(d.field_key || '').startsWith('provider_'))
     .map((d) => ({
       fieldKey: d.field_key,
       fieldLabel: d.field_label || d.field_key,
@@ -419,6 +462,25 @@ const runImport = async () => {
     error.value = e.response?.data?.error?.message || e.message || 'Import failed';
   } finally {
     importing.value = false;
+  }
+};
+
+const runKvPaste = async () => {
+  if (!agencyId.value) return;
+  try {
+    kvRunning.value = true;
+    error.value = '';
+    kvResult.value = null;
+    const r = await api.post('/provider-import/kv-paste', {
+      agencyId: agencyId.value,
+      personalEmail: kvPersonalEmail.value,
+      kvText: kvText.value
+    });
+    kvResult.value = r.data;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Paste import failed';
+  } finally {
+    kvRunning.value = false;
   }
 };
 

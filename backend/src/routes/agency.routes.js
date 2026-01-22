@@ -1,6 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations } from '../controllers/agency.controller.js';
+import { getAgencyAnnouncements, updateAgencyAnnouncements, getAgencyDashboardBanner } from '../controllers/agencyAnnouncements.controller.js';
 import { listAgencyNotificationTriggers, updateAgencyNotificationTrigger } from '../controllers/agencyNotificationTriggers.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
@@ -212,6 +213,9 @@ router.get('/', authenticate, getAllAgencies);
 router.get('/archived', authenticate, requireSuperAdmin, getArchivedAgencies);
 router.get('/:id/affiliated-organizations', authenticate, requireBackofficeAdmin, listAffiliatedOrganizations);
 router.get('/:id', authenticate, getAgencyById);
+router.get('/:id/announcements', authenticate, requireBackofficeAdmin, getAgencyAnnouncements);
+router.put('/:id/announcements', authenticate, requireBackofficeAdmin, updateAgencyAnnouncements);
+router.get('/:id/dashboard-banner', authenticate, getAgencyDashboardBanner);
 router.get('/:id/notification-triggers', authenticate, requireBackofficeAdmin, listAgencyNotificationTriggers);
 router.put('/:id/notification-triggers/:triggerKey', authenticate, requireBackofficeAdmin, updateAgencyNotificationTrigger);
 router.post('/', authenticate, requireBackofficeAdmin, validateCreateAgency, createAgency);

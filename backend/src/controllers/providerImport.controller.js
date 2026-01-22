@@ -91,6 +91,37 @@ function toDateString(value) {
   return null;
 }
 
+function isRestrictedFieldKey(fieldKey) {
+  const s = String(fieldKey || '').toLowerCase();
+  return (
+    s.includes('password') ||
+    s.includes('ssn') ||
+    s === 'tax_id' ||
+    s.includes('medicaid_password') ||
+    s.includes('itsco_password')
+  );
+}
+
+function normalizeBooleanString(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  return s === 'true' || s === 'yes' || s === '1' || s === 'y';
+}
+
+function normalizeMultiSelectStored(raw) {
+  if (raw === null || raw === undefined) return null;
+  if (Array.isArray(raw)) return raw.length ? JSON.stringify(raw) : null;
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  try {
+    const parsed = JSON.parse(s);
+    if (Array.isArray(parsed)) return parsed.length ? JSON.stringify(parsed) : null;
+  } catch {
+    // fall through
+  }
+  const arr = s.split(',').map((x) => x.trim()).filter(Boolean);
+  return arr.length ? JSON.stringify(arr) : null;
+}
+
 async function suggestProviderBulkCreateHeaderMapping({ normalizedHeaders }) {
   const apiKey = process.env.GEMINI_API_KEY || '';
   if (!apiKey) return null;
@@ -165,6 +196,8 @@ ${JSON.stringify(headers)}
 
 Return ONLY valid JSON with these keys:
 {
+  "firstNameHeader": string|null,
+  "lastNameHeader": string|null,
   "nameHeader": string|null,
   "startDateHeader": string|null,
   "birthdateHeader": string|null,
@@ -179,8 +212,13 @@ Return ONLY valid JSON with these keys:
   "licenseUploadHeader": string|null,
   "hasNpiHeader": string|null,
   "npiNumberHeader": string|null,
+  "taxonomyHeader": string|null,
   "caqhHeader": string|null,
+  "medicareNumberHeader": string|null,
+  "taxIdHeader": string|null,
+  "medicaidProviderTypeHeader": string|null,
   "medicaidLocationHeader": string|null,
+  "medicaidEffectiveDateHeader": string|null,
   "revalidationDateHeader": string|null,
   "outsideSchoolInterestHeader": string|null,
   "outsideSchoolHoursHeader": string|null,
@@ -612,9 +650,9 @@ export const applyProviderImport = [
           values.push({ fieldKey: m.fieldKey, value: v });
         }
 
-        // Convert fieldKey → fieldDefinitionId
-        // (Only provider_ fields are allowed here.)
-        const filtered = values.filter((v) => String(v.fieldKey).startsWith('provider_'));
+        // Convert fieldKey → fieldDefinitionId (canonical field_keys)
+        // Security: do not import restricted/sensitive keys from spreadsheets.
+        const filtered = values.filter((v) => v?.fieldKey && !isRestrictedFieldKey(v.fieldKey));
         if (!filtered.length) continue;
 
         // Look up definitions in one shot per row.
@@ -634,26 +672,9 @@ export const applyProviderImport = [
           let stored;
           if (fieldType === 'multi_select') {
             // Accept comma-separated or JSON arrays; store as JSON string.
-            const raw = fv.value;
-            let arr = [];
-            if (Array.isArray(raw)) arr = raw;
-            else {
-              const s = String(raw || '').trim();
-              if (s) {
-                try {
-                  const parsed = JSON.parse(s);
-                  if (Array.isArray(parsed)) arr = parsed;
-                  else arr = s.split(',').map((x) => x.trim()).filter(Boolean);
-                } catch {
-                  arr = s.split(',').map((x) => x.trim()).filter(Boolean);
-                }
-              }
-            }
-            stored = arr.length ? JSON.stringify(arr) : null;
+            stored = normalizeMultiSelectStored(fv.value);
           } else if (fieldType === 'boolean') {
-            const s = String(fv.value || '').trim().toLowerCase();
-            const b = s === 'true' || s === 'yes' || s === '1' || s === 'y';
-            stored = b ? 'true' : 'false';
+            stored = normalizeBooleanString(fv.value) ? 'true' : 'false';
           } else {
             const s = String(fv.value ?? '').trim();
             stored = s ? s : null;
@@ -678,6 +699,101 @@ export const applyProviderImport = [
     }
   }
 ];
+
+// Admin quick-import: paste `field_key: value` lines (or TSV `field_key<TAB>value`).
+// Writes directly into canonical profile fields (user_info_values) and reindexes provider_search_index.
+export const importKvPaste = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const agencyId = parseInt(req.body.agencyId, 10);
+    const userIdRaw = req.body.userId ? parseInt(req.body.userId, 10) : null;
+    const personalEmail = String(req.body.personalEmail || '').trim();
+    const kvText = String(req.body.kvText || '');
+
+    let userId = Number.isInteger(userIdRaw) && userIdRaw > 0 ? userIdRaw : null;
+    if (!userId) userId = await findUserIdByPersonalEmail(personalEmail);
+    if (!userId) {
+      return res.status(404).json({
+        error: { message: 'User not found (provide userId or a personalEmail that matches users.personal_email).' }
+      });
+    }
+
+    const lines = kvText
+      .split(/\r?\n/)
+      .map((l) => String(l || '').trim())
+      .filter((l) => l && !l.startsWith('#'));
+
+    const pairs = [];
+    for (const line of lines) {
+      const tabIdx = line.indexOf('\t');
+      if (tabIdx > 0) {
+        const k = line.slice(0, tabIdx).trim();
+        const v = line.slice(tabIdx + 1).trim();
+        if (k) pairs.push({ fieldKey: k, value: v });
+        continue;
+      }
+      const colonIdx = line.indexOf(':');
+      if (colonIdx > 0) {
+        const k = line.slice(0, colonIdx).trim();
+        const v = line.slice(colonIdx + 1).trim();
+        if (k) pairs.push({ fieldKey: k, value: v });
+      }
+    }
+
+    const filtered = pairs.filter((p) => p?.fieldKey && !isRestrictedFieldKey(p.fieldKey));
+    if (!filtered.length) {
+      return res.json({ ok: true, userId, agencyId, updatesPlanned: 0, updatesApplied: 0, unknownKeys: [] });
+    }
+
+    const fieldKeys = Array.from(new Set(filtered.map((p) => String(p.fieldKey).trim()))).filter(Boolean);
+    const placeholders = fieldKeys.map(() => '?').join(',');
+    const [defs] = await pool.execute(
+      `SELECT id, field_key, field_type
+       FROM user_info_field_definitions
+       WHERE field_key IN (${placeholders})`,
+      fieldKeys
+    );
+    const byKey = new Map((defs || []).map((d) => [String(d.field_key), d]));
+    const unknownKeys = fieldKeys.filter((k) => !byKey.has(k));
+
+    const upserts = [];
+    for (const p of filtered) {
+      const def = byKey.get(String(p.fieldKey).trim());
+      if (!def?.id) continue;
+      const fieldType = String(def.field_type || '');
+      let stored;
+      if (fieldType === 'multi_select') stored = normalizeMultiSelectStored(p.value);
+      else if (fieldType === 'boolean') stored = normalizeBooleanString(p.value) ? 'true' : 'false';
+      else {
+        const s = String(p.value ?? '').trim();
+        stored = s ? s : null;
+      }
+      upserts.push({ fieldDefinitionId: def.id, value: stored });
+    }
+
+    if (!upserts.length) {
+      return res.json({ ok: true, userId, agencyId, updatesPlanned: 0, updatesApplied: 0, unknownKeys });
+    }
+
+    await UserInfoValue.bulkUpdate(userId, upserts);
+    await ProviderSearchIndex.upsertForUserInAgency({ userId, agencyId });
+
+    res.json({
+      ok: true,
+      userId,
+      agencyId,
+      updatesPlanned: upserts.length,
+      updatesApplied: upserts.length,
+      unknownKeys
+    });
+  } catch (e) {
+    next(e);
+  }
+};
 
 export const bulkCreateProvidersFromSchoolList = [
   upload.single('file'),
@@ -1116,68 +1232,68 @@ export const importEmployeeInfo = [
       // We use is_platform_template=TRUE and agency_id=NULL when possible; fallback to agency_id=agencyId.
       const ensureDefs = async () => {
         const defs = [
-          { key: 'provider_start_date', label: 'Start Date', type: 'date' },
-          { key: 'provider_birthdate', label: 'Birthdate', type: 'date' },
-          { key: 'provider_state_of_birth', label: 'State of Birth', type: 'text' },
-          { key: 'provider_address', label: 'Address', type: 'textarea' },
-          { key: 'provider_education', label: 'Education', type: 'textarea' },
-          { key: 'provider_license_number', label: 'License #', type: 'text' },
-          { key: 'provider_license_issued_date', label: 'License issued date', type: 'date' },
-          { key: 'provider_license_expires_date', label: 'License expires date', type: 'date' },
-          { key: 'provider_npi_number', label: 'NPI #', type: 'text' },
-          { key: 'provider_medicaid_location_number', label: 'Medicaid Location #', type: 'text' }
-          ,
-          // PROVIDER_ONBOARDING_MODULES.md mappings (backfill legacy staff)
-          { key: 'provider_location_selection', label: 'Location Selection', type: 'text' },
-          { key: 'provider_research_topics', label: 'Research topics', type: 'textarea' },
-          { key: 'provider_research_interested', label: 'Interested in conducting research?', type: 'boolean' },
-          { key: 'provider_npi_has_npi', label: 'Do you have an NPI?', type: 'boolean' },
-          { key: 'provider_npi_status', label: 'NPI configuration (status)', type: 'text' },
-          { key: 'provider_npi_number_text', label: 'NPI number (text)', type: 'text' },
-          { key: 'provider_caqh_provider_id', label: 'CAQH Provider ID', type: 'text' },
-          { key: 'provider_caqh_has_account', label: 'Has CAQH account?', type: 'boolean' },
-          { key: 'provider_revalidation_date', label: 'Revalidation Date', type: 'date' },
-          { key: 'provider_outside_school_interest', label: 'Interested in seeing clients outside schools?', type: 'boolean' },
-          { key: 'provider_outside_school_hours', label: 'Outside-school hours', type: 'textarea' },
-          { key: 'provider_school_days', label: 'Days in schools', type: 'multi_select' },
-          { key: 'provider_headshot_url', label: 'Headshot (upload URL)', type: 'text' },
-          { key: 'provider_position', label: 'Position with ITSCO', type: 'text' },
-          // Counseling profile / marketing / culture (free-text fields)
-          { key: 'provider_ideal_client', label: 'Ideal client', type: 'textarea' },
-          { key: 'provider_help_offer', label: 'How can you help / what you offer?', type: 'textarea' },
-          { key: 'provider_build_empathy', label: 'Build empathy', type: 'textarea' },
-          { key: 'provider_specialties', label: 'Specialties', type: 'multi_select' },
-          { key: 'provider_top_three_specialties', label: 'Top 3 specialties', type: 'text' },
-          { key: 'provider_groups_interest', label: 'Interested in leading groups?', type: 'textarea' },
-          { key: 'provider_mental_health_categories', label: 'Mental health categories', type: 'multi_select' },
-          { key: 'provider_certifications', label: 'Certifications', type: 'textarea' },
-          { key: 'provider_sexuality', label: 'Sexuality', type: 'multi_select' },
-          { key: 'provider_other_issues', label: 'Other issues', type: 'multi_select' },
-          { key: 'provider_modality', label: 'Modality', type: 'multi_select' },
-          { key: 'provider_age_specialty', label: 'Client Focus - Age Specialty', type: 'multi_select' },
-          { key: 'provider_client_focus', label: 'Focus (couples/families/groups/individuals)', type: 'multi_select' },
-          { key: 'provider_languages_spoken', label: 'Languages spoken', type: 'multi_select' },
-          { key: 'provider_work_experience', label: 'Work experience', type: 'textarea' },
-          { key: 'provider_treatment_preferences', label: 'Treatment preferences (max 15)', type: 'multi_select' },
-          { key: 'provider_avoid_clients', label: 'Clients to avoid', type: 'textarea' },
-          { key: 'provider_philosophies', label: 'Philosophies', type: 'textarea' },
-          { key: 'provider_personal_info_world', label: 'Personal info to share', type: 'textarea' },
-          { key: 'provider_goals_admin', label: 'Goals/aspirations (admin)', type: 'textarea' },
-          { key: 'provider_passions', label: 'Passions', type: 'textarea' },
-          { key: 'provider_favorite_quotes', label: 'Favorite quotes', type: 'textarea' },
-          { key: 'provider_team_activities', label: 'Team activities', type: 'multi_select' },
-          { key: 'provider_other_info', label: 'Other information', type: 'textarea' },
-          { key: 'provider_gender_ethnicity', label: 'Gender/ethnicity (Psychology Today)', type: 'text' },
-          { key: 'provider_why_counselor_why_itsco', label: 'Why counselor / why ITSCO', type: 'textarea' },
-          { key: 'provider_one_thing_clients_knew', label: 'One thing you wish all clients knew', type: 'textarea' },
-          { key: 'provider_inspires_concerns', label: 'What inspires you / concerns you', type: 'textarea' },
-          { key: 'provider_challenges_finished', label: 'Challenges you help with / finished definition', type: 'textarea' },
-          { key: 'provider_fun_questions', label: 'Fun questions', type: 'textarea' },
-          { key: 'provider_resume_upload_url', label: 'Resume/CV upload URL', type: 'text' },
-          { key: 'provider_license_upload_url', label: 'License upload URL', type: 'text' },
-          { key: 'provider_previous_address', label: 'Previous address', type: 'textarea' },
-          { key: 'provider_work_location', label: 'Which location working at?', type: 'text' },
-          { key: 'provider_intern_grad_program', label: 'Intern graduate program info', type: 'textarea' }
+          // Canonical keys (see app_form_header_map.md)
+          { key: 'start_date', label: 'Start Date', type: 'date' },
+          { key: 'date_of_birth', label: 'Birthdate', type: 'date' },
+          { key: 'state_of_birth', label: 'State of Birth', type: 'text' },
+          { key: 'mailing_address', label: 'Mailing Address', type: 'textarea' },
+          { key: 'education_history', label: 'Education', type: 'textarea' },
+          { key: 'license_type_number', label: 'License', type: 'text' },
+          { key: 'license_issued', label: 'License Issued', type: 'date' },
+          { key: 'license_expires', label: 'License Expires', type: 'date' },
+          { key: 'license_upload', label: 'License Upload', type: 'text' },
+          { key: 'npi_status', label: 'Do you have an NPI?', type: 'select' },
+          { key: 'npi_number', label: 'NPI Number', type: 'text' },
+          { key: 'taxonomy_code', label: 'Taxonomy', type: 'text' },
+          { key: 'caqh_provider_id', label: 'CAQH Provider ID', type: 'text' },
+          { key: 'medicaid_provider_type', label: 'Medicaid Provider Type', type: 'text' },
+          { key: 'medicaid_location_id', label: 'Medicaid Location ID', type: 'text' },
+          { key: 'medicaid_effective_date', label: 'Medicaid Effective Date', type: 'date' },
+          { key: 'medicaid_revalidation', label: 'Medicaid Revalidation Date', type: 'date' },
+          { key: 'medicare_number', label: 'Medicare Number', type: 'text' },
+          { key: 'previous_address', label: 'Previous Address', type: 'textarea' },
+          { key: 'resume_cv_upload', label: 'Resume/CV Upload', type: 'text' },
+          { key: 'headshot_upload', label: 'Headshot Upload', type: 'text' },
+          { key: 'work_location', label: 'Work Location', type: 'text' },
+          { key: 'research_past_topics', label: 'Research topics', type: 'textarea' },
+          { key: 'research_interest', label: 'Interested in conducting research?', type: 'boolean' },
+          { key: 'psych_today_outside_school_interest', label: 'Interested in outside-school clients?', type: 'boolean' },
+          { key: 'outside_school_availability', label: 'Outside-school availability', type: 'textarea' },
+          { key: 'school_days_preference', label: 'School days preference', type: 'multi_select' },
+          { key: 'itsco_position', label: 'Position with ITSCO', type: 'text' },
+          { key: 'grad_program_info', label: 'Intern graduate program info', type: 'textarea' },
+
+          // Counseling profile / marketing / culture
+          { key: 'ideal_client_general', label: 'Ideal client', type: 'textarea' },
+          { key: 'how_help_general', label: 'How can you help / what you offer?', type: 'textarea' },
+          { key: 'build_empathy_general', label: 'Build empathy', type: 'textarea' },
+          { key: 'specialties_general', label: 'Specialties', type: 'multi_select' },
+          { key: 'top3_specialties_general', label: 'Top 3 specialties', type: 'text' },
+          { key: 'group_interest', label: 'Interested in leading groups?', type: 'textarea' },
+          { key: 'mental_health', label: 'Mental Health Categories', type: 'multi_select' },
+          { key: 'certs_general', label: 'Certifications', type: 'textarea' },
+          { key: 'sexuality', label: 'Sexuality', type: 'multi_select' },
+          { key: 'other_issues', label: 'Other issues', type: 'multi_select' },
+          { key: 'modality', label: 'Modality', type: 'multi_select' },
+          { key: 'age_specialty', label: 'Age Specialty', type: 'multi_select' },
+          { key: 'groups', label: 'Focus (couples/families/groups/individuals)', type: 'multi_select' },
+          { key: 'languages_spoken', label: 'Languages spoken', type: 'multi_select' },
+          { key: 'work_exp_general', label: 'Work experience', type: 'textarea' },
+          { key: 'treatment_prefs_max15', label: 'Treatment preferences (max 15)', type: 'multi_select' },
+          { key: 'avoid_clients_general', label: 'Clients to avoid', type: 'textarea' },
+          { key: 'philosophies', label: 'Philosophies', type: 'textarea' },
+          { key: 'personal_info', label: 'Personal info to share', type: 'textarea' },
+          { key: 'goals_aspirations', label: 'Goals/aspirations (admin)', type: 'textarea' },
+          { key: 'passions', label: 'Passions', type: 'textarea' },
+          { key: 'favorite_quotes', label: 'Favorite quotes', type: 'textarea' },
+          { key: 'team_activities', label: 'Team activities', type: 'multi_select' },
+          { key: 'other_info', label: 'Other information', type: 'textarea' },
+          { key: 'pt_gender_ethnicity', label: 'Gender/ethnicity (Psychology Today)', type: 'text' },
+          { key: 'why_counselor_itsco', label: 'Why counselor / why ITSCO', type: 'textarea' },
+          { key: 'clients_expectations', label: 'One thing you wish all clients knew', type: 'textarea' },
+          { key: 'inspires_concerns', label: 'What inspires you / concerns you', type: 'textarea' },
+          { key: 'challenges_finished', label: 'Challenges you help with / finished definition', type: 'textarea' },
+          { key: 'fun_questions', label: 'Fun questions', type: 'textarea' }
         ];
 
         for (const d of defs) {
@@ -1233,7 +1349,13 @@ export const importEmployeeInfo = [
         const s0 = String(a0 || '').toLowerCase();
         const s1 = String(a1 || '').toLowerCase();
         const s2 = String(a2 || '').toLowerCase();
-        return s0.includes('timestamp') || s1.includes('name') || s2.includes('start');
+        return (
+          s0.includes('timestamp') ||
+          s0.includes('first') ||
+          s1.includes('name') ||
+          s1.includes('last') ||
+          s2.includes('start')
+        );
       };
       const startIndex = looksHeader(rows[0]) ? 1 : 0;
 
@@ -1298,6 +1420,14 @@ export const importEmployeeInfo = [
         const r = rows[i] || [];
 
         // Prefer header-based mapping when available; fall back to fixed indices.
+        const firstNameCell =
+          headerIndex.size
+            ? pick(r, 'firstNameHeader', ['First Name', 'First name', 'First'])
+            : null;
+        const lastNameCell =
+          headerIndex.size
+            ? pick(r, 'lastNameHeader', ['Last Name', 'Last name', 'Last'])
+            : null;
         const nameCell =
           headerIndex.size
             ? pick(r, 'nameHeader', ['Name'])
@@ -1344,12 +1474,32 @@ export const importEmployeeInfo = [
           headerIndex.size
             ? pick(r, 'npiNumberHeader', ['Please list your NPI number. If we are making you one, you may leave blank and we will be in contact.'])
             : r[20]; // Column U
+        const taxonomyCell =
+          headerIndex.size
+            ? pick(r, 'taxonomyHeader', ['Taxonomy'])
+            : null;
         const caqhCell =
           headerIndex.size ? pick(r, 'caqhHeader', ['Do you have a CAQH account? If so, what is your provider ID number?']) : null;
+        const medicareNumberCell =
+          headerIndex.size
+            ? pick(r, 'medicareNumberHeader', ['Medicare number', 'Medicare Number', 'Medicare #', 'Medicare'])
+            : null;
+        const taxIdCell =
+          headerIndex.size
+            ? pick(r, 'taxIdHeader', ['TAX ID', 'Tax ID', 'TaxId', 'Tax Identification Number'])
+            : null;
+        const medicaidProviderTypeCell =
+          headerIndex.size
+            ? pick(r, 'medicaidProviderTypeHeader', ['Medicaid Provider Type', 'Medicaid provider type'])
+            : null;
         const medicaidLocCell =
           headerIndex.size
             ? pick(r, 'medicaidLocationHeader', ['What is your medicaid location ID Number? Or write, "I don\'t have a medicaid account."'])
             : r[22]; // Column W
+        const medicaidEffectiveDateCell =
+          headerIndex.size
+            ? pick(r, 'medicaidEffectiveDateHeader', ['Medicaid Effective Date', 'Medicaid effective date', 'Effective Date (Medicaid)'])
+            : null;
         const revalidationCell =
           headerIndex.size ? pick(r, 'revalidationDateHeader', ['If you have an account and know your location ID, please list your revalidation date.']) : null;
         const outsideSchoolInterestCell =
@@ -1439,9 +1589,16 @@ export const importEmployeeInfo = [
         const funQuestionsCell =
           headerIndex.size ? getByAnyHeader(r, ['What do you want to be when you grow up? What is one item you can’t live without? What was the last thing you did for the first time? What makes you feel truly alive?']) : null;
 
-        const parsedName = parseClinicianName(nameCell);
-        const first = parsedName.firstName;
-        const last = parsedName.lastName;
+        const inferred =
+          headerIndex.size && (String(firstNameCell || '').trim() || String(lastNameCell || '').trim())
+            ? {
+                firstName: String(firstNameCell || '').trim(),
+                lastName: String(lastNameCell || '').trim()
+              }
+            : parseClinicianName(nameCell);
+
+        const first = inferred.firstName;
+        const last = inferred.lastName;
         if (!first || !last) {
           results.skippedNoName += 1;
           continue;
@@ -1576,69 +1733,75 @@ export const importEmployeeInfo = [
           upserts.push({ fieldDefinitionId: def.id, value: stored });
         };
 
-        pushVal('provider_start_date', startDateCell);
-        pushVal('provider_birthdate', birthdateCell);
-        pushVal('provider_state_of_birth', stateOfBirthCell);
-        pushVal('provider_address', addressCell);
-        pushVal('provider_education', educationCell);
-        pushVal('provider_license_number', licenseCell);
-        pushVal('provider_npi_number', npiCell);
-        pushVal('provider_medicaid_location_number', medicaidLocCell);
+        // Canonical mapping (app_form_header_map.md)
+        pushVal('start_date', startDateCell);
+        pushVal('date_of_birth', birthdateCell);
+        pushVal('state_of_birth', stateOfBirthCell);
+        pushVal('mailing_address', addressCell);
+        pushVal('education_history', educationCell);
+        pushVal('license_type_number', licenseCell);
+        pushVal('license_issued', licenseIssuedCell);
+        pushVal('license_expires', licenseExpiresCell);
+        pushVal('license_upload', licenseUploadUrlCell);
+        pushVal('npi_number', npiCell);
+        pushVal('taxonomy_code', taxonomyCell);
+        pushVal('medicaid_provider_type', medicaidProviderTypeCell);
+        // tax_id intentionally excluded (restricted)
+        pushVal('medicaid_location_id', medicaidLocCell);
+        pushVal('medicaid_effective_date', medicaidEffectiveDateCell);
+        pushVal('medicare_number', medicareNumberCell);
 
         // Module mappings / additional fields
-        pushVal('provider_location_selection', locationCell);
-        pushVal('provider_previous_address', previousAddressCell);
-        pushVal('provider_resume_upload_url', resumeUrlCell);
-        pushVal('provider_license_upload_url', licenseUploadUrlCell);
-        pushVal('provider_research_topics', researchTopicsCell);
-        pushVal('provider_research_interested', researchInterestedCell);
-        pushVal('provider_license_number', licenseCell);
-        pushVal('provider_license_issued_date', licenseIssuedCell);
-        pushVal('provider_license_expires_date', licenseExpiresCell);
-        pushVal('provider_npi_has_npi', npiHasCell);
-        pushVal('provider_npi_number_text', npiCell);
-        pushVal('provider_caqh_provider_id', caqhCell);
-        pushVal('provider_medicaid_location_number', medicaidLocCell);
-        pushVal('provider_revalidation_date', revalidationCell);
-        pushVal('provider_outside_school_interest', outsideSchoolInterestCell);
-        pushVal('provider_outside_school_hours', outsideSchoolHoursCell);
-        pushVal('provider_school_days', schoolDaysCell);
-        pushVal('provider_headshot_url', headshotUrlCell);
-        pushVal('provider_position', positionCell);
-        pushVal('provider_work_location', locationCell);
-        pushVal('provider_intern_grad_program', internGradProgramCell);
+        pushVal('work_location', locationCell);
+        pushVal('previous_address', previousAddressCell);
+        pushVal('resume_cv_upload', resumeUrlCell);
+        pushVal('research_past_topics', researchTopicsCell);
+        pushVal('research_interest', researchInterestedCell);
+        pushVal('caqh_provider_id', caqhCell);
+        pushVal('medicaid_revalidation', revalidationCell);
+        pushVal('psych_today_outside_school_interest', outsideSchoolInterestCell);
+        pushVal('outside_school_availability', outsideSchoolHoursCell);
+        pushVal('school_days_preference', schoolDaysCell);
+        pushVal('headshot_upload', headshotUrlCell);
+        pushVal('itsco_position', positionCell);
+        pushVal('grad_program_info', internGradProgramCell);
+
+        // Best-effort mapping of legacy yes/no NPI question into canonical npi_status select values.
+        const hasNpi = toBoolLoose(npiHasCell);
+        if (hasNpi === true) pushVal('npi_status', 'yes');
+        else if (hasNpi === false) pushVal('npi_status', 'no_itsco_create');
 
         // Narrative fields
-        pushVal('provider_ideal_client', idealClientCell);
-        pushVal('provider_help_offer', helpOfferCell);
-        pushVal('provider_build_empathy', empathyCell);
-        pushVal('provider_specialties', specialtiesCell);
-        pushVal('provider_top_three_specialties', topThreeCell);
-        pushVal('provider_groups_interest', groupsCell);
-        pushVal('provider_mental_health_categories', mentalHealthCell);
-        pushVal('provider_certifications', certificationsCell);
-        pushVal('provider_sexuality', sexualityCell);
-        pushVal('provider_other_issues', otherIssuesCell);
-        pushVal('provider_modality', modalityCell);
-        pushVal('provider_age_specialty', ageSpecialtyCell);
-        pushVal('provider_client_focus', groupsFocusCell);
-        pushVal('provider_languages_spoken', languagesCell);
-        pushVal('provider_work_experience', workExperienceCell);
-        pushVal('provider_treatment_preferences', treatmentPrefsCell);
-        pushVal('provider_avoid_clients', avoidClientsCell);
-        pushVal('provider_philosophies', philosophiesCell);
-        pushVal('provider_personal_info_world', personalInfoWorldCell);
-        pushVal('provider_goals_admin', goalsAdminCell);
-        pushVal('provider_passions', passionsCell);
-        pushVal('provider_favorite_quotes', quotesCell);
-        pushVal('provider_team_activities', teamActivitiesCell);
-        pushVal('provider_other_info', otherInfoCell);
-        pushVal('provider_gender_ethnicity', genderEthnicityCell);
-        pushVal('provider_why_counselor_why_itsco', whyCounselorCell);
-        pushVal('provider_one_thing_clients_knew', oneThingCell);
-        pushVal('provider_inspires_concerns', inspiresConcernsCell);
-        pushVal('provider_challenges_finished', challengesFinishedCell);
-        pushVal('provider_fun_questions', funQuestionsCell);
+        pushVal('ideal_client_general', idealClientCell);
+        pushVal('how_help_general', helpOfferCell);
+        pushVal('build_empathy_general', empathyCell);
+        pushVal('specialties_general', specialtiesCell);
+        pushVal('top3_specialties_general', topThreeCell);
+        pushVal('group_interest', groupsCell);
+        pushVal('mental_health', mentalHealthCell);
+        pushVal('certs_general', certificationsCell);
+        pushVal('sexuality', sexualityCell);
+        pushVal('other_issues', otherIssuesCell);
+        pushVal('modality', modalityCell);
+        pushVal('age_specialty', ageSpecialtyCell);
+        pushVal('groups', groupsFocusCell);
+        pushVal('languages_spoken', languagesCell);
+        pushVal('work_exp_general', workExperienceCell);
+        pushVal('treatment_prefs_max15', treatmentPrefsCell);
+        pushVal('avoid_clients_general', avoidClientsCell);
+        pushVal('philosophies', philosophiesCell);
+        pushVal('personal_info', personalInfoWorldCell);
+        pushVal('goals_aspirations', goalsAdminCell);
+        pushVal('passions', passionsCell);
+        pushVal('favorite_quotes', quotesCell);
+        pushVal('team_activities', teamActivitiesCell);
+        pushVal('other_info', otherInfoCell);
+        pushVal('pt_gender_ethnicity', genderEthnicityCell);
+        pushVal('why_counselor_itsco', whyCounselorCell);
+        pushVal('clients_expectations', oneThingCell);
+        pushVal('inspires_concerns', inspiresConcernsCell);
+        pushVal('challenges_finished', challengesFinishedCell);
+        pushVal('fun_questions', funQuestionsCell);
 
         if (upserts.length) {
           results.updatedUserInfoFields += upserts.length;

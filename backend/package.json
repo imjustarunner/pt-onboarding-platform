@@ -10,6 +10,7 @@
     "email-agent": "node src/scripts/runEmailAgent.js",
     "create-admin": "node src/scripts/createAdmin.js",
     "create-super-admin": "node src/scripts/createSuperAdmin.js",
+    "sync-form-spec": "node src/scripts/syncFormSpec.js",
     "migrate": "node src/scripts/runMigrations.js",
     "seed": "node src/scripts/seedData.js",
     "seed-documents": "node src/scripts/seedDocuments.js",
@@ -47,6 +48,7 @@
     "pdf-lib": "^1.17.1",
     "puppeteer": "^21.11.0",
     "twilio": "^5.11.2",
+    "yaml": "^2.8.0",
     "xlsx": "^0.18.5"
   }
 }

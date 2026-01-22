@@ -1,172 +1,155 @@
-System Instruction: Create the following distinct modules for the "New Employee Onboarding & Profile Setup" flow. Each module must contain the specific data fields and selection options listed below.
-
-Module 1: Identity & NPI Setup
-Description: Collects location, research interests, and federal provider identification.
-
-Fields:
-
-Location Selection: (Single Select)
-
-Options: [Load current ITSCO locations]
-
-Research Status:
-
-Have you conducted research? If so, what topics? (Text Area)
-
-Are you interested in conducting research? (Boolean: Yes/No)
-
-NPI Configuration:
-
-Do you have an NPI? (Single Select)
-
-Option 1: Yes
-
-Option 2: No, but I have registered and will list the number below and have added ITSCO as a surrogate.
-
-Option 3: Yes, I will list the number below and have added ITSCO as a surrogate.
-
-Option 4: No, and ITSCO can make me one (please contact me).
-
-Logic Note: Display taxonomy codes if "No" is selected: LPC/LPCC: 101YP2500X, MFT/MFTC: 106H00000X, LSW:LCSW 104100000X.
-
-NPI Number Input: (Text Field - Optional if ITSCO is creating one)
-
-Module 2: Position & Role
-Description: Determines the logic flow for the rest of the profile.
-
-Field: Select your position with ITSCO (Single Select).
-
-Option 1: Mental Health Provider (Master's or Doctorate Level)
-
-Option 2: Intern Mental Health Provider (Enrolled in Master's Level Program)
-
-Option 3: Mental Health Facilitator (Primarily Skill Builders | QBHA or Bachelors Level)
-
-Option 4: Mental Health Provider (Bachelor's Level with Approval for Counseling/Therapeutic Services)
-
-Module 3: Work Schedule
-System Directive: The time schedule should be implemented as discussed prior with selections that integrate directly with the profile that is a module of its own.
-
-Module 4: Counseling Profile (General)
-Description: General counseling approach and specialty identification.
-
-Essay Fields:
-
-Imagine your ideal client. What are their issues, needs, and goals? What do they want and why?
-
-How can you help your client/s? What can you offer?
-
-How can you build empathy and invite the potential client to reach out to you?
-
-Do you have any certifications?
-
-Work experience to share?
-
-Are there any clients we should absolutely avoid scheduling with you?
-
-Specialties Selection: (Multi-Select Checkbox)
-
-Options: ADHD, Adoption, Anger Management, Anxiety, Asperger's Syndrome, Autism, Behavioral Issues, Bipolar Disorder, Eating Disorders, Education and Learning Disabilities, Family Conflict, Mood Disorders, LGBTQ+, Obesity, Obsessive-Compulsive (OCD), Peer Relationships, Racial Identity, School Issues, Self Esteem, Self-Harming, Sports Performance, Stress, Teen Violence, Transgender, Trauma and PTSD, Traumatic Brain Injury (TBI), Video Game Addiction.
-
-Top 3 Specialties: (Text Input)
-
-Module 5: Clinical Credentialing
-Description: License and insurance registration details.
-
-Fields:
-
-License Details:
-
-License Type and Number (e.g., LPCC #00154326). Note: List states if multiple.
-
-Date License Issued (Date Picker).
-
-Date License Expires (Date Picker).
-
-Document Upload: Upload copy of practicing license (File Upload).
-
-CAQH & Medicaid:
-
-Do you have a CAQH account? (Yes/No). If yes, provide Provider ID.
-
-Medicaid Location ID Number (or text entry "I don't have a medicaid account").
-
-Revalidation Date (Date Picker - if applicable).
-
-Module 6: External Marketing Profile (Psychology Today)
-Description: Data specifically for the website bio and Psychology Today profile.
-
-Profile Setup:
-
-Psychology Today Status: (Single Select)
-
-Yes and I have a profile already.
-
-Yes and I do not yet have a profile.
-
-No and I would prefer not to have a profile or will manage my own.
-
-Gender/Ethnicity for profile display.
-
-Clinical Bio Essays:
-
-Ideal Client (Clinical Focus).
-
-How you help/Specialty offer.
-
-Building Empathy (Clinical Focus).
-
-Top 3 Specialties (re-confirm for this profile).
-
-Group Therapy:
-
-Interested in leading groups? (Text/List types).
-
-Detailed Clinical Categories: (Multi-Select Checkboxes)
-
-Issues/Specialties (Max 25): Addiction, ADHD, Adoption, Alcohol Use, Alzheimer's, Anger Management, Antisocial Personality, Anxiety, Asperger's Syndrome, Autism, Behavioral Issues, Bipolar Disorder, Borderline Personality (BPD), Career Counseling, Child, Chronic Illness, Chronic Impulsivity, Chronic Pain, Codependency, Coping Skills, Depression, Developmental Disorders, Divorce, Domestic Violence/Abuse, Drug Abuse, Eating Disorders, Education/Learning Disabilities, Family Conflict, Gambling, Grief, Hoarding, Infertility, Infidelity, Mood Disorders, LGBTQ+, Life Coaching, Life Transitions, Men's Issues, Narcissistic Personality (NPD), Obesity, OCD, ODD, Parenting, Peer Relationships, Pregnancy/Prenatal/Postpartum, Racial Identity, Relationship Issues, School Issues, Self Esteem, Self-Harming, Sex Therapy, Sexual Abuse, Sexual Addiction, Sleep/Insomnia, Spirituality, Sports Performance, Stress, Substance Use, Teen Violence, Transgender, Trauma and PTSD, TBI, Video Game Addiction, Weight Loss, Women's Issues.
-
-Mental Health Categories: Dissociative Disorders (DID), Elderly Persons Disorders, Impulse Control Disorders, Mood Disorders, Personality Disorders, Psychosis, Thinking Disorders.
-
-Sexuality: Bisexual, Lesbian, LGBTQ+.
-
-Focus: Couples, Families, Groups, Individuals.
-
-Age Specialty: Toddler (0-5), Children (6-10), Preteen (11-13), Teen (14-18), Adults (18+), Seniors (65+).
-
-Communities/Allied: Aviation Professionals, Bisexual Allied, Blind Allied, Body Positivity, Cancer, Deaf Allied, Gay Allied, HIV/AIDS Allied, Immuno-disorders, Intersex Allied, Lesbian Allied, Little Person Allied, Non-Binary Allied, Open Relationships Non-Monogamy, Queer Allied, Racial Justice Allied, Sex Worker Allied, Sex-Positive/Kink Allied, Single Mother, Transgender Allied, Veterans.
-
-Treatment Modalities: (Multi-Select Checkbox - Max 15)
-
-Options: Acceptance and Commitment (ACT), Adlerian, AEDP, Applied Behavioral Analysis (ABA), Art Therapy, Attachment-Based, Biofeedback, Brainspotting, Christian Counseling, Clinical Supervision, Coaching, CBT, CPT, Compassion Focused, Culturally Sensitive, Dance Movement Therapy, DBT, Eclectic, EMDR, Emotionally Focused, Energy Psychology, Existential, Experiential Therapy, Exposure Response Prevention (ERP), Family/Marital, Family Systems, Feminist, Forensic Psychology, Gestalt, Gottman Method, Humanistic, Hypnotherapy, Integrative, IFS, Interpersonal, Intervention, Jungian, Mindfulness-Based (MBCT), Motivational Interviewing, Multicultural, Music Therapy, Narrative, Neuro-Linguistic (NLP), Neurofeedback, Parent-Child Interaction (PCIT), Person-Centered, Play Therapy, Positive Psychology, Prolonged Exposure Therapy, Psychoanalytic, Psychobiological Approach Couple Therapy, Psychodynamic, Psychological Testing and Evaluation, REBT, Reality Therapy, Relational, Sandplay, Schema Therapy, Solution Focused Brief (SFBT), Somatic, Strength-Based, Structural Family Therapy, Transpersonal, Trauma Focused, Synergetic Play Therapy.
-
-Module 7: Culture & Bio ("Getting to Know You")
-Description: Personal questions for company culture and internal bios.
-
-Essay Fields:
-
-One thing you wish all clients knew / What can clients expect?
-
-What inspires you? What concerns you?
-
-Challenges you help with / Definition of "finished" with counseling.
-
-"Fun" Questions (Grow up to be / Item can't live without / First time / What makes you feel alive).
-
-Philosophies to share.
-
-Why become a counselor? Why ITSCO?
-
-Personal info to share with the world.
-
-Goals/Aspirations to share with Admin.
-
-Interests:
-
-What are your passions?
-
-Favorite quotes?
-
-Team Activities Selection: (Multi-Select Checkbox)
-
-Options: Top Golf, Hiking, Road Trips, Camping, Paddle Boarding, UFC nights (Saturdays), Switchbacks (Soccer), Dinners/Evening events, Running, Fitness, Aerobic activities (swimming/cycling).
+title: Employee Forms - Sectioned Builder Spec (v1)
+notes:
+  - All fields write to employee profile by field_key (single source of truth).
+  - Shared field_keys across forms MUST map to the same stored profile variable.
+  - SSN and passwords excluded (handled externally / restricted vault).
+
+roles:
+  - all_staff
+  - clinical_provider
+  - clinical_intern
+  - facilitator
+  - admin
+  - operations
+
+forms:
+
+  - form_slug: onboarding_profile_main
+    title: New Employee Onboarding & Profile Setup
+    audience: all_staff
+    sections:
+
+      - section_slug: identity_npi_setup
+        title: Identity & NPI Setup
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: work_location, type: single_select, required: true, options_source: itsco_locations, label: "Which location will you be working at?" }
+          - { field_key: research_past_topics, type: textarea, required: false, label: "Have you conducted any research? If so, what were the topics?" }
+          - { field_key: research_interest, type: boolean, required: false, label: "Are you interested in conducting research?" }
+          - { field_key: npi_status, type: single_select, required: true, label: "Do you have an NPI?", options_inline:
+              - { value: "yes", label: "Yes" }
+              - { value: "no_registered_surrogate", label: "No, but I have registered and will list the number below and have added ITSCO as a surrogate." }
+              - { value: "yes_surrogate", label: "Yes, I will list the number below and have added ITSCO as a surrogate." }
+              - { value: "no_itsco_create", label: "No, and ITSCO can make me one (please contact me)." }
+            }
+          - { field_key: npi_number, type: text, required: false, label: "Please list your NPI number. If we are making you one, you may leave blank and we will be in contact." }
+
+      - section_slug: work_schedule
+        title: Work Schedule
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: availability_mon, type: schedule_grid, required: false, label: "Please select your available days and times [Monday]" }
+          - { field_key: availability_tue, type: schedule_grid, required: false, label: "Please select your available days and times [Tuesday]" }
+          - { field_key: availability_wed, type: schedule_grid, required: false, label: "Please select your available days and times [Wednesday]" }
+          - { field_key: availability_thu, type: schedule_grid, required: false, label: "Please select your available days and times [Thursday]" }
+          - { field_key: availability_fri, type: schedule_grid, required: false, label: "Please select your available days and times [Friday]" }
+          - { field_key: availability_sat, type: schedule_grid, required: false, label: "Please select your available days and times [Saturday]" }
+          - { field_key: availability_sun, type: schedule_grid, required: false, label: "Please select your available days and times [Sunday]" }
+
+      - section_slug: position_role
+        title: Position & Role
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: itsco_position, type: single_select, required: true, label: "Please select your position with ITSCO", options_inline:
+              - { value: "mh_provider_grad", label: "Mental Health Provider (Master's or Doctorate Level)" }
+              - { value: "mh_intern", label: "Intern Mental Health Provider (Enrolled in Master's Level Program)" }
+              - { value: "mh_facilitator", label: "Mental Health Facilitator (Primarily Skill Builders | QBHA or Bachelors Level)" }
+              - { value: "mh_provider_ba_approved", label: "Mental Health Provider (Bachelor's Level with Approval for Counseling/Therapeutic Services)" }
+            }
+
+      - section_slug: counseling_profile_general
+        title: Counseling Profile (General)
+        visible_to_roles: [clinical_provider, clinical_intern, facilitator]
+        fields:
+          - { field_key: provider_description, type: textarea, required: false, label: "Description (optional)" }
+          - { field_key: ideal_client_general, type: textarea, required: false, label: "Imagine your ideal client. What are their issues, their needs, their goals? What do they want and why?" }
+          - { field_key: how_help_general, type: textarea, required: false, label: "How can you help your client/s? What can you offer?" }
+          - { field_key: build_empathy_general, type: textarea, required: false, label: "How can you build empathy and invite the potential client to reach out to you?" }
+          - { field_key: certs_general, type: textarea, required: false, label: "Do you have any certifications?" }
+          - { field_key: work_exp_general, type: textarea, required: false, label: "Any work experience you would like to share?" }
+          - { field_key: avoid_clients_general, type: textarea, required: false, label: "Are there any clients we should absolutely avoid scheduling with you? If so, what can you tell us about them?" }
+          - { field_key: specialties_general, type: multi_select, required: false, options_source: specialties_general_list, label: "Do you have any Specialties?" }
+          - { field_key: top3_specialties_general, type: text, required: false, label: "What are your top three specialities from the above?" }
+
+      - section_slug: clinical_credentialing
+        title: Clinical Credentialing
+        visible_to_roles: [clinical_provider, clinical_intern]
+        fields:
+          - { field_key: license_type_number, type: text, required: false, label: "What is/are your license/s and provide us the #/s (i.e., LPCC #00154326)" }
+          - { field_key: license_issued, type: date, required: false, label: "Date License Issued" }
+          - { field_key: license_expires, type: date, required: false, label: "Date License Expires" }
+          - { field_key: license_upload, type: file, required: false, label: "Please upload a copy of your practicing license (LPCC, etc.)" }
+          - { field_key: caqh_provider_id, type: text, required: false, label: "Do you have a CAQH account? If so, what is your provider ID number?" }
+          - { field_key: medicaid_location_id, type: text, required: false, label: "What is your medicaid location ID Number? Or write, \"I don't have a medicaid account.\"" }
+          - { field_key: medicaid_revalidation, type: date, required: false, label: "If you have an account and know your location ID, please list your revalidation date." }
+
+      - section_slug: marketing_psych_today
+        title: External Marketing Profile (Psychology Today)
+        visible_to_roles: [clinical_provider]
+        fields:
+          - { field_key: psych_today_status, type: single_select, required: false, label: "Psychology Today Status", options_inline:
+              - { value: "yes_existing", label: "Yes and I have a profile already." }
+              - { value: "yes_need_profile", label: "Yes and I do not yet have a profile." }
+              - { value: "no_prefer_not", label: "No and I would prefer not to have a profile or will manage my own." }
+            }
+          - { field_key: pt_gender_ethnicity, type: text, required: false, label: "Your gender/ethnicity (used for the psych today profile for clients with a preference to choose you) if applicable." }
+          - { field_key: ideal_client_clinical, type: textarea, required: false, label: "Ideal Client (Clinical Focus)." }
+          - { field_key: how_help_clinical, type: textarea, required: false, label: "How you help / Specialty offer." }
+          - { field_key: build_empathy_clinical, type: textarea, required: false, label: "Building Empathy (Clinical Focus)." }
+          - { field_key: top3_specialties_clinical, type: text, required: false, label: "Top 3 Specialties (re-confirm for this profile)." }
+          - { field_key: group_interest, type: textarea, required: false, label: "Interested in leading groups? (List types)" }
+          - { field_key: pt_specialties_max25, type: multi_select, required: false, max_select: 25, options_source: psych_today_issues_list, label: "Issues/Specialties (Max 25)" }
+          - { field_key: pt_top3_specialties, type: text, required: false, label: "Top 3 Specialties (from issues list)" }
+          - { field_key: mental_health, type: multi_select, required: false, options_source: psych_today_mental_health_categories, label: "Mental Health Categories" }
+          - { field_key: sexuality, type: multi_select, required: false, options_source: psych_today_sexuality_categories, label: "Sexuality" }
+          - { field_key: other_issues, type: multi_select, required: false, options_source: psych_today_communities_allied, label: "Communities/Allied" }
+          - { field_key: modality, type: multi_select, required: false, options_source: psych_today_modalities_list, label: "Treatment Modalities", max_select: 15 }
+          - { field_key: age_specialty, type: multi_select, required: false, options_source: psych_today_age_specialty, label: "Age Specialty" }
+          - { field_key: groups, type: multi_select, required: false, options_source: psych_today_focus, label: "Focus (Couples/Families/Groups/Individuals)" }
+          - { field_key: treatment_prefs_max15, type: multi_select, required: false, max_select: 15, options_source: psych_today_modalities_list, label: "Treatment Preferences or Strategies. Max 15" }
+          - { field_key: certs_clinical, type: textarea, required: false, label: "Do you have any certifications? (Clinical)" }
+          - { field_key: work_exp_clinical, type: textarea, required: false, label: "Any work experience you would like to share? (Clinical)" }
+          - { field_key: avoid_clients_clinical, type: textarea, required: false, label: "Any clients we should absolutely avoid scheduling with you? (Clinical)" }
+
+      - section_slug: culture_bio
+        title: Culture & Bio (Getting to Know You)
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: clients_expectations, type: textarea, required: false, label: "One thing you wish all clients knew / what can clients expect?" }
+          - { field_key: inspires_concerns, type: textarea, required: false, label: "What inspires you? What concerns you?" }
+          - { field_key: challenges_finished, type: textarea, required: false, label: "Challenges you help with / definition of finished." }
+          - { field_key: fun_questions, type: textarea, required: false, label: "Fun questions (grow up to be / can't live without / first time / alive)" }
+          - { field_key: philosophies, type: textarea, required: false, label: "Philosophies to share." }
+          - { field_key: why_counselor_itsco, type: textarea, required: false, label: "Why become a counselor? Why ITSCO?" }
+          - { field_key: personal_info, type: textarea, required: false, label: "Personal info to share with the world." }
+          - { field_key: goals_aspirations, type: textarea, required: false, label: "Goals/aspirations to share with Admin." }
+          - { field_key: passions, type: textarea, required: false, label: "What are your passions?" }
+          - { field_key: favorite_quotes, type: textarea, required: false, label: "Favorite quotes?" }
+          - { field_key: team_activities, type: multi_select, required: false, options_source: team_activities_list, label: "Team Activities (select all that apply)" }
+          - { field_key: other_info, type: textarea, required: false, label: "Any other information you'd like to share?" }
+
+    rules:
+      - rule_id: show_taxonomy_when_no_npi
+        if_field_key: npi_status
+        operator: in
+        value: ["no_registered_surrogate", "no_itsco_create"]
+        then_action: show_section
+        target_section_slug: taxonomy_codes_reference
+
+
+  - form_slug: gear_supplies
+    title: Gear / Supplies Tracking
+    audience: all_staff
+    sections:
+      - section_slug: gear_tracking
+        title: Gear & Items
+        visible_to_roles: [all_staff, operations, admin]
+        fields:
+          - { field_key: windchime_keys, type: boolean, required: false, label: "Windchime Keys" }
+          - { field_key: school_cart, type: boolean, required: false, label: "School Cart" }
+          - { field_key: tote_bag, type: boolean, required: false, label: "Tote Bag" }
+          - { field_key: tshirt, type: text, required: false, label: "T-Shirt (size/notes)" }
+          - { field_key: pullover, type: text, required: false, label: "Pullover (size/notes)" }
+          - { field_key: polo, type: text, required: false, label: "Polo (size/notes)" }
+          - { field_key: team_number, type: text, required: false, label: "Team #" }
+          - { field_key: group_number, type: text, required: false, label: "Group #" }

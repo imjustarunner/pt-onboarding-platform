@@ -58,12 +58,13 @@ class UserInfoFieldDefinition {
       isPlatformTemplate,
       agencyId,
       parentFieldId,
+      categoryKey,
       orderIndex,
       createdByUserId
     } = fieldData;
 
     const [result] = await pool.execute(
-      'INSERT INTO user_info_field_definitions (field_key, field_label, field_type, options, is_required, is_platform_template, agency_id, parent_field_id, order_index, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO user_info_field_definitions (field_key, field_label, field_type, options, is_required, is_platform_template, agency_id, parent_field_id, category_key, order_index, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         fieldKey,
         fieldLabel,
@@ -73,6 +74,7 @@ class UserInfoFieldDefinition {
         isPlatformTemplate !== undefined ? isPlatformTemplate : false,
         agencyId || null,
         parentFieldId || null,
+        categoryKey || null,
         orderIndex || 0,
         createdByUserId || null
       ]
@@ -91,6 +93,7 @@ class UserInfoFieldDefinition {
       isPlatformTemplate,
       agencyId,
       parentFieldId,
+      categoryKey,
       orderIndex
     } = fieldData;
     
@@ -128,6 +131,10 @@ class UserInfoFieldDefinition {
     if (parentFieldId !== undefined) {
       updates.push('parent_field_id = ?');
       values.push(parentFieldId);
+    }
+    if (categoryKey !== undefined) {
+      updates.push('category_key = ?');
+      values.push(categoryKey);
     }
     if (orderIndex !== undefined) {
       updates.push('order_index = ?');

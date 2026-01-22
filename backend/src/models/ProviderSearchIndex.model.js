@@ -24,7 +24,7 @@ class ProviderSearchIndex {
     // Remove existing rows for this user+agency, then reinsert from user_info_values.
     await pool.execute('DELETE FROM provider_search_index WHERE user_id = ? AND agency_id = ?', [uid, aid]);
 
-    // Only index provider_* fields.
+    // Index canonical profile fields from user_info_values (backed by user_info_field_definitions.field_key).
     const [rows] = await pool.execute(
       `SELECT
          uifd.field_key,
@@ -32,8 +32,7 @@ class ProviderSearchIndex {
          uiv.value
        FROM user_info_values uiv
        JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
-       WHERE uiv.user_id = ?
-         AND uifd.field_key LIKE 'provider_%'`,
+       WHERE uiv.user_id = ?`,
       [uid]
     );
 

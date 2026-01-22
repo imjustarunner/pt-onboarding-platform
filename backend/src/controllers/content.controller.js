@@ -7,14 +7,29 @@ export const getModuleContent = async (req, res, next) => {
     const content = await ModuleContent.findByModuleId(id);
     
     // Parse JSON content_data
-    const parsedContent = content.map(item => ({
-      ...item,
-      content_data: typeof item.content_data === 'string' 
-        ? JSON.parse(item.content_data) 
-        : item.content_data
-    }));
+    const parsedContent = content.map(item => {
+      let data = item.content_data;
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch {
+          data = null;
+        }
+      }
+      return { ...item, content_data: data };
+    });
 
-    res.json(parsedContent);
+    // Role-gate spec-generated form pages.
+    const userRole = String(req.user?.role || '').toLowerCase();
+    const filtered = parsedContent.filter((item) => {
+      if (item.content_type !== 'form') return true;
+      if (userRole === 'super_admin') return true;
+      const roles = item.content_data?.visibleToRoles;
+      if (!Array.isArray(roles) || roles.length === 0) return true;
+      return roles.map((r) => String(r || '').toLowerCase()).includes(userRole);
+    });
+
+    res.json(filtered);
   } catch (error) {
     next(error);
   }
