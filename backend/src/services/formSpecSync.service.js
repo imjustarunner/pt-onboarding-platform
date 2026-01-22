@@ -5,6 +5,7 @@ import pool from '../config/database.js';
 import Module from '../models/Module.model.js';
 import ModuleContent from '../models/ModuleContent.model.js';
 import UserInfoFieldDefinition from '../models/UserInfoFieldDefinition.model.js';
+import UserInfoCategory from '../models/UserInfoCategory.model.js';
 import { resolveOptionSource } from '../config/formOptionSources.js';
 
 function findRepoFileCandidates(relativePathFromRepoRoot) {
@@ -331,6 +332,44 @@ async function upsertFormPages({ moduleId, formSlug, sections, fieldKeyToId }) {
   }
 }
 
+async function upsertPlatformCategory({ categoryKey, categoryLabel, orderIndex }) {
+  const key = String(categoryKey || '').trim();
+  if (!key) return null;
+
+  const [rows] = await pool.execute(
+    `SELECT id
+     FROM user_info_categories
+     WHERE category_key = ?
+       AND agency_id IS NULL
+     ORDER BY is_platform_template DESC, id ASC
+     LIMIT 1`,
+    [key]
+  );
+  const existing = rows?.[0] || null;
+
+  const label = String(categoryLabel || key).trim() || key;
+  const oi = Number.isInteger(orderIndex) ? orderIndex : 0;
+
+  if (existing?.id) {
+    return await UserInfoCategory.update(existing.id, {
+      categoryKey: key,
+      categoryLabel: label,
+      isPlatformTemplate: true,
+      agencyId: null,
+      orderIndex: oi
+    });
+  }
+
+  return await UserInfoCategory.create({
+    categoryKey: key,
+    categoryLabel: label,
+    isPlatformTemplate: true,
+    agencyId: null,
+    orderIndex: oi,
+    createdByUserId: null
+  });
+}
+
 export class FormSpecSyncService {
   static async syncFromProviderOnboardingModulesMd() {
     const raw = await readRepoFile('PROVIDER_ONBOARDING_MODULES.md');
@@ -344,6 +383,8 @@ export class FormSpecSyncService {
 
     let fieldsUpserted = 0;
     let modulesUpserted = 0;
+    let categoriesUpserted = 0;
+    let categoryOrder = 0;
 
     for (const form of forms) {
       const formSlug = String(form.form_slug || '').trim();
@@ -356,6 +397,15 @@ export class FormSpecSyncService {
       let fieldOrder = 0;
       for (const section of sections) {
         const sectionSlug = String(section.section_slug || '').trim() || null;
+        if (sectionSlug) {
+          categoryOrder += 1;
+          await upsertPlatformCategory({
+            categoryKey: sectionSlug,
+            categoryLabel: section.title || sectionSlug,
+            orderIndex: categoryOrder
+          });
+          categoriesUpserted += 1;
+        }
         const fields = Array.isArray(section.fields) ? section.fields : [];
         for (const f of fields) {
           fieldOrder += 1;
@@ -388,7 +438,7 @@ export class FormSpecSyncService {
       modulesUpserted += 1;
     }
 
-    return { ok: true, forms: forms.length, fieldsUpserted, modulesUpserted };
+    return { ok: true, forms: forms.length, fieldsUpserted, modulesUpserted, categoriesUpserted };
   }
 }
 

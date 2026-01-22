@@ -2,8 +2,8 @@
   <div class="provider-info-tab">
     <div class="tab-header">
       <div>
-        <h2 style="margin: 0;">Provider Info</h2>
-        <p class="subtitle">Provider onboarding/profile fields captured directly into the user’s file.</p>
+        <h2 style="margin: 0;">Profile Info</h2>
+        <p class="subtitle">Profile fields captured into the user’s file (spec-driven).</p>
       </div>
 
       <div class="header-actions">
@@ -11,7 +11,7 @@
           Refresh
         </button>
         <button class="btn btn-primary" @click="saveAll" :disabled="saving || loading || installing || providerFields.length === 0">
-          {{ saving ? 'Saving...' : 'Save Provider Info' }}
+          {{ saving ? 'Saving...' : 'Save Profile Info' }}
         </button>
       </div>
     </div>
@@ -20,12 +20,12 @@
     <div v-if="saveError" class="error" style="margin-bottom: 12px;">{{ saveError }}</div>
     <div v-if="saveSuccess" class="success" style="margin-bottom: 12px;">{{ saveSuccess }}</div>
 
-    <div class="install-card" v-if="showInstallCard">
+    <div class="install-card" v-if="false && showInstallCard">
       <div class="install-card-header">
         <div>
           <h3 style="margin: 0;">Install Provider Onboarding Modules</h3>
           <p class="subtitle" style="margin-top: 6px;">
-            This will create the Provider Info categories/fields and create the corresponding Form modules so they can be assigned like any other module.
+            This legacy installer has been replaced by the spec-driven sync (Admin Actions → Sync Forms).
           </p>
         </div>
         <button class="btn btn-primary" @click="installTemplate" :disabled="installing">
@@ -43,9 +43,9 @@
 
     <div v-else>
       <div v-if="providerFields.length === 0" class="empty-state">
-        <p style="margin: 0;">No Provider Info fields found for this user yet.</p>
+        <p style="margin: 0;">No profile fields found for this user yet.</p>
         <p style="margin: 8px 0 0 0; color: var(--text-secondary);">
-          If you want these created automatically, click “Install Template” above.
+          Run “Sync Forms (Spec)” to create categories/fields, then assign the appropriate form module to the user.
         </p>
       </div>
 
@@ -61,6 +61,10 @@
                 {{ field.field_label }}
                 <span v-if="field.is_required" class="required-asterisk">*</span>
               </label>
+
+              <div v-if="fileValueUrl(fieldValues[field.id])" style="margin-bottom: 6px;">
+                <a :href="fileValueUrl(fieldValues[field.id])" target="_blank" rel="noopener noreferrer">View uploaded file</a>
+              </div>
 
               <input
                 v-if="field.field_type === 'text' || field.field_type === 'email' || field.field_type === 'phone'"
@@ -157,15 +161,9 @@ const allFields = ref([]);
 const fieldValues = ref({});
 const userAgencies = ref([]);
 
-const PROVIDER_CATEGORY_ORDER = [
-  { key: 'provider_identity_npi', label: 'Identity & NPI Setup' },
-  { key: 'provider_position_role', label: 'Position & Role' },
-  { key: 'provider_work_schedule', label: 'Work Schedule' },
-  { key: 'provider_counseling_profile_general', label: 'Counseling Profile (General)' },
-  { key: 'provider_clinical_credentialing', label: 'Clinical Credentialing' },
-  { key: 'provider_external_marketing_profile', label: 'External Marketing Profile (Psychology Today)' },
-  { key: 'provider_culture_bio', label: 'Culture & Bio (Getting to Know You)' }
-];
+const platformCategoryKeys = computed(() => {
+  return new Set((categories.value || []).filter((c) => c.is_platform_template === 1 || c.is_platform_template === true).map((c) => c.category_key));
+});
 
 const normalizeMultiSelectValue = (raw) => {
   if (Array.isArray(raw)) return raw;
@@ -194,7 +192,8 @@ const targetAgency = computed(() => {
 });
 
 const providerFields = computed(() => {
-  return (allFields.value || []).filter((f) => (f.category_key || '').startsWith('provider_') || (f.field_key || '').startsWith('provider_'));
+  const allowed = platformCategoryKeys.value;
+  return (allFields.value || []).filter((f) => f?.category_key && allowed.has(f.category_key));
 });
 
 const providerSections = computed(() => {
@@ -205,28 +204,20 @@ const providerSections = computed(() => {
     byCat.get(key).push(f);
   });
 
-  // Stable order: our known order first, then leftovers.
-  const catLabelByKey = new Map((categories.value || []).map((c) => [c.category_key, c.category_label]));
+  const catByKey = new Map((categories.value || []).map((c) => [c.category_key, c]));
+  const sortedCats = (categories.value || [])
+    .filter((c) => c.is_platform_template === 1 || c.is_platform_template === true)
+    .slice()
+    .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
 
   const sections = [];
-  for (const c of PROVIDER_CATEGORY_ORDER) {
-    const fields = byCat.get(c.key) || [];
-    if (fields.length === 0) continue;
-    sections.push({
-      key: c.key,
-      label: catLabelByKey.get(c.key) || c.label,
-      fields: fields.slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-    });
-  }
-
-  // Add any provider_* category not in the hard-coded list
-  const used = new Set(sections.map((s) => s.key));
-  for (const [key, fields] of byCat.entries()) {
-    if (!key.startsWith('provider_')) continue;
-    if (used.has(key)) continue;
+  for (const c of sortedCats) {
+    const key = c.category_key;
+    const fields = byCat.get(key) || [];
+    if (!fields.length) continue;
     sections.push({
       key,
-      label: catLabelByKey.get(key) || key,
+      label: c.category_label || key,
       fields: fields.slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
     });
   }
@@ -284,13 +275,21 @@ const saveAll = async () => {
     }));
 
     await api.post(`/users/${props.userId}/user-info`, { values });
-    saveSuccess.value = 'Saved Provider Info.';
+    saveSuccess.value = 'Saved Profile Info.';
     setTimeout(() => (saveSuccess.value = ''), 2500);
   } catch (e) {
-    saveError.value = e.response?.data?.error?.message || 'Failed to save Provider Info';
+    saveError.value = e.response?.data?.error?.message || 'Failed to save Profile Info';
   } finally {
     saving.value = false;
   }
+};
+
+const fileValueUrl = (raw) => {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  if (v.startsWith('/uploads/')) return v;
+  if (v.startsWith('uploads/')) return `/uploads/${v.substring('uploads/'.length)}`;
+  return '';
 };
 
 // ---- Template provisioning (agency-scoped) ----

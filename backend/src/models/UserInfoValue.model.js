@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import User from './User.model.js';
+import { parseUsAddressLoose } from '../utils/addressParsing.js';
 
 class UserInfoValue {
   static async findByUserId(userId, agencyId = null) {
@@ -149,6 +151,52 @@ class UserInfoValue {
     for (const item of values) {
       const result = await this.createOrUpdate(userId, item.fieldDefinitionId, item.value);
       results.push(result);
+    }
+
+    // Best-effort: also sync certain canonical profile keys into core `users` columns.
+    // This keeps existing UI/search features working (mileage uses home_* fields).
+    try {
+      const ids = (values || [])
+        .map((v) => Number(v?.fieldDefinitionId))
+        .filter((n) => Number.isInteger(n) && n > 0);
+      if (ids.length) {
+        const placeholders = ids.map(() => '?').join(',');
+        const [defs] = await pool.execute(
+          `SELECT id, field_key
+           FROM user_info_field_definitions
+           WHERE id IN (${placeholders})`,
+          ids
+        );
+        const keyById = new Map((defs || []).map((d) => [Number(d.id), String(d.field_key || '')]));
+        const incoming = new Map((values || []).map((v) => [Number(v.fieldDefinitionId), v?.value ?? null]));
+
+        const getValByKey = (k) => {
+          for (const [id, key] of keyById.entries()) {
+            if (key === k) return incoming.get(id);
+          }
+          return null;
+        };
+
+        const mailing = getValByKey('mailing_address');
+        if (mailing) {
+          const parsed = parseUsAddressLoose(mailing);
+          if (parsed) {
+            await User.update(userId, {
+              homeStreetAddress: parsed.street || null,
+              homeCity: parsed.city || null,
+              homeState: parsed.state || null,
+              homePostalCode: parsed.postalCode || null
+            });
+          }
+        }
+
+        const cell = getValByKey('cell_number');
+        if (cell) {
+          await User.update(userId, { personalPhone: User.normalizePhone(cell) });
+        }
+      }
+    } catch {
+      // Non-blocking; profile writes should still succeed even if core sync fails.
     }
     
     return results;

@@ -166,13 +166,121 @@
       <div class="info-section">
         <div class="section-header">
           <h2 style="margin: 0;">Profile Information</h2>
-          <button class="btn btn-secondary btn-large" @click="$router.push('/dashboard?tab=training')">
-            Go to My Training
-          </button>
+          <div style="display:flex; gap: 10px; flex-wrap: wrap;">
+            <button class="btn btn-secondary btn-large" @click="$router.push('/dashboard?tab=training')">
+              Go to My Training
+            </button>
+            <button class="btn btn-primary btn-large" @click="saveMyUserInfo" :disabled="savingUserInfo || userInfoLoading">
+              {{ savingUserInfo ? 'Saving…' : 'Save Profile Info' }}
+            </button>
+          </div>
         </div>
         <div class="hint" style="margin-top: 6px;">
-          Your profile questions are completed through assigned onboarding modules (question-by-question). If you see duplicate questions elsewhere,
-          an admin will clean up the underlying field set so each question exists only once.
+          This is your editable profile data (saved to the database). You can update it throughout the year; forms/modules just provide a structured way to collect it.
+        </div>
+
+        <div v-if="userInfoLoading" class="loading" style="margin-top: 12px;">Loading profile fields…</div>
+        <div v-else-if="userInfoError" class="error" style="margin-top: 12px;">{{ userInfoError }}</div>
+
+        <div v-else style="margin-top: 12px;">
+          <div v-if="myCategoryOptions.length > 1" class="category-tabs">
+            <button
+              v-for="cat in myCategoryOptions"
+              :key="cat.key"
+              @click="activeMyCategoryKey = cat.key"
+              :class="['category-tab', { active: activeMyCategoryKey === cat.key }]"
+            >
+              {{ cat.label }}
+            </button>
+          </div>
+
+          <div v-if="filteredMyFields.length === 0" class="empty-state" style="margin-top: 10px;">
+            No profile fields found yet. Ask an admin to assign you a profile form module (or run “Sync Forms (Spec)”).
+          </div>
+
+          <div v-else class="fields-grid" style="margin-top: 12px;">
+            <div v-for="field in filteredMyFields" :key="field.id" class="field-item">
+              <label :for="`my-field-${field.id}`">
+                {{ field.field_label }}
+                <span v-if="field.is_required" class="required-asterisk">*</span>
+              </label>
+
+              <div v-if="fileValueUrl(myUserInfoValues[field.id])" style="margin-bottom: 6px;">
+                <a :href="fileValueUrl(myUserInfoValues[field.id])" target="_blank" rel="noopener noreferrer">View uploaded file</a>
+              </div>
+
+              <input
+                v-if="field.field_type === 'text' || field.field_type === 'email' || field.field_type === 'phone'"
+                :id="`my-field-${field.id}`"
+                :type="field.field_type === 'email' ? 'email' : field.field_type === 'phone' ? 'tel' : 'text'"
+                v-model="myUserInfoValues[field.id]"
+                :required="field.is_required"
+              />
+
+              <input
+                v-else-if="field.field_type === 'number'"
+                :id="`my-field-${field.id}`"
+                type="number"
+                v-model="myUserInfoValues[field.id]"
+                :required="field.is_required"
+              />
+
+              <input
+                v-else-if="field.field_type === 'date'"
+                :id="`my-field-${field.id}`"
+                type="date"
+                v-model="myUserInfoValues[field.id]"
+                :required="field.is_required"
+              />
+
+              <textarea
+                v-else-if="field.field_type === 'textarea'"
+                :id="`my-field-${field.id}`"
+                v-model="myUserInfoValues[field.id]"
+                rows="3"
+                :required="field.is_required"
+              />
+
+              <select
+                v-else-if="field.field_type === 'select'"
+                :id="`my-field-${field.id}`"
+                v-model="myUserInfoValues[field.id]"
+                :required="field.is_required"
+              >
+                <option value="">Select…</option>
+                <option v-for="opt in (field.options || [])" :key="opt" :value="opt">{{ opt }}</option>
+              </select>
+
+              <div v-else-if="field.field_type === 'multi_select'" class="multi-select-options">
+                <label v-for="opt in (field.options || [])" :key="opt" class="checkbox-option">
+                  <input
+                    type="checkbox"
+                    :checked="normalizeMultiSelectValue(myUserInfoValues[field.id]).includes(opt)"
+                    @change="toggleMyMultiSelect(field.id, opt)"
+                  />
+                  {{ opt }}
+                </label>
+              </div>
+
+              <select
+                v-else-if="field.field_type === 'boolean'"
+                :id="`my-field-${field.id}`"
+                v-model="myUserInfoValues[field.id]"
+                :required="field.is_required"
+              >
+                <option value="">Select…</option>
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
+
+              <input
+                v-else
+                :id="`my-field-${field.id}`"
+                v-model="myUserInfoValues[field.id]"
+                type="text"
+              />
+            </div>
+          </div>
         </div>
       </div>
       
@@ -431,9 +539,26 @@ const toggleMyMultiSelect = (fieldId, option) => {
   myUserInfoValues.value[fieldId] = next;
 };
 
+const fileValueUrl = (raw) => {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  if (v.startsWith('/uploads/')) return v;
+  if (v.startsWith('uploads/')) return `/uploads/${v.substring('uploads/'.length)}`;
+  return '';
+};
+
+const platformCategoryKeys = computed(() => {
+  return new Set((myUserInfoCategories.value || []).filter((c) => c.is_platform_template === 1 || c.is_platform_template === true).map((c) => c.category_key));
+});
+
+const myPlatformFields = computed(() => {
+  const allowed = platformCategoryKeys.value;
+  return (myUserInfoFields.value || []).filter((f) => f?.category_key && allowed.has(f.category_key));
+});
+
 const myCategoryOptions = computed(() => {
   const byKey = new Map((myUserInfoCategories.value || []).map((c) => [c.category_key, c]));
-  const keysFromFields = new Set((myUserInfoFields.value || []).map((f) => f.category_key || '__uncategorized'));
+  const keysFromFields = new Set((myPlatformFields.value || []).map((f) => f.category_key || '__uncategorized'));
 
   const options = [
     { key: '__all', label: 'All' },
@@ -451,11 +576,11 @@ const myCategoryOptions = computed(() => {
 });
 
 const filteredMyFields = computed(() => {
-  if (activeMyCategoryKey.value === '__all') return myUserInfoFields.value;
+  if (activeMyCategoryKey.value === '__all') return myPlatformFields.value;
   if (activeMyCategoryKey.value === '__uncategorized') {
-    return myUserInfoFields.value.filter((f) => !f.category_key);
+    return myPlatformFields.value.filter((f) => !f.category_key);
   }
-  return myUserInfoFields.value.filter((f) => f.category_key === activeMyCategoryKey.value);
+  return myPlatformFields.value.filter((f) => f.category_key === activeMyCategoryKey.value);
 });
 
 const fetchMyUserInfo = async () => {
