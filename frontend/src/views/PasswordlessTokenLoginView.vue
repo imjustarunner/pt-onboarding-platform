@@ -115,13 +115,14 @@ const attemptLogin = async (lastNameValue = null) => {
     // Wait a bit longer to ensure cookie is available for subsequent requests
     // Also gives time for any agency fetching to complete
     setTimeout(() => {
-      if (response.data.user.status === 'pending') {
-        // Pending users go to dashboard
-        router.push('/dashboard');
-      } else {
-        // Other users go to password change
+      // If backend indicates they should change password, route to change-password page
+      if (response.data.requiresPasswordChange) {
         router.push('/change-password?token=' + cleanToken + '&requireChange=true');
+        return;
       }
+
+      // Default: go to dashboard
+      router.push('/dashboard');
     }, 1500);
   } catch (err) {
     // If this is a reset token, route to reset-password flow (do NOT login directly)
