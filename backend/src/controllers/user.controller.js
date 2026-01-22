@@ -39,6 +39,21 @@ export const getCurrentUser = async (req, res, next) => {
       user.role === 'super_admin' ||
       (user.role === 'staff' && payrollAgencyIds.length > 0);
 
+    // 6-month password expiry (best-effort; defaults to created_at if password_changed_at missing)
+    const calcPasswordExpiry = (u) => {
+      const changedAt = u?.password_changed_at ? new Date(u.password_changed_at) : (u?.created_at ? new Date(u.created_at) : null);
+      if (!changedAt || Number.isNaN(changedAt.getTime())) return { requiresPasswordChange: false, passwordExpiresAt: null, passwordExpired: false };
+      const expiresAt = new Date(changedAt.getTime());
+      expiresAt.setMonth(expiresAt.getMonth() + 6);
+      const expired = expiresAt.getTime() <= Date.now();
+      return {
+        requiresPasswordChange: expired,
+        passwordExpiresAt: expiresAt.toISOString(),
+        passwordExpired: expired
+      };
+    };
+    const pw = calcPasswordExpiry(user);
+
     // Return user in same format as login response + capabilities
     res.json({
       id: user.id,
@@ -50,6 +65,9 @@ export const getCurrentUser = async (req, res, next) => {
       preferredName: user.preferred_name || null,
       username: user.username || user.personal_email || user.email,
       profilePhotoUrl: publicUploadsUrlFromStoredPath(user.profile_photo_path),
+      requiresPasswordChange: pw.requiresPasswordChange,
+      passwordExpiresAt: pw.passwordExpiresAt,
+      passwordExpired: pw.passwordExpired,
       // Provider global availability (best-effort; defaults true for older DBs)
       provider_accepting_new_clients:
         user.provider_accepting_new_clients === undefined || user.provider_accepting_new_clients === null

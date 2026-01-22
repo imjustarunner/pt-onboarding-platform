@@ -75,6 +75,12 @@ const routes = [
     meta: { requiresGuest: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/change-password',
+    name: 'OrganizationChangePassword',
+    component: () => import('../views/ChangePasswordView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/dashboard',
     name: 'OrganizationDashboard',
     component: () => import('../views/OrganizationDashboardView.vue'),
@@ -608,6 +614,7 @@ router.beforeEach(async (to, from, next) => {
   const userStatus = authStore.user?.status;
   const isPending = userStatus === 'pending';
   const isReadyForReview = userStatus === 'ready_for_review';
+  const mustChangePassword = authStore.user?.requiresPasswordChange === true;
 
   // Prevent stale org branding “flash” when leaving a branded portal.
   if (!to.meta.organizationSlug && from.meta.organizationSlug) {
@@ -690,6 +697,19 @@ router.beforeEach(async (to, from, next) => {
   if (isReadyForReview && to.path !== '/pending-completion' && to.path !== '/dashboard') {
     next('/pending-completion');
     return;
+  }
+
+  // Enforce password rotation: if password is expired, force user into Change Password screen.
+  if (authStore.isAuthenticated && mustChangePassword) {
+    const isChangePassword =
+      to.name === 'ChangePassword' ||
+      to.name === 'OrganizationChangePassword' ||
+      String(to.path || '').includes('/change-password');
+    const isLogout = String(to.path || '').includes('/logout');
+    if (!isChangePassword && !isLogout) {
+      next('/change-password');
+      return;
+    }
   }
   
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {

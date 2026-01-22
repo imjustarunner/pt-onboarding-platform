@@ -397,6 +397,21 @@ export const login = async (req, res, next) => {
       // best-effort
     }
 
+    // 6-month password expiry (best-effort; defaults to created_at if password_changed_at missing)
+    const calcPasswordExpiry = (u) => {
+      const changedAt = u?.password_changed_at ? new Date(u.password_changed_at) : (u?.created_at ? new Date(u.created_at) : null);
+      if (!changedAt || Number.isNaN(changedAt.getTime())) return { requiresPasswordChange: false, passwordExpiresAt: null, passwordExpired: false };
+      const expiresAt = new Date(changedAt.getTime());
+      expiresAt.setMonth(expiresAt.getMonth() + 6);
+      const expired = expiresAt.getTime() <= Date.now();
+      return {
+        requiresPasswordChange: expired,
+        passwordExpiresAt: expiresAt.toISOString(),
+        passwordExpired: expired
+      };
+    };
+    const pw = calcPasswordExpiry(freshUser);
+
     const medcancelRateSchedule = freshUser?.medcancel_rate_schedule || null;
     const medcancelEnabled = ['low', 'high'].includes(String(medcancelRateSchedule || '').toLowerCase());
     const companyCardEnabled = Boolean(freshUser?.company_card_enabled);
@@ -415,6 +430,9 @@ export const login = async (req, res, next) => {
         medcancelEnabled,
         medcancelRateSchedule,
         companyCardEnabled,
+        requiresPasswordChange: pw.requiresPasswordChange,
+        passwordExpiresAt: pw.passwordExpiresAt,
+        passwordExpired: pw.passwordExpired,
         ...(await buildPayrollCaps(user))
       },
       sessionId
@@ -622,6 +640,20 @@ export const passwordlessTokenLogin = async (req, res, next) => {
     if (!fullUser) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
+
+    const calcPasswordExpiry = (u) => {
+      const changedAt = u?.password_changed_at ? new Date(u.password_changed_at) : (u?.created_at ? new Date(u.created_at) : null);
+      if (!changedAt || Number.isNaN(changedAt.getTime())) return { requiresPasswordChange: false, passwordExpiresAt: null, passwordExpired: false };
+      const expiresAt = new Date(changedAt.getTime());
+      expiresAt.setMonth(expiresAt.getMonth() + 6);
+      const expired = expiresAt.getTime() <= Date.now();
+      return {
+        requiresPasswordChange: expired,
+        passwordExpiresAt: expiresAt.toISOString(),
+        passwordExpired: expired
+      };
+    };
+    const pw = calcPasswordExpiry(fullUser);
     
     // Block ARCHIVED users
     if (fullUser.status === 'ARCHIVED') {
@@ -678,11 +710,14 @@ export const passwordlessTokenLogin = async (req, res, next) => {
           preferredName: fullUser?.preferred_name || user.preferred_name || null,
           role: user.role,
           status: user.status,
+          requiresPasswordChange: pw.requiresPasswordChange,
+          passwordExpiresAt: pw.passwordExpiresAt,
+          passwordExpired: pw.passwordExpired,
           ...(await buildPayrollCaps(fullUser))
         },
         sessionId,
         agencies: userAgencies,
-        requiresPasswordChange: user.status !== 'pending', // Pending users don't need password change
+        requiresPasswordChange: pw.requiresPasswordChange,
         message: user.status === 'pending' 
           ? 'Login successful. Complete your pre-hire checklist.' 
           : 'Login successful. Please change your password.'
@@ -861,6 +896,20 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
 
       console.log('[passwordlessTokenLoginFromBody] Login successful for user:', user.id, user.first_name, user.last_name);
       
+      const calcPasswordExpiry = (u) => {
+        const changedAt = u?.password_changed_at ? new Date(u.password_changed_at) : (u?.created_at ? new Date(u.created_at) : null);
+        if (!changedAt || Number.isNaN(changedAt.getTime())) return { requiresPasswordChange: false, passwordExpiresAt: null, passwordExpired: false };
+        const expiresAt = new Date(changedAt.getTime());
+        expiresAt.setMonth(expiresAt.getMonth() + 6);
+        const expired = expiresAt.getTime() <= Date.now();
+        return {
+          requiresPasswordChange: expired,
+          passwordExpiresAt: expiresAt.toISOString(),
+          passwordExpired: expired
+        };
+      };
+      const pw = calcPasswordExpiry(fullUser);
+      
       const response = {
         user: {
           id: user.id,
@@ -870,13 +919,16 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
           preferredName: fullUser?.preferred_name || user.preferred_name || null,
           role: user.role,
           status: user.status,
+          requiresPasswordChange: pw.requiresPasswordChange,
+          passwordExpiresAt: pw.passwordExpiresAt,
+          passwordExpired: pw.passwordExpired,
           medcancelEnabled: ['low', 'high'].includes(String(fullUser?.medcancel_rate_schedule || '').toLowerCase()),
           medcancelRateSchedule: fullUser?.medcancel_rate_schedule || null,
           ...(await buildPayrollCaps(fullUser))
         },
         sessionId,
         agencies: userAgencies,
-        requiresPasswordChange: user.status !== 'pending',
+        requiresPasswordChange: pw.requiresPasswordChange,
         message: user.status === 'pending' 
           ? 'Login successful. Complete your pre-hire checklist.' 
           : 'Login successful. Please change your password.'

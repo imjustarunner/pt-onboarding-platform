@@ -70,6 +70,18 @@
 
         <div class="card" style="margin-top: 16px;">
           <div class="section-header">
+            <h3 style="margin: 0;">Security</h3>
+            <button class="btn btn-secondary btn-large" @click="router.push('/change-password')">
+              Change Password
+            </button>
+          </div>
+          <div class="hint" style="margin-top: 6px;">
+            You can change your password at any time.
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 16px;">
+          <div class="section-header">
             <h3 style="margin: 0;">Preferred Name (display only)</h3>
             <button class="btn btn-primary btn-large" @click="savePreferredName" :disabled="savingPreferredName">
               {{ savingPreferredName ? 'Saving...' : 'Save Preferred Name' }}
@@ -348,9 +360,11 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 
+const router = useRouter();
 const authStore = useAuthStore();
 const userId = computed(() => authStore.user?.id);
 const profilePhotoUrl = computed(() => authStore.user?.profilePhotoUrl || null);

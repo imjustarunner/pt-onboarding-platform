@@ -263,7 +263,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -276,6 +276,7 @@ class User {
       if (existingColumns.includes('personal_email')) query += ', personal_email';
       if (existingColumns.includes('preferred_name')) query += ', preferred_name';
       if (existingColumns.includes('username')) query += ', username';
+      if (existingColumns.includes('password_changed_at')) query += ', password_changed_at';
       if (existingColumns.includes('has_supervisor_privileges')) query += ', has_supervisor_privileges';
       if (existingColumns.includes('has_provider_access')) query += ', has_provider_access';
       if (existingColumns.includes('has_staff_access')) query += ', has_staff_access';
@@ -1329,11 +1330,31 @@ class User {
   static async changePassword(userId, newPassword) {
     const bcrypt = (await import('bcrypt')).default;
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    
-    await pool.execute(
-      'UPDATE users SET password_hash = ?, temporary_password_hash = NULL, temporary_password_expires_at = NULL WHERE id = ?',
-      [passwordHash, userId]
-    );
+
+    // Best-effort: set password_changed_at when column exists (used for 6-month password expiry).
+    let hasPasswordChangedAt = false;
+    try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'password_changed_at' LIMIT 1",
+        [dbName]
+      );
+      hasPasswordChangedAt = (cols || []).length > 0;
+    } catch {
+      hasPasswordChangedAt = false;
+    }
+
+    if (hasPasswordChangedAt) {
+      await pool.execute(
+        'UPDATE users SET password_hash = ?, password_changed_at = NOW(), temporary_password_hash = NULL, temporary_password_expires_at = NULL WHERE id = ?',
+        [passwordHash, userId]
+      );
+    } else {
+      await pool.execute(
+        'UPDATE users SET password_hash = ?, temporary_password_hash = NULL, temporary_password_expires_at = NULL WHERE id = ?',
+        [passwordHash, userId]
+      );
+    }
     
     return this.findById(userId);
   }

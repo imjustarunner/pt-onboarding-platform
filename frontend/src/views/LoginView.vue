@@ -190,7 +190,13 @@ const handleLogin = async () => {
       // For approved employees, fetch agencies from the login response
       await agencyStore.fetchUserAgencies();
     }
-    
+
+    if (authStore.user?.requiresPasswordChange) {
+      router.push('/change-password');
+      loading.value = false;
+      return;
+    }
+
     router.push(getDashboardRoute());
   } else {
     error.value = result.error;
