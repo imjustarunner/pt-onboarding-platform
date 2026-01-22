@@ -576,6 +576,21 @@
               Used for expected-time warnings and reviewer rollups.
             </small>
           </div>
+          <div class="form-group" v-if="!editingModule">
+            <label class="toggle-label">
+              <span>Start as Custom Input (Profile Form)</span>
+              <div class="toggle-switch">
+                <input
+                  type="checkbox"
+                  v-model="moduleForm.startAsCustomInput"
+                />
+                <span class="slider"></span>
+              </div>
+            </label>
+            <small style="display: block; margin-top: 6px; color: var(--text-secondary);">
+              Custom Input modules are the <strong>question-by-question profile forms</strong>. After clicking <strong>Next</strong>, you’ll be taken to Content Editor where you can add a “Form (User Info)” page and pick fields.
+            </small>
+          </div>
           <div class="form-group">
             <label>Status</label>
             <button 
@@ -1000,7 +1015,8 @@ const moduleForm = ref({
   agencyId: null,
   trackId: null,
   iconId: null,
-  onDemandAgencyId: null // Agency selected for on-demand assignment in modal
+  onDemandAgencyId: null, // Agency selected for on-demand assignment in modal
+  startAsCustomInput: false
 });
 const savingOnDemandModule = ref(false);
 
@@ -1958,6 +1974,23 @@ const saveModule = async (openContentEditor = false) => {
     
     // If openContentEditor is true, navigate to the new content editor BEFORE closing modal
     if (openContentEditor && savedModule) {
+      // If requested, ensure there's at least one form page so the module shows up as "Custom Input (Profile)".
+      // (In this codebase, custom-input is derived from having at least one module_content row with content_type='form'.)
+      if (moduleForm.value.startAsCustomInput) {
+        try {
+          const existing = await api.get(`/modules/${savedModule.id}/content`);
+          const hasForm = (existing.data || []).some((p) => p?.content_type === 'form');
+          if (!hasForm) {
+            await api.post(`/modules/${savedModule.id}/content`, {
+              contentType: 'form',
+              contentData: { categoryKey: null, fieldDefinitionIds: [], requireAll: false },
+              orderIndex: 0
+            });
+          }
+        } catch {
+          // best-effort; content editor can still be used
+        }
+      }
       closeModal();
       // Use nextTick to ensure navigation happens after modal closes
       try {
@@ -2092,7 +2125,8 @@ const closeModal = () => {
     agencyId: null,
     trackId: null,
     iconId: null,
-    onDemandAgencyId: null
+    onDemandAgencyId: null,
+    startAsCustomInput: false
   };
 };
 

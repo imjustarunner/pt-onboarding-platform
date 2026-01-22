@@ -131,101 +131,17 @@
         </div>
       </div>
 
-      <!-- Profile Information (Custom Input Modules / User Info) -->
+      <!-- Profile Information (filled via assigned onboarding/profile modules) -->
       <div class="info-section">
         <div class="section-header">
           <h2 style="margin: 0;">Profile Information</h2>
-          <button class="btn btn-primary btn-large" @click="saveMyUserInfo" :disabled="savingUserInfo">
-            {{ savingUserInfo ? 'Saving...' : 'Save Profile' }}
+          <button class="btn btn-secondary btn-large" @click="$router.push('/dashboard?tab=training')">
+            Go to My Training
           </button>
         </div>
-
-        <div v-if="userInfoLoading" class="loading">Loading profile information...</div>
-        <div v-else-if="userInfoError" class="error">{{ userInfoError }}</div>
-        <div v-else>
-          <div v-if="myCategoryOptions.length > 1" class="category-tabs">
-            <button
-              v-for="cat in myCategoryOptions"
-              :key="cat.key"
-              @click="activeMyCategoryKey = cat.key"
-              :class="['category-tab', { active: activeMyCategoryKey === cat.key }]"
-            >
-              {{ cat.label }}
-            </button>
-          </div>
-
-          <div v-if="filteredMyFields.length === 0" class="empty-state">
-            <p>No profile fields found for this category.</p>
-          </div>
-
-          <div v-else class="fields-grid">
-            <div v-for="field in filteredMyFields" :key="field.id" class="field-item">
-              <label :for="`my-field-${field.id}`">
-                {{ field.field_label }}
-                <span v-if="field.is_required" class="required-asterisk">*</span>
-                <span v-if="field.agency_name" class="agency-badge">{{ field.agency_name }}</span>
-              </label>
-
-              <input
-                v-if="field.field_type === 'text' || field.field_type === 'email' || field.field_type === 'phone'"
-                :id="`my-field-${field.id}`"
-                :type="field.field_type === 'email' ? 'email' : field.field_type === 'phone' ? 'tel' : 'text'"
-                v-model="myUserInfoValues[field.id]"
-                :required="field.is_required"
-              />
-              <input
-                v-else-if="field.field_type === 'number'"
-                :id="`my-field-${field.id}`"
-                type="number"
-                v-model="myUserInfoValues[field.id]"
-                :required="field.is_required"
-              />
-              <input
-                v-else-if="field.field_type === 'date'"
-                :id="`my-field-${field.id}`"
-                type="date"
-                v-model="myUserInfoValues[field.id]"
-                :required="field.is_required"
-              />
-              <textarea
-                v-else-if="field.field_type === 'textarea'"
-                :id="`my-field-${field.id}`"
-                v-model="myUserInfoValues[field.id]"
-                :required="field.is_required"
-                rows="4"
-              ></textarea>
-              <select
-                v-else-if="field.field_type === 'select'"
-                :id="`my-field-${field.id}`"
-                v-model="myUserInfoValues[field.id]"
-                :required="field.is_required"
-              >
-                <option value="">Select an option</option>
-                <option v-for="option in (field.options || [])" :key="option" :value="option">
-                  {{ option }}
-                </option>
-              </select>
-              <div v-else-if="field.field_type === 'multi_select'" class="multi-select">
-                <label v-for="option in (field.options || [])" :key="option" class="multi-select-option">
-                  <input
-                    type="checkbox"
-                    :checked="Array.isArray(myUserInfoValues[field.id]) ? myUserInfoValues[field.id].includes(option) : false"
-                    @change="toggleMyMultiSelect(field.id, option)"
-                  />
-                  <span>{{ option }}</span>
-                </label>
-              </div>
-              <div v-else-if="field.field_type === 'boolean'" class="checkbox-wrapper">
-                <input
-                  :id="`my-field-${field.id}`"
-                  type="checkbox"
-                  :checked="myUserInfoValues[field.id] === 'true' || myUserInfoValues[field.id] === true"
-                  @change="myUserInfoValues[field.id] = $event.target.checked ? 'true' : 'false'"
-                />
-                <label :for="`my-field-${field.id}`" class="checkbox-label">Yes</label>
-              </div>
-            </div>
-          </div>
+        <div class="hint" style="margin-top: 6px;">
+          Your profile questions are completed through assigned onboarding modules (question-by-question). If you see duplicate questions elsewhere,
+          an admin will clean up the underlying field set so each question exists only once.
         </div>
       </div>
       
