@@ -665,6 +665,7 @@
               <div class="row"><strong>Missed appointments:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.missedAppointmentsAmount ?? 0) }}</div>
               <div class="row"><strong>Bonus:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.bonusAmount ?? 0) }}</div>
               <div class="row"><strong>Reimbursement:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.reimbursementAmount ?? 0) }}</div>
+              <div class="row"><strong>Tuition reimbursement (tax-exempt):</strong> {{ fmtMoney(expanded.breakdown.__adjustments.tuitionReimbursementAmount ?? 0) }}</div>
               <div class="row"><strong>Time claims:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.timeClaimsAmount ?? 0) }}</div>
               <div class="row"><strong>Manual pay lines:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.manualPayLinesAmount ?? 0) }}</div>
               <div

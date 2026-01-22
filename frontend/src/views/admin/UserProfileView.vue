@@ -317,9 +317,9 @@
                       </div>
 
                       <div
-                        v-if="canEditUser && isProviderLikeRole"
+                        v-if="canEditUser && canShowPrelicensedSupervision"
                         style="display:flex; align-items:center; gap: 8px; flex-wrap: wrap;"
-                        title="Prelicensed supervision tracking is per-organization. Baseline hours are added to accrued payroll supervision hours (99414/99416). Pay for 99414/99416 is $0 until the provider has already reached ≥50 individual and ≥100 total hours in prior pay periods."
+                        title="Prelicensed supervision tracking is per-organization. Baseline hours are added to accrued payroll supervision hours (99414/99416). Pay for 99414/99416 is $0 until the user has already reached ≥50 individual and ≥100 total hours in prior pay periods."
                       >
                         <span class="muted" style="font-size: 12px; font-weight: 700;">Prelicensed</span>
                         <label class="muted" style="display:flex; align-items:center; gap: 6px;">
@@ -1819,6 +1819,11 @@ const saveAliasForAgency = async (agencyId, email) => {
 const isProviderLikeRole = computed(() => {
   const r = String(user.value?.role || '').trim().toLowerCase();
   return r === 'provider' || r === 'clinician' || r === 'intern' || r === 'facilitator';
+});
+
+const canShowPrelicensedSupervision = computed(() => {
+  const r = String(user.value?.role || '').trim().toLowerCase();
+  return isProviderLikeRole.value || r === 'admin';
 });
 
 const updatingH0032AgencyId = ref(null);

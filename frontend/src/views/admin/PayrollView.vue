@@ -2200,6 +2200,11 @@
               </div>
             </div>
             <div class="field">
+              <label>Tuition Reimbursement (Tax-exempt) ($)</label>
+              <input v-model="adjustments.tuitionReimbursementAmount" type="number" step="0.01" :disabled="isPeriodPosted" />
+              <div class="hint" style="margin-top: 4px;">Shows as a separate non-taxable line item on export + pay statement.</div>
+            </div>
+            <div class="field">
               <label>{{ otherRateTitlesForAdjustments.title1 }} hours</label>
               <input v-model="adjustments.otherRate1Hours" type="number" step="0.01" min="0" :disabled="isPeriodPosted" />
               <div class="hint" style="margin-top: 4px;">Paid at the provider’s configured rate card.</div>
@@ -2484,6 +2489,11 @@
                     </div>
                   </div>
                   <div class="field">
+                    <label>Tuition Reimbursement (Tax-exempt) ($)</label>
+                    <input v-model="adjustments.tuitionReimbursementAmount" type="number" step="0.01" :disabled="isPeriodPosted" />
+                    <div class="hint" style="margin-top: 4px;">Shows as a separate non-taxable line item on export + pay statement.</div>
+                  </div>
+                  <div class="field">
                     <label>Salary Override ($)</label>
                     <input v-model="adjustments.salaryAmount" type="number" step="0.01" :disabled="isPeriodPosted" />
                   </div>
@@ -2689,6 +2699,7 @@
                     <tr><td>Missed Appointments</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.missedAppointmentsAmount ?? 0) }}</td></tr>
                     <tr><td>Bonus</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.bonusAmount ?? 0) }}</td></tr>
                     <tr><td>Reimbursement</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.reimbursementAmount ?? 0) }}</td></tr>
+                    <tr><td>Tuition Reimbursement (Tax-exempt)</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.tuitionReimbursementAmount ?? 0) }}</td></tr>
                     <tr><td>PTO Pay</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.ptoPay ?? 0) }}</td></tr>
                     <tr><td>Salary Override</td><td class="right">{{ fmtMoney(previewAdjustmentsFromRun.salaryAmount ?? 0) }}</td></tr>
                   </tbody>
@@ -2723,6 +2734,7 @@
                   <span v-if="rawMode === 'draft_audit'">Raw Import (Draft Audit)</span>
                   <span v-else-if="rawMode === 'process_h0031'">Raw Import (Process H0031)</span>
                   <span v-else-if="rawMode === 'process_h0032'">Raw Import (Process H0032)</span>
+                  <span v-else-if="rawMode === 'missed_appts_paid_in_full'">Raw Import (Missed Appointments • Paid in Full)</span>
                   <span v-else>Raw Import (Processed)</span>
                 </div>
                 <div class="hint">
@@ -2735,6 +2747,9 @@
                   <span v-else-if="rawMode === 'process_h0032'">
                     Enter the correct minutes for H0032 Cat1 Hour rows, then mark Done. Payroll cannot run until these are processed. (Cat2 Flat providers do not appear here; they default to 30 minutes per line.)
                   </span>
+                  <span v-else-if="rawMode === 'missed_appts_paid_in_full'">
+                    Flags from the billing report upload where Type contains "Missed Appointment" and Patient Balance Status is "Paid in Full". Display-only (no pay math).
+                  </span>
                   <span v-else>
                     Review rows that have been processed (Done).
                   </span>
@@ -2744,6 +2759,7 @@
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'draft_audit'">Draft Audit</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_h0031'">Process H0031</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'process_h0032'">Process H0032</button>
+                <button class="btn btn-secondary btn-sm" @click="rawMode = 'missed_appts_paid_in_full'">Missed Appts (Paid in Full)</button>
                 <button class="btn btn-secondary btn-sm" @click="rawMode = 'processed'">Processed</button>
                 <button class="btn btn-secondary btn-sm" @click="downloadRawCsv" :disabled="!selectedPeriodId">
                   Download CSV
@@ -2757,7 +2773,7 @@
                 <input
                   v-model="rawDraftSearch"
                   type="text"
-                  placeholder="Search provider / code / DOS…"
+                  :placeholder="rawMode === 'missed_appts_paid_in_full' ? 'Search clinician…' : 'Search provider / code / DOS…'"
                 />
               </div>
               <div class="field">
@@ -2797,7 +2813,7 @@
               It updates Raw Import and Payroll Stage totals, but does not automatically recompute posted payroll totals.
             </div>
             <div class="table-wrap">
-              <table class="table">
+              <table v-if="rawMode !== 'missed_appts_paid_in_full'" class="table">
                 <thead>
                   <tr>
                     <th>Provider Name</th>
@@ -2875,7 +2891,32 @@
                   </tr>
                 </tbody>
               </table>
-              <div class="actions" style="margin-top: 10px; justify-content: space-between; align-items: center;">
+
+              <table v-else class="table">
+                <thead>
+                  <tr>
+                    <th>Clinician Name</th>
+                    <th class="right">Total Patient Amount Paid</th>
+                    <th class="right">Rows</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in missedAppointmentsPaidInFullRows" :key="r.clinician_name">
+                    <td>{{ r.clinician_name }}</td>
+                    <td class="right">{{ fmtMoney(Number(r.total_patient_amount_paid || 0)) }}</td>
+                    <td class="right">{{ fmtNum(Number(r.row_count || 0)) }}</td>
+                  </tr>
+                  <tr v-if="!missedAppointmentsPaidInFullRows.length">
+                    <td colspan="3" class="muted">No Paid-in-Full missed appointment rows were detected in the latest billing import.</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div
+                v-if="rawMode !== 'missed_appts_paid_in_full'"
+                class="actions"
+                style="margin-top: 10px; justify-content: space-between; align-items: center;"
+              >
                 <div class="hint" v-if="rawModeRows.length">
                   Showing {{ Math.min(rawModeRows.length, rawRowLimit) }} of {{ rawModeRows.length }} rows.
                 </div>
@@ -3415,6 +3456,7 @@ const previewTwoPeriodsAgoUnpaid = computed(() => {
 });
 const showCarryoverModal = ref(false);
 const rawImportRows = ref([]);
+const missedAppointmentsPaidInFull = ref([]); // display-only flags from billing import
 const rawDraftSearch = ref('');
 const rawDraftOnly = ref(true);
 const rawRowLimit = ref(200);
@@ -3532,6 +3574,7 @@ const adjustments = ref({
   missedAppointmentsAmount: 0,
   bonusAmount: 0,
   reimbursementAmount: 0,
+  tuitionReimbursementAmount: 0,
   otherRate1Hours: 0,
   otherRate2Hours: 0,
   otherRate3Hours: 0,
@@ -5707,7 +5750,7 @@ const rawDraftRows = computed(() => {
   return rows;
 });
 
-const rawMode = ref('draft_audit'); // draft_audit | process_h0031 | process_h0032 | processed
+const rawMode = ref('draft_audit'); // draft_audit | process_h0031 | process_h0032 | processed | missed_appts_paid_in_full
 
 const rawModeRowsLimited = computed(() => {
   const all = rawModeRows.value || [];
@@ -5737,6 +5780,9 @@ const rawModeRows = computed(() => {
   const q = String(rawDraftSearch.value || '').trim().toLowerCase();
 
   let rows = all;
+  if (mode === 'missed_appts_paid_in_full') {
+    return [];
+  }
   const willBePaid = (r) => {
     const st = String(r?.note_status || '').trim().toUpperCase();
     if (st === 'FINALIZED') return true;
@@ -5781,6 +5827,17 @@ const rawModeRows = computed(() => {
     }
     return String(b.service_date || '').localeCompare(String(a.service_date || ''));
   });
+  return rows;
+});
+
+const missedAppointmentsPaidInFullRows = computed(() => {
+  const all = (missedAppointmentsPaidInFull.value || []).slice();
+  const q = String(rawDraftSearch.value || '').trim().toLowerCase();
+  let rows = all;
+  if (q) {
+    rows = rows.filter((r) => String(r?.clinician_name || '').toLowerCase().includes(q));
+  }
+  rows.sort((a, b) => String(a?.clinician_name || '').localeCompare(String(b?.clinician_name || '')));
   return rows;
 });
 
@@ -5991,6 +6048,7 @@ const loadPeriodDetails = async () => {
     const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}`);
     selectedPeriod.value = resp.data?.period || null;
     rawImportRows.value = resp.data?.rows || [];
+    missedAppointmentsPaidInFull.value = resp.data?.missedAppointmentsPaidInFull || [];
     const nextSummaries = (resp.data?.summaries || []).map((s) => {
       if (typeof s.breakdown === 'string') {
         try { s.breakdown = JSON.parse(s.breakdown); } catch { /* ignore */ }
@@ -6973,6 +7031,7 @@ const loadAdjustments = async () => {
       missedAppointmentsAmount: Number(a.missed_appointments_amount || 0),
       bonusAmount: Number(a.bonus_amount || 0),
       reimbursementAmount: Number(a.reimbursement_amount || 0),
+      tuitionReimbursementAmount: Number(a.tuition_reimbursement_amount || 0),
       otherRate1Hours: Number(a.other_rate_1_hours || 0),
       otherRate2Hours: Number(a.other_rate_2_hours || 0),
       otherRate3Hours: Number(a.other_rate_3_hours || 0),
@@ -7002,6 +7061,7 @@ const saveAdjustments = async () => {
       missedAppointmentsAmount: Number(adjustments.value.missedAppointmentsAmount || 0),
       bonusAmount: Number(adjustments.value.bonusAmount || 0),
       reimbursementAmount: Number(adjustments.value.reimbursementAmount || 0),
+      tuitionReimbursementAmount: Number(adjustments.value.tuitionReimbursementAmount || 0),
       otherRate1Hours: Number(adjustments.value.otherRate1Hours || 0),
       otherRate2Hours: Number(adjustments.value.otherRate2Hours || 0),
       otherRate3Hours: Number(adjustments.value.otherRate3Hours || 0),

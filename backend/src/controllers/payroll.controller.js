@@ -16,6 +16,7 @@ import PayrollStageCarryover from '../models/PayrollStageCarryover.model.js';
 import PayrollStagePriorUnpaid from '../models/PayrollStagePriorUnpaid.model.js';
 import PayrollAdjustment from '../models/PayrollAdjustment.model.js';
 import PayrollManualPayLine from '../models/PayrollManualPayLine.model.js';
+import PayrollImportMissedAppointment from '../models/PayrollImportMissedAppointment.model.js';
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollServiceCodeRule from '../models/PayrollServiceCodeRule.model.js';
@@ -723,8 +724,9 @@ async function guessExistingPayrollPeriodByMajorityDates({ agencyId, dates }) {
 
 function parsePayrollRows(records, opts = {}) {
   const rowsArr = Array.isArray(records) ? records : [];
-  if (!rowsArr.length) return [];
+  if (!rowsArr.length) return { rows: [], missedAppointmentsPaidInFull: [] };
   const rowNumberBase = Number.isFinite(Number(opts?.rowNumberBase)) ? Number(opts.rowNumberBase) : 2;
+  const missedAppointmentsPaidInFull = [];
 
   const detectedHeaders = Array.from(
     new Set(
@@ -812,10 +814,13 @@ function parsePayrollRows(records, opts = {}) {
       '';
 
     // Some reports include refunds/payments/etc. We only want appointment rows.
-    // If the report has a "Type" column, enforce Type === "Appointment".
+    // If the report has a "Type" column:
+    // - allow Type === "Appointment" into payroll rows
+    // - capture Type containing "Missed Appointment" as display-only flags when Paid in Full
     const hasTypeCol = Object.prototype.hasOwnProperty.call(normalized, 'type');
     const typeStr = String(hasTypeCol ? normalized['type'] : '').trim().toLowerCase();
-    if (hasTypeCol && typeStr !== 'appointment') return null;
+    const isMissedType = hasTypeCol && typeStr.includes('missed appointment');
+    if (hasTypeCol && typeStr !== 'appointment' && !isMissedType) return null;
 
     const noteStatusRaw =
       normalized['note status'] ||
@@ -830,17 +835,37 @@ function parsePayrollRows(records, opts = {}) {
       '';
 
     const paidStatus =
+      normalized['patient balance status'] ||
+      normalized['patient_balance_status'] ||
       normalized['paid status'] ||
       normalized['paid_status'] ||
       normalized['paid'] ||
       '';
 
     const amountRaw =
+      normalized['patient amount paid'] ||
+      normalized['patient_amount_paid'] ||
       normalized['amount'] ||
       normalized['amount collected'] ||
       normalized['amount_collected'] ||
       normalized['collected'] ||
       '';
+
+    // Display-only: "Missed Appointment" rows (Type column), Paid in Full (Patient Balance Status)
+    if (isMissedType) {
+      // Amount (currency-safe)
+      let patientAmountPaid = Number(String(amountRaw).replace(/[$,()]/g, '').trim());
+      if (!Number.isFinite(patientAmountPaid)) patientAmountPaid = 0;
+      patientAmountPaid = Math.abs(patientAmountPaid);
+      const paidStatusStr = String(paidStatus || '');
+      if (paidStatusStr.toLowerCase().includes('paid in full') && patientAmountPaid > 0) {
+        missedAppointmentsPaidInFull.push({
+          clinicianName: String(providerName || '').trim(),
+          patientAmountPaid
+        });
+      }
+      return null;
+    }
 
     const serviceDateRaw =
       normalized['date of service'] ||
@@ -883,20 +908,8 @@ function parsePayrollRows(records, opts = {}) {
     let unitCount = Number(String(unitsRaw).replace(/[^0-9.\\-]/g, '')) || 0;
     if (!unitCount || unitCount <= 0.0001) unitCount = 1;
 
-    // Amount (currency-safe)
-    let amountCollected = Number(String(amountRaw).replace(/[$,()]/g, '').trim());
-    if (!Number.isFinite(amountCollected)) amountCollected = 0;
-    amountCollected = Math.abs(amountCollected);
-
-    // Missed appointment override
     const apptTypeStr = String(apptType || '');
-    const paidStatusStr = String(paidStatus || '');
-    let noteStatus = normalizeNoteStatus(noteStatusRaw);
-    if (apptTypeStr.toLowerCase().includes('missed appointment') && amountCollected > 0 && paidStatusStr.toLowerCase().includes('paid in full')) {
-      serviceCode = 'Missed Appt';
-      unitCount = amountCollected * 0.5;
-      noteStatus = 'FINALIZED';
-    }
+    const noteStatus = normalizeNoteStatus(noteStatusRaw);
 
     // Extra fields used only for fingerprinting (do NOT persist raw values).
     const clinicianNpi = normalized['clinician npi'] || normalized['npi'] || '';
@@ -940,6 +953,9 @@ function parsePayrollRows(records, opts = {}) {
   });
   const out = parsed.filter(Boolean);
   if (!out.length) {
+    if (missedAppointmentsPaidInFull.length) {
+      return { rows: [], missedAppointmentsPaidInFull };
+    }
     const hdr = detectedHeaders.slice(0, 40).join(', ');
     const err = new Error(
       `No rows found in report. Detected columns: ${hdr || '(none)'}`
@@ -959,7 +975,7 @@ function parsePayrollRows(records, opts = {}) {
     ];
     throw err;
   }
-  return out;
+  return { rows: out, missedAppointmentsPaidInFull };
 }
 
 function ymdOrEmpty(d) {
@@ -1061,11 +1077,12 @@ function buildRowKeyAggregateIndex({ agencyId, parsedRows }) {
 }
 
 function parsePayrollFile(buffer, originalName) {
+  const empty = { rows: [], missedAppointmentsPaidInFull: [] };
   const name = String(originalName || '').toLowerCase();
   if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
     const wb = XLSX.read(buffer, { type: 'buffer' });
     const sheetName = wb.SheetNames?.[0];
-    if (!sheetName) return [];
+    if (!sheetName) return empty;
     const sheet = wb.Sheets[sheetName];
     const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
 
@@ -1667,7 +1684,17 @@ export const getPayrollPeriod = async (req, res, next) => {
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
     const rows = await PayrollImportRow.listForPeriod(id);
     const summaries = await PayrollSummary.listForPeriod(id);
-    res.json({ period, rows, summaries });
+    let missedAppointmentsPaidInFull = [];
+    try {
+      missedAppointmentsPaidInFull = await PayrollImportMissedAppointment.listAggregatedForPeriod({
+        payrollPeriodId: id,
+        agencyId: period.agency_id
+      });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      missedAppointmentsPaidInFull = [];
+    }
+    res.json({ period, rows, summaries, missedAppointmentsPaidInFull });
   } catch (e) {
     next(e);
   }
@@ -1877,6 +1904,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       'Indirect Pay Rate',
       'Bonus (Taxable)',
       'Mileage (Non-taxable)',
+      'Tuition Reimbursement (Non-taxable)',
       'Salary Override (Taxable)',
       'Taxable Total',
       'Non-taxable Total',
@@ -1952,10 +1980,12 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       const adjFromBreakdown = breakdown?.__adjustments || null;
       const adjFallback = adjByUserId.get(userId) || {};
       const mileage = safeNum(adjFromBreakdown?.mileageAmount ?? adjFallback?.mileage_amount ?? 0);
+      const reimbursement = safeNum(adjFromBreakdown?.reimbursementAmount ?? adjFallback?.reimbursement_amount ?? 0);
+      const tuition = safeNum(adjFromBreakdown?.tuitionReimbursementAmount ?? adjFallback?.tuition_reimbursement_amount ?? 0);
       const bonus = safeNum(adjFromBreakdown?.bonusAmount ?? adjFallback?.bonus_amount ?? 0);
       const salary = safeNum(adjFromBreakdown?.salaryAmount ?? adjFallback?.salary_amount ?? 0);
 
-      const nonTaxableTotal = safeNum(adjFromBreakdown?.nonTaxableAmount ?? (mileage + reimbursement));
+      const nonTaxableTotal = safeNum(adjFromBreakdown?.nonTaxableAmount ?? (mileage + reimbursement + tuition));
       const taxableTotal = safeNum(adjFromBreakdown?.taxableAdjustmentsAmount ?? (safeNum(s.adjustments_amount || 0) - nonTaxableTotal));
       const totalPay = safeNum(s.total_amount || 0);
 
@@ -1968,6 +1998,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
           fmt2(indirectRate),
           fmt2(bonus),
           fmt2(mileage),
+          fmt2(tuition),
           fmt2(salary),
           fmt2(taxableTotal),
           fmt2(nonTaxableTotal),
@@ -2612,6 +2643,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     const manualMileageAmount = Number(adj?.mileage_amount || 0);
     const manualMedcancelAmount = Number(adj?.medcancel_amount || 0);
     const manualReimbursementAmount = Number(adj?.reimbursement_amount || 0);
+    const tuitionReimbursementAmount = Number(adj?.tuition_reimbursement_amount || 0);
     const mileageClaimsAmount = await PayrollMileageClaim.sumApprovedForPeriodUser({
       payrollPeriodId,
       agencyId,
@@ -2738,7 +2770,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     }));
     const manualPayLinesAmount = manualPayLines.reduce((a, l) => a + Number(l?.amount || 0), 0);
 
-    const nonTaxableAmount = mileageAmount + reimbursementAmount;
+    const nonTaxableAmount = mileageAmount + reimbursementAmount + tuitionReimbursementAmount;
     const taxableAdjustmentsAmount =
       medcancelAmount +
       otherTaxableAmount +
@@ -2759,6 +2791,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     // Non-taxable
     pushLine({ type: 'mileage', label: 'Mileage', taxable: false, amount: mileageAmount, meta: { manual: manualMileageAmount, auto: mileageClaimsAmount } });
     pushLine({ type: 'reimbursement', label: 'Reimbursement', taxable: false, amount: reimbursementAmount, meta: { manual: manualReimbursementAmount, auto: reimbursementClaimsAmount } });
+    pushLine({ type: 'tuition_reimbursement', label: 'Tuition reimbursement (tax-exempt)', taxable: false, amount: tuitionReimbursementAmount });
     // Taxable
     pushLine({ type: 'medcancel', label: 'Med Cancel', taxable: true, amount: medcancelAmount, meta: { manual: manualMedcancelAmount, auto: medcancelClaimsAmount } });
     if (Number(otherTaxableAmount || 0) > 1e-9) pushLine({ type: 'other_taxable', label: 'Other taxable', taxable: true, amount: otherTaxableAmount });
@@ -2839,6 +2872,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       reimbursementAmount,
       reimbursementClaimsAmount,
       manualReimbursementAmount,
+      tuitionReimbursementAmount,
       timeClaimsAmount,
       otherTaxableAmount,
       imatterAmount,
@@ -2957,8 +2991,11 @@ export const importPayrollCsv = [
 
       const agencyId = period.agency_id;
       let parsed = [];
+      let missedAppointmentsPaidInFull = [];
       try {
-        parsed = parsePayrollFile(req.file.buffer, req.file.originalname);
+        const r = parsePayrollFile(req.file.buffer, req.file.originalname);
+        parsed = r?.rows || [];
+        missedAppointmentsPaidInFull = r?.missedAppointmentsPaidInFull || [];
       } catch (e) {
         return res.status(400).json({
           error: {
@@ -2971,7 +3008,7 @@ export const importPayrollCsv = [
           }
         });
       }
-      if (!parsed || parsed.length === 0) {
+      if ((!parsed || parsed.length === 0) && (!missedAppointmentsPaidInFull || missedAppointmentsPaidInFull.length === 0)) {
         return res.status(400).json({ error: { message: 'No rows found in report' } });
       }
 
@@ -3035,6 +3072,18 @@ export const importPayrollCsv = [
         uploadedByUserId: req.user.id
       });
 
+      // Save display-only missed appointment flags (Paid in Full).
+      try {
+        await PayrollImportMissedAppointment.replaceForImport({
+          payrollImportId: imp.id,
+          payrollPeriodId,
+          agencyId,
+          rows: missedAppointmentsPaidInFull
+        });
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+
       const rowsToInsert = parsed.map((r) => {
         const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
         const codeKey = String(r.serviceCode || '').trim().toUpperCase();
@@ -3097,6 +3146,7 @@ export const importPayrollCsv = [
       res.json({
         import: imp,
         inserted: rowsToInsert.length,
+        flaggedMissedAppointmentsPaidInFull: (missedAppointmentsPaidInFull || []).length,
         createdUsers,
         unmatchedProvidersSample: unmatched.map((u) => u.providerName)
       });
@@ -3118,8 +3168,11 @@ export const importPayrollAuto = [
       if (!req.file) return res.status(400).json({ error: { message: 'No CSV/XLSX file uploaded' } });
 
       let parsed = [];
+      let missedAppointmentsPaidInFull = [];
       try {
-        parsed = parsePayrollFile(req.file.buffer, req.file.originalname);
+        const r = parsePayrollFile(req.file.buffer, req.file.originalname);
+        parsed = r?.rows || [];
+        missedAppointmentsPaidInFull = r?.missedAppointmentsPaidInFull || [];
       } catch (e) {
         return res.status(400).json({
           error: {
@@ -3132,7 +3185,7 @@ export const importPayrollAuto = [
           }
         });
       }
-      if (!parsed || parsed.length === 0) {
+      if ((!parsed || parsed.length === 0) && (!missedAppointmentsPaidInFull || missedAppointmentsPaidInFull.length === 0)) {
         return res.status(400).json({ error: { message: 'No rows found in report' } });
       }
 
@@ -3237,6 +3290,18 @@ export const importPayrollAuto = [
         uploadedByUserId: req.user.id
       });
 
+      // Save display-only missed appointment flags (Paid in Full).
+      try {
+        await PayrollImportMissedAppointment.replaceForImport({
+          payrollImportId: imp.id,
+          payrollPeriodId: period.id,
+          agencyId: resolvedAgencyId,
+          rows: missedAppointmentsPaidInFull
+        });
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+
       const rowsToInsert = parsed.map((r) => {
         const userId = resolveUserIdForProviderName(nameToIds, r.providerName);
         const codeKey = String(r.serviceCode || '').trim().toUpperCase();
@@ -3329,8 +3394,11 @@ export const detectPayrollAuto = [
       if (!req.file) return res.status(400).json({ error: { message: 'No CSV/XLSX file uploaded' } });
 
       let parsed = [];
+      let missedAppointmentsPaidInFull = [];
       try {
-        parsed = parsePayrollFile(req.file.buffer, req.file.originalname);
+        const r = parsePayrollFile(req.file.buffer, req.file.originalname);
+        parsed = r?.rows || [];
+        missedAppointmentsPaidInFull = r?.missedAppointmentsPaidInFull || [];
       } catch (e) {
         return res.status(400).json({
           error: {
@@ -3343,7 +3411,7 @@ export const detectPayrollAuto = [
           }
         });
       }
-      if (!parsed || parsed.length === 0) {
+      if ((!parsed || parsed.length === 0) && (!missedAppointmentsPaidInFull || missedAppointmentsPaidInFull.length === 0)) {
         return res.status(400).json({ error: { message: 'No rows found in report' } });
       }
 
@@ -3652,8 +3720,8 @@ export const toolComparePayrollFiles = [
         return res.status(400).json({ error: { message: 'file1 and file2 are required' } });
       }
 
-      const rows1 = parsePayrollFile(f1.buffer, f1.originalname || 'file1.csv');
-      const rows2 = parsePayrollFile(f2.buffer, f2.originalname || 'file2.csv');
+      const rows1 = parsePayrollFile(f1.buffer, f1.originalname || 'file1.csv')?.rows || [];
+      const rows2 = parsePayrollFile(f2.buffer, f2.originalname || 'file2.csv')?.rows || [];
 
       const idx1 = buildRowKeyAggregateIndex({ agencyId, parsedRows: rows1 });
       const idx2 = buildRowKeyAggregateIndex({ agencyId, parsedRows: rows2 });
@@ -3733,7 +3801,7 @@ export const toolPreviewPayrollFileStaging = [
       if (!agencyId) return;
       if (!req.file) return res.status(400).json({ error: { message: 'file is required' } });
 
-      const parsed = parsePayrollFile(req.file.buffer, req.file.originalname || 'file.csv');
+      const parsed = parsePayrollFile(req.file.buffer, req.file.originalname || 'file.csv')?.rows || [];
 
       // Build name->user map for users in agency (read-only).
       const [agencyUsers] = await pool.execute(
@@ -4673,7 +4741,7 @@ export const snapshotPayrollPeriodRunFromFile = [
 
       let parsed = [];
       try {
-        parsed = parsePayrollFile(req.file.buffer, req.file.originalname);
+        parsed = parsePayrollFile(req.file.buffer, req.file.originalname)?.rows || [];
       } catch (e) {
         return res.status(400).json({
           error: {
@@ -6024,6 +6092,7 @@ export const getPayrollAdjustmentsForUser = async (req, res, next) => {
       missed_appointments_amount: 0,
       bonus_amount: 0,
       reimbursement_amount: 0,
+      tuition_reimbursement_amount: 0,
       other_rate_1_hours: 0,
       other_rate_2_hours: 0,
       other_rate_3_hours: 0,
@@ -6057,6 +6126,7 @@ export const upsertPayrollAdjustmentsForUser = async (req, res, next) => {
     const missedAppointmentsAmount = toNum(body.missedAppointmentsAmount);
     const bonusAmount = toNum(body.bonusAmount);
     const reimbursementAmount = toNum(body.reimbursementAmount);
+    const tuitionReimbursementAmount = toNum(body.tuitionReimbursementAmount);
     const otherRate1Hours = toNum(body.otherRate1Hours);
     const otherRate2Hours = toNum(body.otherRate2Hours);
     const otherRate3Hours = toNum(body.otherRate3Hours);
@@ -6072,6 +6142,7 @@ export const upsertPayrollAdjustmentsForUser = async (req, res, next) => {
       missedAppointmentsAmount,
       bonusAmount,
       reimbursementAmount,
+      tuitionReimbursementAmount,
       otherRate1Hours,
       otherRate2Hours,
       otherRate3Hours,
@@ -6094,6 +6165,7 @@ export const upsertPayrollAdjustmentsForUser = async (req, res, next) => {
       missedAppointmentsAmount,
       bonusAmount,
       reimbursementAmount,
+      tuitionReimbursementAmount,
       otherRate1Hours,
       otherRate2Hours,
       otherRate3Hours,
