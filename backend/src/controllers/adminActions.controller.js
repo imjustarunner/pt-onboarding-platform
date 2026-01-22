@@ -5,6 +5,7 @@ import TrainingTrack from '../models/TrainingTrack.model.js';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
 import { validationResult } from 'express-validator';
+import { FormSpecSyncService } from '../services/formSpecSync.service.js';
 
 export const resetModule = async (req, res, next) => {
   try {
@@ -272,3 +273,12 @@ export const getAuditLog = async (req, res, next) => {
   }
 };
 
+// Super-admin maintenance action: sync spec-driven forms/modules/fields from PROVIDER_ONBOARDING_MODULES.md
+export const syncFormSpec = async (req, res, next) => {
+  try {
+    const out = await FormSpecSyncService.syncFromProviderOnboardingModulesMd();
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};

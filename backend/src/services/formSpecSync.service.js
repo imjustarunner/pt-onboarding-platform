@@ -277,12 +277,19 @@ async function upsertFormPages({ moduleId, formSlug, sections, fieldKeyToId }) {
       .map((f) => fieldKeyToId.get(String(f.field_key || '').trim()))
       .filter((id) => Number.isInteger(id) && id > 0);
 
+    // Track which fields should behave as file uploads in the UI (v1: stored as text URLs).
+    const fileFieldDefinitionIds = (section.fields || [])
+      .filter((f) => String(f?.type || '').trim().toLowerCase() === 'file')
+      .map((f) => fieldKeyToId.get(String(f.field_key || '').trim()))
+      .filter((id) => Number.isInteger(id) && id > 0);
+
     const contentData = {
       specFormSlug: String(formSlug || '').trim(),
       specSectionSlug: sectionSlug,
       categoryKey: sectionSlug,
       title: String(section.title || sectionSlug),
       fieldDefinitionIds: fieldIds,
+      fileFieldDefinitionIds: fileFieldDefinitionIds,
       requireAll: false,
       visibleToRoles: mappedVisibleToRoles
     };

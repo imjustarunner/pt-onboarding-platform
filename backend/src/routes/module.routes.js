@@ -1,7 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { getAllModules, getModuleById, createModule, updateModule, archiveModule, restoreModule, deleteModule, getArchivedModules, createSharedModule, getSharedModules, copyModule, getCopyPreview, assignModuleToUsers } from '../controllers/module.controller.js';
-import { getModuleFormDefinition, submitModuleForm } from '../controllers/moduleForm.controller.js';
+import { getModuleFormDefinition, submitModuleForm, uploadModuleFormFile } from '../controllers/moduleForm.controller.js';
 import { saveResponse, getResponses } from '../controllers/moduleResponse.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin, requireCapability } from '../middleware/auth.middleware.js';
 
@@ -32,6 +32,7 @@ router.get('/shared', getSharedModules);
 router.get('/archived', requireBackofficeAdmin, getArchivedModules); // Must come before /:id
 router.get('/:moduleId/responses', getResponses);
 router.get('/:moduleId/form-definition', getModuleFormDefinition);
+router.post('/:moduleId/form-upload', uploadModuleFormFile);
 router.get('/:id', getModuleById);
 router.get('/:id/copy-preview', requireBackofficeAdmin, getCopyPreview);
 router.post('/', requireBackofficeAdmin, validateModuleCreate, createModule);

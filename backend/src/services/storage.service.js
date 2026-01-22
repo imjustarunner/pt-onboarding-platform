@@ -801,6 +801,30 @@ class StorageService {
     return { path: key, key, filename: sanitizedFilename, relativePath: key };
   }
 
+  /**
+   * Save a generic module-form upload to GCS under uploads/ so it can be served via /uploads/*.
+   * Intended for onboarding/profile forms (resume/headshot/etc).
+   */
+  static async saveModuleFormUpload({ userId, fieldKey, fileBuffer, filename, contentType }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `upload-${Date.now()}`);
+    const safeFieldKey = String(fieldKey || 'field').toLowerCase().replace(/[^a-z0-9_]+/g, '_').slice(0, 80) || 'field';
+    const unique = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+    const key = `uploads/form_uploads/user_${userId || 'unknown'}/${safeFieldKey}/${unique}-${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: contentType || 'application/octet-stream',
+      metadata: {
+        uploadedAt: new Date().toISOString(),
+        userId: String(userId || ''),
+        fieldKey: String(fieldKey || '')
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
   static async deleteComplianceDocument(filename) {
     const key = `credentials/${filename}`;
     const bucket = await this.getGCSBucket();

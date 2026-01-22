@@ -3,6 +3,8 @@ import ModuleContent from '../models/ModuleContent.model.js';
 import UserInfoFieldDefinition from '../models/UserInfoFieldDefinition.model.js';
 import UserInfoValue from '../models/UserInfoValue.model.js';
 import { validationResult } from 'express-validator';
+import multer from 'multer';
+import StorageService from '../services/storage.service.js';
 
 function parseContentData(contentRow) {
   const data = contentRow?.content_data;
@@ -24,6 +26,11 @@ function normalizeIdArray(input) {
     .filter((x) => Number.isInteger(x) && x > 0);
 }
 
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 } // 15MB
+});
+
 async function loadFieldDefinitionsByIds(fieldDefinitionIds) {
   if (!fieldDefinitionIds || fieldDefinitionIds.length === 0) return [];
   const placeholders = fieldDefinitionIds.map(() => '?').join(',');
@@ -38,6 +45,24 @@ function isMissingValue(value) {
   if (value === null || value === undefined) return true;
   if (typeof value === 'string') return value.trim().length === 0;
   // boolean false is valid, number 0 is valid, objects should be JSON-stringified by caller
+  return false;
+}
+
+async function loadFieldDefinitionById(fieldDefinitionId) {
+  const id = Number(fieldDefinitionId);
+  if (!id) return null;
+  const [rows] = await pool.execute('SELECT id, field_key, field_type FROM user_info_field_definitions WHERE id = ? LIMIT 1', [id]);
+  return rows?.[0] || null;
+}
+
+async function moduleContainsFieldDefinition({ moduleId, fieldDefinitionId }) {
+  const content = await ModuleContent.findByModuleId(moduleId);
+  const formPagesRaw = (content || []).filter((c) => c.content_type === 'form');
+  for (const row of formPagesRaw) {
+    const data = parseContentData(row) || {};
+    const ids = normalizeIdArray(data.fieldDefinitionIds);
+    if (ids.includes(Number(fieldDefinitionId))) return true;
+  }
   return false;
 }
 
@@ -96,6 +121,74 @@ export const getModuleFormDefinition = async (req, res, next) => {
     next(error);
   }
 };
+
+export const uploadModuleFormFile = [
+  upload.single('file'),
+  async (req, res, next) => {
+    try {
+      const moduleId = parseInt(req.params.moduleId);
+      if (!Number.isInteger(moduleId)) {
+        return res.status(400).json({ error: { message: 'Invalid moduleId' } });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: { message: 'No file uploaded' } });
+      }
+
+      const fieldDefinitionId = parseInt(req.body.fieldDefinitionId, 10);
+      if (!Number.isInteger(fieldDefinitionId) || fieldDefinitionId < 1) {
+        return res.status(400).json({ error: { message: 'fieldDefinitionId is required' } });
+      }
+
+      // Safety: ensure this field belongs to this module's form pages.
+      const allowed = await moduleContainsFieldDefinition({ moduleId, fieldDefinitionId });
+      if (!allowed) {
+        return res.status(403).json({ error: { message: 'Field is not part of this module form' } });
+      }
+
+      const def = await loadFieldDefinitionById(fieldDefinitionId);
+      if (!def?.field_key) {
+        return res.status(404).json({ error: { message: 'Field definition not found' } });
+      }
+
+      // Basic file type allowlist (resume/headshot/etc)
+      const mime = String(req.file.mimetype || '').toLowerCase();
+      const allowedMimes = new Set([
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/jpeg',
+        'image/png',
+        'image/webp'
+      ]);
+      if (mime && !allowedMimes.has(mime)) {
+        return res.status(400).json({ error: { message: `Unsupported file type: ${mime}` } });
+      }
+
+      const saved = await StorageService.saveModuleFormUpload({
+        userId: req.user.id,
+        fieldKey: def.field_key,
+        fileBuffer: req.file.buffer,
+        filename: req.file.originalname,
+        contentType: req.file.mimetype
+      });
+
+      // Store the GCS key in the profile field as text.
+      await UserInfoValue.bulkUpdate(req.user.id, [{ fieldDefinitionId, value: saved.relativePath }]);
+
+      res.json({
+        ok: true,
+        fieldDefinitionId,
+        fieldKey: def.field_key,
+        storageKey: saved.relativePath,
+        url: saved.relativePath.startsWith('uploads/')
+          ? `/uploads/${saved.relativePath.substring('uploads/'.length)}`
+          : `/uploads/${saved.relativePath}`
+      });
+    } catch (e) {
+      next(e);
+    }
+  }
+];
 
 export const submitModuleForm = async (req, res, next) => {
   try {

@@ -93,8 +93,23 @@
                       <span v-if="isFieldRequiredForModule(field.id)" class="required-indicator">*</span>
                     </label>
 
+                    <div v-if="isFileFieldForCurrentPage(field.id)" class="file-upload-block">
+                      <div v-if="fileValueUrl(formValues[field.id])" style="margin-bottom: 8px;">
+                        <a :href="fileValueUrl(formValues[field.id])" target="_blank" rel="noopener noreferrer">
+                          View uploaded file
+                        </a>
+                      </div>
+                      <input type="file" @change="onFileSelected($event, field)" :disabled="isCompleted || fileUploading[field.id] === true" />
+                      <div v-if="fileUploadError[field.id]" class="error" style="margin-top: 6px;">
+                        {{ fileUploadError[field.id] }}
+                      </div>
+                      <div v-else-if="fileUploading[field.id]" class="muted" style="margin-top: 6px;">
+                        Uploading…
+                      </div>
+                    </div>
+
                     <input
-                      v-if="['text','email','phone'].includes(field.field_type)"
+                      v-else-if="['text','email','phone'].includes(field.field_type)"
                       v-model="formValues[field.id]"
                       :type="field.field_type === 'email' ? 'email' : (field.field_type === 'phone' ? 'tel' : 'text')"
                       class="form-input"
@@ -379,6 +394,8 @@ const formValues = ref({}); // { [fieldDefinitionId]: value }
 const formSaving = ref(false);
 const formSaveMessage = ref('');
 const formPageError = ref('');
+const fileUploading = ref({});
+const fileUploadError = ref({});
 
 const currentContent = computed(() => content.value[currentContentIndex.value]);
 
@@ -402,6 +419,60 @@ const currentFormFields = computed(() => {
     .map((id) => formFieldMap.value.get(id))
     .filter(Boolean);
 });
+
+const currentFileFieldIds = computed(() => {
+  if (currentContent.value?.content_type !== 'form') return [];
+  const ids = currentContent.value?.content_data?.fileFieldDefinitionIds;
+  return Array.isArray(ids) ? ids : [];
+});
+
+const isFileFieldForCurrentPage = (fieldId) => {
+  return currentFileFieldIds.value.includes(Number(fieldId));
+};
+
+const fileValueUrl = (raw) => {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  if (v.startsWith('http://') || v.startsWith('https://')) return v;
+  if (v.startsWith('/uploads/')) return v;
+  if (v.startsWith('uploads/')) return `/uploads/${v.substring('uploads/'.length)}`;
+  return `/uploads/${v}`;
+};
+
+const onFileSelected = async (evt, field) => {
+  try {
+    const f = evt?.target?.files?.[0] || null;
+    if (!f) return;
+    const fid = Number(field?.id);
+    if (!fid) return;
+    if (!module.value?.id) return;
+
+    fileUploadError.value = { ...(fileUploadError.value || {}), [fid]: '' };
+    fileUploading.value = { ...(fileUploading.value || {}), [fid]: true };
+
+    const fd = new FormData();
+    fd.append('file', f);
+    fd.append('fieldDefinitionId', String(fid));
+
+    const r = await api.post(`/modules/${module.value.id}/form-upload`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+
+    // Persist storage key into the form value.
+    const storageKey = r.data?.storageKey || '';
+    formValues.value = { ...(formValues.value || {}), [fid]: storageKey };
+    formSaveMessage.value = 'File uploaded';
+  } catch (e) {
+    const fid = Number(field?.id);
+    const msg = e?.response?.data?.error?.message || e?.message || 'Upload failed';
+    fileUploadError.value = { ...(fileUploadError.value || {}), [fid]: msg };
+  } finally {
+    const fid = Number(field?.id);
+    fileUploading.value = { ...(fileUploading.value || {}), [fid]: false };
+    // reset input value so selecting the same file again triggers change
+    if (evt?.target) evt.target.value = '';
+  }
+};
 
 const needsSignature = computed(() => {
   return content.value.some(item => item.content_data?.requiresSignature);

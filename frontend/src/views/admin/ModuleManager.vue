@@ -9,6 +9,16 @@
         <router-link to="/admin/checklist-items" class="btn btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center;">
           📋 Checklist Items
         </router-link>
+        <button
+          v-if="userRole === 'super_admin'"
+          type="button"
+          class="btn btn-secondary"
+          @click="runFormSpecSync"
+          :disabled="syncingFormSpec"
+          title="Regenerate spec-driven form modules/fields from PROVIDER_ONBOARDING_MODULES.md"
+        >
+          {{ syncingFormSpec ? 'Syncing Forms…' : 'Sync Forms (Spec)' }}
+        </button>
         <button 
           @click="viewMode = viewMode === 'table' ? 'hierarchy' : 'table'" 
           class="btn btn-secondary"
@@ -30,6 +40,13 @@
           Create New Module
         </button>
       </div>
+    </div>
+
+    <div v-if="syncFormSpecError" class="error-message" style="margin-top: 10px;">
+      {{ syncFormSpecError }}
+    </div>
+    <div v-else-if="syncFormSpecMessage" class="muted" style="margin-top: 10px;">
+      {{ syncFormSpecMessage }}
     </div>
     
     <!-- Filters for Hierarchy View (Training Focus View) -->
@@ -909,6 +926,28 @@ const canCreateEdit = computed(() => {
   const role = authStore.user?.role;
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
+
+const syncingFormSpec = ref(false);
+const syncFormSpecError = ref('');
+const syncFormSpecMessage = ref('');
+
+const runFormSpecSync = async () => {
+  try {
+    syncingFormSpec.value = true;
+    syncFormSpecError.value = '';
+    syncFormSpecMessage.value = '';
+    const r = await api.post('/admin-actions/sync-form-spec');
+    const forms = Number(r.data?.forms || 0);
+    const fields = Number(r.data?.fieldsUpserted || 0);
+    syncFormSpecMessage.value = `Synced ${forms} form(s) (${fields} fields). Refreshing modules…`;
+    await fetchModules();
+    await fetchTrainingFocuses();
+  } catch (e) {
+    syncFormSpecError.value = e.response?.data?.error?.message || e.message || 'Failed to sync form spec';
+  } finally {
+    syncingFormSpec.value = false;
+  }
+};
 
 const availableAgencies = computed(() => {
   if (userRole.value === 'super_admin') return agencies.value || [];

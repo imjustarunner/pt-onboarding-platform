@@ -1,7 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { resetModule, resetTrack, markModuleComplete, markTrackComplete, getAuditLog } from '../controllers/adminActions.controller.js';
-import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import { resetModule, resetTrack, markModuleComplete, markTrackComplete, getAuditLog, syncFormSpec } from '../controllers/adminActions.controller.js';
+import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -25,6 +25,7 @@ router.post('/reset-track', authenticate, requireBackofficeAdmin, validateTrackA
 router.post('/mark-module-complete', authenticate, requireBackofficeAdmin, validateModuleAction, markModuleComplete);
 router.post('/mark-track-complete', authenticate, requireBackofficeAdmin, validateTrackAction, markTrackComplete);
 router.get('/audit-log/:agencyId', authenticate, requireBackofficeAdmin, getAuditLog);
+router.post('/sync-form-spec', authenticate, requireSuperAdmin, syncFormSpec);
 
 export default router;
 

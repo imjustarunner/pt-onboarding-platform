@@ -26,12 +26,15 @@ forms:
           - { field_key: work_location, type: single_select, required: true, options_source: itsco_locations, label: "Which location will you be working at?" }
           - { field_key: research_past_topics, type: textarea, required: false, label: "Have you conducted any research? If so, what were the topics?" }
           - { field_key: research_interest, type: boolean, required: false, label: "Are you interested in conducting research?" }
-          - { field_key: npi_status, type: single_select, required: true, label: "Do you have an NPI?", options_inline:
+          - field_key: npi_status
+            type: single_select
+            required: true
+            label: "Do you have an NPI?"
+            options_inline:
               - { value: "yes", label: "Yes" }
               - { value: "no_registered_surrogate", label: "No, but I have registered and will list the number below and have added ITSCO as a surrogate." }
               - { value: "yes_surrogate", label: "Yes, I will list the number below and have added ITSCO as a surrogate." }
               - { value: "no_itsco_create", label: "No, and ITSCO can make me one (please contact me)." }
-            }
           - { field_key: npi_number, type: text, required: false, label: "Please list your NPI number. If we are making you one, you may leave blank and we will be in contact." }
 
       - section_slug: work_schedule
@@ -50,12 +53,15 @@ forms:
         title: Position & Role
         visible_to_roles: [all_staff]
         fields:
-          - { field_key: itsco_position, type: single_select, required: true, label: "Please select your position with ITSCO", options_inline:
+          - field_key: itsco_position
+            type: single_select
+            required: true
+            label: "Please select your position with ITSCO"
+            options_inline:
               - { value: "mh_provider_grad", label: "Mental Health Provider (Master's or Doctorate Level)" }
               - { value: "mh_intern", label: "Intern Mental Health Provider (Enrolled in Master's Level Program)" }
               - { value: "mh_facilitator", label: "Mental Health Facilitator (Primarily Skill Builders | QBHA or Bachelors Level)" }
               - { value: "mh_provider_ba_approved", label: "Mental Health Provider (Bachelor's Level with Approval for Counseling/Therapeutic Services)" }
-            }
 
       - section_slug: counseling_profile_general
         title: Counseling Profile (General)
@@ -87,11 +93,14 @@ forms:
         title: External Marketing Profile (Psychology Today)
         visible_to_roles: [clinical_provider]
         fields:
-          - { field_key: psych_today_status, type: single_select, required: false, label: "Psychology Today Status", options_inline:
+          - field_key: psych_today_status
+            type: single_select
+            required: false
+            label: "Psychology Today Status"
+            options_inline:
               - { value: "yes_existing", label: "Yes and I have a profile already." }
               - { value: "yes_need_profile", label: "Yes and I do not yet have a profile." }
               - { value: "no_prefer_not", label: "No and I would prefer not to have a profile or will manage my own." }
-            }
           - { field_key: pt_gender_ethnicity, type: text, required: false, label: "Your gender/ethnicity (used for the psych today profile for clients with a preference to choose you) if applicable." }
           - { field_key: ideal_client_clinical, type: textarea, required: false, label: "Ideal Client (Clinical Focus)." }
           - { field_key: how_help_clinical, type: textarea, required: false, label: "How you help / Specialty offer." }
@@ -135,6 +144,88 @@ forms:
         value: ["no_registered_surrogate", "no_itsco_create"]
         then_action: show_section
         target_section_slug: taxonomy_codes_reference
+
+
+  - form_slug: initial_job_hire
+    title: Initial Job Hire Form
+    audience: all_staff
+    sections:
+      - section_slug: meta_submission
+        title: Submission Meta
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: timestamp, type: text, required: false, label: "Timestamp" }
+
+      - section_slug: contact_identity
+        title: Contact & Identity
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: email_address, type: email, required: true, label: "Email Address" }
+          - { field_key: personal_email, type: email, required: false, label: "Personal Permanent E-Mail (if different from above)" }
+          - { field_key: full_legal_name, type: text, required: true, label: "Full Legal Name" }
+          - { field_key: prior_names, type: textarea, required: false, label: "Prior Names" }
+          - { field_key: preferred_name_credentials, type: text, required: false, label: "Preferred Name and Credentials (If Applicable)" }
+          - { field_key: preferred_email_format, type: text, required: false, label: "Preferred Email Format (Optional and if Available)" }
+          - { field_key: date_of_birth, type: date, required: true, label: "Birthdate" }
+          - { field_key: state_of_birth, type: text, required: false, label: "State of Birth" }
+          - { field_key: mailing_address, type: textarea, required: true, label: "Mailing Address" }
+          - { field_key: cell_number, type: phone, required: true, label: "Cell Phone Number" }
+          - { field_key: previous_addresses, type: textarea, required: false, label: "Previous Addresses" }
+
+      - section_slug: documents_uploads
+        title: Documents & Uploads
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: resume_cv_upload, type: file, required: false, label: "Please upload Resume, Curriculum Vitae, and/or Work History" }
+          - { field_key: education_history, type: textarea, required: false, label: "Education information: Please list all degrees, areas of specialization/emphasis (if applicable), years conferred." }
+          - { field_key: headshot_upload, type: file, required: false, label: "Please attach a professional headshot. We will use this for our website, social media, etc." }
+
+      - section_slug: job_description_review
+        title: Job Description Review
+        visible_to_roles: [all_staff]
+        fields:
+          - field_key: job_description_understanding_rating
+            type: single_select
+            required: false
+            label: "Based on your review, how would you rate your understanding of your specific Job Description?"
+            options_inline:
+              - { value: "1", label: "1" }
+              - { value: "2", label: "2" }
+              - { value: "3", label: "3" }
+              - { value: "4", label: "4" }
+              - { value: "5", label: "5" }
+          - { field_key: job_description_selected, type: text, required: false, label: "Select which Job Description associated with your application and hiring offer." }
+          - { field_key: job_description_clarification_requests, type: textarea, required: false, label: "Are there any areas you would like clarification on before moving forward?" }
+          - { field_key: acknowledgement, type: boolean, required: false, label: "Acknowledgement" }
+
+      - section_slug: references
+        title: References
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: reference1_name, type: text, required: false, label: "Reference Name (#1)" }
+          - { field_key: reference1_relationship, type: text, required: false, label: "Relationship to You (#1)" }
+          - { field_key: reference1_organization, type: text, required: false, label: "Organization / Setting (#1)" }
+          - { field_key: reference1_email, type: email, required: false, label: "Email Address (#1)" }
+          - { field_key: reference1_phone, type: phone, required: false, label: "Phone Number (#1)" }
+          - { field_key: reference1_context, type: textarea, required: false, label: "Context for This Reference (#1)" }
+          - { field_key: reference2_name, type: text, required: false, label: "Reference Name (#2)" }
+          - { field_key: reference2_relationship, type: text, required: false, label: "Relationship to You (#2)" }
+          - { field_key: reference2_organization, type: text, required: false, label: "Organization / Setting (#2)" }
+          - { field_key: reference2_email, type: email, required: false, label: "Email Address (#2)" }
+          - { field_key: reference2_phone, type: phone, required: false, label: "Phone Number (#2)" }
+          - { field_key: reference2_context, type: textarea, required: false, label: "Context for This Reference (#2)" }
+          - { field_key: reference3_name, type: text, required: false, label: "Reference Name (#3)" }
+          - { field_key: reference3_relationship, type: text, required: false, label: "Relationship to You (#3)" }
+          - { field_key: reference3_organization, type: text, required: false, label: "Organization / Setting (#3)" }
+          - { field_key: reference3_email, type: email, required: false, label: "Email Address (#3)" }
+          - { field_key: reference3_phone, type: phone, required: false, label: "Phone Number (#3)" }
+          - { field_key: reference3_context, type: textarea, required: false, label: "Context for This Reference (#3)" }
+
+      - section_slug: authorization
+        title: Authorization & Release
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: authorization_release_ack, type: boolean, required: true, label: "Authorization and Release Statement Acknowledgment" }
 
 
   - form_slug: gear_supplies
