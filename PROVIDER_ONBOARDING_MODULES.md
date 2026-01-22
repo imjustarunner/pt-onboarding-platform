@@ -228,6 +228,314 @@ forms:
           - { field_key: authorization_release_ack, type: boolean, required: true, label: "Authorization and Release Statement Acknowledgment" }
 
 
+  - form_slug: new_hire_packet_v1
+    title: New Hire Packet (Pre-Onboarding)
+    audience: all_staff
+    sections:
+
+      - section_slug: submission_meta
+        title: Submission Meta
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: timestamp, type: text, required: false, label: "Timestamp" }
+
+      - section_slug: contact_identity
+        title: Contact & Identity
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: email_address, type: email, required: true, label: "Email Address" }
+          - { field_key: personal_email, type: email, required: false, label: "Personal Permanent E-Mail (if different from above)" }
+          - { field_key: full_legal_name, type: text, required: true, label: "Full Legal Name" }
+          - { field_key: prior_names, type: textarea, required: false, label: "Prior Names" }
+          - { field_key: preferred_name_credentials, type: text, required: false, label: "Preferred Name and Credentials (If Applicable)" }
+          - { field_key: preferred_email_format, type: text, required: false, label: "Preferred Email Format (Optional and if Available)" }
+          - { field_key: date_of_birth, type: date, required: true, label: "Birthdate" }
+          - { field_key: state_of_birth, type: text, required: false, label: "State of Birth" }
+          - { field_key: mailing_address, type: textarea, required: true, label: "Mailing Address" }
+          - { field_key: cell_number, type: phone, required: true, label: "Cell Phone Number" }
+          - { field_key: previous_addresses, type: textarea, required: false, label: "Previous Addresses" }
+
+      - section_slug: documents_uploads
+        title: Documents & Uploads
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: resume_cv_upload, type: file, required: false, label: "Please upload Resume, Curriculum Vitae, and/or Work History" }
+          - { field_key: education_history, type: textarea, required: false, label: "Education information: Please list all degrees, areas of specialization/emphasis (if applicable), years conferred." }
+          - { field_key: headshot_upload, type: file, required: false, label: "Please attach a professional headshot. We will use this for our website, social media, etc." }
+
+      - section_slug: job_description_review
+        title: Job Description Review
+        visible_to_roles: [all_staff]
+        fields:
+          - field_key: job_description_understanding_rating
+            type: single_select
+            required: false
+            label: "Based on your review, how would you rate your understanding of your specific Job Description?"
+            options_inline:
+              - { value: "1", label: "1" }
+              - { value: "2", label: "2" }
+              - { value: "3", label: "3" }
+              - { value: "4", label: "4" }
+              - { value: "5", label: "5" }
+          - { field_key: job_description_selected, type: text, required: false, label: "Select which Job Description associated with your application and hiring offer." }
+          - { field_key: job_description_clarification_requests, type: textarea, required: false, label: "Are there any areas you would like clarification on before moving forward?" }
+          - { field_key: acknowledgement, type: boolean, required: false, label: "Acknowledgement" }
+
+      - section_slug: references
+        title: References
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: reference1_name, type: text, required: false, label: "Reference Name (#1)" }
+          - { field_key: reference1_relationship, type: text, required: false, label: "Relationship to You (#1)" }
+          - { field_key: reference1_organization, type: text, required: false, label: "Organization / Setting (#1)" }
+          - { field_key: reference1_email, type: email, required: false, label: "Email Address (#1)" }
+          - { field_key: reference1_phone, type: phone, required: false, label: "Phone Number (#1)" }
+          - { field_key: reference1_context, type: textarea, required: false, label: "Context for This Reference (#1)" }
+          - { field_key: reference2_name, type: text, required: false, label: "Reference Name (#2)" }
+          - { field_key: reference2_relationship, type: text, required: false, label: "Relationship to You (#2)" }
+          - { field_key: reference2_organization, type: text, required: false, label: "Organization / Setting (#2)" }
+          - { field_key: reference2_email, type: email, required: false, label: "Email Address (#2)" }
+          - { field_key: reference2_phone, type: phone, required: false, label: "Phone Number (#2)" }
+          - { field_key: reference2_context, type: textarea, required: false, label: "Context for This Reference (#2)" }
+          - { field_key: reference3_name, type: text, required: false, label: "Reference Name (#3)" }
+          - { field_key: reference3_relationship, type: text, required: false, label: "Relationship to You (#3)" }
+          - { field_key: reference3_organization, type: text, required: false, label: "Organization / Setting (#3)" }
+          - { field_key: reference3_email, type: email, required: false, label: "Email Address (#3)" }
+          - { field_key: reference3_phone, type: phone, required: false, label: "Phone Number (#3)" }
+          - { field_key: reference3_context, type: textarea, required: false, label: "Context for This Reference (#3)" }
+
+      - section_slug: authorization_release
+        title: Authorization & Release
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: authorization_release_ack, type: boolean, required: true, label: "Authorization and Release Statement Acknowledgment" }
+
+
+  - form_slug: provider_info_core_v1
+    title: Provider Info Core (Identity, Schedule, Role)
+    audience: all_staff
+    sections:
+
+      - section_slug: provider_identity_contact
+        title: Identity & Contact
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: first_name, type: text, required: false, label: "First Name" }
+          - { field_key: last_name, type: text, required: false, label: "Last Name" }
+          - { field_key: date_of_birth, type: date, required: false, label: "Birthdate" }
+          - { field_key: personal_email, type: email, required: false, label: "Personal Email" }
+          - { field_key: email_address, type: email, required: false, label: "Email Address" }
+          - { field_key: cell_number, type: phone, required: false, label: "Cell Phone Number" }
+          - { field_key: mailing_address, type: textarea, required: false, label: "Mailing Address" }
+          - { field_key: previous_addresses, type: textarea, required: false, label: "Previous Addresses" }
+
+      - section_slug: provider_work_assignment
+        title: Work Assignment
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: work_location, type: single_select, required: false, options_source: itsco_locations, label: "Work location" }
+          - field_key: itsco_position
+            type: single_select
+            required: false
+            label: "Please select your position with ITSCO"
+            options_inline:
+              - { value: "mh_provider_grad", label: "Mental Health Provider (Master's or Doctorate Level)" }
+              - { value: "mh_intern", label: "Intern Mental Health Provider (Enrolled in Master's Level Program)" }
+              - { value: "mh_facilitator", label: "Mental Health Facilitator (Primarily Skill Builders | QBHA or Bachelors Level)" }
+              - { value: "mh_provider_ba_approved", label: "Mental Health Provider (Bachelor's Level with Approval for Counseling/Therapeutic Services)" }
+
+      - section_slug: provider_work_schedule
+        title: Work Schedule
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: availability_mon, type: schedule_grid, required: false, label: "Please select your available days and times [Monday]" }
+          - { field_key: availability_tue, type: schedule_grid, required: false, label: "Please select your available days and times [Tuesday]" }
+          - { field_key: availability_wed, type: schedule_grid, required: false, label: "Please select your available days and times [Wednesday]" }
+          - { field_key: availability_thu, type: schedule_grid, required: false, label: "Please select your available days and times [Thursday]" }
+          - { field_key: availability_fri, type: schedule_grid, required: false, label: "Please select your available days and times [Friday]" }
+          - { field_key: availability_sat, type: schedule_grid, required: false, label: "Please select your available days and times [Saturday]" }
+          - { field_key: availability_sun, type: schedule_grid, required: false, label: "Please select your available days and times [Sunday]" }
+
+      - section_slug: provider_education_program
+        title: Education / Program (if applicable)
+        visible_to_roles: [all_staff]
+        fields:
+          - { field_key: education_history, type: textarea, required: false, label: "Education history" }
+          - { field_key: grad_program_info, type: textarea, required: false, label: "Grad program info" }
+
+
+  - form_slug: clinical_credentialing_v1
+    title: Clinical Credentialing (License, NPI, CAQH, Medicaid)
+    audience: clinical_provider
+    sections:
+
+      - section_slug: clinical_licenses
+        title: Licenses
+        visible_to_roles: [clinical_provider, clinical_intern]
+        fields:
+          - { field_key: license_type_number, type: text, required: false, label: "License type & number" }
+          - { field_key: license_issued, type: date, required: false, label: "Date License Issued" }
+          - { field_key: license_expires, type: date, required: false, label: "Date License Expires" }
+          - { field_key: license_upload, type: file, required: false, label: "License upload" }
+
+      - section_slug: clinical_npi
+        title: NPI
+        visible_to_roles: [clinical_provider, clinical_intern]
+        fields:
+          - field_key: npi_status
+            type: single_select
+            required: false
+            label: "Do you have an NPI?"
+            options_inline:
+              - { value: "yes", label: "Yes" }
+              - { value: "no_registered_surrogate", label: "No, but I have registered and will list the number below and have added ITSCO as a surrogate." }
+              - { value: "yes_surrogate", label: "Yes, I will list the number below and have added ITSCO as a surrogate." }
+              - { value: "no_itsco_create", label: "No, and ITSCO can make me one (please contact me)." }
+          - { field_key: npi_number, type: text, required: false, label: "NPI number" }
+          - { field_key: taxonomy_code, type: text, required: false, label: "Taxonomy code" }
+
+      - section_slug: clinical_caqh
+        title: CAQH
+        visible_to_roles: [clinical_provider, clinical_intern]
+        fields:
+          - { field_key: caqh_provider_id, type: text, required: false, label: "CAQH provider ID" }
+
+      - section_slug: clinical_medicaid
+        title: Medicaid
+        visible_to_roles: [clinical_provider, clinical_intern]
+        fields:
+          - { field_key: medicaid_provider_type, type: text, required: false, label: "Medicaid provider type" }
+          - { field_key: medicaid_location_id, type: text, required: false, label: "Medicaid location ID" }
+          - { field_key: medicaid_effective_date, type: date, required: false, label: "Medicaid effective date" }
+          - { field_key: medicaid_revalidation, type: date, required: false, label: "Medicaid revalidation date" }
+
+      - section_slug: clinical_medicare
+        title: Medicare (if applicable)
+        visible_to_roles: [clinical_provider, clinical_intern]
+        fields:
+          - { field_key: medicare_number, type: text, required: false, label: "Medicare number" }
+
+      - section_slug: clinical_research
+        title: Research (optional)
+        visible_to_roles: [clinical_provider, clinical_intern]
+        fields:
+          - { field_key: research_past_topics, type: textarea, required: false, label: "Past research topics" }
+          - { field_key: research_interest, type: boolean, required: false, label: "Interested in research?" }
+
+
+  - form_slug: clinical_profile_internal_v1
+    title: Clinical Profile (Internal Use)
+    audience: clinical_provider
+    sections:
+
+      - section_slug: clinical_profile_overview
+        title: Overview
+        visible_to_roles: [clinical_provider, clinical_intern, facilitator]
+        fields:
+          - { field_key: provider_description, type: textarea, required: false, label: "Provider description" }
+
+      - section_slug: clinical_profile_ideal_client
+        title: Ideal Client & Approach
+        visible_to_roles: [clinical_provider, clinical_intern, facilitator]
+        fields:
+          - { field_key: ideal_client_general, type: textarea, required: false, label: "Ideal client (general)" }
+          - { field_key: how_help_general, type: textarea, required: false, label: "How you help (general)" }
+          - { field_key: build_empathy_general, type: textarea, required: false, label: "Build empathy (general)" }
+
+      - section_slug: clinical_profile_specialties
+        title: Specialties
+        visible_to_roles: [clinical_provider, clinical_intern, facilitator]
+        fields:
+          - { field_key: specialties_general, type: multi_select, required: false, options_source: specialties_general_list, label: "Specialties (general)" }
+          - { field_key: top3_specialties_general, type: text, required: false, label: "Top 3 specialties (general)" }
+
+      - section_slug: clinical_profile_experience
+        title: Experience & Training
+        visible_to_roles: [clinical_provider, clinical_intern, facilitator]
+        fields:
+          - { field_key: certs_general, type: textarea, required: false, label: "Certifications (general)" }
+          - { field_key: work_exp_general, type: textarea, required: false, label: "Work experience (general)" }
+
+      - section_slug: clinical_profile_scheduling_exclusions
+        title: Scheduling Exclusions
+        visible_to_roles: [clinical_provider, clinical_intern, facilitator]
+        fields:
+          - { field_key: avoid_clients_general, type: textarea, required: false, label: "Scheduling exclusions (general)" }
+
+
+  - form_slug: marketing_directory_v1
+    title: Marketing & Directory Profile
+    audience: clinical_provider
+    sections:
+
+      - section_slug: marketing_psych_today_setup
+        title: Psychology Today Setup
+        visible_to_roles: [clinical_provider]
+        fields:
+          - field_key: psych_today_status
+            type: single_select
+            required: false
+            label: "Psychology Today Status"
+            options_inline:
+              - { value: "yes_existing", label: "Yes and I have a profile already." }
+              - { value: "yes_need_profile", label: "Yes and I do not yet have a profile." }
+              - { value: "no_prefer_not", label: "No and I would prefer not to have a profile or will manage my own." }
+          - { field_key: pt_gender_ethnicity, type: text, required: false, label: "Gender/ethnicity (Psychology Today)" }
+
+      - section_slug: marketing_bio_essays_clinical
+        title: Bio Essays (Clinical)
+        visible_to_roles: [clinical_provider]
+        fields:
+          - { field_key: ideal_client_clinical, type: textarea, required: false, label: "Ideal client (clinical)" }
+          - { field_key: how_help_clinical, type: textarea, required: false, label: "How you help (clinical)" }
+          - { field_key: build_empathy_clinical, type: textarea, required: false, label: "Build empathy (clinical)" }
+
+      - section_slug: marketing_specialties
+        title: Specialties
+        visible_to_roles: [clinical_provider]
+        fields:
+          - { field_key: pt_specialties_max25, type: multi_select, required: false, max_select: 25, options_source: psych_today_issues_list, label: "Issues/Specialties (Max 25)" }
+          - { field_key: pt_top3_specialties, type: text, required: false, label: "Top 3 specialties (from issues list)" }
+          - { field_key: top3_specialties_clinical, type: text, required: false, label: "Top 3 specialties (clinical)" }
+
+      - section_slug: marketing_focus_populations
+        title: Focus & Populations
+        visible_to_roles: [clinical_provider]
+        fields:
+          - { field_key: age_specialty, type: multi_select, required: false, options_source: psych_today_age_specialty, label: "Age Specialty" }
+          - { field_key: groups, type: multi_select, required: false, options_source: psych_today_focus, label: "Focus (Couples/Families/Groups/Individuals)" }
+          - { field_key: mental_health, type: multi_select, required: false, options_source: psych_today_mental_health_categories, label: "Mental Health Categories" }
+          - { field_key: sexuality, type: multi_select, required: false, options_source: psych_today_sexuality_categories, label: "Sexuality" }
+          - { field_key: other_issues, type: multi_select, required: false, options_source: psych_today_communities_allied, label: "Communities/Allied" }
+
+      - section_slug: marketing_modalities_preferences
+        title: Modalities / Preferences
+        visible_to_roles: [clinical_provider]
+        fields:
+          - { field_key: modality, type: multi_select, required: false, options_source: psych_today_modalities_list, label: "Treatment Modalities", max_select: 15 }
+          - { field_key: treatment_prefs_max15, type: multi_select, required: false, max_select: 15, options_source: psych_today_modalities_list, label: "Treatment Preferences or Strategies. Max 15" }
+
+      - section_slug: marketing_groups_leading
+        title: Groups (Leading)
+        visible_to_roles: [clinical_provider]
+        fields:
+          - { field_key: group_interest, type: textarea, required: false, label: "Interested in leading groups? (List types)" }
+
+      - section_slug: marketing_experience_exclusions
+        title: Experience & Exclusions (Clinical)
+        visible_to_roles: [clinical_provider]
+        fields:
+          - { field_key: certs_clinical, type: textarea, required: false, label: "Certifications (clinical)" }
+          - { field_key: work_exp_clinical, type: textarea, required: false, label: "Work experience (clinical)" }
+          - { field_key: avoid_clients_clinical, type: textarea, required: false, label: "Scheduling exclusions (clinical)" }
+
+      - section_slug: marketing_languages
+        title: Languages
+        visible_to_roles: [clinical_provider]
+        fields:
+          - { field_key: languages_spoken, type: text, required: false, label: "Languages spoken" }
+
+
   - form_slug: gear_supplies
     title: Gear / Supplies Tracking
     audience: all_staff
