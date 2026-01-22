@@ -238,7 +238,7 @@ const refresh = async () => {
     installSuccess.value = '';
 
     const [infoRes, catsRes, agenciesRes] = await Promise.all([
-      api.get(`/users/${props.userId}/user-info`),
+      api.get(`/users/${props.userId}/user-info`, { params: { assignedOrHasValueOnly: true } }),
       api.get('/user-info-categories'),
       api.get(`/users/${props.userId}/agencies`)
     ]);

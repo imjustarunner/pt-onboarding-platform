@@ -588,7 +588,7 @@ const fetchMyUserInfo = async () => {
     userInfoLoading.value = true;
     userInfoError.value = '';
     const [fieldsRes, catsRes] = await Promise.all([
-      api.get(`/users/${userId.value}/user-info`),
+      api.get(`/users/${userId.value}/user-info`, { params: { assignedOrHasValueOnly: true } }),
       api.get('/user-info-categories')
     ]);
     myUserInfoFields.value = fieldsRes.data || [];
