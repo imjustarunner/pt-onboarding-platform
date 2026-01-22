@@ -8,7 +8,7 @@
             <img v-if="headerPhotoUrl" :src="headerPhotoUrl" alt="Profile photo" class="header-photo" />
             <div v-else class="header-photo-fallback" aria-hidden="true">{{ headerInitials }}</div>
           </div>
-          <h1>{{ user?.first_name }} {{ user?.last_name }}</h1>
+          <h1>{{ headerDisplayName }}</h1>
           <span 
             v-if="user" 
             :class="['status-badge-header', getStatusBadgeClass(user.status, user.is_active)]"
@@ -89,6 +89,13 @@
                   <input v-model="accountForm.lastName" type="text" :disabled="!isEditingAccount" />
                 </div>
                 <div class="form-group">
+                  <label>Preferred Name (display only)</label>
+                  <input v-model="accountForm.preferredName" type="text" :disabled="!isEditingAccount" />
+                  <small class="form-help">
+                    Shows up as <strong>First "Preferred" Last</strong> in headers/welcome, but is not used for payroll or legal records.
+                  </small>
+                </div>
+                <div class="form-group">
                   <label>Login Email</label>
                   <input
                     v-model="accountForm.email"
@@ -97,6 +104,13 @@
                   />
                   <small class="form-help">
                     This is the email the user logs in with. Changing it does <strong>not</strong> change their password — use “Send Reset Password Link” if needed.
+                  </small>
+                </div>
+                <div class="form-group">
+                  <label>Personal Email</label>
+                  <input v-model="accountForm.personalEmail" type="email" :disabled="!isEditingAccount" />
+                  <small class="form-help">
+                    Contact email (not used for login).
                   </small>
                 </div>
                 <div class="form-group">
@@ -497,36 +511,13 @@
             </div>
           
           <div class="section-divider">
-            <h3>Additional Account Information</h3>
+            <h3>Admin Tools</h3>
           </div>
           
           <div class="additional-account-info">
             <div v-if="accountInfoLoading" class="loading">Loading account information...</div>
             <div v-else-if="accountInfoError" class="error">{{ accountInfoError }}</div>
             <div v-else>
-              <div class="info-grid">
-                <div class="info-item">
-                  <label>Email:</label>
-                  <span>{{ user?.email || 'Not provided' }}</span>
-                </div>
-                <div v-if="user?.work_email" class="info-item">
-                  <label>Work Email (Username):</label>
-                  <span>{{ user.work_email }}</span>
-                </div>
-                <div v-if="user?.personal_email" class="info-item">
-                  <label>Personal Email:</label>
-                  <span>{{ user.personal_email }}</span>
-                </div>
-                <div class="info-item">
-                  <label>Personal Phone Number:</label>
-                  <span>{{ accountInfo.personalPhone || accountInfo.phoneNumber || user?.phone_number || 'Not provided' }}</span>
-                </div>
-                <div class="info-item">
-                  <label>Work Phone Number:</label>
-                  <span>{{ accountInfo.workPhone ? (accountInfo.workPhone + (accountInfo.workPhoneExtension ? ' ext. ' + accountInfo.workPhoneExtension : '')) : 'Not provided' }}</span>
-                </div>
-              </div>
-              
               <!-- Supervisor Information Section -->
               <div v-if="accountInfo.supervisors && accountInfo.supervisors.length > 0" class="supervisors-section" style="margin-top: 24px;">
                 <h4 style="margin-top: 0; margin-bottom: 15px;">Supervisor Information</h4>
@@ -714,18 +705,16 @@
               </div>
             </div>
           </div>
-
-          <div class="section-divider">
-            <h3>Additional User Information</h3>
-          </div>
-
-          <UserInformationTab :userId="userId" />
         </div>
 
-        <ProviderInfoTab
-          v-if="activeTab === 'provider_info'"
-          :userId="userId"
-        />
+        <div v-if="activeTab === 'provider_info'" class="tab-panel">
+          <ProviderInfoTab :userId="userId" />
+
+          <div class="section-divider" style="margin-top: 18px;">
+            <h3>Agency (Bulk Import) Information</h3>
+          </div>
+          <UserInformationTab :userId="userId" />
+        </div>
 
         <div v-if="activeTab === 'school_affiliation'" class="tab-panel">
           <h2>School Affiliation</h2>
@@ -1110,6 +1099,16 @@ const headerInitials = computed(() => {
   return `${a}${b}`.toUpperCase() || 'U';
 });
 
+const headerDisplayName = computed(() => {
+  const first = String(user.value?.first_name || '').trim();
+  const last = String(user.value?.last_name || '').trim();
+  const preferred = String(user.value?.preferred_name || '').trim();
+  if (first && preferred && last) return `${first} "${preferred}" ${last}`;
+  if (first && preferred) return `${first} "${preferred}"`;
+  if (first && last) return `${first} ${last}`;
+  return first || last || 'User';
+});
+
 const onAdminPhotoSelected = async (event) => {
   try {
     photoError.value = '';
@@ -1214,7 +1213,9 @@ const tabs = computed(() => {
 const accountForm = ref({
   firstName: '',
   lastName: '',
+  preferredName: '',
   email: '',
+  personalEmail: '',
   phoneNumber: '',
   personalPhone: '',
   workPhone: '',
@@ -1561,7 +1562,9 @@ const fetchUser = async () => {
     accountForm.value = {
       firstName: user.value.first_name || accountForm.value?.firstName || '',
       lastName: user.value.last_name || accountForm.value?.lastName || '',
+      preferredName: user.value.preferred_name || accountForm.value?.preferredName || '',
       email: user.value.email || accountForm.value?.email || '',
+      personalEmail: user.value.personal_email || accountForm.value?.personalEmail || '',
       phoneNumber: user.value.phone_number || accountForm.value?.phoneNumber || '',
       personalPhone: user.value.personal_phone || accountForm.value?.personalPhone || '',
       workPhone: user.value.work_phone || accountForm.value?.workPhone || '',
@@ -1623,6 +1626,15 @@ const fetchAccountInfo = async () => {
     accountForm.value.homeCity = response.data?.homeCity || accountForm.value.homeCity || '';
     accountForm.value.homeState = response.data?.homeState || accountForm.value.homeState || '';
     accountForm.value.homePostalCode = response.data?.homePostalCode || accountForm.value.homePostalCode || '';
+
+    // Backfill personal email (some imports stored it in user_info_values instead of users.personal_email).
+    if (!accountForm.value.personalEmail) {
+      accountForm.value.personalEmail = response.data?.personalEmail || '';
+    }
+    // Backfill preferred name (account-info endpoint is authoritative for display fields)
+    if (!accountForm.value.preferredName) {
+      accountForm.value.preferredName = response.data?.preferredName || '';
+    }
   } catch (err) {
     accountInfoError.value = err.response?.data?.error?.message || 'Failed to load account information';
   } finally {
@@ -1962,6 +1974,8 @@ const saveAccount = async () => {
       email: accountForm.value.email,
       firstName: accountForm.value.firstName,
       lastName: accountForm.value.lastName,
+      preferredName: accountForm.value.preferredName,
+      personalEmail: accountForm.value.personalEmail,
       phoneNumber: accountForm.value.phoneNumber,
       personalPhone: accountForm.value.personalPhone,
       workPhone: accountForm.value.workPhone,

@@ -52,6 +52,15 @@
                   >
                     Mark Complete
                   </button>
+                  <button
+                    v-if="!viewOnly"
+                    @click="removeTask(task.id)"
+                    class="btn btn-sm btn-danger"
+                    style="margin-left: 6px;"
+                    title="Remove this assignment from the user's record"
+                  >
+                    Remove
+                  </button>
                   <span v-if="viewOnly && task.status === 'completed'" class="badge badge-success">Completed</span>
                 </td>
               </tr>
@@ -91,9 +100,20 @@
                   {{ track.description }}
                 </p>
               </div>
-              <span :class="['badge', getStatusBadgeClass(track.status)]" style="margin-left: 12px;">
-                {{ track.status }}
-              </span>
+              <div style="display:flex; gap: 8px; align-items:center; margin-left: 12px;">
+                <span :class="['badge', getStatusBadgeClass(track.status)]">
+                  {{ track.status }}
+                </span>
+                <button
+                  v-if="!viewOnly"
+                  type="button"
+                  class="btn btn-sm btn-danger"
+                  @click.stop="removeTrainingFocus(track)"
+                  title="Remove this training focus (and its assigned module tasks) from the user's record"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
             
             <div class="track-progress" style="margin-bottom: 12px;">
@@ -169,6 +189,16 @@
                     @click="toggleChecklistCompletion(it)"
                   >
                     {{ checklistSavingKey === String(it.checklist_item_id) ? 'Saving…' : (it.is_completed ? 'Mark Incomplete' : 'Mark Complete') }}
+                  </button>
+                  <button
+                    v-if="!viewOnly"
+                    class="btn btn-sm btn-danger"
+                    style="margin-left: 6px;"
+                    :disabled="checklistSavingKey === String(it.checklist_item_id)"
+                    @click="removeChecklistItem(it)"
+                    title="Remove this checklist item from the user's record"
+                  >
+                    Remove
                   </button>
                 </td>
               </tr>
@@ -251,6 +281,21 @@ const toggleChecklistCompletion = async (it) => {
   }
 };
 
+const removeChecklistItem = async (it) => {
+  if (!it?.checklist_item_id) return;
+  const ok = confirm('Remove this checklist item from the user? This hides it from their checklist.');
+  if (!ok) return;
+  checklistSavingKey.value = String(it.checklist_item_id);
+  try {
+    await api.delete(`/users/${props.userId}/custom-checklist/${it.checklist_item_id}/assign`);
+    await fetchChecklistItems();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to remove checklist item');
+  } finally {
+    checklistSavingKey.value = '';
+  }
+};
+
 const fetchTrainingData = async () => {
   try {
     loading.value = true;
@@ -306,6 +351,31 @@ const fetchTrainingData = async () => {
     console.error('Error fetching training data:', err);
   } finally {
     loading.value = false;
+  }
+};
+
+const removeTask = async (taskId) => {
+  if (!taskId) return;
+  const ok = confirm('Remove this assignment from the user? This deletes the task and any generated document copies tied to it.');
+  if (!ok) return;
+  try {
+    await api.delete(`/tasks/${taskId}`);
+    await fetchTrainingData();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to remove task');
+  }
+};
+
+const removeTrainingFocus = async (track) => {
+  if (!track?.id || !track?.agencyId) return;
+  const ok = confirm('Remove this training focus from the user? This will also remove module tasks created for this focus in this agency.');
+  if (!ok) return;
+  try {
+    await api.delete(`/tracks/${track.id}/assign/users/${props.userId}`, { params: { agencyId: track.agencyId } });
+    await fetchTrainingData();
+    await fetchChecklistItems();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to remove training focus');
   }
 };
 

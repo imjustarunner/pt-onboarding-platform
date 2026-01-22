@@ -10,7 +10,8 @@ import {
   overrideTask,
   updateDueDate,
   sendReminder,
-  getAllTasks
+  getAllTasks,
+  deleteTask
 } from '../controllers/task.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
@@ -43,6 +44,7 @@ router.post('/bulk', authenticate, requireBackofficeAdmin, validateTaskAssignmen
 router.put('/:id/override', authenticate, requireBackofficeAdmin, overrideTask);
 router.put('/:id/due-date', authenticate, requireBackofficeAdmin, validateDueDate, updateDueDate);
 router.post('/:id/reminder', authenticate, requireBackofficeAdmin, sendReminder);
+router.delete('/:id', authenticate, requireBackofficeAdmin, deleteTask);
 
 // Parameterized routes (must come after specific routes)
 router.get('/:id', authenticate, getTask);

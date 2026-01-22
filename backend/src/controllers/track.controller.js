@@ -683,6 +683,57 @@ export const assignTrainingFocus = async (req, res, next) => {
   }
 };
 
+export const unassignTrainingFocusFromUser = async (req, res, next) => {
+  try {
+    const trackId = req.params.id ? parseInt(req.params.id, 10) : null;
+    const userId = req.params.userId ? parseInt(req.params.userId, 10) : null;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!trackId) return res.status(400).json({ error: { message: 'trackId is required' } });
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    // Verify admin has access to this agency
+    if (req.user.role !== 'super_admin') {
+      const userAgencies = await User.getAgencies(req.user.id);
+      const hasAccess = userAgencies.some(a => a.id === agencyId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
+      }
+    }
+
+    // Remove track assignment
+    await UserTrack.removeUserFromTrack(userId, trackId, agencyId);
+
+    // Remove training tasks created for this training focus (metadata.trackId + assigned_to_agency_id)
+    const tasks = await Task.findTrainingTrackTasksForUser({ userId, agencyId, trackId });
+    const taskIds = (tasks || []).map((t) => t.id).filter(Boolean);
+    await Task.deleteByIds(taskIds);
+
+    // Also remove checklist items nested under this training focus and its modules for this user.
+    try {
+      const UserChecklistAssignment = (await import('../models/UserChecklistAssignment.model.js')).default;
+      const CustomChecklistItem = (await import('../models/CustomChecklistItem.model.js')).default;
+      const modules = await TrainingTrack.getModules(trackId);
+      const focusItems = await CustomChecklistItem.findByTrainingFocus(trackId);
+      const moduleItems = [];
+      for (const m of modules || []) {
+        const rows = await CustomChecklistItem.findByModule(m.id);
+        moduleItems.push(...(rows || []));
+      }
+      const allItemIds = Array.from(new Set([...(focusItems || []).map((x) => x.id), ...moduleItems.map((x) => x.id)]));
+      for (const itemId of allItemIds) {
+        await UserChecklistAssignment.removeFromUser(userId, itemId, req.user.id);
+      }
+    } catch {
+      // best-effort
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Get all training focuses assigned to a user with modules and completion status
 export const getUserTrainingFocuses = async (req, res, next) => {
   try {

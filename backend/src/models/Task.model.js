@@ -268,6 +268,20 @@ class Task {
     return { updated: result?.affectedRows || 0 };
   }
 
+  static async deleteById(taskId) {
+    if (!taskId) return false;
+    const [result] = await pool.execute('DELETE FROM tasks WHERE id = ?', [parseInt(taskId)]);
+    return result.affectedRows > 0;
+  }
+
+  static async deleteByIds(taskIds) {
+    const ids = Array.isArray(taskIds) ? taskIds.filter(Boolean).map((x) => parseInt(x)) : [];
+    if (ids.length === 0) return { deleted: 0 };
+    const placeholders = ids.map(() => '?').join(',');
+    const [result] = await pool.execute(`DELETE FROM tasks WHERE id IN (${placeholders})`, ids);
+    return { deleted: Number(result.affectedRows || 0) };
+  }
+
   static async updateStatus(taskId, status) {
     await pool.execute(
       'UPDATE tasks SET status = ? WHERE id = ?',

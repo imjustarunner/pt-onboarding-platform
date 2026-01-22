@@ -28,9 +28,13 @@ class UserChecklistAssignment {
       for (const item of enabledItems.allItems) {
         // Check if assignment exists
         const existing = await this.findByUserAndItem(userId, item.id);
+        // If it's soft-removed, do not recreate it automatically.
+        const isRemoved = existing && (existing.is_removed === true || existing.is_removed === 1 || existing.is_removed === '1');
         if (!existing) {
           // Create assignment record for completion tracking
           await this.assignToUser(userId, item.id, null);
+        } else if (isRemoved) {
+          // Leave it removed.
         }
       }
       
@@ -63,7 +67,9 @@ class UserChecklistAssignment {
         cci.order_index
       FROM user_custom_checklist_assignments uca
       JOIN custom_checklist_items cci ON uca.checklist_item_id = cci.id
-      WHERE uca.user_id = ? AND cci.id IN (${placeholders})
+      WHERE uca.user_id = ?
+        AND (uca.is_removed IS NULL OR uca.is_removed = FALSE)
+        AND cci.id IN (${placeholders})
       ORDER BY cci.is_platform_template DESC, cci.agency_id IS NULL DESC, cci.order_index ASC
     `;
     
@@ -85,6 +91,17 @@ class UserChecklistAssignment {
     // Check if already exists
     const existing = await this.findByUserAndItem(userId, itemId);
     if (existing) {
+      // If previously removed, un-remove it.
+      const isRemoved = existing.is_removed === true || existing.is_removed === 1 || existing.is_removed === '1';
+      if (isRemoved) {
+        await pool.execute(
+          `UPDATE user_custom_checklist_assignments
+           SET is_removed = FALSE, removed_at = NULL, removed_by_user_id = NULL
+           WHERE user_id = ? AND checklist_item_id = ?`,
+          [userId, itemId]
+        );
+        return this.findByUserAndItem(userId, itemId);
+      }
       return existing;
     }
 
@@ -99,6 +116,17 @@ class UserChecklistAssignment {
       [result.insertId]
     );
     return rows[0];
+  }
+
+  static async removeFromUser(userId, itemId, removedByUserId = null) {
+    await pool.execute(
+      `UPDATE user_custom_checklist_assignments
+       SET is_removed = TRUE, removed_at = CURRENT_TIMESTAMP, removed_by_user_id = ?,
+           is_completed = FALSE, completed_at = NULL
+       WHERE user_id = ? AND checklist_item_id = ?`,
+      [removedByUserId, userId, itemId]
+    );
+    return this.findByUserAndItem(userId, itemId);
   }
 
   static async markComplete(userId, itemId) {

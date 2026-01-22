@@ -480,6 +480,25 @@
           <div class="muted">Reminder: complete prior-period notes by Sunday 11:59pm after the pay period ends to avoid compensation delays.</div>
         </div>
         <div
+          class="warn-box current-unpaid-notes"
+          v-if="expanded.breakdown && expanded.breakdown.__priorStillUnpaid && (expanded.breakdown.__priorStillUnpaid.totalUnits || 0) > 0"
+          style="margin-bottom: 10px; border: 1px solid #ffb5b5; background: #ffecec;"
+        >
+          <div>
+            <strong>Still unpaid from the prior pay period (not paid this period):</strong>
+            {{ fmtNum(expanded.breakdown.__priorStillUnpaid.totalUnits) }} units
+          </div>
+          <div class="muted" style="margin-top: 4px;" v-if="expanded.breakdown.__priorStillUnpaid.periodStart">
+            {{ expanded.breakdown.__priorStillUnpaid.periodStart }} → {{ expanded.breakdown.__priorStillUnpaid.periodEnd }}
+          </div>
+          <div class="muted" style="margin-top: 6px;" v-if="(expanded.breakdown.__priorStillUnpaid.lines || []).length">
+            <div><strong>Details:</strong></div>
+            <div v-for="(l, i) in (expanded.breakdown.__priorStillUnpaid.lines || [])" :key="`prior-unpaid:${l.serviceCode}:${i}`">
+              - {{ l.serviceCode }}: {{ fmtNum(l.unpaidUnits) }} units
+            </div>
+          </div>
+        </div>
+        <div
           class="warn-box old-notes-alert"
           v-if="twoPeriodsAgoUnpaid.total > 0"
           style="margin-bottom: 10px;"
@@ -625,26 +644,41 @@
           </div>
           <div v-if="expanded.breakdown && expanded.breakdown.__adjustments" class="adjustments">
             <h3 class="card-title" style="margin-top: 10px;">Additional Pay / Overrides</h3>
-            <div class="row"><strong>Mileage:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.mileageAmount ?? 0) }}</div>
-            <div class="row"><strong>Med Cancel:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.medcancelAmount ?? 0) }}</div>
-            <div class="row"><strong>Other taxable:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.otherTaxableAmount ?? 0) }}</div>
-            <div class="row"><strong>IMatter:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.imatterAmount ?? 0) }}</div>
-            <div class="row"><strong>Missed appointments:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.missedAppointmentsAmount ?? 0) }}</div>
-            <div class="row"><strong>Bonus:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.bonusAmount ?? 0) }}</div>
-            <div class="row"><strong>Reimbursement:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.reimbursementAmount ?? 0) }}</div>
-            <div class="row"><strong>Time claims:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.timeClaimsAmount ?? 0) }}</div>
-            <div class="row"><strong>Manual pay lines:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.manualPayLinesAmount ?? 0) }}</div>
-            <div
-              v-if="(expanded.breakdown.__adjustments.manualPayLines || expanded.breakdown.__manualPayLines || []).length"
-              class="muted"
-              style="margin-top: 6px;"
-            >
-              <div v-for="(l, i) in (expanded.breakdown.__adjustments.manualPayLines || expanded.breakdown.__manualPayLines || [])" :key="`${l.id || i}`">
-                - {{ l.label }}: {{ fmtMoney(l.amount ?? 0) }}
+
+            <div v-if="(expanded.breakdown.__adjustments.lines || []).length">
+              <div v-for="(l, i) in (expanded.breakdown.__adjustments.lines || [])" :key="`adj:${l.type}:${i}`" class="row">
+                <strong>{{ l.label }}:</strong>
+                {{ fmtMoney(l.amount ?? 0) }}
+                <span class="muted" v-if="l.meta && (l.meta.hours || l.meta.rate)">
+                  • {{ fmtNum(l.meta.hours ?? 0) }} hrs @ {{ fmtMoney(l.meta.rate ?? 0) }}
+                </span>
+                <span class="muted" v-if="l.taxable === false"> • non-taxable</span>
+                <span class="muted" v-else> • taxable</span>
               </div>
             </div>
-            <div class="row"><strong>PTO:</strong> {{ fmtNum(expanded.breakdown.__adjustments.ptoHours ?? 0) }} hrs @ {{ fmtMoney(expanded.breakdown.__adjustments.ptoRate ?? 0) }} = {{ fmtMoney(expanded.breakdown.__adjustments.ptoPay ?? 0) }}</div>
-            <div class="row"><strong>Salary override:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.salaryAmount ?? 0) }}</div>
+            <div v-else>
+              <!-- Backward-compatible fallback (older runs without lines[]) -->
+              <div class="row"><strong>Mileage:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.mileageAmount ?? 0) }}</div>
+              <div class="row"><strong>Med Cancel:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.medcancelAmount ?? 0) }}</div>
+              <div class="row"><strong>Other taxable:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.otherTaxableAmount ?? 0) }}</div>
+              <div class="row"><strong>IMatter:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.imatterAmount ?? 0) }}</div>
+              <div class="row"><strong>Missed appointments:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.missedAppointmentsAmount ?? 0) }}</div>
+              <div class="row"><strong>Bonus:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.bonusAmount ?? 0) }}</div>
+              <div class="row"><strong>Reimbursement:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.reimbursementAmount ?? 0) }}</div>
+              <div class="row"><strong>Time claims:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.timeClaimsAmount ?? 0) }}</div>
+              <div class="row"><strong>Manual pay lines:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.manualPayLinesAmount ?? 0) }}</div>
+              <div
+                v-if="(expanded.breakdown.__adjustments.manualPayLines || expanded.breakdown.__manualPayLines || []).length"
+                class="muted"
+                style="margin-top: 6px;"
+              >
+                <div v-for="(ml, j) in (expanded.breakdown.__adjustments.manualPayLines || expanded.breakdown.__manualPayLines || [])" :key="`${ml.id || j}`">
+                  - {{ ml.label }}: {{ fmtMoney(ml.amount ?? 0) }}
+                </div>
+              </div>
+              <div class="row"><strong>PTO:</strong> {{ fmtNum(expanded.breakdown.__adjustments.ptoHours ?? 0) }} hrs @ {{ fmtMoney(expanded.breakdown.__adjustments.ptoRate ?? 0) }} = {{ fmtMoney(expanded.breakdown.__adjustments.ptoPay ?? 0) }}</div>
+              <div class="row"><strong>Salary override:</strong> {{ fmtMoney(expanded.breakdown.__adjustments.salaryAmount ?? 0) }}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -2159,7 +2193,7 @@ const payTotalsFromBreakdown = (breakdown) => {
   for (const [code, v] of Object.entries(breakdown)) {
     if (String(code).startsWith('_')) continue;
     const amt = Number(v?.amount || 0);
-    const bucket = payBucketForCategory(v?.category);
+    const bucket = v?.bucket ? String(v.bucket).trim().toLowerCase() : payBucketForCategory(v?.category);
     if (bucket === 'indirect') out.indirectAmount += amt;
     else if (bucket === 'other') out.otherAmount += amt;
     else if (bucket === 'flat') out.flatAmount += amt;
@@ -2179,11 +2213,12 @@ const hourlyRateSummary = computed(() => {
   for (const [code, v] of Object.entries(b)) {
     if (String(code).startsWith('_')) continue;
     const category = String(v?.category || 'direct').trim().toLowerCase();
-    const bucket =
-      (category === 'indirect' || category === 'admin' || category === 'meeting') ? 'indirect'
+    const bucket = v?.bucket
+      ? String(v.bucket).trim().toLowerCase()
+      : ((category === 'indirect' || category === 'admin' || category === 'meeting') ? 'indirect'
         : (category === 'other' || category === 'tutoring') ? 'other'
           : (category === 'mileage' || category === 'bonus' || category === 'reimbursement' || category === 'other_pay') ? 'flat'
-            : 'direct';
+            : 'direct');
     const hours = Number(v?.hours || 0);
     const amount = Number(v?.amount || 0);
     const rateAmount = Number(v?.rateAmount || 0);
@@ -3408,6 +3443,16 @@ onMounted(async () => {
   await loadReimbursementClaims();
   await loadCompanyCardExpenses();
   await loadTimeClaims();
+
+  // If we arrived here from the dashboard "View last paycheck" action, auto-expand once.
+  const qp = route.query?.expandPayrollPeriodId;
+  const pid = qp ? parseInt(String(qp), 10) : null;
+  if (pid) {
+    expandedId.value = pid;
+    const next = { ...route.query };
+    delete next.expandPayrollPeriodId;
+    router.replace({ query: next });
+  }
 });
 </script>
 

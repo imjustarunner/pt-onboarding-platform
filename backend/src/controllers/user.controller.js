@@ -47,6 +47,7 @@ export const getCurrentUser = async (req, res, next) => {
       status: user.status,
       firstName: user.first_name,
       lastName: user.last_name,
+      preferredName: user.preferred_name || null,
       username: user.username || user.personal_email || user.email,
       profilePhotoUrl: publicUploadsUrlFromStoredPath(user.profile_photo_path),
       // Provider global availability (best-effort; defaults true for older DBs)
@@ -902,6 +903,8 @@ export const updateUser = async (req, res, next) => {
     const {
       email,
       loginEmail,
+      preferredName,
+      personalEmail,
       firstName,
       lastName,
       role: roleRaw,
@@ -1063,6 +1066,21 @@ export const updateUser = async (req, res, next) => {
       }
 
       updateData.email = nextLoginEmail;
+    }
+
+    // Personal email (contact email; not used for login)
+    if (personalEmail !== undefined) {
+      const v = String(personalEmail || '').trim();
+      if (v && !v.includes('@')) {
+        return res.status(400).json({ error: { message: 'personalEmail must be a valid email address' } });
+      }
+      updateData.personalEmail = v ? v.toLowerCase() : null;
+    }
+
+    // Preferred name (display-only; not used for payroll)
+    if (preferredName !== undefined) {
+      const v = String(preferredName || '').trim();
+      updateData.preferredName = v || null;
     }
 
     // Additional login emails (aliases) for multi-agency users.
@@ -1901,6 +1919,7 @@ export const getAccountInfo = async (req, res, next) => {
     
     const accountInfo = {
       loginEmail: user.email || user.work_email || 'Not provided',
+      preferredName: user.preferred_name || null,
       personalEmail: personalEmail || user.personal_email || null,
       phoneNumber: user.phone_number || null, // Keep for backward compatibility
       personalPhone: user.personal_phone || null,

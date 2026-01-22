@@ -263,7 +263,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -274,6 +274,7 @@ class User {
       if (existingColumns.includes('pending_completion_notified')) query += ', pending_completion_notified';
       if (existingColumns.includes('work_email')) query += ', work_email';
       if (existingColumns.includes('personal_email')) query += ', personal_email';
+      if (existingColumns.includes('preferred_name')) query += ', preferred_name';
       if (existingColumns.includes('username')) query += ', username';
       if (existingColumns.includes('has_supervisor_privileges')) query += ', has_supervisor_privileges';
       if (existingColumns.includes('has_provider_access')) query += ', has_provider_access';
@@ -590,6 +591,8 @@ class User {
   static async update(id, userData) {
     const {
       email,
+      preferredName,
+      personalEmail,
       firstName,
       lastName,
       role,
@@ -672,6 +675,36 @@ class User {
             updates.push('username = ?');
             values.push(String(email || '').trim().toLowerCase());
           }
+        }
+      } catch {
+        // ignore (older DBs)
+      }
+    }
+
+    // Preferred name (display-only)
+    if (preferredName !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'preferred_name'"
+        );
+        if (columns.length > 0) {
+          updates.push('preferred_name = ?');
+          values.push(preferredName ? String(preferredName).trim() : null);
+        }
+      } catch {
+        // ignore (older DBs)
+      }
+    }
+
+    // Personal email (contact email; not used for login)
+    if (personalEmail !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'personal_email'"
+        );
+        if (columns.length > 0) {
+          updates.push('personal_email = ?');
+          values.push(personalEmail ? String(personalEmail).trim().toLowerCase() : null);
         }
       } catch {
         // ignore (older DBs)
@@ -1317,7 +1350,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_access_locked', 'pending_identity_verified', 'username', 'personal_email', 'passwordless_token_purpose')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_access_locked', 'pending_identity_verified', 'username', 'personal_email', 'preferred_name', 'passwordless_token_purpose')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -1325,6 +1358,7 @@ class User {
       if (existingColumns.includes('pending_identity_verified')) query += ', pending_identity_verified';
       if (existingColumns.includes('username')) query += ', username';
       if (existingColumns.includes('personal_email')) query += ', personal_email';
+      if (existingColumns.includes('preferred_name')) query += ', preferred_name';
       if (existingColumns.includes('passwordless_token_purpose')) query += ', passwordless_token_purpose';
     } catch (err) {
       // If we can't check columns, just use the base query

@@ -9,18 +9,24 @@ import {
   downloadPayrollExportCsv,
   getPayrollStaging,
   listPayrollPeriodRuns,
+  snapshotPayrollPeriodRun,
+  snapshotPayrollPeriodRunFromFile,
   previewPayrollCarryover,
   applyPayrollCarryover,
   patchPayrollStaging,
+  putPayrollStagePriorUnpaid,
   submitPayrollPeriod,
   runPayrollPeriod,
   postPayrollPeriod,
+  unpostPayrollPeriod,
   previewPostPayrollPeriod,
+  restagePayrollPeriod,
   deletePayrollPeriod,
   resetPayrollPeriod,
   getPayrollAdjustmentsForUser,
   upsertPayrollAdjustmentsForUser,
   listMyPayroll,
+  getMyDashboardSummary,
   getMyCurrentTier,
   getMyCompensation,
   getPayrollRateCard,
@@ -37,7 +43,8 @@ import {
   importPayrollAuto,
   detectPayrollAuto,
   importPayrollCsv,
-  importPayrollRateSheet,
+  toolComparePayrollFiles,
+  toolPreviewPayrollFileStaging,
   listPayrollAgencyUsers,
   upsertRate,
   listRatesForUser,
@@ -51,9 +58,11 @@ import {
   createMyMileageClaim,
   listMyMileageClaims,
   deleteMyMileageClaim,
+  createUserMileageClaim,
   listMileageClaims,
   patchMileageClaim
   ,createMyMedcancelClaim
+  ,createUserMedcancelClaim
   ,listMyMedcancelClaims
   ,deleteMyMedcancelClaim
   ,listMedcancelClaims
@@ -63,16 +72,19 @@ import {
   ,listSupervisionAccountsForAgency
   ,importSupervisionCsv
   ,createMyReimbursementClaim
+  ,createUserReimbursementClaim
   ,listMyReimbursementClaims
   ,deleteMyReimbursementClaim
   ,listReimbursementClaims
   ,patchReimbursementClaim
   ,createMyCompanyCardExpense
+  ,createUserCompanyCardExpense
   ,listMyCompanyCardExpenses
   ,deleteMyCompanyCardExpense
   ,listCompanyCardExpenses
   ,patchCompanyCardExpense
   ,createMyTimeClaim
+  ,createUserTimeClaim
   ,listMyTimeClaims
   ,deleteMyTimeClaim
   ,listTimeClaims
@@ -90,14 +102,21 @@ import {
   ,listOfficeLocationsForPayroll
   ,updateMyHomeAddress
   ,getMyHomeAddress
+  ,getUserHomeAddress
+  ,updateUserHomeAddress
   ,updateOrganizationAddressForPayroll
   ,updateOfficeLocationAddressForPayroll
   ,getPtoPolicy
   ,putPtoPolicy
   ,getUserPtoAccount
   ,upsertUserPtoAccount
+  ,listUserSalaryPositions
+  ,upsertUserSalaryPosition
+  ,deleteUserSalaryPosition
   ,getMyPtoBalances
+  ,getUserPtoBalances
   ,createMyPtoRequest
+  ,createUserPtoRequest
   ,listMyPtoRequests
   ,listPtoRequests
   ,patchPtoRequest
@@ -117,13 +136,18 @@ router.get('/periods/:id/raw.csv', downloadPayrollRawCsv);
 router.get('/periods/:id/export.csv', downloadPayrollExportCsv);
 router.get('/periods/:id/staging', getPayrollStaging);
 router.get('/periods/:id/runs', listPayrollPeriodRuns);
+router.post('/periods/:id/runs/snapshot', snapshotPayrollPeriodRun);
+router.post('/periods/:id/runs/snapshot-from-file', snapshotPayrollPeriodRunFromFile);
 router.get('/periods/:id/carryover/preview', previewPayrollCarryover);
 router.post('/periods/:id/carryover/apply', applyPayrollCarryover);
 router.patch('/periods/:id/staging', patchPayrollStaging);
+router.put('/periods/:id/prior-unpaid', putPayrollStagePriorUnpaid);
 router.post('/periods/:id/submit', submitPayrollPeriod);
 router.post('/periods/:id/run', runPayrollPeriod);
 router.post('/periods/:id/post', postPayrollPeriod);
+router.post('/periods/:id/unpost', unpostPayrollPeriod);
 router.get('/periods/:id/post/preview', previewPostPayrollPeriod);
+router.post('/periods/:id/restage', restagePayrollPeriod);
 router.post('/periods/:id/reset', resetPayrollPeriod);
 router.delete('/periods/:id', deletePayrollPeriod);
 router.get('/periods/:id/adjustments', getPayrollAdjustmentsForUser);
@@ -142,18 +166,23 @@ router.get('/mileage-rates', getAgencyMileageRates);
 router.get('/me/mileage-rates', getMyAgencyMileageRates);
 router.put('/mileage-rates', upsertAgencyMileageRates);
 router.post('/me/mileage-claims', createMyMileageClaim);
+router.post('/users/:userId/mileage-claims', createUserMileageClaim);
 router.get('/me/mileage-claims', listMyMileageClaims);
 router.delete('/me/mileage-claims/:id', deleteMyMileageClaim);
 router.post('/me/medcancel-claims', createMyMedcancelClaim);
+router.post('/users/:userId/medcancel-claims', createUserMedcancelClaim);
 router.get('/me/medcancel-claims', listMyMedcancelClaims);
 router.delete('/me/medcancel-claims/:id', deleteMyMedcancelClaim);
 router.post('/me/reimbursement-claims', ...createMyReimbursementClaim);
+router.post('/users/:userId/reimbursement-claims', ...createUserReimbursementClaim);
 router.get('/me/reimbursement-claims', listMyReimbursementClaims);
 router.delete('/me/reimbursement-claims/:id', deleteMyReimbursementClaim);
 router.post('/me/company-card-expenses', ...createMyCompanyCardExpense);
+router.post('/users/:userId/company-card-expenses', ...createUserCompanyCardExpense);
 router.get('/me/company-card-expenses', listMyCompanyCardExpenses);
 router.delete('/me/company-card-expenses/:id', deleteMyCompanyCardExpense);
 router.post('/me/time-claims', createMyTimeClaim);
+router.post('/users/:userId/time-claims', createUserTimeClaim);
 router.get('/me/time-claims', listMyTimeClaims);
 router.delete('/me/time-claims/:id', deleteMyTimeClaim);
 router.get('/me/assigned-schools', listMyAssignedSchoolsForPayroll);
@@ -169,8 +198,12 @@ router.post('/office-locations', createOfficeLocationForPayroll);
 router.patch('/office-locations/:locationId', updateOfficeLocationForPayroll);
 router.get('/me/home-address', getMyHomeAddress);
 router.put('/me/home-address', updateMyHomeAddress);
+router.get('/users/:userId/home-address', getUserHomeAddress);
+router.put('/users/:userId/home-address', updateUserHomeAddress);
 router.get('/me/pto-balances', getMyPtoBalances);
+router.get('/users/:userId/pto-balances', getUserPtoBalances);
 router.post('/me/pto-requests', ...createMyPtoRequest);
+router.post('/users/:userId/pto-requests', ...createUserPtoRequest);
 router.get('/me/pto-requests', listMyPtoRequests);
 router.patch('/org-address/:orgId', updateOrganizationAddressForPayroll);
 router.patch('/office-address/:locationId', updateOfficeLocationAddressForPayroll);
@@ -191,10 +224,12 @@ router.get('/pto-policy', getPtoPolicy);
 router.put('/pto-policy', putPtoPolicy);
 router.get('/users/:userId/pto-account', getUserPtoAccount);
 router.put('/users/:userId/pto-account', upsertUserPtoAccount);
+router.get('/users/:userId/salary-positions', listUserSalaryPositions);
+router.post('/users/:userId/salary-positions', upsertUserSalaryPosition);
+router.delete('/users/:userId/salary-positions/:positionId', deleteUserSalaryPosition);
 router.get('/pto-requests', listPtoRequests);
 router.patch('/pto-requests/:id', patchPtoRequest);
 router.get('/agency-users', listPayrollAgencyUsers);
-router.post('/rate-sheet/import', ...importPayrollRateSheet);
 router.get('/rate-templates', listPayrollRateTemplates);
 router.get('/rate-templates/:id', getPayrollRateTemplate);
 router.post('/rate-templates/from-user', createPayrollRateTemplateFromUser);
@@ -210,9 +245,14 @@ router.post('/periods/auto/detect', ...detectPayrollAuto);
 router.post('/periods/:id(\\d+)/import', ...importPayrollCsv);
 router.post('/periods/:id(\\d+)/supervision/import', ...importSupervisionCsv);
 
+// Payroll Tools (read-only, no persistence)
+router.post('/tools/payroll/compare', ...toolComparePayrollFiles);
+router.post('/tools/payroll/viewer', ...toolPreviewPayrollFileStaging);
+
 // User payroll history
 router.get('/users/:userId/periods', listUserPayroll);
 router.get('/me/periods', listMyPayroll);
+router.get('/me/dashboard-summary', getMyDashboardSummary);
 router.get('/me/current-tier', getMyCurrentTier);
 router.get('/me/compensation', getMyCompensation);
 

@@ -51,6 +51,10 @@
             <span>{{ accountInfo.loginEmail }}</span>
           </div>
           <div class="info-item">
+            <label>Preferred Name:</label>
+            <span>{{ accountInfo.preferredName || 'Not provided' }}</span>
+          </div>
+          <div class="info-item">
             <label>Personal Email:</label>
             <span>{{ accountInfo.personalEmail || 'Not provided' }}</span>
           </div>
@@ -61,6 +65,25 @@
           <div class="info-item">
             <label>Work Phone Number:</label>
             <span>{{ accountInfo.workPhone ? (accountInfo.workPhone + (accountInfo.workPhoneExtension ? ' ext. ' + accountInfo.workPhoneExtension : '')) : 'Not provided' }}</span>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">Preferred Name (display only)</h3>
+            <button class="btn btn-primary btn-large" @click="savePreferredName" :disabled="savingPreferredName">
+              {{ savingPreferredName ? 'Saving...' : 'Save Preferred Name' }}
+            </button>
+          </div>
+          <div class="hint" style="margin-top: 6px;">
+            Shown as <strong>First "Preferred" Last</strong> in headers/welcome. Not used for payroll or legal records.
+          </div>
+          <div v-if="preferredNameError" class="error" style="margin-top: 10px;">{{ preferredNameError }}</div>
+          <div class="fields-grid" style="margin-top: 12px;">
+            <div class="field-item">
+              <label>Preferred name</label>
+              <input v-model="preferredNameForm" type="text" placeholder="e.g., Katie" />
+            </div>
           </div>
         </div>
 
@@ -379,6 +402,7 @@ const loading = ref(true);
 const error = ref('');
 const accountInfo = ref({ 
   loginEmail: '', 
+  preferredName: '',
   personalEmail: '', 
   phoneNumber: '', 
   personalPhone: '',
@@ -397,6 +421,10 @@ const downloading = ref(false);
 const resettingToken = ref(false);
 const showResetModal = ref(false);
 const tokenExpirationDays = ref(7);
+
+const preferredNameForm = ref('');
+const savingPreferredName = ref(false);
+const preferredNameError = ref('');
 
 // User Info (profile fields saved by Custom Input Modules)
 const userInfoLoading = ref(false);
@@ -579,6 +607,7 @@ const fetchAccountInfo = async () => {
     loading.value = true;
     const response = await api.get(`/users/${userId.value}/account-info`);
     accountInfo.value = response.data;
+    preferredNameForm.value = response.data?.preferredName || '';
     homeAddressForm.value = {
       street: response.data?.homeStreetAddress || '',
       city: response.data?.homeCity || '',
@@ -589,6 +618,27 @@ const fetchAccountInfo = async () => {
     error.value = err.response?.data?.error?.message || 'Failed to load account information';
   } finally {
     loading.value = false;
+  }
+};
+
+const savePreferredName = async () => {
+  try {
+    if (!userId.value) return;
+    savingPreferredName.value = true;
+    preferredNameError.value = '';
+    await api.put(`/users/${userId.value}`, { preferredName: preferredNameForm.value });
+    await fetchAccountInfo();
+    try {
+      await authStore.refreshUser();
+    } catch {
+      // non-blocking
+    }
+    alert('Preferred name saved successfully!');
+  } catch (err) {
+    preferredNameError.value = err.response?.data?.error?.message || 'Failed to save preferred name';
+    alert(preferredNameError.value);
+  } finally {
+    savingPreferredName.value = false;
   }
 };
 

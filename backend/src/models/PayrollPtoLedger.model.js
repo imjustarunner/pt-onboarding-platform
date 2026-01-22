@@ -10,13 +10,14 @@ class PayrollPtoLedger {
     effectiveDate,
     payrollPeriodId = null,
     requestId = null,
+    manualPayLineId = null,
     note = null,
     createdByUserId
   }) {
     const [res] = await pool.execute(
       `INSERT INTO payroll_pto_ledger
-       (agency_id, user_id, entry_type, pto_bucket, hours_delta, effective_date, payroll_period_id, request_id, note, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (agency_id, user_id, entry_type, pto_bucket, hours_delta, effective_date, payroll_period_id, request_id, manual_pay_line_id, note, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         userId,
@@ -26,11 +27,31 @@ class PayrollPtoLedger {
         effectiveDate,
         payrollPeriodId,
         requestId,
+        manualPayLineId,
         note,
         createdByUserId
       ]
     );
     return res?.insertId || null;
+  }
+
+  static async sumHoursForManualPayLine({ agencyId, manualPayLineId }) {
+    const [rows] = await pool.execute(
+      `SELECT COALESCE(SUM(hours_delta), 0) AS total
+       FROM payroll_pto_ledger
+       WHERE agency_id = ? AND manual_pay_line_id = ?`,
+      [agencyId, manualPayLineId]
+    );
+    return Number(rows?.[0]?.total || 0);
+  }
+
+  static async deleteForManualPayLine({ agencyId, manualPayLineId }) {
+    await pool.execute(
+      `DELETE FROM payroll_pto_ledger
+       WHERE agency_id = ? AND manual_pay_line_id = ?`,
+      [agencyId, manualPayLineId]
+    );
+    return true;
   }
 
   static async listForAgencyUser({ agencyId, userId, limit = 200 }) {

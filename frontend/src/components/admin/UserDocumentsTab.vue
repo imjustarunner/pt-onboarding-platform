@@ -120,6 +120,14 @@
                   Reset
                 </button>
                 <button
+                  @click="removeTask(task.id)"
+                  class="btn btn-sm btn-danger"
+                  style="margin-left: 6px;"
+                  title="Remove this assignment from the user's record"
+                >
+                  Remove
+                </button>
+                <button
                   v-if="task.status !== 'completed'"
                   @click="markComplete(task.id)"
                   class="btn btn-sm btn-primary"
@@ -568,6 +576,18 @@ const fetchDocumentTasks = async () => {
       hasError: !!error.value,
       errorMessage: error.value
     });
+  }
+};
+
+const removeTask = async (taskId) => {
+  if (!taskId) return;
+  const ok = confirm('Remove this document assignment from the user? This deletes the task and any generated document copies tied to it.');
+  if (!ok) return;
+  try {
+    await api.delete(`/tasks/${taskId}`);
+    await fetchDocumentTasks();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to remove document task');
   }
 };
 

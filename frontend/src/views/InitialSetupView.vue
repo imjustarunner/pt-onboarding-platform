@@ -96,7 +96,9 @@ const validateToken = async () => {
 
   try {
     const response = await api.get(`/auth/validate-setup-token/${encodeURIComponent(token)}`);
-    userFirstName.value = response.data.firstName || 'User';
+    const first = response.data.firstName || 'User';
+    const preferred = String(response.data?.preferredName || '').trim();
+    userFirstName.value = preferred ? `${first} "${preferred}"` : first;
     loading.value = false;
   } catch (err) {
     const errorMessage = err.response?.data?.error?.message || err.message || 'Invalid or expired setup link. Please contact your administrator.';

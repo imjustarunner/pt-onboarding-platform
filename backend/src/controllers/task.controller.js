@@ -2,6 +2,7 @@ import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import TaskAssignmentService from '../services/taskAssignment.service.js';
 import { validationResult } from 'express-validator';
+import StorageService from '../services/storage.service.js';
 
 export const getTask = async (req, res, next) => {
   try {
@@ -286,6 +287,49 @@ export const bulkAssignTasks = async (req, res, next) => {
     }
 
     res.status(201).json({ count: tasks.length, tasks });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteTask = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const taskId = id ? parseInt(id, 10) : null;
+    if (!taskId) return res.status(400).json({ error: { message: 'Task id is required' } });
+
+    const task = await Task.findById(taskId);
+    if (!task) return res.status(404).json({ error: { message: 'Task not found' } });
+
+    // Best-effort cleanup of generated files before deleting task row (DB cascade will clean records, not blobs).
+    try {
+      if (String(task.task_type) === 'document') {
+        const UserDocument = (await import('../models/UserDocument.model.js')).default;
+        const UserSpecificDocument = (await import('../models/UserSpecificDocument.model.js')).default;
+
+        const ud = await UserDocument.findByTask(taskId);
+        if (ud?.personalized_file_path) {
+          const raw = String(ud.personalized_file_path || '');
+          const filename = raw.includes('/') ? raw.split('/').pop() : raw.replace('user_documents/', '');
+          if (filename) await StorageService.deleteUserDocument(filename);
+        }
+
+        const usd = await UserSpecificDocument.findByTask(taskId);
+        if (usd?.file_path) {
+          const raw = String(usd.file_path || '');
+          const filename = raw.includes('/') ? raw.split('/').pop() : raw.replace('user_specific_documents/', '');
+          if (filename) await StorageService.deleteUserSpecificDocument(filename);
+        }
+      }
+    } catch (e) {
+      // best-effort; don't block deletion
+      console.warn('deleteTask: file cleanup best-effort failed:', e?.message || e);
+    }
+
+    const ok = await Task.deleteById(taskId);
+    if (!ok) return res.status(404).json({ error: { message: 'Task not found' } });
+
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }

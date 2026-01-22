@@ -23,6 +23,7 @@ class PayrollImportRow {
         r.agencyId,
         r.userId || null,
         r.providerName,
+        r.patientFirstName || null,
         r.serviceCode,
         r.serviceDate || null,
         r.noteStatus || null,
@@ -39,12 +40,12 @@ class PayrollImportRow {
       ]);
     }
 
-    // 18 columns inserted (see column list below) => 18 placeholders per row.
-    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+    // 19 columns inserted (see column list below) => 19 placeholders per row.
+    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
     const flat = values.flat();
     const [result] = await pool.execute(
       `INSERT INTO payroll_import_rows
-       (payroll_import_id, payroll_period_id, agency_id, user_id, provider_name, service_code, service_date, note_status, appt_type, amount_collected, paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
+       (payroll_import_id, payroll_period_id, agency_id, user_id, provider_name, patient_first_name, service_code, service_date, note_status, appt_type, amount_collected, paid_status, draft_payable, unit_count, raw_row, row_fingerprint, requires_processing, processed_at, processed_by_user_id)
        VALUES ${placeholders}`,
       flat
     );
@@ -64,11 +65,13 @@ class PayrollImportRow {
          u.first_name,
          u.last_name,
          pir.provider_name,
+         pir.patient_first_name,
          pir.service_code,
          pir.service_date,
          pir.note_status,
          pir.draft_payable,
          pir.unit_count,
+         pir.row_fingerprint,
          pir.requires_processing,
          pir.processed_at,
          pir.processed_by_user_id,

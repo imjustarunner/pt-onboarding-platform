@@ -48,6 +48,26 @@
           <div class="row"><strong>Total Credits/Hours:</strong> {{ fmtNum(openPeriod.total_hours ?? 0) }}</div>
           <div class="row"><strong>Tier Credits (Final):</strong> {{ fmtNum(openPeriod.tier_credits_final ?? openPeriod.tier_credits_current ?? 0) }}</div>
 
+          <div
+            class="warn-box"
+            v-if="openPeriod.breakdown && openPeriod.breakdown.__priorStillUnpaid && (openPeriod.breakdown.__priorStillUnpaid.totalUnits || 0) > 0"
+            style="margin-top: 10px; border: 1px solid #ffb5b5; background: #ffecec;"
+          >
+            <div>
+              <strong>Still unpaid from the prior pay period (not paid this period):</strong>
+              {{ fmtNum(openPeriod.breakdown.__priorStillUnpaid.totalUnits) }} units
+            </div>
+            <div class="muted" style="margin-top: 4px;" v-if="openPeriod.breakdown.__priorStillUnpaid.periodStart">
+              {{ openPeriod.breakdown.__priorStillUnpaid.periodStart }} → {{ openPeriod.breakdown.__priorStillUnpaid.periodEnd }}
+            </div>
+            <div class="muted" style="margin-top: 6px;" v-if="(openPeriod.breakdown.__priorStillUnpaid.lines || []).length">
+              <div><strong>Details:</strong></div>
+              <div v-for="(l, i) in (openPeriod.breakdown.__priorStillUnpaid.lines || [])" :key="`prior-unpaid:${l.serviceCode}:${i}`">
+                - {{ l.serviceCode }}: {{ fmtNum(l.unpaidUnits) }} units
+              </div>
+            </div>
+          </div>
+
           <div class="breakdown-grid" v-if="openPeriod.breakdown && openPeriod.breakdown.__tier" style="margin-top: 10px;">
             <div class="breakdown-row" style="grid-template-columns: 1fr;">
               <div class="code">Benefit Tier</div>
@@ -185,6 +205,32 @@
 
                   <td v-if="!editingRates">{{ fmtMoney(rateCard?.other_rate_3 || 0) }}/hr</td>
                   <td v-else><input v-model="rateCardDraft.otherRate3" type="number" step="0.01" min="0" /></td>
+                </tr>
+
+                <tr v-if="editingRates">
+                  <td class="muted" style="font-size: 12px;">Counts as</td>
+                  <td class="muted" style="font-size: 12px;">Counts as</td>
+                  <td>
+                    <select v-model="rateCardDraft.otherBucket1">
+                      <option value="direct">Direct</option>
+                      <option value="indirect">Indirect</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select v-model="rateCardDraft.otherBucket2">
+                      <option value="direct">Direct</option>
+                      <option value="indirect">Indirect</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </td>
+                  <td>
+                    <select v-model="rateCardDraft.otherBucket3">
+                      <option value="direct">Direct</option>
+                      <option value="indirect">Indirect</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -343,6 +389,61 @@
             <input :value="(agencyPtoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Number(ptoAccount?.training_balance_hours || 0)) : '—'" type="text" disabled />
           </div>
         </div>
+
+        <div class="card" style="margin-top: 14px;">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Salary position (true salary)</h3>
+          <div class="muted">
+            Automatically applies salary pay each pay period, even if the provider has few sessions (admin duties).
+            Salary does not change unit totals; it changes pay math.
+          </div>
+          <div v-if="salaryPositionsError" class="error-box" style="margin-top: 10px;">{{ salaryPositionsError }}</div>
+          <div v-if="salaryPositionsLoading" class="muted" style="margin-top: 10px;">Loading salary position…</div>
+
+          <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+            <div class="field">
+              <label>Salary per pay period ($)</label>
+              <input v-model="salaryDraft.salaryPerPayPeriod" type="number" step="0.01" min="0" />
+            </div>
+            <div class="field">
+              <label>Mode</label>
+              <div class="muted" style="margin-top: 6px;">
+                <label style="display: inline-flex; gap: 8px; align-items: center;">
+                  <input v-model="salaryDraft.includeServicePay" type="checkbox" />
+                  Also pay per-session service pay (salary + services)
+                </label>
+              </div>
+              <div class="muted" style="margin-top: 6px;">
+                <label style="display: inline-flex; gap: 8px; align-items: center;">
+                  <input v-model="salaryDraft.prorateByDays" type="checkbox" />
+                  Prorate by active days when effective dates land mid-period
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+            <div class="field">
+              <label>Effective start (optional)</label>
+              <input v-model="salaryDraft.effectiveStart" type="date" />
+            </div>
+            <div class="field">
+              <label>Effective end (optional)</label>
+              <input v-model="salaryDraft.effectiveEnd" type="date" />
+            </div>
+          </div>
+
+          <div class="actions" style="justify-content: flex-end;">
+            <button class="btn btn-secondary" @click="loadSalaryPositions" :disabled="salaryPositionsLoading || savingSalary">Reload</button>
+            <button class="btn btn-secondary" @click="deleteSalaryPosition" :disabled="savingSalary || !(salaryPositions && salaryPositions.length)">Delete</button>
+            <button class="btn btn-primary" @click="saveSalaryPosition" :disabled="savingSalary">
+              {{ savingSalary ? 'Saving…' : 'Save salary position' }}
+            </button>
+          </div>
+
+          <div class="muted" style="margin-top: 8px;" v-if="salaryPositions && salaryPositions.length">
+            Current record id #{{ salaryPositions[0].id }} • created {{ String(salaryPositions[0].created_at || '').slice(0, 19).replace('T',' ') }}
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -387,6 +488,90 @@ const ptoForm = ref({
   trainingStartHours: 0,
   trainingStartEffectiveDate: ''
 });
+
+// Salary position (true salary)
+const salaryPositionsLoading = ref(false);
+const salaryPositionsError = ref('');
+const salaryPositions = ref([]); // history (most recent first)
+const salaryDraft = ref({
+  id: null,
+  salaryPerPayPeriod: '',
+  includeServicePay: false,
+  prorateByDays: true,
+  effectiveStart: '',
+  effectiveEnd: ''
+});
+const savingSalary = ref(false);
+
+const loadSalaryPositions = async () => {
+  if (!selectedAgencyId.value) return;
+  try {
+    salaryPositionsLoading.value = true;
+    salaryPositionsError.value = '';
+    const resp = await api.get(`/payroll/users/${props.userId}/salary-positions`, { params: { agencyId: selectedAgencyId.value } });
+    const list = resp.data?.positions || [];
+    salaryPositions.value = list;
+    const cur = list?.[0] || null;
+    salaryDraft.value = {
+      id: cur?.id || null,
+      salaryPerPayPeriod: cur?.salary_per_pay_period === null || cur?.salary_per_pay_period === undefined ? '' : String(cur.salary_per_pay_period),
+      includeServicePay: !!cur?.include_service_pay,
+      prorateByDays: cur?.prorate_by_days === undefined || cur?.prorate_by_days === null ? true : !!cur?.prorate_by_days,
+      effectiveStart: String(cur?.effective_start || '').slice(0, 10),
+      effectiveEnd: String(cur?.effective_end || '').slice(0, 10)
+    };
+  } catch (e) {
+    salaryPositionsError.value = e.response?.data?.error?.message || e.message || 'Failed to load salary position';
+    salaryPositions.value = [];
+  } finally {
+    salaryPositionsLoading.value = false;
+  }
+};
+
+const saveSalaryPosition = async () => {
+  if (!selectedAgencyId.value) return;
+  try {
+    savingSalary.value = true;
+    salaryPositionsError.value = '';
+    const salaryPerPayPeriod = Number(salaryDraft.value.salaryPerPayPeriod || 0);
+    if (!Number.isFinite(salaryPerPayPeriod) || salaryPerPayPeriod < 0) {
+      salaryPositionsError.value = 'Salary per pay period must be a non-negative number.';
+      return;
+    }
+    await api.post(`/payroll/users/${props.userId}/salary-positions`, {
+      agencyId: selectedAgencyId.value,
+      id: salaryDraft.value.id || null,
+      salaryPerPayPeriod,
+      includeServicePay: !!salaryDraft.value.includeServicePay,
+      prorateByDays: !!salaryDraft.value.prorateByDays,
+      effectiveStart: salaryDraft.value.effectiveStart || null,
+      effectiveEnd: salaryDraft.value.effectiveEnd || null
+    });
+    await loadSalaryPositions();
+  } catch (e) {
+    salaryPositionsError.value = e.response?.data?.error?.message || e.message || 'Failed to save salary position';
+  } finally {
+    savingSalary.value = false;
+  }
+};
+
+const deleteSalaryPosition = async () => {
+  if (!selectedAgencyId.value) return;
+  const cur = salaryPositions.value?.[0] || null;
+  if (!cur?.id) return;
+  const ok = window.confirm('Delete the current salary position? Payroll will fall back to hourly/per-session unless a salary override is entered per pay period.');
+  if (!ok) return;
+  try {
+    savingSalary.value = true;
+    salaryPositionsError.value = '';
+    await api.delete(`/payroll/users/${props.userId}/salary-positions/${cur.id}`, { params: { agencyId: selectedAgencyId.value } });
+    await loadSalaryPositions();
+  } catch (e) {
+    salaryPositionsError.value = e.response?.data?.error?.message || e.message || 'Failed to delete salary position';
+  } finally {
+    savingSalary.value = false;
+  }
+};
 
 const ruleByCode = computed(() => {
   const m = new Map();
@@ -470,7 +655,10 @@ const rateCardDraft = ref({
   indirectRate: '',
   otherRate1: '',
   otherRate2: '',
-  otherRate3: ''
+  otherRate3: '',
+  otherBucket1: 'other',
+  otherBucket2: 'other',
+  otherBucket3: 'other'
 });
 
 const openPeriod = computed(() => periods.value.find((p) => p.id === openPeriodId.value) || null);
@@ -621,6 +809,7 @@ const loadComp = async () => {
     serviceCodeRules.value = rules.data || [];
     templates.value = tmpl.data || [];
     await loadOtherRateTitles();
+    await loadSalaryPositions();
     hasPayrollAccessForAgency.value = true;
   } catch (e) {
     compError.value = e.response?.data?.error?.message || e.message || 'Failed to load compensation';
@@ -715,7 +904,10 @@ const beginEditRates = () => {
     indirectRate: rc?.indirect_rate === null || rc?.indirect_rate === undefined ? '' : String(rc.indirect_rate),
     otherRate1: rc?.other_rate_1 === null || rc?.other_rate_1 === undefined ? '' : String(rc.other_rate_1),
     otherRate2: rc?.other_rate_2 === null || rc?.other_rate_2 === undefined ? '' : String(rc.other_rate_2),
-    otherRate3: rc?.other_rate_3 === null || rc?.other_rate_3 === undefined ? '' : String(rc.other_rate_3)
+    otherRate3: rc?.other_rate_3 === null || rc?.other_rate_3 === undefined ? '' : String(rc.other_rate_3),
+    otherBucket1: String(rc?.other_rate_1_bucket || 'other').toLowerCase(),
+    otherBucket2: String(rc?.other_rate_2_bucket || 'other').toLowerCase(),
+    otherBucket3: String(rc?.other_rate_3_bucket || 'other').toLowerCase()
   };
 };
 
@@ -753,7 +945,10 @@ const saveRates = async () => {
       indirectRate: ir ?? 0,
       otherRate1: o1 ?? 0,
       otherRate2: o2 ?? 0,
-      otherRate3: o3 ?? 0
+      otherRate3: o3 ?? 0,
+      otherRate1Bucket: String(rateCardDraft.value.otherBucket1 || 'other').trim().toLowerCase(),
+      otherRate2Bucket: String(rateCardDraft.value.otherBucket2 || 'other').trim().toLowerCase(),
+      otherRate3Bucket: String(rateCardDraft.value.otherBucket3 || 'other').trim().toLowerCase()
     });
 
     const current = new Map((perCodeRates.value || []).map((r) => [String(r.service_code || '').trim(), { amount: Number(r.rate_amount) }]));
@@ -918,11 +1113,35 @@ const toggleOpen = (p) => {
 watch(
   () => props.userAgencies,
   (agencies) => {
-    if (!selectedAgencyId.value && Array.isArray(agencies) && agencies.length) {
+    if (!Array.isArray(agencies) || !agencies.length) {
+      selectedAgencyId.value = null;
+      return;
+    }
+    const validIds = new Set(agencies.map((a) => a?.id).filter(Boolean));
+    // If nothing selected yet, or the current agency isn't valid for this user, pick the first available.
+    if (!selectedAgencyId.value || !validIds.has(selectedAgencyId.value)) {
       selectedAgencyId.value = agencies[0].id;
     }
   },
   { immediate: true }
+);
+
+// When switching users in-place (same component instance), ensure we reload compensation + titles for the new user.
+watch(
+  () => props.userId,
+  async () => {
+    const agencies = Array.isArray(props.userAgencies) ? props.userAgencies : [];
+    const validIds = new Set(agencies.map((a) => a?.id).filter(Boolean));
+    if (agencies.length && (!selectedAgencyId.value || !validIds.has(selectedAgencyId.value))) {
+      // This will trigger the selectedAgencyId watcher which loads everything.
+      selectedAgencyId.value = agencies[0].id;
+      return;
+    }
+    // If agency selection didn't change, force reloads because the userId did.
+    await load();
+    await loadComp();
+    await loadPtoAccount();
+  }
 );
 
 watch(

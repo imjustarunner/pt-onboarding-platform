@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { getAllTracks, getTrackById, createTrack, updateTrack, addModuleToTrack, removeModuleFromTrack, archiveTrack, restoreTrack, deleteTrack, getArchivedTracks, duplicateTrack, copyTrackToAgency, getTrackTemplates, createTrackTemplate, getTrackCopyPreview, getTrainingFocusModules, assignTrainingFocus, getTrainingFocusCompletion } from '../controllers/track.controller.js';
+import { getAllTracks, getTrackById, createTrack, updateTrack, addModuleToTrack, removeModuleFromTrack, archiveTrack, restoreTrack, deleteTrack, getArchivedTracks, duplicateTrack, copyTrackToAgency, getTrackTemplates, createTrackTemplate, getTrackCopyPreview, getTrainingFocusModules, assignTrainingFocus, unassignTrainingFocusFromUser, getTrainingFocusCompletion } from '../controllers/track.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -39,6 +39,7 @@ router.post('/:id/assign', authenticate, requireBackofficeAdmin, [
   // Allow missing dueDate, or explicitly null (e.g. UI sends null when blank).
   body('dueDate').optional({ nullable: true }).isISO8601().withMessage('Due date must be a valid ISO 8601 date')
 ], assignTrainingFocus);
+router.delete('/:id/assign/users/:userId', authenticate, requireBackofficeAdmin, unassignTrainingFocusFromUser);
 router.put('/:id', authenticate, requireBackofficeAdmin, validateTrack, updateTrack);
 router.post('/:id/modules', authenticate, requireBackofficeAdmin, body('moduleId').isInt({ min: 1 }), addModuleToTrack);
 router.delete('/:id/modules/:moduleId', authenticate, requireBackofficeAdmin, removeModuleFromTrack);

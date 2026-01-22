@@ -1494,7 +1494,30 @@
             </div>
             <div v-if="payrollRulesLoading" class="loading">Loading payroll service codes…</div>
 
-            <div v-else class="table-wrap">
+            <div v-if="!payrollRulesLoading" class="filters-row" style="align-items: flex-end; margin-top: 8px;">
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadPayrollRules" :disabled="payrollRulesLoading || savingPayrollRule || !editingAgency?.id">
+                  Reload
+                </button>
+              </div>
+              <div class="filters-group">
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  @click="saveAllPayrollRules"
+                  :disabled="savingPayrollRule || !dirtyPayrollRuleCodes.length"
+                >
+                  {{ savingPayrollRule ? 'Saving…' : `Save all (${dirtyPayrollRuleCodes.length})` }}
+                </button>
+              </div>
+              <div class="filters-group" v-if="dirtyPayrollRuleCodes.length">
+                <div class="filters-hint" style="margin-top: 0;">
+                  <strong>Unsaved changes:</strong> {{ dirtyPayrollRuleCodes.slice(0, 12).join(', ') }}<span v-if="dirtyPayrollRuleCodes.length > 12">…</span>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="!payrollRulesLoading" class="table-wrap">
               <table class="table">
                 <thead>
                   <tr>
@@ -1512,7 +1535,7 @@
                   <tr v-for="r in payrollRules" :key="r.service_code">
                     <td><strong>{{ r.service_code }}</strong></td>
                     <td>
-                      <select v-model="r.category" @change="queueSavePayrollRule(r)">
+                      <select v-model="r.category" @change="onPayrollRuleChanged(r)">
                         <option value="direct">direct</option>
                         <option value="indirect">indirect</option>
                         <option value="admin">admin</option>
@@ -1526,26 +1549,26 @@
                       </select>
                     </td>
                     <td>
-                      <select v-model="r.pay_rate_unit" @change="queueSavePayrollRule(r)" title="Controls whether per-code rates pay by units or by computed pay-hours (units ÷ pay divisor).">
+                      <select v-model="r.pay_rate_unit" @change="onPayrollRuleChanged(r)" title="Controls whether per-code rates pay by units or by computed pay-hours (units ÷ pay divisor).">
                         <option value="per_unit">per_unit</option>
                         <option value="per_hour">per_hour</option>
                       </select>
                     </td>
                     <td class="right">
-                      <input v-model="r.pay_divisor" @change="queueSavePayrollRule(r)" type="number" min="1" step="1" style="width: 110px;" />
+                      <input v-model.number="r.pay_divisor" @change="onPayrollRuleChanged(r)" type="number" min="1" step="1" style="width: 110px;" />
                     </td>
                     <td class="right">
-                      <input v-model="r.credit_value" @change="queueSavePayrollRule(r)" type="number" min="0" step="0.00000000001" style="width: 140px;" />
+                      <input v-model.number="r.credit_value" @change="onPayrollRuleChanged(r)" type="number" min="0" step="0.00000000001" style="width: 140px;" />
                     </td>
                     <td>
                       <ToggleSwitch
                         :model-value="!!r.counts_for_tier"
                         compact
-                        @update:modelValue="(v) => { r.counts_for_tier = v ? 1 : 0; queueSavePayrollRule(r); }"
+                        @update:modelValue="(v) => { r.counts_for_tier = v ? 1 : 0; onPayrollRuleChanged(r); }"
                       />
                     </td>
                     <td>
-                      <select v-model="r.other_slot" @change="queueSavePayrollRule(r)" :disabled="!(r.category === 'other' || r.category === 'tutoring')" title="Used only for 'other'/'tutoring' codes to pick which hourly 'Other Rate' slot (1/2/3) applies.">
+                      <select v-model.number="r.other_slot" @change="onPayrollRuleChanged(r)" :disabled="!(r.category === 'other' || r.category === 'tutoring')" title="Used only for 'other'/'tutoring' codes to pick which hourly 'Other Rate' slot (1/2/3) applies.">
                         <option :value="1">1</option>
                         <option :value="2">2</option>
                         <option :value="3">3</option>
@@ -1555,6 +1578,14 @@
                       <div class="payroll-rule-actions">
                         <button
                           type="button"
+                          class="btn btn-secondary btn-sm"
+                          @click="savePayrollRule(r)"
+                          :disabled="savingPayrollRuleByCode[r.service_code] || !isPayrollRuleDirty(r)"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
                           class="btn btn-danger btn-sm"
                           @click="deletePayrollRule(r)"
                           :disabled="savingPayrollRule"
@@ -1562,6 +1593,7 @@
                           Delete
                         </button>
                         <span v-if="savingPayrollRuleByCode[r.service_code]" class="muted" style="margin-left: 8px;">Saving…</span>
+                        <span v-else-if="isPayrollRuleDirty(r)" class="muted" style="margin-left: 8px;">Unsaved</span>
                         <span v-else-if="(payrollRuleSaveErrorByCode[r.service_code] || '').trim()" class="muted" style="margin-left: 8px;">
                           {{ payrollRuleSaveErrorByCode[r.service_code] }}
                         </span>
@@ -1875,6 +1907,7 @@ const savingPayrollRule = ref(false);
 const savingPayrollRuleByCode = ref({}); // service_code -> boolean
 const payrollRuleSaveErrorByCode = ref({}); // service_code -> string
 const newPayrollServiceCode = ref('');
+const payrollRulesBaselineByCode = ref({}); // service_code -> serialized canonical snapshot (for dirty detection)
 
 const otherRateTitlesLoading = ref(false);
 const otherRateTitlesSaving = ref(false);
@@ -2341,7 +2374,7 @@ const loadPayrollRules = async () => {
     const resp = await api.get('/payroll/service-code-rules', { params: { agencyId: editingAgency.value.id } });
     const rows = resp.data || [];
     // Normalize numeric + checkbox types for v-model usage
-    payrollRules.value = rows.map((r) => ({
+    const normalized = rows.map((r) => ({
       ...r,
       category: r.category || 'direct',
       pay_rate_unit: r.pay_rate_unit || 'per_unit',
@@ -2351,11 +2384,66 @@ const loadPayrollRules = async () => {
       credit_value: r.credit_value ?? 0,
       counts_for_tier: r.counts_for_tier === 0 ? false : true
     }));
+    payrollRules.value = normalized;
+    // Baseline snapshot for dirty detection.
+    const nextBase = {};
+    for (const rr of normalized) {
+      const code = String(rr?.service_code || '').trim();
+      if (!code) continue;
+      nextBase[code] = serializePayrollRule(rr);
+    }
+    payrollRulesBaselineByCode.value = nextBase;
   } catch (e) {
     payrollRulesError.value = e.response?.data?.error?.message || e.message || 'Failed to load payroll service codes';
     payrollRules.value = [];
+    payrollRulesBaselineByCode.value = {};
   } finally {
     payrollRulesLoading.value = false;
+  }
+};
+
+const serializePayrollRule = (row) => {
+  const code = String(row?.service_code || '').trim();
+  return JSON.stringify({
+    service_code: code,
+    category: String(row?.category || 'direct').trim().toLowerCase(),
+    pay_rate_unit: String(row?.pay_rate_unit || 'per_unit').trim().toLowerCase(),
+    pay_divisor: Number(row?.pay_divisor ?? 1),
+    credit_value: Number(row?.credit_value ?? 0),
+    counts_for_tier: row?.counts_for_tier ? 1 : 0,
+    other_slot: Number(row?.other_slot ?? 1)
+  });
+};
+
+const isPayrollRuleDirty = (row) => {
+  const code = String(row?.service_code || '').trim();
+  if (!code) return false;
+  const base = payrollRulesBaselineByCode.value?.[code] || null;
+  if (!base) return true;
+  return base !== serializePayrollRule(row);
+};
+
+const dirtyPayrollRuleCodes = computed(() => {
+  const out = [];
+  for (const r of payrollRules.value || []) {
+    const code = String(r?.service_code || '').trim();
+    if (!code) continue;
+    if (isPayrollRuleDirty(r)) out.push(code);
+  }
+  out.sort((a, b) => a.localeCompare(b));
+  return out;
+});
+
+const onPayrollRuleChanged = (row) => {
+  if (!row) return;
+  // Mirror backend normalization so UI doesn't "snap back" on reload.
+  const cat = String(row.category || 'direct').trim().toLowerCase();
+  row.category = cat || 'direct';
+  if (!(cat === 'other' || cat === 'tutoring')) {
+    row.other_slot = 1;
+  } else {
+    const slot = Number(row.other_slot || 1);
+    row.other_slot = ([1, 2, 3].includes(slot) ? slot : 1);
   }
 };
 
@@ -2368,6 +2456,7 @@ const savePayrollRule = async (row) => {
     savingPayrollRuleByCode.value = { ...(savingPayrollRuleByCode.value || {}), [code]: true };
     payrollRuleSaveErrorByCode.value = { ...(payrollRuleSaveErrorByCode.value || {}), [code]: '' };
     payrollRulesError.value = '';
+    onPayrollRuleChanged(row);
     await api.post('/payroll/service-code-rules', {
       agencyId: editingAgency.value.id,
       serviceCode: code,
@@ -2380,6 +2469,8 @@ const savePayrollRule = async (row) => {
       payDivisor: row.pay_divisor,
       creditValue: row.credit_value
     });
+    // Update baseline snapshot so the UI doesn't look "unsaved" after a successful save.
+    payrollRulesBaselineByCode.value = { ...(payrollRulesBaselineByCode.value || {}), [code]: serializePayrollRule(row) };
   } catch (e) {
     const msg = e.response?.data?.error?.message || e.message || 'Failed to save service code rule';
     payrollRulesError.value = msg;
@@ -2390,21 +2481,16 @@ const savePayrollRule = async (row) => {
   }
 };
 
-// Auto-save changes with a short debounce.
-const payrollRuleSaveTimers = new Map(); // service_code -> timeout id
-const queueSavePayrollRule = (row) => {
-  if (!editingAgency.value?.id || !row?.service_code) return;
-  const code = String(row.service_code || '').trim();
-  if (!code) return;
-  const t = payrollRuleSaveTimers.get(code);
-  if (t) clearTimeout(t);
-  payrollRuleSaveTimers.set(
-    code,
-    setTimeout(async () => {
-      payrollRuleSaveTimers.delete(code);
-      await savePayrollRule(row);
-    }, 450)
-  );
+const saveAllPayrollRules = async () => {
+  if (!editingAgency.value?.id) return;
+  const dirtyRows = (payrollRules.value || []).filter((r) => isPayrollRuleDirty(r));
+  if (!dirtyRows.length) return;
+  // Save sequentially so the UI state is deterministic and errors are attributable.
+  for (const r of dirtyRows) {
+    await savePayrollRule(r);
+  }
+  // Final reload so the table always matches DB canonical state.
+  await loadPayrollRules();
 };
 
 const deletePayrollRule = async (row) => {

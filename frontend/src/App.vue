@@ -413,6 +413,8 @@ const hasCapability = (key) => {
 };
 const welcomeName = computed(() => {
   const first = user.value?.firstName?.trim();
+  const preferred = String(user.value?.preferredName || '').trim();
+  if (first && preferred) return `${first} "${preferred}"`;
   if (first) return first;
   const email = user.value?.email?.trim();
   if (!email) return 'there';

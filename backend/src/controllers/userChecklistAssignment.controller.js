@@ -126,3 +126,23 @@ export const markItemIncomplete = async (req, res, next) => {
   }
 };
 
+export const removeItemFromUser = async (req, res, next) => {
+  try {
+    const { userId, itemId } = req.params;
+
+    // Only backoffice admins can remove items from a user's record.
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    const existing = await UserChecklistAssignment.findByUserAndItem(parseInt(userId), parseInt(itemId));
+    if (!existing) {
+      return res.status(404).json({ error: { message: 'Checklist assignment not found' } });
+    }
+
+    await UserChecklistAssignment.removeFromUser(parseInt(userId), parseInt(itemId), req.user.id);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+};

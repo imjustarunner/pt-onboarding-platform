@@ -410,6 +410,7 @@ export const login = async (req, res, next) => {
         status: user.status,
         firstName: user.first_name,
         lastName: user.last_name,
+        preferredName: freshUser?.preferred_name || null,
         username: user.username || user.email,
         medcancelEnabled,
         medcancelRateSchedule,
@@ -674,6 +675,7 @@ export const passwordlessTokenLogin = async (req, res, next) => {
           email: user.email,
           firstName: user.first_name,
           lastName: user.last_name,
+          preferredName: fullUser?.preferred_name || user.preferred_name || null,
           role: user.role,
           status: user.status,
           ...(await buildPayrollCaps(fullUser))
@@ -865,6 +867,7 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
           email: user.email,
           firstName: user.first_name,
           lastName: user.last_name,
+          preferredName: fullUser?.preferred_name || user.preferred_name || null,
           role: user.role,
           status: user.status,
           medcancelEnabled: ['low', 'high'].includes(String(fullUser?.medcancel_rate_schedule || '').toLowerCase()),
@@ -927,6 +930,7 @@ export const validateSetupToken = async (req, res, next) => {
     res.json({
       firstName: user.first_name,
       lastName: user.last_name,
+      preferredName: user.preferred_name || null,
       email: user.personal_email || user.email,
       username: user.username || user.personal_email || user.email
     });
@@ -1140,6 +1144,7 @@ export const initialSetup = async (req, res, next) => {
         email: updatedUser.username || updatedUser.email,
         firstName: updatedUser.first_name,
         lastName: updatedUser.last_name,
+        preferredName: updatedUser.preferred_name || null,
         role: updatedUser.role,
         status: updatedUser.status,
         username: updatedUser.username || updatedUser.personal_email || updatedUser.email,

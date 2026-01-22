@@ -81,6 +81,9 @@
       <button v-else class="btn btn-primary" disabled>View Checklist</button>
     </div>
     
+    <!-- Provider top summary card -->
+    <ProviderTopSummaryCard v-if="!previewMode && isOnboardingComplete && !isPending && !isSchoolStaff" />
+    
     <!-- Dashboard Cards (replaces tabs) -->
     <div class="dashboard-card-grid">
       <button
@@ -353,6 +356,7 @@ import { useBrandingStore } from '../store/branding';
 import TrainingFocusTab from '../components/dashboard/TrainingFocusTab.vue';
 import DocumentsTab from '../components/dashboard/DocumentsTab.vue';
 import UnifiedChecklistTab from '../components/dashboard/UnifiedChecklistTab.vue';
+import ProviderTopSummaryCard from '../components/dashboard/ProviderTopSummaryCard.vue';
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
 import UserPreferencesHub from '../components/UserPreferencesHub.vue';
@@ -751,6 +755,12 @@ watch(() => [route.query?.tab, route.query?.my], () => {
 onMounted(async () => {
   await fetchOnboardingStatus();
   syncFromQuery();
+  // Default to My Account → Account Info once onboarding is complete,
+  // unless the URL explicitly specifies a tab.
+  if (!route.query?.tab && !route.query?.my && onboardingCompletion.value >= 100 && isOnboardingComplete.value) {
+    activeTab.value = 'my';
+    myTab.value = 'account';
+  }
   await loadCurrentTier();
 });
 

@@ -16,6 +16,22 @@ class PayrollAdjustment {
     }
   }
 
+  static async _hasOtherRateHoursColumns() {
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'payroll_adjustments' AND COLUMN_NAME IN ('other_rate_1_hours','other_rate_2_hours','other_rate_3_hours')"
+      );
+      const set = new Set((cols || []).map((c) => c.COLUMN_NAME));
+      return {
+        hasOther1: set.has('other_rate_1_hours'),
+        hasOther2: set.has('other_rate_2_hours'),
+        hasOther3: set.has('other_rate_3_hours')
+      };
+    } catch {
+      return { hasOther1: false, hasOther2: false, hasOther3: false };
+    }
+  }
+
   static async upsert({
     payrollPeriodId,
     agencyId,
@@ -27,6 +43,9 @@ class PayrollAdjustment {
     missedAppointmentsAmount = 0,
     bonusAmount = 0,
     reimbursementAmount = 0,
+    otherRate1Hours = 0,
+    otherRate2Hours = 0,
+    otherRate3Hours = 0,
     salaryAmount = 0,
     ptoHours = 0,
     sickPtoHours = 0,
@@ -35,6 +54,7 @@ class PayrollAdjustment {
     updatedByUserId
   }) {
     const { hasImatter, hasMissed } = await this._hasImatterColumns();
+    const { hasOther1, hasOther2, hasOther3 } = await this._hasOtherRateHoursColumns();
     const fields = [
       'payroll_period_id',
       'agency_id',
@@ -46,6 +66,9 @@ class PayrollAdjustment {
       ...(hasMissed ? ['missed_appointments_amount'] : []),
       'bonus_amount',
       'reimbursement_amount',
+      ...(hasOther1 ? ['other_rate_1_hours'] : []),
+      ...(hasOther2 ? ['other_rate_2_hours'] : []),
+      ...(hasOther3 ? ['other_rate_3_hours'] : []),
       'salary_amount',
       'pto_hours',
       'sick_pto_hours',
@@ -62,6 +85,9 @@ class PayrollAdjustment {
       ...(hasMissed ? ['missed_appointments_amount = VALUES(missed_appointments_amount)'] : []),
       'bonus_amount = VALUES(bonus_amount)',
       'reimbursement_amount = VALUES(reimbursement_amount)',
+      ...(hasOther1 ? ['other_rate_1_hours = VALUES(other_rate_1_hours)'] : []),
+      ...(hasOther2 ? ['other_rate_2_hours = VALUES(other_rate_2_hours)'] : []),
+      ...(hasOther3 ? ['other_rate_3_hours = VALUES(other_rate_3_hours)'] : []),
       'salary_amount = VALUES(salary_amount)',
       'pto_hours = VALUES(pto_hours)',
       'sick_pto_hours = VALUES(sick_pto_hours)',
@@ -81,6 +107,9 @@ class PayrollAdjustment {
       ...(hasMissed ? [missedAppointmentsAmount] : []),
       bonusAmount,
       reimbursementAmount,
+      ...(hasOther1 ? [otherRate1Hours] : []),
+      ...(hasOther2 ? [otherRate2Hours] : []),
+      ...(hasOther3 ? [otherRate3Hours] : []),
       salaryAmount,
       ptoHours,
       sickPtoHours,

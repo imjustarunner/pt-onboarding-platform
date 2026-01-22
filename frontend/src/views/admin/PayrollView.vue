@@ -27,6 +27,500 @@
 
     <div v-if="error" class="error-box">{{ error }}</div>
 
+    <!-- V2 modals: isolated from page state -->
+    <teleport to="body">
+      <div v-if="showRunModalV2" class="modal-backdrop" @click.self="showRunModalV2 = false">
+        <div class="modal">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Ran Payroll</div>
+              <div class="hint">Read-only viewer (loads directly from the API).</div>
+            </div>
+            <div class="actions" style="margin: 0;">
+              <button class="btn btn-secondary btn-sm" type="button" @click="refreshRunModalV2" :disabled="runModalV2Loading">
+                {{ runModalV2Loading ? 'Loading…' : 'Refresh' }}
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="showRunModalV2 = false" style="margin-left: 8px;">Close</button>
+            </div>
+          </div>
+          <div v-if="runModalV2Error" class="warn-box">{{ runModalV2Error }}</div>
+          <div v-else-if="runModalV2Loading" class="muted">Loading…</div>
+          <div v-else class="table-wrap">
+            <div class="field-row" style="grid-template-columns: 1fr auto; gap: 10px; align-items: end; margin: 8px 0 10px 0;">
+              <div class="field">
+                <label>Search provider</label>
+                <input v-model="runModalV2Search" type="text" placeholder="Type a name…" />
+              </div>
+              <div class="field">
+                <label>Sort</label>
+                <select v-model="runModalV2SortKey">
+                  <option value="provider">Provider</option>
+                  <option value="total_hours">Total Hours</option>
+                  <option value="subtotal_amount">Subtotal</option>
+                  <option value="adjustments_amount">Adjustments</option>
+                  <option value="total_amount">Total</option>
+                </select>
+                <div class="hint" style="margin-top: 4px;">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="runModalV2SortDir = (runModalV2SortDir === 'asc' ? 'desc' : 'asc')">
+                    {{ runModalV2SortDir === 'asc' ? 'Asc' : 'Desc' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>
+                    <button class="link-btn" type="button" @click="setRunModalV2Sort('provider')">
+                      Provider <span class="muted" v-if="runModalV2SortIndicator('provider')">{{ runModalV2SortIndicator('provider') }}</span>
+                    </button>
+                  </th>
+                  <th class="right">
+                    <button class="link-btn right" type="button" @click="setRunModalV2Sort('total_hours')">
+                      Total Hours <span class="muted" v-if="runModalV2SortIndicator('total_hours')">{{ runModalV2SortIndicator('total_hours') }}</span>
+                    </button>
+                  </th>
+                  <th class="right">
+                    <button class="link-btn right" type="button" @click="setRunModalV2Sort('subtotal_amount')">
+                      Subtotal <span class="muted" v-if="runModalV2SortIndicator('subtotal_amount')">{{ runModalV2SortIndicator('subtotal_amount') }}</span>
+                    </button>
+                  </th>
+                  <th class="right">
+                    <button class="link-btn right" type="button" @click="setRunModalV2Sort('adjustments_amount')">
+                      Adjustments <span class="muted" v-if="runModalV2SortIndicator('adjustments_amount')">{{ runModalV2SortIndicator('adjustments_amount') }}</span>
+                    </button>
+                  </th>
+                  <th class="right">
+                    <button class="link-btn right" type="button" @click="setRunModalV2Sort('total_amount')">
+                      Total <span class="muted" v-if="runModalV2SortIndicator('total_amount')">{{ runModalV2SortIndicator('total_amount') }}</span>
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="s in (runModalV2Rows || [])" :key="s.id || `${s.user_id}`">
+                  <td>{{ s.last_name }}, {{ s.first_name }}</td>
+                  <td class="right">{{ fmtNum(s.total_hours ?? 0) }}</td>
+                  <td class="right">{{ fmtMoney(s.subtotal_amount ?? 0) }}</td>
+                  <td class="right">{{ fmtMoney(s.adjustments_amount ?? 0) }}</td>
+                  <td class="right"><strong>{{ fmtMoney(s.total_amount ?? 0) }}</strong></td>
+                </tr>
+                <tr v-if="!(runModalV2Rows || []).length">
+                  <td colspan="5" class="muted">No results found.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
+    <teleport to="body">
+      <div v-if="showPreviewPostModalV2" class="modal-backdrop" @click.self="showPreviewPostModalV2 = false">
+        <div class="modal">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Preview Post</div>
+              <div class="hint">Read-only provider view (loads directly from the API).</div>
+            </div>
+            <div class="actions" style="margin: 0;">
+              <button class="btn btn-secondary btn-sm" type="button" @click="refreshPreviewPostModalV2" :disabled="previewPostV2Loading">
+                {{ previewPostV2Loading ? 'Loading…' : 'Refresh' }}
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="showPreviewPostModalV2 = false" style="margin-left: 8px;">Close</button>
+            </div>
+          </div>
+
+          <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 8px;">
+            <div class="field">
+              <label>Provider</label>
+              <div class="row" style="gap: 8px; align-items: center;">
+                <select v-model="previewPostV2UserId" :disabled="previewPostV2Loading" style="flex: 1 1 auto;">
+                <option :value="null" disabled>Select a provider…</option>
+                <option v-for="s in (previewPostV2ProviderOptions || [])" :key="s.user_id" :value="s.user_id">{{ s.last_name }}, {{ s.first_name }}</option>
+                </select>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="previewPostV2PrevUser"
+                  :disabled="previewPostV2Loading || !previewPostV2CanPrev"
+                  title="Previous employee"
+                >
+                  Prev
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="previewPostV2NextUser"
+                  :disabled="previewPostV2Loading || !previewPostV2CanNext"
+                  title="Next employee"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Pay period</label>
+              <div class="hint">{{ periodRangeLabel(selectedPeriodForUi) }}</div>
+            </div>
+          </div>
+
+          <div v-if="previewPostV2Error" class="warn-box" style="margin-top: 10px;">{{ previewPostV2Error }}</div>
+          <div v-else-if="previewPostV2Loading" class="muted" style="margin-top: 10px;">Loading…</div>
+          <div v-else class="card" style="margin-top: 12px;">
+            <div v-if="!previewPostV2UserId" class="muted">Select a provider.</div>
+            <div v-else-if="previewPostV2Summary">
+              <div v-if="auditForPreviewProviderV2 && auditForPreviewProviderV2.flags?.length" class="warn-box" style="margin: 10px 0;">
+                <div><strong>Audit flags (review recommended)</strong></div>
+                <div v-for="(f, i) in auditForPreviewProviderV2.flags" :key="`v2-audit:${i}`" class="muted">{{ f }}</div>
+              </div>
+
+              <!-- These match provider-facing notices in My Payroll -->
+              <div class="warn-box prior-notes-included" v-if="previewPostV2CarryoverUnits > 0" style="margin-bottom: 10px;">
+                <div><strong>Prior notes included in this payroll:</strong> {{ fmtNum(previewPostV2CarryoverUnits) }} units</div>
+                <div class="muted">Reminder: complete prior-period notes by Sunday 11:59pm after the pay period ends to avoid compensation delays.</div>
+              </div>
+
+              <div
+                class="warn-box"
+                v-if="previewPostV2PriorStillUnpaid.totalUnits > 0"
+                style="margin-bottom: 10px; border: 1px solid #ffb5b5; background: #ffecec;"
+              >
+                <div>
+                  <strong>Still unpaid from the prior pay period (not paid this period):</strong>
+                  {{ fmtNum(previewPostV2PriorStillUnpaid.totalUnits) }} units
+                </div>
+                <div class="muted" style="margin-top: 4px;" v-if="previewPostV2PriorStillUnpaid.periodStart">
+                  {{ previewPostV2PriorStillUnpaid.periodStart }} → {{ previewPostV2PriorStillUnpaid.periodEnd }}
+                </div>
+                <div class="muted" style="margin-top: 6px;" v-if="(previewPostV2PriorStillUnpaid.lines || []).length">
+                  <div><strong>Details:</strong></div>
+                  <div v-for="(l, i) in (previewPostV2PriorStillUnpaid.lines || [])" :key="`v2-prior-unpaid:${l.serviceCode}:${i}`">
+                    - {{ l.serviceCode }}: {{ fmtNum(l.unpaidUnits) }} units
+                  </div>
+                </div>
+              </div>
+
+              <div
+                class="warn-box"
+                v-if="previewPostV2UnpaidInPeriod.total > 0"
+                style="margin-bottom: 10px; border: 1px solid #ffd8a8; background: #fff4e6;"
+              >
+                <div><strong>Unpaid notes in this pay period</strong></div>
+                <div style="margin-top: 6px;">
+                  <strong>No Note:</strong> {{ fmtNum(previewPostV2UnpaidInPeriod.noNote) }} units
+                  <span class="muted">•</span>
+                  <strong>Draft:</strong> {{ fmtNum(previewPostV2UnpaidInPeriod.draft) }} units
+                </div>
+                <div class="muted" style="margin-top: 6px;">
+                  These units were not paid this period. Complete outstanding notes to be included in a future payroll.
+                </div>
+              </div>
+
+              <div class="row"><strong>Total Pay:</strong> {{ fmtMoney(previewPostV2Summary.total_amount ?? 0) }}</div>
+              <div class="row"><strong>Total Credits/Hours:</strong> {{ fmtNum(previewPostV2Summary.total_hours ?? 0) }}</div>
+              <div class="row"><strong>Tier Credits (Final):</strong> {{ fmtNum(previewPostV2Summary.tier_credits_final ?? previewPostV2Summary.tier_credits_current ?? 0) }}</div>
+
+              <div class="card" style="margin-top: 10px;" v-if="previewPostV2Summary.breakdown && previewPostV2Summary.breakdown.__tier">
+                <h3 class="card-title" style="margin: 0 0 6px 0;">Benefit Tier</h3>
+                <div class="row"><strong>{{ previewPostV2Summary.breakdown.__tier.label }}</strong></div>
+                <div class="row"><strong>Status:</strong> {{ previewPostV2Summary.breakdown.__tier.status }}</div>
+              </div>
+
+              <div class="card" style="margin-top: 10px;">
+                <h3 class="card-title" style="margin: 0 0 6px 0;">Direct / Indirect Totals</h3>
+                <div class="row">
+                  <strong>Direct:</strong>
+                  {{ fmtNum(previewPostV2Summary.direct_hours ?? 0) }} hrs •
+                  {{ fmtMoney(payTotalsFromBreakdown(previewPostV2Summary.breakdown).directAmount ?? 0) }}
+                </div>
+                <div class="row">
+                  <strong>Indirect:</strong>
+                  {{ fmtNum(previewPostV2Summary.indirect_hours ?? 0) }} hrs •
+                  {{ fmtMoney(payTotalsFromBreakdown(previewPostV2Summary.breakdown).indirectAmount ?? 0) }}
+                </div>
+              </div>
+
+              <h3 class="card-title" style="margin-top: 12px;">Service Codes</h3>
+              <div class="muted" v-if="!previewPostV2Summary.breakdown || !Object.keys(previewPostV2Summary.breakdown).length">No breakdown available.</div>
+              <div v-else class="codes">
+                <div class="codes-head">
+                  <div>Code</div>
+                  <div class="right">No Note</div>
+                  <div class="right">Draft</div>
+                  <div class="right">Finalized</div>
+                  <div class="right">Credits/Hours</div>
+                  <div class="right">Rate</div>
+                  <div class="right">Amount</div>
+                </div>
+                <div v-for="l in previewPostV2ServiceLines" :key="`v2-line:${l.code}`" class="code-row">
+                  <div class="code">{{ l.code }}</div>
+                  <div class="right muted">{{ fmtNum(l.noNoteUnits ?? 0) }}</div>
+                  <div class="right muted">{{ fmtNum(l.draftUnits ?? 0) }}</div>
+                  <div class="right">{{ fmtNum(l.finalizedUnits ?? l.units ?? 0) }}</div>
+                  <div class="right muted">{{ fmtNum(l.hours ?? 0) }}</div>
+                  <div class="right muted">{{ fmtMoney(l.rateAmount ?? 0) }}</div>
+                  <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
+                </div>
+              </div>
+
+              <div class="card" style="margin-top: 10px;" v-if="previewPostV2Summary.breakdown && previewPostV2Summary.breakdown.__adjustments">
+                <h3 class="card-title" style="margin: 0 0 6px 0;">Additional Pay / Overrides</h3>
+                <div class="muted" v-if="!(previewPostV2Summary.breakdown.__adjustments.lines || []).length">
+                  No adjustments.
+                </div>
+                <div v-else>
+                  <div v-for="(l, i) in (previewPostV2Summary.breakdown.__adjustments.lines || [])" :key="`v2-adj:${l.type}:${i}`" class="row" style="margin-top: 6px;">
+                    <div>
+                      <strong>{{ l.label }}</strong>
+                      <span class="muted" v-if="l.taxable === false"> (non-taxable)</span>
+                      <span class="muted" v-else> (taxable)</span>
+                      <span class="muted" v-if="l.meta && (l.meta.hours || l.meta.rate)"> • {{ fmtNum(l.meta.hours ?? 0) }} hrs @ {{ fmtMoney(l.meta.rate ?? 0) }}</span>
+                    </div>
+                    <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card" style="margin-top: 10px;">
+                <h3 class="card-title" style="margin: 0 0 6px 0;">Notifications (sent on Post)</h3>
+                <div class="muted" v-if="!(previewPostV2Notifications || []).length">No post-time notifications for this provider.</div>
+                <div v-else>
+                  <div v-for="(n, idx) in (previewPostV2Notifications || [])" :key="`v2-n:${idx}`" class="row" style="margin-top: 6px;">
+                    <div><strong>{{ n.title || n.type }}</strong></div>
+                    <div class="muted">{{ n.message }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="muted">No run results found for this provider.</div>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
+    <!-- Payroll Tools modal (no persistence) -->
+    <div v-if="showPayrollToolsModal" class="modal-backdrop" @click.self="showPayrollToolsModal = false">
+      <div class="modal" style="width: min(1100px, 100%);">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title">Payroll Tools (Checker)</div>
+            <div class="hint">
+              This modal does <strong>not</strong> import, stage, run, post, or save anything. Each run overwrites the prior results.
+            </div>
+          </div>
+          <div class="actions" style="margin: 0; justify-content: flex-end;">
+            <button class="btn btn-secondary btn-sm" @click="showPayrollToolsModal = false">Close</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 12px;">
+          <div v-if="!agencyId" class="warn-box" style="margin-bottom: 10px;">
+            Select an organization first to use Payroll Tools.
+          </div>
+          <div class="actions" style="margin: 0 0 10px 0; justify-content: flex-start; gap: 8px;">
+            <button class="btn btn-secondary btn-sm" :class="{ active: payrollToolsTab === 'compare' }" @click="payrollToolsTab = 'compare'">
+              Compare files
+            </button>
+            <button class="btn btn-secondary btn-sm" :class="{ active: payrollToolsTab === 'viewer' }" @click="payrollToolsTab = 'viewer'">
+              Viewer (staging-like)
+            </button>
+          </div>
+
+          <div v-if="payrollToolsTab === 'compare'">
+            <div class="field-row" style="grid-template-columns: 1fr 1fr auto; align-items: end;">
+              <div class="field">
+                <label>Document 1</label>
+                <input type="file" accept=".csv,.xlsx,.xls" @change="onToolsFile1" />
+              </div>
+              <div class="field">
+                <label>Document 2</label>
+                <input type="file" accept=".csv,.xlsx,.xls" @change="onToolsFile2" />
+              </div>
+              <div class="field">
+                <label>&nbsp;</label>
+                <button class="btn btn-primary" @click="runPayrollToolsCompare" :disabled="payrollToolsLoading || !toolsFile1 || !toolsFile2 || !agencyId">
+                  {{ payrollToolsLoading ? 'Comparing…' : 'Compare' }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="payrollToolsError" class="error-box" style="margin-top: 10px;">{{ payrollToolsError }}</div>
+
+            <div v-if="payrollToolsCompareResult" style="margin-top: 12px;">
+              <div class="field-row" style="grid-template-columns: 1fr 1fr auto; margin-top: 10px; align-items: end;">
+                <div class="field">
+                  <label>Filter</label>
+                  <select v-model="payrollToolsCompareFilter">
+                    <option value="changed">Changed only</option>
+                    <option value="added">Added only</option>
+                    <option value="removed">Removed only</option>
+                    <option value="all">All (added/removed/changed)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Sort</label>
+                  <select v-model="payrollToolsCompareSort">
+                    <option value="human">Provider (A → Z)</option>
+                    <option value="change">Change type</option>
+                    <option value="code">Service code</option>
+                    <option value="date">Date (newest → oldest)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>&nbsp;</label>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="payrollToolsCompareMode = (payrollToolsCompareMode === 'detail' ? 'summary' : 'detail')">
+                    {{ payrollToolsCompareMode === 'detail' ? 'Summarize (Provider + Code)' : 'Back to detail' }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="hint">
+                <strong>Summary:</strong>
+                {{ payrollToolsCompareResult.summary?.changed || 0 }} changed •
+                {{ payrollToolsCompareResult.summary?.added || 0 }} added •
+                {{ payrollToolsCompareResult.summary?.removed || 0 }} removed •
+                {{ payrollToolsCompareResult.summary?.unchanged || 0 }} unchanged
+              </div>
+
+              <div v-if="payrollToolsCompareMode === 'summary'" class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Code</th>
+                      <th class="right">Doc1 NO_NOTE</th>
+                      <th class="right">Doc1 DRAFT</th>
+                      <th class="right">Doc1 FINAL</th>
+                      <th class="right">Doc2 NO_NOTE</th>
+                      <th class="right">Doc2 DRAFT</th>
+                      <th class="right">Doc2 FINAL</th>
+                      <th>Net change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(r, idx) in payrollToolsSummaryRows" :key="`sum-${idx}`">
+                      <td>{{ r.providerName }}</td>
+                      <td>{{ r.serviceCode }}</td>
+                      <td class="right">{{ fmtNum(r.doc1.NO_NOTE) }}</td>
+                      <td class="right">{{ fmtNum(r.doc1.DRAFT) }}</td>
+                      <td class="right">{{ fmtNum(r.doc1.FINALIZED) }}</td>
+                      <td class="right">{{ fmtNum(r.doc2.NO_NOTE) }}</td>
+                      <td class="right">{{ fmtNum(r.doc2.DRAFT) }}</td>
+                      <td class="right">{{ fmtNum(r.doc2.FINALIZED) }}</td>
+                      <td class="muted">{{ r.narrative }}</td>
+                    </tr>
+                    <tr v-if="!(payrollToolsSummaryRows || []).length">
+                      <td colspan="9" class="muted">No rows in this filter.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Change</th>
+                      <th>Provider</th>
+                      <th>First name</th>
+                      <th>Code</th>
+                      <th>Date</th>
+                      <th class="right">Doc1 NO_NOTE</th>
+                      <th class="right">Doc1 DRAFT</th>
+                      <th class="right">Doc1 FINAL</th>
+                      <th class="right">Doc2 NO_NOTE</th>
+                      <th class="right">Doc2 DRAFT</th>
+                      <th class="right">Doc2 FINAL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(c, idx) in payrollToolsCompareRows" :key="`cmp-${idx}`">
+                      <td><strong>{{ c.changeType }}</strong></td>
+                      <td>{{ (c.after || c.before)?.providerName || '—' }}</td>
+                      <td>{{ (c.after || c.before)?.patientFirstName || '—' }}</td>
+                      <td>{{ (c.after || c.before)?.serviceCode || '—' }}</td>
+                      <td>{{ (c.after || c.before)?.dos || '—' }}</td>
+                      <td class="right">{{ fmtNum((c.before?.unitsByStatus?.NO_NOTE || 0)) }}</td>
+                      <td class="right">{{ fmtNum((c.before?.unitsByStatus?.DRAFT || 0)) }}</td>
+                      <td class="right">{{ fmtNum((c.before?.unitsByStatus?.FINALIZED || 0)) }}</td>
+                      <td class="right">{{ fmtNum((c.after?.unitsByStatus?.NO_NOTE || 0)) }}</td>
+                      <td class="right">{{ fmtNum((c.after?.unitsByStatus?.DRAFT || 0)) }}</td>
+                      <td class="right">{{ fmtNum((c.after?.unitsByStatus?.FINALIZED || 0)) }}</td>
+                    </tr>
+                    <tr v-if="!(payrollToolsCompareRows || []).length">
+                      <td colspan="11" class="muted">No rows in this filter.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div v-else>
+            <div class="field-row" style="grid-template-columns: 1fr auto; align-items: end;">
+              <div class="field">
+                <label>Document</label>
+                <input type="file" accept=".csv,.xlsx,.xls" @change="onToolsViewerFile" />
+              </div>
+              <div class="field">
+                <label>&nbsp;</label>
+                <button class="btn btn-primary" @click="runPayrollToolsViewer" :disabled="payrollToolsLoading || !toolsViewerFile || !agencyId">
+                  {{ payrollToolsLoading ? 'Loading…' : 'Open Viewer' }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="payrollToolsError" class="error-box" style="margin-top: 10px;">{{ payrollToolsError }}</div>
+
+            <div v-if="payrollToolsViewerResult" style="margin-top: 12px;">
+              <div class="hint">
+                <strong>Matched:</strong> {{ (payrollToolsViewerResult.matched || []).length }}
+                • <strong>Unmatched:</strong> {{ (payrollToolsViewerResult.unmatched || []).length }}
+              </div>
+
+              <div class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Code</th>
+                      <th class="right">No Note</th>
+                      <th class="right">Draft</th>
+                      <th class="right">Finalized</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(r, idx) in (payrollToolsViewerResult.matched || [])" :key="`vw-m-${idx}`">
+                      <td>{{ r.lastName ? `${r.lastName}, ${r.firstName || ''}` : (r.providerName || '—') }}</td>
+                      <td>{{ r.serviceCode }}</td>
+                      <td class="right">{{ fmtNum(r.raw?.noNoteUnits || 0) }}</td>
+                      <td class="right">{{ fmtNum(r.raw?.draftUnits || 0) }}</td>
+                      <td class="right">{{ fmtNum(r.raw?.finalizedUnits || 0) }}</td>
+                    </tr>
+                    <tr v-if="(payrollToolsViewerResult.unmatched || []).length">
+                      <td colspan="5" class="muted"><strong>Unmatched providers</strong> (couldn’t map clinician/provider name to a user)</td>
+                    </tr>
+                    <tr v-for="(r, idx) in (payrollToolsViewerResult.unmatched || [])" :key="`vw-u-${idx}`">
+                      <td>{{ r.providerName || '—' }}</td>
+                      <td>{{ r.serviceCode }}</td>
+                      <td class="right">{{ fmtNum(r.raw?.noNoteUnits || 0) }}</td>
+                      <td class="right">{{ fmtNum(r.raw?.draftUnits || 0) }}</td>
+                      <td class="right">{{ fmtNum(r.raw?.finalizedUnits || 0) }}</td>
+                    </tr>
+                    <tr v-if="!(payrollToolsViewerResult.matched || []).length && !(payrollToolsViewerResult.unmatched || []).length">
+                      <td colspan="5" class="muted">No rows parsed from this file.</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="card" v-if="agencyId" style="margin-bottom: 12px;">
       <h2 class="card-title">Process Changes</h2>
       <div class="hint">
@@ -126,11 +620,12 @@
           <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
             <button class="btn btn-primary" @click="confirmProcessImport" :disabled="processingChanges || !processImportFile || !agencyId">
               {{ processingChanges ? 'Importing...' : 'Confirm & Import prior period' }}
-          </button>
+            </button>
           </div>
         </div>
       </div>
-        </div>
+
+    </div>
 
     <div class="card" v-if="agencyId" style="margin-bottom: 12px;">
       <h2 class="card-title">Current Payroll Run</h2>
@@ -241,6 +736,9 @@
         <button class="btn btn-secondary" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">
           No-note/Draft Unpaid
         </button>
+        <button class="btn btn-secondary" @click="openPayrollToolsModal">
+          Payroll Tools (Checker)
+        </button>
         <button class="btn btn-secondary" @click="showStageModal = true" :disabled="!selectedPeriodId">
           Payroll Stage
         </button>
@@ -251,17 +749,45 @@
               : (isPeriodPosted ? 'Locked' : (canSeeRunResults ? 'Re-run Payroll' : 'Run Payroll'))
           }}
         </button>
-        <button class="btn btn-secondary" @click="showRunModal = true" :disabled="!canSeeRunResults">
+        <button
+          v-if="canSeeRunResults"
+          class="btn btn-secondary"
+          type="button"
+          @click.prevent.stop="openRunResultsModalV2"
+          :disabled="!selectedPeriodId"
+        >
           View Ran Payroll
         </button>
-        <button class="btn btn-secondary" @click="showPreviewPostModal = true" :disabled="!canSeeRunResults">
+        <button
+          v-if="canSeeRunResults"
+          class="btn btn-secondary"
+          type="button"
+          @click.prevent.stop="openPreviewPostModalV2"
+          :disabled="!selectedPeriodId"
+        >
           Preview Post
         </button>
-        <button class="btn btn-secondary" @click="downloadExportCsv" :disabled="!canSeeRunResults">
+        <button
+          v-if="canSeeRunResults"
+          class="btn btn-secondary"
+          type="button"
+          @click.prevent.stop="exportPayrollCsv"
+          :disabled="!selectedPeriodId"
+        >
           Export Payroll CSV
         </button>
-        <button class="btn btn-primary" @click="postPayroll" :disabled="postingPayroll || isPeriodPosted || selectedPeriod?.status !== 'ran'">
+        <button class="btn btn-primary" @click="postPayroll" :disabled="postingPayroll || isPeriodPosted || selectedPeriodStatus !== 'ran'">
           {{ postingPayroll ? 'Posting...' : (isPeriodPosted ? 'Posted' : 'Post Payroll') }}
+        </button>
+        <button
+          v-if="isSuperAdmin && isPeriodPosted"
+          class="btn btn-danger"
+          type="button"
+          @click.prevent.stop="unpostPayroll"
+          :disabled="unpostingPayroll || !selectedPeriodId"
+          title="Super admin only: revert a posted period back to Ran"
+        >
+          {{ unpostingPayroll ? 'Unposting...' : 'Unpost (Super Admin)' }}
         </button>
         <button class="btn btn-danger" @click="resetPeriod" :disabled="resettingPeriod || !selectedPeriodId">
           {{ resettingPeriod ? 'Resetting...' : 'Reset Pay Period' }}
@@ -302,7 +828,7 @@
         </div>
       </div>
 
-      <div class="card" v-if="selectedPeriod">
+      <div class="card" v-if="selectedPeriodForUi">
         <h2 class="card-title">Period Details</h2>
         <div class="field-row" style="margin-top: 8px;">
           <div class="field">
@@ -311,7 +837,7 @@
               <option :value="null" disabled>Select a pay period…</option>
               <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
             </select>
-        </div>
+          </div>
           <div class="field">
             <label>Provider</label>
             <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;">
@@ -321,7 +847,7 @@
               </select>
               <button class="btn btn-secondary btn-sm" @click="clearSelectedProvider" :disabled="!selectedUserId">
                 Clear
-          </button>
+              </button>
             </div>
           </div>
           <div class="field">
@@ -330,15 +856,15 @@
           </div>
         </div>
         <div class="period-meta">
-          <div><strong>Pay Period:</strong> {{ periodRangeLabel(selectedPeriod) }}</div>
-          <div><strong>Status:</strong> {{ selectedPeriod.status }}</div>
-          <div v-if="selectedPeriod.status === 'ran'">
+          <div><strong>Pay Period:</strong> {{ periodRangeLabel(selectedPeriodForUi) }}</div>
+          <div><strong>Status:</strong> {{ selectedPeriodStatus }}</div>
+          <div v-if="selectedPeriodStatus === 'ran'">
             <strong>Ran:</strong>
-            <span v-if="selectedPeriod.ran_at">{{ fmtDateTime(selectedPeriod.ran_at) }}</span>
+            <span v-if="selectedPeriodForUi?.ran_at">{{ fmtDateTime(selectedPeriodForUi.ran_at) }}</span>
           </div>
-          <div v-if="selectedPeriod.status === 'posted' || selectedPeriod.status === 'finalized'">
+          <div v-if="selectedPeriodStatus === 'posted' || selectedPeriodStatus === 'finalized'">
             <strong>Posted:</strong>
-            <span v-if="selectedPeriod.posted_at">{{ fmtDateTime(selectedPeriod.posted_at) }}</span>
+            <span v-if="selectedPeriodForUi?.posted_at">{{ fmtDateTime(selectedPeriodForUi.posted_at) }}</span>
           </div>
         </div>
 
@@ -437,7 +963,28 @@
                 <div class="modal-title">Payroll Stage</div>
                 <div class="hint">Edit the workspace + per-user adjustments before running payroll.</div>
               </div>
-              <button class="btn btn-secondary btn-sm" @click="showStageModal = false">Close</button>
+              <div class="actions" style="margin: 0; justify-content: flex-end;">
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="restagePeriod"
+                  :disabled="restagingPeriod || isPeriodPosted || selectedPeriodStatus !== 'ran'"
+                  :title="isPeriodPosted ? 'This pay period is posted. Unpost first if you need to restage.' : 'Clear run results and return this pay period to staging (does not delete imports or edits).'"
+                >
+                  {{ restagingPeriod ? 'Restaging…' : 'Restage' }}
+                </button>
+                <button
+                  v-if="isSuperAdmin && isPeriodPosted"
+                  class="btn btn-danger btn-sm"
+                  type="button"
+                  @click.prevent.stop="unpostPayroll"
+                  style="margin-left: 8px;"
+                  title="Super admin only: revert posted → ran"
+                >
+                  Unpost
+                </button>
+                <button class="btn btn-secondary btn-sm" @click="showStageModal = false" style="margin-left: 8px;">Close</button>
+              </div>
             </div>
 
             <div class="card" style="margin-top: 12px;">
@@ -464,15 +1011,20 @@
                   <thead>
                     <tr>
                       <th>Provider</th>
-                      <th>Tier</th>
-                      <th>Status</th>
+                      <th>Current (this pay period)</th>
+                      <th>Last pay period tier</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr v-for="p in (payrollStageProviderTierRows.matched || [])" :key="p.key">
                       <td>{{ p.name }}</td>
-                      <td class="muted">{{ p.tierLabel }}</td>
-                      <td class="muted">{{ p.tierStatus || '—' }}</td>
+                      <td class="muted" :title="p.currentTooltip || ''">
+                        <span>{{ p.currentLabel }}</span>
+                        <span v-if="p.currentStatus" class="tier-chip" :class="{ grace: p.currentStatus === 'Grace' }">
+                          {{ p.currentStatus }}
+                        </span>
+                      </td>
+                      <td class="muted">{{ p.lastTierLabel }}</td>
                     </tr>
                     <tr v-if="(payrollStageProviderTierRows.unmatched || []).length">
                       <td colspan="3" class="warn-box" style="margin-top: 8px;">
@@ -710,6 +1262,9 @@
                       <th>Provider</th>
                       <th>Date</th>
                       <th>Type</th>
+                      <th class="right">Bucket</th>
+                      <th class="right">Hours/Credits</th>
+                      <th class="right">Applied $</th>
                       <th class="right">Pay period</th>
                       <th class="right">Actions</th>
                     </tr>
@@ -719,6 +1274,32 @@
                       <td>{{ nameForUserId(c.user_id) }}</td>
                       <td>{{ c.claim_date }}</td>
                       <td>{{ timeTypeLabel(c) }}</td>
+                      <td class="right">
+                        <select v-model="timeBucketByClaimId[c.id]" :disabled="approvingTimeClaimId === c.id">
+                          <option value="indirect">Indirect</option>
+                          <option value="direct">Direct</option>
+                        </select>
+                      </td>
+                      <td class="right">
+                        <input
+                          v-model="timeCreditsHoursByClaimId[c.id]"
+                          type="number"
+                          step="0.01"
+                          placeholder="(blank)"
+                          :disabled="approvingTimeClaimId === c.id"
+                          style="width: 120px;"
+                        />
+                      </td>
+                      <td class="right">
+                        <input
+                          v-model="timeAppliedAmountOverrideByClaimId[c.id]"
+                          type="number"
+                          step="0.01"
+                          placeholder="(blank)"
+                          :disabled="approvingTimeClaimId === c.id"
+                          style="width: 120px;"
+                        />
+                      </td>
                       <td class="right">
                         <select v-model="timeTargetPeriodByClaimId[c.id]" :disabled="approvingTimeClaimId === c.id">
                           <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
@@ -1045,6 +1626,8 @@
                       <th>Provider</th>
                       <th>Date</th>
                       <th>Type</th>
+                      <th class="right">Bucket</th>
+                      <th class="right">Hours/Credits</th>
                       <th class="right">Amount</th>
                       <th class="right">Move to</th>
                       <th class="right">Actions</th>
@@ -1055,6 +1638,8 @@
                       <td>{{ nameForUserId(c.user_id) }}</td>
                       <td>{{ c.claim_date }}</td>
                       <td>{{ timeTypeLabel(c) }}</td>
+                      <td class="right">{{ String(c.bucket || 'indirect').toLowerCase() === 'direct' ? 'Direct' : 'Indirect' }}</td>
+                      <td class="right">{{ fmtNum(Number(c.credits_hours ?? c.creditsHours ?? 0)) }}</td>
                       <td class="right">{{ fmtMoney(Number(c.applied_amount || 0)) }}</td>
                       <td class="right">
                         <div class="actions" style="justify-content: flex-end; margin: 0;">
@@ -1115,7 +1700,10 @@
                 <table class="table">
                   <thead>
                     <tr>
+                      <th style="width: 120px;">Type</th>
                       <th style="width: 260px;">Provider</th>
+                      <th style="width: 130px;">Bucket</th>
+                      <th class="right" style="width: 140px;">Hours/Credits</th>
                       <th>Service / note</th>
                       <th class="right" style="width: 160px;">Amount ($)</th>
                       <th class="right" style="width: 140px;"></th>
@@ -1124,16 +1712,48 @@
                   <tbody>
                     <tr v-for="(r, idx) in manualPayLineDraftRows" :key="r._key">
                       <td>
+                        <select v-model="r.lineType" :disabled="savingManualPayLines">
+                          <option value="pay">Pay</option>
+                          <option value="pto">PTO</option>
+                        </select>
+                      </td>
+                      <td>
                         <select v-model="r.userId" :disabled="savingManualPayLines">
                           <option :value="null">Select provider…</option>
                           <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
                         </select>
                       </td>
                       <td>
+                        <select v-if="String(r.lineType||'pay') !== 'pto'" v-model="r.category" :disabled="savingManualPayLines">
+                          <option value="direct">Direct</option>
+                          <option value="indirect">Indirect</option>
+                        </select>
+                        <select v-else v-model="r.ptoBucket" :disabled="savingManualPayLines">
+                          <option value="sick">Sick PTO</option>
+                          <option value="training">Training PTO</option>
+                        </select>
+                      </td>
+                      <td class="right">
+                        <input
+                          v-model="r.creditsHours"
+                          type="number"
+                          step="0.01"
+                          :placeholder="String(r.lineType||'pay') === 'pto' ? 'required' : '(blank)'"
+                          :disabled="savingManualPayLines"
+                          style="width: 120px;"
+                        />
+                      </td>
+                      <td>
                         <input v-model="r.label" type="text" placeholder="e.g., Manual correction" :disabled="savingManualPayLines" />
                       </td>
                       <td class="right">
-                        <input v-model="r.amount" type="number" step="0.01" placeholder="0.00" :disabled="savingManualPayLines" />
+                        <input
+                          v-model="r.amount"
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          :disabled="savingManualPayLines || String(r.lineType||'pay') === 'pto'"
+                        />
                       </td>
                       <td class="right">
                         <button
@@ -1171,6 +1791,7 @@
                   <thead>
                     <tr>
                       <th>Provider</th>
+                      <th>Category</th>
                       <th>Service</th>
                       <th class="right">Amount</th>
                       <th class="right"></th>
@@ -1179,6 +1800,7 @@
                   <tbody>
                     <tr v-for="l in manualPayLines" :key="l.id">
                       <td>{{ nameForUserId(l.user_id) }}</td>
+                      <td class="muted">{{ String(l.category || 'direct').toUpperCase() }}</td>
                       <td>{{ l.label }}</td>
                       <td class="right">{{ fmtMoney(Number(l.amount || 0)) }}</td>
                       <td class="right">
@@ -1250,6 +1872,9 @@
             <div class="field">
               <label>Search (service code / provider)</label>
               <input v-model="workspaceSearch" type="text" placeholder="Search service code or provider…" />
+              <div class="hint" style="margin-top: 6px;" v-if="priorStillUnpaidStageError">
+                <span class="error-box" style="display: inline-block; padding: 6px 10px;">{{ priorStillUnpaidStageError }}</span>
+              </div>
             </div>
             <div class="field">
               <label>Provider</label>
@@ -1270,6 +1895,51 @@
               <label>Status</label>
               <div class="hint" v-if="isPeriodPosted">Posted (editing disabled)</div>
               <div class="hint" v-else>Editable</div>
+              <div class="actions" style="margin: 6px 0 0 0; justify-content: flex-start;">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="loadPriorStillUnpaidForStage"
+                  :disabled="loadingPriorStillUnpaidForStage || !selectedPeriodId"
+                  title="Reload prior-period still-unpaid snapshot (drives the red indicators)"
+                >
+                  {{ loadingPriorStillUnpaidForStage ? 'Loading…' : 'Reload prior unpaid' }}
+                </button>
+                <button
+                  v-if="!stageCarryoverEditMode"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="beginStageCarryoverEdit"
+                  :disabled="isPeriodPosted || !selectedPeriodId"
+                  title="Edit Old Done Notes (yellow) and Prior still unpaid (red)"
+                  style="margin-left: 8px;"
+                >
+                  Edit carryover columns
+                </button>
+                <span v-else>
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    @click="saveStageCarryoverEdits"
+                    :disabled="savingStageCarryoverEdits || isPeriodPosted"
+                    style="margin-left: 8px;"
+                  >
+                    {{ savingStageCarryoverEdits ? 'Saving…' : 'Save Old Done Notes' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    @click="saveStagePriorUnpaidEdits"
+                    :disabled="savingStagePriorUnpaidEdits || isPeriodPosted"
+                    style="margin-left: 8px;"
+                  >
+                    {{ savingStagePriorUnpaidEdits ? 'Saving…' : 'Save Prior still unpaid' }}
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="cancelStageCarryoverEdit" style="margin-left: 8px;">
+                    Cancel
+                  </button>
+                </span>
+              </div>
             </div>
           </div>
 
@@ -1288,6 +1958,19 @@
                   <th class="right">Draft</th>
                   <th class="right">Finalized</th>
                   <th class="right">Old Done Notes</th>
+                  <th class="right">
+                    Prior still unpaid
+                    <span
+                      class="muted"
+                      v-if="(carryoverPriorStillUnpaid || []).length"
+                      title="Count of provider+code rows from the selected prior period comparison run that still have unpaid units."
+                    >
+                      ({{ (carryoverPriorStillUnpaid || []).length }})
+                    </span>
+                    <div class="hint" style="margin-top: 2px;" v-if="carryoverPriorStillUnpaidPeriodLabel">
+                      {{ carryoverPriorStillUnpaidPeriodLabel }}
+                    </div>
+                  </th>
                   <th class="right">Effective Finalized</th>
                   <th class="right">Pay Divisor</th>
                   <th class="right">Pay-hours</th>
@@ -1296,6 +1979,34 @@
                 </tr>
               </thead>
               <tbody>
+                <tr v-if="priorStillUnpaidOrphanRowsForStage.length" class="prior-unpaid-row">
+                  <td colspan="15">
+                    <strong>Still unpaid from prior period (no matching row in this pay period)</strong>
+                    <span class="muted" v-if="carryoverPriorStillUnpaidPeriodLabel">({{ carryoverPriorStillUnpaidPeriodLabel }})</span>
+                    <span class="muted">— these won’t show inline because this pay period has no row for that code</span>
+                  </td>
+                </tr>
+                <tr
+                  v-for="p in priorStillUnpaidOrphanRowsForStage"
+                  :key="`prior-unpaid-orphan:${p.userId}:${p.serviceCode}`"
+                  class="prior-unpaid-row"
+                >
+                  <td>{{ p.lastName ? `${p.lastName}, ${p.firstName || ''}` : (p.providerName || '—') }}</td>
+                  <td>{{ p.serviceCode }}</td>
+                  <td class="right muted">—</td>
+                  <td class="right muted">—</td>
+                  <td class="right muted">—</td>
+                  <td class="right muted">—</td>
+                  <td class="right muted">—</td>
+                  <td class="right muted">—</td>
+                  <td class="right muted">—</td>
+                  <td class="right prior-unpaid-cell">{{ fmtNum(Number(p.stillUnpaidUnits || 0)) }}</td>
+                  <td class="right muted">—</td>
+                  <td class="right muted">—</td>
+                  <td class="right muted">—</td>
+                  <td class="right muted">—</td>
+                  <td class="right muted">—</td>
+                </tr>
                 <tr v-for="r in workspaceMatchedRows" :key="stagingKey(r)" :class="{ 'carryover-row': (r.carryover?.oldDoneNotesUnits || 0) > 0 }">
                   <td>{{ r.lastName ? `${r.lastName}, ${r.firstName || ''}` : (r.providerName || '—') }}</td>
                   <td>{{ r.serviceCode }}</td>
@@ -1303,15 +2014,73 @@
                   <td class="right">{{ fmtNum(r.raw.draftUnits) }}</td>
                   <td class="right">{{ fmtNum(r.raw.finalizedUnits) }}</td>
                   <td class="right">
-                    <input v-model="stagingEdits[stagingKey(r)].noNoteUnits" type="number" step="0.01" :disabled="isPeriodPosted" />
+                    <input
+                      v-model.number="stagingEdits[stagingKey(r)].noNoteUnits"
+                      class="stage-num-input"
+                      type="number"
+                      inputmode="numeric"
+                      step="1"
+                      :disabled="isPeriodPosted"
+                    />
                   </td>
                   <td class="right">
-                    <input v-model="stagingEdits[stagingKey(r)].draftUnits" type="number" step="0.01" :disabled="isPeriodPosted" />
+                    <input
+                      v-model.number="stagingEdits[stagingKey(r)].draftUnits"
+                      class="stage-num-input"
+                      type="number"
+                      inputmode="numeric"
+                      step="1"
+                      :disabled="isPeriodPosted"
+                    />
                   </td>
                   <td class="right">
-                    <input v-model="stagingEdits[stagingKey(r)].finalizedUnits" type="number" step="0.01" :disabled="isPeriodPosted" />
+                    <input
+                      v-model.number="stagingEdits[stagingKey(r)].finalizedUnits"
+                      class="stage-num-input"
+                      type="number"
+                      inputmode="numeric"
+                      step="1"
+                      :disabled="isPeriodPosted"
+                    />
                   </td>
-                  <td class="right carryover-cell">{{ fmtNum(r.carryover?.oldDoneNotesUnits ?? 0) }}</td>
+                  <td class="right carryover-cell">
+                    <span v-if="stageCarryoverEditMode">
+                      <input
+                        v-model.number="stageCarryoverEdits[stagingKey(r)]"
+                        class="stage-num-input"
+                        type="number"
+                        inputmode="numeric"
+                        step="1"
+                        :disabled="isPeriodPosted"
+                      />
+                    </span>
+                    <span v-else>
+                      {{ fmtNum(r.carryover?.oldDoneNotesUnits ?? 0) }}
+                    </span>
+                  </td>
+                  <td
+                    class="right"
+                    :class="{ 'prior-unpaid-cell': Number(priorStillUnpaidUnitsByStageKey[stageKeyNormalized(r.userId, r.serviceCode)] || 0) > 0 }"
+                    :title="Number(priorStillUnpaidUnitsByStageKey[stageKeyNormalized(r.userId, r.serviceCode)] || 0) > 0 ? 'Still unpaid in the prior pay period after the selected comparison run.' : ''"
+                  >
+                    <span v-if="stageCarryoverEditMode">
+                      <input
+                        v-model.number="stagePriorUnpaidEdits[stagingKey(r)]"
+                        class="stage-num-input"
+                        type="number"
+                        inputmode="decimal"
+                        step="0.01"
+                        :disabled="isPeriodPosted"
+                      />
+                    </span>
+                    <span v-else>
+                      {{
+                        Number(priorStillUnpaidUnitsByStageKey[stageKeyNormalized(r.userId, r.serviceCode)] || 0) > 0
+                          ? fmtNum(priorStillUnpaidUnitsByStageKey[stageKeyNormalized(r.userId, r.serviceCode)])
+                          : '—'
+                      }}
+                    </span>
+                  </td>
                   <td class="right">
                     {{
                       fmtNum(
@@ -1333,7 +2102,7 @@
                   </td>
                 </tr>
                 <tr v-if="!workspaceMatchedRows.length">
-                  <td colspan="14" class="muted">No rows found. Import the billing report for this period to populate the workspace.</td>
+                  <td colspan="15" class="muted">No rows found. Import the billing report for this period to populate the workspace.</td>
                 </tr>
               </tbody>
             </table>
@@ -1375,7 +2144,12 @@
             </button>
           </div>
 
+          <!-- Keep this section mounted when modals are open (even if no provider is selected yet). -->
+          <div v-if="selectedUserId || showRunModal || showPreviewPostModal || showRawModal">
           <div v-if="selectedUserId">
+            <h3 class="section-title" style="margin-top: 16px;">Admin Requests — Submit on behalf</h3>
+            <AdminPayrollSubmitOverride :agency-id="agencyId" :user-id="selectedUserId" :user-name="selectedUserName" />
+          </div>
           <h3 class="section-title" style="margin-top: 16px;">Adjustments (Add-ons / Overrides) — {{ selectedUserName }}</h3>
           <div class="card" style="margin-top: 10px;">
             <h3 class="card-title" style="margin: 0 0 6px 0;">Benefit Tier (Preview)</h3>
@@ -1424,6 +2198,21 @@
               <div class="hint" style="margin-top: 4px;">
                 Approved reimbursement claims (auto): {{ approvedReimbursementClaimsLoading ? 'Loading…' : fmtMoney(approvedReimbursementClaimsAmount || 0) }}
               </div>
+            </div>
+            <div class="field">
+              <label>{{ otherRateTitlesForAdjustments.title1 }} hours</label>
+              <input v-model="adjustments.otherRate1Hours" type="number" step="0.01" min="0" :disabled="isPeriodPosted" />
+              <div class="hint" style="margin-top: 4px;">Paid at the provider’s configured rate card.</div>
+            </div>
+            <div class="field">
+              <label>{{ otherRateTitlesForAdjustments.title2 }} hours</label>
+              <input v-model="adjustments.otherRate2Hours" type="number" step="0.01" min="0" :disabled="isPeriodPosted" />
+              <div class="hint" style="margin-top: 4px;">Paid at the provider’s configured rate card.</div>
+            </div>
+            <div class="field">
+              <label>{{ otherRateTitlesForAdjustments.title3 }} hours</label>
+              <input v-model="adjustments.otherRate3Hours" type="number" step="0.01" min="0" :disabled="isPeriodPosted" />
+              <div class="hint" style="margin-top: 4px;">Paid at the provider’s configured rate card.</div>
             </div>
             <div class="field">
               <label>Salary Override ($)</label>
@@ -1495,19 +2284,18 @@
                 </tr>
               </thead>
               <tbody>
-                <template v-for="(v, code) in (selectedSummary?.breakdown || {})" :key="code">
-                  <tr v-if="!String(code).startsWith('_')">
-                    <td class="code">{{ code }}</td>
-                    <td class="right">{{ fmtNum(v.finalizedUnits ?? v.units ?? 0) }}</td>
-                    <td class="right muted">{{ fmtNum(v.payDivisor ?? 1) }}</td>
-                    <td class="right muted">{{ fmtNum(v.payHours ?? 0) }}</td>
-                    <td class="right muted">{{ fmtNum(v.durationMinutes ?? 0) }}</td>
-                    <td class="right muted">{{ fmtNum(v.hours ?? 0) }}</td>
-                    <td class="right muted">{{ fmtMoney(v.rateAmount ?? 0) }}</td>
-                    <td class="right">{{ fmtMoney(v.amount ?? 0) }}</td>
-                    <td class="muted">{{ v.rateSource || '—' }}</td>
-                  </tr>
-                </template>
+                <!-- eslint-disable-next-line vue/no-use-v-if-with-v-for -->
+                <tr v-for="(v, code) in (selectedSummary?.breakdown || {})" :key="code" v-if="!String(code).startsWith('_')">
+                  <td class="code">{{ code }}</td>
+                  <td class="right">{{ fmtNum(v.finalizedUnits ?? v.units ?? 0) }}</td>
+                  <td class="right muted">{{ fmtNum(v.payDivisor ?? 1) }}</td>
+                  <td class="right muted">{{ fmtNum(v.payHours ?? 0) }}</td>
+                  <td class="right muted">{{ fmtNum(v.durationMinutes ?? 0) }}</td>
+                  <td class="right muted">{{ fmtNum(v.hours ?? 0) }}</td>
+                  <td class="right muted">{{ fmtMoney(v.rateAmount ?? 0) }}</td>
+                  <td class="right">{{ fmtMoney(v.amount ?? 0) }}</td>
+                  <td class="muted">{{ v.rateSource || '—' }}</td>
+                </tr>
                 <tr v-if="!selectedSummary?.breakdown || !Object.keys(selectedSummary.breakdown).filter((k) => !String(k).startsWith('_')).length">
                   <td colspan="9" class="muted">No breakdown available.</td>
                 </tr>
@@ -1543,12 +2331,11 @@
 
           </div>
         </div>
-          </div>
-        </div>
 
         <!-- View Ran Payroll modal -->
-        <div v-if="showRunModal" class="modal-backdrop" @click.self="showRunModal = false">
-          <div class="modal">
+        <teleport to="body">
+          <div v-if="showRunModal" class="modal-backdrop" @click.self="showRunModal = false">
+            <div class="modal">
             <div class="modal-header">
               <div>
                 <div class="modal-title">Ran Payroll (Private Totals)</div>
@@ -1716,12 +2503,14 @@
                 </div>
               </div>
             </div>
-        </div>
-        </div>
+            </div>
+          </div>
+        </teleport>
 
         <!-- Preview Post modal -->
-        <div v-if="showPreviewPostModal" class="modal-backdrop" @click.self="showPreviewPostModal = false">
-          <div class="modal">
+        <teleport to="body">
+          <div v-if="showPreviewPostModal" class="modal-backdrop" @click.self="showPreviewPostModal = false">
+            <div class="modal">
             <div class="modal-header">
               <div>
                 <div class="modal-title">Preview Post (Provider View)</div>
@@ -1920,12 +2709,14 @@
               </div>
             </div>
             <div v-else class="muted">Select a provider to preview.</div>
+            </div>
           </div>
-        </div>
+        </teleport>
 
         <!-- Raw import modal -->
-        <div v-if="showRawModal" class="modal-backdrop" @click.self="showRawModal = false">
-          <div class="modal">
+        <teleport to="body">
+          <div v-if="showRawModal" class="modal-backdrop" @click.self="showRawModal = false">
+            <div class="modal">
             <div class="modal-header">
               <div>
                 <div class="modal-title">
@@ -1979,11 +2770,32 @@
               </div>
               <div class="field">
                 <label>Status</label>
-                <div class="hint" v-if="isPeriodPosted">Posted (locked)</div>
+                <div class="hint" v-if="isPeriodPosted">
+                  Posted (locked)
+                  <span v-if="rawMode === 'process_h0031' || rawMode === 'process_h0032'">
+                    •
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      style="margin-left: 8px;"
+                      @click="unlockPostedRawProcessing"
+                    >
+                      {{ rawPostedProcessingUnlocked ? 'Unlocked' : 'Unlock H0031/H0032 editing' }}
+                    </button>
+                  </span>
+                </div>
                 <div class="hint" v-else>{{ updatingDraftPayable ? 'Saving…' : 'Editable' }}</div>
               </div>
             </div>
             <div v-if="rawDraftError" class="error-box">{{ rawDraftError }}</div>
+            <div
+              v-if="isPeriodPosted && rawPostedProcessingUnlocked && (rawMode === 'process_h0031' || rawMode === 'process_h0032')"
+              class="warn-box"
+              style="margin-top: 10px;"
+            >
+              You are editing a <strong>posted</strong> period. This is allowed only for H0031/H0032 minutes + Done processing.
+              It updates Raw Import and Payroll Stage totals, but does not automatically recompute posted payroll totals.
+            </div>
             <div class="table-wrap">
               <table class="table">
                 <thead>
@@ -2013,7 +2825,7 @@
                         step="1"
                         min="1"
                         :value="Number(r.unit_count || 0)"
-                        :disabled="isPeriodPosted"
+                        :disabled="isPeriodPosted && !rawPostedProcessingUnlocked"
                         style="width: 90px;"
                         @change="updateRawMinutes(r, $event.target.value)"
                       />
@@ -2050,7 +2862,7 @@
                         <button
                           type="button"
                           class="btn btn-secondary btn-sm"
-                          :disabled="isPeriodPosted || !(Number(r.requires_processing) === 1)"
+                          :disabled="(isPeriodPosted && !rawPostedProcessingUnlocked) || !(Number(r.requires_processing) === 1)"
                           @click="toggleRawProcessed(r, !r.processed_at)"
                         >
                           {{ r.processed_at ? 'Undo' : 'Mark done' }}
@@ -2077,12 +2889,14 @@
                 </button>
               </div>
             </div>
+            </div>
           </div>
-        </div>
+        </teleport>
 
         <!-- No-note/Draft Unpaid carryover modal -->
-        <div v-if="showCarryoverModal" class="modal-backdrop" @click.self="showCarryoverModal = false">
-          <div class="modal">
+        <teleport to="body">
+          <div v-if="showCarryoverModal" class="modal-backdrop" @click.self="showCarryoverModal = false">
+            <div class="modal">
             <div class="modal-header">
               <div>
                 <div class="modal-title">No-note/Draft Unpaid (Detect Changes)</div>
@@ -2134,13 +2948,20 @@
             </div>
 
             <div v-if="carryoverError" class="error-box">{{ carryoverError }}</div>
-            <div v-if="carryoverLoading" class="muted">Computing differences...</div>
-            <div v-if="!carryoverLoading && carryoverPreview.some((d) => d.type === 'new_session_detected' && d.flagged)" class="warn-box" style="margin-top: 10px;">
-              <div><strong>New session detected</strong> in a past pay period.</div>
-              <div class="hint">Adding sessions to a past pay period is ill-advised. If you proceed, confirm this is correct before posting.</div>
+            <div v-if="carryoverApplyResult" class="warn-box" style="margin-top: 10px;">
+              <div><strong>Applied carryover:</strong> {{ Number(carryoverApplyResult.inserted || 0) }} row(s) added to payroll stage.</div>
+              <div v-if="(carryoverApplyResult.warnings || []).length" class="hint" style="margin-top: 6px;">
+                <div><strong>Warnings:</strong></div>
+                <div v-for="(w, idx) in (carryoverApplyResult.warnings || [])" :key="idx">
+                  - {{ w?.message || String(w) }}
+                </div>
+              </div>
+              <div class="hint" style="margin-top: 6px;">
+                Next: open <strong>Payroll Stage</strong> and verify the destination staging rows (especially H0031/H0032) before running payroll.
+              </div>
             </div>
-
-            <div v-else class="table-wrap">
+            <div v-if="carryoverLoading" class="muted">Computing differences...</div>
+            <div v-if="!carryoverLoading" class="table-wrap">
               <table class="table">
                 <thead>
                   <tr>
@@ -2154,7 +2975,10 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(d, idx) in carryoverPreview" :key="idx">
+                  <tr
+                    v-for="(d, idx) in carryoverPreview"
+                    :key="idx"
+                  >
                     <td>{{ d.lastName ? `${d.lastName}, ${d.firstName || ''}` : (d.providerName || '—') }}</td>
                     <td>{{ d.serviceCode }}</td>
                     <td class="right">{{ fmtNum(d.prevUnpaidUnits) }}</td>
@@ -2163,8 +2987,7 @@
                     <td>
                       <span v-if="d.type === 'manual'">Manual entry</span>
                       <span v-else-if="d.type === 'late_note_completion'">Late note completion</span>
-                      <span v-else>New session detected</span>
-                      <span v-if="d.flagged" class="muted"> (flag)</span>
+                      <span v-else>—</span>
                       <button
                         v-if="d.type === 'manual'"
                         class="btn btn-secondary btn-sm"
@@ -2221,12 +3044,13 @@
                 </button>
               </div>
             </div>
+            </div>
           </div>
-        </div>
+        </teleport>
 
       </div>
 
-      <div class="card" v-else>
+      <div class="card" v-if="!selectedPeriod">
         <h2 class="card-title">Period Details</h2>
         <div class="muted">Upload a payroll report and we’ll auto-detect the correct pay period (Sat→Fri, 14 days).</div>
         <div class="import-box" style="margin-top: 12px;">
@@ -2242,69 +3066,25 @@
       </div>
     </div>
 
-    <div class="card" v-if="isSuperAdmin" style="margin-top: 12px;">
-      <h2 class="card-title">Rate Sheet Import (Super Admin)</h2>
-      <div class="hint">
-        Bulk import provider pay rates (CSV/XLSX). This updates Direct/Indirect hourly rates and per-service-code rates.
-      </div>
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr auto;">
-        <div class="field">
-          <label>Upload rate sheet</label>
-          <input
-            type="file"
-            accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-            @change="onRateSheetPick"
-          />
-          <div class="hint" v-if="!agencyId">Select an organization first.</div>
-          <div class="warn-box" v-if="rateSheetError">{{ rateSheetError }}</div>
-          <div class="hint" v-if="rateSheetResult">
-            Agency: <strong>{{ rateSheetResult.agencyId }}</strong> •
-            Processed: <strong>{{ rateSheetResult.processed }}</strong>
-            <span v-if="rateSheetResult.skippedInactive"> • Skipped inactive: <strong>{{ rateSheetResult.skippedInactive }}</strong></span>
-            • Updated rate cards: <strong>{{ rateSheetResult.updatedRateCards }}</strong>
-            • Per-code rates upserted: <strong>{{ rateSheetResult.upsertedPerCodeRates }}</strong>
-            <span v-if="(rateSheetResult.createdUsers || []).length"> • Created users: <strong>{{ rateSheetResult.createdUsers.length }}</strong></span>
-            <span v-if="(rateSheetResult.errors || []).length"> • Errors: <strong>{{ rateSheetResult.errors.length }}</strong></span>
-          </div>
-          <div class="hint" v-if="rateSheetResult?.createdTemplate">
-            Template created: <strong>{{ rateSheetResult.createdTemplate.name }}</strong>
-          </div>
-          <div class="warn-box" v-if="(rateSheetResult?.errors || []).length" style="margin-top: 10px;">
-            <div><strong>Import issues (first 5):</strong></div>
-            <div v-for="(e, idx) in (rateSheetResult.errors || []).slice(0, 5)" :key="idx" class="hint">
-              Row {{ e.row }} — {{ e.employeeName }}: {{ e.error }}
-            </div>
-          </div>
-          <div class="hint" v-if="(rateSheetResult?.rowMatches || []).length" style="margin-top: 10px;">
-            <div><strong>Matched users (first 5):</strong></div>
-            <div v-for="(m, idx) in (rateSheetResult.rowMatches || []).slice(0, 5)" :key="idx">
-              {{ m.employeeName }} → userId {{ m.matchedUserId }}<span v-if="m.createdUser" class="muted"> (created)</span>
-            </div>
-          </div>
-        </div>
-        <div class="field">
-          <label>&nbsp;</label>
-          <button class="btn btn-primary" @click="importRateSheet" :disabled="importingRateSheet || !rateSheetFile || !agencyId">
-            {{ importingRateSheet ? 'Importing...' : 'Import Rate Sheet' }}
-          </button>
-        </div>
-      </div>
+    <!-- Rate Sheet Import removed (no longer needed) -->
+    </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useOrganizationStore } from '../../store/organization';
 import { useAuthStore } from '../../store/auth';
+import AdminPayrollSubmitOverride from '../../components/admin/AdminPayrollSubmitOverride.vue';
 
 const agencyStore = useAgencyStore();
 const organizationStore = useOrganizationStore();
 const authStore = useAuthStore();
 
-const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
+// super-admin-only rate sheet import removed
 
 const orgSearch = ref('');
 const historySearch = ref('');
@@ -2346,10 +3126,7 @@ const autoImportExistingPeriodId = ref(null);
 const autoImportCustomStart = ref('');
 const autoImportCustomEnd = ref('');
 
-const rateSheetFile = ref(null);
-const importingRateSheet = ref(false);
-const rateSheetError = ref('');
-const rateSheetResult = ref(null);
+// rate sheet import removed
 
 const selectedSummary = ref(null);
 const selectedUserId = ref(null);
@@ -2395,6 +3172,199 @@ const workspaceSearch = ref('');
 const showStageModal = ref(false);
 const showRawModal = ref(false);
 const showRunModal = ref(false);
+const showPayrollToolsModal = ref(false);
+const payrollToolsTab = ref('compare'); // compare | viewer
+const payrollToolsLoading = ref(false);
+const payrollToolsError = ref('');
+const toolsFile1 = ref(null);
+const toolsFile2 = ref(null);
+const toolsViewerFile = ref(null);
+const payrollToolsCompareResult = ref(null);
+const payrollToolsViewerResult = ref(null);
+
+// Compare controls
+const payrollToolsCompareMode = ref('detail'); // detail | summary
+const payrollToolsCompareFilter = ref('changed'); // all | changed | added | removed
+const payrollToolsCompareSort = ref('human'); // human | change | code | date
+
+const payrollToolsCompareAllRows = computed(() => {
+  const r = payrollToolsCompareResult.value;
+  const rows = Array.isArray(r?.changes) ? r.changes : [];
+  return rows.filter((x) => x && x.changeType);
+});
+
+const payrollToolsCompareFilteredRows = computed(() => {
+  const rows = payrollToolsCompareAllRows.value || [];
+  switch (String(payrollToolsCompareFilter.value || 'changed')) {
+    case 'all':
+      return rows;
+    case 'added':
+      return rows.filter((r) => r.changeType === 'added');
+    case 'removed':
+      return rows.filter((r) => r.changeType === 'removed');
+    case 'changed':
+    default:
+      return rows.filter((r) => r.changeType === 'changed');
+  }
+});
+
+const toolsProviderKey = (row) => {
+  const x = row?.after || row?.before || null;
+  return String(x?.providerName || '').trim().toLowerCase();
+};
+const toolsCodeKey = (row) => {
+  const x = row?.after || row?.before || null;
+  return String(x?.serviceCode || '').trim().toUpperCase();
+};
+const toolsDateKey = (row) => {
+  const x = row?.after || row?.before || null;
+  return String(x?.ymd || '').trim(); // YYYY-MM-DD
+};
+const toolsChangeKey = (row) => {
+  const t = String(row?.changeType || '');
+  // Sort order: changed > added > removed (most relevant first)
+  if (t === 'changed') return 0;
+  if (t === 'added') return 1;
+  if (t === 'removed') return 2;
+  return 9;
+};
+
+const payrollToolsCompareRows = computed(() => {
+  const rows = (payrollToolsCompareFilteredRows.value || []).slice();
+  const sortKey = String(payrollToolsCompareSort.value || 'human');
+  rows.sort((a, b) => {
+    if (sortKey === 'change') {
+      const d = toolsChangeKey(a) - toolsChangeKey(b);
+      if (d) return d;
+    }
+    if (sortKey === 'code') {
+      const d = toolsCodeKey(a).localeCompare(toolsCodeKey(b));
+      if (d) return d;
+    }
+    if (sortKey === 'date') {
+      const d = toolsDateKey(b).localeCompare(toolsDateKey(a)); // desc
+      if (d) return d;
+    }
+    // default/human
+    const d = toolsProviderKey(a).localeCompare(toolsProviderKey(b));
+    if (d) return d;
+    const c = toolsCodeKey(a).localeCompare(toolsCodeKey(b));
+    if (c) return c;
+    return toolsDateKey(b).localeCompare(toolsDateKey(a));
+  });
+  // Keep UI responsive.
+  return rows.slice(0, 2500);
+});
+
+const payrollToolsSummaryRows = computed(() => {
+  // Summarize ONLY over the filtered set (so you can summarize "changed only", etc.)
+  const rows = payrollToolsCompareFilteredRows.value || [];
+  const by = new Map(); // `${provider}|${code}` -> agg
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  for (const r of rows) {
+    const x = r?.after || r?.before || null;
+    if (!x) continue;
+    const providerName = String(x.providerName || '').trim() || '—';
+    const serviceCode = String(x.serviceCode || '').trim() || '—';
+    const k = `${providerName.toLowerCase()}|${serviceCode.toUpperCase()}`;
+    if (!by.has(k)) {
+      by.set(k, {
+        providerName,
+        serviceCode,
+        doc1: { NO_NOTE: 0, DRAFT: 0, FINALIZED: 0 },
+        doc2: { NO_NOTE: 0, DRAFT: 0, FINALIZED: 0 }
+      });
+    }
+    const agg = by.get(k);
+    const b = r.before?.unitsByStatus || {};
+    const a = r.after?.unitsByStatus || {};
+    agg.doc1.NO_NOTE += num(b.NO_NOTE);
+    agg.doc1.DRAFT += num(b.DRAFT);
+    agg.doc1.FINALIZED += num(b.FINALIZED);
+    agg.doc2.NO_NOTE += num(a.NO_NOTE);
+    agg.doc2.DRAFT += num(a.DRAFT);
+    agg.doc2.FINALIZED += num(a.FINALIZED);
+  }
+  const out = Array.from(by.values()).map((x) => {
+    const dNo = Number((x.doc2.NO_NOTE - x.doc1.NO_NOTE).toFixed(2));
+    const dDr = Number((x.doc2.DRAFT - x.doc1.DRAFT).toFixed(2));
+    const dFi = Number((x.doc2.FINALIZED - x.doc1.FINALIZED).toFixed(2));
+    const narrativeParts = [];
+    if (Math.abs(dNo) > 1e-9) narrativeParts.push(`NO_NOTE ${dNo > 0 ? '+' : ''}${dNo}`);
+    if (Math.abs(dDr) > 1e-9) narrativeParts.push(`DRAFT ${dDr > 0 ? '+' : ''}${dDr}`);
+    if (Math.abs(dFi) > 1e-9) narrativeParts.push(`FINAL ${dFi > 0 ? '+' : ''}${dFi}`);
+    const narrative = narrativeParts.length ? narrativeParts.join(', ') : 'no net change';
+    return { ...x, delta: { NO_NOTE: dNo, DRAFT: dDr, FINALIZED: dFi }, narrative };
+  });
+  const sortKey = String(payrollToolsCompareSort.value || 'human');
+  out.sort((a, b) => {
+    if (sortKey === 'code') return String(a.serviceCode).localeCompare(String(b.serviceCode));
+    if (sortKey === 'human') return String(a.providerName).localeCompare(String(b.providerName), undefined, { sensitivity: 'base' }) || String(a.serviceCode).localeCompare(String(b.serviceCode));
+    // For change sorting in summary, sort by absolute finalized delta desc.
+    if (sortKey === 'change') return Math.abs(Number(b.delta.FINALIZED || 0)) - Math.abs(Number(a.delta.FINALIZED || 0));
+    return String(a.providerName).localeCompare(String(b.providerName), undefined, { sensitivity: 'base' }) || String(a.serviceCode).localeCompare(String(b.serviceCode));
+  });
+  return out.slice(0, 5000);
+});
+
+const openPayrollToolsModal = () => {
+  payrollToolsTab.value = 'compare';
+  payrollToolsLoading.value = false;
+  payrollToolsError.value = '';
+  toolsFile1.value = null;
+  toolsFile2.value = null;
+  toolsViewerFile.value = null;
+  payrollToolsCompareResult.value = null;
+  payrollToolsViewerResult.value = null;
+  payrollToolsCompareMode.value = 'detail';
+  payrollToolsCompareFilter.value = 'changed';
+  payrollToolsCompareSort.value = 'human';
+  showPayrollToolsModal.value = true;
+};
+
+const onToolsFile1 = (e) => { toolsFile1.value = e?.target?.files?.[0] || null; };
+const onToolsFile2 = (e) => { toolsFile2.value = e?.target?.files?.[0] || null; };
+const onToolsViewerFile = (e) => { toolsViewerFile.value = e?.target?.files?.[0] || null; };
+
+const runPayrollToolsCompare = async () => {
+  if (!agencyId.value || !toolsFile1.value || !toolsFile2.value) return;
+  try {
+    payrollToolsLoading.value = true;
+    payrollToolsError.value = '';
+    payrollToolsCompareResult.value = null;
+    payrollToolsViewerResult.value = null;
+    const fd = new FormData();
+    fd.append('agencyId', String(agencyId.value));
+    fd.append('file1', toolsFile1.value);
+    fd.append('file2', toolsFile2.value);
+    const resp = await api.post('/payroll/tools/payroll/compare', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    payrollToolsCompareResult.value = resp.data || null;
+  } catch (e) {
+    payrollToolsError.value = e.response?.data?.error?.message || e.message || 'Failed to compare files';
+  } finally {
+    payrollToolsLoading.value = false;
+  }
+};
+
+const runPayrollToolsViewer = async () => {
+  if (!agencyId.value || !toolsViewerFile.value) return;
+  try {
+    payrollToolsLoading.value = true;
+    payrollToolsError.value = '';
+    payrollToolsViewerResult.value = null;
+    payrollToolsCompareResult.value = null;
+    const fd = new FormData();
+    fd.append('agencyId', String(agencyId.value));
+    fd.append('file', toolsViewerFile.value);
+    const resp = await api.post('/payroll/tools/payroll/viewer', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    payrollToolsViewerResult.value = resp.data || null;
+  } catch (e) {
+    payrollToolsError.value = e.response?.data?.error?.message || e.message || 'Failed to open viewer';
+  } finally {
+    payrollToolsLoading.value = false;
+  }
+};
+
 const showPreviewPostModal = ref(false);
 const previewPostNotificationsLoading = ref(false);
 const previewPostNotificationsError = ref('');
@@ -2447,11 +3417,14 @@ const rawDraftSearch = ref('');
 const rawDraftOnly = ref(true);
 const rawRowLimit = ref(200);
 const rawProcessChecklistByRowId = ref({}); // UI-only checklist (not saved anywhere)
+const rawPostedProcessingUnlocked = ref(false);
 const updatingDraftPayable = ref(false);
 const rawDraftError = ref('');
 const runningPayroll = ref(false);
 const postingPayroll = ref(false);
+const unpostingPayroll = ref(false);
 const resettingPeriod = ref(false);
+const restagingPeriod = ref(false);
 const previewUserId = ref(null);
 const previewAdjustments = ref(null);
 const previewAdjustmentsLoading = ref(false);
@@ -2529,8 +3502,20 @@ const carryoverCompareRunId = ref(null);
 const carryoverLoading = ref(false);
 const carryoverError = ref('');
 const carryoverPreview = ref([]);
+const carryoverPriorStillUnpaid = ref([]); // rows in the prior period that are STILL unpaid after the comparison run
+const carryoverPriorStillUnpaidMeta = ref(null); // { priorPeriodId, baselineRunId, compareRunId }
+const loadingPriorStillUnpaidForStage = ref(false);
+const priorStillUnpaidStageError = ref('');
 const applyingCarryover = ref(false);
+const carryoverApplyResult = ref(null); // { inserted: number, warnings?: any[] }
 const manualCarryoverEnabled = ref(false);
+
+// Stage editing for yellow/red columns (persisted)
+const stageCarryoverEditMode = ref(false);
+const stageCarryoverEdits = ref({}); // key -> number (old done notes)
+const stagePriorUnpaidEdits = ref({}); // key -> number (prior still unpaid)
+const savingStageCarryoverEdits = ref(false);
+const savingStagePriorUnpaidEdits = ref(false);
 const manualCarryover = ref({
   userId: null,
   serviceCode: '',
@@ -2545,10 +3530,32 @@ const adjustments = ref({
   missedAppointmentsAmount: 0,
   bonusAmount: 0,
   reimbursementAmount: 0,
+  otherRate1Hours: 0,
+  otherRate2Hours: 0,
+  otherRate3Hours: 0,
   salaryAmount: 0,
   ptoHours: 0,
   ptoRate: 0
 });
+
+const otherRateTitlesForAdjustments = ref({ title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' });
+const loadOtherRateTitlesForAdjustments = async () => {
+  const uid = selectedUserId.value;
+  if (!agencyId.value || !uid) {
+    otherRateTitlesForAdjustments.value = { title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' };
+    return;
+  }
+  try {
+    const resp = await api.get('/payroll/other-rate-titles', { params: { agencyId: agencyId.value, userId: uid } });
+    otherRateTitlesForAdjustments.value = {
+      title1: resp.data?.title1 || 'Other 1',
+      title2: resp.data?.title2 || 'Other 2',
+      title3: resp.data?.title3 || 'Other 3'
+    };
+  } catch {
+    otherRateTitlesForAdjustments.value = { title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' };
+  }
+};
 
 const approvedMileageClaimsLoading = ref(false);
 const approvedMileageClaimsAmount = ref(0);
@@ -2694,6 +3701,9 @@ const approvedTimeListError = ref('');
 const approvedTimeClaims = ref([]);
 const approvedTimeMoveTargetByClaimId = ref({});
 const movingTimeClaimId = ref(null);
+const timeBucketByClaimId = ref({});
+const timeCreditsHoursByClaimId = ref({});
+const timeAppliedAmountOverrideByClaimId = ref({});
 
 // Manual pay lines (one-off corrections)
 const manualPayLinesLoading = ref(false);
@@ -2702,26 +3712,40 @@ const manualPayLines = ref([]);
 const savingManualPayLines = ref(false);
 const deletingManualPayLineId = ref(null);
 const manualPayLineDraftRowSeq = ref(1);
-const manualPayLineDraftRows = ref([{ _key: manualPayLineDraftRowSeq.value++, userId: null, label: '', amount: '' }]);
+const manualPayLineDraftRows = ref([
+  { _key: manualPayLineDraftRowSeq.value++, userId: null, lineType: 'pay', category: 'indirect', ptoBucket: 'sick', creditsHours: '', label: '', amount: '' }
+]);
 
 const addManualPayLineDraftRow = () => {
   manualPayLineDraftRows.value = [
     ...(manualPayLineDraftRows.value || []),
-    { _key: manualPayLineDraftRowSeq.value++, userId: null, label: '', amount: '' }
+    { _key: manualPayLineDraftRowSeq.value++, userId: null, lineType: 'pay', category: 'indirect', ptoBucket: 'sick', creditsHours: '', label: '', amount: '' }
   ];
 };
 
 const removeManualPayLineDraftRow = (idx) => {
   const rows = [...(manualPayLineDraftRows.value || [])];
   rows.splice(idx, 1);
-  manualPayLineDraftRows.value = rows.length ? rows : [{ _key: manualPayLineDraftRowSeq.value++, userId: null, label: '', amount: '' }];
+  manualPayLineDraftRows.value = rows.length
+    ? rows
+    : [{ _key: manualPayLineDraftRowSeq.value++, userId: null, lineType: 'pay', category: 'indirect', ptoBucket: 'sick', creditsHours: '', label: '', amount: '' }];
 };
 
 const isValidManualPayLineDraftRow = (r) => {
   const uid = Number(r?.userId || 0);
+  const lineType = String(r?.lineType || 'pay').trim().toLowerCase() === 'pto' ? 'pto' : 'pay';
   const label = String(r?.label || '').trim();
-  const amount = Number(r?.amount);
+  const cat = String(r?.category || 'indirect').trim().toLowerCase();
+  const amount = (r?.amount === null || r?.amount === undefined || r?.amount === '') ? null : Number(r?.amount);
+  const hrsRaw = (r?.creditsHours === null || r?.creditsHours === undefined || r?.creditsHours === '') ? null : Number(r?.creditsHours);
   if (!uid || !label) return false;
+  if (lineType === 'pto') {
+    // PTO adjustments: creditsHours required and can be +/-.
+    if (hrsRaw === null || !Number.isFinite(hrsRaw) || Math.abs(hrsRaw) < 1e-9) return false;
+    return true;
+  }
+  if (!(cat === 'direct' || cat === 'indirect')) return false;
+  if (hrsRaw !== null && (!Number.isFinite(hrsRaw) || hrsRaw < 0)) return false;
   if (!Number.isFinite(amount) || Math.abs(amount) < 1e-9) return false;
   return true;
 };
@@ -2756,11 +3780,17 @@ const saveManualPayLines = async () => {
         continue;
       }
       const uid = Number(r.userId || 0);
+      const lineType = String(r?.lineType || 'pay').trim().toLowerCase() === 'pto' ? 'pto' : 'pay';
+      const category = String(r.category || 'indirect').trim().toLowerCase();
+      const ptoBucket = String(r?.ptoBucket || 'sick').trim().toLowerCase() === 'training' ? 'training' : 'sick';
+      const creditsHours = (r?.creditsHours === null || r?.creditsHours === undefined || r?.creditsHours === '') ? null : Number(r?.creditsHours);
       const label = String(r.label || '').trim();
-      const amount = Number(r.amount);
-      await api.post(`/payroll/periods/${selectedPeriodId.value}/manual-pay-lines`, { userId: uid, label, amount });
+      const amount = lineType === 'pto' ? 0 : Number(r.amount);
+      await api.post(`/payroll/periods/${selectedPeriodId.value}/manual-pay-lines`, { userId: uid, lineType, ptoBucket, category, creditsHours, label, amount });
     }
-    manualPayLineDraftRows.value = kept.length ? kept : [{ _key: manualPayLineDraftRowSeq.value++, userId: null, label: '', amount: '' }];
+    manualPayLineDraftRows.value = kept.length
+      ? kept
+      : [{ _key: manualPayLineDraftRowSeq.value++, userId: null, lineType: 'pay', category: 'indirect', ptoBucket: 'sick', creditsHours: '', label: '', amount: '' }];
     await loadManualPayLines();
     await loadPeriodDetails();
   } catch (e) {
@@ -3067,11 +4097,20 @@ const loadPendingTimeClaims = async () => {
     });
     pendingTimeClaims.value = resp.data || [];
     const next = { ...(timeTargetPeriodByClaimId.value || {}) };
+    const bNext = { ...(timeBucketByClaimId.value || {}) };
+    const hNext = { ...(timeCreditsHoursByClaimId.value || {}) };
+    const aNext = { ...(timeAppliedAmountOverrideByClaimId.value || {}) };
     for (const c of pendingTimeClaims.value || []) {
       if (!c?.id) continue;
       next[c.id] = next[c.id] || selectedPeriodId.value;
+      bNext[c.id] = bNext[c.id] || 'indirect';
+      if (hNext[c.id] === undefined) hNext[c.id] = '';
+      if (aNext[c.id] === undefined) aNext[c.id] = '';
     }
     timeTargetPeriodByClaimId.value = next;
+    timeBucketByClaimId.value = bNext;
+    timeCreditsHoursByClaimId.value = hNext;
+    timeAppliedAmountOverrideByClaimId.value = aNext;
   } catch (e) {
     pendingTimeError.value = e.response?.data?.error?.message || e.message || 'Failed to load pending time claims';
     pendingTimeClaims.value = [];
@@ -3090,11 +4129,20 @@ const loadAllPendingTimeClaims = async () => {
     });
     pendingTimeClaims.value = resp.data || [];
     const next = { ...(timeTargetPeriodByClaimId.value || {}) };
+    const bNext = { ...(timeBucketByClaimId.value || {}) };
+    const hNext = { ...(timeCreditsHoursByClaimId.value || {}) };
+    const aNext = { ...(timeAppliedAmountOverrideByClaimId.value || {}) };
     for (const c of pendingTimeClaims.value || []) {
       if (!c?.id) continue;
       next[c.id] = next[c.id] || c.suggested_payroll_period_id || selectedPeriodId.value;
+      bNext[c.id] = bNext[c.id] || 'indirect';
+      if (hNext[c.id] === undefined) hNext[c.id] = '';
+      if (aNext[c.id] === undefined) aNext[c.id] = '';
     }
     timeTargetPeriodByClaimId.value = next;
+    timeBucketByClaimId.value = bNext;
+    timeCreditsHoursByClaimId.value = hNext;
+    timeAppliedAmountOverrideByClaimId.value = aNext;
   } catch (e) {
     pendingTimeError.value = e.response?.data?.error?.message || e.message || 'Failed to load pending time claims';
     pendingTimeClaims.value = [];
@@ -3190,11 +4238,17 @@ const approveTimeClaim = async (c) => {
   if (!c?.id) return;
   const targetPayrollPeriodId = Number(timeTargetPeriodByClaimId.value?.[c.id] || 0);
   if (!Number.isFinite(targetPayrollPeriodId) || targetPayrollPeriodId <= 0) return;
-  // Optional override: leave blank to let backend compute defaults where possible.
-  const overrideRaw = window.prompt('Applied amount override (leave blank to auto-calc):', '') || '';
-  const appliedAmount = String(overrideRaw).trim() ? Number(overrideRaw) : null;
+  const bucket = String(timeBucketByClaimId.value?.[c.id] || 'indirect').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
+  const creditsRaw = timeCreditsHoursByClaimId.value?.[c.id];
+  const creditsHours = (creditsRaw === null || creditsRaw === undefined || String(creditsRaw).trim() === '') ? null : Number(creditsRaw);
+  if (creditsHours !== null && (!Number.isFinite(creditsHours) || creditsHours < 0)) {
+    pendingTimeError.value = 'Hours/Credits must be a non-negative number (or blank).';
+    return;
+  }
+  const overrideRaw = timeAppliedAmountOverrideByClaimId.value?.[c.id];
+  const appliedAmount = (overrideRaw === null || overrideRaw === undefined || String(overrideRaw).trim() === '') ? null : Number(overrideRaw);
   if (appliedAmount !== null && (!Number.isFinite(appliedAmount) || appliedAmount < 0)) {
-    pendingTimeError.value = 'Applied amount must be a non-negative number.';
+    pendingTimeError.value = 'Applied amount must be a non-negative number (or blank).';
     return;
   }
   try {
@@ -3203,6 +4257,8 @@ const approveTimeClaim = async (c) => {
     await api.patch(`/payroll/time-claims/${c.id}`, {
       action: 'approve',
       targetPayrollPeriodId,
+      bucket,
+      creditsHours,
       appliedAmount
     });
     await loadAllPendingTimeClaims();
@@ -3397,6 +4453,8 @@ const rateCardError = ref('');
 const savingRateCard = ref(false);
 
 const stagingKey = (r) => `${r.userId}:${r.serviceCode}`;
+const normalizeServiceCodeKey = (v) => String(v || '').trim().toUpperCase();
+const stageKeyNormalized = (userId, serviceCode) => `${Number(userId)}:${normalizeServiceCodeKey(serviceCode)}`;
 
 const ruleByCode = computed(() => {
   const m = new Map();
@@ -3441,6 +4499,76 @@ const workspaceMatchedRows = computed(() => {
 
   if (selectedUserId.value) {
     rows = rows.filter((r) => r.userId === selectedUserId.value);
+  }
+
+  const q = String(workspaceSearch.value || '').trim().toLowerCase();
+  if (q) {
+    rows = rows.filter((r) => {
+      const provider = `${r.firstName || ''} ${r.lastName || ''}`.trim().toLowerCase();
+      const providerAlt = String(r.providerName || '').toLowerCase();
+      const code = String(r.serviceCode || '').toLowerCase();
+      return provider.includes(q) || providerAlt.includes(q) || code.includes(q);
+    });
+  }
+
+  rows.sort((a, b) => {
+    const aLast = String(a.lastName || '').toLowerCase();
+    const bLast = String(b.lastName || '').toLowerCase();
+    if (aLast && bLast && aLast !== bLast) return aLast.localeCompare(bLast);
+    const aFirst = String(a.firstName || '').toLowerCase();
+    const bFirst = String(b.firstName || '').toLowerCase();
+    if (aFirst !== bFirst) return aFirst.localeCompare(bFirst);
+    return String(a.serviceCode || '').localeCompare(String(b.serviceCode || ''), undefined, { sensitivity: 'base' });
+  });
+
+  return rows;
+});
+
+const carryoverPriorStillUnpaidPeriodLabel = computed(() => {
+  const priorId = carryoverPriorStillUnpaidMeta.value?.priorPeriodId || carryoverPriorPeriodId.value || null;
+  if (!priorId) return '';
+  const p = (periods.value || []).find((x) => Number(x.id) === Number(priorId)) || null;
+  return p ? periodRangeLabel(p) : `Pay period #${priorId}`;
+});
+
+const priorStillUnpaidUnitsByStageKey = computed(() => {
+  // Guard against showing stale comparison results when switching pay periods.
+  if (
+    carryoverPriorStillUnpaidMeta.value?.currentPeriodId &&
+    Number(carryoverPriorStillUnpaidMeta.value.currentPeriodId) !== Number(selectedPeriodId.value)
+  ) {
+    return {};
+  }
+  const m = {};
+  for (const r of carryoverPriorStillUnpaid.value || []) {
+    if (!r?.userId || !r?.serviceCode) continue;
+    const k = stageKeyNormalized(r.userId, r.serviceCode);
+    const v = Number(r.stillUnpaidUnits || 0);
+    if (Number.isFinite(v) && v > 0) m[k] = v;
+  }
+  return m;
+});
+
+const priorStillUnpaidOrphanRowsForStage = computed(() => {
+  // Orphans = still unpaid rows from prior period that do NOT have a matching row
+  // in the current staging table (so they can’t be displayed inline).
+  if (
+    carryoverPriorStillUnpaidMeta.value?.currentPeriodId &&
+    Number(carryoverPriorStillUnpaidMeta.value.currentPeriodId) !== Number(selectedPeriodId.value)
+  ) {
+    return [];
+  }
+
+  const stagingKeys = new Set(
+    (stagingMatched.value || []).map((r) => stageKeyNormalized(r?.userId, r?.serviceCode))
+  );
+
+  let rows = (carryoverPriorStillUnpaid.value || [])
+    .filter((r) => !!r?.userId && !!r?.serviceCode && Number(r?.stillUnpaidUnits || 0) > 0)
+    .filter((r) => !stagingKeys.has(stageKeyNormalized(r.userId, r.serviceCode)));
+
+  if (selectedUserId.value) {
+    rows = rows.filter((r) => Number(r.userId) === Number(selectedUserId.value));
   }
 
   const q = String(workspaceSearch.value || '').trim().toLowerCase();
@@ -3542,10 +4670,250 @@ const selectedUserName = computed(() => {
   return 'Provider';
 });
 
-const isPeriodPosted = computed(() => {
-  const st = String(selectedPeriod.value?.status || '').toLowerCase();
-  return st === 'posted' || st === 'finalized';
+// Selected period status can temporarily be null if `loadPeriodDetails` fails.
+// Use the cached period list as a fallback so core actions (view/export) don't "silently disable".
+const selectedPeriodStatus = computed(() => {
+  const id = Number(selectedPeriodId.value || 0);
+  const cur = selectedPeriod.value && Number(selectedPeriod.value.id) === id ? selectedPeriod.value : null;
+  const fromList = !cur && id ? (periods.value || []).find((p) => Number(p?.id) === id) : null;
+  const st = String((cur || fromList)?.status || '').trim().toLowerCase();
+  return st;
 });
+
+const selectedPeriodForUi = computed(() => {
+  const id = Number(selectedPeriodId.value || 0);
+  if (!id) return selectedPeriod.value || null;
+  if (selectedPeriod.value && Number(selectedPeriod.value.id) === id) return selectedPeriod.value;
+  return (periods.value || []).find((p) => Number(p?.id) === id) || selectedPeriod.value || null;
+});
+
+const isPeriodPosted = computed(() => selectedPeriodStatus.value === 'posted' || selectedPeriodStatus.value === 'finalized');
+
+const isPeriodRan = computed(() => selectedPeriodStatus.value === 'ran');
+
+// V2 modal state (isolated: always fetches fresh from API on open)
+const showRunModalV2 = ref(false);
+const runModalV2Loading = ref(false);
+const runModalV2Error = ref('');
+const runModalV2Summaries = ref([]);
+const runModalV2Search = ref('');
+const runModalV2SortKey = ref('provider'); // provider | total_hours | subtotal_amount | adjustments_amount | total_amount
+const runModalV2SortDir = ref('asc'); // asc | desc
+
+const runModalV2SortIndicator = (key) => {
+  if (runModalV2SortKey.value !== key) return '';
+  return runModalV2SortDir.value === 'asc' ? '▲' : '▼';
+};
+
+const setRunModalV2Sort = (key) => {
+  if (runModalV2SortKey.value === key) {
+    runModalV2SortDir.value = runModalV2SortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    runModalV2SortKey.value = key;
+    runModalV2SortDir.value = key === 'provider' ? 'asc' : 'desc';
+  }
+};
+
+const runModalV2Rows = computed(() => {
+  const q = String(runModalV2Search.value || '').trim().toLowerCase();
+  const base = (runModalV2Summaries.value || []).slice();
+
+  const filtered = !q ? base : base.filter((s) => {
+    const name = `${s?.last_name || ''}, ${s?.first_name || ''}`.toLowerCase();
+    return name.includes(q);
+  });
+
+  const dir = runModalV2SortDir.value === 'asc' ? 1 : -1;
+  const key = runModalV2SortKey.value;
+
+  filtered.sort((a, b) => {
+    if (key === 'provider') {
+      const an = `${a?.last_name || ''}, ${a?.first_name || ''}`.trim();
+      const bn = `${b?.last_name || ''}, ${b?.first_name || ''}`.trim();
+      return dir * an.localeCompare(bn, undefined, { sensitivity: 'base' });
+    }
+    const av = Number(a?.[key] ?? 0);
+    const bv = Number(b?.[key] ?? 0);
+    if (av === bv) {
+      const an = `${a?.last_name || ''}, ${a?.first_name || ''}`.trim();
+      const bn = `${b?.last_name || ''}, ${b?.first_name || ''}`.trim();
+      return an.localeCompare(bn, undefined, { sensitivity: 'base' });
+    }
+    return dir * (av - bv);
+  });
+
+  return filtered;
+});
+
+const showPreviewPostModalV2 = ref(false);
+const previewPostV2Loading = ref(false);
+const previewPostV2Error = ref('');
+const previewPostV2Summaries = ref([]);
+const previewPostV2UserId = ref(null);
+const previewPostV2Notifications = ref([]);
+
+const previewPostV2ProviderOptions = computed(() => {
+  const base = (previewPostV2Summaries.value || []).slice();
+  base.sort((a, b) => {
+    const al = String(a?.last_name || '').trim();
+    const bl = String(b?.last_name || '').trim();
+    const af = String(a?.first_name || '').trim();
+    const bf = String(b?.first_name || '').trim();
+    return al.localeCompare(bl, undefined, { sensitivity: 'base' })
+      || af.localeCompare(bf, undefined, { sensitivity: 'base' })
+      || (Number(a?.user_id || 0) - Number(b?.user_id || 0));
+  });
+  return base;
+});
+
+const previewPostV2UserIndex = computed(() => {
+  const uid = Number(previewPostV2UserId.value || 0);
+  if (!uid) return -1;
+  return (previewPostV2ProviderOptions.value || []).findIndex((s) => Number(s.user_id) === uid);
+});
+
+const previewPostV2CanPrev = computed(() => previewPostV2UserIndex.value > 0);
+const previewPostV2CanNext = computed(() => {
+  const idx = previewPostV2UserIndex.value;
+  const n = (previewPostV2ProviderOptions.value || []).length;
+  return idx >= 0 && idx < n - 1;
+});
+
+const previewPostV2PrevUser = () => {
+  const idx = previewPostV2UserIndex.value;
+  if (idx <= 0) return;
+  const next = previewPostV2ProviderOptions.value[idx - 1];
+  previewPostV2UserId.value = next?.user_id || null;
+};
+
+const previewPostV2NextUser = () => {
+  const idx = previewPostV2UserIndex.value;
+  const next = previewPostV2ProviderOptions.value[idx + 1];
+  if (!next?.user_id) return;
+  previewPostV2UserId.value = next.user_id;
+};
+
+const previewPostV2Summary = computed(() => {
+  const uid = Number(previewPostV2UserId.value || 0);
+  if (!uid) return null;
+  return (previewPostV2Summaries.value || []).find((s) => Number(s.user_id) === uid) || null;
+});
+
+const previewPostV2ServiceLines = computed(() => splitBreakdownForDisplay(previewPostV2Summary.value?.breakdown || null));
+
+const previewPostV2CarryoverUnits = computed(() => {
+  const b = previewPostV2Summary.value?.breakdown || null;
+  return Number(b?.__carryover?.oldDoneNotesUnitsTotal || 0);
+});
+
+const previewPostV2PriorStillUnpaid = computed(() => {
+  const b = previewPostV2Summary.value?.breakdown || null;
+  const p = b?.__priorStillUnpaid || null;
+  return {
+    totalUnits: Number(p?.totalUnits || 0),
+    periodStart: String(p?.periodStart || ''),
+    periodEnd: String(p?.periodEnd || ''),
+    lines: Array.isArray(p?.lines) ? p.lines : []
+  };
+});
+
+const previewPostV2UnpaidInPeriod = computed(() => {
+  const s = previewPostV2Summary.value;
+  const noNote = Number(s?.no_note_units || 0);
+  const draft = Number(s?.draft_units || 0);
+  return { noNote, draft, total: noNote + draft };
+});
+
+const previewPostV2Totals = computed(() => {
+  const uid = Number(previewPostV2UserId.value || 0);
+  const s = (previewPostV2Summaries.value || []).find((x) => Number(x.user_id) === uid) || null;
+  return {
+    total: Number(s?.total_amount || 0),
+    noNote: Number(s?.no_note_units || 0),
+    draft: Number(s?.draft_units || 0)
+  };
+});
+
+const refreshRunModalV2 = async () => {
+  if (!selectedPeriodId.value) return;
+  runModalV2Loading.value = true;
+  runModalV2Error.value = '';
+  try {
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}`);
+    const next = (resp.data?.summaries || []).map((s) => {
+      if (typeof s.breakdown === 'string') {
+        try { s.breakdown = JSON.parse(s.breakdown); } catch { /* ignore */ }
+      }
+      return s;
+    });
+    runModalV2Summaries.value = next;
+  } catch (e) {
+    runModalV2Error.value = e.response?.data?.error?.message || e.message || 'Failed to load ran payroll';
+    runModalV2Summaries.value = [];
+  } finally {
+    runModalV2Loading.value = false;
+  }
+};
+
+const openRunResultsModalV2 = async () => {
+  if (!selectedPeriodId.value) return;
+  runModalV2Search.value = '';
+  runModalV2SortKey.value = 'provider';
+  runModalV2SortDir.value = 'asc';
+  showRunModalV2.value = true;
+  await refreshRunModalV2();
+};
+
+const loadPreviewPostV2Notifications = async () => {
+  if (!selectedPeriodId.value) return;
+  const uid = Number(previewPostV2UserId.value || 0);
+  if (!uid) {
+    previewPostV2Notifications.value = [];
+    return;
+  }
+  try {
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/post/preview`, { params: { userId: uid } });
+    previewPostV2Notifications.value = resp.data?.notifications || [];
+  } catch (e) {
+    // Keep modal usable even if notification preview fails.
+    previewPostV2Notifications.value = [];
+    previewPostV2Error.value = e.response?.data?.error?.message || e.message || 'Failed to load post preview';
+  }
+};
+
+const refreshPreviewPostModalV2 = async () => {
+  if (!selectedPeriodId.value) return;
+  previewPostV2Loading.value = true;
+  previewPostV2Error.value = '';
+  try {
+    // Used for audit flags (compare to immediately prior period).
+    await loadImmediatePriorSummaries();
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}`);
+    const next = (resp.data?.summaries || []).map((s) => {
+      if (typeof s.breakdown === 'string') {
+        try { s.breakdown = JSON.parse(s.breakdown); } catch { /* ignore */ }
+      }
+      return s;
+    });
+    previewPostV2Summaries.value = next;
+    if (!previewPostV2UserId.value && (previewPostV2Summaries.value || []).length) {
+      previewPostV2UserId.value = (previewPostV2Summaries.value[0] || {}).user_id || null;
+    }
+    await loadPreviewPostV2Notifications();
+  } catch (e) {
+    previewPostV2Error.value = e.response?.data?.error?.message || e.message || 'Failed to load preview post';
+    previewPostV2Summaries.value = [];
+    previewPostV2Notifications.value = [];
+  } finally {
+    previewPostV2Loading.value = false;
+  }
+};
+
+const openPreviewPostModalV2 = async () => {
+  if (!selectedPeriodId.value) return;
+  showPreviewPostModalV2.value = true;
+  await refreshPreviewPostModalV2();
+};
 
 const isTargetPeriodLocked = (periodId) => {
   const pid = Number(periodId || 0);
@@ -3604,7 +4972,7 @@ const estimateMileageTitle = (c) => {
 };
 
 const canSeeRunResults = computed(() => {
-  const st = String(selectedPeriod.value?.status || '').toLowerCase();
+  const st = selectedPeriodStatus.value;
   return st === 'ran' || st === 'posted' || st === 'finalized';
 });
 
@@ -3794,6 +5162,103 @@ const auditForPreviewProvider = computed(() => {
   const uid = previewUserId.value;
   if (!uid) return null;
   return (auditProviders.value || []).find((x) => x.userId === uid) || null;
+});
+
+// V2 Preview Post uses isolated summaries; compute the same audit flags against the V2 dataset.
+const auditProvidersV2 = computed(() => {
+  const cur = (previewPostV2Summaries.value || []).slice();
+  const priorMap = priorSummaryByUserId.value;
+  const totals = cur.map((s) => Number(s.total_amount || 0)).filter((n) => Number.isFinite(n));
+  const med = median(totals);
+
+  const out = [];
+  for (const s of cur) {
+    const uid = s.user_id;
+    const prior = priorMap.get(uid) || null;
+    const curTotal = Number(s.total_amount || 0);
+    const curHours = Number(s.total_hours || 0);
+    const curAdj = Number(s.adjustments_amount || 0);
+    const curEff = curHours > 0 ? (curTotal / curHours) : 0;
+
+    const flags = [];
+    let score = 0;
+
+    // Always-on sanity checks
+    if (curAdj >= 250) { flags.push(`Large adjustments: ${fmtMoney(curAdj)}`); score += 2; }
+    if (curHours > 0 && curEff >= 65) { flags.push(`High effective hourly: ${fmtMoney(curEff)}/hr`); score += 2; }
+    if (curHours > 0 && curEff > 0 && curEff <= 12 && curTotal >= 200) { flags.push(`Low effective hourly: ${fmtMoney(curEff)}/hr`); score += 1; }
+    if (med > 0 && curTotal >= med * 2.75 && curTotal >= 800) { flags.push(`High total vs peers: ${fmtMoney(curTotal)} (median ${fmtMoney(med)})`); score += 1; }
+
+    // Supervisors should not be paid under 99414.
+    try {
+      const b = s?.breakdown || null;
+      const has99414 = b && typeof b === 'object' && Object.prototype.hasOwnProperty.call(b, '99414');
+      const v = has99414 ? b['99414'] : null;
+      const amt = Number(v?.amount || 0);
+      const units = Number(v?.finalizedUnits ?? v?.units ?? 0);
+      if (has99414 && isSupervisorUserId(uid) && (amt > 1e-9 || units > 1e-9)) {
+        flags.push('Supervisor has service code 99414 (should not be included)');
+        score += 3;
+      }
+    } catch { /* ignore */ }
+
+    // 99415 should only be used by supervisors / CPA.
+    try {
+      const b = s?.breakdown || null;
+      const has99415 = b && typeof b === 'object' && Object.prototype.hasOwnProperty.call(b, '99415');
+      const v = has99415 ? b['99415'] : null;
+      const amt = Number(v?.amount || 0);
+      const units = Number(v?.finalizedUnits ?? v?.units ?? 0);
+      if (has99415 && !isSupervisorUserId(uid) && !isCpaUserId(uid) && (amt > 1e-9 || units > 1e-9)) {
+        flags.push('Non-supervisor/CPA has service code 99415 (review recommended)');
+        score += 3;
+      }
+    } catch { /* ignore */ }
+
+    const tierStatus = s?.breakdown?.__tier?.status;
+    if (tierStatus && String(tierStatus).toLowerCase().includes('out of compliance')) { flags.push('Out of compliance tier'); score += 1; }
+
+    // Compare to immediately prior period (if available for this user)
+    if (prior) {
+      const priorTotal = Number(prior.total_amount || 0);
+      const delta = curTotal - priorTotal;
+      const absDelta = Math.abs(delta);
+      const pct = priorTotal > 0 ? (delta / priorTotal) : null;
+      if (absDelta >= 250 && priorTotal > 0 && pct !== null && Math.abs(pct) >= 0.25) {
+        flags.push(`Big pay change vs prior: ${fmtMoney(delta)} (${(pct * 100).toFixed(0)}%)`);
+        score += 3;
+      } else if (absDelta >= 400) {
+        flags.push(`Big pay change vs prior: ${fmtMoney(delta)}`);
+        score += 2;
+      }
+
+      const priorHours = Number(prior.total_hours || 0);
+      const priorEff = priorHours > 0 ? (priorTotal / priorHours) : 0;
+      if (priorHours > 0 && curHours > 0) {
+        const effDelta = curEff - priorEff;
+        if (Math.abs(effDelta) >= 15) {
+          flags.push(`Effective hourly changed vs prior: ${fmtMoney(effDelta)}/hr`);
+          score += 2;
+        }
+      }
+    }
+
+    out.push({
+      userId: uid,
+      name: `${s.first_name || ''} ${s.last_name || ''}`.trim(),
+      flags,
+      score
+    });
+  }
+
+  out.sort((a, b) => (b.score - a.score) || (b.flags.length - a.flags.length) || String(a.name).localeCompare(String(b.name)));
+  return out;
+});
+
+const auditForPreviewProviderV2 = computed(() => {
+  const uid = Number(previewPostV2UserId.value || 0);
+  if (!uid) return null;
+  return (auditProvidersV2.value || []).find((x) => Number(x.userId) === uid) || null;
 });
 
 const fmtMoney = (v) => {
@@ -4134,7 +5599,7 @@ const payTotalsFromBreakdown = (breakdown) => {
   for (const [code, v] of Object.entries(breakdown)) {
     if (String(code).startsWith('_')) continue;
     const amt = Number(v?.amount || 0);
-    const bucket = payBucketForCategory(v?.category);
+    const bucket = v?.bucket ? String(v.bucket).trim().toLowerCase() : payBucketForCategory(v?.category);
     if (bucket === 'indirect') out.indirectAmount += amt;
     else if (bucket === 'other') out.otherAmount += amt;
     else if (bucket === 'flat') out.flatAmount += amt;
@@ -4156,7 +5621,7 @@ const splitBreakdownForDisplay = (breakdown) => {
     const safeDiv = Number.isFinite(payDivisor) && payDivisor > 0 ? payDivisor : 1;
     const creditValue = Number(v.creditValue || 0);
     const safeCv = Number.isFinite(creditValue) ? creditValue : 0;
-    const bucket = payBucketForCategory(v.category);
+    const bucket = v?.bucket ? String(v.bucket).trim().toLowerCase() : payBucketForCategory(v.category);
     const rateUnit = String(v.rateUnit || '');
 
     // If there's no carryover, or this is a flat line, show as-is.
@@ -4354,14 +5819,15 @@ const toggleDraftPayable = async (row, nextVal) => {
 
 const updateRawMinutes = async (row, nextValRaw) => {
   if (!row?.id) return;
-  if (isPeriodPosted.value) return;
+  if (isPeriodPosted.value && !rawPostedProcessingUnlocked.value) return;
   if (Number(row.requires_processing) !== 1) return;
   try {
     const nextMinutes = Math.round(Number(nextValRaw));
     if (!Number.isFinite(nextMinutes) || nextMinutes <= 0) return;
     updatingDraftPayable.value = true;
     rawDraftError.value = '';
-    const resp = await api.patch(`/payroll/import-rows/${row.id}`, { unitCount: nextMinutes });
+    const qs = (isPeriodPosted.value && rawPostedProcessingUnlocked.value) ? '?allowPostedProcessing=true' : '';
+    const resp = await api.patch(`/payroll/import-rows/${row.id}${qs}`, { unitCount: nextMinutes });
     const idx = (rawImportRows.value || []).findIndex((r) => r.id === row.id);
     if (idx >= 0) {
       rawImportRows.value[idx] = { ...rawImportRows.value[idx], unit_count: nextMinutes };
@@ -4390,12 +5856,13 @@ const updateRawMinutes = async (row, nextValRaw) => {
 
 const toggleRawProcessed = async (row, nextDone) => {
   if (!row?.id) return;
-  if (isPeriodPosted.value) return;
+  if (isPeriodPosted.value && !rawPostedProcessingUnlocked.value) return;
   if (Number(row.requires_processing) !== 1) return;
   try {
     updatingDraftPayable.value = true;
     rawDraftError.value = '';
-    const resp = await api.patch(`/payroll/import-rows/${row.id}`, { processed: !!nextDone });
+    const qs = (isPeriodPosted.value && rawPostedProcessingUnlocked.value) ? '?allowPostedProcessing=true' : '';
+    const resp = await api.patch(`/payroll/import-rows/${row.id}${qs}`, { processed: !!nextDone });
     const idx = (rawImportRows.value || []).findIndex((r) => r.id === row.id);
     if (idx >= 0) {
       rawImportRows.value[idx] = {
@@ -4424,6 +5891,22 @@ const toggleRawProcessed = async (row, nextDone) => {
     updatingDraftPayable.value = false;
   }
 };
+
+const unlockPostedRawProcessing = () => {
+  if (!isPeriodPosted.value) return;
+  if (!(rawMode.value === 'process_h0031' || rawMode.value === 'process_h0032')) return;
+  if (rawPostedProcessingUnlocked.value) return;
+  const ok = window.confirm(
+    'Unlock editing for a POSTED pay period?\n\nThis will allow editing H0031/H0032 minutes and marking Done in Raw Import so you can correct time for Category-1 providers.\n\nIt does NOT automatically recompute posted payroll totals.'
+  );
+  if (ok) rawPostedProcessingUnlocked.value = true;
+};
+
+watch([showRawModal, rawMode, selectedPeriodId], ([open, mode]) => {
+  // Default back to locked when reopening/switching.
+  if (!open) rawPostedProcessingUnlocked.value = false;
+  if (!(mode === 'process_h0031' || mode === 'process_h0032')) rawPostedProcessingUnlocked.value = false;
+});
 
 const periodRangeLabel = (p) => {
   if (!p) return '';
@@ -4503,15 +5986,15 @@ const selectPeriod = async (id) => {
 const loadPeriodDetails = async () => {
   if (!selectedPeriodId.value) return;
   try {
-  const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}`);
-  selectedPeriod.value = resp.data?.period || null;
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}`);
+    selectedPeriod.value = resp.data?.period || null;
     rawImportRows.value = resp.data?.rows || [];
     const nextSummaries = (resp.data?.summaries || []).map((s) => {
-    if (typeof s.breakdown === 'string') {
-      try { s.breakdown = JSON.parse(s.breakdown); } catch { /* ignore */ }
-    }
-    return s;
-  });
+      if (typeof s.breakdown === 'string') {
+        try { s.breakdown = JSON.parse(s.breakdown); } catch { /* ignore */ }
+      }
+      return s;
+    });
     summaries.value = nextSummaries;
     if (selectedUserId.value) {
       const found = nextSummaries.find((x) => x.user_id === selectedUserId.value);
@@ -4520,24 +6003,33 @@ const loadPeriodDetails = async () => {
     if (!previewUserId.value && summariesSortedByProvider.value.length) {
       previewUserId.value = summariesSortedByProvider.value[0].user_id;
     }
-    await loadStaging();
+    // Staging failures should not wipe period state or break view/export modals.
+    try {
+      await loadStaging();
+    } catch {
+      // `loadStaging` already sets `stagingError`/`error`; keep the rest of the page functional.
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load pay period details';
-    selectedPeriod.value = null;
-    rawImportRows.value = [];
-    summaries.value = [];
+    // Preserve the last-known selectedPeriod (or fall back to the cached period list) so modals can still mount.
+    const id = Number(selectedPeriodId.value || 0);
+    if (!selectedPeriod.value && id) {
+      selectedPeriod.value = (periods.value || []).find((p) => Number(p?.id) === id) || null;
+    }
   }
 };
 
 const openRawModal = async () => {
   if (!selectedPeriodId.value) return;
-  // If the raw rows haven't loaded yet (or were cleared), refresh once before opening.
+  error.value = '';
+  // Open immediately so a failed refresh doesn't feel like a dead click.
+  showRawModal.value = true;
+  // If the raw rows haven't loaded yet (or were cleared), refresh once in the background.
   if (!Array.isArray(rawImportRows.value) || rawImportRows.value.length === 0) {
-    await loadPeriodDetails();
+    try { await loadPeriodDetails(); } catch { /* surfaced via error.value */ }
   }
   rawProcessChecklistByRowId.value = {};
   rawRowLimit.value = 200;
-  showRawModal.value = true;
 };
 
 const loadAgencyUsers = async () => {
@@ -4551,32 +6043,7 @@ const loadAgencyUsers = async () => {
   }
 };
 
-const onRateSheetPick = (e) => {
-  const f = e?.target?.files?.[0] || null;
-  rateSheetFile.value = f;
-  rateSheetError.value = '';
-  rateSheetResult.value = null;
-};
-
-const importRateSheet = async () => {
-  if (!rateSheetFile.value || !agencyId.value) return;
-  try {
-    importingRateSheet.value = true;
-    rateSheetError.value = '';
-    rateSheetResult.value = null;
-    const fd = new FormData();
-    fd.append('agencyId', String(agencyId.value));
-    fd.append('file', rateSheetFile.value);
-    const resp = await api.post('/payroll/rate-sheet/import', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-    rateSheetResult.value = resp.data || null;
-  } catch (e) {
-    rateSheetError.value = e.response?.data?.error?.message || e.message || 'Failed to import rate sheet';
-  } finally {
-    importingRateSheet.value = false;
-  }
-};
+// rate sheet import removed
 
 const loadStaging = async () => {
   if (!selectedPeriodId.value) return;
@@ -4587,6 +6054,23 @@ const loadStaging = async () => {
     stagingMatched.value = resp.data?.matched || [];
     stagingUnmatched.value = resp.data?.unmatched || [];
     tierByUserId.value = resp.data?.tierByUserId || {};
+    // Use persisted prior-unpaid snapshot (red column) if present.
+    if (Array.isArray(resp.data?.priorStillUnpaid)) {
+      carryoverPriorStillUnpaid.value = resp.data.priorStillUnpaid.map((d) => ({
+        userId: d.userId,
+        serviceCode: d.serviceCode,
+        stillUnpaidUnits: Number(d.stillUnpaidUnits || 0),
+        firstName: d.firstName,
+        lastName: d.lastName,
+        providerName: d.providerName
+      }));
+      carryoverPriorStillUnpaidMeta.value = {
+        currentPeriodId: Number(selectedPeriodId.value),
+        priorPeriodId: resp.data?.priorStillUnpaidMeta?.sourcePayrollPeriodId || null,
+        baselineRunId: null,
+        compareRunId: null
+      };
+    }
     seedStagingEdits();
   } catch (e) {
     const msg = e.response?.data?.error?.message || e.message || 'Failed to load staging';
@@ -4595,6 +6079,84 @@ const loadStaging = async () => {
     error.value = msg;
   } finally {
     stagingLoading.value = false;
+  }
+};
+
+const beginStageCarryoverEdit = () => {
+  stageCarryoverEditMode.value = true;
+  const nextCarry = {};
+  const nextPrior = {};
+  for (const r of stagingMatched.value || []) {
+    if (!r?.userId || !r?.serviceCode) continue;
+    const k = stagingKey(r);
+    nextCarry[k] = Number(r?.carryover?.oldDoneNotesUnits || 0);
+    // prefer backend-provided persisted value if present
+    nextPrior[k] = Number(r?.carryover?.priorStillUnpaidUnits || 0);
+  }
+  stageCarryoverEdits.value = nextCarry;
+  stagePriorUnpaidEdits.value = nextPrior;
+};
+
+const cancelStageCarryoverEdit = () => {
+  stageCarryoverEditMode.value = false;
+  stageCarryoverEdits.value = {};
+  stagePriorUnpaidEdits.value = {};
+};
+
+const saveStageCarryoverEdits = async () => {
+  if (!selectedPeriodId.value) return;
+  try {
+    savingStageCarryoverEdits.value = true;
+    stagingError.value = '';
+    const rows = Object.entries(stageCarryoverEdits.value || {}).map(([k, v]) => {
+      const [userId, serviceCode] = String(k).split(':');
+      return { userId: Number(userId), serviceCode, carryoverFinalizedUnits: Number(v || 0) };
+    });
+    const doApply = async (params) => {
+      const resp = await api.post(`/payroll/periods/${selectedPeriodId.value}/carryover/apply`, { rows }, { params });
+      return resp?.data || null;
+    };
+    try {
+      await doApply(undefined);
+    } catch (e) {
+      const msg = e.response?.data?.error?.message || e.message || '';
+      // Catch-up workflow: allow explicit bypass of H0031/H0032 processing gates for carryover edits.
+      if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || e.response?.data?.pendingProcessing)) {
+        const ok = window.confirm(
+          'Old Done Notes is blocked by H0031/H0032 processing requirements.\n\nSave anyway (skip processing gate)?\n\nUse this only for catch-up/backfill. You must verify/correct final units in the destination payroll stage before running payroll.'
+        );
+        if (!ok) throw e;
+        await doApply({ skipProcessingGate: 'true' });
+      } else {
+        throw e;
+      }
+    }
+    await loadStaging();
+  } catch (e) {
+    stagingError.value = e.response?.data?.error?.message || e.message || 'Failed to save Old Done Notes edits';
+  } finally {
+    savingStageCarryoverEdits.value = false;
+  }
+};
+
+const saveStagePriorUnpaidEdits = async () => {
+  if (!selectedPeriodId.value) return;
+  try {
+    savingStagePriorUnpaidEdits.value = true;
+    priorStillUnpaidStageError.value = '';
+    const rows = Object.entries(stagePriorUnpaidEdits.value || {}).map(([k, v]) => {
+      const [userId, serviceCode] = String(k).split(':');
+      return { userId: Number(userId), serviceCode, stillUnpaidUnits: Number(v || 0) };
+    });
+    await api.put(`/payroll/periods/${selectedPeriodId.value}/prior-unpaid`, {
+      sourcePayrollPeriodId: carryoverPriorStillUnpaidMeta.value?.priorPeriodId || null,
+      rows
+    });
+    await loadStaging();
+  } catch (e) {
+    priorStillUnpaidStageError.value = e.response?.data?.error?.message || e.message || 'Failed to save Prior still unpaid edits';
+  } finally {
+    savingStagePriorUnpaidEdits.value = false;
   }
 };
 
@@ -4623,13 +6185,19 @@ const payrollStageProviderTierRows = computed(() => {
   const out = [];
   for (const uid of Array.from(matchedUserIds)) {
     const tier = tierByUserId.value?.[uid] || null;
+    const currentTierLevel = Number(tier?.currentPeriodTierLevel ?? tier?.rolling?.displayTierLevel ?? tier?.tierLevel ?? 0);
+    const lastTierLevel = Number(tier?.lastPayPeriodTierLevel ?? tier?.rolling?.lastPayPeriod?.tierLevel ?? 0);
+    const graceActive = Number(tier?.graceActive || 0) === 1;
+    const currentStatus = graceActive ? 'Grace' : (currentTierLevel >= 1 ? 'Current' : 'Out of Compliance');
     out.push({
       key: `u:${uid}`,
       userId: uid,
       name: nameForUserId(uid),
-      tierLevel: Number(tier?.tierLevel ?? 0),
-      tierLabel: tier?.label || '—',
-      tierStatus: tier?.status || ''
+      tierLevel: currentTierLevel,
+      currentLabel: currentTierLevel >= 1 ? `Tier ${currentTierLevel}` : 'Out of Compliance',
+      currentStatus,
+      currentTooltip: tier?.label || tier?.status || '',
+      lastTierLabel: lastTierLevel >= 1 ? `Tier ${lastTierLevel}` : '—'
     });
   }
 
@@ -4796,7 +6364,10 @@ const defaultPriorPeriodId = computed(() => {
 const openCarryoverModal = async () => {
   showCarryoverModal.value = true;
   carryoverError.value = '';
+  carryoverApplyResult.value = null;
   carryoverPreview.value = [];
+  carryoverPriorStillUnpaid.value = [];
+  carryoverPriorStillUnpaidMeta.value = null;
   carryoverRuns.value = [];
   carryoverBaselineRunId.value = null;
   carryoverCompareRunId.value = null;
@@ -4820,7 +6391,10 @@ const openCarryoverForPrior = async () => {
   }
   showCarryoverModal.value = true;
   carryoverError.value = '';
+  carryoverApplyResult.value = null;
   carryoverPreview.value = [];
+  carryoverPriorStillUnpaid.value = [];
+  carryoverPriorStillUnpaidMeta.value = null;
   carryoverRuns.value = [];
   carryoverBaselineRunId.value = null;
   carryoverCompareRunId.value = null;
@@ -4836,6 +6410,56 @@ const loadCarryoverRuns = async () => {
   if (carryoverRuns.value.length) {
     carryoverBaselineRunId.value = carryoverRuns.value[0].id;
     carryoverCompareRunId.value = carryoverRuns.value[carryoverRuns.value.length - 1].id;
+  }
+};
+
+const loadPriorStillUnpaidForStage = async () => {
+  if (!selectedPeriodId.value) return;
+  try {
+    loadingPriorStillUnpaidForStage.value = true;
+    priorStillUnpaidStageError.value = '';
+
+    const priorId = defaultPriorPeriodId.value || null;
+    if (!priorId) {
+      carryoverPriorStillUnpaid.value = [];
+      carryoverPriorStillUnpaidMeta.value = null;
+      return;
+    }
+
+    // Choose baseline+compare runs from the prior period (first and last).
+    const runsResp = await api.get(`/payroll/periods/${priorId}/runs`);
+    const runs = runsResp.data || [];
+    if (!runs.length) {
+      carryoverPriorStillUnpaid.value = [];
+      carryoverPriorStillUnpaidMeta.value = { currentPeriodId: Number(selectedPeriodId.value), priorPeriodId: Number(priorId), baselineRunId: null, compareRunId: null };
+      return;
+    }
+    const baselineId = runs[0].id;
+    const compareId = runs[runs.length - 1].id;
+
+    const previewResp = await api.get(`/payroll/periods/${selectedPeriodId.value}/carryover/preview`, {
+      params: { priorPeriodId: priorId, baselineRunId: baselineId, compareRunId: compareId }
+    });
+
+    const still = Array.isArray(previewResp.data?.stillUnpaid) ? previewResp.data.stillUnpaid : [];
+    carryoverPriorStillUnpaid.value = still.map((d) => ({
+      userId: d.userId,
+      serviceCode: d.serviceCode,
+      stillUnpaidUnits: Number(d.stillUnpaidUnits || 0),
+      firstName: d.firstName,
+      lastName: d.lastName,
+      providerName: d.providerName
+    }));
+    carryoverPriorStillUnpaidMeta.value = {
+      currentPeriodId: Number(selectedPeriodId.value),
+      priorPeriodId: Number(priorId),
+      baselineRunId: Number(baselineId),
+      compareRunId: Number(compareId)
+    };
+  } catch (e) {
+    priorStillUnpaidStageError.value = e.response?.data?.error?.message || e.message || 'Failed to load prior unpaid snapshot';
+  } finally {
+    loadingPriorStillUnpaidForStage.value = false;
   }
 };
 
@@ -4857,6 +6481,38 @@ const loadCarryoverPreview = async () => {
       firstName: d.firstName,
       lastName: d.lastName
     }));
+
+    // Track rows that are STILL unpaid in the prior period after the selected comparison run.
+    // Backend provides this explicitly because `deltas` only includes rows where finalized increased.
+    const still = Array.isArray(resp.data?.stillUnpaid) ? resp.data.stillUnpaid : null;
+    if (still) {
+      carryoverPriorStillUnpaid.value = still.map((d) => ({
+        userId: d.userId,
+        serviceCode: d.serviceCode,
+        stillUnpaidUnits: Number(d.stillUnpaidUnits || 0),
+        firstName: d.firstName,
+        lastName: d.lastName,
+        providerName: d.providerName
+      }));
+    } else {
+      // Backward compatible fallback (older backend)
+      carryoverPriorStillUnpaid.value = (deltas || [])
+        .filter((d) => !!d?.userId && !!d?.serviceCode && Number(d?.currUnpaidUnits || 0) > 0)
+        .map((d) => ({
+          userId: d.userId,
+          serviceCode: d.serviceCode,
+          stillUnpaidUnits: Number(d.currUnpaidUnits || 0),
+          firstName: d.firstName,
+          lastName: d.lastName,
+          providerName: d.providerName
+        }));
+    }
+    carryoverPriorStillUnpaidMeta.value = {
+      currentPeriodId: Number(selectedPeriodId.value),
+      priorPeriodId: Number(carryoverPriorPeriodId.value),
+      baselineRunId: Number(carryoverBaselineRunId.value),
+      compareRunId: Number(carryoverCompareRunId.value)
+    };
   } catch (e) {
     carryoverError.value = e.response?.data?.error?.message || e.message || 'Failed to compute differences';
   } finally {
@@ -4870,6 +6526,8 @@ watch(carryoverPriorPeriodId, async () => {
     carryoverLoading.value = true;
     carryoverError.value = '';
     carryoverPreview.value = [];
+    carryoverPriorStillUnpaid.value = [];
+    carryoverPriorStillUnpaidMeta.value = null;
     await loadCarryoverRuns();
   } catch (e) {
     carryoverError.value = e.response?.data?.error?.message || e.message || 'Failed to load prior period runs';
@@ -4889,6 +6547,7 @@ const applyCarryover = async () => {
   try {
     applyingCarryover.value = true;
     carryoverError.value = '';
+    carryoverApplyResult.value = null;
     const rows = (carryoverPreview.value || [])
       .map((d) => ({
         userId: d.userId,
@@ -4897,16 +6556,42 @@ const applyCarryover = async () => {
       }))
       .filter((r) => !!r.userId && !!r.serviceCode && Number(r.carryoverFinalizedUnits || 0) > 0);
 
-    // IMPORTANT: Express json parser is strict; sending `null` causes a 400 parse error.
-    await api.post(`/payroll/periods/${selectedPeriodId.value}/carryover/apply`, { rows }, {
-      params: {
+    const doApply = async (params) => {
+      const resp = await api.post(`/payroll/periods/${selectedPeriodId.value}/carryover/apply`, { rows }, { params });
+      return resp?.data || null;
+    };
+
+    // IMPORTANT: Express json parser is strict; do not send `null`.
+    try {
+      const data = await doApply({
         priorPeriodId: carryoverPriorPeriodId.value,
         baselineRunId: carryoverBaselineRunId.value || undefined,
         compareRunId: carryoverCompareRunId.value || undefined
+      });
+      carryoverApplyResult.value = data ? { inserted: Number(data.inserted || 0), warnings: data.warnings || [] } : { inserted: rows.length, warnings: [] };
+    } catch (e) {
+      const msg = e.response?.data?.error?.message || e.message || '';
+      // Catch-up workflow: allow explicit bypass of H0031/H0032 processing gates for carryover apply.
+      if (e.response?.status === 409 && (String(msg).includes('H0031') || String(msg).includes('H0032') || e.response?.data?.pendingProcessing)) {
+        const ok = window.confirm(
+          'Carryover is blocked by H0031/H0032 processing requirements.\n\nApply carryover anyway (skip processing gate)?\n\nUse this only for catch-up/backfill. You must verify/correct final units in the destination payroll stage before running payroll.'
+        );
+        if (ok) {
+          const data2 = await doApply({
+            priorPeriodId: carryoverPriorPeriodId.value,
+            baselineRunId: carryoverBaselineRunId.value || undefined,
+            compareRunId: carryoverCompareRunId.value || undefined,
+            skipProcessingGate: 'true'
+          });
+          carryoverApplyResult.value = data2 ? { inserted: Number(data2.inserted || 0), warnings: data2.warnings || [] } : { inserted: rows.length, warnings: [] };
+        } else {
+          throw e;
+        }
+      } else {
+        throw e;
       }
-    });
+    }
     await loadStaging();
-    showCarryoverModal.value = false;
   } catch (e) {
     carryoverError.value = e.response?.data?.error?.message || e.message || 'Failed to apply differences';
   } finally {
@@ -4999,6 +6684,57 @@ const downloadExportCsv = async () => {
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to download export CSV';
   }
+};
+
+// Some large sections (including the Run/Preview modals) are currently nested under provider-selection UI.
+// Ensure we have a selected provider before opening those modals so the modal DOM is mounted.
+const ensureProviderSelectedForModals = async () => {
+  if (selectedUserId.value) return;
+  const list = (summariesSortedByProvider.value || []).slice();
+  const first = list[0] || null;
+  const uid = first?.user_id || null;
+  if (!uid) return;
+  selectedUserId.value = uid;
+  selectedSummary.value = (summaries.value || []).find((s) => s.user_id === uid) || null;
+  if (!previewUserId.value) previewUserId.value = uid;
+  await nextTick();
+};
+
+// Explicit open handlers (some browsers + forms can swallow plain ref-assign clicks)
+const openRunResultsModal = async () => {
+  if (!selectedPeriodId.value) return;
+  error.value = '';
+  await ensureProviderSelectedForModals();
+  showRunModal.value = true; // open immediately
+  if (!canSeeRunResults.value) {
+    // Still open the modal (it will show "No run results yet"), but show an explicit message.
+    error.value = 'No run results yet for this pay period. Click Run Payroll first.';
+    return;
+  }
+  // Best-effort; do not block modal open if this fails.
+  try { await loadImmediatePriorSummaries(); } catch { /* ignore */ }
+};
+
+const openPreviewPostModal = async () => {
+  if (!selectedPeriodId.value) return;
+  error.value = '';
+  await ensureProviderSelectedForModals();
+  showPreviewPostModal.value = true; // open immediately
+  if (!canSeeRunResults.value) {
+    error.value = 'No run results yet for this pay period. Click Run Payroll first.';
+    return;
+  }
+  try { await loadImmediatePriorSummaries(); } catch { /* ignore */ }
+};
+
+const exportPayrollCsv = async () => {
+  if (!selectedPeriodId.value) return;
+  error.value = '';
+  if (!canSeeRunResults.value) {
+    // Try anyway; backend will respond with a helpful error if it can't export.
+    error.value = 'This pay period has no run results yet. Export may fail until you Run Payroll.';
+  }
+  await downloadExportCsv();
 };
 
 const onFilePick = (evt) => {
@@ -5235,10 +6971,14 @@ const loadAdjustments = async () => {
       missedAppointmentsAmount: Number(a.missed_appointments_amount || 0),
       bonusAmount: Number(a.bonus_amount || 0),
       reimbursementAmount: Number(a.reimbursement_amount || 0),
+      otherRate1Hours: Number(a.other_rate_1_hours || 0),
+      otherRate2Hours: Number(a.other_rate_2_hours || 0),
+      otherRate3Hours: Number(a.other_rate_3_hours || 0),
       salaryAmount: Number(a.salary_amount || 0),
       ptoHours: Number(a.pto_hours || 0),
       ptoRate: Number(a.pto_rate || 0)
     };
+    await loadOtherRateTitlesForAdjustments();
   } catch (e) {
     adjustmentsError.value = e.response?.data?.error?.message || e.message || 'Failed to load adjustments';
   } finally {
@@ -5260,6 +7000,9 @@ const saveAdjustments = async () => {
       missedAppointmentsAmount: Number(adjustments.value.missedAppointmentsAmount || 0),
       bonusAmount: Number(adjustments.value.bonusAmount || 0),
       reimbursementAmount: Number(adjustments.value.reimbursementAmount || 0),
+      otherRate1Hours: Number(adjustments.value.otherRate1Hours || 0),
+      otherRate2Hours: Number(adjustments.value.otherRate2Hours || 0),
+      otherRate3Hours: Number(adjustments.value.otherRate3Hours || 0),
       salaryAmount: Number(adjustments.value.salaryAmount || 0),
       ptoHours: Number(adjustments.value.ptoHours || 0),
       ptoRate: Number(adjustments.value.ptoRate || 0)
@@ -5406,7 +7149,7 @@ const runPayroll = async () => {
         );
         if (ok) {
           try {
-            await api.post(`/payroll/periods/${selectedPeriodId.value}/run`, null, { params: { skipProcessingGate: 'true' } });
+            await api.post(`/payroll/periods/${selectedPeriodId.value}/run`, {}, { params: { skipProcessingGate: 'true' } });
             await loadPeriods();
             await loadPeriodDetails();
             return;
@@ -5449,6 +7192,24 @@ const postPayroll = async () => {
   }
 };
 
+const unpostPayroll = async () => {
+  try {
+    if (!selectedPeriodId.value) return;
+    if (!isSuperAdmin.value) return;
+    const ok = window.confirm('UNPOST this pay period? This will revert it back to Ran so you can correct settings and re-run/post. It does not delete imports or run results.');
+    if (!ok) return;
+    unpostingPayroll.value = true;
+    error.value = '';
+    await api.post(`/payroll/periods/${selectedPeriodId.value}/unpost`);
+    await loadPeriods();
+    await loadPeriodDetails();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to unpost pay period';
+  } finally {
+    unpostingPayroll.value = false;
+  }
+};
+
 const resetPeriod = async () => {
   try {
     if (!selectedPeriodId.value) return;
@@ -5463,6 +7224,24 @@ const resetPeriod = async () => {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to reset pay period';
   } finally {
     resettingPeriod.value = false;
+  }
+};
+
+const restagePeriod = async () => {
+  try {
+    if (!selectedPeriodId.value) return;
+    if (!isPeriodRan.value) return;
+    const ok = window.confirm('Restage this pay period? This will clear Run Payroll results and return the period to Staged (does not delete imports or staging edits).');
+    if (!ok) return;
+    restagingPeriod.value = true;
+    error.value = '';
+    await api.post(`/payroll/periods/${selectedPeriodId.value}/restage`);
+    await loadPeriods();
+    await loadPeriodDetails();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to restage pay period';
+  } finally {
+    restagingPeriod.value = false;
   }
 };
 
@@ -5531,6 +7310,10 @@ watch(showStageModal, async (open) => {
   await loadApprovedMedcancelClaimsList();
   await loadApprovedReimbursementClaimsList();
   await loadManualPayLines();
+
+  // Also load prior-period still-unpaid snapshot so the red backlog indicators persist
+  // even if the user doesn’t reopen the comparison modal.
+  await loadPriorStillUnpaidForStage();
 });
 
 watch(selectedUserId, async () => {
@@ -5589,6 +7372,13 @@ watch(previewUserId, async () => {
   } finally {
     previewUserPayrollHistoryLoading.value = false;
   }
+});
+
+watch(previewPostV2UserId, async () => {
+  if (!showPreviewPostModalV2.value) return;
+  if (previewPostV2Loading.value) return;
+  previewPostV2Error.value = '';
+  await loadPreviewPostV2Notifications();
 });
 
 watch(
@@ -5751,19 +7541,14 @@ const confirmProcessImport = async () => {
       return;
     }
 
-    const fd = new FormData();
-    fd.append('file', processImportFile.value);
-    await api.post(`/payroll/periods/${sourcePeriodId}/import`, fd);
-
     await loadPeriods();
     const p = (periods.value || []).find((x) => x.id === sourcePeriodId) || null;
     processSourcePeriodId.value = sourcePeriodId;
     processSourcePeriodLabel.value = p ? periodRangeLabel(p) : `Period #${sourcePeriodId}`;
 
-    processImportFile.value = null;
     processConfirmOpen.value = false;
   } catch (e) {
-    processError.value = e.response?.data?.error?.message || e.message || 'Failed to import prior pay period report';
+    processError.value = e.response?.data?.error?.message || e.message || 'Failed to select prior pay period for comparison';
   } finally {
     processingChanges.value = false;
   }
@@ -5776,8 +7561,14 @@ const processRunAndCompare = async () => {
     processingChanges.value = true;
     processError.value = '';
 
-    // Run payroll for the prior period to create a new run snapshot.
-    await api.post(`/payroll/periods/${processSourcePeriodId.value}/run`);
+    // Create a snapshot-only run from the uploaded report (does NOT modify the old pay period).
+    if (!processImportFile.value) {
+      processError.value = 'Please choose the updated prior-period report file again.';
+      return;
+    }
+    const fd = new FormData();
+    fd.append('file', processImportFile.value);
+    await api.post(`/payroll/periods/${processSourcePeriodId.value}/runs/snapshot-from-file`, fd);
 
     // Switch UI context to the present pay period (destination) and open compare modal.
     await selectPeriod(processTargetEffectiveId.value);
@@ -5831,6 +7622,22 @@ input[type='number'] {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.link-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.link-btn.right {
+  width: 100%;
+  text-align: right;
 }
 .actions {
   display: flex;
@@ -5923,7 +7730,7 @@ input[type='number'] {
   align-items: center;
   justify-content: center;
   padding: 18px;
-  z-index: 50;
+  z-index: 9999;
 }
 .modal {
   width: min(1100px, 100%);
@@ -5932,7 +7739,11 @@ input[type='number'] {
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 16px;
+  padding: 10px;
+}
+.modal .table th,
+.modal .table td {
+  padding: 8px 10px;
 }
 .modal-header {
   display: flex;
@@ -5967,11 +7778,50 @@ input[type='number'] {
   background: #fff3bf;
   font-weight: 700;
 }
+.prior-unpaid-row {
+  background: #ffecec;
+}
+.prior-unpaid-cell {
+  background: #ffd6d6;
+  font-weight: 700;
+  color: #b00020;
+}
 .right {
   text-align: right;
 }
+.stage-num-input {
+  width: 80px;
+  min-width: 80px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.stage-num-input:disabled {
+  background: #f3f4f6;
+  color: #6b7280;
+}
 .muted {
   color: var(--text-secondary);
+}
+.tier-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  vertical-align: middle;
+}
+.tier-chip.grace {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
 }
 .clickable {
   cursor: pointer;

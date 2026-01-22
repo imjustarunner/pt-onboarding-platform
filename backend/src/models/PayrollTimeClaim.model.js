@@ -101,11 +101,16 @@ class PayrollTimeClaim {
     return (rows || []).map((r) => this._normalize(r));
   }
 
-  static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount }) {
+  static async approve({ id, approverUserId, targetPayrollPeriodId, appliedAmount, bucket = 'indirect', creditsHours = null }) {
+    const b = String(bucket || 'indirect').trim().toLowerCase() === 'direct' ? 'direct' : 'indirect';
+    const hrsRaw = creditsHours === null || creditsHours === undefined || creditsHours === '' ? null : Number(creditsHours);
+    const safeHrs = Number.isFinite(hrsRaw) ? Math.round(hrsRaw * 100) / 100 : null;
     await pool.execute(
       `UPDATE payroll_time_claims
        SET status = 'approved',
            target_payroll_period_id = ?,
+           bucket = ?,
+           credits_hours = ?,
            applied_amount = ?,
            approved_by_user_id = ?,
            approved_at = NOW(),
@@ -114,7 +119,7 @@ class PayrollTimeClaim {
            rejected_at = NULL
        WHERE id = ?
        LIMIT 1`,
-      [targetPayrollPeriodId, appliedAmount, approverUserId, id]
+      [targetPayrollPeriodId, b, safeHrs, appliedAmount, approverUserId, id]
     );
     return PayrollTimeClaim.findById(id);
   }
@@ -191,6 +196,20 @@ class PayrollTimeClaim {
       [agencyId, userId, payrollPeriodId]
     );
     return Number(rows?.[0]?.total || 0);
+  }
+
+  static async listApprovedForPeriodUser({ payrollPeriodId, agencyId, userId }) {
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM payroll_time_claims
+       WHERE agency_id = ?
+         AND user_id = ?
+         AND status IN ('approved','paid')
+         AND target_payroll_period_id = ?
+       ORDER BY claim_date ASC, id ASC`,
+      [agencyId, userId, payrollPeriodId]
+    );
+    return (rows || []).map((r) => this._normalize(r));
   }
 
   static async countUnresolvedForPeriod({ payrollPeriodId, agencyId }) {
