@@ -13,7 +13,11 @@ function findRepoFileCandidates(relativePathFromRepoRoot) {
   const cwd = process.cwd();
   return [
     path.join(cwd, relativePathFromRepoRoot),
+    // Cloud Run builds often set WORKDIR=/app and only copy backend/ as the build context.
+    // In that case, the spec lives at /app/backend/PROVIDER_ONBOARDING_MODULES.md.
+    path.join(cwd, 'backend', relativePathFromRepoRoot),
     path.join(cwd, '..', relativePathFromRepoRoot),
+    path.join(cwd, '..', 'backend', relativePathFromRepoRoot),
     path.join(cwd, '..', '..', relativePathFromRepoRoot)
   ];
 }
