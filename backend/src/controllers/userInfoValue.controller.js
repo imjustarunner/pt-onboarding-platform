@@ -2,6 +2,7 @@ import UserInfoValue from '../models/UserInfoValue.model.js';
 import { validationResult } from 'express-validator';
 import Task from '../models/Task.model.js';
 import ModuleContent from '../models/ModuleContent.model.js';
+import pool from '../config/database.js';
 
 export const getUserInfo = async (req, res, next) => {
   try {
@@ -85,7 +86,38 @@ export const updateUserInfo = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Values must be an array' } });
     }
     
-    const results = await UserInfoValue.bulkUpdate(parseInt(userId), values);
+    // Enforce some profile fields as staff-managed (view-only) for self-service users.
+    let effectiveValues = values;
+    const isSelf = parseInt(userId) === req.user.id;
+    const SELF_READONLY_CATEGORY_KEYS = new Set(['gear_tracking']);
+    if (isSelf && Array.isArray(values) && values.length) {
+      try {
+        const ids = values
+          .map((v) => Number(v?.fieldDefinitionId))
+          .filter((n) => Number.isInteger(n) && n > 0);
+        if (ids.length) {
+          const placeholders = ids.map(() => '?').join(',');
+          const [defs] = await pool.execute(
+            `SELECT id, category_key
+             FROM user_info_field_definitions
+             WHERE id IN (${placeholders})`,
+            ids
+          );
+          const readonlyIds = new Set(
+            (defs || [])
+              .filter((d) => d?.category_key && SELF_READONLY_CATEGORY_KEYS.has(String(d.category_key)))
+              .map((d) => Number(d.id))
+          );
+          if (readonlyIds.size) {
+            effectiveValues = values.filter((v) => !readonlyIds.has(Number(v?.fieldDefinitionId)));
+          }
+        }
+      } catch {
+        // Fail open: do not block the save if the lookup fails.
+      }
+    }
+
+    const results = await UserInfoValue.bulkUpdate(parseInt(userId), effectiveValues);
     
     res.json({ message: 'User information updated successfully', results });
   } catch (error) {
@@ -108,6 +140,24 @@ export const updateUserInfoField = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     
+    // Block self-service edits of staff-managed categories.
+    const isSelf = parseInt(userId) === req.user.id;
+    const SELF_READONLY_CATEGORY_KEYS = new Set(['gear_tracking']);
+    if (isSelf) {
+      try {
+        const [rows] = await pool.execute(
+          'SELECT category_key FROM user_info_field_definitions WHERE id = ? LIMIT 1',
+          [parseInt(fieldId)]
+        );
+        const cat = rows?.[0]?.category_key ? String(rows[0].category_key) : '';
+        if (cat && SELF_READONLY_CATEGORY_KEYS.has(cat)) {
+          return res.status(403).json({ error: { message: 'This section is managed by staff.' } });
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const result = await UserInfoValue.createOrUpdate(parseInt(userId), parseInt(fieldId), value);
     
     res.json(result);

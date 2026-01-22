@@ -5,6 +5,8 @@ import UserInfoValue from '../models/UserInfoValue.model.js';
 import { validationResult } from 'express-validator';
 import multer from 'multer';
 import StorageService from '../services/storage.service.js';
+import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
+import User from '../models/User.model.js';
 
 function parseContentData(contentRow) {
   const data = contentRow?.content_data;
@@ -174,6 +176,32 @@ export const uploadModuleFormFile = [
 
       // Store the GCS key in the profile field as text.
       await UserInfoValue.bulkUpdate(req.user.id, [{ fieldDefinitionId, value: saved.relativePath }]);
+
+      // Best-effort: also mirror some uploads into compliance documents for tracking (licenses, etc.)
+      if (String(def.field_key) === 'license_upload' && String(req.file.mimetype || '').toLowerCase() === 'application/pdf') {
+        try {
+          let agencyId = null;
+          try {
+            const agencies = await User.getAgencies(req.user.id);
+            agencyId = agencies?.[0]?.id || null;
+          } catch {
+            agencyId = null;
+          }
+          await UserComplianceDocument.create({
+            userId: req.user.id,
+            agencyId,
+            documentType: 'license_upload',
+            expirationDate: null,
+            isBlocking: false,
+            filePath: saved.relativePath,
+            notes: 'Uploaded via profile form field license_upload',
+            uploadedAt: new Date(),
+            createdByUserId: req.user.id
+          });
+        } catch {
+          // ignore
+        }
+      }
 
       res.json({
         ok: true,

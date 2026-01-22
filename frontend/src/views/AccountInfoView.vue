@@ -205,6 +205,10 @@
                 <span v-if="field.is_required" class="required-asterisk">*</span>
               </label>
 
+              <div v-if="isStaffManagedField(field)" class="hint" style="margin: 2px 0 6px 0;">
+                This section is managed by staff. You can view it here.
+              </div>
+
               <div v-if="fileValueUrl(myUserInfoValues[field.id])" style="margin-bottom: 6px;">
                 <a :href="fileValueUrl(myUserInfoValues[field.id])" target="_blank" rel="noopener noreferrer">View uploaded file</a>
               </div>
@@ -215,6 +219,7 @@
                 :type="field.field_type === 'email' ? 'email' : field.field_type === 'phone' ? 'tel' : 'text'"
                 v-model="myUserInfoValues[field.id]"
                 :required="field.is_required"
+                :disabled="isStaffManagedField(field)"
               />
 
               <input
@@ -223,6 +228,7 @@
                 type="number"
                 v-model="myUserInfoValues[field.id]"
                 :required="field.is_required"
+                :disabled="isStaffManagedField(field)"
               />
 
               <input
@@ -231,6 +237,7 @@
                 type="date"
                 v-model="myUserInfoValues[field.id]"
                 :required="field.is_required"
+                :disabled="isStaffManagedField(field)"
               />
 
               <textarea
@@ -239,6 +246,7 @@
                 v-model="myUserInfoValues[field.id]"
                 rows="3"
                 :required="field.is_required"
+                :disabled="isStaffManagedField(field)"
               />
 
               <select
@@ -246,6 +254,7 @@
                 :id="`my-field-${field.id}`"
                 v-model="myUserInfoValues[field.id]"
                 :required="field.is_required"
+                :disabled="isStaffManagedField(field)"
               >
                 <option value="">Select…</option>
                 <option v-for="opt in (field.options || [])" :key="opt" :value="opt">{{ opt }}</option>
@@ -257,6 +266,7 @@
                     type="checkbox"
                     :checked="normalizeMultiSelectValue(myUserInfoValues[field.id]).includes(opt)"
                     @change="toggleMyMultiSelect(field.id, opt)"
+                    :disabled="isStaffManagedField(field)"
                   />
                   {{ opt }}
                 </label>
@@ -267,6 +277,7 @@
                 :id="`my-field-${field.id}`"
                 v-model="myUserInfoValues[field.id]"
                 :required="field.is_required"
+                :disabled="isStaffManagedField(field)"
               >
                 <option value="">Select…</option>
                 <option value="true">Yes</option>
@@ -278,6 +289,7 @@
                 :id="`my-field-${field.id}`"
                 v-model="myUserInfoValues[field.id]"
                 type="text"
+                :disabled="isStaffManagedField(field)"
               />
             </div>
           </div>
@@ -555,6 +567,10 @@ const myPlatformFields = computed(() => {
   const allowed = platformCategoryKeys.value;
   return (myUserInfoFields.value || []).filter((f) => f?.category_key && allowed.has(f.category_key));
 });
+
+const isStaffManagedField = (field) => {
+  return String(field?.category_key || '') === 'gear_tracking';
+};
 
 const myCategoryOptions = computed(() => {
   const byKey = new Map((myUserInfoCategories.value || []).map((c) => [c.category_key, c]));
