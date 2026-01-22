@@ -263,7 +263,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -293,6 +293,8 @@ class User {
       if (existingColumns.includes('medcancel_rate_schedule')) query += ', medcancel_rate_schedule';
       if (existingColumns.includes('company_card_enabled')) query += ', company_card_enabled';
       if (existingColumns.includes('profile_photo_path')) query += ', profile_photo_path';
+      if (existingColumns.includes('title')) query += ', title';
+      if (existingColumns.includes('service_focus')) query += ', service_focus';
     } catch (err) {
       // If we can't check columns, just use the base query
       console.warn('Could not check for pending columns:', err.message);
@@ -594,6 +596,8 @@ class User {
       email,
       preferredName,
       personalEmail,
+      title,
+      serviceFocus,
       firstName,
       lastName,
       role,
@@ -706,6 +710,36 @@ class User {
         if (columns.length > 0) {
           updates.push('personal_email = ?');
           values.push(personalEmail ? String(personalEmail).trim().toLowerCase() : null);
+        }
+      } catch {
+        // ignore (older DBs)
+      }
+    }
+
+    // Title (account field)
+    if (title !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'title'"
+        );
+        if (columns.length > 0) {
+          updates.push('title = ?');
+          values.push(title ? String(title).trim() : null);
+        }
+      } catch {
+        // ignore (older DBs)
+      }
+    }
+
+    // Service focus (account field)
+    if (serviceFocus !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'service_focus'"
+        );
+        if (columns.length > 0) {
+          updates.push('service_focus = ?');
+          values.push(serviceFocus ? String(serviceFocus).trim() : null);
         }
       } catch {
         // ignore (older DBs)

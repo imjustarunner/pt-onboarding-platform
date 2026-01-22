@@ -63,6 +63,8 @@ export const getCurrentUser = async (req, res, next) => {
       firstName: user.first_name,
       lastName: user.last_name,
       preferredName: user.preferred_name || null,
+      title: user.title ?? null,
+      serviceFocus: user.service_focus ?? null,
       username: user.username || user.personal_email || user.email,
       profilePhotoUrl: publicUploadsUrlFromStoredPath(user.profile_photo_path),
       requiresPasswordChange: pw.requiresPasswordChange,
@@ -923,6 +925,8 @@ export const updateUser = async (req, res, next) => {
       loginEmail,
       preferredName,
       personalEmail,
+      title,
+      serviceFocus,
       firstName,
       lastName,
       role: roleRaw,
@@ -1099,6 +1103,16 @@ export const updateUser = async (req, res, next) => {
     if (preferredName !== undefined) {
       const v = String(preferredName || '').trim();
       updateData.preferredName = v || null;
+    }
+
+    // Account fields
+    if (title !== undefined) {
+      const v = String(title || '').trim();
+      updateData.title = v || null;
+    }
+    if (serviceFocus !== undefined) {
+      const v = String(serviceFocus || '').trim();
+      updateData.serviceFocus = v || null;
     }
 
     // Additional login emails (aliases) for multi-agency users.
@@ -1938,6 +1952,8 @@ export const getAccountInfo = async (req, res, next) => {
     const accountInfo = {
       loginEmail: user.email || user.work_email || 'Not provided',
       preferredName: user.preferred_name || null,
+      title: user.title ?? null,
+      serviceFocus: user.service_focus ?? null,
       personalEmail: personalEmail || user.personal_email || null,
       phoneNumber: user.phone_number || null, // Keep for backward compatibility
       personalPhone: user.personal_phone || null,

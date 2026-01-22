@@ -55,6 +55,14 @@
             <span>{{ accountInfo.preferredName || 'Not provided' }}</span>
           </div>
           <div class="info-item">
+            <label>Title:</label>
+            <span>{{ accountInfo.title || 'Not provided' }}</span>
+          </div>
+          <div class="info-item">
+            <label>Service Focus:</label>
+            <span>{{ accountInfo.serviceFocus || 'Not provided' }}</span>
+          </div>
+          <div class="info-item">
             <label>Personal Email:</label>
             <span>{{ accountInfo.personalEmail || 'Not provided' }}</span>
           </div>
@@ -95,6 +103,29 @@
             <div class="field-item">
               <label>Preferred name</label>
               <input v-model="preferredNameForm" type="text" placeholder="e.g., Katie" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top: 16px;">
+          <div class="section-header">
+            <h3 style="margin: 0;">Title & Service Focus</h3>
+            <button class="btn btn-primary btn-large" @click="saveTitleServiceFocus" :disabled="savingTitleServiceFocus">
+              {{ savingTitleServiceFocus ? 'Saving...' : 'Save' }}
+            </button>
+          </div>
+          <div class="hint" style="margin-top: 6px;">
+            Used across the app for quick context in account/profile screens.
+          </div>
+          <div v-if="titleServiceFocusError" class="error" style="margin-top: 10px;">{{ titleServiceFocusError }}</div>
+          <div class="fields-grid" style="margin-top: 12px;">
+            <div class="field-item">
+              <label>Title</label>
+              <input v-model="titleServiceFocusForm.title" type="text" placeholder="e.g., Therapist" />
+            </div>
+            <div class="field-item">
+              <label>Service Focus</label>
+              <input v-model="titleServiceFocusForm.serviceFocus" type="text" placeholder="e.g., Trauma, School-based" />
             </div>
           </div>
         </div>
@@ -333,6 +364,8 @@ const error = ref('');
 const accountInfo = ref({ 
   loginEmail: '', 
   preferredName: '',
+  title: '',
+  serviceFocus: '',
   personalEmail: '', 
   phoneNumber: '', 
   personalPhone: '',
@@ -355,6 +388,10 @@ const tokenExpirationDays = ref(7);
 const preferredNameForm = ref('');
 const savingPreferredName = ref(false);
 const preferredNameError = ref('');
+
+const savingTitleServiceFocus = ref(false);
+const titleServiceFocusError = ref('');
+const titleServiceFocusForm = ref({ title: '', serviceFocus: '' });
 
 // User Info (profile fields saved by Custom Input Modules)
 const userInfoLoading = ref(false);
@@ -538,6 +575,10 @@ const fetchAccountInfo = async () => {
     const response = await api.get(`/users/${userId.value}/account-info`);
     accountInfo.value = response.data;
     preferredNameForm.value = response.data?.preferredName || '';
+    titleServiceFocusForm.value = {
+      title: response.data?.title || '',
+      serviceFocus: response.data?.serviceFocus || ''
+    };
     homeAddressForm.value = {
       street: response.data?.homeStreetAddress || '',
       city: response.data?.homeCity || '',
@@ -569,6 +610,30 @@ const savePreferredName = async () => {
     alert(preferredNameError.value);
   } finally {
     savingPreferredName.value = false;
+  }
+};
+
+const saveTitleServiceFocus = async () => {
+  try {
+    if (!userId.value) return;
+    savingTitleServiceFocus.value = true;
+    titleServiceFocusError.value = '';
+    await api.put(`/users/${userId.value}`, {
+      title: titleServiceFocusForm.value.title,
+      serviceFocus: titleServiceFocusForm.value.serviceFocus
+    });
+    await fetchAccountInfo();
+    try {
+      await authStore.refreshUser();
+    } catch {
+      // non-blocking
+    }
+    alert('Saved successfully!');
+  } catch (err) {
+    titleServiceFocusError.value = err.response?.data?.error?.message || 'Failed to save title/service focus';
+    alert(titleServiceFocusError.value);
+  } finally {
+    savingTitleServiceFocus.value = false;
   }
 };
 

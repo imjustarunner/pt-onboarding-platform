@@ -114,6 +114,14 @@
                   </small>
                 </div>
                 <div class="form-group">
+                  <label>Title</label>
+                  <input v-model="accountForm.title" type="text" :disabled="!isEditingAccount" placeholder="e.g. Therapist" />
+                </div>
+                <div class="form-group">
+                  <label>Service Focus</label>
+                  <input v-model="accountForm.serviceFocus" type="text" :disabled="!isEditingAccount" placeholder="e.g. School-based, Trauma, Medicaid" />
+                </div>
+                <div class="form-group">
                   <label>Personal Phone Number</label>
                   <input v-model="accountForm.personalPhone" type="tel" :disabled="!isEditingAccount" />
                 </div>
@@ -1216,6 +1224,8 @@ const accountForm = ref({
   preferredName: '',
   email: '',
   personalEmail: '',
+  title: '',
+  serviceFocus: '',
   phoneNumber: '',
   personalPhone: '',
   workPhone: '',
@@ -1565,6 +1575,8 @@ const fetchUser = async () => {
       preferredName: user.value.preferred_name || accountForm.value?.preferredName || '',
       email: user.value.email || accountForm.value?.email || '',
       personalEmail: user.value.personal_email || accountForm.value?.personalEmail || '',
+      title: user.value.title ?? accountForm.value?.title ?? '',
+      serviceFocus: user.value.service_focus ?? accountForm.value?.serviceFocus ?? '',
       phoneNumber: user.value.phone_number || accountForm.value?.phoneNumber || '',
       personalPhone: user.value.personal_phone || accountForm.value?.personalPhone || '',
       workPhone: user.value.work_phone || accountForm.value?.workPhone || '',
@@ -1976,6 +1988,8 @@ const saveAccount = async () => {
       lastName: accountForm.value.lastName,
       preferredName: accountForm.value.preferredName,
       personalEmail: accountForm.value.personalEmail,
+      title: accountForm.value.title,
+      serviceFocus: accountForm.value.serviceFocus,
       phoneNumber: accountForm.value.phoneNumber,
       personalPhone: accountForm.value.personalPhone,
       workPhone: accountForm.value.workPhone,

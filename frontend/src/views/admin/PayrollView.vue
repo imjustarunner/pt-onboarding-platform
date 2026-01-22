@@ -3084,6 +3084,8 @@ const agencyStore = useAgencyStore();
 const organizationStore = useOrganizationStore();
 const authStore = useAuthStore();
 
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+
 // super-admin-only rate sheet import removed
 
 const orgSearch = ref('');
