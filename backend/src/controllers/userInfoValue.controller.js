@@ -27,13 +27,18 @@ export const getUserInfo = async (req, res, next) => {
     // Concise mode: only show fields that are either:
     // - referenced by an assigned training module with a form page, OR
     // - already have a saved value (imported/entered)
-    const assignedFieldIds = new Set();
+    //
+    // IMPORTANT: filter by canonical `field_key` (not `field_definition_id`) because:
+    // - field definitions can be duplicated across agencies/platform templates
+    // - module form pages store definition IDs that may not match the "best" definition chosen for display
+    const assignedFieldKeys = new Set();
     try {
       const tasks = await Task.findByUser(parseInt(userId), { taskType: 'training' });
       const moduleIds = Array.from(
         new Set((tasks || []).map((t) => Number(t.reference_id)).filter((n) => Number.isInteger(n) && n > 0))
       );
 
+      const assignedIds = new Set();
       for (const moduleId of moduleIds) {
         const pages = await ModuleContent.findByModuleId(moduleId);
         for (const p of (pages || []).filter((x) => x.content_type === 'form')) {
@@ -48,8 +53,23 @@ export const getUserInfo = async (req, res, next) => {
           const ids = Array.isArray(data?.fieldDefinitionIds) ? data.fieldDefinitionIds : [];
           for (const id of ids) {
             const n = Number(id);
-            if (Number.isInteger(n) && n > 0) assignedFieldIds.add(n);
+            if (Number.isInteger(n) && n > 0) assignedIds.add(n);
           }
+        }
+      }
+
+      if (assignedIds.size) {
+        const idsArr = Array.from(assignedIds);
+        const placeholders = idsArr.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT id, field_key
+           FROM user_info_field_definitions
+           WHERE id IN (${placeholders})`,
+          idsArr
+        );
+        for (const r of rows || []) {
+          const k = String(r?.field_key || '').trim();
+          if (k) assignedFieldKeys.add(k);
         }
       }
     } catch {
@@ -58,7 +78,9 @@ export const getUserInfo = async (req, res, next) => {
 
     const filtered = (summary || []).filter((f) => {
       if (f?.hasValue) return true;
-      return assignedFieldIds.has(Number(f?.id));
+      const k = String(f?.field_key || '').trim();
+      if (!k) return false;
+      return assignedFieldKeys.has(k);
     });
 
     res.json(filtered);

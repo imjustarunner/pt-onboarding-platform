@@ -170,6 +170,10 @@
             <button class="btn btn-secondary btn-large" @click="$router.push('/dashboard?tab=training')">
               Go to My Training
             </button>
+            <label class="toggle" style="display:flex; align-items:center; gap:8px;">
+              <input type="checkbox" v-model="showEmptyMyFields" />
+              <span style="font-size: 13px; color: var(--text-secondary);">Show empty assigned fields</span>
+            </label>
             <button class="btn btn-primary btn-large" @click="saveMyUserInfo" :disabled="savingUserInfo || userInfoLoading">
               {{ savingUserInfo ? 'Saving…' : 'Save Profile Info' }}
             </button>
@@ -521,6 +525,7 @@ const myUserInfoCategories = ref([]);
 const myUserInfoValues = ref({});
 const savingUserInfo = ref(false);
 const activeMyCategoryKey = ref('__all');
+const showEmptyMyFields = ref(false);
 
 const savingHomeAddress = ref(false);
 const homeAddressError = ref('');
@@ -563,7 +568,9 @@ const fileValueUrl = (raw) => {
 // irrelevant fields. So the UI should render whatever it receives, even if categories haven't
 // been synced yet (category_key may be null).
 const myVisibleFields = computed(() => {
-  return myUserInfoFields.value || [];
+  const all = myUserInfoFields.value || [];
+  if (showEmptyMyFields.value) return all;
+  return all.filter((f) => f?.hasValue);
 });
 
 const isStaffManagedField = (field) => {

@@ -7,10 +7,14 @@
       </div>
 
       <div class="header-actions">
+        <label class="toggle" style="display:flex; align-items:center; gap:8px; margin-right: 10px;">
+          <input type="checkbox" v-model="showEmptyAssignedFields" />
+          <span style="font-size: 13px; color: var(--text-secondary);">Show empty assigned fields</span>
+        </label>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading || installing">
           Refresh
         </button>
-        <button class="btn btn-primary" @click="saveAll" :disabled="saving || loading || installing || providerFields.length === 0">
+        <button class="btn btn-primary" @click="saveAll" :disabled="saving || loading || installing || visibleProviderFields.length === 0">
           {{ saving ? 'Saving...' : 'Save Profile Info' }}
         </button>
       </div>
@@ -42,7 +46,7 @@
     <div v-else-if="error" class="error">{{ error }}</div>
 
     <div v-else>
-      <div v-if="providerFields.length === 0" class="empty-state">
+      <div v-if="visibleProviderFields.length === 0" class="empty-state">
         <p style="margin: 0;">No profile fields found for this user yet.</p>
         <p style="margin: 8px 0 0 0; color: var(--text-secondary);">
           Run “Sync Forms (Spec)” to create categories/fields, then assign the appropriate form module to the user.
@@ -50,7 +54,7 @@
       </div>
 
       <div v-else class="sections">
-        <div v-for="section in providerSections" :key="section.key" class="section">
+        <div v-for="section in visibleProviderSections" :key="section.key" class="section">
           <div class="section-title">
             <h3 style="margin: 0;">{{ section.label }}</h3>
           </div>
@@ -160,6 +164,7 @@ const categories = ref([]);
 const allFields = ref([]);
 const fieldValues = ref({});
 const userAgencies = ref([]);
+const showEmptyAssignedFields = ref(false);
 
 const platformCategoryKeys = computed(() => {
   return new Set((categories.value || []).filter((c) => c.is_platform_template === 1 || c.is_platform_template === true).map((c) => c.category_key));
@@ -200,6 +205,34 @@ const providerFields = computed(() => {
 const providerSections = computed(() => {
   const byCat = new Map();
   (providerFields.value || []).forEach((f) => {
+    const key = f.category_key || '__uncategorized';
+    if (!byCat.has(key)) byCat.set(key, []);
+    byCat.get(key).push(f);
+  });
+
+  const catByKey = new Map((categories.value || []).map((c) => [c.category_key, c]));
+  const keys = Array.from(byCat.keys()).sort((a, b) => String(a).localeCompare(String(b)));
+  return keys
+    .map((key) => {
+      const fields = byCat.get(key) || [];
+      const c = catByKey.get(key);
+      return {
+        key,
+        label: c?.category_label || key,
+        fields: fields.slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+      };
+    })
+    .filter((s) => (s.fields || []).length > 0);
+});
+
+const visibleProviderFields = computed(() => {
+  if (showEmptyAssignedFields.value) return providerFields.value || [];
+  return (providerFields.value || []).filter((f) => f?.hasValue);
+});
+
+const visibleProviderSections = computed(() => {
+  const byCat = new Map();
+  (visibleProviderFields.value || []).forEach((f) => {
     const key = f.category_key || '__uncategorized';
     if (!byCat.has(key)) byCat.set(key, []);
     byCat.get(key).push(f);
