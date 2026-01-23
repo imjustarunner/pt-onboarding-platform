@@ -485,10 +485,13 @@ const filteredTabs = computed(() => {
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
 
 const dashboardCards = computed(() => {
+  // Super admins on the main platform brand should see platform-level defaults
+  // (ignore any selected/stale currentAgency).
+  const cardIconOrgOverride = String(authStore.user?.role || '').toLowerCase() === 'super_admin' ? null : undefined;
   const cards = filteredTabs.value.map((t) => ({
     ...t,
     kind: 'content',
-    iconUrl: brandingStore.getDashboardCardIconUrl(t.id),
+    iconUrl: brandingStore.getDashboardCardIconUrl(t.id, cardIconOrgOverride),
     description:
       t.id === 'checklist'
         ? 'Your required onboarding and checklist items.'
@@ -506,7 +509,7 @@ const dashboardCards = computed(() => {
         label: 'Submit',
         kind: 'action',
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('submit'),
+        iconUrl: brandingStore.getDashboardCardIconUrl('submit', cardIconOrgOverride),
         description: 'Submit mileage, in-school claims, and more.'
       });
       cards.push({
@@ -514,7 +517,7 @@ const dashboardCards = computed(() => {
         label: 'Payroll',
         kind: 'content',
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('payroll'),
+        iconUrl: brandingStore.getDashboardCardIconUrl('payroll', cardIconOrgOverride),
         description: 'Your payroll history by pay period.'
       });
     }
@@ -523,7 +526,7 @@ const dashboardCards = computed(() => {
       label: 'My Account',
       kind: 'content',
       badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('my'),
+      iconUrl: brandingStore.getDashboardCardIconUrl('my', cardIconOrgOverride),
       description: 'Account info, credentials, and personal preferences.'
     });
     cards.push({
@@ -531,7 +534,7 @@ const dashboardCards = computed(() => {
       label: 'On-Demand Training',
       kind: 'link',
       badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training'),
+      iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training', cardIconOrgOverride),
       description: 'Always available after onboarding is complete.',
       to: '/on-demand-training'
     });

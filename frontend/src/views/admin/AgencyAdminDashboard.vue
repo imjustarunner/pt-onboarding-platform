@@ -389,7 +389,11 @@ const defaultQuickActionIds = computed(() => ([
   'manage_documents',
   'manage_users',
   'settings',
-  'payroll'
+  'notifications',
+  'communications',
+  'chats',
+  'payroll',
+  'billing'
 ]));
 
 const resolveQuickActionIcon = (action) => {

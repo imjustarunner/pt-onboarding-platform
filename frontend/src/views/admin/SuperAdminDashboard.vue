@@ -305,6 +305,10 @@ const defaultQuickActionIds = computed(() => ([
   'manage_documents',
   'manage_users',
   'notifications',
+  'communications',
+  'chats',
+  'payroll',
+  'billing',
   'all_progress'
 ]));
 

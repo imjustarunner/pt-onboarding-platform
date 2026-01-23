@@ -599,7 +599,11 @@ export const useBrandingStore = defineStore('branding', () => {
 
   // Get icon URL for a specific "My Dashboard" card
   // Priority: org-level icon > platform-level icon > null
-  const getDashboardCardIconUrl = (cardId, organization = null) => {
+  // organization param is tri-state:
+  // - undefined: use agencyStore.currentAgency
+  // - null: force platform branding (ignore currentAgency)
+  // - object: use that org as override
+  const getDashboardCardIconUrl = (cardId, organization = undefined) => {
     const iconFieldMap = {
       checklist: 'my_dashboard_checklist_icon_path',
       training: 'my_dashboard_training_icon_path',
@@ -614,7 +618,7 @@ export const useBrandingStore = defineStore('branding', () => {
     if (!field) return null;
 
     const idField = field.replace(/_icon_path$/, '_icon_id');
-    const org = organization || agencyStore.currentAgency;
+    const org = organization === undefined ? agencyStore.currentAgency : organization;
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
       const fp = iconFilePathById(org[idField]);
