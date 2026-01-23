@@ -110,6 +110,9 @@ const brandingStyles = computed(() => {
     '--text-primary': brandingStore.secondaryColor,
     '--text-secondary': brandingStore.accentColor,
     '--border': brandingStore.accentColor,
+    // Contrast-safe defaults for dark headers across agencies.
+    '--header-text-color': '#ffffff',
+    '--header-text-muted': 'rgba(255,255,255,0.85)',
     // Ensure typography variables inherit the agency font when set.
     '--font-body': 'var(--agency-font-family, var(--font-body))',
     '--font-header': 'var(--agency-font-family, var(--font-header))'

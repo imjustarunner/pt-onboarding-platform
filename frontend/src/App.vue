@@ -653,6 +653,14 @@ onUnmounted(() => {
   border-bottom: 3px solid var(--accent);
 }
 
+.navbar .nav-title,
+.navbar .brand-trigger,
+.navbar .mobile-menu-toggle,
+.navbar .nav-availability-label,
+.navbar .nav-availability-info {
+  color: var(--header-text-color, #fff) !important;
+}
+
 .nav-content {
   display: flex;
   justify-content: space-between;

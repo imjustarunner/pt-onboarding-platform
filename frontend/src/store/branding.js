@@ -37,6 +37,39 @@ export const useBrandingStore = defineStore('branding', () => {
   const platformBranding = ref(null);
   const brandingVersion = ref(Date.now()); // Version for cache-busting logos
 
+  // Icons index (id -> icon row). Used to resolve *_icon_id overrides when *_icon_path isn't present.
+  const iconsById = ref(null);
+  const iconsLoading = ref(false);
+  const ensureIconsIndex = () => {
+    if (iconsById.value || iconsLoading.value) return;
+    iconsLoading.value = true;
+    api.get('/icons')
+      .then((res) => {
+        const rows = Array.isArray(res.data) ? res.data : [];
+        const map = {};
+        for (const i of rows) {
+          if (i && i.id != null) map[String(i.id)] = i;
+        }
+        iconsById.value = map;
+      })
+      .catch(() => {
+        iconsById.value = {};
+      })
+      .finally(() => {
+        iconsLoading.value = false;
+      });
+  };
+
+  const iconFilePathById = (id) => {
+    const key = String(id ?? '').trim();
+    if (!key) return null;
+    if (!iconsById.value) {
+      ensureIconsIndex();
+      return null;
+    }
+    return iconsById.value?.[key]?.file_path || null;
+  };
+
   // Portal agency (detected from subdomain)
   const portalAgency = ref(null);
   
@@ -576,9 +609,18 @@ export const useBrandingStore = defineStore('branding', () => {
     const field = iconFieldMap[cardId];
     if (!field) return null;
 
+    const idField = field.replace(/_icon_path$/, '_icon_id');
     const org = organization || agencyStore.currentAgency;
     if (org?.[field]) return toUploadsUrl(org[field]);
+    if (org?.[idField]) {
+      const fp = iconFilePathById(org[idField]);
+      if (fp) return toUploadsUrl(fp);
+    }
     if (platformBranding.value?.[field]) return toUploadsUrl(platformBranding.value[field]);
+    if (platformBranding.value?.[idField]) {
+      const fp = iconFilePathById(platformBranding.value[idField]);
+      if (fp) return toUploadsUrl(fp);
+    }
     return null;
   };
 

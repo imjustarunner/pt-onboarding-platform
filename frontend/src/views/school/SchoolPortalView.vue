@@ -186,18 +186,22 @@ onMounted(async () => {
 
 .portal-header {
   margin-bottom: 32px;
+  background: var(--primary);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  padding: 18px 20px;
 }
 
 .portal-header h1 {
   font-size: 32px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--header-text-color, #fff);
   margin: 0 0 8px 0;
 }
 
 .portal-subtitle {
   font-size: 16px;
-  color: var(--text-secondary);
+  color: var(--header-text-muted, rgba(255,255,255,0.85));
   margin: 0;
 }
 
