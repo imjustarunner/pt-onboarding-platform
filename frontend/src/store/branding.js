@@ -43,7 +43,9 @@ export const useBrandingStore = defineStore('branding', () => {
   const ensureIconsIndex = () => {
     if (iconsById.value || iconsLoading.value) return;
     iconsLoading.value = true;
-    api.get('/icons')
+    // Important: non-super-admin users do NOT get platform icons unless includePlatform=true.
+    // Many override icon_ids may point to platform icons, so we must include them.
+    api.get('/icons?includePlatform=true')
       .then((res) => {
         const rows = Array.isArray(res.data) ? res.data : [];
         const map = {};

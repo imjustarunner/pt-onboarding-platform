@@ -76,6 +76,7 @@
         :actions="quickActions"
         :default-action-ids="defaultQuickActionIds"
         :icon-resolver="resolveQuickActionIcon"
+        compact
       />
       
       <AgencySpecsPanel
@@ -324,6 +325,26 @@ const quickActions = computed(() => ([
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'communications',
+    title: 'Communications',
+    description: 'View communications feed',
+    to: '/admin/communications',
+    emoji: '💬',
+    category: 'Communications',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
+    capabilities: ['canUseChat']
+  },
+  {
+    id: 'chats',
+    title: 'Chats',
+    description: 'Open platform chats',
+    to: '/admin/communications/chats',
+    emoji: '💬',
+    category: 'Communications',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
+    capabilities: ['canUseChat']
+  },
+  {
     id: 'notifications',
     title: 'Notifications',
     description: 'View notifications',
@@ -331,6 +352,26 @@ const quickActions = computed(() => ([
     emoji: '🔔',
     category: 'Management',
     roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'payroll',
+    title: 'Payroll',
+    description: 'Manage payroll',
+    to: '/admin/payroll',
+    emoji: '💵',
+    category: 'Management',
+    roles: ['admin', 'super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'billing',
+    title: 'Billing',
+    description: 'Plan usage and QuickBooks',
+    to: '/admin/settings?category=general&item=billing',
+    emoji: '💳',
+    category: 'System',
+    roles: ['admin', 'super_admin'],
     capabilities: ['canAccessPlatform']
   }
 ]));
@@ -341,7 +382,8 @@ const defaultQuickActionIds = computed(() => ([
   'manage_modules',
   'manage_documents',
   'manage_users',
-  'settings'
+  'settings',
+  'payroll'
 ]));
 
 const resolveQuickActionIcon = (action) => {

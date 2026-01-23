@@ -25,7 +25,7 @@
 
         <div class="action-content">
           <h3>{{ action.title }}</h3>
-          <p>{{ action.description }}</p>
+          <p v-if="!compact">{{ action.description }}</p>
         </div>
       </router-link>
     </div>
@@ -86,7 +86,8 @@ const props = defineProps({
   contextKey: { type: String, required: true }, // e.g. platform|agency
   actions: { type: Array, required: true }, // [{id,title,description,to,emoji,category,roles?,capabilities?,iconKey?}]
   defaultActionIds: { type: Array, default: () => [] },
-  iconResolver: { type: Function, default: null } // (action) => url|null
+  iconResolver: { type: Function, default: null }, // (action) => url|null
+  compact: { type: Boolean, default: false } // icon + title only
 });
 
 const authStore = useAuthStore();

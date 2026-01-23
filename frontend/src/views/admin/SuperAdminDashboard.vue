@@ -44,6 +44,7 @@
         :actions="quickActions"
         :default-action-ids="defaultQuickActionIds"
         :icon-resolver="resolveQuickActionIcon"
+        compact
       />
       
       <AgencySpecsPanel
