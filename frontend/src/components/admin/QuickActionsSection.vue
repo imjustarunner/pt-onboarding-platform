@@ -108,6 +108,8 @@ const canCustomize = computed(() => {
 });
 
 const hasCapability = (key) => {
+  // Super admins should never have UI hidden due to missing/false capability flags.
+  if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') return true;
   const caps = authStore.user?.capabilities;
   if (!caps || typeof caps !== 'object') return true; // backward-compat
   if (Object.keys(caps).length === 0) return true;

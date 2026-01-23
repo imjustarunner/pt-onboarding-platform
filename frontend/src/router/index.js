@@ -744,6 +744,11 @@ router.beforeEach(async (to, from, next) => {
   } else if (to.meta.requiresCapability) {
     const required = Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability];
     const caps = authStore.user?.capabilities;
+    // Super admins should not be blocked by capability flags.
+    if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') {
+      next();
+      return;
+    }
     // Backward-compat: if capabilities are not present yet, don't block navigation.
     const capsMissing = !caps || typeof caps !== 'object' || Object.keys(caps).length === 0;
     const hasAll = capsMissing ? true : required.every((k) => !!caps?.[k]);
@@ -809,6 +814,11 @@ router.beforeEach(async (to, from, next) => {
         ? (Array.isArray(to.meta.requiresCapability) ? to.meta.requiresCapability : [to.meta.requiresCapability])
         : [];
       const caps = authStore.user?.capabilities;
+      // Super admins should not be blocked by capability flags.
+      if (String(userRole || '').toLowerCase() === 'super_admin') {
+        next();
+        return;
+      }
       // Backward-compat: if capabilities are not present yet, don't block navigation.
       const capsMissing = !caps || typeof caps !== 'object' || Object.keys(caps).length === 0;
       const hasAll = capsMissing ? true : (required.length === 0 ? true : required.every((k) => !!caps?.[k]));

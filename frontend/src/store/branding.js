@@ -633,9 +633,12 @@ export const useBrandingStore = defineStore('branding', () => {
     const iconFieldMap = {
       progress_dashboard: 'progress_dashboard_icon_path',
       manage_clients: 'manage_clients_icon_path',
+      manage_agencies: 'manage_agencies_icon_path',
       manage_modules: 'manage_modules_icon_path',
       manage_documents: 'manage_documents_icon_path',
       manage_users: 'manage_users_icon_path',
+      platform_settings: 'platform_settings_icon_path',
+      view_all_progress: 'view_all_progress_icon_path',
       settings: 'settings_icon_path'
     };
     const field = iconFieldMap[actionKey];
