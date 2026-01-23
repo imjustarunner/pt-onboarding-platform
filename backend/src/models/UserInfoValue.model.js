@@ -119,16 +119,61 @@ class UserInfoValue {
       }
     }
     
-    // Get all values for user
+    // Get all values for user (may include multiple field_definition_ids for the same field_key).
+    // IMPORTANT: we resolve values by field_key so duplicates never cause "missing" data in the UI.
     const values = await this.findByUserId(userId, agencyId);
-    const valuesMap = new Map(values.map(v => [v.field_definition_id, v.value]));
-    
-    // Combine fields with values and parse options
-    return fieldDefinitions.map(field => {
+    const valueByFieldKey = new Map();
+    for (const v of values || []) {
+      const k = String(v.field_key || '').trim();
+      if (!k) continue;
+      // Prefer the latest non-empty value if duplicates exist.
+      const incoming = v.value ?? null;
+      const existing = valueByFieldKey.get(k);
+      if (existing === undefined) {
+        valueByFieldKey.set(k, incoming);
+      } else {
+        const a = String(existing || '').trim();
+        const b = String(incoming || '').trim();
+        if (!a && b) valueByFieldKey.set(k, incoming);
+      }
+    }
+
+    // Dedupe field definitions by field_key (prefer platform template, then lowest id).
+    const bestDefByKey = new Map();
+    for (const f of fieldDefinitions || []) {
+      const k = String(f.field_key || '').trim();
+      if (!k) continue;
+      const cur = bestDefByKey.get(k);
+      if (!cur) {
+        bestDefByKey.set(k, f);
+        continue;
+      }
+      const curPlat = cur.is_platform_template === 1 || cur.is_platform_template === true;
+      const nextPlat = f.is_platform_template === 1 || f.is_platform_template === true;
+      const curAgencyNull = cur.agency_id === null || cur.agency_id === undefined;
+      const nextAgencyNull = f.agency_id === null || f.agency_id === undefined;
+      if (!curPlat && nextPlat) {
+        bestDefByKey.set(k, f);
+        continue;
+      }
+      if (curPlat === nextPlat && !curAgencyNull && nextAgencyNull) {
+        bestDefByKey.set(k, f);
+        continue;
+      }
+      if (curPlat === nextPlat && curAgencyNull === nextAgencyNull) {
+        const curId = Number(cur.id || 0);
+        const nextId = Number(f.id || 0);
+        if (nextId && (!curId || nextId < curId)) bestDefByKey.set(k, f);
+      }
+    }
+
+    // Combine best definitions with values and parse options
+    return Array.from(bestDefByKey.values()).map(field => {
+      const fk = String(field.field_key || '').trim();
       const fieldWithValue = {
         ...field,
-        value: valuesMap.get(field.id) || null,
-        hasValue: valuesMap.has(field.id)
+        value: valueByFieldKey.has(fk) ? valueByFieldKey.get(fk) : null,
+        hasValue: valueByFieldKey.has(fk)
       };
       
       // Parse JSON options if present
