@@ -89,31 +89,158 @@
     </div>
     
     <!-- Provider top summary card -->
-    <ProviderTopSummaryCard v-if="!previewMode && isOnboardingComplete && !isPending && !isSchoolStaff" />
-    
-    <!-- Dashboard Cards (replaces tabs) -->
-    <div class="dashboard-card-grid">
-      <button
-        v-for="card in dashboardCards"
-        :key="card.id"
-        class="dash-card"
-        :class="{
-          active: card.kind === 'content' && activeTab === card.id,
-          'dash-card-submit': card.id === 'submit'
-        }"
-        :disabled="previewMode"
-        @click="handleCardClick(card)"
-      >
-        <div v-if="card.iconUrl" class="dash-card-icon">
-          <img :src="card.iconUrl" :alt="`${card.label} icon`" class="dash-card-icon-img" />
+    <div
+      v-if="!previewMode && isOnboardingComplete && !isPending && !isSchoolStaff"
+      class="top-snapshot-wrap"
+    >
+      <div class="top-snapshot-head">
+        <div class="top-snapshot-title">My Snapshot</div>
+        <button type="button" class="btn btn-secondary btn-sm" @click="toggleTopCardCollapsed">
+          {{ topCardCollapsed ? 'Expand' : 'Collapse' }}
+        </button>
+      </div>
+      <ProviderTopSummaryCard v-if="!topCardCollapsed" />
+    </div>
+
+    <!-- Dashboard Shell: left rail + right detail -->
+    <div class="dashboard-shell">
+      <div class="dashboard-rail" :class="{ disabled: previewMode }" role="navigation" aria-label="Dashboard sections">
+        <button
+          v-for="card in railCards"
+          :key="card.id"
+          type="button"
+          class="rail-card"
+          :class="{
+            expanded: (card.kind === 'content' && activeTab === card.id),
+            compact: !(card.kind === 'content' && activeTab === card.id),
+            'rail-card-submit': card.id === 'submit'
+          }"
+          :aria-current="(card.kind === 'content' && activeTab === card.id) ? 'page' : undefined"
+          :disabled="previewMode"
+          @click="handleCardClick(card)"
+        >
+          <div class="rail-card-left">
+            <div v-if="card.iconUrl" class="rail-card-icon">
+              <img :src="card.iconUrl" :alt="`${card.label} icon`" class="rail-card-icon-img" />
+            </div>
+            <div class="rail-card-text">
+              <div class="rail-card-title">{{ card.label }}</div>
+              <div v-if="card.description && (card.kind === 'content' && activeTab === card.id)" class="rail-card-desc">
+                {{ card.description }}
+              </div>
+            </div>
+          </div>
+          <div class="rail-card-meta">
+            <span v-if="card.badgeCount > 0" class="rail-card-badge">{{ card.badgeCount }}</span>
+            <span class="rail-card-cta">{{ card.kind === 'link' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
+          </div>
+        </button>
+      </div>
+
+      <div class="dashboard-detail">
+        <!-- Card Content (for content cards) -->
+        <div class="card-content">
+          <TrainingFocusTab
+            v-if="!previewMode"
+            v-show="activeTab === 'training' && !isPending"
+            @update-count="updateTrainingCount"
+          />
+          
+          <DocumentsTab
+            v-if="!previewMode"
+            v-show="activeTab === 'documents'"
+            @update-count="updateDocumentsCount"
+          />
+          
+          <UnifiedChecklistTab
+            v-if="!previewMode"
+            v-show="activeTab === 'checklist'"
+            @update-count="updateChecklistCount"
+          />
+
+          <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'payroll'" class="my-panel">
+            <MyPayrollTab />
+          </div>
+
+          <!-- My Account (nested inside dashboard) -->
+          <div
+            v-if="!previewMode && isOnboardingComplete"
+            v-show="activeTab === 'my'"
+            class="my-panel"
+          >
+            <div class="my-subnav">
+              <button
+                type="button"
+                class="subtab"
+                :class="{ active: myTab === 'account' }"
+                @click="setMyTab('account')"
+              >
+                Account Info
+              </button>
+              <button
+                type="button"
+                class="subtab"
+                :class="{ active: myTab === 'credentials' }"
+                @click="setMyTab('credentials')"
+              >
+                My Credentials
+              </button>
+              <button
+                type="button"
+                class="subtab"
+                :class="{ active: myTab === 'preferences' }"
+                @click="setMyTab('preferences')"
+              >
+                My Preferences
+              </button>
+              <button
+                type="button"
+                class="subtab"
+                :class="{ active: myTab === 'payroll' }"
+                @click="setMyTab('payroll')"
+              >
+                My Payroll
+              </button>
+              <button
+                type="button"
+                class="subtab"
+                :class="{ active: myTab === 'compensation' }"
+                @click="setMyTab('compensation')"
+              >
+                My Compensation
+              </button>
+            </div>
+
+            <div v-show="myTab === 'account'">
+              <AccountInfoView />
+            </div>
+            <div v-show="myTab === 'credentials'">
+              <CredentialsView />
+            </div>
+            <div v-show="myTab === 'preferences'">
+              <div class="preferences-header">
+                <h1>My Preferences</h1>
+                <p class="preferences-subtitle">Manage your personal settings and preferences</p>
+              </div>
+              <UserPreferencesHub v-if="authStore.user?.id" :userId="authStore.user.id" />
+            </div>
+            <div v-show="myTab === 'payroll'">
+              <MyPayrollTab />
+            </div>
+            <div v-show="myTab === 'compensation'">
+              <MyCompensationTab />
+            </div>
+          </div>
+          
+          <!-- Preview mode placeholder content -->
+          <div v-if="previewMode" class="preview-tab-content">
+            <p v-if="activeTab === 'checklist'" class="preview-text">Checklist content preview</p>
+            <p v-if="activeTab === 'training'" class="preview-text">Training content preview</p>
+            <p v-if="activeTab === 'documents'" class="preview-text">Documents content preview</p>
+            <p v-if="activeTab === 'my'" class="preview-text">My account content preview</p>
+          </div>
         </div>
-        <div class="dash-card-title">{{ card.label }}</div>
-        <div v-if="card.description" class="dash-card-desc">{{ card.description }}</div>
-        <div class="dash-card-meta">
-          <span v-if="card.badgeCount > 0" class="dash-card-badge">{{ card.badgeCount }}</span>
-          <span class="dash-card-cta">{{ card.kind === 'link' ? 'Open' : 'View' }}</span>
-        </div>
-      </button>
+      </div>
     </div>
 
     <!-- Submit modal (claims hub) -->
@@ -246,109 +373,6 @@
             <button type="button" class="btn btn-secondary" @click="submitModalView = 'root'">Back</button>
           </div>
         </div>
-      </div>
-    </div>
-    
-    <!-- Card Content (for content cards) -->
-    <div class="card-content">
-      <TrainingFocusTab
-        v-if="!previewMode"
-        v-show="activeTab === 'training' && !isPending"
-        @update-count="updateTrainingCount"
-      />
-      
-      <DocumentsTab
-        v-if="!previewMode"
-        v-show="activeTab === 'documents'"
-        @update-count="updateDocumentsCount"
-      />
-      
-      <UnifiedChecklistTab
-        v-if="!previewMode"
-        v-show="activeTab === 'checklist'"
-        @update-count="updateChecklistCount"
-      />
-
-      <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'payroll'" class="my-panel">
-        <MyPayrollTab />
-      </div>
-
-      <!-- My Account (nested inside dashboard) -->
-      <div
-        v-if="!previewMode && isOnboardingComplete"
-        v-show="activeTab === 'my'"
-        class="my-panel"
-      >
-        <div class="my-subnav">
-          <button
-            type="button"
-            class="subtab"
-            :class="{ active: myTab === 'account' }"
-            @click="setMyTab('account')"
-          >
-            Account Info
-          </button>
-          <button
-            type="button"
-            class="subtab"
-            :class="{ active: myTab === 'credentials' }"
-            @click="setMyTab('credentials')"
-          >
-            My Credentials
-          </button>
-          <button
-            type="button"
-            class="subtab"
-            :class="{ active: myTab === 'preferences' }"
-            @click="setMyTab('preferences')"
-          >
-            My Preferences
-          </button>
-          <button
-            type="button"
-            class="subtab"
-            :class="{ active: myTab === 'payroll' }"
-            @click="setMyTab('payroll')"
-          >
-            My Payroll
-          </button>
-          <button
-            type="button"
-            class="subtab"
-            :class="{ active: myTab === 'compensation' }"
-            @click="setMyTab('compensation')"
-          >
-            My Compensation
-          </button>
-        </div>
-
-        <div v-show="myTab === 'account'">
-          <AccountInfoView />
-        </div>
-        <div v-show="myTab === 'credentials'">
-          <CredentialsView />
-        </div>
-        <div v-show="myTab === 'preferences'">
-          <div class="preferences-header">
-            <h1>My Preferences</h1>
-            <p class="preferences-subtitle">Manage your personal settings and preferences</p>
-          </div>
-          <UserPreferencesHub v-if="authStore.user?.id" :userId="authStore.user.id" />
-        </div>
-        <div v-show="myTab === 'payroll'">
-          <MyPayrollTab />
-        </div>
-        <div v-show="myTab === 'compensation'">
-          <MyCompensationTab />
-        </div>
-      </div>
-      
-      <!-- Preview mode placeholder content -->
-      <div v-if="previewMode" class="preview-tab-content">
-        <p v-if="activeTab === 'checklist'" class="preview-text">Checklist content preview</p>
-        <p v-if="activeTab === 'training'" class="preview-text">Training content preview</p>
-        <p v-if="activeTab === 'documents'" class="preview-text">Documents content preview</p>
-        <p v-if="activeTab === 'my'" class="preview-text">My account content preview</p>
       </div>
     </div>
   </div>
@@ -515,6 +539,34 @@ const dashboardCards = computed(() => {
 
   return cards;
 });
+
+const railCards = computed(() => {
+  const cards = dashboardCards.value || [];
+  // Move the active content card to the top; keep action/link ordering otherwise.
+  const activeId = String(activeTab.value || '');
+  const active = cards.find((c) => String(c.id) === activeId) || null;
+  if (!active) return cards;
+  return [active, ...cards.filter((c) => String(c.id) !== String(active.id))];
+});
+
+const TOP_CARD_COLLAPSE_KEY = 'dashboard.topCardCollapsed.v1';
+const topCardCollapsed = ref(false);
+const loadTopCardCollapsed = () => {
+  try {
+    const v = window?.localStorage?.getItem?.(TOP_CARD_COLLAPSE_KEY);
+    topCardCollapsed.value = v === '1';
+  } catch {
+    topCardCollapsed.value = false;
+  }
+};
+const toggleTopCardCollapsed = () => {
+  topCardCollapsed.value = !topCardCollapsed.value;
+  try {
+    window?.localStorage?.setItem?.(TOP_CARD_COLLAPSE_KEY, topCardCollapsed.value ? '1' : '0');
+  } catch {
+    // ignore
+  }
+};
 
 const handleCardClick = (card) => {
   if (props.previewMode) return;
@@ -788,6 +840,7 @@ const loadAgencyDashboardBanner = async () => {
 };
 
 onMounted(async () => {
+  loadTopCardCollapsed();
   await fetchOnboardingStatus();
   syncFromQuery();
   // Default to My Account → Account Info once onboarding is complete,
@@ -799,6 +852,16 @@ onMounted(async () => {
   await loadCurrentTier();
   await loadAgencyDashboardBanner();
 });
+
+// If available cards change (role/status), keep activeTab on a valid content card.
+watch(dashboardCards, () => {
+  const cards = dashboardCards.value || [];
+  const activeId = String(activeTab.value || '');
+  const activeCard = cards.find((c) => String(c.id) === activeId) || null;
+  if (activeCard && activeCard.kind === 'content') return;
+  const firstContent = cards.find((c) => c.kind === 'content') || null;
+  if (firstContent?.id) activeTab.value = firstContent.id;
+}, { deep: true });
 
 watch([currentAgencyId, isOnboardingComplete], async () => {
   await loadCurrentTier();
@@ -887,6 +950,193 @@ h1 {
 
 .onboarding-card .btn:hover {
   background: rgba(255, 255, 255, 0.9);
+}
+
+.top-snapshot-wrap {
+  margin-bottom: 16px;
+}
+.top-snapshot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.top-snapshot-title {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+/* Split view: rail + detail */
+.dashboard-shell {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+.dashboard-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  padding-right: 2px; /* avoids scrollbar overlaying focus rings */
+}
+
+.rail-card {
+  text-align: left;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rail-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+}
+
+.rail-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.rail-card.expanded {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+
+.rail-card.compact .rail-card-desc {
+  display: none;
+}
+
+.rail-card-submit {
+  background: #ecfeff;
+  border-color: #67e8f9;
+}
+.rail-card-submit .rail-card-title,
+.rail-card-submit .rail-card-cta {
+  color: #0e7490;
+}
+
+.rail-card-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rail-card-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.rail-card-icon-img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.rail-card-text {
+  min-width: 0;
+}
+
+.rail-card-title {
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-card-desc {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.rail-card-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.rail-card-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rail-card-cta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.dashboard-detail {
+  min-width: 0;
+}
+
+.dashboard-rail.disabled {
+  opacity: 0.85;
+}
+
+.dashboard-rail :deep(button:focus-visible),
+.dashboard-detail :deep(button:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.dashboard-rail :deep(button:focus-visible) {
+  border-radius: 12px;
+}
+
+@media (max-width: 980px) {
+  .dashboard-shell {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-rail {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+  .rail-card {
+    min-width: 220px;
+  }
 }
 
 .dashboard-card-grid {

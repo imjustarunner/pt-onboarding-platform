@@ -87,6 +87,12 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/mydashboard',
+    name: 'OrganizationMyDashboardLegacy',
+    redirect: (to) => `/${to.params.organizationSlug}/dashboard`,
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/guardian',
     name: 'OrganizationGuardianPortal',
     component: () => import('../views/guardian/GuardianPortalView.vue'),
@@ -334,6 +340,12 @@ const routes = [
     name: 'Dashboard',
     component: () => import('../views/DashboardView.vue'),
     meta: { requiresAuth: true, blockApprovedEmployees: true }
+  },
+  {
+    path: '/mydashboard',
+    name: 'MyDashboardLegacy',
+    redirect: '/dashboard',
+    meta: { requiresAuth: true }
   },
   {
     path: '/guardian',
