@@ -192,8 +192,9 @@ const targetAgency = computed(() => {
 });
 
 const providerFields = computed(() => {
-  const allowed = platformCategoryKeys.value;
-  return (allFields.value || []).filter((f) => f?.category_key && allowed.has(f.category_key));
+  // Backend already returns only assigned-or-has-value fields when using assignedOrHasValueOnly=true.
+  // Render whatever we have, even if categories haven't been synced yet.
+  return allFields.value || [];
 });
 
 const providerSections = computed(() => {
@@ -205,23 +206,18 @@ const providerSections = computed(() => {
   });
 
   const catByKey = new Map((categories.value || []).map((c) => [c.category_key, c]));
-  const sortedCats = (categories.value || [])
-    .filter((c) => c.is_platform_template === 1 || c.is_platform_template === true)
-    .slice()
-    .sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
-
-  const sections = [];
-  for (const c of sortedCats) {
-    const key = c.category_key;
-    const fields = byCat.get(key) || [];
-    if (!fields.length) continue;
-    sections.push({
-      key,
-      label: c.category_label || key,
-      fields: fields.slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
-    });
-  }
-  return sections;
+  const keys = Array.from(byCat.keys()).sort((a, b) => String(a).localeCompare(String(b)));
+  return keys
+    .map((key) => {
+      const fields = byCat.get(key) || [];
+      const c = catByKey.get(key);
+      return {
+        key,
+        label: c?.category_label || key,
+        fields: fields.slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+      };
+    })
+    .filter((s) => (s.fields || []).length > 0);
 });
 
 const showInstallCard = computed(() => {

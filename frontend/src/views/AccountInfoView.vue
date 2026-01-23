@@ -559,13 +559,11 @@ const fileValueUrl = (raw) => {
   return '';
 };
 
-const platformCategoryKeys = computed(() => {
-  return new Set((myUserInfoCategories.value || []).filter((c) => c.is_platform_template === 1 || c.is_platform_template === true).map((c) => c.category_key));
-});
-
-const myPlatformFields = computed(() => {
-  const allowed = platformCategoryKeys.value;
-  return (myUserInfoFields.value || []).filter((f) => f?.category_key && allowed.has(f.category_key));
+// The backend endpoint `/users/:id/user-info?assignedOrHasValueOnly=true` already filters out
+// irrelevant fields. So the UI should render whatever it receives, even if categories haven't
+// been synced yet (category_key may be null).
+const myVisibleFields = computed(() => {
+  return myUserInfoFields.value || [];
 });
 
 const isStaffManagedField = (field) => {
@@ -574,7 +572,7 @@ const isStaffManagedField = (field) => {
 
 const myCategoryOptions = computed(() => {
   const byKey = new Map((myUserInfoCategories.value || []).map((c) => [c.category_key, c]));
-  const keysFromFields = new Set((myPlatformFields.value || []).map((f) => f.category_key || '__uncategorized'));
+  const keysFromFields = new Set((myVisibleFields.value || []).map((f) => f.category_key || '__uncategorized'));
 
   const options = [
     { key: '__all', label: 'All' },
@@ -592,11 +590,11 @@ const myCategoryOptions = computed(() => {
 });
 
 const filteredMyFields = computed(() => {
-  if (activeMyCategoryKey.value === '__all') return myPlatformFields.value;
+  if (activeMyCategoryKey.value === '__all') return myVisibleFields.value;
   if (activeMyCategoryKey.value === '__uncategorized') {
-    return myPlatformFields.value.filter((f) => !f.category_key);
+    return myVisibleFields.value.filter((f) => !f.category_key);
   }
-  return myPlatformFields.value.filter((f) => f.category_key === activeMyCategoryKey.value);
+  return myVisibleFields.value.filter((f) => f.category_key === activeMyCategoryKey.value);
 });
 
 const fetchMyUserInfo = async () => {
