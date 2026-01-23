@@ -23,6 +23,9 @@
     <div v-if="installError" class="error" style="margin-bottom: 12px;">{{ installError }}</div>
     <div v-if="saveError" class="error" style="margin-bottom: 12px;">{{ saveError }}</div>
     <div v-if="saveSuccess" class="success" style="margin-bottom: 12px;">{{ saveSuccess }}</div>
+    <div v-if="showEmptyAssignedFields && providerFields.length === providerFieldsWithValue.length" class="muted" style="margin-bottom: 12px;">
+      No empty assigned fields detected for this user (they may not have any profile form modules assigned).
+    </div>
 
     <div class="install-card" v-if="false && showInstallCard">
       <div class="install-card-header">
@@ -109,19 +112,19 @@
                 :required="field.is_required"
               >
                 <option value="">Select an option</option>
-                <option v-for="option in (field.options || [])" :key="option" :value="option">
-                  {{ option }}
+                <option v-for="option in (field.options || [])" :key="optionKey(option)" :value="optionValue(option)">
+                  {{ optionLabel(option) }}
                 </option>
               </select>
 
               <div v-else-if="field.field_type === 'multi_select'" class="multi-select">
-                <label v-for="option in (field.options || [])" :key="option" class="multi-select-option">
+                <label v-for="option in (field.options || [])" :key="optionKey(option)" class="multi-select-option">
                   <input
                     type="checkbox"
-                    :checked="Array.isArray(fieldValues[field.id]) ? fieldValues[field.id].includes(option) : false"
+                    :checked="Array.isArray(fieldValues[field.id]) ? fieldValues[field.id].includes(optionValue(option)) : false"
                     @change="toggleMultiSelect(field.id, option)"
                   />
-                  <span>{{ option }}</span>
+                  <span>{{ optionLabel(option) }}</span>
                 </label>
               </div>
 
@@ -129,7 +132,7 @@
                 <input
                   :id="`provider-field-${field.id}`"
                   type="checkbox"
-                  :checked="fieldValues[field.id] === 'true' || fieldValues[field.id] === true"
+                  :checked="isTruthy(fieldValues[field.id])"
                   @change="fieldValues[field.id] = $event.target.checked ? 'true' : 'false'"
                 />
                 <label :for="`provider-field-${field.id}`" class="checkbox-label">Yes</label>
@@ -175,7 +178,15 @@ const normalizeMultiSelectValue = (raw) => {
   if (typeof raw === 'string' && raw.trim()) {
     try {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        // Accept legacy shapes like [{value,label}] but store as string values for consistent checkbox behavior.
+        return parsed
+          .map((x) => {
+            if (x && typeof x === 'object') return String(x.value ?? x.label ?? '').trim();
+            return String(x ?? '').trim();
+          })
+          .filter(Boolean);
+      }
     } catch {
       return raw.split(',').map((s) => s.trim()).filter(Boolean);
     }
@@ -183,11 +194,29 @@ const normalizeMultiSelectValue = (raw) => {
   return [];
 };
 
-const toggleMultiSelect = (fieldId, option) => {
+const optionValue = (opt) => {
+  if (opt && typeof opt === 'object') return String(opt.value ?? opt.label ?? '').trim();
+  return String(opt ?? '').trim();
+};
+const optionLabel = (opt) => {
+  if (opt && typeof opt === 'object') return String(opt.label ?? opt.value ?? '').trim();
+  return String(opt ?? '').trim();
+};
+const optionKey = (opt) => optionValue(opt) || optionLabel(opt);
+
+const toggleMultiSelect = (fieldId, opt) => {
+  const v = optionValue(opt);
+  if (!v) return;
   const current = normalizeMultiSelectValue(fieldValues.value[fieldId]);
-  const exists = current.includes(option);
-  const next = exists ? current.filter((x) => x !== option) : [...current, option];
+  const exists = current.includes(v);
+  const next = exists ? current.filter((x) => x !== v) : [...current, v];
   fieldValues.value[fieldId] = next;
+};
+
+const isTruthy = (raw) => {
+  if (raw === true) return true;
+  const s = String(raw ?? '').trim().toLowerCase();
+  return s === 'true' || s === 'yes' || s === 'y' || s === '1';
 };
 
 const targetAgency = computed(() => {
@@ -225,9 +254,13 @@ const providerSections = computed(() => {
     .filter((s) => (s.fields || []).length > 0);
 });
 
+const providerFieldsWithValue = computed(() => {
+  return (providerFields.value || []).filter((f) => f?.hasValue);
+});
+
 const visibleProviderFields = computed(() => {
   if (showEmptyAssignedFields.value) return providerFields.value || [];
-  return (providerFields.value || []).filter((f) => f?.hasValue);
+  return providerFieldsWithValue.value || [];
 });
 
 const visibleProviderSections = computed(() => {

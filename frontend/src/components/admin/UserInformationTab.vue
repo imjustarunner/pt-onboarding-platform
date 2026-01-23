@@ -70,25 +70,25 @@
               :required="field.is_required"
             >
               <option value="">Select an option</option>
-              <option v-for="option in (field.options || [])" :key="option" :value="option">
-                {{ option }}
+              <option v-for="option in (field.options || [])" :key="optionKey(option)" :value="optionValue(option)">
+                {{ optionLabel(option) }}
               </option>
             </select>
             <div v-else-if="field.field_type === 'multi_select'" class="multi-select">
-              <label v-for="option in (field.options || [])" :key="option" class="multi-select-option">
+              <label v-for="option in (field.options || [])" :key="optionKey(option)" class="multi-select-option">
                 <input
                   type="checkbox"
-                  :checked="Array.isArray(getFieldValue(field.id)) ? getFieldValue(field.id).includes(option) : false"
+                  :checked="Array.isArray(getFieldValue(field.id)) ? getFieldValue(field.id).includes(optionValue(option)) : false"
                   @change="toggleMultiSelect(field.id, option)"
                 />
-                <span>{{ option }}</span>
+                <span>{{ optionLabel(option) }}</span>
               </label>
             </div>
             <div v-else-if="field.field_type === 'boolean'" class="checkbox-wrapper">
               <input
                 :id="`field-${field.id}`"
                 type="checkbox"
-                :checked="getFieldValue(field.id) === 'true' || getFieldValue(field.id) === true"
+                :checked="isTruthy(getFieldValue(field.id))"
                 @change="updateFieldValue(field.id, $event.target.checked ? 'true' : 'false')"
               />
               <label :for="`field-${field.id}`" class="checkbox-label">Yes</label>
@@ -145,25 +145,25 @@
               :required="field.is_required"
             >
               <option value="">Select an option</option>
-              <option v-for="option in (field.options || [])" :key="option" :value="option">
-                {{ option }}
+              <option v-for="option in (field.options || [])" :key="optionKey(option)" :value="optionValue(option)">
+                {{ optionLabel(option) }}
               </option>
             </select>
             <div v-else-if="field.field_type === 'multi_select'" class="multi-select">
-              <label v-for="option in (field.options || [])" :key="option" class="multi-select-option">
+              <label v-for="option in (field.options || [])" :key="optionKey(option)" class="multi-select-option">
                 <input
                   type="checkbox"
-                  :checked="Array.isArray(getFieldValue(field.id)) ? getFieldValue(field.id).includes(option) : false"
+                  :checked="Array.isArray(getFieldValue(field.id)) ? getFieldValue(field.id).includes(optionValue(option)) : false"
                   @change="toggleMultiSelect(field.id, option)"
                 />
-                <span>{{ option }}</span>
+                <span>{{ optionLabel(option) }}</span>
               </label>
             </div>
             <div v-else-if="field.field_type === 'boolean'" class="checkbox-wrapper">
               <input
                 :id="`field-${field.id}`"
                 type="checkbox"
-                :checked="getFieldValue(field.id) === 'true' || getFieldValue(field.id) === true"
+                :checked="isTruthy(getFieldValue(field.id))"
                 @change="updateFieldValue(field.id, $event.target.checked ? 'true' : 'false')"
               />
               <label :for="`field-${field.id}`" class="checkbox-label">Yes</label>
@@ -203,7 +203,14 @@ const normalizeMultiSelectValue = (raw) => {
   if (typeof raw === 'string' && raw.trim()) {
     try {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((x) => {
+            if (x && typeof x === 'object') return String(x.value ?? x.label ?? '').trim();
+            return String(x ?? '').trim();
+          })
+          .filter(Boolean);
+      }
     } catch {
       return raw.split(',').map((s) => s.trim()).filter(Boolean);
     }
@@ -211,11 +218,29 @@ const normalizeMultiSelectValue = (raw) => {
   return [];
 };
 
-const toggleMultiSelect = (fieldId, option) => {
+const optionValue = (opt) => {
+  if (opt && typeof opt === 'object') return String(opt.value ?? opt.label ?? '').trim();
+  return String(opt ?? '').trim();
+};
+const optionLabel = (opt) => {
+  if (opt && typeof opt === 'object') return String(opt.label ?? opt.value ?? '').trim();
+  return String(opt ?? '').trim();
+};
+const optionKey = (opt) => optionValue(opt) || optionLabel(opt);
+
+const toggleMultiSelect = (fieldId, opt) => {
+  const v = optionValue(opt);
+  if (!v) return;
   const current = normalizeMultiSelectValue(fieldValues.value[fieldId]);
-  const exists = current.includes(option);
-  const next = exists ? current.filter((x) => x !== option) : [...current, option];
+  const exists = current.includes(v);
+  const next = exists ? current.filter((x) => x !== v) : [...current, v];
   fieldValues.value[fieldId] = next;
+};
+
+const isTruthy = (raw) => {
+  if (raw === true) return true;
+  const s = String(raw ?? '').trim().toLowerCase();
+  return s === 'true' || s === 'yes' || s === 'y' || s === '1';
 };
 
 const categoryOptions = computed(() => {
@@ -245,8 +270,11 @@ const filteredFields = computed(() => {
   return fields.value.filter((f) => f.category_key === activeCategoryKey.value);
 });
 
+// This panel is labeled "Agency (Bulk Import) Information" in the admin profile.
+// To avoid duplicating the canonical platform profile fields shown above, only show
+// agency-scoped fields here.
 const platformFields = computed(() => {
-  return filteredFields.value.filter(f => f.is_platform_template && !f.agency_id);
+  return [];
 });
 
 const agenciesWithFields = computed(() => {
@@ -275,7 +303,8 @@ const fetchUserInfo = async () => {
       api.get(`/users/${props.userId}/user-info`),
       api.get('/user-info-categories')
     ]);
-    fields.value = response.data;
+    // Only agency-scoped fields (bulk import / agency-specific).
+    fields.value = (response.data || []).filter((f) => !!f?.agency_id);
     categories.value = cats.data || [];
     
     // Build values map
