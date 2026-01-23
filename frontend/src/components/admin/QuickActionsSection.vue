@@ -15,11 +15,11 @@
         class="action-card"
       >
         <img
-          v-if="iconUrl(action)"
+          v-if="iconUrl(action) && !failedIconIds.has(String(action.id))"
           :src="iconUrl(action)"
           :alt="`${action.title} icon`"
           class="action-icon"
-          @error="(e) => { e.target.style.display = 'none'; }"
+          @error="(e) => onIconError(action, e)"
         />
         <div v-else class="action-icon-placeholder">{{ action.emoji || '📌' }}</div>
 
@@ -129,6 +129,10 @@ const selectedIds = ref([]);
 
 const selectedIdsSet = computed(() => new Set(selectedIds.value || []));
 
+// If an icon URL 404s (or otherwise fails to load), we fall back to the emoji placeholder.
+// Previously we hid the <img> element, which left the card looking blank.
+const failedIconIds = ref(new Set());
+
 const iconUrl = (action) => {
   try {
     if (typeof props.iconResolver === 'function') return props.iconResolver(action);
@@ -136,6 +140,20 @@ const iconUrl = (action) => {
     // ignore
   }
   return null;
+};
+
+const onIconError = (action, event) => {
+  try {
+    failedIconIds.value.add(String(action?.id));
+    // best-effort debugging
+    console.warn('[QuickActions] Icon failed to load', {
+      actionId: action?.id,
+      title: action?.title,
+      src: event?.target?.src
+    });
+  } catch {
+    // ignore
+  }
 };
 
 const persist = () => {
