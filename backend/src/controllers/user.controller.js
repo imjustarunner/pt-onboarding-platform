@@ -488,7 +488,10 @@ export const aiQueryUsers = async (req, res, next) => {
     const params = [];
 
     if (!includeArchived) {
+      // Backward-compatible "not archived" filter:
+      // some older records may have status='ARCHIVED' without is_archived being set.
       whereParts.push('(u.is_archived = FALSE OR u.is_archived IS NULL)');
+      whereParts.push(`UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`);
     }
 
     if (!isSuperAdmin) {
