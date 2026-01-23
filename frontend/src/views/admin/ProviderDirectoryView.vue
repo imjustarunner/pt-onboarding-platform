@@ -191,6 +191,68 @@
       </div>
     </div>
 
+    <div class="card" style="margin-top: 14px; border: 1px solid rgba(220, 53, 69, 0.35);">
+      <h3 class="card-title" style="margin: 0 0 10px 0; color: #dc3545;">Rollback / Purge profile values (danger)</h3>
+      <div class="muted">
+        This permanently deletes <code>user_info_values</code> for the selected agency + field_keys. Use this if a bulk import went wrong.
+      </div>
+
+      <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+        <div class="field">
+          <label>Agency</label>
+          <select v-model.number="agencyId">
+            <option v-for="a in userAgencies" :key="a.id" :value="a.id">{{ a.name }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Only delete values updated after (optional)</label>
+          <input v-model="purgeUpdatedAfter" type="datetime-local" />
+          <div class="muted">Leave blank to delete all values for these keys (for this agency’s users).</div>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 10px;">
+        <label>Field keys to purge (one per line)</label>
+        <textarea
+          v-model="purgeFieldKeysText"
+          rows="6"
+          placeholder="license_type_number&#10;license_issued&#10;license_expires&#10;mailing_address&#10;cell_number"
+        ></textarea>
+      </div>
+
+      <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 10px;">
+        <div class="field">
+          <label>Mode</label>
+          <select v-model="purgeDryRun">
+            <option :value="true">Dry run (count only)</option>
+            <option :value="false">Apply purge (delete)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Confirm (type PURGE)</label>
+          <input v-model="purgeConfirmText" type="text" placeholder="PURGE" />
+        </div>
+        <div class="field" style="align-self: end;">
+          <button
+            class="btn btn-danger"
+            type="button"
+            @click="runPurge"
+            :disabled="purgeRunning || !agencyId || !purgeFieldKeysText.trim() || purgeConfirmText.trim() !== 'PURGE'"
+          >
+            {{ purgeRunning ? 'Working…' : (purgeDryRun ? 'Run Dry Run' : 'Purge Values') }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="purgeResult" class="card" style="margin-top: 10px;">
+        <div><strong>Dry run:</strong> {{ purgeResult.dryRun ? 'Yes' : 'No' }}</div>
+        <div><strong>Matched values:</strong> {{ purgeResult.matchedValues }}</div>
+        <div><strong>Affected users:</strong> {{ purgeResult.affectedUsers }}</div>
+        <div v-if="purgeResult.deletedValues !== undefined"><strong>Deleted values:</strong> {{ purgeResult.deletedValues }}</div>
+        <div class="muted" v-if="purgeResult.updatedAfter">Updated after: {{ purgeResult.updatedAfter }}</div>
+      </div>
+    </div>
+
     <div class="card" style="margin-top: 14px;">
       <h3 class="card-title" style="margin: 0 0 10px 0;">Quick paste import (field_key: value)</h3>
       <div class="muted">
@@ -311,6 +373,13 @@ const kvPersonalEmail = ref('');
 const kvText = ref('');
 const kvRunning = ref(false);
 const kvResult = ref(null);
+
+const purgeFieldKeysText = ref('');
+const purgeUpdatedAfter = ref('');
+const purgeDryRun = ref(true);
+const purgeConfirmText = ref('');
+const purgeRunning = ref(false);
+const purgeResult = ref(null);
 
 const providerListFile = ref(null);
 const providerBulkRunning = ref(false);
@@ -481,6 +550,32 @@ const runKvPaste = async () => {
     error.value = e.response?.data?.error?.message || e.message || 'Paste import failed';
   } finally {
     kvRunning.value = false;
+  }
+};
+
+const runPurge = async () => {
+  if (!agencyId.value) return;
+  try {
+    purgeRunning.value = true;
+    error.value = '';
+    purgeResult.value = null;
+    const fieldKeys = purgeFieldKeysText.value
+      .split(/\r?\n/)
+      .map((l) => String(l || '').trim())
+      .filter(Boolean);
+    const updatedAfter = purgeUpdatedAfter.value ? purgeUpdatedAfter.value : null;
+    const r = await api.post('/provider-import/purge', {
+      agencyId: agencyId.value,
+      fieldKeys,
+      updatedAfter,
+      dryRun: purgeDryRun.value,
+      confirmText: purgeConfirmText.value
+    });
+    purgeResult.value = r.data;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Purge failed';
+  } finally {
+    purgeRunning.value = false;
   }
 };
 

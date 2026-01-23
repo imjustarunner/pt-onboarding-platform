@@ -1,7 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
-import { previewProviderImport, applyProviderImport, bulkCreateProvidersFromSchoolList, bulkUpdateProviderEmails, importEmployeeInfo, importKvPaste } from '../controllers/providerImport.controller.js';
+import { previewProviderImport, applyProviderImport, bulkCreateProvidersFromSchoolList, bulkUpdateProviderEmails, importEmployeeInfo, importKvPaste, purgeProviderProfileValues } from '../controllers/providerImport.controller.js';
 
 const router = express.Router();
 
@@ -29,6 +29,19 @@ router.post(
     body('kvText').isString().isLength({ min: 1, max: 20000 })
   ],
   importKvPaste
+);
+
+router.post(
+  '/purge',
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('fieldKeys').isArray({ min: 1, max: 250 }),
+    body('fieldKeys.*').isString().isLength({ min: 1, max: 100 }),
+    body('updatedAfter').optional().isString().isLength({ min: 4, max: 50 }),
+    body('dryRun').optional(),
+    body('confirmText').isString().isLength({ min: 4, max: 10 })
+  ],
+  purgeProviderProfileValues
 );
 
 export default router;

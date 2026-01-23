@@ -456,14 +456,40 @@ async function hasUsersPersonalEmailColumn() {
   }
 }
 
-async function findUserIdByPersonalEmail(email) {
+async function findUserIdByAnyEmail(email) {
   const e = String(email || '').trim().toLowerCase();
   if (!e || !e.includes('@')) return null;
-  const hasCol = await hasUsersPersonalEmailColumn();
-  if (!hasCol) return null;
+
+  const hasPersonal = await hasUsersPersonalEmailColumn();
+  const hasAliases = await hasUserLoginEmailsTable();
+
+  // Build a safe query depending on which tables/columns exist.
+  // Priority is "any match" across personal email, login email, or alias emails.
+  const where = [];
+  const params = [];
+
+  if (hasPersonal) {
+    where.push('LOWER(TRIM(u.personal_email)) = ?');
+    params.push(e);
+  }
+  // users.email is the canonical login email in this app.
+  where.push('LOWER(TRIM(u.email)) = ?');
+  params.push(e);
+
+  let joinAliases = '';
+  if (hasAliases) {
+    joinAliases = 'LEFT JOIN user_login_emails ule ON ule.user_id = u.id';
+    where.push('LOWER(TRIM(ule.email)) = ?');
+    params.push(e);
+  }
+
   const [rows] = await pool.execute(
-    'SELECT id FROM users WHERE LOWER(TRIM(personal_email)) = ? LIMIT 1',
-    [e]
+    `SELECT u.id
+     FROM users u
+     ${joinAliases}
+     WHERE (${where.join(' OR ')})
+     LIMIT 1`,
+    params
   );
   return rows?.[0]?.id || null;
 }
@@ -633,7 +659,7 @@ export const applyProviderImport = [
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i] || {};
         const email = row[matchEmailColumn];
-        const userId = await findUserIdByPersonalEmail(email);
+        const userId = await findUserIdByAnyEmail(email);
         if (!userId) {
           results.unmatched += 1;
           if (results.unmatchedRows.length < 50) {
@@ -715,7 +741,7 @@ export const importKvPaste = async (req, res, next) => {
     const kvText = String(req.body.kvText || '');
 
     let userId = Number.isInteger(userIdRaw) && userIdRaw > 0 ? userIdRaw : null;
-    if (!userId) userId = await findUserIdByPersonalEmail(personalEmail);
+    if (!userId) userId = await findUserIdByAnyEmail(personalEmail);
     if (!userId) {
       return res.status(404).json({
         error: { message: 'User not found (provide userId or a personalEmail that matches users.personal_email).' }
@@ -789,6 +815,122 @@ export const importKvPaste = async (req, res, next) => {
       updatesPlanned: upserts.length,
       updatesApplied: upserts.length,
       unknownKeys
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Admin safety tool: purge profile values for an agency and a list of field_keys.
+// This is a best-effort rollback mechanism for bulk imports when we don't have import-run provenance.
+export const purgeProviderProfileValues = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const agencyId = parseInt(req.body.agencyId, 10);
+    const fieldKeys = Array.isArray(req.body.fieldKeys) ? req.body.fieldKeys : [];
+    const updatedAfterRaw = req.body.updatedAfter ? String(req.body.updatedAfter) : '';
+    const dryRun = req.body.dryRun === true || req.body.dryRun === 'true';
+    const confirmText = String(req.body.confirmText || '').trim();
+
+    if (confirmText !== 'PURGE') {
+      return res.status(400).json({ error: { message: "confirmText must be exactly 'PURGE'." } });
+    }
+
+    const keys = Array.from(new Set(fieldKeys.map((k) => String(k || '').trim()).filter(Boolean)));
+    if (!keys.length) {
+      return res.status(400).json({ error: { message: 'fieldKeys is required (non-empty).' } });
+    }
+    if (keys.length > 250) {
+      return res.status(400).json({ error: { message: 'Too many fieldKeys (max 250).' } });
+    }
+
+    let updatedAfter = null;
+    if (updatedAfterRaw) {
+      const d = new Date(updatedAfterRaw);
+      if (!Number.isFinite(d.getTime())) {
+        return res.status(400).json({ error: { message: 'updatedAfter must be a valid ISO datetime or date string.' } });
+      }
+      updatedAfter = d;
+    }
+
+    const placeholders = keys.map(() => '?').join(',');
+    const params = [agencyId, ...keys];
+    let timeClause = '';
+    if (updatedAfter) {
+      timeClause = ' AND uiv.updated_at >= ?';
+      params.push(updatedAfter);
+    }
+
+    // Count + collect affected users (limited) for reporting/reindexing.
+    const [countRows] = await pool.execute(
+      `SELECT COUNT(*) as cnt
+       FROM user_info_values uiv
+       JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
+       JOIN user_agencies ua ON ua.user_id = uiv.user_id
+       WHERE ua.agency_id = ?
+         AND uifd.field_key IN (${placeholders})
+         ${timeClause}`,
+      params
+    );
+    const matched = Number(countRows?.[0]?.cnt || 0);
+
+    const [userRows] = await pool.execute(
+      `SELECT DISTINCT uiv.user_id
+       FROM user_info_values uiv
+       JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
+       JOIN user_agencies ua ON ua.user_id = uiv.user_id
+       WHERE ua.agency_id = ?
+         AND uifd.field_key IN (${placeholders})
+         ${timeClause}
+       LIMIT 2000`,
+      params
+    );
+    const affectedUserIds = (userRows || []).map((r) => Number(r.user_id)).filter((n) => Number.isInteger(n) && n > 0);
+
+    if (dryRun) {
+      return res.json({
+        ok: true,
+        dryRun: true,
+        agencyId,
+        fieldKeyCount: keys.length,
+        updatedAfter: updatedAfter ? updatedAfter.toISOString() : null,
+        matchedValues: matched,
+        affectedUsers: affectedUserIds.length
+      });
+    }
+
+    const [delResult] = await pool.execute(
+      `DELETE uiv
+       FROM user_info_values uiv
+       JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
+       JOIN user_agencies ua ON ua.user_id = uiv.user_id
+       WHERE ua.agency_id = ?
+         AND uifd.field_key IN (${placeholders})
+         ${timeClause}`,
+      params
+    );
+
+    // Best-effort: refresh provider search index for affected users.
+    try {
+      for (const userId of affectedUserIds) {
+        await ProviderSearchIndex.upsertForUserInAgency({ userId, agencyId });
+      }
+    } catch {
+      // ignore
+    }
+
+    res.json({
+      ok: true,
+      agencyId,
+      fieldKeyCount: keys.length,
+      updatedAfter: updatedAfter ? updatedAfter.toISOString() : null,
+      deletedValues: Number(delResult?.affectedRows || 0),
+      matchedValues: matched,
+      affectedUsers: affectedUserIds.length
     });
   } catch (e) {
     next(e);
