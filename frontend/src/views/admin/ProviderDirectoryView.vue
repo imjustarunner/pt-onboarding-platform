@@ -136,6 +136,12 @@
       </div>
 
       <div v-if="importPreview" style="margin-top: 12px;">
+        <div style="display:flex; gap: 10px; justify-content: flex-end; margin-bottom: 10px;">
+          <button class="btn btn-secondary btn-sm" type="button" @click="autoMapExactHeaders" :disabled="!importPreview?.headers?.length">
+            Auto-map exact header matches
+          </button>
+        </div>
+
         <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 12px;">
           <div class="field">
             <label>Personal email column (match key)</label>
@@ -504,11 +510,31 @@ const previewImport = async () => {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
     importPreview.value = r.data;
+    // Sensible default: most sheets have login email in `email_address`.
+    const headers = Array.isArray(r.data?.headers) ? r.data.headers : [];
+    if (!matchEmailColumn.value) {
+      if (headers.includes('email_address')) matchEmailColumn.value = 'email_address';
+      else if (headers.includes('personal_email')) matchEmailColumn.value = 'personal_email';
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Import preview failed';
   } finally {
     previewingImport.value = false;
   }
+};
+
+const autoMapExactHeaders = () => {
+  const headers = Array.isArray(importPreview.value?.headers) ? importPreview.value.headers : [];
+  if (!headers.length) return;
+  const headerSet = new Set(headers.map((h) => String(h || '').trim()));
+  const next = { ...(importMapping.value || {}) };
+  // If your sheet headers are canonical field_keys (as in your example), this maps everything in one click.
+  (searchableFields.value || []).forEach((fd) => {
+    const key = String(fd?.fieldKey || '').trim();
+    if (!key) return;
+    if (headerSet.has(key)) next[key] = key;
+  });
+  importMapping.value = next;
 };
 
 const runImport = async () => {
