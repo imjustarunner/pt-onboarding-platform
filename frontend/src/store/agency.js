@@ -15,9 +15,45 @@ export const useAgencyStore = defineStore('agency', () => {
   };
   const currentAgency = ref(safeJsonParse(localStorage.getItem('currentAgency') || 'null', null));
 
+  const hydrateAgencyById = async (agencyId) => {
+    const id = Number(agencyId);
+    if (!Number.isInteger(id) || id < 1) return null;
+    try {
+      const res = await api.get(`/agencies/${id}`);
+      const full = res.data;
+      if (!full?.id) return null;
+
+      // Update lists (best-effort).
+      const replaceIn = (arrRef) => {
+        const arr = Array.isArray(arrRef.value) ? arrRef.value.slice() : [];
+        const idx = arr.findIndex((a) => Number(a?.id) === Number(full.id));
+        if (idx >= 0) {
+          arr[idx] = { ...arr[idx], ...full };
+          arrRef.value = arr;
+        }
+      };
+      replaceIn(agencies);
+      replaceIn(userAgencies);
+
+      // If current agency matches, update it too.
+      if (Number(currentAgency.value?.id) === Number(full.id)) {
+        currentAgency.value = { ...currentAgency.value, ...full };
+        localStorage.setItem('currentAgency', JSON.stringify(currentAgency.value));
+      }
+      return full;
+    } catch (e) {
+      console.error('Failed to hydrate agency:', e);
+      return null;
+    }
+  };
+
   const setCurrentAgency = (agency) => {
     currentAgency.value = agency;
     localStorage.setItem('currentAgency', JSON.stringify(agency));
+    // Best-effort: hydrate with full agency record (includes icon paths + theme settings).
+    if (agency?.id) {
+      hydrateAgencyById(agency.id);
+    }
   };
 
   const fetchAgencies = async (userId = null) => {
@@ -121,6 +157,7 @@ export const useAgencyStore = defineStore('agency', () => {
     currentAgency,
     getAgencyTracks,
     setCurrentAgency,
+    hydrateAgencyById,
     fetchAgencies,
     fetchUserAgencies,
     fetchTracks

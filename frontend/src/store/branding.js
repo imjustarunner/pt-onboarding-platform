@@ -315,6 +315,15 @@ export const useBrandingStore = defineStore('branding', () => {
       const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
       return `${apiBase}/${agency.logo_path}`;
     }
+    // Fallback to master icon (icon_id -> icon_file_path) when agency has no logo fields.
+    if (agency?.icon_file_path) {
+      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+      let iconPath = String(agency.icon_file_path);
+      if (iconPath.startsWith('/uploads/')) iconPath = iconPath.substring('/uploads/'.length);
+      else if (iconPath.startsWith('/')) iconPath = iconPath.substring(1);
+      return `${apiBase}/uploads/${iconPath}`;
+    }
     return agency?.logo_url || null;
   });
   
@@ -395,6 +404,16 @@ export const useBrandingStore = defineStore('branding', () => {
       } else if (iconPath.startsWith('/')) {
         iconPath = iconPath.substring(1);
       }
+      const logoUrl = `${apiBase}/uploads/${iconPath}`;
+      return addCacheBuster(logoUrl);
+    }
+    // Fallback to master icon (icon_id -> icon_file_path) when agency has no logo fields.
+    if (agency?.icon_file_path) {
+      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+      let iconPath = String(agency.icon_file_path);
+      if (iconPath.startsWith('/uploads/')) iconPath = iconPath.substring('/uploads/'.length);
+      else if (iconPath.startsWith('/')) iconPath = iconPath.substring(1);
       const logoUrl = `${apiBase}/uploads/${iconPath}`;
       return addCacheBuster(logoUrl);
     }

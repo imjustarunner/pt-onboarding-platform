@@ -29,6 +29,25 @@ onMounted(async () => {
   // This prevents agency colors from affecting the login page
   if (authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
     await agencyStore.fetchUserAgencies();
+    // Best-effort: apply agency theme (fonts) if we already have a selected agency.
+    if (agencyStore.currentAgency) {
+      try {
+        const colorPalette = typeof agencyStore.currentAgency.color_palette === 'string'
+          ? JSON.parse(agencyStore.currentAgency.color_palette)
+          : (agencyStore.currentAgency.color_palette || {});
+        const themeSettings = typeof agencyStore.currentAgency.theme_settings === 'string'
+          ? JSON.parse(agencyStore.currentAgency.theme_settings)
+          : (agencyStore.currentAgency.theme_settings || {});
+        brandingStore.applyTheme({
+          brandingAgencyId: agencyStore.currentAgency.id,
+          agencyId: agencyStore.currentAgency.id,
+          colorPalette,
+          themeSettings
+        });
+      } catch {
+        // ignore
+      }
+    }
   } else if (!authStore.isAuthenticated) {
     // Clear currentAgency on login page to ensure platform branding is used
     if (agencyStore.currentAgency) {
@@ -43,6 +62,29 @@ watch(() => brandingStore.platformBranding, async (newBranding) => {
     await loadAndApplyPlatformFonts(newBranding);
   }
 }, { deep: true });
+
+// Watch for agency switches and apply the agency theme settings (especially fonts).
+watch(() => agencyStore.currentAgency, async (newAgency) => {
+  if (!authStore.isAuthenticated) return;
+  if (authStore.user?.role === 'super_admin') return;
+  if (!newAgency) return;
+  try {
+    const colorPalette = typeof newAgency.color_palette === 'string'
+      ? JSON.parse(newAgency.color_palette)
+      : (newAgency.color_palette || {});
+    const themeSettings = typeof newAgency.theme_settings === 'string'
+      ? JSON.parse(newAgency.theme_settings)
+      : (newAgency.theme_settings || {});
+    brandingStore.applyTheme({
+      brandingAgencyId: newAgency.id,
+      agencyId: newAgency.id,
+      colorPalette,
+      themeSettings
+    });
+  } catch {
+    // ignore
+  }
+}, { deep: false });
 
 const brandingStyles = computed(() => {
   const platform = brandingStore.platformBranding;
@@ -67,7 +109,10 @@ const brandingStyles = computed(() => {
     '--bg-alt': platform?.background_color || '#F3F6FA',
     '--text-primary': brandingStore.secondaryColor,
     '--text-secondary': brandingStore.accentColor,
-    '--border': brandingStore.accentColor
+    '--border': brandingStore.accentColor,
+    // Ensure typography variables inherit the agency font when set.
+    '--font-body': 'var(--agency-font-family, var(--font-body))',
+    '--font-header': 'var(--agency-font-family, var(--font-header))'
   };
 });
 </script>
