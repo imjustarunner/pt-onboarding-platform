@@ -75,7 +75,8 @@
         </button>
       </div>
 
-      <div class="tab-content">
+      <!-- Force full remount when switching tabs to avoid Vue patch edge-cases across radically different subtrees -->
+      <div class="tab-content" :key="activeTab">
         <div v-if="activeTab === 'account'" class="tab-panel">
           <h2>Account Information</h2>
           <div class="account-layout">
