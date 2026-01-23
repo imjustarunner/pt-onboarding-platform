@@ -67,7 +67,8 @@
         <button
           v-for="tab in tabs"
           :key="tab.id"
-          @click="activeTab = tab.id"
+          type="button"
+          @click="selectTab(tab.id)"
           :class="['tab-button', { active: activeTab === tab.id }]"
         >
           {{ tab.label }}
@@ -2450,11 +2451,36 @@ const copyAllCredentials = async () => {
   }
 };
 
-// Watch for tab query parameter changes
+const tabIds = computed(() => (tabs.value || []).map((t) => t.id));
+
+const selectTab = (tabId) => {
+  const id = String(tabId || '').trim();
+  if (!id) return;
+  if (!tabIds.value.includes(id)) return;
+  activeTab.value = id;
+  // Keep the URL in sync (prevents stale query state + patch edge cases).
+  try {
+    if (String(route.query.tab || '') !== id) {
+      router.replace({ query: { ...route.query, tab: id } }).catch(() => {});
+    }
+  } catch {
+    // ignore
+  }
+};
+
+// Ensure activeTab is always valid for the currently computed tabs.
+watch(tabIds, (ids) => {
+  if (!Array.isArray(ids) || ids.length === 0) return;
+  if (!ids.includes(activeTab.value)) {
+    activeTab.value = ids[0];
+  }
+}, { immediate: true });
+
+// Watch for tab query parameter changes (only allow tabs that are currently available).
 watch(() => route.query.tab, (newTab) => {
-  const validTabs = ['account', 'training', 'documents', 'communications', 'activity'];
-  if (newTab && validTabs.includes(newTab)) {
-    activeTab.value = newTab;
+  const t = typeof newTab === 'string' ? newTab : Array.isArray(newTab) ? newTab[0] : '';
+  if (t && tabIds.value.includes(t)) {
+    activeTab.value = t;
   }
 }, { immediate: true });
 
