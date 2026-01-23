@@ -211,7 +211,54 @@ app.use('/uploads', async (req, res, next) => {
     // Check if file exists in GCS before generating signed URL
     const bucket = await StorageService.getGCSBucket();
     const file = bucket.file(filePath);
-    const [exists] = await file.exists();
+    let [exists] = await file.exists();
+
+    // Backward compatibility:
+    // Older deployments stored icons/logos directly under "icons/*" (without the "uploads/" prefix).
+    // Our current /uploads handler maps everything to "uploads/*" in GCS, which can cause 404s
+    // (and result in "blank" icons due to transparent-image fallback).
+    // If the "uploads/*" key doesn't exist, try common legacy keys before failing.
+    if (!exists) {
+      const fallbackKeys = [];
+
+      // Strip leading "uploads/" (e.g. uploads/icons/x.svg -> icons/x.svg)
+      if (filePath.startsWith('uploads/')) {
+        fallbackKeys.push(filePath.substring('uploads/'.length));
+      }
+
+      // Explicit legacy icon/logos prefixes (extra safety)
+      if (filePath.startsWith('uploads/icons/')) {
+        fallbackKeys.push(`icons/${filePath.substring('uploads/icons/'.length)}`);
+      }
+      if (filePath.startsWith('uploads/logos/')) {
+        fallbackKeys.push(`logos/${filePath.substring('uploads/logos/'.length)}`);
+      }
+
+      // De-dupe while preserving order
+      const seen = new Set();
+      const uniqueFallbacks = fallbackKeys.filter((k) => {
+        const key = String(k || '').trim();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      for (const altKey of uniqueFallbacks) {
+        try {
+          const altFile = bucket.file(altKey);
+          const [altExists] = await altFile.exists();
+          if (altExists) {
+            console.warn(`[File Request] Using legacy GCS key fallback: requested=${filePath} fallback=${altKey}`);
+            resolvedFilePath = altKey;
+            filePath = altKey;
+            exists = true;
+            break;
+          }
+        } catch {
+          // ignore and keep trying
+        }
+      }
+    }
     
     if (!exists) {
       // Development fallback: if the file exists on disk, serve it from backend/uploads.
