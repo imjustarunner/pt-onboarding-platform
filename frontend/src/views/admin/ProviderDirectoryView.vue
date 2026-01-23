@@ -123,7 +123,7 @@
 
     <div class="card" style="margin-top: 14px;">
       <h3 class="card-title" style="margin: 0 0 10px 0;">Import legacy answers (CSV/XLSX)</h3>
-      <div class="muted">Uploads a spreadsheet (e.g., your original Google Form export), matches by personal email, and writes into canonical profile fields by field_key.</div>
+      <div class="muted">Uploads a spreadsheet and writes into canonical profile fields by <code>field_key</code>. You can match rows to users by email or by first/last name (recommended: also include DOB).</div>
 
       <div class="field-row" style="grid-template-columns: 1fr auto; gap: 10px; align-items: end; margin-top: 10px;">
         <div class="field">
@@ -144,10 +144,10 @@
 
         <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 12px;">
           <div class="field">
-            <label>Personal email column (match key)</label>
-            <select v-model="matchEmailColumn">
-              <option value="" disabled>Select…</option>
-              <option v-for="h in importPreview.headers" :key="h" :value="h">{{ h }}</option>
+            <label>Match rows to users by</label>
+            <select v-model="matchMode">
+              <option value="name">First + Last name (optionally DOB)</option>
+              <option value="email">Email address</option>
             </select>
           </div>
           <div class="field">
@@ -155,6 +155,37 @@
             <select v-model="dryRun">
               <option :value="true">Dry run (no writes)</option>
               <option :value="false">Apply import</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 10px;">
+          <div class="field" v-if="matchMode === 'email'">
+            <label>Email column</label>
+            <select v-model="matchEmailColumn">
+              <option value="" disabled>Select…</option>
+              <option v-for="h in importPreview.headers" :key="h" :value="h">{{ h }}</option>
+            </select>
+          </div>
+          <div class="field" v-if="matchMode === 'name'">
+            <label>First name column</label>
+            <select v-model="matchFirstNameColumn">
+              <option value="" disabled>Select…</option>
+              <option v-for="h in importPreview.headers" :key="h" :value="h">{{ h }}</option>
+            </select>
+          </div>
+          <div class="field" v-if="matchMode === 'name'">
+            <label>Last name column</label>
+            <select v-model="matchLastNameColumn">
+              <option value="" disabled>Select…</option>
+              <option v-for="h in importPreview.headers" :key="h" :value="h">{{ h }}</option>
+            </select>
+          </div>
+          <div class="field" v-if="matchMode === 'name'">
+            <label>DOB column (recommended)</label>
+            <select v-model="matchDobColumn">
+              <option value="">(none)</option>
+              <option v-for="h in importPreview.headers" :key="h" :value="h">{{ h }}</option>
             </select>
           </div>
         </div>
@@ -179,7 +210,12 @@
         </div>
 
         <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px;">
-          <button class="btn btn-primary" type="button" @click="runImport" :disabled="importing || !matchEmailColumn">
+          <button
+            class="btn btn-primary"
+            type="button"
+            @click="runImport"
+            :disabled="importing || !canRunImport"
+          >
             {{ importing ? 'Running…' : (dryRun ? 'Run Dry Run' : 'Apply Import') }}
           </button>
         </div>
@@ -370,7 +406,11 @@ const importFile = ref(null);
 const importPreview = ref(null);
 const previewingImport = ref(false);
 const importMapping = ref({});
+const matchMode = ref('name');
 const matchEmailColumn = ref('');
+const matchFirstNameColumn = ref('');
+const matchLastNameColumn = ref('');
+const matchDobColumn = ref('');
 const dryRun = ref(true);
 const importing = ref(false);
 const importResult = ref(null);
@@ -495,7 +535,11 @@ const onFileChange = (e) => {
   importPreview.value = null;
   importResult.value = null;
   importMapping.value = {};
+  matchMode.value = 'name';
   matchEmailColumn.value = '';
+  matchFirstNameColumn.value = '';
+  matchLastNameColumn.value = '';
+  matchDobColumn.value = '';
 };
 
 const previewImport = async () => {
@@ -512,9 +556,14 @@ const previewImport = async () => {
     importPreview.value = r.data;
     // Sensible default: most sheets have login email in `email_address`.
     const headers = Array.isArray(r.data?.headers) ? r.data.headers : [];
-    if (!matchEmailColumn.value) {
-      if (headers.includes('email_address')) matchEmailColumn.value = 'email_address';
-      else if (headers.includes('personal_email')) matchEmailColumn.value = 'personal_email';
+    if (headers.includes('first_name') && headers.includes('last_name')) {
+      matchMode.value = 'name';
+      matchFirstNameColumn.value = 'first_name';
+      matchLastNameColumn.value = 'last_name';
+      if (headers.includes('date_of_birth')) matchDobColumn.value = 'date_of_birth';
+    } else if (headers.includes('email_address') || headers.includes('personal_email')) {
+      matchMode.value = 'email';
+      matchEmailColumn.value = headers.includes('email_address') ? 'email_address' : 'personal_email';
     }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Import preview failed';
@@ -522,6 +571,12 @@ const previewImport = async () => {
     previewingImport.value = false;
   }
 };
+
+const canRunImport = computed(() => {
+  if (!importPreview.value) return false;
+  if (matchMode.value === 'email') return !!matchEmailColumn.value;
+  return !!matchFirstNameColumn.value && !!matchLastNameColumn.value;
+});
 
 const autoMapExactHeaders = () => {
   const headers = Array.isArray(importPreview.value?.headers) ? importPreview.value.headers : [];
@@ -546,7 +601,11 @@ const runImport = async () => {
     const fd = new FormData();
     fd.append('file', importFile.value);
     fd.append('agencyId', String(agencyId.value));
+    fd.append('matchMode', String(matchMode.value || 'email'));
     fd.append('matchEmailColumn', String(matchEmailColumn.value || ''));
+    fd.append('matchFirstNameColumn', String(matchFirstNameColumn.value || ''));
+    fd.append('matchLastNameColumn', String(matchLastNameColumn.value || ''));
+    fd.append('matchDobColumn', String(matchDobColumn.value || ''));
     fd.append('dryRun', dryRun.value ? 'true' : 'false');
     fd.append('mapping', JSON.stringify(mapping));
     const r = await api.post('/provider-import/apply', fd, {

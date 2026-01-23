@@ -632,22 +632,37 @@ export const applyProviderImport = [
       if (!req.file) return res.status(400).json({ error: { message: 'No CSV/XLSX file uploaded' } });
 
       const agencyId = req.body.agencyId ? parseInt(req.body.agencyId, 10) : null;
+      const matchMode = String(req.body.matchMode || 'email').trim().toLowerCase();
       const matchEmailColumn = String(req.body.matchEmailColumn || '').trim();
+      const matchFirstNameColumn = String(req.body.matchFirstNameColumn || '').trim();
+      const matchLastNameColumn = String(req.body.matchLastNameColumn || '').trim();
+      const matchDobColumn = String(req.body.matchDobColumn || '').trim();
       const mappingRaw = req.body.mapping ? (typeof req.body.mapping === 'string' ? JSON.parse(req.body.mapping) : req.body.mapping) : {};
       const dryRun = req.body.dryRun === 'true' || req.body.dryRun === true;
 
       if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-      if (!matchEmailColumn) return res.status(400).json({ error: { message: 'matchEmailColumn is required' } });
+      if (matchMode !== 'email' && matchMode !== 'name') {
+        return res.status(400).json({ error: { message: "matchMode must be 'email' or 'name'." } });
+      }
+      if (matchMode === 'email' && !matchEmailColumn) {
+        return res.status(400).json({ error: { message: 'matchEmailColumn is required when matchMode=email' } });
+      }
+      if (matchMode === 'name' && (!matchFirstNameColumn || !matchLastNameColumn)) {
+        return res.status(400).json({ error: { message: 'matchFirstNameColumn and matchLastNameColumn are required when matchMode=name' } });
+      }
       if (!mappingRaw || typeof mappingRaw !== 'object') return res.status(400).json({ error: { message: 'mapping must be an object' } });
 
       const rows = parseSheet(req.file.buffer, req.file.originalname);
       const results = {
         rowCount: rows.length,
+        matchMode,
         matched: 0,
         unmatched: 0,
+        ambiguous: 0,
         updatesPlanned: 0,
         updatesApplied: 0,
         unmatchedRows: [],
+        ambiguousRows: [],
         errors: []
       };
 
@@ -656,14 +671,104 @@ export const applyProviderImport = [
         .map(([fieldKey, col]) => ({ fieldKey: String(fieldKey || '').trim(), col: String(col || '').trim() }))
         .filter((m) => m.fieldKey && m.col);
 
+      // If matching by name, build an in-memory index of agency users to avoid per-row DB queries.
+      const normalizeNameToken = (s) => {
+        return String(s || '')
+          .toLowerCase()
+          .replace(/[^a-z\s'-]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      };
+      const normalizeFirst = (s) => normalizeNameToken(s).split(/\s+/).filter(Boolean)[0] || '';
+      const normalizeLast = (s) => {
+        const toks = normalizeNameToken(s).split(/\s+/).filter(Boolean);
+        return toks.length ? toks[toks.length - 1] : '';
+      };
+      const parseDateOnly = (raw) => {
+        if (raw === null || raw === undefined) return null;
+        const s = String(raw).trim();
+        if (!s) return null;
+        // Accept YYYY-MM-DD
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+        const d = new Date(s);
+        if (!Number.isFinite(d.getTime())) return null;
+        const yyyy = String(d.getFullYear()).padStart(4, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      };
+
+      let nameIndexNoDob = null; // key -> number|number[] (ambiguous)
+      let nameIndexWithDob = null; // key -> number|number[]
+      if (matchMode === 'name') {
+        nameIndexNoDob = new Map();
+        nameIndexWithDob = new Map();
+        const [users] = await pool.execute(
+          `SELECT u.id, u.first_name, u.last_name, u.date_of_birth
+           FROM users u
+           JOIN user_agencies ua ON ua.user_id = u.id
+           WHERE ua.agency_id = ?`,
+          [agencyId]
+        );
+        for (const u of users || []) {
+          const fn = normalizeFirst(u.first_name);
+          const ln = normalizeLast(u.last_name);
+          if (!fn || !ln) continue;
+          const key = `${fn}|${ln}`;
+          const dob = parseDateOnly(u.date_of_birth);
+          const keyDob = dob ? `${key}|${dob}` : null;
+          const add = (m, k, id) => {
+            const cur = m.get(k);
+            if (!cur) return m.set(k, id);
+            if (Array.isArray(cur)) return m.set(k, Array.from(new Set([...cur, id])));
+            if (cur === id) return;
+            return m.set(k, [cur, id]);
+          };
+          add(nameIndexNoDob, key, Number(u.id));
+          if (keyDob) add(nameIndexWithDob, keyDob, Number(u.id));
+        }
+      }
+
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i] || {};
-        const email = row[matchEmailColumn];
-        const userId = await findUserIdByAnyEmail(email);
+        let userId = null;
+        let matchLabel = null;
+        if (matchMode === 'email') {
+          const email = row[matchEmailColumn];
+          userId = await findUserIdByAnyEmail(email);
+          matchLabel = String(email || '').trim();
+        } else {
+          const first = row[matchFirstNameColumn];
+          const last = row[matchLastNameColumn];
+          const fn = normalizeFirst(first);
+          const ln = normalizeLast(last);
+          const baseKey = fn && ln ? `${fn}|${ln}` : '';
+          const dob = matchDobColumn ? parseDateOnly(row[matchDobColumn]) : null;
+          matchLabel = `${String(first || '').trim()} ${String(last || '').trim()}`.trim();
+
+          const pickOne = (val) => {
+            if (!val) return { id: null, ambiguous: false };
+            if (Array.isArray(val)) return { id: null, ambiguous: true, ids: val };
+            return { id: Number(val), ambiguous: false };
+          };
+
+          let picked = null;
+          if (baseKey && dob) picked = pickOne(nameIndexWithDob.get(`${baseKey}|${dob}`));
+          if (!picked && baseKey) picked = pickOne(nameIndexNoDob.get(baseKey));
+
+          if (picked?.ambiguous) {
+            results.ambiguous += 1;
+            if (results.ambiguousRows.length < 50) {
+              results.ambiguousRows.push({ rowIndex: i + 1, name: matchLabel, dob, matchedUserIds: picked.ids || [], row });
+            }
+            continue;
+          }
+          userId = picked?.id || null;
+        }
         if (!userId) {
           results.unmatched += 1;
           if (results.unmatchedRows.length < 50) {
-            results.unmatchedRows.push({ rowIndex: i + 1, personalEmail: String(email || '').trim(), row });
+            results.unmatchedRows.push({ rowIndex: i + 1, match: matchLabel, row });
           }
           continue;
         }
