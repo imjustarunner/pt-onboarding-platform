@@ -9,6 +9,13 @@
         <router-link to="/admin/checklist-items" class="btn btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center;">
           📋 Checklist Items
         </router-link>
+        <input
+          ref="specFileInput"
+          type="file"
+          accept=".md,.yaml,.yml,.txt"
+          style="display:none;"
+          @change="onSpecFileSelected"
+        />
         <button
           v-if="userRole === 'super_admin'"
           type="button"
@@ -18,6 +25,16 @@
           title="Regenerate spec-driven form modules/fields from PROVIDER_ONBOARDING_MODULES.md"
         >
           {{ syncingFormSpec ? 'Syncing Forms…' : 'Sync Forms (Spec)' }}
+        </button>
+        <button
+          v-if="userRole === 'super_admin'"
+          type="button"
+          class="btn btn-secondary"
+          @click="specFileInput?.click()"
+          :disabled="uploadingSpec"
+          title="Upload the spec file to the database, then sync"
+        >
+          {{ uploadingSpec ? 'Uploading Spec…' : 'Upload Spec' }}
         </button>
         <button 
           @click="viewMode = viewMode === 'table' ? 'hierarchy' : 'table'" 
@@ -930,6 +947,8 @@ const canCreateEdit = computed(() => {
 const syncingFormSpec = ref(false);
 const syncFormSpecError = ref('');
 const syncFormSpecMessage = ref('');
+const specFileInput = ref(null);
+const uploadingSpec = ref(false);
 
 const runFormSpecSync = async () => {
   try {
@@ -950,6 +969,37 @@ const runFormSpecSync = async () => {
     syncFormSpecError.value = e.response?.data?.error?.message || e.message || 'Failed to sync form spec';
   } finally {
     syncingFormSpec.value = false;
+  }
+};
+
+const onSpecFileSelected = async (evt) => {
+  try {
+    const f = evt?.target?.files?.[0] || null;
+    if (!f) return;
+    uploadingSpec.value = true;
+    syncFormSpecError.value = '';
+    syncFormSpecMessage.value = '';
+
+    const fd = new FormData();
+    fd.append('file', f);
+
+    const headers = {};
+    if (import.meta.env.VITE_ADMIN_ACTIONS_TOKEN) {
+      headers['X-Admin-Actions-Token'] = import.meta.env.VITE_ADMIN_ACTIONS_TOKEN;
+    }
+
+    await api.post('/admin-actions/form-spec', fd, { headers });
+    syncFormSpecMessage.value = 'Spec uploaded. Syncing…';
+    await runFormSpecSync();
+  } catch (e) {
+    syncFormSpecError.value = e.response?.data?.error?.message || e.message || 'Failed to upload spec';
+  } finally {
+    uploadingSpec.value = false;
+    try {
+      if (specFileInput.value) specFileInput.value.value = '';
+    } catch {
+      // ignore
+    }
   }
 };
 

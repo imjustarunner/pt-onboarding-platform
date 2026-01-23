@@ -6,6 +6,10 @@ import AdminAuditLog from '../models/AdminAuditLog.model.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
 import { validationResult } from 'express-validator';
 import { FormSpecSyncService } from '../services/formSpecSync.service.js';
+import multer from 'multer';
+import FormSpec from '../models/FormSpec.model.js';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } }); // 2MB
 
 export const resetModule = async (req, res, next) => {
   try {
@@ -282,3 +286,40 @@ export const syncFormSpec = async (req, res, next) => {
     next(e);
   }
 };
+
+// Upload/replace the current provider onboarding modules spec (YAML) into the DB.
+// This avoids Cloud Run filesystem/repo file issues and allows non-deploy edits.
+export const uploadProviderOnboardingSpec = [
+  upload.single('file'),
+  async (req, res, next) => {
+    try {
+      const content = req.file?.buffer ? req.file.buffer.toString('utf8') : String(req.body?.content || '');
+      if (!content || !content.trim()) {
+        return res.status(400).json({ error: { message: 'Spec content is required' } });
+      }
+
+      // Validate YAML parses before saving.
+      try {
+        // eslint-disable-next-line no-unused-vars
+        const parsed = (await import('yaml')).default.parse(content);
+      } catch (e) {
+        return res.status(400).json({ error: { message: `Invalid YAML: ${e.message}` } });
+      }
+
+      const rec = await FormSpec.upsert({
+        specKey: 'provider_onboarding_modules',
+        content,
+        createdByUserId: req.user?.id || null
+      });
+
+      res.json({
+        ok: true,
+        specKey: rec.spec_key,
+        sha256: rec.content_sha256,
+        updatedAt: rec.updated_at
+      });
+    } catch (e) {
+      next(e);
+    }
+  }
+];

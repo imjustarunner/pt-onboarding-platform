@@ -7,6 +7,7 @@ import ModuleContent from '../models/ModuleContent.model.js';
 import UserInfoFieldDefinition from '../models/UserInfoFieldDefinition.model.js';
 import UserInfoCategory from '../models/UserInfoCategory.model.js';
 import { resolveOptionSource } from '../config/formOptionSources.js';
+import FormSpec from '../models/FormSpec.model.js';
 
 function findRepoFileCandidates(relativePathFromRepoRoot) {
   // The backend runs with cwd=backend/ in most scripts; be defensive.
@@ -376,7 +377,17 @@ async function upsertPlatformCategory({ categoryKey, categoryLabel, orderIndex }
 
 export class FormSpecSyncService {
   static async syncFromProviderOnboardingModulesMd() {
-    const raw = await readRepoFile('PROVIDER_ONBOARDING_MODULES.md');
+    // First preference: database-stored spec (so Cloud Run does not depend on repo files).
+    let raw = null;
+    try {
+      const rec = await FormSpec.findByKey('provider_onboarding_modules');
+      if (rec?.content) raw = rec.content;
+    } catch {
+      // ignore and fall back to repo file
+    }
+    if (!raw) {
+      raw = await readRepoFile('PROVIDER_ONBOARDING_MODULES.md');
+    }
     const spec = YAML.parse(raw);
     if (!spec || typeof spec !== 'object') {
       throw new Error('Invalid YAML in PROVIDER_ONBOARDING_MODULES.md');
