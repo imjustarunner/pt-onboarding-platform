@@ -428,7 +428,9 @@ export const aiQueryUsers = async (req, res, next) => {
     const raw = String(req.query.query || '').trim();
     const includeArchived = req.query.includeArchived === 'true';
     const limitRaw = parseInt(String(req.query.limit || '100'), 10);
-    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 100;
+    // NOTE: Some MySQL/CloudSQL setups reject prepared-statement params for LIMIT,
+    // yielding "Incorrect arguments to mysqld_stmt_execute". We inline a validated integer.
+    const limit = Number.isFinite(limitRaw) ? Math.trunc(Math.min(Math.max(limitRaw, 1), 500)) : 100;
 
     if (!raw) {
       return res.json({ results: [], emailsSemicolon: '', meta: { keywords: [], total: 0 } });
@@ -526,8 +528,8 @@ export const aiQueryUsers = async (req, res, next) => {
        ${joinAgency}
        ${whereSql}
        ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC
-       LIMIT ?`,
-      [...params, limit]
+       LIMIT ${limit}`,
+      params
     );
 
     const results = (rows || []).map((r) => ({
