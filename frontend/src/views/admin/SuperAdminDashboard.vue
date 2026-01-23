@@ -38,6 +38,10 @@
       
       <NotificationCards />
       
+      <div v-if="!currentAgency" class="brand-preview-hint">
+        Select an agency brand to preview agency-specific icon overrides.
+      </div>
+
       <QuickActionsSection
         title="Quick Actions"
         context-key="platform"
@@ -59,6 +63,7 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
 import { useBrandingStore } from '../../store/branding';
+import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
@@ -66,6 +71,8 @@ import QuickActionsSection from '../../components/admin/QuickActionsSection.vue'
 import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
 
 const brandingStore = useBrandingStore();
+const agencyStore = useAgencyStore();
+const currentAgency = computed(() => agencyStore.currentAgency);
 
 const loading = ref(true);
 const error = ref('');
@@ -141,37 +148,9 @@ const fetchStats = async () => {
 };
 
 const getActionIcon = (actionKey) => {
-  if (!branding.value) {
-    console.log(`getActionIcon(${actionKey}): No branding data`);
-    return null;
-  }
-  
-  const iconPathMap = {
-    'manage_agencies': branding.value.manage_agencies_icon_path,
-    'manage_modules': branding.value.manage_modules_icon_path,
-    'manage_documents': branding.value.manage_documents_icon_path,
-    'manage_users': branding.value.manage_users_icon_path,
-    'platform_settings': branding.value.platform_settings_icon_path,
-    'view_all_progress': branding.value.view_all_progress_icon_path
-  };
-  
-  const iconPath = iconPathMap[actionKey];
-  if (!iconPath) {
-    console.log(`getActionIcon(${actionKey}): No icon path found`);
-    return null;
-  }
-  
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  let cleanPath = iconPath;
-  if (cleanPath.startsWith('/uploads/')) {
-    cleanPath = cleanPath.substring('/uploads/'.length);
-  } else if (cleanPath.startsWith('/')) {
-    cleanPath = cleanPath.substring(1);
-  }
-  const fullPath = `${apiBase}/uploads/${cleanPath}`;
-  console.log(`getActionIcon(${actionKey}): Returning path: ${fullPath}`);
-  return fullPath;
+  // Use centralized branding logic.
+  // For super_admin, allow previewing a selected agency's overrides via currentAgency.
+  return brandingStore.getAdminQuickActionIconUrl(actionKey, currentAgency.value || null);
 };
 
 const quickActions = computed(() => ([
@@ -373,6 +352,12 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 32px;
+}
+
+.brand-preview-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: -8px;
 }
 
 .dashboard-grid {
