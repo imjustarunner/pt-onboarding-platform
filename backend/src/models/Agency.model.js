@@ -166,6 +166,17 @@ class Agency {
 
     let query;
     if (hasDashboardIcons) {
+      // Check if manage_clients_icon_id column exists (optional)
+      let hasManageClientsIcon = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'manage_clients_icon_id'"
+        );
+        hasManageClientsIcon = cols.length > 0;
+      } catch (e) {
+        hasManageClientsIcon = false;
+      }
+
       const myDashSelects = hasMyDashboardIcons
         ? `,
         mdc_i.file_path as my_dashboard_checklist_icon_path, mdc_i.name as my_dashboard_checklist_icon_name,
@@ -191,6 +202,7 @@ class Agency {
       query = `SELECT a.*,
         master_i.file_path as icon_file_path, master_i.name as icon_name,
         ${hasChatIconId ? 'chat_i.file_path as chat_icon_path, chat_i.name as chat_icon_name,' : ''}
+        ${hasManageClientsIcon ? 'mc_i.file_path as manage_clients_icon_path, mc_i.name as manage_clients_icon_name,' : ''}
         ma_i.file_path as manage_agencies_icon_path, ma_i.name as manage_agencies_icon_name,
         mm_i.file_path as manage_modules_icon_path, mm_i.name as manage_modules_icon_name,
         md_i.file_path as manage_documents_icon_path, md_i.name as manage_documents_icon_name,
@@ -202,6 +214,7 @@ class Agency {
         FROM agencies a
         ${hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : ''}
         ${hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : ''}
+        ${hasManageClientsIcon ? 'LEFT JOIN icons mc_i ON a.manage_clients_icon_id = mc_i.id' : ''}
         LEFT JOIN icons ma_i ON a.manage_agencies_icon_id = ma_i.id
         LEFT JOIN icons mm_i ON a.manage_modules_icon_id = mm_i.id
         LEFT JOIN icons md_i ON a.manage_documents_icon_id = md_i.id
@@ -800,6 +813,20 @@ class Agency {
       if (manageAgenciesIconId !== undefined) {
         updates.push('manage_agencies_icon_id = ?');
         values.push(manageAgenciesIconId || null);
+      }
+      if (agencyData.manageClientsIconId !== undefined) {
+        // Optional column; keep best-effort for older DBs.
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'manage_clients_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            updates.push('manage_clients_icon_id = ?');
+            values.push(agencyData.manageClientsIconId || null);
+          }
+        } catch {
+          // ignore
+        }
       }
       if (manageModulesIconId !== undefined) {
         updates.push('manage_modules_icon_id = ?');

@@ -168,10 +168,14 @@ const applyDefaults = () => {
 const hydrate = () => {
   const stored = load();
   const allowedIds = new Set(availableActions.value.map((a) => String(a.id)));
+  const defaults = (props.defaultActionIds || []).map(String).filter((id) => allowedIds.has(id));
   if (stored && stored.length > 0) {
     const cleaned = stored.filter((id) => allowedIds.has(String(id)));
     if (cleaned.length > 0) {
-      selectedIds.value = cleaned;
+      // Keep user selection but auto-append any new defaults that weren't previously present.
+      const set = new Set(cleaned);
+      for (const d of defaults) set.add(d);
+      selectedIds.value = Array.from(set);
       return;
     }
   }

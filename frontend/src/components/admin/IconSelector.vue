@@ -92,6 +92,12 @@ const props = defineProps({
   modelValue: {
     type: Number,
     default: null
+  },
+  // If provided, the icon picker will default to showing this agency's icons when opened.
+  // Intended for agency settings (so you don't start in "All Agencies" every time).
+  defaultAgencyId: {
+    type: [Number, String],
+    default: null
   }
 });
 
@@ -164,6 +170,13 @@ const handleFilterChange = () => {
 };
 
 const searchTimeout = ref(null);
+
+const applyDefaultAgencyFilterIfProvided = () => {
+  const raw = props.defaultAgencyId;
+  const id = raw === null || raw === undefined || raw === '' ? null : parseInt(String(raw), 10);
+  if (id && !Number.isNaN(id)) selectedAgency.value = String(id);
+  else selectedAgency.value = '';
+};
 
 const fetchIcons = async () => {
   try {
@@ -270,8 +283,8 @@ const handleOpenModal = async (event) => {
     event.stopPropagation();
     event.preventDefault();
   }
-  // Reset filters when opening modal to show all icons
-  selectedAgency.value = '';
+  // Reset filters when opening modal, but default to the current agency if provided
+  applyDefaultAgencyFilterIfProvided();
   selectedCategory.value = '';
   searchTerm.value = '';
   sortBy.value = 'name';

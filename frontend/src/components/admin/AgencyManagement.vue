@@ -1157,7 +1157,7 @@
             
             <div class="form-group">
               <label>Organization Icon</label>
-              <IconSelector v-model="agencyForm.iconId" label="Select Organization Icon" />
+              <IconSelector v-model="agencyForm.iconId" label="Select Organization Icon" :defaultAgencyId="editingAgency?.id || null" />
               <small>Main icon displayed for this organization</small>
             </div>
 
@@ -1170,7 +1170,7 @@
 
             <div class="form-group">
               <label>Chat Icon</label>
-              <IconSelector v-model="agencyForm.chatIconId" />
+              <IconSelector v-model="agencyForm.chatIconId" :defaultAgencyId="editingAgency?.id || null" />
               <small>Overrides the platform chat icon for this organization</small>
             </div>
             
@@ -1184,22 +1184,22 @@
             <div class="default-icons-grid">
               <div class="default-icon-item">
                 <label>Training Focus Default Icon</label>
-                <IconSelector v-model="agencyForm.trainingFocusDefaultIconId" />
+                <IconSelector v-model="agencyForm.trainingFocusDefaultIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Default icon for training focuses when no specific icon is assigned</small>
               </div>
               <div class="default-icon-item">
                 <label>Module Default Icon</label>
-                <IconSelector v-model="agencyForm.moduleDefaultIconId" />
+                <IconSelector v-model="agencyForm.moduleDefaultIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Default icon for modules when no specific icon is assigned</small>
               </div>
               <div class="default-icon-item">
                 <label>User Default Icon</label>
-                <IconSelector v-model="agencyForm.userDefaultIconId" />
+                <IconSelector v-model="agencyForm.userDefaultIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Default icon for users when no specific icon is assigned</small>
               </div>
               <div class="default-icon-item">
                 <label>Document Default Icon</label>
-                <IconSelector v-model="agencyForm.documentDefaultIconId" />
+                <IconSelector v-model="agencyForm.documentDefaultIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Default icon for documents when no specific icon is assigned</small>
               </div>
             </div>
@@ -1214,27 +1214,32 @@
             <div class="dashboard-icons-grid">
               <div class="dashboard-icon-item">
                 <label>Progress Dashboard Icon</label>
-                <IconSelector v-model="agencyForm.progressDashboardIconId" />
+                <IconSelector v-model="agencyForm.progressDashboardIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Progress Dashboard" action card</small>
               </div>
               <div class="dashboard-icon-item">
+                <label>Manage Clients Icon</label>
+                <IconSelector v-model="agencyForm.manageClientsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Manage Clients" action card</small>
+              </div>
+              <div class="dashboard-icon-item">
                 <label>Manage Modules Icon</label>
-                <IconSelector v-model="agencyForm.manageModulesIconId" />
+                <IconSelector v-model="agencyForm.manageModulesIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Manage Modules" action card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Manage Documents Icon</label>
-                <IconSelector v-model="agencyForm.manageDocumentsIconId" />
+                <IconSelector v-model="agencyForm.manageDocumentsIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Manage Documents" action card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Manage Users Icon</label>
-                <IconSelector v-model="agencyForm.manageUsersIconId" />
+                <IconSelector v-model="agencyForm.manageUsersIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Manage Users" action card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Settings Icon</label>
-                <IconSelector v-model="agencyForm.settingsIconId" />
+                <IconSelector v-model="agencyForm.settingsIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Settings" action card</small>
               </div>
             </div>
@@ -1249,37 +1254,37 @@
             <div class="dashboard-icons-grid">
               <div class="dashboard-icon-item">
                 <label>Checklist Card Icon</label>
-                <IconSelector v-model="agencyForm.myDashboardChecklistIconId" />
+                <IconSelector v-model="agencyForm.myDashboardChecklistIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Checklist" card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Training Card Icon</label>
-                <IconSelector v-model="agencyForm.myDashboardTrainingIconId" />
+                <IconSelector v-model="agencyForm.myDashboardTrainingIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Training" card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Documents Card Icon</label>
-                <IconSelector v-model="agencyForm.myDashboardDocumentsIconId" />
+                <IconSelector v-model="agencyForm.myDashboardDocumentsIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Documents" card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Submit Card Icon</label>
-                <IconSelector v-model="agencyForm.myDashboardSubmitIconId" />
+                <IconSelector v-model="agencyForm.myDashboardSubmitIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Submit" card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Payroll Card Icon</label>
-                <IconSelector v-model="agencyForm.myDashboardPayrollIconId" />
+                <IconSelector v-model="agencyForm.myDashboardPayrollIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Payroll" card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>My Account Card Icon</label>
-                <IconSelector v-model="agencyForm.myDashboardMyAccountIconId" />
+                <IconSelector v-model="agencyForm.myDashboardMyAccountIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "My Account" card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>On-Demand Training Card Icon</label>
-                <IconSelector v-model="agencyForm.myDashboardOnDemandTrainingIconId" />
+                <IconSelector v-model="agencyForm.myDashboardOnDemandTrainingIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "On-Demand Training" card</small>
               </div>
             </div>
@@ -1294,35 +1299,35 @@
             <div class="notification-icons-grid">
               <div class="notification-icon-item">
                 <label>Status Expired</label>
-                <IconSelector v-model="agencyForm.statusExpiredIconId" />
+                <IconSelector v-model="agencyForm.statusExpiredIconId" :defaultAgencyId="editingAgency?.id || null" />
               </div>
               <div class="notification-icon-item">
                 <label>Temp Password Expired</label>
-                <IconSelector v-model="agencyForm.tempPasswordExpiredIconId" />
+                <IconSelector v-model="agencyForm.tempPasswordExpiredIconId" :defaultAgencyId="editingAgency?.id || null" />
               </div>
               <div class="notification-icon-item">
                 <label>Task Overdue</label>
-                <IconSelector v-model="agencyForm.taskOverdueIconId" />
+                <IconSelector v-model="agencyForm.taskOverdueIconId" :defaultAgencyId="editingAgency?.id || null" />
               </div>
               <div class="notification-icon-item">
                 <label>Onboarding Completed</label>
-                <IconSelector v-model="agencyForm.onboardingCompletedIconId" />
+                <IconSelector v-model="agencyForm.onboardingCompletedIconId" :defaultAgencyId="editingAgency?.id || null" />
               </div>
               <div class="notification-icon-item">
                 <label>Invitation Expired</label>
-                <IconSelector v-model="agencyForm.invitationExpiredIconId" />
+                <IconSelector v-model="agencyForm.invitationExpiredIconId" :defaultAgencyId="editingAgency?.id || null" />
               </div>
               <div class="notification-icon-item">
                 <label>First Login</label>
-                <IconSelector v-model="agencyForm.firstLoginIconId" />
+                <IconSelector v-model="agencyForm.firstLoginIconId" :defaultAgencyId="editingAgency?.id || null" />
               </div>
               <div class="notification-icon-item">
                 <label>First Login (Pending)</label>
-                <IconSelector v-model="agencyForm.firstLoginPendingIconId" />
+                <IconSelector v-model="agencyForm.firstLoginPendingIconId" :defaultAgencyId="editingAgency?.id || null" />
               </div>
               <div class="notification-icon-item">
                 <label>Password Changed</label>
-                <IconSelector v-model="agencyForm.passwordChangedIconId" />
+                <IconSelector v-model="agencyForm.passwordChangedIconId" :defaultAgencyId="editingAgency?.id || null" />
               </div>
             </div>
           </div>
@@ -2669,6 +2674,7 @@ const ICON_TEMPLATE_FIELDS = [
   'userDefaultIconId',
   'documentDefaultIconId',
   'progressDashboardIconId',
+  'manageClientsIconId',
   'manageModulesIconId',
   'manageDocumentsIconId',
   'manageUsersIconId',
@@ -2707,6 +2713,7 @@ const agencyForm = ref({
   userDefaultIconId: null,
   documentDefaultIconId: null,
   progressDashboardIconId: null,
+  manageClientsIconId: null,
   manageModulesIconId: null,
   manageDocumentsIconId: null,
   manageUsersIconId: null,
@@ -3456,6 +3463,7 @@ const editAgency = async (agency) => {
     userDefaultIconId: agency.user_default_icon_id ?? null,
     documentDefaultIconId: agency.document_default_icon_id ?? null,
     progressDashboardIconId: agency.progress_dashboard_icon_id ?? null,
+    manageClientsIconId: agency.manage_clients_icon_id ?? null,
     manageModulesIconId: agency.manage_modules_icon_id ?? null,
     manageDocumentsIconId: agency.manage_documents_icon_id ?? null,
     manageUsersIconId: agency.manage_users_icon_id ?? null,
@@ -3912,6 +3920,7 @@ const saveAgency = async () => {
       userDefaultIconId: agencyForm.value.userDefaultIconId ?? null,
       documentDefaultIconId: agencyForm.value.documentDefaultIconId ?? null,
       progressDashboardIconId: agencyForm.value.progressDashboardIconId ?? null,
+      manageClientsIconId: agencyForm.value.manageClientsIconId ?? null,
       manageModulesIconId: agencyForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: agencyForm.value.manageDocumentsIconId ?? null,
       manageUsersIconId: agencyForm.value.manageUsersIconId ?? null,
@@ -4201,6 +4210,7 @@ const closeModal = () => {
     userDefaultIconId: null,
     documentDefaultIconId: null,
     progressDashboardIconId: null,
+    manageClientsIconId: null,
     manageModulesIconId: null,
     manageDocumentsIconId: null,
     manageUsersIconId: null,

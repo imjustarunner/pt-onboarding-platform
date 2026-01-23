@@ -58,6 +58,16 @@ class PlatformBranding {
 
       let query;
       if (hasDashboardIcons) {
+      // Check if manage_clients_icon_id exists (optional)
+      let hasManageClientsIcon = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'manage_clients_icon_id'"
+        );
+        hasManageClientsIcon = cols.length > 0;
+      } catch (e) {
+        hasManageClientsIcon = false;
+      }
       // Check if organization fields exist
       let hasOrgFields = false;
       try {
@@ -160,6 +170,7 @@ class PlatformBranding {
         }
         
         query = `SELECT pb.*,
+          ${hasManageClientsIcon ? 'mc_i.file_path as manage_clients_icon_path, mc_i.name as manage_clients_icon_name,' : ''}
           ma_i.file_path as manage_agencies_icon_path, ma_i.name as manage_agencies_icon_name,
           mm_i.file_path as manage_modules_icon_path, mm_i.name as manage_modules_icon_name,
           md_i.file_path as manage_documents_icon_path, md_i.name as manage_documents_icon_name,
@@ -171,6 +182,7 @@ class PlatformBranding {
           mb_i.file_path as master_brand_icon_path, mb_i.name as master_brand_icon_name,
           aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
           FROM platform_branding pb
+          ${hasManageClientsIcon ? 'LEFT JOIN icons mc_i ON pb.manage_clients_icon_id = mc_i.id' : ''}
           LEFT JOIN icons ma_i ON pb.manage_agencies_icon_id = ma_i.id
           LEFT JOIN icons mm_i ON pb.manage_modules_icon_id = mm_i.id
           LEFT JOIN icons md_i ON pb.manage_documents_icon_id = md_i.id
@@ -490,6 +502,21 @@ class PlatformBranding {
       }
       
       if (hasDashboardIcons) {
+        if (manageClientsIconId !== undefined) {
+          // Optional column; keep best-effort for older DBs.
+          try {
+            const [cols] = await pool.execute(
+              "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'manage_clients_icon_id'"
+            );
+            if ((cols || []).length > 0) {
+              updates.push('manage_clients_icon_id = ?');
+              values.push(manageClientsIconId ?? null);
+              console.log('PlatformBranding.update: Setting manage_clients_icon_id to:', manageClientsIconId ?? null);
+            }
+          } catch (e) {
+            console.warn('PlatformBranding.update: Error checking for manage_clients_icon_id column:', e.message);
+          }
+        }
         if (manageAgenciesIconId !== undefined) { 
           updates.push('manage_agencies_icon_id = ?'); 
           values.push(manageAgenciesIconId ?? null);

@@ -632,6 +632,7 @@ export const useBrandingStore = defineStore('branding', () => {
   const getAdminQuickActionIconUrl = (actionKey, agencyOverride = null) => {
     const iconFieldMap = {
       progress_dashboard: 'progress_dashboard_icon_path',
+      manage_clients: 'manage_clients_icon_path',
       manage_modules: 'manage_modules_icon_path',
       manage_documents: 'manage_documents_icon_path',
       manage_users: 'manage_users_icon_path',

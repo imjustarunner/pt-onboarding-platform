@@ -256,6 +256,7 @@ const quickActions = computed(() => ([
     description: 'Create and manage clients',
     to: '/admin/clients',
     emoji: '🧾',
+    iconKey: 'manage_clients',
     category: 'Management',
     roles: ['admin', 'support', 'super_admin', 'staff'],
     capabilities: ['canAccessPlatform']
