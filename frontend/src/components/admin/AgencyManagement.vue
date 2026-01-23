@@ -1263,6 +1263,16 @@
                 <small>Icon for the "Documents" card</small>
               </div>
               <div class="dashboard-icon-item">
+                <label>Submit Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardSubmitIconId" />
+                <small>Icon for the "Submit" card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Payroll Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardPayrollIconId" />
+                <small>Icon for the "Payroll" card</small>
+              </div>
+              <div class="dashboard-icon-item">
                 <label>My Account Card Icon</label>
                 <IconSelector v-model="agencyForm.myDashboardMyAccountIconId" />
                 <small>Icon for the "My Account" card</small>
@@ -2666,6 +2676,8 @@ const ICON_TEMPLATE_FIELDS = [
   'myDashboardChecklistIconId',
   'myDashboardTrainingIconId',
   'myDashboardDocumentsIconId',
+  'myDashboardSubmitIconId',
+  'myDashboardPayrollIconId',
   'myDashboardMyAccountIconId',
   'myDashboardOnDemandTrainingIconId',
   'statusExpiredIconId',
@@ -2702,6 +2714,8 @@ const agencyForm = ref({
   myDashboardChecklistIconId: null,
   myDashboardTrainingIconId: null,
   myDashboardDocumentsIconId: null,
+  myDashboardSubmitIconId: null,
+  myDashboardPayrollIconId: null,
   myDashboardMyAccountIconId: null,
   myDashboardOnDemandTrainingIconId: null,
   onboardingTeamEmail: '',
@@ -3451,6 +3465,8 @@ const editAgency = async (agency) => {
     myDashboardDocumentsIconId: agency.my_dashboard_documents_icon_id ?? null,
     myDashboardMyAccountIconId: agency.my_dashboard_my_account_icon_id ?? null,
     myDashboardOnDemandTrainingIconId: agency.my_dashboard_on_demand_training_icon_id ?? null,
+    myDashboardPayrollIconId: agency.my_dashboard_payroll_icon_id ?? null,
+    myDashboardSubmitIconId: agency.my_dashboard_submit_icon_id ?? null,
     onboardingTeamEmail: agency.onboarding_team_email || '',
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
@@ -3905,6 +3921,8 @@ const saveAgency = async () => {
       myDashboardDocumentsIconId: agencyForm.value.myDashboardDocumentsIconId ?? null,
       myDashboardMyAccountIconId: agencyForm.value.myDashboardMyAccountIconId ?? null,
       myDashboardOnDemandTrainingIconId: agencyForm.value.myDashboardOnDemandTrainingIconId ?? null,
+      myDashboardPayrollIconId: agencyForm.value.myDashboardPayrollIconId ?? null,
+      myDashboardSubmitIconId: agencyForm.value.myDashboardSubmitIconId ?? null,
       onboardingTeamEmail: agencyForm.value.onboardingTeamEmail?.trim() || null,
       phoneNumber: agencyForm.value.phoneNumber?.trim() || null,
       // Schools don't use extensions (per directory requirements)
@@ -4190,6 +4208,8 @@ const closeModal = () => {
     myDashboardChecklistIconId: null,
     myDashboardTrainingIconId: null,
     myDashboardDocumentsIconId: null,
+    myDashboardSubmitIconId: null,
+    myDashboardPayrollIconId: null,
     myDashboardMyAccountIconId: null,
     myDashboardOnDemandTrainingIconId: null,
     onboardingTeamEmail: '',

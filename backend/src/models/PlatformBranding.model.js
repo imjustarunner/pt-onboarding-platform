@@ -143,13 +143,17 @@ class PlatformBranding {
           mdt_i.file_path as my_dashboard_training_icon_path, mdt_i.name as my_dashboard_training_icon_name,
           mdd_i.file_path as my_dashboard_documents_icon_path, mdd_i.name as my_dashboard_documents_icon_name,
           mdm_i.file_path as my_dashboard_my_account_icon_path, mdm_i.name as my_dashboard_my_account_icon_name,
-          mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name`;
+          mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name,
+          mdp_i.file_path as my_dashboard_payroll_icon_path, mdp_i.name as my_dashboard_payroll_icon_name,
+          mds_i.file_path as my_dashboard_submit_icon_path, mds_i.name as my_dashboard_submit_icon_name`;
             myDashboardIconJoins = `
           LEFT JOIN icons mdc_i ON pb.my_dashboard_checklist_icon_id = mdc_i.id
           LEFT JOIN icons mdt_i ON pb.my_dashboard_training_icon_id = mdt_i.id
           LEFT JOIN icons mdd_i ON pb.my_dashboard_documents_icon_id = mdd_i.id
           LEFT JOIN icons mdm_i ON pb.my_dashboard_my_account_icon_id = mdm_i.id
-          LEFT JOIN icons mdod_i ON pb.my_dashboard_on_demand_training_icon_id = mdod_i.id`;
+          LEFT JOIN icons mdod_i ON pb.my_dashboard_on_demand_training_icon_id = mdod_i.id
+          LEFT JOIN icons mdp_i ON pb.my_dashboard_payroll_icon_id = mdp_i.id
+          LEFT JOIN icons mds_i ON pb.my_dashboard_submit_icon_id = mds_i.id`;
           }
         } catch (e) {
           // "My Dashboard" icon columns don't exist yet, skip
@@ -343,6 +347,8 @@ class PlatformBranding {
         myDashboardDocumentsIconId,
         myDashboardMyAccountIconId,
         myDashboardOnDemandTrainingIconId,
+        myDashboardPayrollIconId,
+        myDashboardSubmitIconId,
       allAgenciesNotificationsIconId,
       organizationName,
       organizationLogoIconId,
@@ -532,7 +538,9 @@ class PlatformBranding {
         myDashboardTrainingIconId !== undefined ||
         myDashboardDocumentsIconId !== undefined ||
         myDashboardMyAccountIconId !== undefined ||
-        myDashboardOnDemandTrainingIconId !== undefined
+        myDashboardOnDemandTrainingIconId !== undefined ||
+        myDashboardPayrollIconId !== undefined ||
+        myDashboardSubmitIconId !== undefined
       ) {
         try {
           const [myDashColumns] = await pool.execute(
@@ -558,6 +566,14 @@ class PlatformBranding {
             if (myDashboardOnDemandTrainingIconId !== undefined) {
               updates.push('my_dashboard_on_demand_training_icon_id = ?');
               values.push(myDashboardOnDemandTrainingIconId ?? null);
+            }
+            if (myDashboardPayrollIconId !== undefined) {
+              updates.push('my_dashboard_payroll_icon_id = ?');
+              values.push(myDashboardPayrollIconId ?? null);
+            }
+            if (myDashboardSubmitIconId !== undefined) {
+              updates.push('my_dashboard_submit_icon_id = ?');
+              values.push(myDashboardSubmitIconId ?? null);
             }
           } else {
             console.warn('PlatformBranding.update: My Dashboard icon columns do not exist. Migration 125 may not have run.');

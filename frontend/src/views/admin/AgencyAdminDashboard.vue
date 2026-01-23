@@ -233,43 +233,8 @@ const fetchStats = async () => {
 };
 
 const getActionIcon = (actionKey) => {
-  // First check agency override, then platform default
-  let iconPath = null;
-  
-  if (agencyData.value) {
-    const agencyIconMap = {
-      'progress_dashboard': agencyData.value.progress_dashboard_icon_path,
-      'manage_modules': agencyData.value.manage_modules_icon_path,
-      'manage_documents': agencyData.value.manage_documents_icon_path,
-      'manage_users': agencyData.value.manage_users_icon_path,
-      'settings': agencyData.value.settings_icon_path
-    };
-    iconPath = agencyIconMap[actionKey];
-  }
-  
-  // Fall back to platform default if no agency override
-  if (!iconPath && branding.value) {
-    const platformIconMap = {
-      'progress_dashboard': branding.value.progress_dashboard_icon_path,
-      'manage_modules': branding.value.manage_modules_icon_path,
-      'manage_documents': branding.value.manage_documents_icon_path,
-      'manage_users': branding.value.manage_users_icon_path,
-      'settings': branding.value.settings_icon_path
-    };
-    iconPath = platformIconMap[actionKey];
-  }
-  
-  if (!iconPath) return null;
-  
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  let cleanPath = iconPath;
-  if (cleanPath.startsWith('/uploads/')) {
-    cleanPath = cleanPath.substring('/uploads/'.length);
-  } else if (cleanPath.startsWith('/')) {
-    cleanPath = cleanPath.substring(1);
-  }
-  return `${apiBase}/uploads/${cleanPath}`;
+  // Use centralized branding logic (agency override -> icon_id fallback -> platform fallback).
+  return brandingStore.getAdminQuickActionIconUrl(actionKey, agencyData.value || null);
 };
 
 const quickActions = computed(() => ([

@@ -603,7 +603,9 @@ export const useBrandingStore = defineStore('branding', () => {
       training: 'my_dashboard_training_icon_path',
       documents: 'my_dashboard_documents_icon_path',
       my: 'my_dashboard_my_account_icon_path',
-      on_demand_training: 'my_dashboard_on_demand_training_icon_path'
+      on_demand_training: 'my_dashboard_on_demand_training_icon_path',
+      payroll: 'my_dashboard_payroll_icon_path',
+      submit: 'my_dashboard_submit_icon_path'
     };
 
     const field = iconFieldMap[cardId];
@@ -611,6 +613,33 @@ export const useBrandingStore = defineStore('branding', () => {
 
     const idField = field.replace(/_icon_path$/, '_icon_id');
     const org = organization || agencyStore.currentAgency;
+    if (org?.[field]) return toUploadsUrl(org[field]);
+    if (org?.[idField]) {
+      const fp = iconFilePathById(org[idField]);
+      if (fp) return toUploadsUrl(fp);
+    }
+    if (platformBranding.value?.[field]) return toUploadsUrl(platformBranding.value[field]);
+    if (platformBranding.value?.[idField]) {
+      const fp = iconFilePathById(platformBranding.value[idField]);
+      if (fp) return toUploadsUrl(fp);
+    }
+    return null;
+  };
+
+  // Admin dashboard quick-actions
+  const getAdminQuickActionIconUrl = (actionKey, agencyOverride = null) => {
+    const iconFieldMap = {
+      progress_dashboard: 'progress_dashboard_icon_path',
+      manage_modules: 'manage_modules_icon_path',
+      manage_documents: 'manage_documents_icon_path',
+      manage_users: 'manage_users_icon_path',
+      settings: 'settings_icon_path'
+    };
+    const field = iconFieldMap[actionKey];
+    if (!field) return null;
+    const idField = field.replace(/_icon_path$/, '_icon_id');
+
+    const org = agencyOverride || agencyStore.currentAgency;
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
       const fp = iconFilePathById(org[idField]);
@@ -655,7 +684,8 @@ export const useBrandingStore = defineStore('branding', () => {
     setPortalThemeFromLoginTheme,
     clearPortalTheme,
     getNotificationIconUrl,
-    getDashboardCardIconUrl
+    getDashboardCardIconUrl,
+    getAdminQuickActionIconUrl
   };
 });
 

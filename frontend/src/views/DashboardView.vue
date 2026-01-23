@@ -482,7 +482,7 @@ const dashboardCards = computed(() => {
         label: 'Submit',
         kind: 'action',
         badgeCount: 0,
-        iconUrl: null,
+        iconUrl: brandingStore.getDashboardCardIconUrl('submit'),
         description: 'Submit mileage, in-school claims, and more.'
       });
       cards.push({

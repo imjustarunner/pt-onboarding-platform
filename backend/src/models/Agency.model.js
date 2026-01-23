@@ -172,7 +172,9 @@ class Agency {
         mdt_i.file_path as my_dashboard_training_icon_path, mdt_i.name as my_dashboard_training_icon_name,
         mdd_i.file_path as my_dashboard_documents_icon_path, mdd_i.name as my_dashboard_documents_icon_name,
         mdm_i.file_path as my_dashboard_my_account_icon_path, mdm_i.name as my_dashboard_my_account_icon_name,
-        mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name`
+        mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name,
+        mdp_i.file_path as my_dashboard_payroll_icon_path, mdp_i.name as my_dashboard_payroll_icon_name,
+        mds_i.file_path as my_dashboard_submit_icon_path, mds_i.name as my_dashboard_submit_icon_name`
         : '';
       const myDashJoins = hasMyDashboardIcons
         ? `
@@ -180,7 +182,9 @@ class Agency {
         LEFT JOIN icons mdt_i ON a.my_dashboard_training_icon_id = mdt_i.id
         LEFT JOIN icons mdd_i ON a.my_dashboard_documents_icon_id = mdd_i.id
         LEFT JOIN icons mdm_i ON a.my_dashboard_my_account_icon_id = mdm_i.id
-        LEFT JOIN icons mdod_i ON a.my_dashboard_on_demand_training_icon_id = mdod_i.id`
+        LEFT JOIN icons mdod_i ON a.my_dashboard_on_demand_training_icon_id = mdod_i.id
+        LEFT JOIN icons mdp_i ON a.my_dashboard_payroll_icon_id = mdp_i.id
+        LEFT JOIN icons mds_i ON a.my_dashboard_submit_icon_id = mds_i.id`
         : '';
 
       // Join with icons table to get icon file paths (including master icon)
@@ -314,13 +318,17 @@ class Agency {
           mdt_i.file_path as my_dashboard_training_icon_path, mdt_i.name as my_dashboard_training_icon_name,
           mdd_i.file_path as my_dashboard_documents_icon_path, mdd_i.name as my_dashboard_documents_icon_name,
           mdm_i.file_path as my_dashboard_my_account_icon_path, mdm_i.name as my_dashboard_my_account_icon_name,
-          mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name
+          mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name,
+          mdp_i.file_path as my_dashboard_payroll_icon_path, mdp_i.name as my_dashboard_payroll_icon_name,
+          mds_i.file_path as my_dashboard_submit_icon_path, mds_i.name as my_dashboard_submit_icon_name
          FROM agencies a
          LEFT JOIN icons mdc_i ON a.my_dashboard_checklist_icon_id = mdc_i.id
          LEFT JOIN icons mdt_i ON a.my_dashboard_training_icon_id = mdt_i.id
          LEFT JOIN icons mdd_i ON a.my_dashboard_documents_icon_id = mdd_i.id
          LEFT JOIN icons mdm_i ON a.my_dashboard_my_account_icon_id = mdm_i.id
          LEFT JOIN icons mdod_i ON a.my_dashboard_on_demand_training_icon_id = mdod_i.id
+         LEFT JOIN icons mdp_i ON a.my_dashboard_payroll_icon_id = mdp_i.id
+         LEFT JOIN icons mds_i ON a.my_dashboard_submit_icon_id = mds_i.id
          WHERE a.slug = ? AND a.is_active = TRUE`,
         [slug]
       );
@@ -572,7 +580,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
     } = agencyData;
     
@@ -887,7 +895,9 @@ class Agency {
       myDashboardTrainingIconId !== undefined ||
       myDashboardDocumentsIconId !== undefined ||
       myDashboardMyAccountIconId !== undefined ||
-      myDashboardOnDemandTrainingIconId !== undefined
+      myDashboardOnDemandTrainingIconId !== undefined ||
+      myDashboardPayrollIconId !== undefined ||
+      myDashboardSubmitIconId !== undefined
     ) {
       let hasMyDashboardIcons = false;
       try {
@@ -919,6 +929,14 @@ class Agency {
         if (myDashboardOnDemandTrainingIconId !== undefined) {
           updates.push('my_dashboard_on_demand_training_icon_id = ?');
           values.push(myDashboardOnDemandTrainingIconId || null);
+        }
+        if (myDashboardPayrollIconId !== undefined) {
+          updates.push('my_dashboard_payroll_icon_id = ?');
+          values.push(myDashboardPayrollIconId || null);
+        }
+        if (myDashboardSubmitIconId !== undefined) {
+          updates.push('my_dashboard_submit_icon_id = ?');
+          values.push(myDashboardSubmitIconId || null);
         }
       }
     }
