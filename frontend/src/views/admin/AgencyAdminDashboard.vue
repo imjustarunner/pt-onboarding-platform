@@ -409,7 +409,8 @@ onMounted(async () => {
   if (!brandingStore.platformBranding) {
     await brandingStore.fetchPlatformBranding();
   }
-  await agencyStore.fetchAgencies();
+  // Ensure currentAgency is set/hydrated for non-super-admins; Quick Action icon overrides depend on it.
+  await agencyStore.fetchUserAgencies();
   await fetchStats();
 });
 </script>

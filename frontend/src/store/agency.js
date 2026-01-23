@@ -70,9 +70,26 @@ export const useAgencyStore = defineStore('agency', () => {
           setCurrentAgency(agencies.value[0]);
         }
       } else {
-        // For admins/super admins, fetch all agencies
+        // For admins/super admins, fetch agencies.
+        // Note: backend returns ALL agencies for super_admin, but ONLY the user's agencies for admin.
         const response = await api.get('/agencies');
         agencies.value = response.data;
+
+        // If this user is NOT a super_admin, treat this as their user-agency list too,
+        // and ensure we set a default current agency for downstream UI (e.g. Quick Actions icon overrides).
+        try {
+          const { useAuthStore } = await import('./auth');
+          const authStore = useAuthStore();
+          const role = String(authStore.user?.role || '').toLowerCase();
+          if (role && role !== 'super_admin') {
+            userAgencies.value = response.data;
+            if (!currentAgency.value && userAgencies.value.length > 0) {
+              setCurrentAgency(userAgencies.value[0]);
+            }
+          }
+        } catch {
+          // ignore; best-effort
+        }
       }
     } catch (error) {
       console.error('Failed to fetch agencies:', error);
