@@ -6,7 +6,14 @@ export const useAgencyStore = defineStore('agency', () => {
   const agencies = ref([]);
   const userAgencies = ref([]);
   const tracks = ref([]);
-  const currentAgency = ref(JSON.parse(localStorage.getItem('currentAgency') || 'null'));
+  const safeJsonParse = (raw, fallback) => {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return fallback;
+    }
+  };
+  const currentAgency = ref(safeJsonParse(localStorage.getItem('currentAgency') || 'null', null));
 
   const setCurrentAgency = (agency) => {
     currentAgency.value = agency;

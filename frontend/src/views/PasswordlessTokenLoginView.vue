@@ -125,6 +125,25 @@ const attemptLogin = async (lastNameValue = null) => {
       router.push('/dashboard');
     }, 1500);
   } catch (err) {
+    // If the backend returned a non-JSON body (or axios couldn't parse it), fall back to a deterministic check:
+    // a reset-purpose token should always be handled by the reset-password flow.
+    if (
+      err?.message?.includes('Unexpected token') ||
+      err?.message?.includes('JSON')
+    ) {
+      try {
+        await api.get(`/auth/validate-reset-token/${encodeURIComponent(cleanToken)}`);
+        if (route.params.organizationSlug) {
+          router.push(`/${route.params.organizationSlug}/reset-password/${cleanToken}`);
+        } else {
+          router.push(`/reset-password/${cleanToken}`);
+        }
+        return;
+      } catch {
+        // ignore; we'll fall through to normal error handling
+      }
+    }
+
     // If this is a reset token, route to reset-password flow (do NOT login directly)
     if (err.response?.data?.error?.requiresPasswordReset) {
       const portalSlug = err.response.data.error.portalSlug;

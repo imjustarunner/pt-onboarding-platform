@@ -116,7 +116,12 @@ const validateToken = async () => {
 
     loading.value = false;
   } catch (err) {
-    error.value = err.response?.data?.error?.message || err.message || 'Invalid or expired reset link.';
+    // If axios couldn't parse JSON (backend/proxy returned plain text), show a cleaner message.
+    if (err?.message?.includes('Unexpected token') || err?.message?.includes('JSON')) {
+      error.value = 'This reset link could not be validated. Please request a new password reset link.';
+    } else {
+      error.value = err.response?.data?.error?.message || err.message || 'Invalid or expired reset link.';
+    }
     loading.value = false;
   }
 };
