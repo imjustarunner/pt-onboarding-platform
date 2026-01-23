@@ -1213,9 +1213,19 @@
             
             <div class="dashboard-icons-grid">
               <div class="dashboard-icon-item">
+                <label>Manage Organizations Icon</label>
+                <IconSelector v-model="agencyForm.manageAgenciesIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the \"Manage Organizations\" action card</small>
+              </div>
+              <div class="dashboard-icon-item">
                 <label>Progress Dashboard Icon</label>
                 <IconSelector v-model="agencyForm.progressDashboardIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Progress Dashboard" action card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>View All Progress Icon</label>
+                <IconSelector v-model="agencyForm.viewAllProgressIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the \"View All Progress\" action card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Manage Clients Icon</label>
@@ -1236,6 +1246,11 @@
                 <label>Manage Users Icon</label>
                 <IconSelector v-model="agencyForm.manageUsersIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Manage Users" action card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Platform Settings Icon</label>
+                <IconSelector v-model="agencyForm.platformSettingsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the \"Platform Settings\" action card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Settings Icon</label>
@@ -2673,11 +2688,14 @@ const ICON_TEMPLATE_FIELDS = [
   'moduleDefaultIconId',
   'userDefaultIconId',
   'documentDefaultIconId',
+  'manageAgenciesIconId',
   'progressDashboardIconId',
+  'viewAllProgressIconId',
   'manageClientsIconId',
   'manageModulesIconId',
   'manageDocumentsIconId',
   'manageUsersIconId',
+  'platformSettingsIconId',
   'settingsIconId',
   'myDashboardChecklistIconId',
   'myDashboardTrainingIconId',
@@ -2712,11 +2730,14 @@ const agencyForm = ref({
   moduleDefaultIconId: null,
   userDefaultIconId: null,
   documentDefaultIconId: null,
+  manageAgenciesIconId: null,
   progressDashboardIconId: null,
+  viewAllProgressIconId: null,
   manageClientsIconId: null,
   manageModulesIconId: null,
   manageDocumentsIconId: null,
   manageUsersIconId: null,
+  platformSettingsIconId: null,
   settingsIconId: null,
   myDashboardChecklistIconId: null,
   myDashboardTrainingIconId: null,
@@ -3462,11 +3483,14 @@ const editAgency = async (agency) => {
     moduleDefaultIconId: agency.module_default_icon_id ?? null,
     userDefaultIconId: agency.user_default_icon_id ?? null,
     documentDefaultIconId: agency.document_default_icon_id ?? null,
+    manageAgenciesIconId: agency.manage_agencies_icon_id ?? null,
     progressDashboardIconId: agency.progress_dashboard_icon_id ?? null,
+    viewAllProgressIconId: agency.view_all_progress_icon_id ?? null,
     manageClientsIconId: agency.manage_clients_icon_id ?? null,
     manageModulesIconId: agency.manage_modules_icon_id ?? null,
     manageDocumentsIconId: agency.manage_documents_icon_id ?? null,
     manageUsersIconId: agency.manage_users_icon_id ?? null,
+    platformSettingsIconId: agency.platform_settings_icon_id ?? null,
     settingsIconId: agency.settings_icon_id ?? null,
     myDashboardChecklistIconId: agency.my_dashboard_checklist_icon_id ?? null,
     myDashboardTrainingIconId: agency.my_dashboard_training_icon_id ?? null,
@@ -3919,11 +3943,14 @@ const saveAgency = async () => {
       moduleDefaultIconId: agencyForm.value.moduleDefaultIconId ?? null,
       userDefaultIconId: agencyForm.value.userDefaultIconId ?? null,
       documentDefaultIconId: agencyForm.value.documentDefaultIconId ?? null,
+      manageAgenciesIconId: agencyForm.value.manageAgenciesIconId ?? null,
       progressDashboardIconId: agencyForm.value.progressDashboardIconId ?? null,
+      viewAllProgressIconId: agencyForm.value.viewAllProgressIconId ?? null,
       manageClientsIconId: agencyForm.value.manageClientsIconId ?? null,
       manageModulesIconId: agencyForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: agencyForm.value.manageDocumentsIconId ?? null,
       manageUsersIconId: agencyForm.value.manageUsersIconId ?? null,
+      platformSettingsIconId: agencyForm.value.platformSettingsIconId ?? null,
       settingsIconId: agencyForm.value.settingsIconId ?? null,
       myDashboardChecklistIconId: agencyForm.value.myDashboardChecklistIconId ?? null,
       myDashboardTrainingIconId: agencyForm.value.myDashboardTrainingIconId ?? null,
@@ -4209,11 +4236,14 @@ const closeModal = () => {
     moduleDefaultIconId: null,
     userDefaultIconId: null,
     documentDefaultIconId: null,
+    manageAgenciesIconId: null,
     progressDashboardIconId: null,
+    viewAllProgressIconId: null,
     manageClientsIconId: null,
     manageModulesIconId: null,
     manageDocumentsIconId: null,
     manageUsersIconId: null,
+    platformSettingsIconId: null,
     settingsIconId: null,
     myDashboardChecklistIconId: null,
     myDashboardTrainingIconId: null,
