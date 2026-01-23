@@ -124,7 +124,7 @@ onMounted(async () => {
 .organization-name {
   font-size: 36px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--header-text-color, #fff);
   margin: 0;
 }
 

@@ -187,7 +187,7 @@ onMounted(async () => {
 .organization-name {
   font-size: 36px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--header-text-color, #fff);
   margin: 0;
 }
 
@@ -199,8 +199,8 @@ onMounted(async () => {
   gap: 8px;
   padding: 10px 14px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(6px);
 }
 
@@ -209,7 +209,7 @@ onMounted(async () => {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: rgba(255,255,255,0.85);
 }
 
 .school-affiliation-row {
@@ -228,7 +228,7 @@ onMounted(async () => {
 .school-name {
   font-size: 16px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--header-text-color, #fff);
 }
 
 .action-cards {
