@@ -936,7 +936,11 @@ const runFormSpecSync = async () => {
     syncingFormSpec.value = true;
     syncFormSpecError.value = '';
     syncFormSpecMessage.value = '';
-    const r = await api.post('/admin-actions/sync-form-spec');
+    const headers = {};
+    if (import.meta.env.VITE_ADMIN_ACTIONS_TOKEN) {
+      headers['X-Admin-Actions-Token'] = import.meta.env.VITE_ADMIN_ACTIONS_TOKEN;
+    }
+    const r = await api.post('/admin-actions/sync-form-spec', null, { headers });
     const forms = Number(r.data?.forms || 0);
     const fields = Number(r.data?.fieldsUpserted || 0);
     syncFormSpecMessage.value = `Synced ${forms} form(s) (${fields} fields). Refreshing modules…`;

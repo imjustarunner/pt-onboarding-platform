@@ -44,6 +44,39 @@ export const authenticate = (req, res, next) => {
   }
 };
 
+// Like authenticate(), but does not fail the request when no token is present.
+// Useful for endpoints that support alternative auth (ex: a one-time ops token).
+export const authenticateOptional = (req, res, next) => {
+  try {
+    const token = req.cookies?.authToken || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.substring(7) : null);
+    if (!token) return next();
+
+    const decoded = jwt.verify(token, config.jwt.secret);
+    if (decoded.type === 'approved_employee' || decoded.type === 'passwordless') {
+      req.user = {
+        email: decoded.email,
+        role: 'approved_employee',
+        type: decoded.type || 'approved_employee',
+        agencyId: decoded.agencyId,
+        agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : [])
+      };
+      return next();
+    }
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      role: decoded.role,
+      type: decoded.type || 'regular',
+      agencyId: decoded.agencyId
+    };
+    return next();
+  } catch {
+    // If token is invalid/expired, treat as unauthenticated.
+    return next();
+  }
+};
+
 export const requireAdmin = async (req, res, next) => {
   // Allow admin, super_admin, support, supervisors, and CPAs
   // Check if user is a supervisor using boolean as source of truth
@@ -73,6 +106,16 @@ export const requireSuperAdmin = (req, res, next) => {
     return res.status(403).json({ error: { message: 'Super admin access required' } });
   }
   next();
+};
+
+// Allow either a super_admin session OR a configured ops token header.
+// Header: X-Admin-Actions-Token: <token>
+export const requireSuperAdminOrAdminActionsToken = (req, res, next) => {
+  if (req.user?.role === 'super_admin') return next();
+  const token = String(req.headers['x-admin-actions-token'] || '').trim();
+  const expected = String(process.env.ADMIN_ACTIONS_TOKEN || '').trim();
+  if (expected && token && token === expected) return next();
+  return res.status(403).json({ error: { message: 'Super admin access required' } });
 };
 
 /**
