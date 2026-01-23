@@ -566,12 +566,24 @@ export const archiveUser = async (req, res, next) => {
     
     const { id } = req.params;
     
-    // Get user's agency ID (use first agency for admins, null for super_admin)
+    // Archive attribution: prefer the agency shared between actor and target user (so it shows in that agency's archive view).
+    // This fixes cases where an admin belongs to multiple agencies and the UI is scoped to a specific agency.
     let archivedByAgencyId = null;
     if (req.user.role !== 'super_admin' && req.user.id) {
-      const userAgencies = await User.getAgencies(req.user.id);
-      if (userAgencies.length > 0) {
-        archivedByAgencyId = userAgencies[0].id;
+      const actorAgencies = await User.getAgencies(req.user.id);
+      const targetAgencies = await User.getAgencies(parseInt(id));
+
+      const actorIds = new Set((actorAgencies || []).map((a) => a.id));
+      const commonIds = (targetAgencies || [])
+        .map((a) => a.id)
+        .filter((agencyId) => actorIds.has(agencyId))
+        .sort((a, b) => a - b);
+
+      if (commonIds.length > 0) {
+        archivedByAgencyId = commonIds[0];
+      } else if ((actorAgencies || []).length > 0) {
+        // Fallback: keep legacy behavior if we can't find a shared agency.
+        archivedByAgencyId = actorAgencies[0].id;
       }
     }
     

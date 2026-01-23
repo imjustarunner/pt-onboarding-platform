@@ -98,8 +98,10 @@ class ProviderSearchIndex {
   static async search({ agencyId, filters, limit = 50, offset = 0, textQuery = '' }) {
     const aid = Number(agencyId);
     if (!aid) return { users: [], total: 0 };
-    const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
-    const safeOffset = Math.max(0, Number(offset) || 0);
+    // NOTE: Some MySQL/CloudSQL setups reject prepared-statement params for LIMIT/OFFSET,
+    // yielding "Incorrect arguments to mysqld_stmt_execute". We inline validated integers.
+    const safeLimit = Math.trunc(Math.max(1, Math.min(200, Number(limit) || 50)));
+    const safeOffset = Math.trunc(Math.max(0, Number(offset) || 0));
 
     const fs = Array.isArray(filters) ? filters : [];
     const clauses = [];
@@ -188,8 +190,8 @@ class ProviderSearchIndex {
        FROM users u
        WHERE u.id IN (${baseUserIdsSql})
        ORDER BY u.last_name, u.first_name
-       LIMIT ? OFFSET ?`,
-      [...params, safeLimit, safeOffset]
+       LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params
     );
 
     return { users: userRows || [], total };

@@ -332,13 +332,31 @@ export const archiveModule = async (req, res, next) => {
   try {
     const { id } = req.params;
     
-    // Get user's agency ID (use first agency for admins, null for super_admin)
-    let archivedByAgencyId = null;
-    if (req.user.role !== 'super_admin' && req.user.id) {
-      const userAgencies = await User.getAgencies(req.user.id);
-      if (userAgencies.length > 0) {
-        archivedByAgencyId = userAgencies[0].id;
+    const module = await Module.findById(id);
+    if (!module) {
+      return res.status(404).json({ error: { message: 'Module not found' } });
+    }
+
+    // Permission: admin/support can only archive modules for their agencies (and not platform shared modules)
+    if (req.user.role === 'admin' || req.user.role === 'support') {
+      if (module.is_shared) {
+        return res.status(403).json({ error: { message: 'Only super admins can archive shared modules' } });
       }
+      if (module.agency_id) {
+        const userAgencies = await User.getAgencies(req.user.id);
+        const moduleAgencyId = Number(module.agency_id);
+        const hasAccess = userAgencies.some((a) => Number(a.id) === moduleAgencyId);
+        if (!hasAccess) {
+          return res.status(403).json({ error: { message: 'You can only archive modules for your agencies' } });
+        }
+      }
+    }
+
+    // Archive attribution: use the module's agency_id when available.
+    // This ensures the item shows up in the archive view for the agency context.
+    let archivedByAgencyId = null;
+    if (req.user.role !== 'super_admin') {
+      archivedByAgencyId = module.agency_id || null;
     }
     
     const archived = await Module.archive(id, req.user.id, archivedByAgencyId);

@@ -589,12 +589,21 @@ export const archiveTemplate = async (req, res, next) => {
       }
     }
 
-    // Get user's agency ID (use first agency for admins, null for super_admin)
+    const template = await DocumentTemplate.findById(id);
+    if (!template) return res.status(404).json({ error: { message: 'Template not found' } });
+
+    // Non-super-admin users can only archive agency-scoped templates.
+    // This keeps archive visibility consistent with the agency-scoped Archive view in the UI.
+    if (req.user.role !== 'super_admin') {
+      if (!template.agency_id) {
+        return res.status(403).json({ error: { message: 'Only platform admins can archive platform templates' } });
+      }
+    }
+
+    // Archive attribution: use the template's agency_id so it appears in that agency's archive view.
     let archivedByAgencyId = null;
-    if (req.user.role !== 'super_admin' && req.user.role !== 'support' && req.user.id) {
-      const User = (await import('../models/User.model.js')).default;
-      const userAgencies = await User.getAgencies(req.user.id);
-      if (userAgencies.length > 0) archivedByAgencyId = userAgencies[0].id;
+    if (req.user.role !== 'super_admin') {
+      archivedByAgencyId = template.agency_id;
     }
 
     const archived = await DocumentTemplate.archive(id, req.user.id, archivedByAgencyId);

@@ -271,14 +271,33 @@ export const removeModuleFromTrack = async (req, res, next) => {
 export const archiveTrack = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
-    // Get user's agency ID (use first agency for admins, null for super_admin)
-    let archivedByAgencyId = null;
-    if (req.user.role !== 'super_admin' && req.user.id) {
-      const userAgencies = await User.getAgencies(req.user.id);
-      if (userAgencies.length > 0) {
-        archivedByAgencyId = userAgencies[0].id;
+
+    const track = await TrainingTrack.findById(id);
+    if (!track) {
+      return res.status(404).json({ error: { message: 'Training Focus not found' } });
+    }
+
+    // Non-super-admins can only archive agency-owned training focuses (not platform templates)
+    if (req.user.role !== 'super_admin') {
+      if (!track.agency_id) {
+        return res.status(403).json({ error: { message: 'Only super admins can archive platform training focuses' } });
       }
+
+      // Admin/support must belong to the agency that owns the focus
+      if (req.user.role === 'admin' || req.user.role === 'support') {
+        const userAgencies = await User.getAgencies(req.user.id);
+        const trackAgencyId = Number(track.agency_id);
+        const hasAccess = userAgencies.some((a) => Number(a.id) === trackAgencyId);
+        if (!hasAccess) {
+          return res.status(403).json({ error: { message: 'You can only archive training focuses for your agencies' } });
+        }
+      }
+    }
+
+    // Archive attribution: use the training focus's agency_id so it appears in that agency's archive view.
+    let archivedByAgencyId = null;
+    if (req.user.role !== 'super_admin') {
+      archivedByAgencyId = track.agency_id;
     }
     
     const archived = await TrainingTrack.archive(id, req.user.id, archivedByAgencyId);
