@@ -487,6 +487,8 @@ const fetchNotificationCounts = async () => {
   }
 };
 
+let cleanupMq = null;
+
 onMounted(async () => {
   // Track desktop breakpoint for top-10 behavior.
   const mq = window.matchMedia('(min-width: 769px)');
@@ -499,6 +501,10 @@ onMounted(async () => {
   mq.addEventListener?.('change', onChange);
   // Safari fallback
   mq.addListener?.(onChange);
+  cleanupMq = () => {
+    mq.removeEventListener?.('change', onChange);
+    mq.removeListener?.(onChange);
+  };
 
   // Fetch platform branding to get the all agencies notifications icon
   if (!brandingStore.platformBranding) {
@@ -508,10 +514,15 @@ onMounted(async () => {
   await fetchAgencies();
   await fetchNotificationCounts();
 
-  onUnmounted(() => {
-    mq.removeEventListener?.('change', onChange);
-    mq.removeListener?.(onChange);
-  });
+});
+
+onUnmounted(() => {
+  try {
+    cleanupMq?.();
+  } catch {
+    // ignore
+  }
+  cleanupMq = null;
 });
 
 // Watch for agency changes

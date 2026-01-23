@@ -321,14 +321,11 @@ const fileValueUrl = (raw) => {
   return '';
 };
 
-// ---- Template provisioning (agency-scoped) ----
-
+// ---- Template provisioning (legacy) ----
+// This component used to include a hard-coded template installer. The UI for it is disabled.
+// Keep this file safe to mount by not referencing legacy constants like PROVIDER_CATEGORY_ORDER.
 const TEMPLATE = {
-  categories: PROVIDER_CATEGORY_ORDER.map((c, idx) => ({
-    categoryKey: c.key,
-    categoryLabel: c.label,
-    orderIndex: idx
-  })),
+  categories: [],
   modules: [
     {
       title: 'Identity & NPI Setup',
