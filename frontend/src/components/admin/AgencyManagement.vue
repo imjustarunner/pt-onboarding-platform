@@ -1218,6 +1218,21 @@
                 <small>Icon for the \"Manage Organizations\" action card</small>
               </div>
               <div class="dashboard-icon-item">
+                <label>Notifications Icon</label>
+                <IconSelector v-model="agencyForm.dashboardNotificationsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Notifications" action card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Communications Icon</label>
+                <IconSelector v-model="agencyForm.dashboardCommunicationsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Communications" action card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Chats Icon</label>
+                <IconSelector v-model="agencyForm.dashboardChatsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Chats" action card</small>
+              </div>
+              <div class="dashboard-icon-item">
                 <label>Progress Dashboard Icon</label>
                 <IconSelector v-model="agencyForm.progressDashboardIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Progress Dashboard" action card</small>
@@ -1231,6 +1246,16 @@
                 <label>Manage Clients Icon</label>
                 <IconSelector v-model="agencyForm.manageClientsIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Manage Clients" action card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Payroll Icon</label>
+                <IconSelector v-model="agencyForm.dashboardPayrollIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Payroll" action card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Billing Icon</label>
+                <IconSelector v-model="agencyForm.dashboardBillingIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Billing" action card</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Manage Modules Icon</label>
@@ -2689,9 +2714,14 @@ const ICON_TEMPLATE_FIELDS = [
   'userDefaultIconId',
   'documentDefaultIconId',
   'manageAgenciesIconId',
+  'dashboardNotificationsIconId',
+  'dashboardCommunicationsIconId',
+  'dashboardChatsIconId',
   'progressDashboardIconId',
   'viewAllProgressIconId',
   'manageClientsIconId',
+  'dashboardPayrollIconId',
+  'dashboardBillingIconId',
   'manageModulesIconId',
   'manageDocumentsIconId',
   'manageUsersIconId',
@@ -2731,9 +2761,14 @@ const agencyForm = ref({
   userDefaultIconId: null,
   documentDefaultIconId: null,
   manageAgenciesIconId: null,
+  dashboardNotificationsIconId: null,
+  dashboardCommunicationsIconId: null,
+  dashboardChatsIconId: null,
   progressDashboardIconId: null,
   viewAllProgressIconId: null,
   manageClientsIconId: null,
+  dashboardPayrollIconId: null,
+  dashboardBillingIconId: null,
   manageModulesIconId: null,
   manageDocumentsIconId: null,
   manageUsersIconId: null,
@@ -3484,9 +3519,14 @@ const editAgency = async (agency) => {
     userDefaultIconId: agency.user_default_icon_id ?? null,
     documentDefaultIconId: agency.document_default_icon_id ?? null,
     manageAgenciesIconId: agency.manage_agencies_icon_id ?? null,
+    dashboardNotificationsIconId: agency.dashboard_notifications_icon_id ?? null,
+    dashboardCommunicationsIconId: agency.dashboard_communications_icon_id ?? null,
+    dashboardChatsIconId: agency.dashboard_chats_icon_id ?? null,
     progressDashboardIconId: agency.progress_dashboard_icon_id ?? null,
     viewAllProgressIconId: agency.view_all_progress_icon_id ?? null,
     manageClientsIconId: agency.manage_clients_icon_id ?? null,
+    dashboardPayrollIconId: agency.dashboard_payroll_icon_id ?? null,
+    dashboardBillingIconId: agency.dashboard_billing_icon_id ?? null,
     manageModulesIconId: agency.manage_modules_icon_id ?? null,
     manageDocumentsIconId: agency.manage_documents_icon_id ?? null,
     manageUsersIconId: agency.manage_users_icon_id ?? null,
@@ -3944,9 +3984,14 @@ const saveAgency = async () => {
       userDefaultIconId: agencyForm.value.userDefaultIconId ?? null,
       documentDefaultIconId: agencyForm.value.documentDefaultIconId ?? null,
       manageAgenciesIconId: agencyForm.value.manageAgenciesIconId ?? null,
+      dashboardNotificationsIconId: agencyForm.value.dashboardNotificationsIconId ?? null,
+      dashboardCommunicationsIconId: agencyForm.value.dashboardCommunicationsIconId ?? null,
+      dashboardChatsIconId: agencyForm.value.dashboardChatsIconId ?? null,
       progressDashboardIconId: agencyForm.value.progressDashboardIconId ?? null,
       viewAllProgressIconId: agencyForm.value.viewAllProgressIconId ?? null,
       manageClientsIconId: agencyForm.value.manageClientsIconId ?? null,
+      dashboardPayrollIconId: agencyForm.value.dashboardPayrollIconId ?? null,
+      dashboardBillingIconId: agencyForm.value.dashboardBillingIconId ?? null,
       manageModulesIconId: agencyForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: agencyForm.value.manageDocumentsIconId ?? null,
       manageUsersIconId: agencyForm.value.manageUsersIconId ?? null,
@@ -4237,9 +4282,14 @@ const closeModal = () => {
     userDefaultIconId: null,
     documentDefaultIconId: null,
     manageAgenciesIconId: null,
+    dashboardNotificationsIconId: null,
+    dashboardCommunicationsIconId: null,
+    dashboardChatsIconId: null,
     progressDashboardIconId: null,
     viewAllProgressIconId: null,
     manageClientsIconId: null,
+    dashboardPayrollIconId: null,
+    dashboardBillingIconId: null,
     manageModulesIconId: null,
     manageDocumentsIconId: null,
     manageUsersIconId: null,

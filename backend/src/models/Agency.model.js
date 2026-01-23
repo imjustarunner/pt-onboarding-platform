@@ -177,6 +177,35 @@ class Agency {
         hasManageClientsIcon = false;
       }
 
+      // Check if extra dashboard quick-action icons exist (optional)
+      let hasExtraDashboardQuickActionIcons = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'dashboard_notifications_icon_id'"
+        );
+        hasExtraDashboardQuickActionIcons = (cols || []).length > 0;
+      } catch (e) {
+        hasExtraDashboardQuickActionIcons = false;
+      }
+
+      const extraDashSelects = hasExtraDashboardQuickActionIcons
+        ? `,
+        dn_i.file_path as dashboard_notifications_icon_path, dn_i.name as dashboard_notifications_icon_name,
+        dcomm_i.file_path as dashboard_communications_icon_path, dcomm_i.name as dashboard_communications_icon_name,
+        dchats_i.file_path as dashboard_chats_icon_path, dchats_i.name as dashboard_chats_icon_name,
+        dpay_i.file_path as dashboard_payroll_icon_path, dpay_i.name as dashboard_payroll_icon_name,
+        dbill_i.file_path as dashboard_billing_icon_path, dbill_i.name as dashboard_billing_icon_name`
+        : '';
+
+      const extraDashJoins = hasExtraDashboardQuickActionIcons
+        ? `
+        LEFT JOIN icons dn_i ON a.dashboard_notifications_icon_id = dn_i.id
+        LEFT JOIN icons dcomm_i ON a.dashboard_communications_icon_id = dcomm_i.id
+        LEFT JOIN icons dchats_i ON a.dashboard_chats_icon_id = dchats_i.id
+        LEFT JOIN icons dpay_i ON a.dashboard_payroll_icon_id = dpay_i.id
+        LEFT JOIN icons dbill_i ON a.dashboard_billing_icon_id = dbill_i.id`
+        : '';
+
       const myDashSelects = hasMyDashboardIcons
         ? `,
         mdc_i.file_path as my_dashboard_checklist_icon_path, mdc_i.name as my_dashboard_checklist_icon_name,
@@ -210,7 +239,7 @@ class Agency {
         ps_i.file_path as platform_settings_icon_path, ps_i.name as platform_settings_icon_name,
         vap_i.file_path as view_all_progress_icon_path, vap_i.name as view_all_progress_icon_name,
         pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
-        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${myDashSelects}
+        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${myDashSelects}
         FROM agencies a
         ${hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : ''}
         ${hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : ''}
@@ -222,7 +251,7 @@ class Agency {
         LEFT JOIN icons ps_i ON a.platform_settings_icon_id = ps_i.id
         LEFT JOIN icons vap_i ON a.view_all_progress_icon_id = vap_i.id
         LEFT JOIN icons pd_i ON a.progress_dashboard_icon_id = pd_i.id
-        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${myDashJoins}
+        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${myDashJoins}
         WHERE a.id = ?`;
     } else {
       // Even without dashboard icons, join for master icon if column exists
@@ -855,6 +884,44 @@ class Agency {
       if (settingsIconId !== undefined) {
         updates.push('settings_icon_id = ?');
         values.push(settingsIconId || null);
+      }
+
+      // New dashboard quick-action icon overrides (optional; best-effort for older DBs)
+      if (
+        agencyData.dashboardNotificationsIconId !== undefined ||
+        agencyData.dashboardCommunicationsIconId !== undefined ||
+        agencyData.dashboardChatsIconId !== undefined ||
+        agencyData.dashboardPayrollIconId !== undefined ||
+        agencyData.dashboardBillingIconId !== undefined
+      ) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('dashboard_notifications_icon_id','dashboard_communications_icon_id','dashboard_chats_icon_id','dashboard_payroll_icon_id','dashboard_billing_icon_id')"
+          );
+          const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+          if (agencyData.dashboardNotificationsIconId !== undefined && names.has('dashboard_notifications_icon_id')) {
+            updates.push('dashboard_notifications_icon_id = ?');
+            values.push(agencyData.dashboardNotificationsIconId || null);
+          }
+          if (agencyData.dashboardCommunicationsIconId !== undefined && names.has('dashboard_communications_icon_id')) {
+            updates.push('dashboard_communications_icon_id = ?');
+            values.push(agencyData.dashboardCommunicationsIconId || null);
+          }
+          if (agencyData.dashboardChatsIconId !== undefined && names.has('dashboard_chats_icon_id')) {
+            updates.push('dashboard_chats_icon_id = ?');
+            values.push(agencyData.dashboardChatsIconId || null);
+          }
+          if (agencyData.dashboardPayrollIconId !== undefined && names.has('dashboard_payroll_icon_id')) {
+            updates.push('dashboard_payroll_icon_id = ?');
+            values.push(agencyData.dashboardPayrollIconId || null);
+          }
+          if (agencyData.dashboardBillingIconId !== undefined && names.has('dashboard_billing_icon_id')) {
+            updates.push('dashboard_billing_icon_id = ?');
+            values.push(agencyData.dashboardBillingIconId || null);
+          }
+        } catch {
+          // ignore
+        }
       }
     }
 

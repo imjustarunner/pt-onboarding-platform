@@ -331,6 +331,7 @@ const quickActions = computed(() => ([
     description: 'View communications feed',
     to: '/admin/communications',
     emoji: '💬',
+    iconKey: 'dashboard_communications',
     category: 'Communications',
     roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
     capabilities: ['canUseChat']
@@ -341,6 +342,7 @@ const quickActions = computed(() => ([
     description: 'Open platform chats',
     to: '/admin/communications/chats',
     emoji: '💬',
+    iconKey: 'dashboard_chats',
     category: 'Communications',
     roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
     capabilities: ['canUseChat']
@@ -351,6 +353,7 @@ const quickActions = computed(() => ([
     description: 'View notifications',
     to: '/admin/notifications',
     emoji: '🔔',
+    iconKey: 'dashboard_notifications',
     category: 'Management',
     roles: ['admin', 'support', 'super_admin', 'staff'],
     capabilities: ['canAccessPlatform']
@@ -361,6 +364,7 @@ const quickActions = computed(() => ([
     description: 'Manage payroll',
     to: '/admin/payroll',
     emoji: '💵',
+    iconKey: 'dashboard_payroll',
     category: 'Management',
     roles: ['admin', 'super_admin'],
     capabilities: ['canAccessPlatform']
@@ -371,6 +375,7 @@ const quickActions = computed(() => ([
     description: 'Plan usage and QuickBooks',
     to: '/admin/settings?category=general&item=billing',
     emoji: '💳',
+    iconKey: 'dashboard_billing',
     category: 'System',
     roles: ['admin', 'super_admin'],
     capabilities: ['canAccessPlatform']

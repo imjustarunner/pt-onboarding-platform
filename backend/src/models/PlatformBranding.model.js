@@ -68,6 +68,17 @@ class PlatformBranding {
       } catch (e) {
         hasManageClientsIcon = false;
       }
+
+      // Check if extra dashboard quick-action icons exist (optional)
+      let hasExtraDashboardQuickActionIcons = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'dashboard_notifications_icon_id'"
+        );
+        hasExtraDashboardQuickActionIcons = (cols || []).length > 0;
+      } catch (e) {
+        hasExtraDashboardQuickActionIcons = false;
+      }
       // Check if organization fields exist
       let hasOrgFields = false;
       try {
@@ -169,6 +180,24 @@ class PlatformBranding {
           // "My Dashboard" icon columns don't exist yet, skip
         }
         
+        const extraDashSelects = hasExtraDashboardQuickActionIcons
+          ? `,
+          dn_i.file_path as dashboard_notifications_icon_path, dn_i.name as dashboard_notifications_icon_name,
+          dcomm_i.file_path as dashboard_communications_icon_path, dcomm_i.name as dashboard_communications_icon_name,
+          dchats_i.file_path as dashboard_chats_icon_path, dchats_i.name as dashboard_chats_icon_name,
+          dpay_i.file_path as dashboard_payroll_icon_path, dpay_i.name as dashboard_payroll_icon_name,
+          dbill_i.file_path as dashboard_billing_icon_path, dbill_i.name as dashboard_billing_icon_name`
+          : '';
+
+        const extraDashJoins = hasExtraDashboardQuickActionIcons
+          ? `
+          LEFT JOIN icons dn_i ON pb.dashboard_notifications_icon_id = dn_i.id
+          LEFT JOIN icons dcomm_i ON pb.dashboard_communications_icon_id = dcomm_i.id
+          LEFT JOIN icons dchats_i ON pb.dashboard_chats_icon_id = dchats_i.id
+          LEFT JOIN icons dpay_i ON pb.dashboard_payroll_icon_id = dpay_i.id
+          LEFT JOIN icons dbill_i ON pb.dashboard_billing_icon_id = dbill_i.id`
+          : '';
+
         query = `SELECT pb.*,
           ${hasManageClientsIcon ? 'mc_i.file_path as manage_clients_icon_path, mc_i.name as manage_clients_icon_name,' : ''}
           ma_i.file_path as manage_agencies_icon_path, ma_i.name as manage_agencies_icon_name,
@@ -180,7 +209,7 @@ class PlatformBranding {
           pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
           s_i.file_path as settings_icon_path, s_i.name as settings_icon_name,
           mb_i.file_path as master_brand_icon_path, mb_i.name as master_brand_icon_name,
-          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
+          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${extraDashSelects}${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
           FROM platform_branding pb
           ${hasManageClientsIcon ? 'LEFT JOIN icons mc_i ON pb.manage_clients_icon_id = mc_i.id' : ''}
           LEFT JOIN icons ma_i ON pb.manage_agencies_icon_id = ma_i.id
@@ -192,7 +221,7 @@ class PlatformBranding {
           LEFT JOIN icons pd_i ON pb.progress_dashboard_icon_id = pd_i.id
           LEFT JOIN icons s_i ON pb.settings_icon_id = s_i.id
           LEFT JOIN icons mb_i ON pb.master_brand_icon_id = mb_i.id
-          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${orgJoins}${fontJoins}${settingsIconJoins}${myDashboardIconJoins}
+          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${extraDashJoins}${orgJoins}${fontJoins}${settingsIconJoins}${myDashboardIconJoins}
           ORDER BY pb.id DESC LIMIT 1`;
       } else {
         // Even if dashboard icons don't exist, try to include master brand icon if column exists
@@ -346,6 +375,7 @@ class PlatformBranding {
       userDefaultIconId,
       documentDefaultIconId,
       masterBrandIconId,
+      manageClientsIconId,
       manageAgenciesIconId,
       manageModulesIconId,
       manageDocumentsIconId,
@@ -354,6 +384,11 @@ class PlatformBranding {
       viewAllProgressIconId,
       progressDashboardIconId,
       settingsIconId,
+      dashboardNotificationsIconId,
+      dashboardCommunicationsIconId,
+      dashboardChatsIconId,
+      dashboardPayrollIconId,
+      dashboardBillingIconId,
         myDashboardChecklistIconId,
         myDashboardTrainingIconId,
         myDashboardDocumentsIconId,
@@ -515,6 +550,43 @@ class PlatformBranding {
             }
           } catch (e) {
             console.warn('PlatformBranding.update: Error checking for manage_clients_icon_id column:', e.message);
+          }
+        }
+
+        if (
+          dashboardNotificationsIconId !== undefined ||
+          dashboardCommunicationsIconId !== undefined ||
+          dashboardChatsIconId !== undefined ||
+          dashboardPayrollIconId !== undefined ||
+          dashboardBillingIconId !== undefined
+        ) {
+          try {
+            const [cols] = await pool.execute(
+              "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('dashboard_notifications_icon_id','dashboard_communications_icon_id','dashboard_chats_icon_id','dashboard_payroll_icon_id','dashboard_billing_icon_id')"
+            );
+            const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+            if (dashboardNotificationsIconId !== undefined && names.has('dashboard_notifications_icon_id')) {
+              updates.push('dashboard_notifications_icon_id = ?');
+              values.push(dashboardNotificationsIconId ?? null);
+            }
+            if (dashboardCommunicationsIconId !== undefined && names.has('dashboard_communications_icon_id')) {
+              updates.push('dashboard_communications_icon_id = ?');
+              values.push(dashboardCommunicationsIconId ?? null);
+            }
+            if (dashboardChatsIconId !== undefined && names.has('dashboard_chats_icon_id')) {
+              updates.push('dashboard_chats_icon_id = ?');
+              values.push(dashboardChatsIconId ?? null);
+            }
+            if (dashboardPayrollIconId !== undefined && names.has('dashboard_payroll_icon_id')) {
+              updates.push('dashboard_payroll_icon_id = ?');
+              values.push(dashboardPayrollIconId ?? null);
+            }
+            if (dashboardBillingIconId !== undefined && names.has('dashboard_billing_icon_id')) {
+              updates.push('dashboard_billing_icon_id = ?');
+              values.push(dashboardBillingIconId ?? null);
+            }
+          } catch (e) {
+            console.warn('PlatformBranding.update: Error checking for dashboard quick action icon columns:', e.message);
           }
         }
         if (manageAgenciesIconId !== undefined) { 
