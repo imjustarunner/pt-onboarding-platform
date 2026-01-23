@@ -1,5 +1,5 @@
 import express from 'express';
-import { getCurrentUser, getAllUsers, aiQueryUsers, getUserById, updateUser, getUserAgencies, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyH0032Mode, setUserAgencySupervisionPrelicensed, generateInvitationToken, resetPasswordlessToken, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias } from '../controllers/user.controller.js';
+import { getCurrentUser, getAllUsers, aiQueryUsers, getUserById, updateUser, getUserAgencies, assignUserToAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyH0032Mode, setUserAgencySupervisionPrelicensed, generateInvitationToken, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, restoreUser, deleteUser, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias } from '../controllers/user.controller.js';
 import { upload as uploadProfilePhoto, uploadUserProfilePhoto } from '../controllers/userProfilePhoto.controller.js';
 import { getUserTrainingFocuses } from '../controllers/track.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
@@ -26,6 +26,8 @@ router.put('/:id/supervision-prelicensed', authenticate, requireBackofficeAdmin,
 // New endpoints for tokens, passwords, account info, and checklist
 router.post('/:id/generate-token', authenticate, requireBackofficeAdmin, generateInvitationToken);
 router.post('/:id/reset-passwordless-token', authenticate, resetPasswordlessToken);
+router.post('/:id/send-setup-link', authenticate, requireBackofficeAdmin, sendInitialSetupLink);
+router.post('/:id/resend-setup-link', authenticate, requireBackofficeAdmin, resendSetupLink);
 router.post('/:id/send-reset-password-link', authenticate, requireBackofficeAdmin, sendResetPasswordLink);
 router.post('/:id/send-reset-password-link-sms', authenticate, requireBackofficeAdmin, sendResetPasswordLinkSms);
 router.post('/change-password', authenticate, changePassword); // For users to change their own password

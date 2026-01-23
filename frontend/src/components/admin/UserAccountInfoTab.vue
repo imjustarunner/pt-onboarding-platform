@@ -25,12 +25,12 @@
         </div>
       </div>
       
-      <!-- Pending User Login Link Section -->
-      <div v-if="accountInfo.status === 'pending' && accountInfo.passwordlessLoginLink" class="info-section">
-        <h3>Direct Login Link</h3>
+      <!-- Setup Link (Admin-managed) -->
+      <div v-if="canManageSetupLink" class="info-section">
+        <h3>Setup Link (Set Password)</h3>
         <div class="passwordless-link-section">
           <p class="link-description">
-            Use this link to access your account. You will be asked to verify your last name when you click the link.
+            Send a one-time link for the user to set their initial password. “Send” is idempotent; “Resend” rotates a fresh token.
           </p>
           
           <!-- Token Status -->
@@ -51,7 +51,16 @@
             </div>
           </div>
           
-          <div class="link-container">
+          <div class="link-actions" style="margin-bottom: 10px;">
+            <button class="btn btn-primary btn-sm" @click="sendSetupLink" :disabled="sendingSetup">
+              {{ sendingSetup ? 'Sending…' : 'Send Setup Link' }}
+            </button>
+            <button class="btn btn-secondary btn-sm" @click="resendSetupLink" :disabled="sendingSetup">
+              {{ sendingSetup ? 'Resending…' : 'Resend Setup Link' }}
+            </button>
+          </div>
+
+          <div v-if="accountInfo.passwordlessLoginLink" class="link-container">
             <input 
               type="text" 
               :value="accountInfo.passwordlessLoginLink" 
@@ -66,33 +75,7 @@
               Copy Link
             </button>
           </div>
-          <div class="link-actions">
-            <button 
-              @click="showResetModal = true" 
-              class="btn btn-secondary btn-sm"
-              :disabled="resettingToken"
-            >
-              {{ resettingToken ? 'Resetting...' : 'Reset Link (New Token)' }}
-            </button>
-            <div v-if="showResetModal" class="reset-modal-inline">
-              <label>Expires in:</label>
-              <input 
-                type="number" 
-                v-model="tokenExpirationDays" 
-                min="1" 
-                max="30"
-                class="expiration-input"
-              />
-              <span>days</span>
-              <button @click="confirmResetToken" class="btn btn-success btn-sm" :disabled="resettingToken">
-                Confirm
-              </button>
-              <button @click="showResetModal = false" class="btn btn-secondary btn-sm">
-                Cancel
-              </button>
-            </div>
-          </div>
-          <small class="link-help">Click the link above to select it, or use the copy button. Use "Reset Link" to generate a new token with custom expiration.</small>
+          <small class="link-help" v-if="accountInfo.passwordlessLoginLink">Click the link above to select it, or use the copy button.</small>
         </div>
       </div>
       
@@ -175,6 +158,12 @@ const resettingToken = ref(false);
 const showResetModal = ref(false);
 const tokenExpirationDays = ref(7);
 const userData = ref(null);
+const sendingSetup = ref(false);
+
+const canManageSetupLink = computed(() => {
+  const role = authStore.user?.role;
+  return role === 'admin' || role === 'super_admin' || role === 'support';
+});
 
 const copyLink = () => {
   if (accountInfo.value.passwordlessLoginLink) {
@@ -219,6 +208,34 @@ const confirmResetToken = async () => {
     alert(error.value);
   } finally {
     resettingToken.value = false;
+  }
+};
+
+const sendSetupLink = async () => {
+  try {
+    sendingSetup.value = true;
+    await api.post(`/users/${props.userId}/send-setup-link`, { expiresInHours: 48 });
+    await fetchAccountInfo();
+    alert('Setup link generated.');
+  } catch (err) {
+    const msg = err.response?.data?.error?.message || 'Failed to send setup link';
+    alert(msg);
+  } finally {
+    sendingSetup.value = false;
+  }
+};
+
+const resendSetupLink = async () => {
+  try {
+    sendingSetup.value = true;
+    await api.post(`/users/${props.userId}/resend-setup-link`, { expiresInHours: 48 });
+    await fetchAccountInfo();
+    alert('Setup link resent.');
+  } catch (err) {
+    const msg = err.response?.data?.error?.message || 'Failed to resend setup link';
+    alert(msg);
+  } finally {
+    sendingSetup.value = false;
   }
 };
 

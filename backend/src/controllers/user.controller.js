@@ -1715,6 +1715,110 @@ export const resetPasswordlessToken = async (req, res, next) => {
   }
 };
 
+// Admin action: send the initial setup link (idempotent if a valid setup token already exists)
+export const sendInitialSetupLink = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = parseInt(id);
+    const { expiresInHours } = req.body || {};
+
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    // Only admins/super_admins/support
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+
+    // If password already set, this is no longer a "setup" action.
+    if (user.password_hash) {
+      return res.status(400).json({ error: { message: 'Password already set. Use Reset Password Link instead.' } });
+    }
+
+    // If there is already a non-expired setup token, return it (don’t rotate on “send”).
+    const purpose = String(user.passwordless_token_purpose || 'setup');
+    const expiresAt = user.passwordless_token_expires_at ? new Date(user.passwordless_token_expires_at) : null;
+    const now = new Date();
+    const hasValidExisting =
+      user.passwordless_token &&
+      purpose === 'setup' &&
+      expiresAt &&
+      expiresAt.getTime() > now.getTime();
+
+    let tokenResult = null;
+    if (hasValidExisting) {
+      tokenResult = { token: user.passwordless_token, expiresAt };
+    } else {
+      let finalExpiresInHours = expiresInHours ? parseInt(expiresInHours) : 48;
+      if (!Number.isInteger(finalExpiresInHours) || finalExpiresInHours < 1) finalExpiresInHours = 48;
+      tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours, 'setup');
+    }
+
+    const config = (await import('../config/config.js')).default;
+    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
+    const userAgencies = await User.getAgencies(userId);
+    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+    const link = portalSlug
+      ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
+      : `${frontendBase}/passwordless-login/${tokenResult.token}`;
+
+    res.json({
+      token: tokenResult.token,
+      tokenLink: link,
+      expiresAt: tokenResult.expiresAt,
+      message: 'Setup link generated'
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Admin action: resend setup link (always rotates a fresh setup token)
+export const resendSetupLink = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = parseInt(id);
+    const { expiresInHours } = req.body || {};
+
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+
+    if (user.password_hash) {
+      return res.status(400).json({ error: { message: 'Password already set. Use Reset Password Link instead.' } });
+    }
+
+    let finalExpiresInHours = expiresInHours ? parseInt(expiresInHours) : 48;
+    if (!Number.isInteger(finalExpiresInHours) || finalExpiresInHours < 1) finalExpiresInHours = 48;
+
+    const tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours, 'setup');
+
+    const config = (await import('../config/config.js')).default;
+    const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
+    const userAgencies = await User.getAgencies(userId);
+    const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+    const link = portalSlug
+      ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
+      : `${frontendBase}/passwordless-login/${tokenResult.token}`;
+
+    res.json({
+      token: tokenResult.token,
+      tokenLink: link,
+      expiresAt: tokenResult.expiresAt,
+      message: 'Setup link resent'
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const sendResetPasswordLink = async (req, res, next) => {
   try {
     const { id } = req.params;
