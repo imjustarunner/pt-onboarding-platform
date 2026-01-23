@@ -6,6 +6,7 @@ import StorageService from '../services/storage.service.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import { notifyPaperworkReceived } from '../services/clientNotifications.service.js';
 
 // Configure multer for memory storage (files will be uploaded to GCS)
 const upload = multer({
@@ -145,6 +146,15 @@ export const uploadReferralPacket = [
         }
         phiDoc = null;
       }
+
+      // Notify support/admin team that paperwork was received (best-effort).
+      // This satisfies the spec requirement to notify support so they can finalize the placeholder client.
+      notifyPaperworkReceived({
+        agencyId,
+        schoolOrganizationId: organization.id,
+        clientId: client.id,
+        clientNameOrIdentifier: client.identifier_code || client.initials || `ID ${client.id}`
+      }).catch(() => {});
 
       res.json({
         success: true,

@@ -10,6 +10,21 @@
         <strong>Reminder:</strong> Use initials only. Do not include PHI. This is not an EHR.
       </div>
 
+      <div class="status-bar">
+        <div class="pill">
+          <div class="k">Status</div>
+          <div class="v">{{ formatKey(props.client?.status) }}</div>
+        </div>
+        <div class="pill">
+          <div class="k">Doc status</div>
+          <div class="v">{{ formatKey(props.client?.document_status) }}</div>
+        </div>
+        <div class="pill">
+          <div class="k">Assigned day</div>
+          <div class="v">{{ props.client?.service_day || '—' }}</div>
+        </div>
+      </div>
+
       <div v-if="loading" class="loading">Loading…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="body">
@@ -195,6 +210,11 @@ const formatUrgency = (u) => ({
 }[String(u || '').toLowerCase()] || u);
 
 const formatDateOnly = (d) => (d ? String(d).slice(0, 10) : '—');
+const formatKey = (v) => {
+  const s = String(v || '').trim();
+  if (!s) return '—';
+  return s.replace(/_/g, ' ');
+};
 
 onMounted(load);
 </script>
@@ -266,6 +286,28 @@ onMounted(load);
   border-radius: 10px;
   font-size: 13px;
 }
+.status-bar {
+  margin: 10px 16px 0 16px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.pill {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  padding: 10px 12px;
+}
+.pill .k {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 800;
+}
+.pill .v {
+  margin-top: 2px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
 .body { padding: 16px; display: grid; grid-template-columns: 1fr; gap: 12px; }
 .messages {
   background: var(--bg-alt);
@@ -290,5 +332,8 @@ textarea, select {
 .row { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
 .loading, .empty { color: var(--text-secondary); }
 .error { color: #c33; }
+@media (max-width: 900px) {
+  .status-bar { grid-template-columns: 1fr; }
+}
 </style>
 

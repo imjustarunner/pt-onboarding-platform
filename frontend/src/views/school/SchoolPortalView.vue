@@ -2,157 +2,76 @@
   <div class="school-portal">
     <div class="portal-header">
       <h1>{{ organizationName }} Portal</h1>
-      <p class="portal-subtitle">View your students and referral status</p>
+      <p class="portal-subtitle">Schedule + roster (no PHI)</p>
     </div>
 
     <div class="portal-content">
-      <div class="tabs">
-        <button
-          class="tab"
-          :class="{ active: activeTab === 'clients' }"
-          @click="activeTab = 'clients'"
-        >
-          Clients
-        </button>
-        <button
-          class="tab"
-          :class="{ active: activeTab === 'providers' }"
-          @click="activeTab = 'providers'"
-        >
-          Providers
-        </button>
-      </div>
-
-      <div v-if="activeTab === 'clients'">
-        <ClientListGrid
-          :organization-slug="organizationSlug"
-          :organization-id="organizationId"
-        />
-      </div>
-
-      <div v-else class="schedule-wrap">
-        <div v-if="organizationId" class="schedule-cards">
-          <div class="schedule-cards-header">
-            <h2 style="margin:0;">Providers</h2>
-            <div style="display:flex; gap: 8px; align-items:center;">
-              <button class="btn btn-secondary btn-sm" @click="showHelpDesk = true">Contact Admin</button>
-            </div>
-          </div>
-
-          <div v-if="scheduleLoading" class="loading">Loading schedule…</div>
-          <div v-else-if="scheduleError" class="error">{{ scheduleError }}</div>
-          <div v-else class="cards-grid">
-            <div v-for="d in days" :key="d" class="day-card">
-              <div class="day-header">
-                <strong>{{ d }}</strong>
-              </div>
-              <div v-if="(providersByDay[d] || []).length === 0" class="empty">
-                No providers scheduled.
-              </div>
-              <div v-else class="provider-cards">
-                <button
-                  v-for="p in providersByDay[d]"
-                  :key="`${d}-${p.provider_user_id}`"
-                  class="provider-card"
-                  @click="openProviderModal(p.provider_user_id)"
-                  type="button"
-                >
-                  <div class="provider-name">{{ p.last_name }}, {{ p.first_name }}</div>
-                  <div class="provider-meta">
-                    <span class="badge badge-secondary">{{ p.assignment?.slots_available }} / {{ p.assignment?.slots_total }} slots</span>
-                    <span v-if="p.assignment?.start_time || p.assignment?.end_time" class="badge badge-secondary">
-                      {{ p.assignment?.start_time || '—' }}–{{ p.assignment?.end_time || '—' }}
-                    </span>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <SchoolHelpDeskModal
-            v-if="showHelpDesk && organizationId"
-            :schoolOrganizationId="organizationId"
-            @close="showHelpDesk = false"
-          />
-
-          <SchoolProvidersModal
-            v-if="showProvidersModal"
-            :providers="providers"
-            :preselect-provider-user-id="selectedProviderUserId"
-            @close="closeProviderModal"
-          />
+      <div class="top-row">
+        <SchoolDayBar v-model="store.selectedWeekday" :days="store.days" />
+        <div class="top-actions">
+          <button class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact Admin</button>
         </div>
-        <div v-else class="empty-state">Organization not loaded.</div>
+      </div>
+
+      <DayPanel
+        v-if="organizationId"
+        :weekday="store.selectedWeekday"
+        :providers="store.dayProviders"
+        :eligible-providers="store.eligibleProvidersForSelectedDay"
+        :loading-providers="store.dayProvidersLoading"
+        :providers-error="store.dayProvidersError"
+        :panel-for="panelFor"
+        @add-day="handleAddDay"
+        @add-provider="handleAddProvider"
+        @open-client="openClient"
+        @save-slots="handleSaveSlots"
+        @move-slot="handleMoveSlot"
+        @open-provider="goToProviderSchoolProfile"
+      />
+      <div v-else class="empty-state">Organization not loaded.</div>
+
+      <div class="roster">
+        <div class="roster-header">
+          <h2 style="margin: 0;">School roster</h2>
+          <div class="muted">Assigned + unassigned (restricted fields)</div>
+        </div>
+        <ClientListGrid :organization-slug="organizationSlug" :organization-id="organizationId" />
       </div>
     </div>
+
+    <ClientModal
+      v-if="selectedClient && organizationId"
+      :client="selectedClient"
+      :school-organization-id="organizationId"
+      @close="selectedClient = null"
+    />
+
+    <SchoolHelpDeskModal
+      v-if="showHelpDesk && organizationId"
+      :schoolOrganizationId="organizationId"
+      @close="showHelpDesk = false"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useOrganizationStore } from '../../store/organization';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
-import SchoolProvidersModal from '../../components/school/SchoolProvidersModal.vue';
-import api from '../../services/api';
+import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
+import DayPanel from '../../components/school/redesign/DayPanel.vue';
+import ClientModal from '../../components/school/redesign/ClientModal.vue';
+import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 
 const route = useRoute();
+const router = useRouter();
 const organizationStore = useOrganizationStore();
+const store = useSchoolPortalRedesignStore();
 
-const activeTab = ref('clients');
 const showHelpDesk = ref(false);
-const showProvidersModal = ref(false);
-const selectedProviderUserId = ref(null);
-
-const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-const scheduleLoading = ref(false);
-const scheduleError = ref('');
-const providersByDay = ref({
-  Monday: [],
-  Tuesday: [],
-  Wednesday: [],
-  Thursday: [],
-  Friday: []
-});
-const providers = ref([]);
-
-const fetchScheduleCards = async () => {
-  if (!organizationId.value) return;
-  try {
-    scheduleLoading.value = true;
-    scheduleError.value = '';
-    const r = await api.get(`/school-portal/${organizationId.value}/providers/scheduling`);
-    const list = r.data || [];
-    providers.value = list;
-    const byDay = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] };
-    for (const p of list) {
-      for (const d of days) {
-        const a = (p.assignments || []).find((x) => x.day_of_week === d && x.is_active);
-        if (!a) continue;
-        byDay[d].push({ ...p, assignment: a });
-      }
-    }
-    for (const d of days) {
-      byDay[d].sort((a, b) => String(a.last_name || '').localeCompare(String(b.last_name || '')));
-    }
-    providersByDay.value = byDay;
-  } catch (e) {
-    scheduleError.value = e.response?.data?.error?.message || 'Failed to load schedule';
-  } finally {
-    scheduleLoading.value = false;
-  }
-};
-
-const openProviderModal = (providerUserId) => {
-  selectedProviderUserId.value = providerUserId ? parseInt(providerUserId, 10) : null;
-  showProvidersModal.value = true;
-};
-
-const closeProviderModal = () => {
-  showProvidersModal.value = false;
-  selectedProviderUserId.value = null;
-};
+const selectedClient = ref(null);
 
 const organizationSlug = computed(() => route.params.organizationSlug);
 
@@ -168,12 +87,70 @@ const organizationId = computed(() => {
          null;
 });
 
+const panelFor = (providerUserId) => {
+  const key = `${store.selectedWeekday}:${providerUserId}`;
+  return store.providerPanels?.[key] || store.ensurePanel(store.selectedWeekday, providerUserId);
+};
+
+const loadForDay = async (weekday) => {
+  if (!organizationId.value) return;
+  await store.fetchDays();
+  await store.fetchEligibleProviders();
+  await store.fetchDayProviders(weekday);
+  const list = Array.isArray(store.dayProviders) ? store.dayProviders : [];
+  await Promise.all(list.map((p) => store.loadProviderPanel(weekday, p.provider_user_id)));
+};
+
+const handleAddDay = async () => {
+  await store.addDay(store.selectedWeekday);
+  await loadForDay(store.selectedWeekday);
+};
+
+const handleAddProvider = async ({ providerUserId }) => {
+  await store.addProviderToDay(store.selectedWeekday, providerUserId);
+  await loadForDay(store.selectedWeekday);
+};
+
+const handleSaveSlots = async ({ providerUserId, slots }) => {
+  await store.saveSoftSlots(store.selectedWeekday, providerUserId, slots);
+};
+
+const handleMoveSlot = async ({ providerUserId, slotId, direction }) => {
+  await store.moveSoftSlot(store.selectedWeekday, providerUserId, slotId, direction);
+};
+
+const openClient = (client) => {
+  selectedClient.value = client;
+};
+
+const goToProviderSchoolProfile = (providerUserId) => {
+  const slug = organizationSlug.value;
+  if (!slug || !providerUserId) return;
+  router.push(`/${slug}/providers/${providerUserId}`);
+};
+
 onMounted(async () => {
   // Load organization context if not already loaded
   if (organizationSlug.value && !organizationStore.currentOrganization) {
     await organizationStore.fetchBySlug(organizationSlug.value);
   }
-  await fetchScheduleCards();
+  if (organizationId.value) {
+    store.reset();
+    store.setSchoolId(organizationId.value);
+    await loadForDay(store.selectedWeekday);
+  }
+});
+
+watch(organizationId, async (id) => {
+  if (!id) return;
+  store.reset();
+  store.setSchoolId(id);
+  await loadForDay(store.selectedWeekday);
+});
+
+watch(() => store.selectedWeekday, async (weekday) => {
+  if (!organizationId.value) return;
+  await loadForDay(weekday);
 });
 </script>
 
@@ -213,79 +190,33 @@ onMounted(async () => {
   border: 1px solid var(--border);
 }
 
-.schedule-cards-header {
+.top-row {
   display: flex;
+  align-items: start;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 14px;
-}
-
-.cards-grid {
-  display: grid;
-  grid-template-columns: 1fr;
   gap: 12px;
-}
-@media (min-width: 1000px) {
-  .cards-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  margin-bottom: 12px;
 }
 
-.day-card {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
-  background: var(--bg);
+.top-actions {
+  display: flex;
+  justify-content: flex-end;
 }
-.day-header {
+
+.roster {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.roster-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 10px;
 }
-.provider-cards {
-  display: grid;
-  gap: 8px;
-}
-.provider-card {
-  text-align: left;
-  border: 1px solid var(--border);
-  background: white;
-  border-radius: 12px;
-  padding: 10px 12px;
-}
-.provider-name {
-  font-weight: 700;
-  margin-bottom: 6px;
-}
-.provider-meta {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.full-scheduler {
-  margin-top: 16px;
-}
-
-.tabs {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 10px;
-}
-.tab {
-  appearance: none;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text-primary);
-  border-radius: 999px;
-  padding: 8px 14px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.tab.active {
-  border-color: var(--primary);
-  background: rgba(0, 0, 0, 0.03);
-}
-.schedule-wrap {
-  margin-top: 8px;
+.muted {
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 </style>

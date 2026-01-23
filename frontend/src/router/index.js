@@ -87,6 +87,12 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/providers/:providerUserId',
+    name: 'OrganizationSchoolProviderProfile',
+    component: () => import('../views/school/ProviderSchoolProfileView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true, requiresRole: ['school_staff', 'provider', 'admin', 'support', 'super_admin'] }
+  },
+  {
     path: '/:organizationSlug/mydashboard',
     name: 'OrganizationMyDashboardLegacy',
     redirect: (to) => `/${to.params.organizationSlug}/dashboard`,
