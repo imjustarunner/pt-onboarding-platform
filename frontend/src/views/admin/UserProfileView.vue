@@ -2457,15 +2457,10 @@ const selectTab = (tabId) => {
   const id = String(tabId || '').trim();
   if (!id) return;
   if (!tabIds.value.includes(id)) return;
+  // IMPORTANT: do not mutate the route from inside a tab click handler.
+  // Writing to the router during a component update can trigger Vue's internal patch crashes
+  // (nextSibling/subTree/emitsOptions) when the route update races with VDOM patching.
   activeTab.value = id;
-  // Keep the URL in sync (prevents stale query state + patch edge cases).
-  try {
-    if (String(route.query.tab || '') !== id) {
-      router.replace({ query: { ...route.query, tab: id } }).catch(() => {});
-    }
-  } catch {
-    // ignore
-  }
 };
 
 // Ensure activeTab is always valid for the currently computed tabs.
@@ -2476,13 +2471,7 @@ watch(tabIds, (ids) => {
   }
 }, { immediate: true });
 
-// Watch for tab query parameter changes (only allow tabs that are currently available).
-watch(() => route.query.tab, (newTab) => {
-  const t = typeof newTab === 'string' ? newTab : Array.isArray(newTab) ? newTab[0] : '';
-  if (t && tabIds.value.includes(t)) {
-    activeTab.value = t;
-  }
-}, { immediate: true });
+// NOTE: We intentionally do not sync `activeTab` to the URL query to avoid router/VDOM race conditions.
 
 const fetchSupervisees = async () => {
   if (!user.value || (!isSupervisor(user.value) && user.value.role !== 'clinical_practice_assistant')) {
