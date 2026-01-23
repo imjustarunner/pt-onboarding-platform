@@ -61,15 +61,6 @@
           <small v-if="selectedFile">Selected: {{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})</small>
         </div>
 
-        <!-- Signature Coordinate Picker -->
-        <div v-if="formData.documentActionType === 'signature' && selectedFile && pdfUrl" class="form-group signature-coordinate-section">
-          <PDFSignatureCoordinatePicker
-            :key="pdfUrl"
-            :pdf-url="pdfUrl"
-            v-model="signatureCoordinates"
-          />
-        </div>
-
         <div class="form-group">
           <label>Due Date (Optional)</label>
           <input v-model="formData.dueDate" type="datetime-local" />
@@ -89,8 +80,7 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue';
-import PDFSignatureCoordinatePicker from './PDFSignatureCoordinatePicker.vue';
+import { ref } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 
@@ -117,14 +107,6 @@ const selectedFile = ref(null);
 const fileInput = ref(null);
 const uploading = ref(false);
 const error = ref('');
-const pdfUrl = ref(null);
-const signatureCoordinates = ref({
-  x: null,
-  y: null,
-  width: 200,
-  height: 60,
-  page: null
-});
 
 const handleFileSelect = (event) => {
   const file = event.target.files[0];
@@ -139,13 +121,7 @@ const handleFileSelect = (event) => {
     }
     selectedFile.value = file;
     error.value = '';
-    
-    // Create object URL for PDF preview
-    if (pdfUrl.value) {
-      URL.revokeObjectURL(pdfUrl.value);
-    }
-    pdfUrl.value = URL.createObjectURL(file);
-    
+
     // Auto-fill name from filename if not set
     if (!formData.value.name) {
       formData.value.name = file.name.replace('.pdf', '');
@@ -169,25 +145,17 @@ const handleUpload = async () => {
     error.value = '';
 
     const formDataToSend = new FormData();
+    const resolvedName =
+      (formData.value.name || '').trim() ||
+      (selectedFile.value?.name ? selectedFile.value.name.replace(/\.pdf$/i, '') : '');
     formDataToSend.append('file', selectedFile.value);
-    formDataToSend.append('name', formData.value.name);
+    formDataToSend.append('name', resolvedName);
     formDataToSend.append('description', formData.value.description || '');
     formDataToSend.append('documentType', formData.value.documentType);
     formDataToSend.append('userId', props.userId.toString());
     formDataToSend.append('documentActionType', formData.value.documentActionType);
     if (formData.value.dueDate) {
       formDataToSend.append('dueDate', formData.value.dueDate);
-    }
-
-    // Add signature coordinates if signature is selected and coordinates are set
-    if (formData.value.documentActionType === 'signature' && signatureCoordinates.value.x !== null && signatureCoordinates.value.y !== null) {
-      formDataToSend.append('signatureX', signatureCoordinates.value.x.toString());
-      formDataToSend.append('signatureY', signatureCoordinates.value.y.toString());
-      formDataToSend.append('signatureWidth', signatureCoordinates.value.width.toString());
-      formDataToSend.append('signatureHeight', signatureCoordinates.value.height.toString());
-      if (signatureCoordinates.value.page !== null) {
-        formDataToSend.append('signaturePage', signatureCoordinates.value.page.toString());
-      }
     }
 
     // First create the task
@@ -209,12 +177,9 @@ const handleUpload = async () => {
     // Now create the user-specific document
     formDataToSend.append('userId', props.userId.toString());
     formDataToSend.append('taskId', task.id.toString());
-    
-    const response = await api.post('/user-specific-documents/upload', formDataToSend, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    });
+
+    // NOTE: do not set Content-Type manually for FormData; the browser must include boundary
+    const response = await api.post('/user-specific-documents/upload', formDataToSend);
 
     // Update task with reference to user-specific document
     await api.put(`/tasks/${task.id}`, {
@@ -238,11 +203,6 @@ const handleUpload = async () => {
       dueDate: ''
     };
     selectedFile.value = null;
-    if (pdfUrl.value) {
-      URL.revokeObjectURL(pdfUrl.value);
-      pdfUrl.value = null;
-    }
-    signatureCoordinates.value = { x: null, y: null, width: 200, height: 60, page: null };
     if (fileInput.value) {
       fileInput.value.value = '';
     }
@@ -258,13 +218,6 @@ const formatFileSize = (bytes) => {
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 };
-
-// Cleanup object URL on unmount
-onUnmounted(() => {
-  if (pdfUrl.value) {
-    URL.revokeObjectURL(pdfUrl.value);
-  }
-});
 </script>
 
 <style scoped>
@@ -390,12 +343,6 @@ onUnmounted(() => {
   border-color: var(--primary-color, #007bff);
   background: var(--primary-color, #007bff);
   color: white;
-}
-
-.signature-coordinate-section {
-  margin-top: 24px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border, #ddd);
 }
 
 .info-text {
