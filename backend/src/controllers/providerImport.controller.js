@@ -104,7 +104,10 @@ function isRestrictedFieldKey(fieldKey) {
 
 function normalizeBooleanString(raw) {
   const s = String(raw || '').trim().toLowerCase();
-  return s === 'true' || s === 'yes' || s === '1' || s === 'y';
+  if (!s) return null;
+  if (s === 'true' || s === 'yes' || s === '1' || s === 'y') return true;
+  if (s === 'false' || s === 'no' || s === '0' || s === 'n') return false;
+  return null;
 }
 
 function normalizeMultiSelectStored(raw) {
@@ -805,11 +808,14 @@ export const applyProviderImport = [
             // Accept comma-separated or JSON arrays; store as JSON string.
             stored = normalizeMultiSelectStored(fv.value);
           } else if (fieldType === 'boolean') {
-            stored = normalizeBooleanString(fv.value) ? 'true' : 'false';
+            const b = normalizeBooleanString(fv.value);
+            stored = b === null ? null : (b ? 'true' : 'false');
           } else {
             const s = String(fv.value ?? '').trim();
             stored = s ? s : null;
           }
+          // Safety: do not overwrite existing values with blanks.
+          if (stored === null) continue;
           upserts.push({ fieldDefinitionId: def.id, value: stored });
         }
 
@@ -898,11 +904,16 @@ export const importKvPaste = async (req, res, next) => {
       const fieldType = String(def.field_type || '');
       let stored;
       if (fieldType === 'multi_select') stored = normalizeMultiSelectStored(p.value);
-      else if (fieldType === 'boolean') stored = normalizeBooleanString(p.value) ? 'true' : 'false';
+      else if (fieldType === 'boolean') {
+        const b = normalizeBooleanString(p.value);
+        stored = b === null ? null : (b ? 'true' : 'false');
+      }
       else {
         const s = String(p.value ?? '').trim();
         stored = s ? s : null;
       }
+      // Safety: do not overwrite existing values with blanks.
+      if (stored === null) continue;
       upserts.push({ fieldDefinitionId: def.id, value: stored });
     }
 
@@ -1977,6 +1988,8 @@ export const importEmployeeInfo = [
             const s = String(raw ?? '').trim();
             stored = s ? s : null;
           }
+          // Safety: do not overwrite existing values with blanks.
+          if (stored === null) return;
           upserts.push({ fieldDefinitionId: def.id, value: stored });
         };
 

@@ -170,10 +170,31 @@ class UserInfoValue {
     // Combine best definitions with values and parse options
     return Array.from(bestDefByKey.values()).map(field => {
       const fk = String(field.field_key || '').trim();
+      const rawValue = valueByFieldKey.has(fk) ? valueByFieldKey.get(fk) : null;
+
+      const isMeaningful = (val, fieldType) => {
+        if (val === null || val === undefined) return false;
+        const t = String(fieldType || '').toLowerCase();
+        const s = typeof val === 'string' ? val.trim() : val;
+        if (typeof s === 'string' && !s) return false;
+        if (typeof s === 'string' && (s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined')) return false;
+        if (t === 'multi_select' && typeof s === 'string') {
+          if (s === '[]') return false;
+          try {
+            const parsed = JSON.parse(s);
+            if (Array.isArray(parsed)) return parsed.length > 0;
+          } catch {
+            // fall through (treat non-empty string as meaningful)
+          }
+        }
+        // For boolean fields stored as 'true'/'false', both are meaningful.
+        return true;
+      };
+
       const fieldWithValue = {
         ...field,
-        value: valueByFieldKey.has(fk) ? valueByFieldKey.get(fk) : null,
-        hasValue: valueByFieldKey.has(fk)
+        value: rawValue,
+        hasValue: isMeaningful(rawValue, field.field_type)
       };
       
       // Parse JSON options if present

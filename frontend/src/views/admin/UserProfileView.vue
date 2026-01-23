@@ -1186,8 +1186,10 @@ const canViewPayroll = computed(() => {
 const canViewProviderInfo = computed(() => {
   const u = user.value;
   if (!u) return false;
-  // Show for provider-like roles, or anyone explicitly provider-selectable.
-  return u.role === 'provider' || u.has_provider_access === 1 || u.has_provider_access === true;
+  // First principles: profile fields/forms apply to all employee types, not just providers.
+  // Keep School Affiliation gated below by the same flag, but always show Provider Info so admins
+  // can view/edit imported profile fields for any user.
+  return true;
 });
 
 const supervisees = ref([]);
