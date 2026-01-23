@@ -233,9 +233,13 @@
                 <input 
                   v-model="defaultCategory" 
                   type="text"
+                  list="bulk-category-list"
                   placeholder="Optional category"
                   @input="applyDefaultCategory"
                 />
+                <datalist id="bulk-category-list">
+                  <option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
+                </datalist>
                 <small class="form-help">This will apply to all icons. You can change individual icons below.</small>
               </div>
             </div>
@@ -284,6 +288,7 @@
                   <input 
                     v-model="iconData.category" 
                     type="text"
+                    list="bulk-category-list"
                     placeholder="Optional category"
                     @input="iconData.hasCustomCategory = true"
                     :disabled="iconData.uploaded || iconData.uploading"
