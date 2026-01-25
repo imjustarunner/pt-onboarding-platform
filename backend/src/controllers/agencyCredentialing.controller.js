@@ -220,12 +220,13 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
       const fieldPlaceholders = UIV_READ_FIELD_KEYS.map(() => '?').join(',');
       const params = [agencyId, ...userIds, ...UIV_READ_FIELD_KEYS];
       const [vals] = await pool.execute(
-        `SELECT uiv.user_id, uifd.field_key, uiv.value
+        `SELECT uiv.user_id, uifd.field_key, uiv.value, uiv.updated_at, uiv.id
          FROM user_info_values uiv
          JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
          JOIN user_agencies ua ON ua.user_id = uiv.user_id AND ua.agency_id = ?
          WHERE uiv.user_id IN (${placeholders})
-           AND uifd.field_key IN (${fieldPlaceholders})`,
+           AND uifd.field_key IN (${fieldPlaceholders})
+         ORDER BY uiv.user_id ASC, uifd.field_key ASC, uiv.updated_at DESC, uiv.id DESC`,
         params
       );
 
@@ -235,6 +236,7 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
         if (!row) continue;
         const k = String(v.field_key || '').trim();
         if (!k) continue;
+        if (row.fields[k] !== undefined) continue;
         row.fields[k] = v.value ?? null;
       }
     }
@@ -415,12 +417,13 @@ export const downloadAgencyProvidersCredentialingCsv = async (req, res, next) =>
       const fieldPlaceholders = UIV_READ_FIELD_KEYS.map(() => '?').join(',');
       const params = [agencyId, ...userIds, ...UIV_READ_FIELD_KEYS];
       const [vals] = await pool.execute(
-        `SELECT uiv.user_id, uifd.field_key, uiv.value
+        `SELECT uiv.user_id, uifd.field_key, uiv.value, uiv.updated_at, uiv.id
          FROM user_info_values uiv
          JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
          JOIN user_agencies ua ON ua.user_id = uiv.user_id AND ua.agency_id = ?
          WHERE uiv.user_id IN (${placeholders})
-           AND uifd.field_key IN (${fieldPlaceholders})`,
+           AND uifd.field_key IN (${fieldPlaceholders})
+         ORDER BY uiv.user_id ASC, uifd.field_key ASC, uiv.updated_at DESC, uiv.id DESC`,
         params
       );
       for (const v of vals || []) {
@@ -429,6 +432,7 @@ export const downloadAgencyProvidersCredentialingCsv = async (req, res, next) =>
         if (!map) continue;
         const k = String(v.field_key || '').trim();
         if (!k) continue;
+        if (map[k] !== undefined) continue;
         map[k] = v.value ?? null;
       }
     }
