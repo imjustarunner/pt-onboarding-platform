@@ -16,17 +16,17 @@ class OfficeRoom {
     return rows[0] || null;
   }
 
-  static async create({ locationId, name, svgRoomId = null, sortOrder = 0 }) {
+  static async create({ locationId, name, svgRoomId = null, sortOrder = 0, roomNumber = null, label = null, googleResourceEmail = null }) {
     const [result] = await pool.execute(
-      `INSERT INTO office_rooms (location_id, name, svg_room_id, sort_order)
-       VALUES (?, ?, ?, ?)`,
-      [locationId, name, svgRoomId, sortOrder]
+      `INSERT INTO office_rooms (location_id, room_number, label, name, svg_room_id, google_resource_email, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [locationId, roomNumber, label, name, svgRoomId, googleResourceEmail, sortOrder]
     );
     return this.findById(result.insertId);
   }
 
   static async update(id, updates = {}) {
-    const allowed = ['name', 'svg_room_id', 'sort_order', 'is_active'];
+    const allowed = ['room_number', 'label', 'name', 'svg_room_id', 'google_resource_email', 'sort_order', 'is_active'];
     const fields = [];
     const values = [];
 

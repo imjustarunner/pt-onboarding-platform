@@ -118,9 +118,59 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
-    path: '/:organizationSlug/schedule',
-    name: 'OrganizationOfficeSchedule',
+    path: '/:organizationSlug/buildings',
+    name: 'OrganizationBuildings',
+    component: () => import('../views/OfficeShellView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/buildings/schedule',
+    name: 'OrganizationBuildingsSchedule',
     component: () => import('../views/OfficeScheduleView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/buildings/review',
+    name: 'OrganizationBuildingsReview',
+    component: () => import('../views/OfficeReviewView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/buildings/settings',
+    name: 'OrganizationBuildingsSettings',
+    component: () => import('../views/OfficeSettingsView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  // Redirect old office URLs (backward-compatible)
+  {
+    path: '/:organizationSlug/office',
+    name: 'OrganizationOfficeLegacy',
+    redirect: (to) => `/${to.params.organizationSlug}/buildings`,
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/office/schedule',
+    name: 'OrganizationOfficeScheduleLegacy2',
+    redirect: (to) => `/${to.params.organizationSlug}/buildings/schedule`,
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/office/settings',
+    name: 'OrganizationOfficeSettingsLegacy2',
+    redirect: (to) => `/${to.params.organizationSlug}/buildings/settings`,
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/office/review',
+    name: 'OrganizationOfficeReviewLegacy2',
+    redirect: (to) => `/${to.params.organizationSlug}/buildings/review`,
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  // Backward-compatible: legacy schedule route
+  {
+    path: '/:organizationSlug/schedule',
+    name: 'OrganizationOfficeScheduleLegacy',
+    redirect: (to) => `/${to.params.organizationSlug}/buildings/schedule`,
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
@@ -372,9 +422,59 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
-    path: '/schedule',
-    name: 'OfficeSchedule',
+    path: '/buildings',
+    name: 'Buildings',
+    component: () => import('../views/OfficeShellView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/buildings/schedule',
+    name: 'BuildingsSchedule',
     component: () => import('../views/OfficeScheduleView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/buildings/review',
+    name: 'BuildingsReview',
+    component: () => import('../views/OfficeReviewView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/buildings/settings',
+    name: 'BuildingsSettings',
+    component: () => import('../views/OfficeSettingsView.vue'),
+    meta: { requiresAuth: true }
+  },
+  // Redirect old office URLs (backward-compatible)
+  {
+    path: '/office',
+    name: 'OfficeLegacy',
+    redirect: '/buildings',
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/office/schedule',
+    name: 'OfficeScheduleLegacy2',
+    redirect: '/buildings/schedule',
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/office/settings',
+    name: 'OfficeSettingsLegacy2',
+    redirect: '/buildings/settings',
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/office/review',
+    name: 'OfficeReviewLegacy2',
+    redirect: '/buildings/review',
+    meta: { requiresAuth: true }
+  },
+  // Backward-compatible: legacy schedule route
+  {
+    path: '/schedule',
+    name: 'OfficeScheduleLegacy',
+    redirect: '/buildings/schedule',
     meta: { requiresAuth: true }
   },
   {
@@ -634,6 +734,17 @@ router.beforeEach(async (to, from, next) => {
   const isReadyForReview = userStatus === 'ready_for_review';
   const mustChangePassword = authStore.user?.requiresPasswordChange === true;
 
+  // Allow magic-link flows even if a stale "user" is stored locally.
+  // These flows are token-based and should not be blocked by requiresGuest redirects.
+  const allowWhenAuthenticated = new Set([
+    'ResetPassword',
+    'OrganizationResetPassword',
+    'PasswordlessTokenLogin',
+    'OrganizationPasswordlessTokenLogin',
+    'InitialSetup',
+    'NewAccount'
+  ]);
+
   // Prevent stale org branding “flash” when leaving a branded portal.
   if (!to.meta.organizationSlug && from.meta.organizationSlug) {
     brandingStore.clearPortalTheme();
@@ -734,7 +845,7 @@ router.beforeEach(async (to, from, next) => {
     // Redirect to appropriate login page based on user's agency
     const loginUrl = getLoginUrl(authStore.user);
     next(loginUrl);
-  } else if (to.meta.requiresGuest && authStore.isAuthenticated) {
+  } else if (to.meta.requiresGuest && authStore.isAuthenticated && !allowWhenAuthenticated.has(String(to.name || ''))) {
     // Redirect to appropriate dashboard based on user role
     next(getDashboardRoute());
   } else if (to.meta.requiresApprovedEmployee) {

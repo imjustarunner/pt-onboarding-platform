@@ -1,0 +1,525 @@
+<template>
+  <div class="page">
+    <div class="page-header">
+      <h1>Availability Intake</h1>
+      <p class="page-description">Review provider availability submissions and search by office/school/skills.</p>
+    </div>
+
+    <div v-if="!agencyId" class="empty-state">
+      <p>Select an agency first.</p>
+    </div>
+
+    <div v-else class="panel">
+      <div class="tabs">
+        <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'">Office Requests</button>
+        <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'">School Requests</button>
+        <button class="tab" :class="{ active: tab === 'search' }" @click="tab = 'search'">Search</button>
+        <button class="tab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Skills</button>
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto;" @click="reload" :disabled="loading">Refresh</button>
+      </div>
+
+      <div v-if="loading" class="loading">Loading…</div>
+      <div v-else-if="error" class="error">{{ error }}</div>
+
+      <div v-else>
+        <!-- Office requests -->
+        <div v-if="tab === 'office'">
+          <div v-if="officeRequests.length === 0" class="muted">No pending office availability requests.</div>
+          <div v-else class="list">
+            <div v-for="r in officeRequests" :key="r.id" class="row">
+              <div class="main">
+                <div class="title">{{ r.providerName }}</div>
+                <div class="meta">
+                  Preferred offices:
+                  <span v-if="(r.preferredOfficeIds || []).length === 0">Any</span>
+                  <span v-else>{{ r.preferredOfficeIds.map((id) => officeName(id)).join(', ') }}</span>
+                </div>
+                <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
+                <div class="meta">
+                  Windows:
+                  <span v-for="(s, idx) in r.slots" :key="idx" class="pill">
+                    {{ weekdayLabel(s.weekday) }} {{ hourLabel(s.startHour) }}–{{ hourLabel(s.endHour) }}
+                  </span>
+                </div>
+              </div>
+
+              <div class="assign">
+                <div class="lbl">Assign temporary (4w)</div>
+                <select class="select" v-model="officeAssign[r.id].officeId" @change="loadRoomsForOffice(r.id)">
+                  <option value="">Office…</option>
+                  <option v-for="o in offices" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
+                </select>
+                <select class="select" v-model="officeAssign[r.id].roomId" :disabled="!officeAssign[r.id].officeId">
+                  <option value="">Room…</option>
+                  <option v-for="rm in roomsByOffice[officeAssign[r.id].officeId] || []" :key="rm.id" :value="String(rm.id)">
+                    {{ rm.roomNumber ? `#${rm.roomNumber} ` : '' }}{{ rm.label || rm.name }}
+                  </option>
+                </select>
+                <select class="select" v-model="officeAssign[r.id].slotKey">
+                  <option value="">Day/time…</option>
+                  <option v-for="opt in expandOfficeSlots(r)" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
+                </select>
+                <button class="btn btn-primary btn-sm" @click="assignOffice(r)" :disabled="saving">Assign</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- School requests -->
+        <div v-else-if="tab === 'school'">
+          <div v-if="schoolRequests.length === 0" class="muted">No pending school availability requests.</div>
+          <div v-else class="list">
+            <div v-for="r in schoolRequests" :key="r.id" class="row">
+              <div class="main">
+                <div class="title">{{ r.providerName }}</div>
+                <div class="meta">
+                  Preferred schools:
+                  <span v-if="(r.preferredSchoolOrgIds || []).length === 0">Any</span>
+                  <span v-else>{{ r.preferredSchoolOrgIds.map((id) => schoolName(id)).join(', ') }}</span>
+                </div>
+                <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
+                <div class="meta">
+                  Blocks:
+                  <span v-for="(b, idx) in r.blocks" :key="idx" class="pill">
+                    {{ b.dayOfWeek }} {{ b.startTime }}–{{ b.endTime }} ({{ b.blockType }})
+                  </span>
+                </div>
+              </div>
+
+              <div class="assign">
+                <div class="lbl">Assign to school</div>
+                <select class="select" v-model="schoolAssign[r.id].schoolOrgId">
+                  <option value="">School…</option>
+                  <option v-for="s in schools" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
+                </select>
+                <select class="select" v-model="schoolAssign[r.id].blockKey">
+                  <option value="">Use block…</option>
+                  <option v-for="opt in r.blocks" :key="blockKey(opt)" :value="blockKey(opt)">
+                    {{ opt.dayOfWeek }} {{ opt.startTime }}–{{ opt.endTime }}
+                  </option>
+                </select>
+                <input class="input" type="number" min="0" v-model.number="schoolAssign[r.id].slotsTotal" />
+                <button class="btn btn-primary btn-sm" @click="assignSchool(r)" :disabled="saving">Assign</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Search -->
+        <div v-else-if="tab === 'search'">
+          <div class="search">
+            <div class="field">
+              <label>Office</label>
+              <select class="select" v-model="search.officeId">
+                <option value="">Any</option>
+                <option v-for="o in offices" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>School</label>
+              <select class="select" v-model="search.schoolOrgId">
+                <option value="">Any</option>
+                <option v-for="s in schools" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Week start</label>
+              <input class="input" type="date" v-model="search.weekStart" />
+            </div>
+            <div class="field">
+              <label>Skills (any)</label>
+              <select class="select" multiple v-model="search.skillIds">
+                <option v-for="sk in activeSkills" :key="sk.id" :value="String(sk.id)">{{ sk.skill_label }}</option>
+              </select>
+            </div>
+            <div class="field actions">
+              <button class="btn btn-primary" @click="runSearch" :disabled="saving">Search</button>
+            </div>
+          </div>
+
+          <div v-if="searchResult" class="search-results">
+            <h3>Results</h3>
+            <div class="muted">Office Requests: {{ searchResult.officeRequests.length }} • School Requests: {{ searchResult.schoolRequests.length }} • Supervised: {{ searchResult.supervisedAvailability.length }}</div>
+
+            <div class="subhead">Office requests</div>
+            <div v-if="searchResult.officeRequests.length === 0" class="muted">None</div>
+            <ul v-else class="simple-list">
+              <li v-for="x in searchResult.officeRequests" :key="x.id">{{ x.providerName }} — {{ x.notes || 'No notes' }}</li>
+            </ul>
+
+            <div class="subhead">School requests</div>
+            <div v-if="searchResult.schoolRequests.length === 0" class="muted">None</div>
+            <ul v-else class="simple-list">
+              <li v-for="x in searchResult.schoolRequests" :key="x.id">{{ x.providerName }} — {{ x.notes || 'No notes' }}</li>
+            </ul>
+
+            <div class="subhead">Supervised availability ({{ searchResult.filters.weekStart }})</div>
+            <div v-if="searchResult.supervisedAvailability.length === 0" class="muted">None</div>
+            <div v-else class="list">
+              <div v-for="p in searchResult.supervisedAvailability" :key="p.providerId" class="row">
+                <div class="main">
+                  <div class="title">{{ p.providerName }}</div>
+                  <div class="meta">Confirmed: {{ new Date(p.confirmedAt).toLocaleString() }}</div>
+                  <div class="meta">
+                    <span v-for="(b, idx) in p.blocks" :key="idx" class="pill">
+                      {{ b.dayOfWeek }} {{ b.startTime }}–{{ b.endTime }} ({{ b.blockType }})
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="subhead" v-if="searchResult.inOfficeAvailability && searchResult.inOfficeAvailability.length">
+              Provider in-office availability (grid)
+            </div>
+            <ul v-if="searchResult.inOfficeAvailability && searchResult.inOfficeAvailability.length" class="simple-list">
+              <li v-for="(x, idx) in searchResult.inOfficeAvailability" :key="idx">
+                {{ x.last_name }}, {{ x.first_name }} — {{ weekdayLabel(x.weekday) }} {{ hourLabel(x.hour) }}
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Skills -->
+        <div v-else-if="tab === 'skills'">
+          <div class="skills-grid">
+            <div class="card-inner">
+              <div class="title">Skill tags</div>
+              <div class="muted">Per-agency picklist used for staffing searches.</div>
+              <div class="row-inline" style="margin-top: 10px;">
+                <input class="input" v-model="newSkillLabel" placeholder="New skill label…" />
+                <button class="btn btn-primary btn-sm" @click="addSkill" :disabled="saving">Add</button>
+              </div>
+              <div class="simple-list" style="margin-top: 10px;">
+                <div v-for="sk in skills" :key="sk.id" class="skill-row">
+                  <div>
+                    <strong>{{ sk.skill_label }}</strong>
+                    <span class="muted"> ({{ sk.skill_key }})</span>
+                    <span v-if="!sk.is_active" class="muted"> — inactive</span>
+                  </div>
+                  <button v-if="sk.is_active" class="btn btn-secondary btn-sm" @click="deactivateSkill(sk)" :disabled="saving">Deactivate</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-inner">
+              <div class="title">Assign skills to provider</div>
+              <div class="muted">Used by the availability search filter.</div>
+              <div class="form" style="margin-top: 10px;">
+                <label class="lbl">Provider</label>
+                <select class="select" v-model="skillAssign.providerId">
+                  <option value="">Select…</option>
+                  <option v-for="p in providers" :key="p.id" :value="String(p.id)">{{ p.last_name }}, {{ p.first_name }}</option>
+                </select>
+                <label class="lbl" style="margin-top: 10px;">Skills</label>
+                <select class="select" multiple v-model="skillAssign.skillIds">
+                  <option v-for="sk in activeSkills" :key="sk.id" :value="String(sk.id)">{{ sk.skill_label }}</option>
+                </select>
+                <div class="actions">
+                  <button class="btn btn-primary" @click="saveProviderSkills" :disabled="saving || !skillAssign.providerId">Save</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import api from '../../services/api';
+import { useAgencyStore } from '../../store/agency';
+
+const agencyStore = useAgencyStore();
+const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+
+const tab = ref('office'); // office | school | search | skills
+const loading = ref(false);
+const saving = ref(false);
+const error = ref('');
+
+const offices = ref([]);
+const schools = ref([]);
+const officeRequests = ref([]);
+const schoolRequests = ref([]);
+const skills = ref([]);
+const providers = ref([]);
+
+const roomsByOffice = reactive({}); // officeId -> rooms[]
+const officeAssign = reactive({}); // requestId -> { officeId, roomId, slotKey }
+const schoolAssign = reactive({}); // requestId -> { schoolOrgId, blockKey, slotsTotal }
+
+const newSkillLabel = ref('');
+const skillAssign = reactive({ providerId: '', skillIds: [] });
+
+const activeSkills = computed(() => (skills.value || []).filter((s) => s.is_active));
+
+const weekdays = [
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+  { value: 0, label: 'Sun' }
+];
+const weekdayLabel = (n) => weekdays.find((d) => d.value === Number(n))?.label || String(n);
+const hourLabel = (h) => {
+  const d = new Date();
+  d.setHours(Number(h), 0, 0, 0);
+  return d.toLocaleTimeString([], { hour: 'numeric' });
+};
+
+const officeName = (id) => offices.value.find((o) => Number(o.id) === Number(id))?.name || `#${id}`;
+const schoolName = (id) => schools.value.find((s) => Number(s.id) === Number(id))?.name || `#${id}`;
+
+const expandOfficeSlots = (r) => {
+  const out = [];
+  for (const s of r.slots || []) {
+    const start = Number(s.startHour);
+    const end = Number(s.endHour);
+    for (let h = start; h < end; h++) {
+      const key = `${s.weekday}:${h}`;
+      out.push({ key, weekday: Number(s.weekday), hour: h, label: `${weekdayLabel(s.weekday)} ${hourLabel(h)}` });
+    }
+  }
+  // de-dupe
+  const byKey = new Map();
+  for (const x of out) byKey.set(x.key, x);
+  return Array.from(byKey.values());
+};
+
+const blockKey = (b) => `${b.dayOfWeek}|${b.startTime}|${b.endTime}`;
+
+const defaultWeekStart = () => {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = (day === 0 ? -6 : 1) - day;
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+};
+
+const search = reactive({
+  officeId: '',
+  schoolOrgId: '',
+  weekStart: defaultWeekStart(),
+  skillIds: []
+});
+const searchResult = ref(null);
+
+const loadRoomsForOffice = async (requestId) => {
+  const officeId = officeAssign[requestId]?.officeId;
+  if (!officeId) return;
+  if (roomsByOffice[officeId]) return;
+  try {
+    const resp = await api.get(`/offices/${officeId}/rooms`);
+    roomsByOffice[officeId] = resp.data || [];
+  } catch {
+    roomsByOffice[officeId] = [];
+  }
+};
+
+const reload = async () => {
+  if (!agencyId.value) return;
+  try {
+    loading.value = true;
+    error.value = '';
+    searchResult.value = null;
+
+    const [officesResp, schoolsResp, officeReqResp, schoolReqResp, skillsResp, providersResp] = await Promise.all([
+      api.get('/offices'),
+      api.get(`/agencies/${agencyId.value}/affiliated-organizations`),
+      api.get('/availability/admin/office-requests', { params: { agencyId: agencyId.value, status: 'PENDING' } }),
+      api.get('/availability/admin/school-requests', { params: { agencyId: agencyId.value, status: 'PENDING' } }),
+      api.get('/availability/admin/skills', { params: { agencyId: agencyId.value } }),
+      api.get('/availability/admin/providers', { params: { agencyId: agencyId.value } })
+    ]);
+
+    offices.value = officesResp.data || [];
+    schools.value = (schoolsResp.data || []).filter((o) => String(o.organization_type || 'agency').toLowerCase() !== 'agency');
+    officeRequests.value = officeReqResp.data || [];
+    schoolRequests.value = schoolReqResp.data || [];
+    skills.value = skillsResp.data || [];
+    providers.value = providersResp.data || [];
+
+    // Init assignment form state
+    for (const r of officeRequests.value) {
+      if (!officeAssign[r.id]) officeAssign[r.id] = { officeId: '', roomId: '', slotKey: '' };
+    }
+    for (const r of schoolRequests.value) {
+      if (!schoolAssign[r.id]) schoolAssign[r.id] = { schoolOrgId: '', blockKey: '', slotsTotal: 1 };
+    }
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to load availability intake';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const assignOffice = async (r) => {
+  const form = officeAssign[r.id];
+  if (!form?.officeId || !form?.roomId || !form?.slotKey) {
+    error.value = 'Office, room, and day/time are required.';
+    return;
+  }
+  const [weekday, hour] = String(form.slotKey).split(':').map((x) => Number(x));
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/availability/admin/office-requests/${r.id}/assign-temporary`, {
+      agencyId: agencyId.value,
+      officeId: Number(form.officeId),
+      roomId: Number(form.roomId),
+      weekday,
+      hour,
+      weeks: 4,
+      assignedFrequency: 'WEEKLY'
+    });
+    await reload();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to assign office temporary slot';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const assignSchool = async (r) => {
+  const form = schoolAssign[r.id];
+  if (!form?.schoolOrgId || !form?.blockKey) {
+    error.value = 'School and block are required.';
+    return;
+  }
+  const [dayOfWeek, startTime, endTime] = String(form.blockKey).split('|');
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/availability/admin/school-requests/${r.id}/assign`, {
+      agencyId: agencyId.value,
+      schoolOrganizationId: Number(form.schoolOrgId),
+      dayOfWeek,
+      startTime,
+      endTime,
+      slotsTotal: Number(form.slotsTotal || 1)
+    });
+    await reload();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to assign school availability';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const runSearch = async () => {
+  try {
+    saving.value = true;
+    error.value = '';
+    const resp = await api.get('/availability/admin/search', {
+      params: {
+        agencyId: agencyId.value,
+        officeId: search.officeId || undefined,
+        schoolOrgId: search.schoolOrgId || undefined,
+        weekStart: search.weekStart || undefined,
+        skillIds: (search.skillIds || []).join(',')
+      }
+    });
+    searchResult.value = resp.data;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Search failed';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const addSkill = async () => {
+  const label = String(newSkillLabel.value || '').trim();
+  if (!label) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post('/availability/admin/skills', { agencyId: agencyId.value, skillLabel: label });
+    newSkillLabel.value = '';
+    await reload();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to add skill';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const deactivateSkill = async (sk) => {
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/availability/admin/skills/${sk.id}/deactivate`, { agencyId: agencyId.value });
+    await reload();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to deactivate skill';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const saveProviderSkills = async () => {
+  if (!skillAssign.providerId) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.put(`/availability/admin/providers/${skillAssign.providerId}/skills`, {
+      agencyId: agencyId.value,
+      skillIds: (skillAssign.skillIds || []).map((x) => Number(x))
+    });
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to save provider skills';
+  } finally {
+    saving.value = false;
+  }
+};
+
+onMounted(async () => {
+  await reload();
+});
+
+watch(agencyId, async () => {
+  await reload();
+});
+</script>
+
+<style scoped>
+.page { width: 100%; }
+.page-header h1 { margin: 0; }
+.page-description { margin: 8px 0 0; color: var(--text-secondary); }
+.panel { margin-top: 16px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.tabs { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.tab { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); font-weight: 800; }
+.tab.active { border-color: var(--accent); background: white; }
+.btn-sm { padding: 8px 10px; font-size: 13px; }
+.loading { color: var(--text-secondary); }
+.error { color: #b00020; }
+.muted { color: var(--text-secondary); }
+.list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.row { border: 1px solid var(--border); border-radius: 12px; padding: 12px; display: grid; grid-template-columns: 1fr; gap: 12px; background: white; }
+@media (min-width: 1100px) { .row { grid-template-columns: 1.6fr 1fr; } }
+.title { font-weight: 900; }
+.meta { color: var(--text-secondary); font-size: 12px; margin-top: 6px; }
+.pill { display: inline-block; margin: 4px 6px 0 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-alt); }
+.assign { display: flex; flex-direction: column; gap: 8px; }
+.lbl { font-size: 12px; font-weight: 900; color: var(--text-secondary); }
+.select, .input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text-primary); }
+.search { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)) auto; gap: 10px; align-items: end; }
+@media (max-width: 1100px) { .search { grid-template-columns: 1fr; } }
+.field label { display: block; font-size: 12px; font-weight: 900; color: var(--text-secondary); margin-bottom: 6px; }
+.actions { display: flex; justify-content: flex-end; }
+.search-results { margin-top: 14px; }
+.subhead { font-weight: 900; margin-top: 12px; }
+.simple-list { margin: 8px 0 0; padding-left: 18px; color: var(--text-secondary); }
+.skills-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 1100px) { .skills-grid { grid-template-columns: 1fr 1fr; } }
+.card-inner { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: white; }
+.row-inline { display: flex; gap: 8px; align-items: center; }
+.skill-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.skill-row:last-child { border-bottom: none; }
+</style>
+

@@ -9,6 +9,16 @@
         <p class="subtitle">Sign in to continue</p>
         
         <div v-if="error" class="error" v-html="formatError(error)"></div>
+
+        <button
+          v-if="showGoogleButton"
+          type="button"
+          class="btn btn-secondary"
+          :disabled="loading || loadingOrgPolicy"
+          @click="continueWithGoogle"
+        >
+          {{ loadingOrgPolicy ? 'Loading...' : 'Continue with Google' }}
+        </button>
         
         <form @submit.prevent="handleLogin" class="login-form">
           <div class="form-group">
@@ -147,9 +157,15 @@ const fetchLoginTheme = async (portalUrl) => {
 
 // Ensure branding is loaded before rendering
 onMounted(async () => {
+  // If we were redirected back from Google callback with an error, show it.
+  if (route.query?.error) {
+    error.value = String(route.query.error);
+  }
+
   if (isOrgLogin.value && loginSlug.value) {
     // Fetch agency-specific login theme
     await fetchLoginTheme(loginSlug.value);
+    await loadOrgPolicy();
   } else {
     // Platform login: ensure no stale org theme sticks around
     brandingStore.clearPortalTheme();
@@ -162,10 +178,12 @@ onMounted(async () => {
 watch(loginSlug, async (newSlug, oldSlug) => {
   if (newSlug && newSlug !== oldSlug) {
     await fetchLoginTheme(newSlug);
+    await loadOrgPolicy();
   }
   if (!newSlug && oldSlug) {
     loginTheme.value = null;
     brandingStore.clearPortalTheme();
+    orgPolicy.value = { googleSsoEnabled: false };
   }
 });
 
@@ -175,12 +193,51 @@ const error = ref('');
 const loading = ref(false);
 const showForgotPasswordMessage = ref(false);
 const showForgotUsernameMessage = ref(false);
+const lastErrorCode = ref(null);
+const loadingOrgPolicy = ref(false);
+const orgPolicy = ref({ googleSsoEnabled: false });
+
+const showGoogleButton = computed(() => {
+  if (!isOrgLogin.value) return false;
+  return orgPolicy.value?.googleSsoEnabled === true || lastErrorCode.value === 'SSO_REQUIRED';
+});
+
+const continueWithGoogle = () => {
+  if (!loginSlug.value) return;
+  const base = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+  window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(String(loginSlug.value).trim().toLowerCase())}`;
+};
+
+const loadOrgPolicy = async () => {
+  if (!isOrgLogin.value || !loginSlug.value) {
+    orgPolicy.value = { googleSsoEnabled: false };
+    return;
+  }
+  try {
+    loadingOrgPolicy.value = true;
+    const resp = await api.get(`/agencies/slug/${String(loginSlug.value).trim().toLowerCase()}`);
+    const org = resp?.data || null;
+    const rawFlags = org?.feature_flags ?? null;
+    const flags =
+      rawFlags && typeof rawFlags === 'string'
+        ? (() => { try { return JSON.parse(rawFlags); } catch { return {}; } })()
+        : (rawFlags && typeof rawFlags === 'object' ? rawFlags : {});
+    orgPolicy.value = {
+      googleSsoEnabled: flags?.googleSsoEnabled === true
+    };
+  } catch {
+    orgPolicy.value = { googleSsoEnabled: false };
+  } finally {
+    loadingOrgPolicy.value = false;
+  }
+};
 
 const handleLogin = async () => {
   error.value = '';
+  lastErrorCode.value = null;
   loading.value = true;
   
-  const result = await authStore.login(email.value, password.value);
+  const result = await authStore.login(email.value, password.value, loginSlug.value);
   
   if (result.success) {
     // Fetch user's agencies and set default if not super admin
@@ -200,6 +257,7 @@ const handleLogin = async () => {
     router.push(getDashboardRoute());
   } else {
     error.value = result.error;
+    lastErrorCode.value = result.code || null;
   }
   
   loading.value = false;
@@ -322,6 +380,16 @@ const handleLogoError = (event) => {
 .btn {
   width: 100%;
   margin-top: 10px;
+}
+
+.btn-secondary {
+  background: var(--bg-alt);
+  color: var(--text-primary);
+  border: 1px solid var(--border, #e5e7eb);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  filter: brightness(0.98);
 }
 
 .btn:disabled {

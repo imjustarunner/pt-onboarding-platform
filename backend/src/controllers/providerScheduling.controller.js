@@ -8,7 +8,7 @@ const parseAgencyId = (req) => {
 
 const normalizeDay = (d) => {
   const s = String(d || '').trim();
-  const allowed = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const allowed = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   return allowed.includes(s) ? s : null;
 };
 

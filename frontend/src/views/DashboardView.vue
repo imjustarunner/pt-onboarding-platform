@@ -90,7 +90,7 @@
     
     <!-- Provider top summary card -->
     <div
-      v-if="!previewMode && isOnboardingComplete && !isPending && !isSchoolStaff"
+      v-if="!previewMode && isOnboardingComplete && !isPending && !isSchoolStaff && providerSurfacesEnabled"
       class="top-snapshot-wrap"
     >
       <div class="top-snapshot-head">
@@ -155,7 +155,7 @@
           />
 
           <!-- Submit (right panel) -->
-          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff" v-show="activeTab === 'submit'" class="my-panel">
+          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && providerSurfacesEnabled" v-show="activeTab === 'submit'" class="my-panel">
             <div class="section-header">
               <h2 style="margin: 0;">Submit</h2>
               <button v-if="submitPanelView !== 'root'" type="button" class="btn btn-secondary btn-sm" @click="submitPanelView = 'root'">
@@ -168,6 +168,14 @@
                 <button v-if="inSchoolEnabled && hasAssignedSchools" type="button" class="dash-card dash-card-submit" @click="openInSchoolClaims">
                   <div class="dash-card-title">In-School Claims</div>
                   <div class="dash-card-desc">School Mileage and Med Cancel.</div>
+                  <div class="dash-card-meta">
+                    <span class="dash-card-cta">Open</span>
+                  </div>
+                </button>
+
+                <button type="button" class="dash-card dash-card-submit" @click="openAdditionalAvailability">
+                  <div class="dash-card-title">Additional Availability</div>
+                  <div class="dash-card-desc">Office or school availability + supervised 2-week confirmations.</div>
                   <div class="dash-card-meta">
                     <span class="dash-card-cta">Open</span>
                   </div>
@@ -220,66 +228,72 @@
               </div>
             </div>
 
-            <div v-else>
-              <div class="hint" style="margin-top: 6px;">{{ submitPanelView === 'time' ? 'Time Claims' : 'In-School Claims' }}</div>
+            <div v-else-if="submitPanelView === 'time'">
+              <div class="hint" style="margin-top: 6px;">Time Claims</div>
               <div class="submit-grid-2" style="margin-top: 12px;">
-                <template v-if="submitPanelView === 'time'">
-                  <button type="button" class="dash-card" @click="goToSubmission('time_meeting_training')">
-                    <div class="dash-card-title">Meeting / Training Attendance</div>
-                    <div class="dash-card-desc">Log meeting/training minutes.</div>
-                    <div class="dash-card-meta">
-                      <span class="dash-card-cta">Open</span>
-                    </div>
-                  </button>
+                <button type="button" class="dash-card" @click="goToSubmission('time_meeting_training')">
+                  <div class="dash-card-title">Meeting / Training Attendance</div>
+                  <div class="dash-card-desc">Log meeting/training minutes.</div>
+                  <div class="dash-card-meta">
+                    <span class="dash-card-cta">Open</span>
+                  </div>
+                </button>
 
-                  <button type="button" class="dash-card" @click="goToSubmission('time_excess_holiday')">
-                    <div class="dash-card-title">Excess / Holiday Time</div>
-                    <div class="dash-card-desc">Submit direct/indirect minutes for review.</div>
-                    <div class="dash-card-meta">
-                      <span class="dash-card-cta">Open</span>
-                    </div>
-                  </button>
+                <button type="button" class="dash-card" @click="goToSubmission('time_excess_holiday')">
+                  <div class="dash-card-title">Excess / Holiday Time</div>
+                  <div class="dash-card-desc">Submit direct/indirect minutes for review.</div>
+                  <div class="dash-card-meta">
+                    <span class="dash-card-cta">Open</span>
+                  </div>
+                </button>
 
-                  <button type="button" class="dash-card" @click="goToSubmission('time_service_correction')">
-                    <div class="dash-card-title">Service Correction</div>
-                    <div class="dash-card-desc">Request correction review for a service.</div>
-                    <div class="dash-card-meta">
-                      <span class="dash-card-cta">Open</span>
-                    </div>
-                  </button>
+                <button type="button" class="dash-card" @click="goToSubmission('time_service_correction')">
+                  <div class="dash-card-title">Service Correction</div>
+                  <div class="dash-card-desc">Request correction review for a service.</div>
+                  <div class="dash-card-meta">
+                    <span class="dash-card-cta">Open</span>
+                  </div>
+                </button>
 
-                  <button type="button" class="dash-card" @click="goToSubmission('time_overtime_evaluation')">
-                    <div class="dash-card-title">Overtime Evaluation</div>
-                    <div class="dash-card-desc">Submit overtime evaluation details.</div>
-                    <div class="dash-card-meta">
-                      <span class="dash-card-cta">Open</span>
-                    </div>
-                  </button>
-                </template>
-
-                <template v-else>
-                  <button v-if="hasAssignedSchools" type="button" class="dash-card" @click="goToSubmission('school_mileage')">
-                    <div class="dash-card-title">School Mileage</div>
-                    <div class="dash-card-desc">Home ↔ School minus Home ↔ Office (auto).</div>
-                    <div class="dash-card-meta">
-                      <span class="dash-card-cta">Open</span>
-                    </div>
-                  </button>
-
-                  <button
-                    v-if="authStore.user?.medcancelEnabled && medcancelEnabledForAgency && hasAssignedSchools"
-                    type="button"
-                    class="dash-card"
-                    @click="goToSubmission('medcancel')"
-                  >
-                    <div class="dash-card-title">Med Cancel</div>
-                    <div class="dash-card-desc">Missed Medicaid sessions.</div>
-                    <div class="dash-card-meta">
-                      <span class="dash-card-cta">Open</span>
-                    </div>
-                  </button>
-                </template>
+                <button type="button" class="dash-card" @click="goToSubmission('time_overtime_evaluation')">
+                  <div class="dash-card-title">Overtime Evaluation</div>
+                  <div class="dash-card-desc">Submit overtime evaluation details.</div>
+                  <div class="dash-card-meta">
+                    <span class="dash-card-cta">Open</span>
+                  </div>
+                </button>
               </div>
+            </div>
+
+            <div v-else-if="submitPanelView === 'in_school'">
+              <div class="hint" style="margin-top: 6px;">In-School Claims</div>
+              <div class="submit-grid-2" style="margin-top: 12px;">
+                <button v-if="hasAssignedSchools" type="button" class="dash-card" @click="goToSubmission('school_mileage')">
+                  <div class="dash-card-title">School Mileage</div>
+                  <div class="dash-card-desc">Home ↔ School minus Home ↔ Office (auto).</div>
+                  <div class="dash-card-meta">
+                    <span class="dash-card-cta">Open</span>
+                  </div>
+                </button>
+
+                <button
+                  v-if="authStore.user?.medcancelEnabled && medcancelEnabledForAgency && hasAssignedSchools"
+                  type="button"
+                  class="dash-card"
+                  @click="goToSubmission('medcancel')"
+                >
+                  <div class="dash-card-title">Med Cancel</div>
+                  <div class="dash-card-desc">Missed Medicaid sessions.</div>
+                  <div class="dash-card-meta">
+                    <span class="dash-card-cta">Open</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div v-else-if="submitPanelView === 'availability'">
+              <div class="hint" style="margin-top: 6px;">Additional Availability</div>
+              <AdditionalAvailabilitySubmit v-if="currentAgencyId" :agency-id="Number(currentAgencyId)" />
             </div>
           </div>
 
@@ -391,6 +405,7 @@ import ProviderTopSummaryCard from '../components/dashboard/ProviderTopSummaryCa
 import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
 import UserPreferencesHub from '../components/UserPreferencesHub.vue';
+import AdditionalAvailabilitySubmit from '../components/AdditionalAvailabilitySubmit.vue';
 import CredentialsView from './CredentialsView.vue';
 import AccountInfoView from './AccountInfoView.vue';
 import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
@@ -504,14 +519,16 @@ const dashboardCards = computed(() => {
   if (isOnboardingComplete.value) {
     // School staff should not see payroll/claims submission surfaces.
     if (!isSchoolStaff.value) {
-      cards.push({
-        id: 'submit',
-        label: 'Submit',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('submit', cardIconOrgOverride),
-        description: 'Submit mileage, in-school claims, and more.'
-      });
+      if (providerSurfacesEnabled.value) {
+        cards.push({
+          id: 'submit',
+          label: 'Submit',
+          kind: 'content',
+          badgeCount: 0,
+          iconUrl: brandingStore.getDashboardCardIconUrl('submit', cardIconOrgOverride),
+          description: 'Submit mileage, in-school claims, and more.'
+        });
+      }
       cards.push({
         id: 'payroll',
         label: 'Payroll',
@@ -633,8 +650,9 @@ const setMyTab = (tab) => {
 const syncFromQuery = () => {
   if (props.previewMode) return;
   const qTab = route.query?.tab;
-  if (typeof qTab === 'string' && ['checklist', 'training', 'documents', 'my', 'payroll', 'submit', 'on_demand_training'].includes(qTab)) {
-    activeTab.value = qTab;
+  if (typeof qTab === 'string') {
+    const allowed = new Set((railCards.value || []).map((c) => String(c?.id || '')).filter(Boolean));
+    if (allowed.has(qTab)) activeTab.value = qTab;
   }
 
   const qMy = route.query?.my;
@@ -643,10 +661,18 @@ const syncFromQuery = () => {
   }
 };
 
-const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time'
+const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability'
 
 const openTimeClaims = () => {
   submitPanelView.value = 'time';
+};
+
+const openAdditionalAvailability = () => {
+  if (!currentAgencyId.value) {
+    window.alert('Select an organization first.');
+    return;
+  }
+  submitPanelView.value = 'availability';
 };
 
 const parseFeatureFlags = (raw) => {
@@ -659,6 +685,8 @@ const parseFeatureFlags = (raw) => {
 };
 
 const agencyFlags = computed(() => parseFeatureFlags(agencyStore.currentAgency?.feature_flags));
+const portalVariant = computed(() => String(agencyFlags.value?.portalVariant || 'healthcare_provider'));
+const providerSurfacesEnabled = computed(() => portalVariant.value !== 'employee');
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
 

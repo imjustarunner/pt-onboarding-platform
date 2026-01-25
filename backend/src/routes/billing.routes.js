@@ -1,10 +1,11 @@
 import express from 'express';
-import { authenticate, requireAgencyAccess, requireAgencyAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireAgencyAccess, requireAgencyAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import { getAgencyBillingEstimate } from '../controllers/billing.controller.js';
 import { disconnectQuickBooks, getQuickBooksConnectUrl, getQuickBooksStatus, quickBooksOAuthCallback } from '../controllers/quickbooks.controller.js';
 import { downloadInvoicePdf, generateAgencyInvoice, listAgencyInvoices } from '../controllers/billingInvoices.controller.js';
 import { billingSettingsValidators, getBillingSettings, updateBillingSettings } from '../controllers/billingSettings.controller.js';
 import { runMonthlyBilling } from '../controllers/billingJobs.controller.js';
+import { agencyPricingOverrideValidators, getAgencyPricing, getPlatformPricing, platformPricingValidators, updateAgencyPricingOverride, updatePlatformPricing } from '../controllers/billingPricing.controller.js';
 
 const router = express.Router();
 
@@ -21,12 +22,21 @@ router.post('/run-monthly', (req, res, next) => {
   next();
 }, runMonthlyBilling);
 
+// Platform pricing (superadmin)
+// NOTE: must be defined before '/:agencyId/*' routes to avoid route param capture.
+router.get('/pricing/default', authenticate, requireSuperAdmin, getPlatformPricing);
+router.put('/pricing/default', authenticate, requireSuperAdmin, platformPricingValidators, updatePlatformPricing);
+
 // Billing estimate + usage breakdown
 router.get('/:agencyId/estimate', authenticate, requireAgencyAccess, getAgencyBillingEstimate);
 
 // Billing settings
 router.get('/:agencyId/settings', authenticate, requireAgencyAccess, getBillingSettings);
 router.put('/:agencyId/settings', authenticate, requireAgencyAdmin, billingSettingsValidators, updateBillingSettings);
+
+// Per-agency pricing (readable by agency access; writable by superadmin)
+router.get('/:agencyId/pricing', authenticate, requireAgencyAccess, getAgencyPricing);
+router.put('/:agencyId/pricing', authenticate, requireSuperAdmin, agencyPricingOverrideValidators, updateAgencyPricingOverride);
 
 // Invoices
 router.get('/:agencyId/invoices', authenticate, requireAgencyAccess, listAgencyInvoices);

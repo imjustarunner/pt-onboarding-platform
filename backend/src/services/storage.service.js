@@ -622,6 +622,44 @@ class StorageService {
   }
 
   /**
+   * Save an admin documentation file to GCS under a non-public prefix.
+   * These files must NOT be stored under `uploads/` to avoid access via `/uploads/*`.
+   *
+   * @param {Buffer} fileBuffer
+   * @param {string} filename
+   * @param {string} contentType
+   */
+  static async saveAdminDoc(fileBuffer, filename, contentType = 'application/pdf') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `admin_docs/${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: contentType || 'application/octet-stream',
+      metadata: { uploadedAt: new Date().toISOString() }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  static async deleteAdminDoc(filenameOrKey) {
+    const raw = String(filenameOrKey || '').trim();
+    if (!raw) return;
+    const key = raw.includes('/') ? raw : `admin_docs/${raw}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      if (gcsError.code !== 404) {
+        throw new Error(`Failed to delete admin doc from GCS: ${gcsError.message}`);
+      }
+    }
+  }
+
+  /**
    * Read a user-specific document file from GCS
    * @param {string} filename - Filename
    * @returns {Promise<Buffer>}

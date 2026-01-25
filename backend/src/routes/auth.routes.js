@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { login, register, approvedEmployeeLogin, logout, logActivity, passwordlessTokenLogin, passwordlessTokenLoginFromBody, verifyPendingIdentity, validateSetupToken, initialSetup, validateResetToken, resetPasswordWithToken } from '../controllers/auth.controller.js';
+import { login, register, approvedEmployeeLogin, logout, logActivity, passwordlessTokenLogin, passwordlessTokenLoginFromBody, verifyPendingIdentity, validateSetupToken, initialSetup, validateResetToken, resetPasswordWithToken, googleOAuthStart, googleOAuthCallback } from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
 import { authLimiter } from '../middleware/rateLimiter.middleware.js';
@@ -110,6 +110,8 @@ const validateRegister = [
 ];
 
 router.post('/login', authLimiter, validateLogin, login);
+router.get('/google/start', googleOAuthStart);
+router.get('/google/callback', googleOAuthCallback);
 router.post('/approved-employee-login', [
   body('email').isEmail().normalizeEmail(),
   body('password').notEmpty().withMessage('Password is required')

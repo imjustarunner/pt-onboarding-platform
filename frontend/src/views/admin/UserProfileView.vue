@@ -135,6 +135,13 @@
                   <label>Work Phone Extension</label>
                   <input v-model="accountForm.workPhoneExtension" type="text" :disabled="!isEditingAccount" />
                 </div>
+                <div class="form-group">
+                  <label>System Phone Number (masked SMS)</label>
+                  <input :value="systemPhoneNumberDisplay" type="tel" disabled />
+                  <small class="form-help">
+                    This is the system-assigned number used for masked texting. It can’t be edited here.
+                  </small>
+                </div>
 
                 <div class="form-group form-group-full">
                   <div class="section-divider" style="margin: 8px 0 6px;">
@@ -855,6 +862,11 @@
           :viewOnly="!canEditUser"
         />
 
+        <UserAdminDocsTab
+          v-if="activeTab === 'admin_docs'"
+          :userId="userId"
+        />
+
         <UserCommunicationsTab
           v-if="activeTab === 'communications'"
           :userId="userId"
@@ -1067,6 +1079,7 @@ import UserDocumentsTab from '../../components/admin/UserDocumentsTab.vue';
 import UserInformationTab from '../../components/admin/UserInformationTab.vue';
 import ProviderInfoTab from '../../components/admin/ProviderInfoTab.vue';
 import UserCommunicationsTab from '../../components/admin/UserCommunicationsTab.vue';
+import UserAdminDocsTab from '../../components/admin/UserAdminDocsTab.vue';
 import UserActivityLogTab from '../../components/admin/UserActivityLogTab.vue';
 import UserPayrollTab from '../../components/admin/UserPayrollTab.vue';
 import SupervisorAssignmentManager from '../../components/admin/SupervisorAssignmentManager.vue';
@@ -1185,6 +1198,22 @@ const canViewPayroll = computed(() => {
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
 
+const canViewAdminDocsTab = computed(() => {
+  const u = authStore.user;
+  if (!u) return false;
+  const role = String(u.role || '').toLowerCase();
+  const hasStaffAccess = u.has_staff_access === true || u.has_staff_access === 1 || u.has_staff_access === '1' || u.hasStaffAccess === true;
+  return (
+    role === 'admin' ||
+    role === 'super_admin' ||
+    role === 'support' ||
+    role === 'staff' ||
+    hasStaffAccess ||
+    isSupervisor(u) ||
+    role === 'clinical_practice_assistant'
+  );
+});
+
 const canViewProviderInfo = computed(() => {
   const u = user.value;
   if (!u) return false;
@@ -1208,6 +1237,7 @@ const tabs = computed(() => {
     { id: 'training', label: 'Training' },
     { id: 'documents', label: 'Documents' },
     { id: 'communications', label: 'Communications' },
+    ...(canViewAdminDocsTab.value ? [{ id: 'admin_docs', label: 'Admin Documentation' }] : []),
     { id: 'preferences', label: 'Preferences' }
   ];
 
@@ -1532,6 +1562,12 @@ const canAssignAdmin = computed(() => {
 const canAssignSupport = computed(() => {
   const currentUserRole = authStore.user?.role;
   return currentUserRole === 'super_admin' || currentUserRole === 'admin';
+});
+
+const systemPhoneNumberDisplay = computed(() => {
+  const raw = user.value?.system_phone_number;
+  const str = String(raw || '').trim();
+  return str ? str : '—';
 });
 
 

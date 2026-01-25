@@ -7,6 +7,8 @@ import UserActivityLog from '../models/UserActivityLog.model.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import config from '../config/config.js';
 import { getUserCapabilities } from '../utils/capabilities.js';
+import Agency from '../models/Agency.model.js';
+import { createSignedState as createGoogleState, verifySignedState as verifyGoogleState, exchangeCodeForTokens, getGoogleAuthorizeUrl, getGoogleOAuthClient } from '../services/googleOAuth.service.js';
 
 async function buildPayrollCaps(user) {
   const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
@@ -193,6 +195,8 @@ export const login = async (req, res, next) => {
     }
 
     const { email, password } = req.body;
+    const orgSlugRaw = req.body?.organizationSlug || req.body?.orgSlug || null;
+    const orgSlug = orgSlugRaw ? String(orgSlugRaw).trim().toLowerCase() : null;
 
     let user;
     try {
@@ -245,6 +249,39 @@ export const login = async (req, res, next) => {
           message: 'User not found. Contact PO@ITSCO.health if this is an error or if you require your credentials.' 
         } 
       });
+    }
+
+    // Optional org-level SSO enforcement: if this login attempt is for a specific org slug,
+    // and that org has Google SSO enabled for this role, block local password login.
+    if (orgSlug) {
+      try {
+        const org = (await Agency.findBySlug(orgSlug)) || (await Agency.findByPortalUrl(orgSlug));
+        const rawFlags = org?.feature_flags ?? null;
+        const featureFlags =
+          rawFlags && typeof rawFlags === 'string'
+            ? (() => {
+                try { return JSON.parse(rawFlags); } catch { return {}; }
+              })()
+            : (rawFlags && typeof rawFlags === 'object' ? rawFlags : {});
+
+        const ssoEnabled = featureFlags?.googleSsoEnabled === true;
+        const requiredRoles = Array.isArray(featureFlags?.googleSsoRequiredRoles)
+          ? featureFlags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
+          : [];
+
+        const userRole = String(user.role || '').toLowerCase();
+        const excludedRoles = new Set(['school_staff', 'client_guardian', 'client', 'guardian']);
+        if (ssoEnabled && requiredRoles.includes(userRole) && !excludedRoles.has(userRole)) {
+          return res.status(403).json({
+            error: {
+              message: 'This organization requires Google sign-in. Please continue with Google.',
+              code: 'SSO_REQUIRED'
+            }
+          });
+        }
+      } catch {
+        // Best-effort: if org lookup fails, do not block login.
+      }
     }
 
     // Check user status and access using new lifecycle system
@@ -506,6 +543,142 @@ export const logout = async (req, res, next) => {
     res.clearCookie('authToken', clearCookieOptions);
     
     res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const googleOAuthStart = async (req, res, next) => {
+  try {
+    const orgSlugRaw = req.query?.orgSlug || req.query?.organizationSlug || null;
+    const orgSlug = orgSlugRaw ? String(orgSlugRaw).trim().toLowerCase() : null;
+    if (!orgSlug) {
+      return res.status(400).send('Missing orgSlug');
+    }
+
+    // Ensure org exists (best-effort; also ensures we normalize to slug)
+    const org = (await Agency.findBySlug(orgSlug)) || (await Agency.findByPortalUrl(orgSlug));
+    if (!org) {
+      return res.status(404).send('Organization not found');
+    }
+
+    const state = createGoogleState({ orgSlug });
+    const payload = verifyGoogleState(state);
+    const nonce = payload?.nonce || null;
+
+    const authUrl = getGoogleAuthorizeUrl({ state, nonce });
+    return res.redirect(302, authUrl);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const googleOAuthCallback = async (req, res, next) => {
+  try {
+    const { code, state, error: oauthError, error_description } = req.query;
+
+    const redirectToLogin = (orgSlug, msg) => {
+      const safeSlug = String(orgSlug || '').trim() || '';
+      const url = new URL(config.frontendUrl);
+      url.pathname = safeSlug ? `/${safeSlug}/login` : '/login';
+      if (msg) url.searchParams.set('error', String(msg));
+      return res.redirect(302, url.toString());
+    };
+
+    if (oauthError) {
+      return redirectToLogin('', error_description || oauthError);
+    }
+
+    if (!code || !state) {
+      return res.status(400).send('Missing required query parameters');
+    }
+
+    const verified = verifyGoogleState(state);
+    if (!verified?.orgSlug) {
+      return res.status(400).send('Invalid or expired state');
+    }
+    const orgSlug = String(verified.orgSlug || '').trim().toLowerCase();
+
+    const org = (await Agency.findBySlug(orgSlug)) || (await Agency.findByPortalUrl(orgSlug));
+    if (!org) {
+      return redirectToLogin(orgSlug, 'Organization not found');
+    }
+
+    const tokens = await exchangeCodeForTokens({ code: String(code) });
+    const idToken = tokens?.id_token || null;
+    if (!idToken) {
+      return redirectToLogin(orgSlug, 'Google sign-in failed (missing id_token)');
+    }
+
+    const oauthClient = getGoogleOAuthClient();
+    const ticket = await oauthClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_OAUTH_CLIENT_ID
+    });
+    const claims = ticket?.getPayload?.() || null;
+    const email = String(claims?.email || '').trim().toLowerCase();
+    const emailVerified = claims?.email_verified === true || claims?.email_verified === 'true';
+    const nonceOk = !verified?.nonce || String(claims?.nonce || '') === String(verified.nonce || '');
+    if (!email || !emailVerified || !nonceOk) {
+      return redirectToLogin(orgSlug, 'Google sign-in could not be verified');
+    }
+
+    // Domain enforcement (multi-domain allowlist)
+    const rawFlags = org?.feature_flags ?? null;
+    const featureFlags =
+      rawFlags && typeof rawFlags === 'string'
+        ? (() => { try { return JSON.parse(rawFlags); } catch { return {}; } })()
+        : (rawFlags && typeof rawFlags === 'object' ? rawFlags : {});
+
+    const allowedDomains = Array.isArray(featureFlags?.googleSsoAllowedDomains)
+      ? featureFlags.googleSsoAllowedDomains.map((d) => String(d || '').trim().toLowerCase()).filter(Boolean)
+      : [];
+    if (allowedDomains.length > 0) {
+      const domain = email.includes('@') ? email.split('@')[1] : '';
+      if (!domain || !allowedDomains.includes(domain)) {
+        return redirectToLogin(orgSlug, 'Your Google account is not allowed for this organization');
+      }
+    }
+
+    const user = await User.findByEmail(email);
+    if (!user) {
+      return redirectToLogin(orgSlug, 'No user account matches this Google email');
+    }
+
+    // Enforce org membership (unless super admin)
+    const userRole = String(user.role || '').toLowerCase();
+    if (userRole !== 'super_admin') {
+      const userOrgs = await User.getAgencies(user.id);
+      const ok = (userOrgs || []).some((o) => String(o?.slug || o?.portal_url || '').toLowerCase() === orgSlug || Number(o?.id) === Number(org?.id));
+      if (!ok) {
+        return redirectToLogin(orgSlug, 'You are not authorized to access this organization');
+      }
+    }
+
+    // Issue session cookie + log activity
+    const sessionId = crypto.randomUUID();
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role, sessionId },
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
+    );
+    res.cookie('authToken', token, config.authCookie.set());
+
+    ActivityLogService.logActivity({
+      actionType: 'login',
+      userId: user.id,
+      sessionId,
+      metadata: {
+        email: user.email,
+        role: user.role,
+        loginType: 'google_oauth',
+        orgSlug
+      }
+    }, req);
+
+    const url = new URL(config.frontendUrl);
+    url.pathname = `/${orgSlug}/dashboard`;
+    return res.redirect(302, url.toString());
   } catch (error) {
     next(error);
   }

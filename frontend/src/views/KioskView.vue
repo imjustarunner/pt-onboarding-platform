@@ -2,100 +2,127 @@
   <div class="kiosk">
     <div class="kiosk-card">
       <h2>Check In</h2>
-      <p class="subtitle">Select your provider, choose your time slot, enter your 4-digit PIN, and complete the surveys.</p>
+      <p class="subtitle">Select your scheduled office time, check in, and complete the questionnaire.</p>
 
       <div v-if="error" class="error-box">{{ error }}</div>
 
       <div v-if="step === 1" class="step">
-        <h3>Step 1: Select Provider</h3>
-        <div v-if="loading" class="loading">Loading providers…</div>
+        <h3>Step 1: Select Your Appointment</h3>
+        <div class="row">
+          <div class="field">
+            <label>Date</label>
+            <input v-model="date" type="date" @change="loadEvents" />
+          </div>
+        </div>
+        <div v-if="loading" class="loading">Loading events…</div>
         <div v-else class="grid">
-          <button v-for="p in providers" :key="p.id" class="pick" @click="selectProvider(p)">
-            {{ p.displayName }}
+          <button v-for="e in events" :key="e.id" class="pick" @click="selectEvent(e)">
+            <div style="font-weight: 800;">
+              {{ formatTime(e.startAt) }} — {{ e.roomName }}
+            </div>
+            <div style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
+              Provider: {{ e.providerInitials || '—' }}
+            </div>
           </button>
         </div>
       </div>
 
       <div v-else-if="step === 2" class="step">
-        <h3>Step 2: Select Time Slot</h3>
+        <h3>Step 2: Check In</h3>
         <div class="row">
           <div class="field">
-            <label>Date</label>
-            <input v-model="date" type="date" @change="buildSlots" />
+            <label>Room</label>
+            <input :value="selectedEvent?.roomName" disabled />
           </div>
           <div class="field">
-            <label>Provider</label>
-            <input :value="selectedProvider?.displayName" disabled />
+            <label>Time</label>
+            <input :value="selectedEvent ? formatTime(selectedEvent.startAt) : ''" disabled />
           </div>
         </div>
-        <div class="grid">
-          <button v-for="s in slots" :key="s" class="pick" @click="selectSlot(s)">
-            {{ s }}
+        <div class="actions">
+          <button class="btn btn-secondary" @click="reset" :disabled="saving">Back</button>
+          <button class="btn btn-primary" @click="checkIn" :disabled="saving">
+            {{ saving ? 'Checking in…' : 'Check In' }}
           </button>
-        </div>
-        <div class="actions">
-          <button class="btn btn-secondary" @click="reset">Back</button>
-        </div>
-      </div>
-
-      <div v-else-if="step === 3" class="step">
-        <h3>Step 3: Enter PIN</h3>
-        <div class="row">
-          <div class="field">
-            <label>Provider</label>
-            <input :value="selectedProvider?.displayName" disabled />
-          </div>
-          <div class="field">
-            <label>Time Slot</label>
-            <input :value="selectedSlot" disabled />
-          </div>
-        </div>
-        <div class="field">
-          <label>4-digit PIN</label>
-          <input v-model="pin" inputmode="numeric" maxlength="4" placeholder="MMDD" />
-        </div>
-        <div class="actions">
-          <button class="btn btn-secondary" @click="step = 2">Back</button>
-          <button class="btn btn-primary" @click="goToSurveys">Continue</button>
         </div>
       </div>
 
       <div v-else-if="step === 4" class="step">
-        <h3>Step 4: Surveys</h3>
+        <h3>Step 3: Questionnaire</h3>
         <div class="summary">
-          <div><strong>Provider:</strong> {{ selectedProvider?.displayName }}</div>
-          <div><strong>Slot:</strong> {{ selectedSlot }}</div>
+          <div><strong>Room:</strong> {{ selectedEvent?.roomName }}</div>
+          <div><strong>Time:</strong> {{ selectedEvent ? formatTime(selectedEvent.startAt) : '' }}</div>
         </div>
 
-        <div class="survey">
-          <h4>PHQ-9</h4>
-          <div v-for="i in 9" :key="`phq${i}`" class="q">
-            <label>Q{{ i }}</label>
-            <select v-model.number="phq9[`q${i}`]">
-              <option :value="0">0</option>
-              <option :value="1">1</option>
-              <option :value="2">2</option>
-              <option :value="3">3</option>
-            </select>
-          </div>
+        <div class="field" style="margin-top: 12px;">
+          <label>Is this your typical day and time that you see this provider?</label>
+          <select v-model="typicalDayTime">
+            <option :value="''">Select…</option>
+            <option :value="'yes'">Yes</option>
+            <option :value="'no'">No</option>
+          </select>
         </div>
 
-        <div class="survey">
-          <h4>GAD-7</h4>
-          <div v-for="i in 7" :key="`gad${i}`" class="q">
-            <label>Q{{ i }}</label>
-            <select v-model.number="gad7[`q${i}`]">
-              <option :value="0">0</option>
-              <option :value="1">1</option>
-              <option :value="2">2</option>
-              <option :value="3">3</option>
+        <div v-if="questionnaires.length === 0" class="muted" style="margin-top: 12px;">
+          No questionnaires are configured for this office yet.
+        </div>
+
+        <div v-else class="field" style="margin-top: 12px;">
+          <label>Questionnaire</label>
+          <select v-model="selectedModuleId" @change="loadDefinition">
+            <option :value="''">Select…</option>
+            <option v-for="q in questionnaires" :key="q.moduleId" :value="String(q.moduleId)">{{ q.title }}</option>
+          </select>
+        </div>
+
+        <div v-if="definitionLoading" class="loading" style="margin-top: 10px;">Loading form…</div>
+        <div v-else-if="selectedModuleId && formFields.length === 0" class="muted" style="margin-top: 10px;">
+          This questionnaire has no fields configured.
+        </div>
+
+        <div v-else-if="formFields.length > 0" class="survey">
+          <h4 style="margin: 0 0 10px 0;">Questions</h4>
+          <div v-for="field in formFields" :key="field.id" class="q">
+            <label>{{ field.field_label }}</label>
+
+            <input
+              v-if="['text','email','phone'].includes(field.field_type)"
+              v-model="answers[field.id]"
+              :type="field.field_type === 'email' ? 'email' : (field.field_type === 'phone' ? 'tel' : 'text')"
+            />
+
+            <input v-else-if="field.field_type === 'number'" v-model="answers[field.id]" type="number" />
+            <input v-else-if="field.field_type === 'date'" v-model="answers[field.id]" type="date" />
+            <textarea v-else-if="field.field_type === 'textarea'" v-model="answers[field.id]" rows="4"></textarea>
+
+            <select v-else-if="field.field_type === 'select'" v-model="answers[field.id]">
+              <option value="">Select…</option>
+              <option v-for="opt in (field.options || [])" :key="String(opt)" :value="String(opt)">{{ opt }}</option>
             </select>
+
+            <div v-else-if="field.field_type === 'multi_select'" class="multi-select">
+              <label v-for="opt in (field.options || [])" :key="String(opt)" class="multi-select-option">
+                <input
+                  type="checkbox"
+                  :checked="Array.isArray(answers[field.id]) && answers[field.id].includes(String(opt))"
+                  @change="toggleMulti(field.id, String(opt))"
+                />
+                <span>{{ opt }}</span>
+              </label>
+            </div>
+
+            <label v-else-if="field.field_type === 'boolean'" class="boolean-row">
+              <input type="checkbox" :checked="answers[field.id] === true" @change="answers[field.id] = $event.target.checked" />
+              <span>Yes</span>
+            </label>
+
+            <input v-else v-model="answers[field.id]" type="text" />
           </div>
         </div>
 
         <div class="actions">
-          <button class="btn btn-secondary" @click="step = 3" :disabled="saving">Back</button>
-          <button class="btn btn-primary" @click="submit" :disabled="saving">
+          <button class="btn btn-secondary" @click="step = 2" :disabled="saving">Back</button>
+          <button class="btn btn-primary" @click="submit" :disabled="saving || !selectedModuleId || typicalDayTime === ''">
             {{ saving ? 'Submitting…' : 'Submit' }}
           </button>
         </div>
@@ -123,70 +150,103 @@ const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
 
-const providers = ref([]);
-const selectedProvider = ref(null);
 const date = ref(new Date().toISOString().slice(0, 10));
-const slots = ref([]);
-const selectedSlot = ref('');
-const pin = ref('');
+const events = ref([]);
+const selectedEvent = ref(null);
 
-const phq9 = ref(Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`q${i + 1}`, 0])));
-const gad7 = ref(Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`q${i + 1}`, 0])));
+const questionnaires = ref([]);
+const selectedModuleId = ref('');
+const definitionLoading = ref(false);
+const formFields = ref([]);
+const answers = ref({});
+const typicalDayTime = ref('');
 
-const loadProviders = async () => {
+const formatTime = (iso) => {
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return iso;
+  }
+};
+
+const loadEvents = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get(`/kiosk/${locationId.value}/providers`, { params: { date: date.value } });
-    providers.value = resp.data || [];
+    const resp = await api.get(`/kiosk/${locationId.value}/events`, { params: { date: date.value } });
+    events.value = resp.data?.events || [];
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to load providers';
+    error.value = e.response?.data?.error?.message || 'Failed to load events';
   } finally {
     loading.value = false;
   }
 };
 
-const buildSlots = () => {
-  // MVP: fixed slots 08:00–18:00 every 30 minutes
-  const out = [];
-  for (let h = 8; h <= 17; h++) {
-    out.push(`${String(h).padStart(2, '0')}:00`);
-    out.push(`${String(h).padStart(2, '0')}:30`);
-  }
-  out.push('18:00');
-  slots.value = out;
-};
-
-const selectProvider = (p) => {
-  selectedProvider.value = p;
-  buildSlots();
+const selectEvent = (e) => {
+  selectedEvent.value = e;
   step.value = 2;
 };
 
-const selectSlot = (s) => {
-  selectedSlot.value = s;
-  step.value = 3;
+const checkIn = async () => {
+  if (!selectedEvent.value?.id) return;
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/kiosk/${locationId.value}/checkin`, { eventId: selectedEvent.value.id });
+    await loadQuestionnaires();
+    step.value = 4;
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to check in';
+  } finally {
+    saving.value = false;
+  }
 };
 
-const goToSurveys = () => {
-  if (!/^\d{4}$/.test(pin.value.trim())) {
-    error.value = 'PIN must be 4 digits';
+const loadQuestionnaires = async () => {
+  const resp = await api.get(`/kiosk/${locationId.value}/questionnaires`);
+  questionnaires.value = resp.data || [];
+  selectedModuleId.value = '';
+  formFields.value = [];
+  answers.value = {};
+  typicalDayTime.value = '';
+};
+
+const toggleMulti = (fieldId, opt) => {
+  const current = Array.isArray(answers.value[fieldId]) ? answers.value[fieldId] : [];
+  const exists = current.includes(opt);
+  const next = exists ? current.filter((x) => x !== opt) : [...current, opt];
+  answers.value = { ...answers.value, [fieldId]: next };
+};
+
+const loadDefinition = async () => {
+  if (!selectedModuleId.value) {
+    formFields.value = [];
+    answers.value = {};
     return;
   }
-  error.value = '';
-  step.value = 4;
+  try {
+    definitionLoading.value = true;
+    const resp = await api.get(`/kiosk/${locationId.value}/questionnaires/${selectedModuleId.value}/definition`);
+    formFields.value = resp.data?.fields || [];
+    answers.value = {};
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to load questionnaire';
+    formFields.value = [];
+    answers.value = {};
+  } finally {
+    definitionLoading.value = false;
+  }
 };
 
 const submit = async () => {
   try {
     saving.value = true;
     error.value = '';
-    await api.post(`/kiosk/${locationId.value}/submit`, {
-      providerId: selectedProvider.value.id,
-      timeHHMM: selectedSlot.value,
-      pin: pin.value.trim(),
-      phq9: phq9.value,
-      gad7: gad7.value
+    await api.post(`/kiosk/${locationId.value}/questionnaires/submit`, {
+      eventId: selectedEvent.value.id,
+      moduleId: Number(selectedModuleId.value),
+      typicalDayTime: typicalDayTime.value === 'yes',
+      answers: answers.value
     });
     step.value = 5;
   } catch (e) {
@@ -198,17 +258,17 @@ const submit = async () => {
 
 const reset = () => {
   step.value = 1;
-  selectedProvider.value = null;
-  selectedSlot.value = '';
-  pin.value = '';
-  phq9.value = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`q${i + 1}`, 0]));
-  gad7.value = Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`q${i + 1}`, 0]));
-  loadProviders();
+  selectedEvent.value = null;
+  questionnaires.value = [];
+  selectedModuleId.value = '';
+  formFields.value = [];
+  answers.value = {};
+  typicalDayTime.value = '';
+  loadEvents();
 };
 
 onMounted(() => {
-  buildSlots();
-  loadProviders();
+  loadEvents();
 });
 </script>
 

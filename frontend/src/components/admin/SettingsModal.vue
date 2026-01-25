@@ -114,6 +114,7 @@ import ClientCatalogManagement from './ClientCatalogManagement.vue';
 import SchoolCatalogManagement from './SchoolCatalogManagement.vue';
 import ProviderCatalogManagement from './ProviderCatalogManagement.vue';
 import ProviderSchedulingManagement from './ProviderSchedulingManagement.vue';
+import AvailabilityIntakeManagement from './AvailabilityIntakeManagement.vue';
 import ViewportPreviewSettings from './ViewportPreviewSettings.vue';
 
 // Import placeholder components
@@ -227,6 +228,15 @@ const allCategories = [
         requiresAgency: true,
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'availability-intake',
+        label: 'Availability Intake',
+        icon: '🧭',
+        component: 'AvailabilityIntakeManagement',
+        requiresAgency: true,
+        roles: ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'staff'],
         excludeSupervisor: true
       },
       {
@@ -432,6 +442,7 @@ const componentMap = {
   SchoolCatalogManagement,
   ProviderCatalogManagement,
   ProviderSchedulingManagement,
+  AvailabilityIntakeManagement,
   ViewportPreviewSettings,
   TeamRolesManagement,
   BillingManagement,

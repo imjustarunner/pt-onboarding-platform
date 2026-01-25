@@ -212,6 +212,38 @@
           </table>
         </div>
       </div>
+
+      <!-- Buildings Archive -->
+      <div v-if="activeTab === 'buildings'" class="archive-section">
+        <h3>Archived Buildings</h3>
+        <div v-if="loadingBuildings" class="loading">Loading archived buildings...</div>
+        <div v-else-if="archivedBuildings.length === 0" class="empty-state">
+          <p>No archived buildings.</p>
+        </div>
+        <div v-else class="archive-table-container">
+          <table class="archive-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Primary Agency</th>
+                <th>Archived Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="b in archivedBuildings" :key="b.id">
+                <td class="name-cell">{{ b.name }}</td>
+                <td>Agency ID: {{ b.agency_id }}</td>
+                <td>{{ formatDate(b.archived_at || b.updated_at) }}</td>
+                <td class="actions-cell">
+                  <button @click="restoreBuilding(b.id)" class="btn btn-success btn-sm">Restore</button>
+                  <button @click="permanentlyDeleteBuilding(b.id)" class="btn btn-danger btn-sm">Delete</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -231,11 +263,13 @@ const archivedModules = ref([]);
 const archivedUsers = ref([]);
 const archivedDocuments = ref([]);
 const archivedAgencies = ref([]);
+const archivedBuildings = ref([]);
 const loadingTrainingFocuses = ref(false);
 const loadingModules = ref(false);
 const loadingUsers = ref(false);
 const loadingDocuments = ref(false);
 const loadingAgencies = ref(false);
+const loadingBuildings = ref(false);
 
 const tabs = computed(() => {
   const allTabs = [
@@ -248,6 +282,7 @@ const tabs = computed(() => {
   // Only show agencies tab for super admins
   if (authStore.user?.role === 'super_admin') {
     allTabs.push({ id: 'agencies', label: 'Agencies', count: archivedAgencies.value.length });
+    allTabs.push({ id: 'buildings', label: 'Buildings', count: archivedBuildings.value.length });
   }
   
   return allTabs;
@@ -349,6 +384,25 @@ const fetchArchivedAgencies = async () => {
   }
 };
 
+const fetchArchivedBuildings = async () => {
+  // Only super admins can view archived buildings
+  if (authStore.user?.role !== 'super_admin') {
+    archivedBuildings.value = [];
+    return;
+  }
+
+  try {
+    loadingBuildings.value = true;
+    const response = await api.get('/offices/archived');
+    archivedBuildings.value = response.data || [];
+  } catch (err) {
+    console.error('Failed to load archived buildings:', err);
+    archivedBuildings.value = [];
+  } finally {
+    loadingBuildings.value = false;
+  }
+};
+
 const fetchAllArchived = async () => {
   const promises = [
     fetchArchivedTrainingFocuses(),
@@ -360,6 +414,7 @@ const fetchAllArchived = async () => {
   // Only fetch agencies for super admins
   if (authStore.user?.role === 'super_admin') {
     promises.push(fetchArchivedAgencies());
+    promises.push(fetchArchivedBuildings());
   }
   
   await Promise.all(promises);
@@ -495,6 +550,34 @@ const restoreAgency = async (id) => {
     alert('Agency restored successfully');
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to restore agency');
+  }
+};
+
+const restoreBuilding = async (id) => {
+  if (!confirm('Are you sure you want to restore this building? It will be set to active.')) {
+    return;
+  }
+
+  try {
+    await api.post(`/offices/${id}/restore`);
+    await fetchArchivedBuildings();
+    alert('Building restored successfully');
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to restore building');
+  }
+};
+
+const permanentlyDeleteBuilding = async (id) => {
+  if (!confirm('Are you sure you want to permanently delete this building? This action CANNOT be undone.')) {
+    return;
+  }
+
+  try {
+    await api.delete(`/offices/${id}`);
+    await fetchArchivedBuildings();
+    alert('Building permanently deleted');
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to delete building');
   }
 };
 

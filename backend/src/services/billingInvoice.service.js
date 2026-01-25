@@ -1,6 +1,6 @@
 import StorageService from './storage.service.js';
 import BillingUsageService from './billingUsage.service.js';
-import { buildEstimate } from './billingPricing.service.js';
+import { buildEstimate, getEffectiveBillingPricingForAgency } from './billingPricing.service.js';
 import { getCurrentBillingPeriod } from '../utils/billingPeriod.js';
 import Agency from '../models/Agency.model.js';
 import AgencyBillingInvoice from '../models/AgencyBillingInvoice.model.js';
@@ -32,8 +32,12 @@ class BillingInvoiceService {
     });
     if (existing) return existing;
 
-    const usage = await BillingUsageService.getUsage(parsedAgencyId);
-    const estimate = buildEstimate(usage);
+    const usage = await BillingUsageService.getUsage(parsedAgencyId, {
+      periodStart,
+      periodEnd
+    });
+    const pricingBundle = await getEffectiveBillingPricingForAgency(parsedAgencyId);
+    const estimate = buildEstimate(usage, pricingBundle.effective);
 
     const invoice = await AgencyBillingInvoice.create({
       agencyId: parsedAgencyId,

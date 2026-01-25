@@ -1,7 +1,16 @@
 import pool from '../config/database.js';
 import crypto from 'crypto';
+import OfficeLocationAgency from './OfficeLocationAgency.model.js';
 
 class OfficeLocation {
+  static async listAll({ includeInactive = false } = {}) {
+    const where = includeInactive ? '1=1' : 'is_active = TRUE';
+    const [rows] = await pool.execute(
+      `SELECT * FROM office_locations WHERE ${where} ORDER BY name ASC`
+    );
+    return rows;
+  }
+
   static async findByAgency(agencyId, { includeInactive = false } = {}) {
     const where = includeInactive ? 'agency_id = ?' : 'agency_id = ? AND is_active = TRUE';
     const [rows] = await pool.execute(
@@ -9,6 +18,28 @@ class OfficeLocation {
       [agencyId]
     );
     return rows;
+  }
+
+  // Multi-agency: list offices assigned to an agency via join table
+  static async findByAgencyMembership(agencyId, { includeInactive = false } = {}) {
+    const where = includeInactive ? '1=1' : 'ol.is_active = TRUE';
+    const [rows] = await pool.execute(
+      `SELECT ol.*
+       FROM office_locations ol
+       JOIN office_location_agencies ola ON ola.office_location_id = ol.id
+       WHERE ola.agency_id = ?
+         AND ${where}
+       ORDER BY ol.name ASC`,
+      [agencyId]
+    );
+    return rows;
+  }
+
+  static async userHasAccess({ officeLocationId, userId }) {
+    if (!officeLocationId || !userId) return false;
+    const agencies = await (await import('./User.model.js')).default.getAgencies(userId);
+    const ids = (agencies || []).map((a) => a.id);
+    return await OfficeLocationAgency.userHasAccess({ officeLocationId, agencyIds: ids });
   }
 
   static async findById(id) {
@@ -28,7 +59,16 @@ class OfficeLocation {
        VALUES (?, ?, ?, ?, ?)`,
       [agencyId, name, timezone, key, svgMarkup]
     );
-    return this.findById(result.insertId);
+    const loc = await this.findById(result.insertId);
+    // Seed join table for multi-agency access (creating agency auto-assigned).
+    try {
+      if (loc?.id && agencyId) {
+        await OfficeLocationAgency.add({ officeLocationId: loc.id, agencyId });
+      }
+    } catch {
+      // best-effort (older DBs may not have the join table yet)
+    }
+    return loc;
   }
 
   static async update(id, updates = {}) {

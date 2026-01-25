@@ -85,10 +85,10 @@
               </template>
               <router-link
                 v-if="hasCapability('canJoinProgramEvents')"
-                :to="orgTo('/schedule')"
+                :to="orgTo('/buildings')"
                 @click="closeMobileMenu"
                 class="nav-link"
-              >Office Schedule</router-link>
+              >Buildings</router-link>
               <div v-if="showGlobalAvailabilityToggle" class="nav-availability" @click.stop>
                 <div class="nav-availability-label">Global availability</div>
                 <label class="switch" :title="globalAvailabilityTitle">
@@ -134,10 +134,10 @@
             </router-link>
             <router-link
               v-if="hasCapability('canJoinProgramEvents')"
-              :to="orgTo('/schedule')"
+              :to="orgTo('/office')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
-            >Office Schedule</router-link>
+            >Office</router-link>
 
             <template v-if="canSeePortalNav">
               <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>

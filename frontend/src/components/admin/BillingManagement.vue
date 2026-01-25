@@ -28,12 +28,154 @@
           View Billing
         </button>
       </div>
+
+      <div v-if="isSuperAdmin" class="card" style="margin-top: 16px; text-align: left;">
+        <h3>Platform Default Pricing (Super Admin)</h3>
+        <p class="muted">These defaults apply to all agencies unless overridden per agency.</p>
+
+        <div v-if="pricingError" class="error">{{ pricingError }}</div>
+
+        <div class="pricing-grid">
+          <div class="form-group">
+            <div class="label">Base Fee ($/month)</div>
+            <input v-model.number="platformDraft.baseFeeDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+
+          <div class="form-group">
+            <div class="label">Included Schools</div>
+            <input v-model.number="platformDraft.includedSchools" class="input" type="number" step="1" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Included Programs</div>
+            <input v-model.number="platformDraft.includedPrograms" class="input" type="number" step="1" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Included Admins</div>
+            <input v-model.number="platformDraft.includedAdmins" class="input" type="number" step="1" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Included Active Candidates</div>
+            <input v-model.number="platformDraft.includedActiveOnboardees" class="input" type="number" step="1" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+
+          <div class="form-group">
+            <div class="label">Unit Cost: School ($/mo)</div>
+            <input v-model.number="platformDraft.unitSchoolDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Unit Cost: Program ($/mo)</div>
+            <input v-model.number="platformDraft.unitProgramDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Unit Cost: Admin ($/mo)</div>
+            <input v-model.number="platformDraft.unitAdminDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Unit Cost: Active Candidate ($/mo)</div>
+            <input v-model.number="platformDraft.unitOnboardeeDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+
+          <div class="form-group">
+            <div class="label">SMS Cost: Outbound to Clients ($/msg)</div>
+            <input v-model.number="platformDraft.smsOutboundClientDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">SMS Cost: Notification SMS ($/msg)</div>
+            <input v-model.number="platformDraft.smsNotificationDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+        </div>
+
+        <div style="display:flex; gap: 10px; margin-top: 12px;">
+          <button class="btn" type="button" @click="savePlatformPricing" :disabled="pricingLoading || pricingSaving">
+            {{ pricingSaving ? 'Saving…' : 'Save platform pricing' }}
+          </button>
+          <button class="btn btn-secondary" type="button" @click="loadPlatformPricing" :disabled="pricingLoading || pricingSaving">
+            {{ pricingLoading ? 'Loading…' : 'Reload' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <div v-else class="content">
       <div v-if="banner" class="banner" :class="banner.kind">
         <strong>{{ banner.title }}</strong>
         <span>{{ banner.message }}</span>
+      </div>
+
+      <div v-if="isSuperAdmin" class="card">
+        <h3>Pricing (Super Admin)</h3>
+        <p class="muted">Set global defaults and optionally override pricing for this agency.</p>
+
+        <div v-if="pricingError" class="error">{{ pricingError }}</div>
+
+        <div class="inline" style="align-items: end; margin-bottom: 12px;">
+          <div style="flex: 1;">
+            <div class="label">Agency override enabled</div>
+            <select v-model="agencyOverrideEnabled" class="select" :disabled="pricingLoading || pricingSaving">
+              <option :value="false">No (use platform defaults)</option>
+              <option :value="true">Yes (override for this agency)</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary" type="button" @click="loadAgencyPricing" :disabled="pricingLoading || pricingSaving">
+            {{ pricingLoading ? 'Loading…' : 'Reload' }}
+          </button>
+        </div>
+
+        <div class="pricing-grid">
+          <div class="form-group">
+            <div class="label">Base Fee ($/month)</div>
+            <input v-model.number="agencyDraft.baseFeeDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+
+          <div class="form-group">
+            <div class="label">Included Schools</div>
+            <input v-model.number="agencyDraft.includedSchools" class="input" type="number" step="1" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Included Programs</div>
+            <input v-model.number="agencyDraft.includedPrograms" class="input" type="number" step="1" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Included Admins</div>
+            <input v-model.number="agencyDraft.includedAdmins" class="input" type="number" step="1" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Included Active Candidates</div>
+            <input v-model.number="agencyDraft.includedActiveOnboardees" class="input" type="number" step="1" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+
+          <div class="form-group">
+            <div class="label">Unit Cost: School ($/mo)</div>
+            <input v-model.number="agencyDraft.unitSchoolDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Unit Cost: Program ($/mo)</div>
+            <input v-model.number="agencyDraft.unitProgramDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Unit Cost: Admin ($/mo)</div>
+            <input v-model.number="agencyDraft.unitAdminDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">Unit Cost: Active Candidate ($/mo)</div>
+            <input v-model.number="agencyDraft.unitOnboardeeDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+
+          <div class="form-group">
+            <div class="label">SMS Cost: Outbound to Clients ($/msg)</div>
+            <input v-model.number="agencyDraft.smsOutboundClientDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">SMS Cost: Notification SMS ($/msg)</div>
+            <input v-model.number="agencyDraft.smsNotificationDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+        </div>
+
+        <div style="display:flex; gap: 10px; margin-top: 12px;">
+          <button class="btn" type="button" @click="saveAgencyPricingOverride" :disabled="pricingLoading || pricingSaving">
+            {{ pricingSaving ? 'Saving…' : (agencyOverrideEnabled ? 'Save agency override' : 'Clear agency override') }}
+          </button>
+        </div>
       </div>
 
       <div class="card">
@@ -241,6 +383,7 @@ const authStore = useAuthStore();
 const route = useRoute();
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
+const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 const agencySearch = ref('');
 const selectedAgencyId = ref('');
 
@@ -294,6 +437,39 @@ const generatingInvoice = ref(false);
 
 const banner = ref(null);
 
+const pricingLoading = ref(false);
+const pricingSaving = ref(false);
+const pricingError = ref('');
+
+const platformDraft = ref({
+  baseFeeDollars: 0,
+  includedSchools: 0,
+  includedPrograms: 0,
+  includedAdmins: 0,
+  includedActiveOnboardees: 0,
+  unitSchoolDollars: 0,
+  unitProgramDollars: 0,
+  unitAdminDollars: 0,
+  unitOnboardeeDollars: 0,
+  smsOutboundClientDollars: 0,
+  smsNotificationDollars: 0
+});
+
+const agencyOverrideEnabled = ref(false);
+const agencyDraft = ref({
+  baseFeeDollars: 0,
+  includedSchools: 0,
+  includedPrograms: 0,
+  includedAdmins: 0,
+  includedActiveOnboardees: 0,
+  unitSchoolDollars: 0,
+  unitProgramDollars: 0,
+  unitAdminDollars: 0,
+  unitOnboardeeDollars: 0,
+  smsOutboundClientDollars: 0,
+  smsNotificationDollars: 0
+});
+
 const linkedSchools = ref([]);
 const availableSchools = ref([]);
 const selectedSchoolId = ref('');
@@ -306,6 +482,52 @@ const unlinkingId = ref(null);
 const money = (cents) => {
   const v = Number(cents || 0) / 100;
   return `$${v.toFixed(2)}`;
+};
+
+const dollarsToCents = (v) => {
+  const n = Number(v || 0);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 100);
+};
+
+const setDraftFromPricing = (draftRef, pricing) => {
+  const p = pricing || {};
+  draftRef.value = {
+    baseFeeDollars: Number(p.baseFeeCents || 0) / 100,
+    includedSchools: Number(p.included?.schools || 0),
+    includedPrograms: Number(p.included?.programs || 0),
+    includedAdmins: Number(p.included?.admins || 0),
+    includedActiveOnboardees: Number(p.included?.activeOnboardees || 0),
+    unitSchoolDollars: Number(p.unitCents?.school || 0) / 100,
+    unitProgramDollars: Number(p.unitCents?.program || 0) / 100,
+    unitAdminDollars: Number(p.unitCents?.admin || 0) / 100,
+    unitOnboardeeDollars: Number(p.unitCents?.onboardee || 0) / 100,
+    smsOutboundClientDollars: Number(p.smsUnitCents?.outboundClient || 0) / 100,
+    smsNotificationDollars: Number(p.smsUnitCents?.notification || 0) / 100
+  };
+};
+
+const buildPricingPayloadFromDraft = (draft) => {
+  const d = draft || {};
+  return {
+    baseFeeCents: dollarsToCents(d.baseFeeDollars),
+    included: {
+      schools: Math.max(0, parseInt(d.includedSchools || 0, 10) || 0),
+      programs: Math.max(0, parseInt(d.includedPrograms || 0, 10) || 0),
+      admins: Math.max(0, parseInt(d.includedAdmins || 0, 10) || 0),
+      activeOnboardees: Math.max(0, parseInt(d.includedActiveOnboardees || 0, 10) || 0)
+    },
+    unitCents: {
+      school: dollarsToCents(d.unitSchoolDollars),
+      program: dollarsToCents(d.unitProgramDollars),
+      admin: dollarsToCents(d.unitAdminDollars),
+      onboardee: dollarsToCents(d.unitOnboardeeDollars)
+    },
+    smsUnitCents: {
+      outboundClient: dollarsToCents(d.smsOutboundClientDollars),
+      notification: dollarsToCents(d.smsNotificationDollars)
+    }
+  };
 };
 
 const breakdownRows = computed(() => {
@@ -335,6 +557,66 @@ const loadEstimate = async () => {
     estimate.value = res.data;
   } catch (e) {
     estimateError.value = e?.response?.data?.error?.message || 'Failed to load billing estimate';
+  }
+};
+
+const loadPlatformPricing = async () => {
+  if (!isSuperAdmin.value) return;
+  pricingError.value = '';
+  pricingLoading.value = true;
+  try {
+    const res = await api.get('/billing/pricing/default');
+    setDraftFromPricing(platformDraft, res.data?.pricing || null);
+  } catch (e) {
+    pricingError.value = e?.response?.data?.error?.message || 'Failed to load platform pricing';
+  } finally {
+    pricingLoading.value = false;
+  }
+};
+
+const savePlatformPricing = async () => {
+  if (!isSuperAdmin.value) return;
+  pricingError.value = '';
+  pricingSaving.value = true;
+  try {
+    await api.put('/billing/pricing/default', { pricing: buildPricingPayloadFromDraft(platformDraft.value) });
+    await loadPlatformPricing();
+  } catch (e) {
+    pricingError.value = e?.response?.data?.error?.message || 'Failed to save platform pricing';
+  } finally {
+    pricingSaving.value = false;
+  }
+};
+
+const loadAgencyPricing = async () => {
+  pricingError.value = '';
+  if (!currentAgencyId.value) return;
+  pricingLoading.value = true;
+  try {
+    const res = await api.get(`/billing/${currentAgencyId.value}/pricing`);
+    const override = res.data?.pricingOverride ?? null;
+    agencyOverrideEnabled.value = override != null;
+    setDraftFromPricing(agencyDraft, (override != null ? override : res.data?.platformPricing) || null);
+  } catch (e) {
+    pricingError.value = e?.response?.data?.error?.message || 'Failed to load agency pricing';
+  } finally {
+    pricingLoading.value = false;
+  }
+};
+
+const saveAgencyPricingOverride = async () => {
+  if (!isSuperAdmin.value) return;
+  pricingError.value = '';
+  if (!currentAgencyId.value) return;
+  pricingSaving.value = true;
+  try {
+    const payload = agencyOverrideEnabled.value ? buildPricingPayloadFromDraft(agencyDraft.value) : null;
+    await api.put(`/billing/${currentAgencyId.value}/pricing`, { pricing: payload });
+    await Promise.all([loadAgencyPricing(), loadEstimate()]);
+  } catch (e) {
+    pricingError.value = e?.response?.data?.error?.message || 'Failed to save agency pricing override';
+  } finally {
+    pricingSaving.value = false;
   }
 };
 
@@ -488,6 +770,10 @@ onMounted(async () => {
     }
   }
 
+  if (isSuperAdmin.value) {
+    await loadPlatformPricing();
+  }
+
   // Deep-link support (e.g. from admin billing overage acknowledgement)
   applyAgencyFromQuery();
 
@@ -500,6 +786,7 @@ onMounted(async () => {
 
   await Promise.all([
     loadEstimate(),
+    loadAgencyPricing(),
     loadQboStatus(),
     loadSettings(),
     loadInvoices(),
@@ -516,6 +803,7 @@ watch(currentAgencyId, async (newId, oldId) => {
   if (!newId || newId === oldId) return;
   await Promise.all([
     loadEstimate(),
+    loadAgencyPricing(),
     loadQboStatus(),
     loadSettings(),
     loadInvoices(),
@@ -666,6 +954,31 @@ watch(currentAgencyId, async (newId, oldId) => {
   grid-template-columns: 1fr 1fr 1fr;
   gap: 16px;
   margin-top: 8px;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (max-width: 1100px) {
+  .pricing-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .pricing-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .inline {

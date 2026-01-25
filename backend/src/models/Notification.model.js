@@ -47,6 +47,10 @@ class Notification {
     'payroll_unpaid_notes_2_periods_old',
     // Payroll: supervisor reminders (unsigned draft notes)
     'payroll_unsigned_draft_notes',
+    // Office scheduling
+    'office_schedule_biweekly_review',
+    'office_schedule_booking_confirm_6_weeks',
+    'office_schedule_unbooked_forfeit',
     // Supervision tracking
     'supervision_individual_50_reached',
     'supervision_total_100_reached',

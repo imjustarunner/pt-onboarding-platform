@@ -865,6 +865,7 @@ export const addUserLoginEmailAlias = async (req, res, next) => {
     const userId = parseInt(id, 10);
     const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
     const email = String(req.body?.email || '').trim().toLowerCase();
+    const pool = (await import('../config/database.js')).default;
 
     if (!userId || !agencyId) {
       return res.status(400).json({ error: { message: 'agencyId is required' } });
@@ -903,15 +904,6 @@ export const addUserLoginEmailAlias = async (req, res, next) => {
       return res.status(409).json({ error: { message: `Login email already in use: ${email}` } });
     }
 
-    const dbName = process.env.DB_NAME || 'onboarding_stage';
-    const [tables] = await pool.execute(
-      "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'user_login_emails' LIMIT 1",
-      [dbName]
-    );
-    if (!tables || tables.length === 0) {
-      return res.status(400).json({ error: { message: 'Login email aliases are not enabled (missing user_login_emails table).' } });
-    }
-
     try {
       await pool.execute(
         `INSERT INTO user_login_emails (user_id, agency_id, email)
@@ -924,6 +916,9 @@ export const addUserLoginEmailAlias = async (req, res, next) => {
       const msg = String(e?.message || '');
       if (msg.includes('Duplicate') || e?.code === 'ER_DUP_ENTRY') {
         return res.status(409).json({ error: { message: `Login email already in use: ${email}` } });
+      }
+      if (e?.code === 'ER_NO_SUCH_TABLE') {
+        return res.status(400).json({ error: { message: 'Login email aliases are not enabled (missing user_login_emails table).' } });
       }
       throw e;
     }

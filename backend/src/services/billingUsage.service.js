@@ -1,11 +1,24 @@
 import pool from '../config/database.js';
 
+function dateOnlyString(d) {
+  if (!d) return null;
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toISOString().slice(0, 10);
+}
+
 class BillingUsageService {
-  static async getUsage(agencyId) {
+  static async getUsage(agencyId, { periodStart = null, periodEnd = null } = {}) {
     const parsedAgencyId = parseInt(agencyId, 10);
     if (!parsedAgencyId || Number.isNaN(parsedAgencyId)) {
       throw new Error('Invalid agencyId');
     }
+
+    // Optional period window (used for SMS usage billing).
+    // We treat periodStart/End as DATEs and query created_at in [start, end+1day).
+    const startStr = dateOnlyString(periodStart);
+    const endStr = dateOnlyString(periodEnd);
+    const hasWindow = !!(startStr && endStr);
 
     // Schools
     // Historically: agency_schools linkage.
@@ -63,11 +76,34 @@ class BillingUsageService {
       [parsedAgencyId]
     );
 
+    // Outbound-to-client SMS (message_logs) within billing period (sent only).
+    const [outboundSmsRows] = await pool.execute(
+      `SELECT COUNT(*) AS cnt
+       FROM message_logs ml
+       WHERE ml.agency_id = ?
+         AND ml.direction = 'OUTBOUND'
+         AND ml.delivery_status = 'sent'
+         AND (? = FALSE OR (ml.created_at >= ? AND ml.created_at < DATE_ADD(?, INTERVAL 1 DAY)))`,
+      [parsedAgencyId, hasWindow ? 1 : 0, startStr || '1970-01-01', endStr || '1970-01-01']
+    );
+
+    // Notification SMS (notification_sms_logs) within billing period (sent only).
+    const [notificationSmsRows] = await pool.execute(
+      `SELECT COUNT(*) AS cnt
+       FROM notification_sms_logs nsl
+       WHERE nsl.agency_id = ?
+         AND nsl.status = 'sent'
+         AND (? = FALSE OR (nsl.created_at >= ? AND nsl.created_at < DATE_ADD(?, INTERVAL 1 DAY)))`,
+      [parsedAgencyId, hasWindow ? 1 : 0, startStr || '1970-01-01', endStr || '1970-01-01']
+    );
+
     return {
       schoolsUsed: Number(schoolsRows?.[0]?.cnt || 0),
       programsUsed: Number(programRows?.[0]?.cnt || 0),
       adminsUsed: Number(adminRows?.[0]?.cnt || 0),
-      activeOnboardeesUsed: Number(onboardeeRows?.[0]?.cnt || 0)
+      activeOnboardeesUsed: Number(onboardeeRows?.[0]?.cnt || 0),
+      outboundSmsUsed: Number(outboundSmsRows?.[0]?.cnt || 0),
+      notificationSmsUsed: Number(notificationSmsRows?.[0]?.cnt || 0)
     };
   }
 }

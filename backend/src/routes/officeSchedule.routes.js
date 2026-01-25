@@ -5,6 +5,7 @@ import {
   getLocation,
   listRooms,
   getAvailability,
+  getWeeklyGrid,
   createBookingRequest,
   listPendingRequests,
   approveRequest,
@@ -28,6 +29,7 @@ router.get('/locations', listLocations);
 router.get('/locations/:id', getLocation);
 router.get('/locations/:locationId/rooms', listRooms);
 router.get('/locations/:locationId/availability', getAvailability);
+router.get('/locations/:locationId/weekly-grid', getWeeklyGrid);
 
 // User booking request
 router.post('/requests', createBookingRequest);

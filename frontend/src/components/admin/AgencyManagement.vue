@@ -40,7 +40,12 @@
               <label class="filters-label">View</label>
               <select v-model="typeFilter" class="filters-select">
                 <option value="agencies">Agencies</option>
-                <option value="organizations">Organizations</option>
+                <option value="buildings">Buildings</option>
+                <option value="schools">Schools</option>
+                <option value="programs">Programs</option>
+                <option value="learning">Learning</option>
+                <option value="other">Other</option>
+                <option value="organizations">All non-agency orgs</option>
               </select>
             </div>
 
@@ -59,8 +64,8 @@
 
           <div v-if="selectedAgencyFilterId" class="filters-hint">
             <strong>Agency selected:</strong> {{ selectedAgencyForList?.name || '—' }}
-            <span v-if="String(typeFilter || '') === 'organizations'">• Showing affiliated organizations.</span>
-            <span v-else>• Showing agency + affiliated organizations.</span>
+            <span v-if="String(typeFilter || '') === 'agencies'">• Showing agency + affiliated organizations.</span>
+            <span v-else>• Showing affiliated organizations (filtered by view).</span>
             <button class="btn-link" type="button" @click="clearAgencyFilter">Clear</button>
           </div>
         </div>
@@ -75,7 +80,7 @@
 
           <div
             v-for="org in organizationsToRender"
-            :key="org.id"
+            :key="org.__key || org.id"
             class="org-row"
             :class="{
               active: editingAgency?.id === org.id,
@@ -135,10 +140,10 @@
                     Duplicate
                   </button>
                   <button
-                    v-if="userRole === 'super_admin' && String(org.organization_type || 'agency').toLowerCase() === 'agency'"
+                    v-if="userRole === 'super_admin' && (String(org.organization_type || 'agency').toLowerCase() === 'agency' || String(org.organization_type || '').toLowerCase() === 'office' || org.__kind === 'building')"
                     type="button"
                     :class="['btn', org.is_active ? 'btn-danger' : 'btn-secondary', 'btn-sm']"
-                    @click.stop="org.is_active ? archiveAgency(org.id) : restoreAgency(org.id)"
+                    @click.stop="org.is_active ? archiveOrganization(org) : restoreOrganization(org)"
                   >
                     {{ org.is_active ? 'Archive' : 'Restore' }}
                   </button>
@@ -198,7 +203,14 @@
         <!-- Tab Navigation -->
         <div class="modal-tabs">
           <button type="button" :class="['tab-button', { active: activeTab === 'general' }]" @click="activeTab = 'general'">General</button>
-          <button type="button" :class="['tab-button', { active: activeTab === 'branding' }]" @click="activeTab = 'branding'">Branding</button>
+          <button
+            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() !== 'office'"
+            type="button"
+            :class="['tab-button', { active: activeTab === 'branding' }]"
+            @click="activeTab = 'branding'"
+          >
+            Branding
+          </button>
           <button
             v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'agency'"
             type="button"
@@ -207,8 +219,22 @@
           >
             Features
           </button>
-          <button type="button" :class="['tab-button', { active: activeTab === 'contact' }]" @click="activeTab = 'contact'">Contact</button>
-          <button type="button" :class="['tab-button', { active: activeTab === 'address' }]" @click="activeTab = 'address'">Address</button>
+          <button
+            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() !== 'office'"
+            type="button"
+            :class="['tab-button', { active: activeTab === 'contact' }]"
+            @click="activeTab = 'contact'"
+          >
+            Contact
+          </button>
+          <button
+            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() !== 'office'"
+            type="button"
+            :class="['tab-button', { active: activeTab === 'address' }]"
+            @click="activeTab = 'address'"
+          >
+            Address
+          </button>
           <button
             v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'school'"
             type="button"
@@ -286,13 +312,14 @@
               <option value="school">School</option>
               <option value="program">Program</option>
               <option value="learning">Learning</option>
+              <option v-if="canCreateOffice" value="office">Building</option>
             </select>
             <small v-if="!editingAgency && userRole !== 'super_admin'">Admins can create schools/programs/learning orgs. Only super admins can create agencies.</small>
             <small v-if="editingAgency">Organization type cannot be changed after creation</small>
           </div>
 
           <div v-if="requiresAffiliatedAgency" class="form-group">
-            <label>Affiliated Agency *</label>
+            <label>{{ isOfficeType ? 'Agency *' : 'Affiliated Agency *' }}</label>
             <select v-model="agencyForm.affiliatedAgencyId" required :disabled="affiliatedAgencyLocked">
               <option value="" disabled>Select an agency</option>
               <option v-for="a in affiliableAgencies" :key="a.id" :value="String(a.id)">
@@ -302,7 +329,7 @@
             <small v-if="affiliatedAgencyLocked">This is auto-selected based on your admin access.</small>
           </div>
 
-          <div v-if="requiresAffiliatedAgency" class="form-group pricing-box" :class="{ locked: affiliatedAgencyLocked }">
+          <div v-if="requiresAffiliatedAgency && !isOfficeType" class="form-group pricing-box" :class="{ locked: affiliatedAgencyLocked }">
             <div class="pricing-title">Pricing impact (estimate)</div>
             <div class="pricing-row">
               <span class="pricing-label">Affiliated agency</span>
@@ -314,15 +341,65 @@
             </div>
             <small class="pricing-note">Unit price estimate; actual billing depends on current plan usage and included counts.</small>
           </div>
-          <div class="form-group">
-            <label>Name *</label>
-            <input v-model="agencyForm.name" type="text" required />
-          </div>
-          <div class="form-group">
-            <label>Slug *</label>
-            <input v-model="agencyForm.slug" type="text" required pattern="[a-z0-9\-]+" />
-            <small>Lowercase letters, numbers, and hyphens only</small>
-          </div>
+          <template v-if="!isOfficeType">
+            <div class="form-group">
+              <label>Name *</label>
+              <input v-model="agencyForm.name" type="text" required />
+            </div>
+            <div class="form-group">
+              <label>Slug *</label>
+              <input v-model="agencyForm.slug" type="text" required pattern="[a-z0-9\\-]+" />
+              <small>Lowercase letters, numbers, and hyphens only</small>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="form-group">
+              <label>Building name *</label>
+              <input v-model="agencyForm.name" type="text" required placeholder="e.g., Downtown Office" />
+              <small>This creates a building asset. You’ll manage rooms, room types, SVG map, and multi-agency links in Office → Settings.</small>
+            </div>
+            <div class="form-group">
+              <label>Timezone</label>
+              <select v-model="agencyForm.officeTimezone" class="select">
+                <option v-for="tz in OFFICE_TIMEZONES" :key="tz" :value="tz">{{ tz }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>SVG map URL (optional)</label>
+              <input v-model="agencyForm.officeSvgUrl" type="text" placeholder="https://..." />
+            </div>
+            <div v-if="canAttachAdditionalOfficeAgencies" class="form-group">
+              <label>Additional agencies to attach (optional)</label>
+              <div class="add-agency-list">
+                <div
+                  v-for="(row, idx) in agencyForm.officeAdditionalAgencyIds"
+                  :key="`office-add-${idx}`"
+                  class="add-agency-row"
+                >
+                  <select v-model="agencyForm.officeAdditionalAgencyIds[idx]" class="select">
+                    <option value="">Select an agency…</option>
+                    <option
+                      v-for="a in affiliableAgencies"
+                      :key="a.id"
+                      :value="String(a.id)"
+                      :disabled="String(a.id) === String(agencyForm.affiliatedAgencyId)"
+                    >
+                      {{ a.name }}
+                    </option>
+                  </select>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="removeOfficeAdditionalAgency(idx)">
+                    Remove
+                  </button>
+                </div>
+
+                <button type="button" class="btn btn-secondary btn-sm" @click="addOfficeAdditionalAgency">
+                  Add another agency
+                </button>
+              </div>
+              <small>The selected Agency above is always attached automatically.</small>
+            </div>
+          </template>
 
           <!-- School directory fields -->
           <div
@@ -539,6 +616,17 @@
             <template v-if="activeTab === 'features'">
             <label style="margin-bottom: 8px; display: block;"><strong>Feature toggles (pricing / rollout)</strong></label>
 
+            <div class="form-group" style="margin-top: 10px;">
+              <label>Portal Variant</label>
+              <select v-model="agencyForm.featureFlags.portalVariant">
+                <option value="healthcare_provider">Healthcare (Providers)</option>
+                <option value="employee">Employee (non-provider)</option>
+              </select>
+              <small class="hint">
+                Controls which dashboard modules are shown. Use “Employee” for non-provider industries (hides provider-only surfaces like Submit + Snapshot).
+              </small>
+            </div>
+
             <div class="toggle-row" style="margin-top: 8px;">
               <span>Enable In‑School submissions</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.inSchoolSubmissionsEnabled" compact />
@@ -556,6 +644,49 @@
               <ToggleSwitch v-model="agencyForm.featureFlags.aiProviderSearchEnabled" compact />
             </div>
             <small class="hint">Enables the “AI Generate Filters” box in Provider Directory. Requires GEMINI_API_KEY in backend.</small>
+
+            <div class="toggle-row" style="margin-top: 14px;">
+              <span>Enable Google Workspace login rules</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.googleSsoEnabled" compact />
+            </div>
+            <small class="hint">When enabled, selected roles must use Google sign-in for this organization (slug-based portal). School staff and client/guardian portals are not affected.</small>
+
+            <div v-if="agencyForm.featureFlags.googleSsoEnabled" style="margin-top: 12px;">
+              <label style="font-weight: 600; display: block; margin-bottom: 6px;">Roles required to use Google</label>
+              <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px;">
+                <label style="display:flex; align-items:center; gap:8px;">
+                  <input type="checkbox" value="staff" v-model="agencyForm.featureFlags.googleSsoRequiredRoles" />
+                  <span>Staff</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px;">
+                  <input type="checkbox" value="provider" v-model="agencyForm.featureFlags.googleSsoRequiredRoles" />
+                  <span>Provider</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px;">
+                  <input type="checkbox" value="admin" v-model="agencyForm.featureFlags.googleSsoRequiredRoles" />
+                  <span>Admin</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px;">
+                  <input type="checkbox" value="clinical_practice_assistant" v-model="agencyForm.featureFlags.googleSsoRequiredRoles" />
+                  <span>Clinical Practice Assistant</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:8px;">
+                  <input type="checkbox" value="super_admin" v-model="agencyForm.featureFlags.googleSsoRequiredRoles" />
+                  <span>Super Admin</span>
+                </label>
+              </div>
+
+              <div class="form-group" style="margin-top: 12px;">
+                <label>Allowed Google domains</label>
+                <textarea
+                  :value="(agencyForm.featureFlags.googleSsoAllowedDomains || []).join('\\n')"
+                  rows="3"
+                  placeholder="itsco.health&#10;plottwistco.com"
+                  @input="agencyForm.featureFlags.googleSsoAllowedDomains = String($event.target.value || '').split(/\\r?\\n|,/).map(s => s.trim().toLowerCase()).filter(Boolean)"
+                ></textarea>
+                <small class="hint">One per line (or comma-separated). Leave blank to allow any domain (not recommended).</small>
+              </div>
+            </div>
             </template>
           </div>
           
@@ -1920,11 +2051,12 @@ const router = useRouter();
 const userRole = computed(() => authStore.user?.role);
 
 const agencies = ref([]);
+const buildings = ref([]); // office_locations (organization_type = 'office')
 const searchQuery = ref('');
 // Two-mode navigation filter:
 // - agencies: show only agencies
 // - organizations: show only non-agency orgs (schools/programs/learning)
-const typeFilter = ref('agencies'); // agencies|organizations
+const typeFilter = ref('agencies'); // agencies|buildings|schools|programs|learning|other|organizations
 const sortMode = ref('name_asc'); // name_asc|name_desc|slug_asc|type_asc|status_desc
 const selectedAgencyFilterId = ref(''); // superadmin: parent agency filter
 const affiliatedOrganizations = ref([]); // /agencies/:id/affiliated-organizations results
@@ -2009,6 +2141,8 @@ const customParamKeys = ref([]);
   const customParameters = ref({});
   const copiedUrl = ref(null); // Track which URL was copied
 const activeTab = ref('general'); // Tab navigation: general|branding|features|contact|address|sites|notifications|theme|terminology|icons|payroll
+
+// Office creation is handled via Organization Type = Office in the General tab.
 
 // Payroll service code rules editor (agency-only)
 const payrollRulesLoading = ref(false);
@@ -2749,6 +2883,10 @@ const agencyForm = ref({
   affiliatedAgencyId: '',
   name: '',
   slug: '',
+  // Office-only (when organizationType === 'office')
+  officeTimezone: 'America/New_York',
+  officeSvgUrl: '',
+  officeAdditionalAgencyIds: [],
   logoUrl: '',
   primaryColor: '#0f172a',
   secondaryColor: '#1e40af',
@@ -2818,11 +2956,18 @@ const agencyForm = ref({
     ongoingDevTerm: ''
   },
   featureFlags: {
+    // Controls dashboard module set + certain provider-only surfaces
+    portalVariant: 'healthcare_provider',
     // Defaults are "enabled" to preserve existing behavior until an admin turns them off.
     inSchoolSubmissionsEnabled: true,
     medcancelEnabled: true,
     // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
-    aiProviderSearchEnabled: false
+    aiProviderSearchEnabled: false,
+
+    // Google Workspace SSO gate (off by default)
+    googleSsoEnabled: false,
+    googleSsoRequiredRoles: ['staff', 'admin', 'provider', 'clinical_practice_assistant'],
+    googleSsoAllowedDomains: []
   },
   // Notification icon fields
   statusExpiredIconId: null,
@@ -2941,9 +3086,11 @@ const sortOrganizations = (list) => {
   const typeRank = (t) => {
     const v = String(t || 'agency').toLowerCase();
     if (v === 'agency') return 0;
-    if (v === 'school') return 1;
-    if (v === 'program') return 2;
-    if (v === 'learning') return 3;
+    // "office" is our Building organization type
+    if (v === 'office') return 1;
+    if (v === 'school') return 2;
+    if (v === 'program') return 3;
+    if (v === 'learning') return 4;
     return 9;
   };
   sorted.sort((a, b) => {
@@ -2985,15 +3132,73 @@ const organizationsToRender = computed(() => {
     return [...pinned, ...children];
   }
 
-  // organizations view
   const base = selectedAgencyId ? (affiliatedOrganizations.value || []) : (agencies.value || []);
-  const nonAgencies = (base || []).filter((o) => String(o?.organization_type || 'agency').toLowerCase() !== 'agency');
-  return sortOrganizations(applyFilters(nonAgencies));
+  const buildingsBase = selectedAgencyId ? (buildingsForSelectedAgency.value || []) : (buildings.value || []);
+  const typeOf = (o) => String(o?.organization_type || 'agency').toLowerCase();
+
+  if (view === 'buildings') {
+    return sortOrganizations(applyFilters(buildingsBase));
+  }
+  if (view === 'schools') {
+    return sortOrganizations(applyFilters((base || []).filter((o) => typeOf(o) === 'school')));
+  }
+  if (view === 'programs') {
+    return sortOrganizations(applyFilters((base || []).filter((o) => typeOf(o) === 'program')));
+  }
+  if (view === 'learning') {
+    return sortOrganizations(applyFilters((base || []).filter((o) => typeOf(o) === 'learning')));
+  }
+  if (view === 'other') {
+    return sortOrganizations(
+      applyFilters((base || []).filter((o) => !['agency', 'office', 'school', 'program', 'learning'].includes(typeOf(o))))
+    );
+  }
+
+  // organizations view (all non-agency)
+  const nonAgencies = (base || []).filter((o) => typeOf(o) !== 'agency');
+  return sortOrganizations(applyFilters([...(nonAgencies || []), ...(buildingsBase || [])]));
 });
+
+const isOfficeType = computed(() => String(agencyForm.value.organizationType || '').toLowerCase() === 'office');
+
+const OFFICE_TIMEZONES = [
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Phoenix',
+  'America/Los_Angeles',
+  'America/Anchorage',
+  'Pacific/Honolulu'
+];
+
+const canCreateOffice = computed(() => {
+  const r = String(userRole.value || '').toLowerCase();
+  return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'clinical_practice_assistant' || r === 'staff';
+});
+
+const canAttachAdditionalOfficeAgencies = computed(() => {
+  // Only super_admin or an admin who has multiple agency memberships.
+  if (String(userRole.value || '').toLowerCase() === 'super_admin') return true;
+  if (String(userRole.value || '').toLowerCase() !== 'admin') return false;
+  return (affiliableAgencies.value || []).length > 1;
+});
+
+const addOfficeAdditionalAgency = () => {
+  if (!Array.isArray(agencyForm.value.officeAdditionalAgencyIds)) {
+    agencyForm.value.officeAdditionalAgencyIds = [];
+  }
+  agencyForm.value.officeAdditionalAgencyIds.push('');
+};
+
+const removeOfficeAdditionalAgency = (idx) => {
+  const arr = agencyForm.value.officeAdditionalAgencyIds;
+  if (!Array.isArray(arr)) return;
+  arr.splice(idx, 1);
+};
 
 const requiresAffiliatedAgency = computed(() => {
   const t = String(agencyForm.value.organizationType || 'agency').toLowerCase();
-  return ['school', 'program', 'learning'].includes(t);
+  return ['school', 'program', 'learning', 'office'].includes(t);
 });
 
 const affiliatedAgencyLocked = computed(() => {
@@ -3208,13 +3413,36 @@ const handleAgencyFilterChange = async () => {
   await loadAffiliatedForSelectedAgency();
 };
 
+const normalizeBuildingAsOrg = (b) => {
+  const id = Number(b?.id);
+  return {
+    ...b,
+    id,
+    __kind: 'building',
+    __key: `building:${id}`,
+    organization_type: 'office',
+    // This UI expects a slug for display/search; buildings don't have a true slug.
+    slug: b?.slug ? String(b.slug) : `building-${id}`,
+    portal_url: null
+  };
+};
+
+const buildingsForSelectedAgency = computed(() => {
+  const selectedAgencyId = selectedAgencyIdForList.value;
+  const list = buildings.value || [];
+  if (!selectedAgencyId) return list;
+  // Best-effort filter using legacy office_locations.agency_id as the "primary" agency.
+  return list.filter((b) => Number(b?.agency_id) === Number(selectedAgencyId));
+});
+
 const fetchAgencies = async () => {
   try {
     loading.value = true;
-    const [agenciesRes, usersRes] = await Promise.all([api.get('/agencies'), api.get('/users')]);
+    const [agenciesRes, usersRes, buildingsRes] = await Promise.all([api.get('/agencies'), api.get('/users'), api.get('/offices')]);
     agencies.value = agenciesRes.data || [];
     const allUsers = usersRes.data || [];
     availableUsers.value = allUsers;
+    buildings.value = (buildingsRes.data || []).map(normalizeBuildingAsOrg);
     
     // Initialize support ref for all agencies
     agencies.value.forEach(agency => {
@@ -3432,6 +3660,18 @@ const safeJsonObject = (value, fallback = {}) => {
 };
 
 const editAgency = async (agency) => {
+  // Buildings (office_locations) are managed in the Buildings module, not in this agency editor.
+  const orgTypeEarly = String(agency?.organization_type || agency?.organizationType || '').toLowerCase();
+  if (agency?.__kind === 'building' || orgTypeEarly === 'office') {
+    const officeId = agency?.id;
+    if (officeId) {
+      router.push({ path: '/buildings/settings', query: { officeId: String(officeId) } });
+    } else {
+      router.push({ path: '/buildings/settings' });
+    }
+    return;
+  }
+
   if ((showCreateModal.value || (editingAgency.value && editingAgency.value.id !== agency.id)) && !confirmDiscardUnsavedEdits()) {
     return;
   }
@@ -3506,6 +3746,9 @@ const editAgency = async (agency) => {
     affiliatedAgencyId: '',
     name: agency.name,
     slug: agency.slug,
+    officeTimezone: 'America/New_York',
+    officeSvgUrl: '',
+    officeAdditionalAgencyIds: [],
     logoUrl: agency.logo_url || '',
     logoPath: agency.logo_path || '',
     primaryColor: palette.primary || '#0f172a',
@@ -3571,9 +3814,18 @@ const editAgency = async (agency) => {
       ongoingDevTerm: terminology.ongoingDevTerm || ''
     },
     featureFlags: {
+      portalVariant: String(featureFlags.portalVariant || 'healthcare_provider'),
       inSchoolSubmissionsEnabled: featureFlags.inSchoolSubmissionsEnabled !== false,
       medcancelEnabled: featureFlags.medcancelEnabled !== false,
-      aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true
+      aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true,
+
+      googleSsoEnabled: featureFlags.googleSsoEnabled === true,
+      googleSsoRequiredRoles: Array.isArray(featureFlags.googleSsoRequiredRoles)
+        ? featureFlags.googleSsoRequiredRoles
+        : ['staff', 'admin', 'provider', 'clinical_practice_assistant'],
+      googleSsoAllowedDomains: Array.isArray(featureFlags.googleSsoAllowedDomains)
+        ? featureFlags.googleSsoAllowedDomains
+        : []
     },
     // Notification icon fields
     statusExpiredIconId: agency.status_expired_icon_id ?? null,
@@ -3679,6 +3931,19 @@ watch(() => agencyForm.value.logoPath, () => {
     agencyForm.value.logoUrl = '';
   }
 });
+
+// If switching to Office, keep the UI on General (Office-only fields live there).
+watch(
+  () => String(agencyForm.value.organizationType || '').toLowerCase(),
+  (t) => {
+    if (t === 'office') {
+      activeTab.value = 'general';
+      // Ensure defaults for the office flow.
+      if (!agencyForm.value.officeTimezone) agencyForm.value.officeTimezone = 'America/New_York';
+      if (!Array.isArray(agencyForm.value.officeAdditionalAgencyIds)) agencyForm.value.officeAdditionalAgencyIds = [];
+    }
+  }
+);
 
 const handleLogoFileSelect = async (event) => {
   const file = event.target.files[0];
@@ -3878,6 +4143,66 @@ const saveAgency = async () => {
   try {
     saving.value = true;
     error.value = ''; // Clear previous errors
+
+    const orgType = String(agencyForm.value.organizationType || 'agency').toLowerCase();
+    if (orgType === 'office') {
+      // Office is an agency-owned asset, created via /api/offices
+      if (!agencyForm.value.name || !agencyForm.value.name.trim()) {
+        error.value = 'Office name is required';
+        saving.value = false;
+        return;
+      }
+      const aid = parseInt(agencyForm.value.affiliatedAgencyId, 10);
+      if (!aid) {
+        error.value = 'Agency is required';
+        saving.value = false;
+        return;
+      }
+      const officeName = agencyForm.value.name.trim();
+      const timezone = String(agencyForm.value.officeTimezone || 'America/New_York').trim() || 'America/New_York';
+      const svgUrl = String(agencyForm.value.officeSvgUrl || '').trim();
+
+      try {
+        const resp = await api.post('/offices', {
+          agencyId: aid,
+          name: officeName,
+          timezone,
+          svgUrl: svgUrl || null
+        });
+        const created = resp.data;
+
+        // Super admin can attach multiple agencies immediately
+        if (userRole.value === 'super_admin' && created?.id) {
+          const ids = Array.isArray(agencyForm.value.officeAdditionalAgencyIds) ? agencyForm.value.officeAdditionalAgencyIds : [];
+          const extra = ids
+            .map((x) => parseInt(x, 10))
+            .filter((n) => Number.isFinite(n) && n > 0)
+            .filter((n) => n !== aid);
+          for (const x of extra) {
+            try {
+              await api.post(`/offices/${created.id}/agencies`, { agencyId: x });
+            } catch {
+              // ignore per-agency attach failures
+            }
+          }
+        }
+
+        closeModal();
+        await fetchAgencies();
+
+        // Route to Office settings to finish setup (rooms, types, SVG map, agencies, questionnaires)
+        try {
+          router.push({ path: '/office/settings', query: { officeId: String(created?.id || '') } });
+        } catch {
+          // ignore
+        }
+        return;
+      } catch (e) {
+        error.value = e.response?.data?.error?.message || 'Failed to create office';
+        saving.value = false;
+        return;
+      }
+    }
     
     // Validate required fields
     if (!agencyForm.value.name || !agencyForm.value.name.trim()) {
@@ -4133,30 +4458,42 @@ const saveAgency = async () => {
   }
 };
 
-const archiveAgency = async (agencyId) => {
-  if (!confirm('Are you sure you want to archive this agency? Archived agencies will be hidden from most views but can be restored later.')) {
+const archiveOrganization = async (org) => {
+  const orgType = String(org?.organization_type || 'agency').toLowerCase();
+  const label = orgType === 'office' || org?.__kind === 'building' ? 'building' : 'agency';
+  if (!confirm(`Are you sure you want to archive this ${label}? Archived items will be hidden from most views but can be restored later.`)) {
     return;
   }
-  
+
   try {
-    await api.post(`/agencies/${agencyId}/archive`);
+    if (orgType === 'office' || org?.__kind === 'building') {
+      await api.post(`/offices/${org.id}/archive`);
+    } else {
+      await api.post(`/agencies/${org.id}/archive`);
+    }
     await fetchAgencies();
   } catch (err) {
-    error.value = err.response?.data?.error?.message || 'Failed to archive agency';
+    error.value = err.response?.data?.error?.message || `Failed to archive ${label}`;
     alert(error.value);
   }
 };
 
-const restoreAgency = async (agencyId) => {
-  if (!confirm('Are you sure you want to restore this agency?')) {
+const restoreOrganization = async (org) => {
+  const orgType = String(org?.organization_type || 'agency').toLowerCase();
+  const label = orgType === 'office' || org?.__kind === 'building' ? 'building' : 'agency';
+  if (!confirm(`Are you sure you want to restore this ${label}?`)) {
     return;
   }
-  
+
   try {
-    await api.post(`/agencies/${agencyId}/restore`);
+    if (orgType === 'office' || org?.__kind === 'building') {
+      await api.post(`/offices/${org.id}/restore`);
+    } else {
+      await api.post(`/agencies/${org.id}/restore`);
+    }
     await fetchAgencies();
   } catch (err) {
-    error.value = err.response?.data?.error?.message || 'Failed to restore agency';
+    error.value = err.response?.data?.error?.message || `Failed to restore ${label}`;
     alert(error.value);
   }
 };
@@ -4269,6 +4606,9 @@ const closeModal = () => {
     affiliatedAgencyId: '',
     name: '',
     slug: '',
+    officeTimezone: 'America/New_York',
+    officeSvgUrl: '',
+    officeAdditionalAgencyIds: [],
     logoUrl: '',
     logoPath: '',
     primaryColor: '#0f172a',

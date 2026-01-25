@@ -49,6 +49,7 @@ import OfficeLocation from '../models/OfficeLocation.model.js';
 import { getDrivingDistanceMeters, metersToMiles } from '../services/googleDistance.service.js';
 import NotificationService from '../services/notification.service.js';
 import PayrollNotesAgingService from '../services/payrollNotesAging.service.js';
+import { OfficeScheduleReviewService } from '../services/officeScheduleReview.service.js';
 import {
   getAgencySupervisionPolicy,
   upsertAgencySupervisionPolicy,
@@ -5760,6 +5761,17 @@ export const postPayrollPeriod = async (req, res, next) => {
       });
     } catch {
       // Do not block posting payroll if PTO accrual fails.
+    }
+
+    // Best-effort: prompt providers to review office reservations (biweekly cadence).
+    try {
+      await OfficeScheduleReviewService.emitBiweeklyReviewNotifications({
+        agencyId: period.agency_id,
+        payrollPeriodId,
+        postedByUserId: req.user.id
+      });
+    } catch {
+      // Do not block posting payroll if office review notifications fail.
     }
 
     res.json(await PayrollPeriod.findById(payrollPeriodId));

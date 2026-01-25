@@ -10,6 +10,17 @@ class AgencyBillingAccount {
     return rows[0] || null;
   }
 
+  static async updatePricingOverride(agencyId, pricingOverrideJson) {
+    const aId = parseInt(agencyId, 10);
+    await pool.execute(
+      `INSERT INTO agency_billing_accounts (agency_id, pricing_override_json)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE pricing_override_json = VALUES(pricing_override_json), updated_at = CURRENT_TIMESTAMP`,
+      [aId, pricingOverrideJson ? JSON.stringify(pricingOverrideJson) : null]
+    );
+    return this.getByAgencyId(aId);
+  }
+
   static async upsertQboConnection({
     agencyId,
     billingEmail = null,

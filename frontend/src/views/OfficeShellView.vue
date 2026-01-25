@@ -1,0 +1,125 @@
+<template>
+  <div class="container office-shell">
+    <div class="header">
+      <div>
+        <h2>Buildings</h2>
+        <p class="subtitle">Scheduling, kiosk, and building settings.</p>
+      </div>
+      <div class="actions">
+        <select v-model="selectedOfficeId" @change="onOfficeChanged" :disabled="loading">
+          <option value="">Select a building…</option>
+          <option v-for="o in offices" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <router-link class="tab" :class="{ active: isActive('/buildings/schedule') }" :to="orgTo('/buildings/schedule')">Schedule</router-link>
+      <router-link class="tab" :class="{ active: isActive('/buildings/review') }" :to="orgTo('/buildings/review')">Review</router-link>
+      <router-link class="tab" :class="{ active: isActive('/buildings/settings') }" :to="orgTo('/buildings/settings')">Settings</router-link>
+    </div>
+
+    <div v-if="error" class="error-box">{{ error }}</div>
+
+    <router-view />
+  </div>
+</template>
+
+<script setup>
+import { computed, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import api from '../services/api';
+
+const route = useRoute();
+const router = useRouter();
+
+const loading = ref(false);
+const error = ref('');
+const offices = ref([]);
+const selectedOfficeId = ref('');
+
+const orgSlug = computed(() => (typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : null));
+const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
+
+const isActive = (prefix) => {
+  const p = String(route.path || '');
+  const slugPrefix = orgSlug.value ? `/${orgSlug.value}` : '';
+  return p.startsWith(`${slugPrefix}${prefix}`);
+};
+
+const loadOffices = async () => {
+  try {
+    loading.value = true;
+    error.value = '';
+    const resp = await api.get('/offices');
+    offices.value = resp.data || [];
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to load offices';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const onOfficeChanged = () => {
+  // Keep officeId in query so child pages can use it
+  router.replace({ query: { ...route.query, officeId: selectedOfficeId.value || undefined } });
+};
+
+onMounted(async () => {
+  selectedOfficeId.value = typeof route.query.officeId === 'string' ? route.query.officeId : '';
+  await loadOffices();
+  // If none selected yet, auto-select first
+  if (!selectedOfficeId.value && (offices.value || []).length > 0) {
+    selectedOfficeId.value = String(offices.value[0].id);
+    onOfficeChanged();
+  }
+});
+</script>
+
+<style scoped>
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.subtitle {
+  color: var(--text-secondary);
+  margin: 6px 0 0 0;
+}
+.tabs {
+  display: flex;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+.tab {
+  text-decoration: none;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.tab.active {
+  border-color: var(--accent);
+  background: white;
+}
+select {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 260px;
+}
+.error-box {
+  background: #fee;
+  border: 1px solid #fcc;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+</style>
+

@@ -45,6 +45,7 @@ import emailTemplateRoutes from './routes/emailTemplate.routes.js';
 import emailSenderIdentityRoutes from './routes/emailSenderIdentity.routes.js';
 import notificationTriggerAdminRoutes from './routes/notificationTriggerAdmin.routes.js';
 import userCommunicationRoutes from './routes/userCommunication.routes.js';
+import userAdminDocsRoutes from './routes/userAdminDocs.routes.js';
 import brandingTemplateRoutes from './routes/brandingTemplate.routes.js';
 import fontRoutes from './routes/font.routes.js';
 import activityLogRoutes from './routes/activityLog.routes.js';
@@ -79,6 +80,10 @@ import guardianPortalRoutes from './routes/guardianPortal.routes.js';
 import providerSelfRoutes from './routes/providerSelf.routes.js';
 import supportTicketsRoutes from './routes/supportTickets.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
+import officeSettingsRoutes from './routes/officeSettings.routes.js';
+import officeSlotActionsRoutes from './routes/officeSlotActions.routes.js';
+import officeReviewRoutes from './routes/officeReview.routes.js';
+import availabilityRoutes from './routes/availability.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -443,6 +448,7 @@ app.use('/api/email-templates', emailTemplateRoutes);
 app.use('/api/email-senders', emailSenderIdentityRoutes);
 app.use('/api/notification-triggers', notificationTriggerAdminRoutes);
 app.use('/api', userCommunicationRoutes);
+app.use('/api', userAdminDocsRoutes);
 app.use('/api/users', userPreferencesRoutes);
 app.use('/api/branding-templates', brandingTemplateRoutes);
 app.use('/api/fonts', fontRoutes);
@@ -455,6 +461,10 @@ app.use('/api/clients', clientRoutes); // Client management routes
 app.use('/api/guardian-portal', guardianPortalRoutes); // Guardian portal routes
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
 app.use('/api/office-schedule', officeScheduleRoutes);
+app.use('/api/offices', officeSettingsRoutes);
+app.use('/api/office-slots', officeSlotActionsRoutes);
+app.use('/api/office-review', officeReviewRoutes);
+app.use('/api/availability', availabilityRoutes);
 app.use('/api/twilio', twilioRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/presence', presenceRoutes);
@@ -643,3 +653,25 @@ app.listen(PORT, () => {
     setInterval(scheduleBackgroundCheckWatchdog, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight());
 
+  // Office scheduling watchdog (auto-forfeit + booking confirmations in future)
+  const scheduleOfficeScheduleWatchdog = async () => {
+    try {
+      const { OfficeScheduleWatchdogService } = await import('./services/officeScheduleWatchdog.service.js');
+      await OfficeScheduleWatchdogService.run();
+    } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE') {
+        console.warn('Office schedule tables not found. Run office scheduling migrations.');
+      } else {
+        console.error('Error in office scheduling watchdog:', error);
+      }
+    }
+  };
+
+  // Run immediately on startup (best-effort)
+  scheduleOfficeScheduleWatchdog();
+
+  // Schedule daily at midnight
+  setTimeout(() => {
+    scheduleOfficeScheduleWatchdog();
+    setInterval(scheduleOfficeScheduleWatchdog, 24 * 60 * 60 * 1000);
+  }, getMsUntilMidnight());

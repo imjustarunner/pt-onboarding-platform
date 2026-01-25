@@ -43,16 +43,25 @@ export const useAuthStore = defineStore('auth', () => {
     // Cookie is cleared by backend on logout
   };
 
-  const login = async (email, password) => {
+  const login = async (email, password, organizationSlug = null) => {
     try {
       console.log('Attempting login for:', email);
       let response;
+      const orgSlug = organizationSlug ? String(organizationSlug).trim().toLowerCase() : null;
       
       // Try regular login first
       try {
-        response = await api.post('/auth/login', { email, password });
+        response = await api.post('/auth/login', { email, password, organizationSlug: orgSlug || undefined });
       } catch (regularLoginError) {
         // If regular login fails, try approved employee login
+        if (regularLoginError.response?.status === 403 && regularLoginError.response?.data?.error?.code === 'SSO_REQUIRED') {
+          return {
+            success: false,
+            error: regularLoginError.response?.data?.error?.message || 'Google sign-in required.',
+            code: 'SSO_REQUIRED'
+          };
+        }
+
         if (regularLoginError.response?.status === 401) {
           console.log('Regular login failed, trying approved employee login...');
           try {
@@ -109,7 +118,8 @@ export const useAuthStore = defineStore('auth', () => {
       const errorMessage = error.response?.data?.error?.message || error.message || 'Login failed. Please check your credentials and try again.';
       return { 
         success: false, 
-        error: errorMessage
+        error: errorMessage,
+        code: error.response?.data?.error?.code || null
       };
     }
   };

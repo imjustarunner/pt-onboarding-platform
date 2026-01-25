@@ -1,12 +1,13 @@
 import BillingUsageService from './billingUsage.service.js';
-import { getBillingPricingConfig } from './billingPricing.service.js';
+import { getEffectiveBillingPricingForAgency } from './billingPricing.service.js';
 
 /**
  * Compute incremental monthly billing impact (cents) for adding admin users.
  * Returns null if no incremental cost.
  */
 export async function getAdminAddBillingImpact(agencyId, { deltaAdmins = 1 } = {}) {
-  const pricing = getBillingPricingConfig();
+  const pricingBundle = await getEffectiveBillingPricingForAgency(agencyId);
+  const pricing = pricingBundle.effective;
   const included = pricing.included.admins;
   const unitCents = pricing.unitCents.admin;
 

@@ -2,6 +2,12 @@ import OfficeLocation from '../models/OfficeLocation.model.js';
 import OfficeRoomAssignment from '../models/OfficeRoomAssignment.model.js';
 import User from '../models/User.model.js';
 import KioskModel from '../models/Kiosk.model.js';
+import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
+import OfficeEvent from '../models/OfficeEvent.model.js';
+import OfficeEventCheckin from '../models/OfficeEventCheckin.model.js';
+import OfficeQuestionnaireModule from '../models/OfficeQuestionnaireModule.model.js';
+import OfficeQuestionnaireResponse from '../models/OfficeQuestionnaireResponse.model.js';
+import ModuleContent from '../models/ModuleContent.model.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 
 function normalizePin(pin) {
@@ -17,6 +23,26 @@ function weekday3(dateObj) {
 function hhmm(timeStr) {
   // "HH:MM" from Date
   return timeStr.replace(':', '');
+}
+
+function parseContentData(contentRow) {
+  const data = contentRow?.content_data;
+  if (!data) return null;
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data);
+    } catch {
+      return null;
+    }
+  }
+  return data;
+}
+
+function normalizeIdArray(input) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((x) => (x === null || x === undefined ? null : parseInt(x)))
+    .filter((x) => Number.isInteger(x) && x > 0);
 }
 
 function buildSlotSignature({ dateObj, timeHHMM, pin }) {
@@ -46,6 +72,212 @@ function scoreGAD7(answers) {
   }
   return sum;
 }
+
+// Public: list booked events for a given office + date
+export const listKioskEvents = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const date = String(req.query.date || new Date().toISOString().slice(0, 10));
+
+    const loc = await OfficeLocation.findById(parseInt(locationId));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    // Kiosk can show booked + assigned_available + assigned_temporary occurrences (metadata-only).
+    const events = await OfficeEvent.listForOfficeWindow({
+      officeLocationId: parseInt(locationId),
+      startAt: `${String(date).slice(0, 10)}T00:00:00.000Z`,
+      endAt: `${String(date).slice(0, 10)}T23:59:59.999Z`
+    });
+    const out = (events || []).map((e) => {
+      const first = String(e.booked_provider_first_name || e.provider_first_name || '').trim();
+      const li = String(e.booked_provider_last_name || e.provider_last_name || '').trim().slice(0, 1);
+      const initials = `${first.slice(0, 1)}${li}`.toUpperCase();
+      return {
+        id: e.id,
+        roomId: e.room_id,
+        roomName: e.room_name,
+        startAt: e.start_at,
+        endAt: e.end_at,
+        providerId: e.booked_provider_id || e.assigned_provider_id || null,
+        providerInitials: initials || null,
+        slotState: e.slot_state || null,
+        status: e.status
+      };
+    });
+
+    res.json({ locationId: parseInt(locationId), date, events: out });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Public: check in to a specific booked event
+export const checkInToEvent = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const eventId = parseInt(req.body?.eventId);
+    if (!Number.isInteger(eventId) || eventId <= 0) {
+      return res.status(400).json({ error: { message: 'eventId is required' } });
+    }
+
+    const loc = await OfficeLocation.findById(parseInt(locationId));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    const ev = await OfficeEvent.findById(eventId);
+    if (!ev || ev.office_location_id !== parseInt(locationId)) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+    if (ev.status !== 'BOOKED' || !ev.booked_provider_id) {
+      return res.status(400).json({ error: { message: 'Event is not a booked slot' } });
+    }
+
+    const checkin = await OfficeEventCheckin.create({
+      eventId: ev.id,
+      officeLocationId: ev.office_location_id,
+      roomId: ev.room_id,
+      providerId: ev.booked_provider_id
+    });
+
+    // Notify the booked provider
+    try {
+      const agencies = await User.getAgencies(ev.booked_provider_id);
+      const agencyId = agencies?.[0]?.id || null;
+      if (agencyId) {
+        await createNotificationAndDispatch({
+          type: 'kiosk_checkin',
+          severity: 'info',
+          title: 'Kiosk check-in',
+          message: `A kiosk check-in was recorded for an office event (${ev.start_at}).`,
+          userId: ev.booked_provider_id,
+          agencyId,
+          relatedEntityType: 'office_event_checkin',
+          relatedEntityId: checkin?.id || null
+        });
+      }
+    } catch {
+      // ignore
+    }
+
+    res.status(201).json({ ok: true, eventId: ev.id, checkin });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Public: list available questionnaires for an office
+export const listKioskQuestionnaires = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const loc = await OfficeLocation.findById(parseInt(locationId));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    const rows = await OfficeQuestionnaireModule.listForOffice({ officeLocationId: parseInt(locationId) });
+    const out = (rows || []).map((r) => ({
+      moduleId: r.module_id,
+      title: r.module_title,
+      description: r.module_description || null
+    }));
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Public: fetch a kiosk-friendly form definition for a module (no user values)
+export const getKioskQuestionnaireDefinition = async (req, res, next) => {
+  try {
+    const moduleId = parseInt(req.params.moduleId);
+    if (!Number.isInteger(moduleId) || moduleId <= 0) {
+      return res.status(400).json({ error: { message: 'Invalid moduleId' } });
+    }
+
+    const content = await ModuleContent.findByModuleId(moduleId);
+    const formPagesRaw = (content || []).filter((c) => c.content_type === 'form');
+
+    const pages = formPagesRaw.map((row) => {
+      const data = parseContentData(row) || {};
+      return {
+        contentId: row.id,
+        orderIndex: row.order_index,
+        categoryKey: data.categoryKey || null,
+        title: data.title || null,
+        fieldDefinitionIds: normalizeIdArray(data.fieldDefinitionIds),
+        requireAll: data.requireAll === true
+      };
+    });
+
+    const fieldDefinitionIds = Array.from(new Set(pages.flatMap((p) => p.fieldDefinitionIds)));
+    if (fieldDefinitionIds.length === 0) {
+      return res.json({ moduleId, pages, fields: [] });
+    }
+    const placeholders = fieldDefinitionIds.map(() => '?').join(',');
+    const [fieldRows] = await (await import('../config/database.js')).default.execute(
+      `SELECT * FROM user_info_field_definitions WHERE id IN (${placeholders})`,
+      fieldDefinitionIds
+    );
+
+    const fieldDefMap = new Map((fieldRows || []).map((f) => [f.id, f]));
+    const fields = fieldDefinitionIds
+      .map((id) => fieldDefMap.get(id))
+      .filter(Boolean)
+      .map((f) => ({
+        ...f,
+        options: f.options ? (typeof f.options === 'string' ? JSON.parse(f.options) : f.options) : null,
+        value: null
+      }));
+
+    res.json({ moduleId, pages, fields });
+  } catch (e) {
+    next(e);
+  }
+};
+
+// Public: submit questionnaire answers tied to an event (metadata-only)
+export const submitKioskQuestionnaire = async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+    const eventId = parseInt(req.body?.eventId);
+    const moduleId = parseInt(req.body?.moduleId);
+    const answers = req.body?.answers || {};
+    const typicalDayTime = req.body?.typicalDayTime === true || req.body?.typicalDayTime === 'true';
+
+    if (!Number.isInteger(eventId) || eventId <= 0) return res.status(400).json({ error: { message: 'eventId is required' } });
+    if (!Number.isInteger(moduleId) || moduleId <= 0) return res.status(400).json({ error: { message: 'moduleId is required' } });
+
+    const loc = await OfficeLocation.findById(parseInt(locationId));
+    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+
+    const ev = await OfficeEvent.findById(eventId);
+    if (!ev || ev.office_location_id !== parseInt(locationId)) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+    if (ev.status !== 'BOOKED' || !ev.booked_provider_id) {
+      return res.status(400).json({ error: { message: 'Event is not a booked slot' } });
+    }
+
+    const start = new Date(ev.start_at);
+    const weekday = start.getDay(); // 0..6
+    const hour = start.getHours(); // 0..23
+    const slotHistoryKey = `${ev.office_location_id}:${ev.room_id}:${weekday}:${hour}`;
+    const appendToSlotHistory = typicalDayTime === true;
+
+    const row = await OfficeQuestionnaireResponse.create({
+      officeLocationId: ev.office_location_id,
+      roomId: ev.room_id,
+      eventId: ev.id,
+      providerId: ev.booked_provider_id,
+      moduleId,
+      answers,
+      typicalDayTime,
+      appendToSlotHistory,
+      slotHistoryKey: appendToSlotHistory ? slotHistoryKey : null
+    });
+
+    res.status(201).json({ ok: true, response: row });
+  } catch (e) {
+    next(e);
+  }
+};
 
 // Public: list providers who have assignments for today at this location
 export const listKioskProviders = async (req, res, next) => {
@@ -183,10 +415,13 @@ export const listCheckins = async (req, res, next) => {
     const loc = await OfficeLocation.findById(parseInt(locationId));
     if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
 
-    // Must belong to location agency unless super_admin
+    // Must belong to an agency assigned to this office unless super_admin
     if (req.user.role !== 'super_admin') {
       const userAgencies = await User.getAgencies(req.user.id);
-      const ok = userAgencies.some((a) => a.id === loc.agency_id);
+      const ok = await OfficeLocationAgency.userHasAccess({
+        officeLocationId: loc.id,
+        agencyIds: userAgencies.map((a) => a.id)
+      });
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
