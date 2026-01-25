@@ -13,33 +13,133 @@ function csvEscape(v) {
 const ACTIVE_STATUSES = new Set(['ACTIVE_EMPLOYEE', 'ACTIVE']);
 const PROVIDER_ROLES = new Set(['provider', 'clinician']);
 
+function isMeaningfulValue(v) {
+  if (v === null || v === undefined) return false;
+  const s = String(v).trim();
+  if (!s) return false;
+  if (s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined') return false;
+  // Treat empty multi-select JSON as blank.
+  if (s === '[]') return false;
+  return true;
+}
+
+function firstMeaningfulFromKeys(fieldsObj, keys) {
+  for (const k of keys || []) {
+    const v = fieldsObj?.[k];
+    if (isMeaningfulValue(v)) return v;
+  }
+  return null;
+}
+
 // Requested column names (export + UI), mapped to our canonical storage.
 export const CREDENTIALING_COLUMNS = [
   { key: 'first_name', label: 'first_name', kind: 'users', usersCol: 'first_name' },
   { key: 'last_name', label: 'last_name', kind: 'users', usersCol: 'last_name' },
-  { key: 'date_of_birth', label: 'date_of_birth', kind: 'uiv', fieldKey: 'date_of_birth' },
-  { key: 'first_client_date', label: 'first_client_date', kind: 'uiv', fieldKey: 'first_client_date' },
-  { key: 'npi_number', label: 'npi_number', kind: 'uiv', fieldKey: 'provider_identity_npi_number' },
-  { key: 'npi_id', label: 'npi_id', kind: 'uiv', fieldKey: 'npi_id' },
-  { key: 'taxonomy_code', label: 'taxonomy_code', kind: 'uiv', fieldKey: 'provider_identity_taxonomy_code' },
-  { key: 'zipcode', label: 'zipcode', kind: 'uiv', fieldKey: 'zipcode' },
-  { key: 'license_type_number', label: 'license_type_number', kind: 'uiv', fieldKey: 'provider_credential_license_type_number' },
-  { key: 'license_issued', label: 'license_issued', kind: 'uiv', fieldKey: 'provider_credential_license_issued_date' },
-  { key: 'license_expires', label: 'license_expires', kind: 'uiv', fieldKey: 'provider_credential_license_expiration_date' },
-  { key: 'medicaid_provider_type', label: 'medicaid_provider_type', kind: 'uiv', fieldKey: 'medicaid_provider_type' },
-  { key: 'tax_id', label: 'tax_id', kind: 'uiv', fieldKey: 'tax_id' },
-  { key: 'medicaid_location_id', label: 'medicaid_location_id', kind: 'uiv', fieldKey: 'provider_credential_medicaid_location_id' },
-  { key: 'medicaid_effective_date', label: 'medicaid_effective_date', kind: 'uiv', fieldKey: 'medicaid_effective_date' },
-  { key: 'medicaid_revalidation', label: 'medicaid_revalidation', kind: 'uiv', fieldKey: 'provider_credential_medicaid_revalidation_date' },
-  { key: 'medicare_number', label: 'medicare_number', kind: 'uiv', fieldKey: 'medicare_number' },
-  { key: 'caqh_provider_id', label: 'caqh_provider_id', kind: 'uiv', fieldKey: 'provider_credential_caqh_provider_id' },
+  { key: 'date_of_birth', label: 'date_of_birth', kind: 'uiv', fieldKey: 'date_of_birth', readFieldKeys: ['date_of_birth', 'dob', 'birthdate', 'birth_date'] },
+  { key: 'first_client_date', label: 'first_client_date', kind: 'uiv', fieldKey: 'first_client_date', readFieldKeys: ['first_client_date', 'first_client_start_date', 'start_date_first_client'] },
+  {
+    key: 'npi_number',
+    label: 'npi_number',
+    kind: 'uiv',
+    fieldKey: 'provider_identity_npi_number',
+    readFieldKeys: ['provider_identity_npi_number', 'npi_number', 'provider_npi_number', 'provider_npi', 'npi']
+  },
+  { key: 'npi_id', label: 'npi_id', kind: 'uiv', fieldKey: 'npi_id', readFieldKeys: ['npi_id', 'provider_npi_id'] },
+  {
+    key: 'taxonomy_code',
+    label: 'taxonomy_code',
+    kind: 'uiv',
+    fieldKey: 'provider_identity_taxonomy_code',
+    readFieldKeys: ['provider_identity_taxonomy_code', 'taxonomy_code', 'taxonomy']
+  },
+  { key: 'zipcode', label: 'zipcode', kind: 'uiv', fieldKey: 'zipcode', readFieldKeys: ['zipcode', 'zip', 'postal_code', 'home_zip'] },
+  {
+    key: 'license_type_number',
+    label: 'license_type_number',
+    kind: 'uiv',
+    fieldKey: 'provider_credential_license_type_number',
+    readFieldKeys: [
+      'provider_credential_license_type_number',
+      'license_type_number',
+      'license_type_and_number',
+      'license_number',
+      'provider_license_type_number'
+    ]
+  },
+  {
+    key: 'license_issued',
+    label: 'license_issued',
+    kind: 'uiv',
+    fieldKey: 'provider_credential_license_issued_date',
+    readFieldKeys: ['provider_credential_license_issued_date', 'license_issued', 'license_issued_date']
+  },
+  {
+    key: 'license_expires',
+    label: 'license_expires',
+    kind: 'uiv',
+    fieldKey: 'provider_credential_license_expiration_date',
+    readFieldKeys: ['provider_credential_license_expiration_date', 'license_expires', 'license_expiration_date', 'license_expires_date']
+  },
+  { key: 'medicaid_provider_type', label: 'medicaid_provider_type', kind: 'uiv', fieldKey: 'medicaid_provider_type', readFieldKeys: ['medicaid_provider_type'] },
+  { key: 'tax_id', label: 'tax_id', kind: 'uiv', fieldKey: 'tax_id', readFieldKeys: ['tax_id', 'ein'] },
+  {
+    key: 'medicaid_location_id',
+    label: 'medicaid_location_id',
+    kind: 'uiv',
+    fieldKey: 'provider_credential_medicaid_location_id',
+    readFieldKeys: ['provider_credential_medicaid_location_id', 'medicaid_location_id']
+  },
+  {
+    key: 'medicaid_effective_date',
+    label: 'medicaid_effective_date',
+    kind: 'uiv',
+    fieldKey: 'medicaid_effective_date',
+    readFieldKeys: ['medicaid_effective_date', 'medicaid_effective']
+  },
+  {
+    key: 'medicaid_revalidation',
+    label: 'medicaid_revalidation',
+    kind: 'uiv',
+    fieldKey: 'provider_credential_medicaid_revalidation_date',
+    readFieldKeys: ['provider_credential_medicaid_revalidation_date', 'medicaid_revalidation', 'medicaid_revalidation_date']
+  },
+  { key: 'medicare_number', label: 'medicare_number', kind: 'uiv', fieldKey: 'medicare_number', readFieldKeys: ['medicare_number', 'medicare_id'] },
+  {
+    key: 'caqh_provider_id',
+    label: 'caqh_provider_id',
+    kind: 'uiv',
+    fieldKey: 'provider_credential_caqh_provider_id',
+    readFieldKeys: ['provider_credential_caqh_provider_id', 'caqh_provider_id', 'caqh_id']
+  },
   { key: 'personal_email', label: 'personal_email', kind: 'users', usersCol: 'personal_email' },
   { key: 'cell_number', label: 'cell_number', kind: 'users', usersCol: 'personal_phone' }
 ];
 
-const UIV_FIELD_KEYS = Array.from(
-  new Set(CREDENTIALING_COLUMNS.filter((c) => c.kind === 'uiv').map((c) => c.fieldKey))
+const UIV_READ_FIELD_KEYS = Array.from(
+  new Set(
+    CREDENTIALING_COLUMNS
+      .filter((c) => c.kind === 'uiv')
+      .flatMap((c) => (Array.isArray(c.readFieldKeys) && c.readFieldKeys.length ? c.readFieldKeys : [c.fieldKey]))
+  )
 );
+
+const CANONICAL_UICOL_BY_STORAGE_KEY = new Map(
+  CREDENTIALING_COLUMNS.filter((c) => c.kind === 'uiv').map((c) => [String(c.fieldKey), c])
+);
+
+function normalizeRowFieldsToCanonical(row) {
+  const fields = row?.fields || {};
+  for (const col of CREDENTIALING_COLUMNS) {
+    if (col.kind !== 'uiv') continue;
+    const readKeys = Array.isArray(col.readFieldKeys) && col.readFieldKeys.length ? col.readFieldKeys : [col.fieldKey];
+    const v = firstMeaningfulFromKeys(fields, readKeys);
+    if (v !== null && v !== undefined && !isMeaningfulValue(fields[col.fieldKey])) {
+      fields[col.fieldKey] = v;
+    }
+  }
+  row.fields = fields;
+  return row;
+}
 
 async function assertAgencyAccess(req, agencyId) {
   if (req.user.role === 'super_admin') return;
@@ -105,8 +205,8 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
 
     if (userIds.length) {
       const placeholders = userIds.map(() => '?').join(',');
-      const fieldPlaceholders = UIV_FIELD_KEYS.map(() => '?').join(',');
-      const params = [agencyId, ...userIds, ...UIV_FIELD_KEYS];
+      const fieldPlaceholders = UIV_READ_FIELD_KEYS.map(() => '?').join(',');
+      const params = [agencyId, ...userIds, ...UIV_READ_FIELD_KEYS];
       const [vals] = await pool.execute(
         `SELECT uiv.user_id, uifd.field_key, uiv.value
          FROM user_info_values uiv
@@ -130,7 +230,7 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
     res.json({
       agencyId,
       columns: CREDENTIALING_COLUMNS.map((c) => ({ key: c.key, label: c.label })),
-      rows: Array.from(rowsByUserId.values())
+      rows: Array.from(rowsByUserId.values()).map((r) => normalizeRowFieldsToCanonical(r))
     });
   } catch (e) {
     next(e);
@@ -230,7 +330,11 @@ export const patchAgencyProvidersCredentialing = async (req, res, next) => {
       .filter((u) => !['personal_email', 'cell_number'].includes(u.fieldKey))
       .map((u) => {
         const col = CREDENTIALING_COLUMNS.find((c) => c.key === u.fieldKey);
-        return { ...u, storageKey: col?.fieldKey || null };
+        return {
+          ...u,
+          storageKey: col?.fieldKey || null,
+          aliasKeysToClear: (col?.readFieldKeys || []).filter((k) => String(k) !== String(col?.fieldKey || ''))
+        };
       })
       .filter((u) => !!u.storageKey);
 
@@ -242,6 +346,22 @@ export const patchAgencyProvidersCredentialing = async (req, res, next) => {
       const defId = defIdByFieldKey.get(String(u.storageKey));
       if (!defId) continue;
       await UserInfoValue.createOrUpdate(u.userId, defId, u.value);
+      // Cleanup: if the value used to live under an alias field_key, clear those alias values
+      // so Provider Info and Credentialing stop showing duplicates for this user.
+      if (Array.isArray(u.aliasKeysToClear) && u.aliasKeysToClear.length) {
+        try {
+          const ph = u.aliasKeysToClear.map(() => '?').join(',');
+          await pool.execute(
+            `DELETE uiv
+             FROM user_info_values uiv
+             JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
+             WHERE uiv.user_id = ? AND uifd.field_key IN (${ph})`,
+            [u.userId, ...u.aliasKeysToClear]
+          );
+        } catch {
+          // ignore (best-effort)
+        }
+      }
       updatedCount += 1;
     }
 
@@ -280,8 +400,8 @@ export const downloadAgencyProvidersCredentialingCsv = async (req, res, next) =>
 
     if (userIds.length) {
       const placeholders = userIds.map(() => '?').join(',');
-      const fieldPlaceholders = UIV_FIELD_KEYS.map(() => '?').join(',');
-      const params = [agencyId, ...userIds, ...UIV_FIELD_KEYS];
+      const fieldPlaceholders = UIV_READ_FIELD_KEYS.map(() => '?').join(',');
+      const params = [agencyId, ...userIds, ...UIV_READ_FIELD_KEYS];
       const [vals] = await pool.execute(
         `SELECT uiv.user_id, uifd.field_key, uiv.value
          FROM user_info_values uiv
@@ -306,6 +426,15 @@ export const downloadAgencyProvidersCredentialingCsv = async (req, res, next) =>
     for (const u of users || []) {
       const uid = Number(u.userId);
       const f = fieldsByUserId.get(uid) || {};
+      // Normalize to canonical keys for export.
+      for (const col of CREDENTIALING_COLUMNS) {
+        if (col.kind !== 'uiv') continue;
+        const readKeys = Array.isArray(col.readFieldKeys) && col.readFieldKeys.length ? col.readFieldKeys : [col.fieldKey];
+        const v = firstMeaningfulFromKeys(f, readKeys);
+        if (v !== null && v !== undefined && !isMeaningfulValue(f[col.fieldKey])) {
+          f[col.fieldKey] = v;
+        }
+      }
       const row = CREDENTIALING_COLUMNS.map((c) => {
         if (c.kind === 'users') {
           if (c.usersCol === 'personal_phone') return csvEscape(u.personal_phone || '');
