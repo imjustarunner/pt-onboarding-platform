@@ -6,6 +6,7 @@ import pool from '../config/database.js';
 import UserInfoValue from '../models/UserInfoValue.model.js';
 import ProviderSearchIndex from '../models/ProviderSearchIndex.model.js';
 import User from '../models/User.model.js';
+import { formOptionSources } from '../config/formOptionSources.js';
 import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
@@ -1538,6 +1539,10 @@ export const importEmployeeInfo = [
           { key: 'languages_spoken', label: 'Languages spoken', type: 'multi_select' },
           { key: 'work_exp_general', label: 'Work experience', type: 'textarea' },
           { key: 'treatment_prefs_max15', label: 'Treatment preferences (max 15)', type: 'multi_select' },
+          // Provider Marketing keys used by `frontend/src/components/admin/ProviderInfoTab.vue`
+          // These MUST have options populated so checkboxes render.
+          { key: 'provider_marketing_age_specialty', label: 'Age Specialty', type: 'multi_select', options: formOptionSources.psych_today_age_specialty },
+          { key: 'provider_marketing_treatment_modalities', label: 'Treatment Modalities (Max 15)', type: 'multi_select', options: formOptionSources.psych_today_modalities_list },
           { key: 'avoid_clients_general', label: 'Clients to avoid', type: 'textarea' },
           { key: 'philosophies', label: 'Philosophies', type: 'textarea' },
           { key: 'personal_info', label: 'Personal info to share', type: 'textarea' },
@@ -1554,22 +1559,28 @@ export const importEmployeeInfo = [
           { key: 'fun_questions', label: 'Fun questions', type: 'textarea' }
         ];
 
+        const toOptionsJson = (opt) => {
+          if (!opt) return null;
+          if (Array.isArray(opt)) return JSON.stringify(opt);
+          return null;
+        };
+
         for (const d of defs) {
           try {
             await pool.execute(
               `INSERT INTO user_info_field_definitions
                 (field_key, field_label, field_type, options, is_required, is_platform_template, agency_id, parent_field_id, order_index, created_by_user_id)
-               VALUES (?, ?, ?, NULL, FALSE, TRUE, NULL, NULL, 0, ?)
+               VALUES (?, ?, ?, ?, FALSE, TRUE, NULL, NULL, 0, ?)
                ON DUPLICATE KEY UPDATE field_key = field_key`,
-              [d.key, d.label, d.type, req.user?.id || null]
+              [d.key, d.label, d.type, toOptionsJson(d.options), req.user?.id || null]
             );
           } catch {
             await pool.execute(
               `INSERT INTO user_info_field_definitions
                 (field_key, field_label, field_type, options, is_required, is_platform_template, agency_id, parent_field_id, order_index, created_by_user_id)
-               VALUES (?, ?, ?, NULL, FALSE, FALSE, ?, NULL, 0, ?)
+               VALUES (?, ?, ?, ?, FALSE, FALSE, ?, NULL, 0, ?)
                ON DUPLICATE KEY UPDATE field_key = field_key`,
-              [d.key, d.label, d.type, agencyId, req.user?.id || null]
+              [d.key, d.label, d.type, toOptionsJson(d.options), agencyId, req.user?.id || null]
             );
           }
         }

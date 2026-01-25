@@ -299,15 +299,20 @@ const refresh = async () => {
     installError.value = '';
     installSuccess.value = '';
 
-    const [infoRes, catsRes, agenciesRes] = await Promise.all([
-      api.get(`/users/${props.userId}/user-info`, { params: { assignedOrHasValueOnly: true } }),
+    // Fetch agencies first so we can request user-info with an agencyId context.
+    const [catsRes, agenciesRes] = await Promise.all([
       api.get('/user-info-categories'),
       api.get(`/users/${props.userId}/agencies`)
     ]);
 
-    allFields.value = infoRes.data || [];
     categories.value = catsRes.data || [];
     userAgencies.value = agenciesRes.data || [];
+
+    const agencyId = targetAgency.value?.id || null;
+    const infoRes = await api.get(`/users/${props.userId}/user-info`, {
+      params: { assignedOrHasValueOnly: true, agencyId: agencyId || undefined }
+    });
+    allFields.value = infoRes.data || [];
 
     const values = {};
     (allFields.value || []).forEach((f) => {
