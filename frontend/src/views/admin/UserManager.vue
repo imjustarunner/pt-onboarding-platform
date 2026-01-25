@@ -1223,7 +1223,7 @@ const runAiQuery = async () => {
     aiEmailsSemicolon.value = '';
     aiMeta.value = null;
 
-    const response = await api.get('/users/ai-query', { params: { query: q, limit: 500 } });
+    const response = await api.get('/users/ai-query', { params: { query: q, limit: 500, includeArchived: true } });
     const data = response.data || {};
     aiResults.value = Array.isArray(data.results) ? data.results : [];
     aiEmailsSemicolon.value = String(data.emailsSemicolon || '');
@@ -1338,7 +1338,8 @@ const usernameInput = ref(null);
 const fetchUsers = async () => {
   try {
     loading.value = true;
-    const response = await api.get('/users');
+    // Fetch with includeArchived=true so searches/filters can actually “see” archived records.
+    const response = await api.get('/users', { params: { includeArchived: true } });
     users.value = response.data;
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load users';
