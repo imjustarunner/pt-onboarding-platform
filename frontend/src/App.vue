@@ -65,6 +65,11 @@
                 @click="closeMobileMenu"
               >Documents</router-link>
                 <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Users</router-link>
+                <router-link
+                  :to="orgTo('/admin/credentialing')"
+                  v-if="isAdmin || user?.role === 'support' || user?.role === 'staff'"
+                  @click="closeMobileMenu"
+                >Credentialing</router-link>
                 <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeMobileMenu">Clients</router-link>
               <router-link
                 :to="orgTo('/admin/communications')"

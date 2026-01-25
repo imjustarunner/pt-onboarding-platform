@@ -11,6 +11,10 @@
           <input type="checkbox" v-model="showEmptyAssignedFields" />
           <span style="font-size: 13px; color: var(--text-secondary);">Show empty assigned fields</span>
         </label>
+        <label v-if="canAdminEdit" class="toggle" style="display:flex; align-items:center; gap:8px; margin-right: 10px;">
+          <input type="checkbox" v-model="showFieldKeys" />
+          <span style="font-size: 13px; color: var(--text-secondary);">Show field keys</span>
+        </label>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading || installing">
           Refresh
         </button>
@@ -57,10 +61,31 @@
       </div>
 
       <div v-else class="sections">
+        <div class="section-controls" style="display:flex; gap:10px; margin: 0 0 14px 0; flex-wrap: wrap;">
+          <button type="button" class="btn btn-secondary btn-sm" @click="collapseAllSections" :disabled="loading || saving">
+            Collapse all
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="expandAllSections" :disabled="loading || saving">
+            Expand all
+          </button>
+        </div>
+
         <div v-for="section in visibleProviderSections" :key="section.key" class="section">
           <div class="section-title">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-              <h3 style="margin: 0;">{{ section.label }}</h3>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="toggleSection(section.key)"
+                :title="isSectionCollapsed(section.key) ? 'Expand section' : 'Collapse section'"
+                style="display:flex; align-items:center; gap:10px;"
+              >
+                <span style="width: 14px; display:inline-block; text-align:center;">
+                  {{ isSectionCollapsed(section.key) ? '+' : '–' }}
+                </span>
+                <span style="font-weight: 600;">{{ section.label }}</span>
+                <span style="opacity: 0.7;">({{ (section.fields || []).length }})</span>
+              </button>
               <button
                 v-if="section.key === 'provider_legacy_matching' && legacyCleanupCandidateCount > 0"
                 type="button"
@@ -74,13 +99,20 @@
             </div>
           </div>
 
-          <div class="fields-grid">
+          <div v-show="!isSectionCollapsed(section.key)" class="fields-grid">
             <div v-for="field in section.fields" :key="field.id" class="field-item">
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
-                <label :for="`provider-field-${field.id}`" style="margin: 0;">
-                  {{ field.field_label }}
-                  <span v-if="field.is_required" class="required-asterisk">*</span>
-                </label>
+                <div style="display:flex; flex-direction:column; gap:2px;">
+                  <label :for="`provider-field-${field.id}`" style="margin: 0;">
+                    {{ field.field_label }}
+                    <span v-if="field.is_required" class="required-asterisk">*</span>
+                  </label>
+                  <div v-if="showFieldKeys" class="muted" style="font-size: 12px;">
+                    key: <code>{{ field.field_key }}</code>
+                    <span style="opacity: 0.7;">&nbsp;|&nbsp;defId: {{ field.id }}</span>
+                    <span v-if="field.category_key" style="opacity: 0.7;">&nbsp;|&nbsp;cat: <code>{{ field.category_key }}</code></span>
+                  </div>
+                </div>
                 <button
                   v-if="canDeleteField(field) && field?.hasValue"
                   type="button"
@@ -208,6 +240,25 @@ const allFields = ref([]);
 const fieldValues = ref({});
 const userAgencies = ref([]);
 const showEmptyAssignedFields = ref(false);
+const showFieldKeys = ref(false);
+const collapsedSections = ref(new Set());
+
+const isSectionCollapsed = (key) => collapsedSections.value.has(String(key || ''));
+const toggleSection = (key) => {
+  const k = String(key || '');
+  if (!k) return;
+  const next = new Set(collapsedSections.value);
+  if (next.has(k)) next.delete(k);
+  else next.add(k);
+  collapsedSections.value = next;
+};
+const collapseAllSections = () => {
+  const keys = (visibleProviderSections.value || []).map((s) => String(s?.key || '')).filter(Boolean);
+  collapsedSections.value = new Set(keys);
+};
+const expandAllSections = () => {
+  collapsedSections.value = new Set();
+};
 
 const platformCategoryKeys = computed(() => {
   return new Set((categories.value || []).filter((c) => c.is_platform_template === 1 || c.is_platform_template === true).map((c) => c.category_key));

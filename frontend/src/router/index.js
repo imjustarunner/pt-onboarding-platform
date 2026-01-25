@@ -354,6 +354,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/credentialing',
+    name: 'OrganizationAgencyCredentialing',
+    component: () => import('../views/admin/AgencyCredentialingView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/notifications',
     name: 'OrganizationSupervisorNotifications',
     component: () => import('../views/NotificationsHubView.vue'),

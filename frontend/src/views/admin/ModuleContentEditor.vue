@@ -339,7 +339,13 @@
 
             <div class="form-group">
               <label>Pick fields</label>
-              <input v-model="formFieldSearch" type="text" placeholder="Search fields..." style="margin-bottom: 8px;" />
+              <div style="display:flex; align-items:center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+                <input v-model="formFieldSearch" type="text" placeholder="Search fields..." style="flex: 1; min-width: 240px;" />
+                <label style="display:flex; align-items:center; gap:8px; margin: 0;">
+                  <input v-model="showFieldKeys" type="checkbox" />
+                  <span style="font-size: 13px; color: var(--text-secondary);">Show field keys</span>
+                </label>
+              </div>
               <div class="field-picker">
                 <label
                   v-for="field in filteredAvailableFields"
@@ -352,7 +358,7 @@
                     v-model="currentPage.data.fieldDefinitionIds"
                   />
                   <span style="font-weight: 600;">{{ field.field_label }}</span>
-                  <span style="opacity: 0.75; margin-left: 6px;">({{ field.field_key }})</span>
+                  <span v-if="showFieldKeys" style="opacity: 0.75; margin-left: 6px;">({{ field.field_key }})</span>
                   <span v-if="field.agency_id" class="prop-badge" style="margin-left: 8px;">Agency</span>
                   <span v-else class="prop-badge" style="margin-left: 8px;">Platform</span>
                   <span v-if="field.is_required" class="prop-badge required" style="margin-left: 6px;">Required</span>
@@ -364,7 +370,10 @@
               <label>Selected fields (order)</label>
               <div class="selected-fields">
                 <div v-for="(fid, idx) in currentPage.data.fieldDefinitionIds" :key="fid" class="selected-field-row">
-                  <span>{{ idx + 1 }}. {{ getFieldLabelById(fid) }}</span>
+                  <span>
+                    {{ idx + 1 }}. {{ getFieldLabelById(fid) }}
+                    <span v-if="showFieldKeys" style="opacity: 0.75; margin-left: 6px;">({{ getFieldKeyById(fid) }})</span>
+                  </span>
                   <div style="display:flex; gap:6px;">
                     <button class="btn btn-secondary btn-sm" :disabled="idx === 0" @click="moveSelectedField(-1, fid)">↑</button>
                     <button class="btn btn-secondary btn-sm" :disabled="idx === currentPage.data.fieldDefinitionIds.length - 1" @click="moveSelectedField(1, fid)">↓</button>
@@ -542,7 +551,7 @@
               <p><strong>Fields:</strong></p>
               <ul style="margin: 0; padding-left: 18px;">
                 <li v-for="fid in currentPage.data.fieldDefinitionIds" :key="fid">
-                  {{ getFieldLabelById(fid) }}
+                  {{ getFieldLabelById(fid) }}<span v-if="showFieldKeys" style="opacity: 0.75;"> ({{ getFieldKeyById(fid) }})</span>
                 </li>
               </ul>
             </div>
@@ -643,6 +652,7 @@ const loading = ref(true);
 const userInfoCategories = ref([]);
 const userInfoFields = ref([]);
 const formFieldSearch = ref('');
+const showFieldKeys = ref(false);
 const newCategoryLabel = ref('');
 const newCategoryKey = ref('');
 const creatingCategory = ref(false);
@@ -675,6 +685,11 @@ const filteredAvailableFields = computed(() => {
 const getFieldLabelById = (id) => {
   const field = (availableFields.value || []).find((f) => f.id === id);
   return field?.field_label || `Field #${id}`;
+};
+
+const getFieldKeyById = (id) => {
+  const field = (availableFields.value || []).find((f) => f.id === id);
+  return field?.field_key || '';
 };
 
 const fetchModule = async () => {

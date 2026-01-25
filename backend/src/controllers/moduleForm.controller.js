@@ -50,6 +50,24 @@ function isMissingValue(value) {
   return false;
 }
 
+function isBlankSubmittedValue(value) {
+  if (value === null || value === undefined) return true;
+  if (typeof value !== 'string') return false;
+  const s = value.trim();
+  if (!s) return true;
+  // Multi-select values are sent as JSON arrays. Treat an empty array as blank.
+  if (s === '[]') return true;
+  if (s.startsWith('[') && s.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) return parsed.length === 0;
+    } catch {
+      // ignore
+    }
+  }
+  return false;
+}
+
 async function loadFieldDefinitionById(fieldDefinitionId) {
   const id = Number(fieldDefinitionId);
   if (!id) return null;
@@ -238,6 +256,9 @@ export const submitModuleForm = async (req, res, next) => {
     }
 
     // Persist submitted values for the current user
+    // Default behavior: do NOT overwrite existing values with blanks.
+    // This enables re-sending forms to active users to collect updates without wiping past data.
+    const skipBlanks = req.body?.skipBlanks === undefined ? true : Boolean(req.body.skipBlanks);
     const normalizedValues = values
       .map((v) => ({
         fieldDefinitionId: parseInt(v?.fieldDefinitionId),
@@ -245,7 +266,13 @@ export const submitModuleForm = async (req, res, next) => {
       }))
       .filter((v) => Number.isInteger(v.fieldDefinitionId) && v.fieldDefinitionId > 0);
 
-    await UserInfoValue.bulkUpdate(req.user.id, normalizedValues);
+    const effectiveValues = skipBlanks
+      ? normalizedValues.filter((v) => !isBlankSubmittedValue(v.value))
+      : normalizedValues;
+
+    if (effectiveValues.length) {
+      await UserInfoValue.bulkUpdate(req.user.id, effectiveValues);
+    }
 
     if (!shouldValidate) {
       return res.json({ ok: true, validated: false });

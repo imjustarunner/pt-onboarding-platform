@@ -889,7 +889,9 @@ async function saveFormValues(validate) {
   try {
     formSaving.value = true;
     const suffix = validate ? '?validate=true' : '';
-    await api.post(`/modules/${moduleId}/form-submit${suffix}`, { values });
+    // Important: do not overwrite existing values with blanks when re-sending forms to active users.
+    // This lets users submit partial updates without wiping previously captured data.
+    await api.post(`/modules/${moduleId}/form-submit${suffix}`, { values, skipBlanks: true });
     formSaveMessage.value = validate ? 'Validated' : 'Saved';
     return true;
   } catch (err) {
