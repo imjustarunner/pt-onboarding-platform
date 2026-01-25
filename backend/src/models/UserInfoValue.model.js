@@ -138,7 +138,11 @@ class UserInfoValue {
       }
     }
 
-    // Dedupe field definitions by field_key (prefer platform template, then lowest id).
+    // Dedupe field definitions by field_key.
+    // Priority (most specific wins):
+    // 1) Agency-specific definitions (agency_id set) override platform/global templates
+    // 2) Platform templates (is_platform_template=TRUE) override other global defs
+    // 3) Lowest id as a stable tie-breaker
     const bestDefByKey = new Map();
     for (const f of fieldDefinitions || []) {
       const k = String(f.field_key || '').trim();
@@ -152,15 +156,25 @@ class UserInfoValue {
       const nextPlat = f.is_platform_template === 1 || f.is_platform_template === true;
       const curAgencyNull = cur.agency_id === null || cur.agency_id === undefined;
       const nextAgencyNull = f.agency_id === null || f.agency_id === undefined;
+      // Prefer agency-specific over global (regardless of platform-template flag).
+      if (curAgencyNull && !nextAgencyNull) {
+        bestDefByKey.set(k, f);
+        continue;
+      }
+      if (!curAgencyNull && nextAgencyNull) {
+        continue;
+      }
+
+      // If both are global or both are agency-specific, prefer platform template.
       if (!curPlat && nextPlat) {
         bestDefByKey.set(k, f);
         continue;
       }
-      if (curPlat === nextPlat && !curAgencyNull && nextAgencyNull) {
-        bestDefByKey.set(k, f);
+      if (curPlat && !nextPlat) {
         continue;
       }
-      if (curPlat === nextPlat && curAgencyNull === nextAgencyNull) {
+
+      if (curAgencyNull === nextAgencyNull) {
         const curId = Number(cur.id || 0);
         const nextId = Number(f.id || 0);
         if (nextId && (!curId || nextId < curId)) bestDefByKey.set(k, f);

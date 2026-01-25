@@ -1538,9 +1538,6 @@ export const importEmployeeInfo = [
           { key: 'languages_spoken', label: 'Languages spoken', type: 'multi_select' },
           { key: 'work_exp_general', label: 'Work experience', type: 'textarea' },
           { key: 'treatment_prefs_max15', label: 'Treatment preferences (max 15)', type: 'multi_select' },
-          // Provider Marketing profile keys (used by Provider Info UI checkboxes)
-          { key: 'provider_marketing_age_specialty', label: 'Age Specialty (Provider Marketing)', type: 'multi_select' },
-          { key: 'provider_marketing_treatment_modalities', label: 'Treatment Modalities (Provider Marketing)', type: 'multi_select' },
           { key: 'avoid_clients_general', label: 'Clients to avoid', type: 'textarea' },
           { key: 'philosophies', label: 'Philosophies', type: 'textarea' },
           { key: 'personal_info', label: 'Personal info to share', type: 'textarea' },
