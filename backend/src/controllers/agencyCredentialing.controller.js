@@ -31,6 +31,14 @@ function firstMeaningfulFromKeys(fieldsObj, keys) {
   return null;
 }
 
+function firstMeaningfulKey(fieldsObj, keys) {
+  for (const k of keys || []) {
+    const v = fieldsObj?.[k];
+    if (isMeaningfulValue(v)) return String(k);
+  }
+  return '';
+}
+
 // Requested column names (export + UI), mapped to our canonical storage.
 export const CREDENTIALING_COLUMNS = [
   { key: 'first_name', label: 'first_name', kind: 'users', usersCol: 'first_name' },
@@ -129,15 +137,19 @@ const CANONICAL_UICOL_BY_STORAGE_KEY = new Map(
 
 function normalizeRowFieldsToCanonical(row) {
   const fields = row?.fields || {};
+  const sources = row?.sources && typeof row.sources === 'object' ? row.sources : {};
   for (const col of CREDENTIALING_COLUMNS) {
     if (col.kind !== 'uiv') continue;
     const readKeys = Array.isArray(col.readFieldKeys) && col.readFieldKeys.length ? col.readFieldKeys : [col.fieldKey];
     const v = firstMeaningfulFromKeys(fields, readKeys);
+    const sourceKey = firstMeaningfulKey(fields, readKeys);
+    sources[col.key] = sourceKey || '';
     if (v !== null && v !== undefined && !isMeaningfulValue(fields[col.fieldKey])) {
       fields[col.fieldKey] = v;
     }
   }
   row.fields = fields;
+  row.sources = sources;
   return row;
 }
 

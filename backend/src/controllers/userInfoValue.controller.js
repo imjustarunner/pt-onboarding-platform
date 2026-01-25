@@ -5,6 +5,84 @@ import ModuleContent from '../models/ModuleContent.model.js';
 import pool from '../config/database.js';
 import ProviderSearchIndex from '../models/ProviderSearchIndex.model.js';
 
+// When credentialing/profile data is stored under legacy/alias keys, we still want all views
+// (Provider Info tab + Credentialing grid) to stay consistent. This maps alias keys to the
+// canonical provider_* keys and mirrors writes accordingly.
+const CREDENTIALING_ALIAS_TO_CANONICAL = new Map([
+  ['npi_number', 'provider_identity_npi_number'],
+  ['taxonomy_code', 'provider_identity_taxonomy_code'],
+  ['license_type_number', 'provider_credential_license_type_number'],
+  ['license_type_and_number', 'provider_credential_license_type_number'],
+  ['license_issued', 'provider_credential_license_issued_date'],
+  ['license_issued_date', 'provider_credential_license_issued_date'],
+  ['license_expires', 'provider_credential_license_expiration_date'],
+  ['license_expiration_date', 'provider_credential_license_expiration_date'],
+  ['medicaid_location_id', 'provider_credential_medicaid_location_id'],
+  ['medicaid_revalidation', 'provider_credential_medicaid_revalidation_date'],
+  ['medicaid_revalidation_date', 'provider_credential_medicaid_revalidation_date'],
+  ['caqh_provider_id', 'provider_credential_caqh_provider_id'],
+  ['caqh_id', 'provider_credential_caqh_provider_id']
+]);
+
+async function resolveBestFieldDefinitionIdForKey({ fieldKey, agencyId }) {
+  const key = String(fieldKey || '').trim();
+  if (!key) return null;
+  const aid = agencyId ? Number(agencyId) : null;
+  const params = [];
+  let where = 'field_key = ?';
+  params.push(key);
+  if (Number.isInteger(aid) && aid > 0) {
+    where += ' AND (agency_id = ? OR agency_id IS NULL)';
+    params.push(aid);
+  }
+  const [rows] = await pool.execute(
+    `SELECT id
+     FROM user_info_field_definitions
+     WHERE ${where}
+     ORDER BY
+       ${Number.isInteger(aid) && aid > 0 ? '(agency_id = ?) DESC,' : ''}
+       (is_platform_template = TRUE) DESC,
+       (agency_id IS NULL) DESC,
+       id ASC
+     LIMIT 1`,
+    Number.isInteger(aid) && aid > 0 ? [...params, aid] : params
+  );
+  const id = Number(rows?.[0]?.id || 0);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+async function mirrorAliasCredentialingWrites({ userId, agencyId, changedKeyValues, allowCleanup }) {
+  const uid = Number(userId);
+  if (!Number.isInteger(uid) || uid <= 0) return;
+  const aid = agencyId ? Number(agencyId) : null;
+
+  for (const [rawKey, rawVal] of changedKeyValues.entries()) {
+    const k = String(rawKey || '').trim();
+    if (!k) continue;
+    const canonical = CREDENTIALING_ALIAS_TO_CANONICAL.get(k);
+    if (!canonical) continue;
+    const canonicalDefId = await resolveBestFieldDefinitionIdForKey({ fieldKey: canonical, agencyId: aid });
+    if (!canonicalDefId) continue;
+
+    await UserInfoValue.createOrUpdate(uid, canonicalDefId, rawVal ?? null);
+
+    if (allowCleanup) {
+      // Best-effort: delete the alias value so we don't keep duplicates around.
+      try {
+        await pool.execute(
+          `DELETE uiv
+           FROM user_info_values uiv
+           JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
+           WHERE uiv.user_id = ? AND uifd.field_key = ?`,
+          [uid, k]
+        );
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
 export const getUserInfo = async (req, res, next) => {
   try {
     const { userId } = req.params;
@@ -200,6 +278,40 @@ export const updateUserInfo = async (req, res, next) => {
     const uid = parseInt(userId);
     const results = await UserInfoValue.bulkUpdate(uid, effectiveValues);
 
+    // Mirror alias credentialing fields into canonical provider_* keys so Provider Info edits
+    // appear in the Credentialing grid (and vice-versa), without requiring manual cleanup.
+    try {
+      const agencyIdRaw = req.body?.agencyId ?? req.query?.agencyId ?? null;
+      const agencyId = agencyIdRaw ? parseInt(String(agencyIdRaw), 10) : null;
+      const isAdminLike = ['admin', 'super_admin', 'support', 'staff'].includes(String(req.user?.role || '').toLowerCase());
+
+      const ids = (effectiveValues || [])
+        .map((v) => Number(v?.fieldDefinitionId))
+        .filter((n) => Number.isInteger(n) && n > 0);
+      if (ids.length) {
+        const placeholders = ids.map(() => '?').join(',');
+        const [defs] = await pool.execute(
+          `SELECT id, field_key FROM user_info_field_definitions WHERE id IN (${placeholders})`,
+          ids
+        );
+        const keyById = new Map((defs || []).map((d) => [Number(d.id), String(d.field_key || '').trim()]));
+        const valueByKey = new Map();
+        for (const ev of effectiveValues || []) {
+          const k = keyById.get(Number(ev?.fieldDefinitionId));
+          if (!k) continue;
+          valueByKey.set(k, ev?.value ?? null);
+        }
+        await mirrorAliasCredentialingWrites({
+          userId: uid,
+          agencyId,
+          changedKeyValues: valueByKey,
+          allowCleanup: isAdminLike
+        });
+      }
+    } catch {
+      // ignore (best-effort)
+    }
+
     // Keep provider_search_index fresh (best-effort). This enables fast and accurate matching
     // for multi_select fields like age specialties and treatment modalities.
     try {
@@ -310,6 +422,29 @@ export const updateUserInfoField = async (req, res, next) => {
     }
 
     const result = await UserInfoValue.createOrUpdate(parseInt(userId), parseInt(fieldId), value);
+
+    // Mirror alias credentialing writes into canonical provider_* keys (best-effort).
+    try {
+      const agencyIdRaw = req.body?.agencyId ?? req.query?.agencyId ?? null;
+      const agencyId = agencyIdRaw ? parseInt(String(agencyIdRaw), 10) : null;
+      const isAdminLike = ['admin', 'super_admin', 'support', 'staff'].includes(String(req.user?.role || '').toLowerCase());
+      const [rows] = await pool.execute(
+        'SELECT field_key FROM user_info_field_definitions WHERE id = ? LIMIT 1',
+        [parseInt(fieldId)]
+      );
+      const fk = String(rows?.[0]?.field_key || '').trim();
+      if (fk) {
+        const map = new Map([[fk, value ?? null]]);
+        await mirrorAliasCredentialingWrites({
+          userId: parseInt(userId),
+          agencyId,
+          changedKeyValues: map,
+          allowCleanup: isAdminLike
+        });
+      }
+    } catch {
+      // ignore
+    }
 
     // Best-effort index refresh for provider matching/search.
     try {

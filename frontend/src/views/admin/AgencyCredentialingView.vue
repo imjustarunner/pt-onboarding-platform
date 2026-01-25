@@ -16,9 +16,6 @@
         <button class="btn btn-secondary" type="button" @click="exportCsv" :disabled="loading || !selectedAgencyId">
           Export CSV
         </button>
-        <button class="btn btn-primary" type="button" @click="saveChanges" :disabled="saving || dirtyCount === 0 || !selectedAgencyId">
-          {{ saving ? 'Saving…' : `Save changes (${dirtyCount})` }}
-        </button>
       </div>
     </div>
 
@@ -48,8 +45,7 @@
         <table class="table" style="min-width: 1400px;">
           <thead>
             <tr>
-              <th>First</th>
-              <th>Last</th>
+              <th>Name</th>
               <th>DOB</th>
               <th>First client date</th>
               <th>NPI number</th>
@@ -68,34 +64,61 @@
               <th>CAQH id</th>
               <th>Personal email</th>
               <th>Cell</th>
+              <th class="right">Actions</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="r in filteredRows" :key="r.userId">
-              <td>{{ r.first_name }}</td>
-              <td>{{ r.last_name }}</td>
+              <td style="min-width: 220px;">
+                <router-link :to="orgTo(`/admin/users/${r.userId}?tab=provider_info`)">
+                  {{ r.first_name }} {{ r.last_name }}
+                </router-link>
+                <div class="muted" style="font-size: 12px; margin-top: 2px;">
+                  <span v-if="r.personal_email">{{ r.personal_email }}</span>
+                </div>
+              </td>
 
-              <td><input type="date" :value="getValue(r.userId, 'date_of_birth')" @input="setValue(r.userId, 'date_of_birth', $event.target.value)" /></td>
-              <td><input type="date" :value="getValue(r.userId, 'first_client_date')" @input="setValue(r.userId, 'first_client_date', $event.target.value)" /></td>
-              <td><input type="text" :value="getValue(r.userId, 'npi_number')" @input="setValue(r.userId, 'npi_number', $event.target.value)" /></td>
-              <td><input type="text" :value="getValue(r.userId, 'npi_id')" @input="setValue(r.userId, 'npi_id', $event.target.value)" /></td>
-              <td><input type="text" :value="getValue(r.userId, 'taxonomy_code')" @input="setValue(r.userId, 'taxonomy_code', $event.target.value)" /></td>
-              <td><input type="text" :value="getValue(r.userId, 'zipcode')" @input="setValue(r.userId, 'zipcode', $event.target.value)" /></td>
+              <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'date_of_birth')" :value="getValue(r.userId, 'date_of_birth')" @input="setValue(r.userId, 'date_of_birth', $event.target.value)" /></td>
+              <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'first_client_date')" :value="getValue(r.userId, 'first_client_date')" @input="setValue(r.userId, 'first_client_date', $event.target.value)" /></td>
+              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'npi_number')" :value="getValue(r.userId, 'npi_number')" @input="setValue(r.userId, 'npi_number', $event.target.value)" /></td>
+              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'npi_id')" :value="getValue(r.userId, 'npi_id')" @input="setValue(r.userId, 'npi_id', $event.target.value)" /></td>
+              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'taxonomy_code')" :value="getValue(r.userId, 'taxonomy_code')" @input="setValue(r.userId, 'taxonomy_code', $event.target.value)" /></td>
+              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'zipcode')" :value="getValue(r.userId, 'zipcode')" @input="setValue(r.userId, 'zipcode', $event.target.value)" /></td>
 
-              <td><input type="text" :value="getValue(r.userId, 'license_type_number')" @input="setValue(r.userId, 'license_type_number', $event.target.value)" /></td>
-              <td><input type="date" :value="getValue(r.userId, 'license_issued')" @input="setValue(r.userId, 'license_issued', $event.target.value)" /></td>
-              <td><input type="date" :value="getValue(r.userId, 'license_expires')" @input="setValue(r.userId, 'license_expires', $event.target.value)" /></td>
+              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'license_type_number')" :value="getValue(r.userId, 'license_type_number')" @input="setValue(r.userId, 'license_type_number', $event.target.value)" /></td>
+              <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'license_issued')" :value="getValue(r.userId, 'license_issued')" @input="setValue(r.userId, 'license_issued', $event.target.value)" /></td>
+              <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'license_expires')" :value="getValue(r.userId, 'license_expires')" @input="setValue(r.userId, 'license_expires', $event.target.value)" /></td>
 
-              <td><input type="text" :value="getValue(r.userId, 'medicaid_provider_type')" @input="setValue(r.userId, 'medicaid_provider_type', $event.target.value)" /></td>
-              <td><input type="text" :value="getValue(r.userId, 'tax_id')" @input="setValue(r.userId, 'tax_id', $event.target.value)" /></td>
-              <td><input type="text" :value="getValue(r.userId, 'medicaid_location_id')" @input="setValue(r.userId, 'medicaid_location_id', $event.target.value)" /></td>
-              <td><input type="date" :value="getValue(r.userId, 'medicaid_effective_date')" @input="setValue(r.userId, 'medicaid_effective_date', $event.target.value)" /></td>
-              <td><input type="date" :value="getValue(r.userId, 'medicaid_revalidation')" @input="setValue(r.userId, 'medicaid_revalidation', $event.target.value)" /></td>
-              <td><input type="text" :value="getValue(r.userId, 'medicare_number')" @input="setValue(r.userId, 'medicare_number', $event.target.value)" /></td>
-              <td><input type="text" :value="getValue(r.userId, 'caqh_provider_id')" @input="setValue(r.userId, 'caqh_provider_id', $event.target.value)" /></td>
+              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicaid_provider_type')" :value="getValue(r.userId, 'medicaid_provider_type')" @input="setValue(r.userId, 'medicaid_provider_type', $event.target.value)" /></td>
+              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'tax_id')" :value="getValue(r.userId, 'tax_id')" @input="setValue(r.userId, 'tax_id', $event.target.value)" /></td>
+              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicaid_location_id')" :value="getValue(r.userId, 'medicaid_location_id')" @input="setValue(r.userId, 'medicaid_location_id', $event.target.value)" /></td>
+              <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicaid_effective_date')" :value="getValue(r.userId, 'medicaid_effective_date')" @input="setValue(r.userId, 'medicaid_effective_date', $event.target.value)" /></td>
+              <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicaid_revalidation')" :value="getValue(r.userId, 'medicaid_revalidation')" @input="setValue(r.userId, 'medicaid_revalidation', $event.target.value)" /></td>
+              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicare_number')" :value="getValue(r.userId, 'medicare_number')" @input="setValue(r.userId, 'medicare_number', $event.target.value)" /></td>
+              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'caqh_provider_id')" :value="getValue(r.userId, 'caqh_provider_id')" @input="setValue(r.userId, 'caqh_provider_id', $event.target.value)" /></td>
 
-              <td><input type="email" :value="getValue(r.userId, 'personal_email')" @input="setValue(r.userId, 'personal_email', $event.target.value)" /></td>
-              <td><input type="tel" :value="getValue(r.userId, 'cell_number')" @input="setValue(r.userId, 'cell_number', $event.target.value)" /></td>
+              <td><input type="email" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'personal_email')" :value="getValue(r.userId, 'personal_email')" @input="setValue(r.userId, 'personal_email', $event.target.value)" /></td>
+              <td><input type="tel" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'cell_number')" :value="getValue(r.userId, 'cell_number')" @input="setValue(r.userId, 'cell_number', $event.target.value)" /></td>
+
+              <td class="right" style="white-space: nowrap;">
+                <button
+                  v-if="!isEditingRow(r.userId)"
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="beginEdit(r.userId)"
+                  :disabled="saving || loading"
+                >
+                  Edit
+                </button>
+                <template v-else>
+                  <button class="btn btn-primary btn-sm" type="button" @click="saveRow(r.userId)" :disabled="saving || loading">
+                    Save
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="cancelEdit" :disabled="saving || loading" style="margin-left: 6px;">
+                    Cancel
+                  </button>
+                </template>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -126,10 +149,9 @@ const search = ref('');
 
 const rows = ref([]);
 
-// dirtyValues: key = `${userId}:${fieldKey}` -> value
-const dirtyValues = ref(new Map());
-
-const dirtyCount = computed(() => dirtyValues.value.size);
+const editingUserId = ref(null);
+// draftValues: Map<fieldKey, value> for the currently-edited user row.
+const draftValues = ref(new Map());
 
 const filteredRows = computed(() => {
   const q = String(search.value || '').trim().toLowerCase();
@@ -144,8 +166,7 @@ const filteredRows = computed(() => {
 });
 
 const getValue = (userId, fieldKey) => {
-  const k = `${userId}:${fieldKey}`;
-  if (dirtyValues.value.has(k)) return dirtyValues.value.get(k) ?? '';
+  if (isEditingRow(userId) && draftValues.value.has(fieldKey)) return draftValues.value.get(fieldKey) ?? '';
   const r = (rows.value || []).find((x) => Number(x.userId) === Number(userId));
   if (!r) return '';
 
@@ -161,9 +182,99 @@ const getValue = (userId, fieldKey) => {
 const setValue = (userId, fieldKey, value) => {
   info.value = '';
   error.value = '';
-  dirtyValues.value.set(`${userId}:${fieldKey}`, value);
+  if (!isEditingRow(userId)) return;
+  draftValues.value.set(fieldKey, value);
   // Replace map reference so Vue reacts
-  dirtyValues.value = new Map(dirtyValues.value);
+  draftValues.value = new Map(draftValues.value);
+};
+
+const isEditingRow = (userId) => Number(editingUserId.value || 0) === Number(userId);
+
+const beginEdit = (userId) => {
+  const uid = Number(userId);
+  if (!uid) return;
+  const r = (rows.value || []).find((x) => Number(x.userId) === uid);
+  if (!r) return;
+  editingUserId.value = uid;
+
+  const initial = new Map();
+  const keys = [
+    'date_of_birth',
+    'first_client_date',
+    'npi_number',
+    'npi_id',
+    'taxonomy_code',
+    'zipcode',
+    'license_type_number',
+    'license_issued',
+    'license_expires',
+    'medicaid_provider_type',
+    'tax_id',
+    'medicaid_location_id',
+    'medicaid_effective_date',
+    'medicaid_revalidation',
+    'medicare_number',
+    'caqh_provider_id',
+    'personal_email',
+    'cell_number'
+  ];
+  for (const k of keys) {
+    initial.set(k, getValue(uid, k));
+  }
+  draftValues.value = initial;
+};
+
+const cancelEdit = () => {
+  editingUserId.value = null;
+  draftValues.value = new Map();
+};
+
+const baseValueForRow = (row, fieldKey) => {
+  if (!row) return '';
+  if (fieldKey === 'personal_email') return row.personal_email || '';
+  if (fieldKey === 'cell_number') return row.cell_number || '';
+  const colKey = mapUiFieldKeyToStorageKey(fieldKey);
+  return (row.fields || {})[colKey] ?? '';
+};
+
+const saveRow = async (userId) => {
+  try {
+    const uid = Number(userId);
+    if (!uid || !selectedAgencyId.value) return;
+    const row = (rows.value || []).find((x) => Number(x.userId) === uid);
+    if (!row) return;
+
+    const updates = [];
+    for (const [fieldKey, draft] of draftValues.value.entries()) {
+      const before = baseValueForRow(row, fieldKey);
+      const after = String(draft ?? '').trim();
+      const beforeNorm = String(before ?? '').trim();
+      if (after === beforeNorm) continue;
+      updates.push({ userId: uid, fieldKey, value: after || null });
+    }
+
+    if (updates.length === 0) {
+      info.value = 'No changes.';
+      cancelEdit();
+      return;
+    }
+
+    if (!confirm(`Save ${updates.length} change(s) for ${row.first_name || ''} ${row.last_name || ''}?`)) {
+      return;
+    }
+
+    saving.value = true;
+    error.value = '';
+    info.value = '';
+    await api.patch(`/agencies/${selectedAgencyId.value}/credentialing/providers`, { updates });
+    info.value = 'Saved.';
+    await refresh();
+    cancelEdit();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to save changes';
+  } finally {
+    saving.value = false;
+  }
 };
 
 const mapUiFieldKeyToStorageKey = (uiKey) => {
@@ -189,6 +300,16 @@ const mapUiFieldKeyToStorageKey = (uiKey) => {
   }
 };
 
+const cellTitle = (row, uiKey) => {
+  if (!row) return '';
+  // For uiv-backed cells, backend returns the source field_key used (if any).
+  if (uiKey !== 'personal_email' && uiKey !== 'cell_number') {
+    const src = String(row?.sources?.[uiKey] || '').trim();
+    return src ? `Source field_key: ${src}` : 'No value found in any known field keys for this column.';
+  }
+  return '';
+};
+
 const refresh = async () => {
   try {
     if (!selectedAgencyId.value) return;
@@ -197,32 +318,11 @@ const refresh = async () => {
     info.value = '';
     const res = await api.get(`/agencies/${selectedAgencyId.value}/credentialing/providers`);
     rows.value = res.data?.rows || [];
-    dirtyValues.value = new Map();
+    cancelEdit();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load credentialing grid';
   } finally {
     loading.value = false;
-  }
-};
-
-const saveChanges = async () => {
-  try {
-    if (!selectedAgencyId.value) return;
-    if (dirtyValues.value.size === 0) return;
-    saving.value = true;
-    error.value = '';
-    info.value = '';
-    const updates = Array.from(dirtyValues.value.entries()).map(([k, v]) => {
-      const [userIdStr, fieldKey] = k.split(':');
-      return { userId: Number(userIdStr), fieldKey, value: String(v ?? '').trim() || null };
-    });
-    await api.patch(`/agencies/${selectedAgencyId.value}/credentialing/providers`, { updates });
-    info.value = 'Saved.';
-    await refresh();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to save changes';
-  } finally {
-    saving.value = false;
   }
 };
 
