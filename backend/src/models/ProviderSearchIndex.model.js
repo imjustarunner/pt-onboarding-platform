@@ -16,15 +16,28 @@ function normalizeMultiSelect(raw) {
 }
 
 class ProviderSearchIndex {
-  static async upsertForUserInAgency({ userId, agencyId }) {
+  static async upsertForUserInAgency({ userId, agencyId, fieldKeys = null }) {
     const uid = Number(userId);
     const aid = Number(agencyId);
     if (!uid || !aid) return { ok: false };
 
+    const keys = Array.isArray(fieldKeys) ? fieldKeys.map((k) => String(k || '').trim()).filter(Boolean) : [];
+
     // Remove existing rows for this user+agency, then reinsert from user_info_values.
-    await pool.execute('DELETE FROM provider_search_index WHERE user_id = ? AND agency_id = ?', [uid, aid]);
+    // Optimization: if fieldKeys are provided, only update those field_keys to keep imports fast.
+    if (keys.length) {
+      const placeholders = keys.map(() => '?').join(',');
+      await pool.execute(
+        `DELETE FROM provider_search_index
+         WHERE user_id = ? AND agency_id = ? AND field_key IN (${placeholders})`,
+        [uid, aid, ...keys]
+      );
+    } else {
+      await pool.execute('DELETE FROM provider_search_index WHERE user_id = ? AND agency_id = ?', [uid, aid]);
+    }
 
     // Index canonical profile fields from user_info_values (backed by user_info_field_definitions.field_key).
+    const whereKeysSql = keys.length ? ` AND uifd.field_key IN (${keys.map(() => '?').join(',')})` : '';
     const [rows] = await pool.execute(
       `SELECT
          uifd.field_key,
@@ -32,8 +45,8 @@ class ProviderSearchIndex {
          uiv.value
        FROM user_info_values uiv
        JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
-       WHERE uiv.user_id = ?`,
-      [uid]
+       WHERE uiv.user_id = ?${whereKeysSql}`,
+      keys.length ? [uid, ...keys] : [uid]
     );
 
     for (const r of rows || []) {

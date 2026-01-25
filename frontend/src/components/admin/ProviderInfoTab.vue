@@ -14,7 +14,7 @@
         <button class="btn btn-secondary" @click="refresh" :disabled="loading || installing">
           Refresh
         </button>
-        <button class="btn btn-primary" @click="saveAll" :disabled="saving || loading || installing || visibleProviderFields.length === 0">
+        <button class="btn btn-primary" @click="saveAll" :disabled="saving || loading || installing || visibleProviderFields.length === 0 || !canEditAnyVisible">
           {{ saving ? 'Saving...' : 'Save Profile Info' }}
         </button>
       </div>
@@ -59,15 +59,39 @@
       <div v-else class="sections">
         <div v-for="section in visibleProviderSections" :key="section.key" class="section">
           <div class="section-title">
-            <h3 style="margin: 0;">{{ section.label }}</h3>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+              <h3 style="margin: 0;">{{ section.label }}</h3>
+              <button
+                v-if="section.key === 'provider_legacy_matching' && legacyCleanupCandidateCount > 0"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click="cleanupLegacyDuplicates"
+                :disabled="saving || legacyCleanupRunning"
+                :title="`Remove ${legacyCleanupCandidateCount} duplicate field(s) from this legacy provider so they won’t be shown/edited.`"
+              >
+                {{ legacyCleanupRunning ? 'Cleaning…' : 'Remove duplicate fields' }}
+              </button>
+            </div>
           </div>
 
           <div class="fields-grid">
             <div v-for="field in section.fields" :key="field.id" class="field-item">
-              <label :for="`provider-field-${field.id}`">
-                {{ field.field_label }}
-                <span v-if="field.is_required" class="required-asterisk">*</span>
-              </label>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                <label :for="`provider-field-${field.id}`" style="margin: 0;">
+                  {{ field.field_label }}
+                  <span v-if="field.is_required" class="required-asterisk">*</span>
+                </label>
+                <button
+                  v-if="canDeleteField(field) && field?.hasValue"
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="deleteFieldValue(field)"
+                  :disabled="saving || loading"
+                  title="Delete this saved value (removes from database)."
+                >
+                  Delete
+                </button>
+              </div>
 
               <div v-if="fileValueUrl(fieldValues[field.id])" style="margin-bottom: 6px;">
                 <a :href="fileValueUrl(fieldValues[field.id])" target="_blank" rel="noopener noreferrer">View uploaded file</a>
@@ -79,6 +103,7 @@
                 :type="field.field_type === 'email' ? 'email' : field.field_type === 'phone' ? 'tel' : 'text'"
                 v-model="fieldValues[field.id]"
                 :required="field.is_required"
+                :disabled="!canEditField(field)"
               />
 
               <input
@@ -87,6 +112,7 @@
                 type="number"
                 v-model="fieldValues[field.id]"
                 :required="field.is_required"
+                :disabled="!canEditField(field)"
               />
 
               <input
@@ -95,6 +121,7 @@
                 type="date"
                 v-model="fieldValues[field.id]"
                 :required="field.is_required"
+                :disabled="!canEditField(field)"
               />
 
               <textarea
@@ -103,6 +130,7 @@
                 v-model="fieldValues[field.id]"
                 rows="4"
                 :required="field.is_required"
+                :disabled="!canEditField(field)"
               ></textarea>
 
               <select
@@ -110,6 +138,7 @@
                 :id="`provider-field-${field.id}`"
                 v-model="fieldValues[field.id]"
                 :required="field.is_required"
+                :disabled="!canEditField(field)"
               >
                 <option value="">Select an option</option>
                 <option v-for="option in (field.options || [])" :key="optionKey(option)" :value="optionValue(option)">
@@ -122,7 +151,8 @@
                   <input
                     type="checkbox"
                     :checked="Array.isArray(fieldValues[field.id]) ? fieldValues[field.id].includes(optionValue(option)) : false"
-                    @change="toggleMultiSelect(field.id, option)"
+                    :disabled="!canEditField(field)"
+                    @change="canEditField(field) && toggleMultiSelect(field.id, option)"
                   />
                   <span>{{ optionLabel(option) }}</span>
                 </label>
@@ -133,7 +163,8 @@
                   :id="`provider-field-${field.id}`"
                   type="checkbox"
                   :checked="isTruthy(fieldValues[field.id])"
-                  @change="fieldValues[field.id] = $event.target.checked ? 'true' : 'false'"
+                  :disabled="!canEditField(field)"
+                  @change="canEditField(field) && (fieldValues[field.id] = $event.target.checked ? 'true' : 'false')"
                 />
                 <label :for="`provider-field-${field.id}`" class="checkbox-label">Yes</label>
               </div>
@@ -148,10 +179,19 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   userId: { type: Number, required: true }
 });
+
+const authStore = useAuthStore();
+const currentUser = computed(() => authStore.user || null);
+const currentUserId = computed(() => Number(currentUser.value?.id || 0));
+const currentRole = computed(() => String(currentUser.value?.role || '').trim().toLowerCase());
+const isSelf = computed(() => currentUserId.value > 0 && currentUserId.value === Number(props.userId));
+const isProviderSelf = computed(() => isSelf.value && (currentRole.value === 'provider' || currentRole.value === 'clinician'));
+const canAdminEdit = computed(() => ['admin', 'super_admin', 'support', 'staff'].includes(currentRole.value));
 
 const loading = ref(true);
 const error = ref('');
@@ -172,6 +212,58 @@ const showEmptyAssignedFields = ref(false);
 const platformCategoryKeys = computed(() => {
   return new Set((categories.value || []).filter((c) => c.is_platform_template === 1 || c.is_platform_template === true).map((c) => c.category_key));
 });
+
+// Providers can edit their own profile, except staff-managed ITSCO/provider ops fields.
+const PROVIDER_SELF_LOCKED_FIELD_KEYS = new Set([
+  'provider_status',
+  'provider_accepts_commercial',
+  'provider_accepts_medicaid',
+  'provider_accepts_tricare',
+  'provider_background_check_date',
+  'provider_background_check_status',
+  'provider_background_check_notes',
+  'provider_cleared_to_start',
+  'provider_clinician_notes',
+  'provider_credential',
+  'provider_display_name',
+  'provider_risk_high_behavioral_needs',
+  'provider_risk_skills',
+  'provider_risk_substance_use',
+  'provider_risk_suicidal',
+  'provider_risk_trauma'
+]);
+
+const canEditField = (field) => {
+  if (canAdminEdit.value) return true;
+  if (!isProviderSelf.value) return false;
+  const fk = String(field?.field_key || '').trim();
+  if (fk && PROVIDER_SELF_LOCKED_FIELD_KEYS.has(fk)) return false;
+  return true;
+};
+const canDeleteField = (field) => {
+  // Only admin/support/staff can delete values entirely.
+  return canAdminEdit.value === true;
+};
+
+const canEditAnyVisible = computed(() => {
+  const list = visibleProviderFields.value || [];
+  return list.some((f) => canEditField(f));
+});
+
+const deleteFieldValue = async (field) => {
+  try {
+    if (!canDeleteField(field)) return;
+    const label = String(field?.field_label || field?.field_key || 'this field');
+    if (!confirm(`Delete the saved value for “${label}” for this user? This removes it from the database for them.`)) return;
+    saving.value = true;
+    await api.delete(`/users/${props.userId}/user-info/${field.id}`, { params: { agencyId: targetAgency.value?.id || null } });
+    await refresh();
+  } catch (e) {
+    saveError.value = e.response?.data?.error?.message || 'Failed to delete field value';
+  } finally {
+    saving.value = false;
+  }
+};
 
 const normalizeMultiSelectValue = (raw) => {
   if (Array.isArray(raw)) return raw;
@@ -231,10 +323,54 @@ const providerFields = computed(() => {
   return allFields.value || [];
 });
 
+// Legacy matching keys (imported via Employee Info import)
+const LEGACY_MATCH_KEYS = new Set(['age_specialty', 'treatment_prefs_max15']);
+const sectionKeyForField = (f) => {
+  const fk = String(f?.field_key || '').trim();
+  if (fk && LEGACY_MATCH_KEYS.has(fk)) return 'provider_legacy_matching';
+  return f?.category_key || '__uncategorized';
+};
+
+// If a provider is managed via legacy import, we often want to remove duplicate “new” marketing fields
+// so the profile stays clean and only one source of truth is editable.
+const LEGACY_DUPLICATE_KEYS_TO_REMOVE = [
+  'provider_marketing_age_specialty',
+  'provider_marketing_treatment_modalities'
+];
+const legacyCleanupRunning = ref(false);
+const legacyCleanupCandidateFields = computed(() => {
+  const list = providerFields.value || [];
+  return list.filter((f) => {
+    const fk = String(f?.field_key || '').trim();
+    return fk && LEGACY_DUPLICATE_KEYS_TO_REMOVE.includes(fk) && f?.hasValue;
+  });
+});
+const legacyCleanupCandidateCount = computed(() => legacyCleanupCandidateFields.value.length);
+
+const cleanupLegacyDuplicates = async () => {
+  try {
+    if (!legacyCleanupCandidateFields.value.length) return;
+    if (!confirm(`Remove ${legacyCleanupCandidateFields.value.length} duplicate field(s) from this legacy provider? This deletes the saved values and hides the fields.`)) {
+      return;
+    }
+    legacyCleanupRunning.value = true;
+
+    for (const f of legacyCleanupCandidateFields.value) {
+      await api.delete(`/users/${props.userId}/user-info/${f.id}`, { params: { agencyId: targetAgency.value?.id || null } });
+    }
+
+    await refresh();
+  } catch (e) {
+    saveError.value = e.response?.data?.error?.message || 'Failed to remove duplicate fields';
+  } finally {
+    legacyCleanupRunning.value = false;
+  }
+};
+
 const providerSections = computed(() => {
   const byCat = new Map();
   (providerFields.value || []).forEach((f) => {
-    const key = f.category_key || '__uncategorized';
+    const key = sectionKeyForField(f);
     if (!byCat.has(key)) byCat.set(key, []);
     byCat.get(key).push(f);
   });
@@ -247,7 +383,7 @@ const providerSections = computed(() => {
       const c = catByKey.get(key);
       return {
         key,
-        label: c?.category_label || key,
+        label: key === 'provider_legacy_matching' ? 'Legacy Provider Matching (Imported)' : (c?.category_label || key),
         fields: fields.slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
       };
     })
@@ -266,7 +402,7 @@ const visibleProviderFields = computed(() => {
 const visibleProviderSections = computed(() => {
   const byCat = new Map();
   (visibleProviderFields.value || []).forEach((f) => {
-    const key = f.category_key || '__uncategorized';
+    const key = sectionKeyForField(f);
     if (!byCat.has(key)) byCat.set(key, []);
     byCat.get(key).push(f);
   });
@@ -279,7 +415,7 @@ const visibleProviderSections = computed(() => {
       const c = catByKey.get(key);
       return {
         key,
-        label: c?.category_label || key,
+        label: key === 'provider_legacy_matching' ? 'Legacy Provider Matching (Imported)' : (c?.category_label || key),
         fields: fields.slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
       };
     })
@@ -299,20 +435,15 @@ const refresh = async () => {
     installError.value = '';
     installSuccess.value = '';
 
-    // Fetch agencies first so we can request user-info with an agencyId context.
-    const [catsRes, agenciesRes] = await Promise.all([
+    const [infoRes, catsRes, agenciesRes] = await Promise.all([
+      api.get(`/users/${props.userId}/user-info`, { params: { assignedOrHasValueOnly: true } }),
       api.get('/user-info-categories'),
       api.get(`/users/${props.userId}/agencies`)
     ]);
 
+    allFields.value = infoRes.data || [];
     categories.value = catsRes.data || [];
     userAgencies.value = agenciesRes.data || [];
-
-    const agencyId = targetAgency.value?.id || null;
-    const infoRes = await api.get(`/users/${props.userId}/user-info`, {
-      params: { assignedOrHasValueOnly: true, agencyId: agencyId || undefined }
-    });
-    allFields.value = infoRes.data || [];
 
     const values = {};
     (allFields.value || []).forEach((f) => {
@@ -341,7 +472,7 @@ const saveAll = async () => {
       value: Array.isArray(fieldValues.value[fieldId]) ? JSON.stringify(fieldValues.value[fieldId]) : (fieldValues.value[fieldId] || null)
     }));
 
-    await api.post(`/users/${props.userId}/user-info`, { values });
+    await api.post(`/users/${props.userId}/user-info`, { values, agencyId: targetAgency.value?.id || null });
     saveSuccess.value = 'Saved Profile Info.';
     setTimeout(() => (saveSuccess.value = ''), 2500);
   } catch (e) {
@@ -523,6 +654,9 @@ const TEMPLATE = {
         { fieldKey: 'provider_marketing_sexuality', fieldLabel: 'Sexuality', fieldType: 'multi_select', options: ['Bisexual', 'Lesbian', 'LGBTQ+'] },
         { fieldKey: 'provider_marketing_focus', fieldLabel: 'Focus', fieldType: 'multi_select', options: ['Couples', 'Families', 'Groups', 'Individuals'] },
         { fieldKey: 'provider_marketing_age_specialty', fieldLabel: 'Age Specialty', fieldType: 'multi_select', options: ['Toddler (0-5)', 'Children (6-10)', 'Preteen (11-13)', 'Teen (14-18)', 'Adults (18+)', 'Seniors (65+)'] },
+        // Legacy import keys (Employee info import) — keep these visible so migrated data shows up as checked boxes.
+        // Gemini/provider search can query these reliably until you fully transition to provider_marketing_* keys.
+        { fieldKey: 'age_specialty', fieldLabel: 'Age Specialty (Legacy Import)', fieldType: 'multi_select', options: ['Toddler (0-5)', 'Children (6-10)', 'Preteen (11-13)', 'Teen (14-18)', 'Adults (18+)', 'Seniors (65+)'] },
         {
           fieldKey: 'provider_marketing_communities_allied',
           fieldLabel: 'Communities / Allied',
@@ -534,6 +668,15 @@ const TEMPLATE = {
         {
           fieldKey: 'provider_marketing_treatment_modalities',
           fieldLabel: 'Treatment Modalities (Max 15)',
+          fieldType: 'multi_select',
+          options: [
+            'Acceptance and Commitment (ACT)','Adlerian','AEDP','Applied Behavioral Analysis (ABA)','Art Therapy','Attachment-Based','Biofeedback','Brainspotting','Christian Counseling','Clinical Supervision','Coaching','CBT','CPT','Compassion Focused','Culturally Sensitive','Dance Movement Therapy','DBT','Eclectic','EMDR','Emotionally Focused','Energy Psychology','Existential','Experiential Therapy','Exposure Response Prevention (ERP)','Family/Marital','Family Systems','Feminist','Forensic Psychology','Gestalt','Gottman Method','Humanistic','Hypnotherapy','Integrative','IFS','Interpersonal','Intervention','Jungian','Mindfulness-Based (MBCT)','Motivational Interviewing','Multicultural','Music Therapy','Narrative','Neuro-Linguistic (NLP)','Neurofeedback','Parent-Child Interaction (PCIT)','Person-Centered','Play Therapy','Positive Psychology','Prolonged Exposure Therapy','Psychoanalytic','Psychobiological Approach Couple Therapy','Psychodynamic','Psychological Testing and Evaluation','REBT','Reality Therapy','Relational','Sandplay','Schema Therapy','Solution Focused Brief (SFBT)','Somatic','Strength-Based','Structural Family Therapy','Transpersonal','Trauma Focused','Synergetic Play Therapy'
+          ]
+        }
+        ,
+        {
+          fieldKey: 'treatment_prefs_max15',
+          fieldLabel: 'Treatment Modalities / Preferences (Legacy Import, Max 15)',
           fieldType: 'multi_select',
           options: [
             'Acceptance and Commitment (ACT)','Adlerian','AEDP','Applied Behavioral Analysis (ABA)','Art Therapy','Attachment-Based','Biofeedback','Brainspotting','Christian Counseling','Clinical Supervision','Coaching','CBT','CPT','Compassion Focused','Culturally Sensitive','Dance Movement Therapy','DBT','Eclectic','EMDR','Emotionally Focused','Energy Psychology','Existential','Experiential Therapy','Exposure Response Prevention (ERP)','Family/Marital','Family Systems','Feminist','Forensic Psychology','Gestalt','Gottman Method','Humanistic','Hypnotherapy','Integrative','IFS','Interpersonal','Intervention','Jungian','Mindfulness-Based (MBCT)','Motivational Interviewing','Multicultural','Music Therapy','Narrative','Neuro-Linguistic (NLP)','Neurofeedback','Parent-Child Interaction (PCIT)','Person-Centered','Play Therapy','Positive Psychology','Prolonged Exposure Therapy','Psychoanalytic','Psychobiological Approach Couple Therapy','Psychodynamic','Psychological Testing and Evaluation','REBT','Reality Therapy','Relational','Sandplay','Schema Therapy','Solution Focused Brief (SFBT)','Somatic','Strength-Based','Structural Family Therapy','Transpersonal','Trauma Focused','Synergetic Play Therapy'

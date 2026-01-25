@@ -664,6 +664,17 @@ export const aiQueryUsers = async (req, res, next) => {
       const uWhere = [];
       const uParams = [...ids];
 
+      // Best-effort: only filter on provider_accepting_new_clients if the column exists.
+      let hasAcceptingNewClientsCol = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'provider_accepting_new_clients' LIMIT 1"
+        );
+        hasAcceptingNewClientsCol = Array.isArray(cols) && cols.length > 0;
+      } catch {
+        hasAcceptingNewClientsCol = false;
+      }
+
       if (activeOnly) {
         uWhere.push(`UPPER(COALESCE(u.status, '')) IN ('ACTIVE_EMPLOYEE','ACTIVE')`);
       }
@@ -671,6 +682,10 @@ export const aiQueryUsers = async (req, res, next) => {
       const effectiveProvidersOnly = providersOnly || looksLikeProviderMatchQuery;
       if (effectiveProvidersOnly) {
         uWhere.push(`LOWER(COALESCE(u.role, '')) IN ('provider','clinician')`);
+        // Your definition of “available”: provider must be accepting new clients.
+        if (hasAcceptingNewClientsCol) {
+          uWhere.push(`COALESCE(u.provider_accepting_new_clients, TRUE) = TRUE`);
+        }
       }
 
       const uWhereSql = uWhere.length ? `AND ${uWhere.join(' AND ')}` : '';
@@ -711,7 +726,10 @@ export const aiQueryUsers = async (req, res, next) => {
           parsed: { modalities: desiredModalities, issues: desiredIssues, age: desiredAge[0] || null },
           filters: bestFilters,
           total: results.length,
-          limit
+          limit,
+          activeOnly,
+          providersOnly: effectiveProvidersOnly,
+          filteredByAcceptingNewClients: hasAcceptingNewClientsCol
         }
       });
     }
@@ -3419,9 +3437,31 @@ export const changePassword = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'New password must be at least 6 characters' } });
     }
 
+    // NOTE: `User.findById` may omit sensitive fields like password hashes.
+    // For password changes we must ensure we have password_hash / temporary_password_hash available.
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    // Best-effort load password hashes even if findById doesn't include them.
+    let passwordHash = user.password_hash;
+    let temporaryPasswordHash = user.temporary_password_hash;
+    try {
+      if (passwordHash === undefined || temporaryPasswordHash === undefined) {
+        const pool = (await import('../config/database.js')).default;
+        const [rows] = await pool.execute(
+          `SELECT password_hash, temporary_password_hash
+           FROM users
+           WHERE id = ?
+           LIMIT 1`,
+          [userId]
+        );
+        passwordHash = rows?.[0]?.password_hash;
+        temporaryPasswordHash = rows?.[0]?.temporary_password_hash;
+      }
+    } catch {
+      // ignore; we'll fall back to whatever we have
     }
 
     // If user is changing their own password, verify current password
@@ -3431,16 +3471,25 @@ export const changePassword = async (req, res, next) => {
       }
 
       const bcrypt = (await import('bcrypt')).default;
-      const isValidPassword = await bcrypt.compare(currentPassword, user.password_hash);
+      let isValidPassword = false;
+      if (passwordHash) {
+        isValidPassword = await bcrypt.compare(currentPassword, passwordHash);
+      }
       
       if (!isValidPassword) {
         // Also check temporary password
-        if (user.temporary_password_hash) {
-          const isValidTempPassword = await bcrypt.compare(currentPassword, user.temporary_password_hash);
+        if (temporaryPasswordHash) {
+          const isValidTempPassword = await bcrypt.compare(currentPassword, temporaryPasswordHash);
           if (!isValidTempPassword) {
             return res.status(401).json({ error: { message: 'Current password is incorrect' } });
           }
         } else {
+          // If there is no stored password hash at all, the user likely needs initial setup instead.
+          if (!passwordHash) {
+            return res.status(400).json({
+              error: { message: 'No existing password found for this account. Use the setup link flow instead of Change Password.' }
+            });
+          }
           return res.status(401).json({ error: { message: 'Current password is incorrect' } });
         }
       }
@@ -3481,6 +3530,10 @@ export const changePassword = async (req, res, next) => {
     if (isFirstPasswordChange) {
       const NotificationService = (await import('../services/notification.service.js')).default;
       setTimeout(() => {
+        // Best-effort agency context for the notification.
+        const agencyId =
+          (req.user && Number.isFinite(Number(req.user.agencyId)) ? Number(req.user.agencyId) : null) ||
+          null;
         NotificationService.createPasswordChangeNotification(userId, agencyId).catch(err => {
           console.error('Failed to create password change notification:', err);
         });

@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import User from './User.model.js';
 import { parseUsAddressLoose } from '../utils/addressParsing.js';
+import { formOptionSources } from '../config/formOptionSources.js';
 
 class UserInfoValue {
   static async findByUserId(userId, agencyId = null) {
@@ -30,28 +31,29 @@ class UserInfoValue {
     
     const [rows] = await pool.execute(query, params);
     
-    const parseOptionsLoose = (raw) => {
+    const parseOptions = (raw) => {
       if (!raw) return null;
-      if (typeof raw !== 'string') return null;
-      const s = raw.trim();
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === 'object') return raw;
+      const s = String(raw || '').trim();
       if (!s) return null;
-      // Preferred: JSON array stored in DB
-      try {
-        const parsed = JSON.parse(s);
-        if (Array.isArray(parsed)) return parsed;
-      } catch {
-        // Fall back: some legacy rows stored a comma-separated string.
+      // JSON encoded options (preferred)
+      if (s.startsWith('[') || s.startsWith('{')) {
+        try {
+          return JSON.parse(s);
+        } catch {
+          return null;
+        }
       }
-      if (s.includes(',')) {
-        return s.split(',').map((x) => String(x).trim()).filter(Boolean);
-      }
-      return null;
+      // Legacy: sometimes options were stored as a simple comma/newline separated string.
+      const parts = s.split(/[,;\n]/).map((x) => String(x || '').trim()).filter(Boolean);
+      return parts.length ? parts : null;
     };
 
-    // Parse options robustly (never throw; bad data should not 500 the API)
-    return rows.map((row) => ({
+    // Parse options safely (never throw on bad legacy data)
+    return rows.map(row => ({
       ...row,
-      options: parseOptionsLoose(row.options)
+      options: parseOptions(row.options)
     }));
   }
 
@@ -156,11 +158,7 @@ class UserInfoValue {
       }
     }
 
-    // Dedupe field definitions by field_key.
-    // Priority (most specific wins):
-    // 1) Agency-specific definitions (agency_id set) override platform/global templates
-    // 2) Platform templates (is_platform_template=TRUE) override other global defs
-    // 3) Lowest id as a stable tie-breaker
+    // Dedupe field definitions by field_key (prefer platform template, then lowest id).
     const bestDefByKey = new Map();
     for (const f of fieldDefinitions || []) {
       const k = String(f.field_key || '').trim();
@@ -174,25 +172,15 @@ class UserInfoValue {
       const nextPlat = f.is_platform_template === 1 || f.is_platform_template === true;
       const curAgencyNull = cur.agency_id === null || cur.agency_id === undefined;
       const nextAgencyNull = f.agency_id === null || f.agency_id === undefined;
-      // Prefer agency-specific over global (regardless of platform-template flag).
-      if (curAgencyNull && !nextAgencyNull) {
-        bestDefByKey.set(k, f);
-        continue;
-      }
-      if (!curAgencyNull && nextAgencyNull) {
-        continue;
-      }
-
-      // If both are global or both are agency-specific, prefer platform template.
       if (!curPlat && nextPlat) {
         bestDefByKey.set(k, f);
         continue;
       }
-      if (curPlat && !nextPlat) {
+      if (curPlat === nextPlat && !curAgencyNull && nextAgencyNull) {
+        bestDefByKey.set(k, f);
         continue;
       }
-
-      if (curAgencyNull === nextAgencyNull) {
+      if (curPlat === nextPlat && curAgencyNull === nextAgencyNull) {
         const curId = Number(cur.id || 0);
         const nextId = Number(f.id || 0);
         if (nextId && (!curId || nextId < curId)) bestDefByKey.set(k, f);
@@ -235,6 +223,23 @@ class UserInfoValue {
           fieldWithValue.options = JSON.parse(fieldWithValue.options);
         } catch (e) {
           fieldWithValue.options = null;
+        }
+      }
+
+      // Default options for legacy provider matching keys (so checkboxes render even if the schema
+      // was created by older imports that left options NULL).
+      if ((!fieldWithValue.options || (Array.isArray(fieldWithValue.options) && fieldWithValue.options.length === 0))) {
+        if (fk === 'age_specialty') {
+          fieldWithValue.options = formOptionSources?.psych_today_age_specialty || [
+            'Toddler (0-5)',
+            'Children (6-10)',
+            'Preteen (11-13)',
+            'Teen (14-18)',
+            'Adults (18+)',
+            'Seniors (65+)'
+          ];
+        } else if (fk === 'treatment_prefs_max15') {
+          fieldWithValue.options = formOptionSources?.psych_today_modalities_list || null;
         }
       }
       
