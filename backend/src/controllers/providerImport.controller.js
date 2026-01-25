@@ -1538,6 +1538,9 @@ export const importEmployeeInfo = [
           { key: 'languages_spoken', label: 'Languages spoken', type: 'multi_select' },
           { key: 'work_exp_general', label: 'Work experience', type: 'textarea' },
           { key: 'treatment_prefs_max15', label: 'Treatment preferences (max 15)', type: 'multi_select' },
+          // Provider Marketing profile keys (used by Provider Info UI checkboxes)
+          { key: 'provider_marketing_age_specialty', label: 'Age Specialty (Provider Marketing)', type: 'multi_select' },
+          { key: 'provider_marketing_treatment_modalities', label: 'Treatment Modalities (Provider Marketing)', type: 'multi_select' },
           { key: 'avoid_clients_general', label: 'Clients to avoid', type: 'textarea' },
           { key: 'philosophies', label: 'Philosophies', type: 'textarea' },
           { key: 'personal_info', label: 'Personal info to share', type: 'textarea' },
@@ -1669,6 +1672,18 @@ export const importEmployeeInfo = [
         if (Array.isArray(v)) return v.length ? JSON.stringify(v) : null;
         const s = String(v || '').trim();
         if (!s) return null;
+        // If the cell already contains a JSON array, preserve it.
+        if (s.startsWith('[') && s.endsWith(']')) {
+          try {
+            const parsed = JSON.parse(s);
+            if (Array.isArray(parsed)) {
+              const cleaned = parsed.map((x) => String(x || '').trim()).filter(Boolean);
+              return cleaned.length ? JSON.stringify(cleaned) : null;
+            }
+          } catch {
+            // fall through to delimiter parsing
+          }
+        }
         // Google forms export tends to use comma separation for multi-select.
         const parts = s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
         return parts.length ? JSON.stringify(parts) : null;
@@ -1680,11 +1695,11 @@ export const importEmployeeInfo = [
         // Prefer header-based mapping when available; fall back to fixed indices.
         const firstNameCell =
           headerIndex.size
-            ? pick(r, 'firstNameHeader', ['First Name', 'First name', 'First'])
+            ? pick(r, 'firstNameHeader', ['First Name', 'First name', 'First', 'first_name'])
             : null;
         const lastNameCell =
           headerIndex.size
-            ? pick(r, 'lastNameHeader', ['Last Name', 'Last name', 'Last'])
+            ? pick(r, 'lastNameHeader', ['Last Name', 'Last name', 'Last', 'last_name'])
             : null;
         const nameCell =
           headerIndex.size
@@ -1811,7 +1826,7 @@ export const importEmployeeInfo = [
         const modalityCell =
           headerIndex.size ? getByAnyHeader(r, ['Modality']) : null;
         const ageSpecialtyCell =
-          headerIndex.size ? getByAnyHeader(r, ['Client Focus - Age Specialty']) : null;
+          headerIndex.size ? getByAnyHeader(r, ['Client Focus - Age Specialty', 'age_specialty', 'Age Specialty']) : null;
         const groupsFocusCell =
           headerIndex.size ? getByAnyHeader(r, ['Groups']) : null;
         const languagesCell =
@@ -1819,7 +1834,9 @@ export const importEmployeeInfo = [
         const workExperienceCell =
           headerIndex.size ? pick(r, 'workExperienceHeader', ['Any work experience you would like to share?']) : null;
         const treatmentPrefsCell =
-          headerIndex.size ? getByAnyHeader(r, ['Treatment Preferences or Strategies. Max 15']) : null;
+          headerIndex.size
+            ? getByAnyHeader(r, ['Treatment Preferences or Strategies. Max 15', 'treatment_prefs_max15', 'Treatment Modalities', 'Modalities / Preferences'])
+            : null;
         const avoidClientsCell =
           headerIndex.size ? pick(r, 'avoidClientsHeader', ['Are there any clients we should absolutely avoid scheduling with you? If so, what can you tell us about them?']) : null;
         const philosophiesCell =
@@ -2044,10 +2061,14 @@ export const importEmployeeInfo = [
         pushVal('other_issues', otherIssuesCell);
         pushVal('modality', modalityCell);
         pushVal('age_specialty', ageSpecialtyCell);
+        // Mirror into Provider Marketing keys so the Provider Info checkbox UI reflects imports.
+        pushVal('provider_marketing_age_specialty', ageSpecialtyCell);
         pushVal('groups', groupsFocusCell);
         pushVal('languages_spoken', languagesCell);
         pushVal('work_exp_general', workExperienceCell);
         pushVal('treatment_prefs_max15', treatmentPrefsCell);
+        // Mirror into Provider Marketing keys so “Treatment Modalities” checkboxes reflect imports.
+        pushVal('provider_marketing_treatment_modalities', treatmentPrefsCell);
         pushVal('avoid_clients_general', avoidClientsCell);
         pushVal('philosophies', philosophiesCell);
         pushVal('personal_info', personalInfoWorldCell);
@@ -2067,6 +2088,12 @@ export const importEmployeeInfo = [
           results.updatedUserInfoFields += upserts.length;
           if (!dryRun) {
             await UserInfoValue.bulkUpdate(userId, upserts);
+            // Keep provider_search_index in sync so AI/provider search is accurate immediately.
+            try {
+              await ProviderSearchIndex.upsertForUserInAgency({ userId, agencyId });
+            } catch {
+              // ignore if index table is missing
+            }
           }
         }
       }

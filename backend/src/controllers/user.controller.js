@@ -426,7 +426,11 @@ export const getAllUsers = async (req, res, next) => {
 export const aiQueryUsers = async (req, res, next) => {
   try {
     const raw = String(req.query.query || '').trim();
-    const includeArchived = req.query.includeArchived === 'true';
+    // Default behavior: be conservative (Active only, not archived) to avoid surprising “82 users” style results.
+    const activeOnly = req.query.activeOnly !== 'false';
+    const providersOnly = req.query.providersOnly === 'true';
+    // Only allow includeArchived when not activeOnly (otherwise it's confusing / contradictory).
+    const includeArchived = req.query.includeArchived === 'true' && !activeOnly;
     const limitRaw = parseInt(String(req.query.limit || '100'), 10);
     // NOTE: Some MySQL/CloudSQL setups reject prepared-statement params for LIMIT,
     // yielding "Incorrect arguments to mysqld_stmt_execute". We inline a validated integer.
@@ -475,9 +479,50 @@ export const aiQueryUsers = async (req, res, next) => {
     };
 
     const keywords = extractKeywords(raw);
-    const terms = keywords.length > 0 ? keywords : [raw.toLowerCase()];
+    const terms = (keywords.length > 0 ? keywords : [raw.toLowerCase()]).slice(0, 5);
 
     const pool = (await import('../config/database.js')).default;
+
+    // If the query looks like a clinical “find me a provider” request, prefer the provider_search_index
+    // (it understands multi_select fields like treatment modalities and age specialty).
+    const qLower = raw.toLowerCase();
+    const hasWord = (w) => new RegExp(`\\b${w}\\b`, 'i').test(raw);
+    const detectedModalities = [];
+    for (const code of ['CBT', 'DBT', 'EMDR', 'ERP', 'ACT', 'ABA', 'CPT', 'IFS', 'PCIT']) {
+      if (new RegExp(`\\b${code}\\b`, 'i').test(raw)) detectedModalities.push(code);
+    }
+    const detectedIssues = [];
+    if (hasWord('adhd')) detectedIssues.push('ADHD');
+
+    const detectAgeBucket = () => {
+      // Explicit bucket words
+      if (/\btoddler\b/i.test(raw)) return 'Toddler (0-5)';
+      if (/\bpreteen\b/i.test(raw)) return 'Preteen (11-13)';
+      if (/\bteen\b/i.test(raw) || /\badolescen(t|ce)\b/i.test(raw)) return 'Teen (14-18)';
+      if (/\bsenior\b/i.test(raw) || /\belder(ly)?\b/i.test(raw)) return 'Seniors (65+)';
+      if (/\badult\b/i.test(raw)) return 'Adults (18+)';
+      if (/\bchild(ren)?\b/i.test(raw) || /\bpediatric\b/i.test(raw) || /\bkid(s)?\b/i.test(raw)) return 'Children (6-10)';
+
+      // Numeric age detection (e.g. 10yo, 10 year old)
+      const m = raw.match(/\b(\d{1,2})\s*(yo|y\/o|yr|yrs|year|years)\b/i) || raw.match(/\b(\d{1,2})\b/);
+      const n = m?.[1] ? parseInt(m[1], 10) : NaN;
+      if (!Number.isFinite(n)) return null;
+      if (n <= 5) return 'Toddler (0-5)';
+      if (n <= 10) return 'Children (6-10)';
+      if (n <= 13) return 'Preteen (11-13)';
+      if (n <= 18) return 'Teen (14-18)';
+      if (n >= 65) return 'Seniors (65+)';
+      return 'Adults (18+)';
+    };
+    const detectedAge = detectAgeBucket();
+
+    const looksLikeProviderMatchQuery =
+      providersOnly ||
+      detectedModalities.length > 0 ||
+      detectedIssues.length > 0 ||
+      !!detectedAge ||
+      /\bprovider\b/i.test(raw) ||
+      /\btherapist\b/i.test(raw);
 
     // Scope: same as /users for backoffice admins.
     // - super_admin: all users
@@ -494,34 +539,197 @@ export const aiQueryUsers = async (req, res, next) => {
       whereParts.push(`UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`);
     }
 
+    if (activeOnly) {
+      // Only “active” users by default (matches your expectation of ~6 active users).
+      // Include legacy ACTIVE string for older databases.
+      whereParts.push(`UPPER(COALESCE(u.status, '')) IN ('ACTIVE_EMPLOYEE','ACTIVE')`);
+    }
+
+    if (providersOnly) {
+      // Provider-like roles.
+      whereParts.push(`LOWER(COALESCE(u.role, '')) IN ('provider','clinician')`);
+    }
+
+    // Resolve an agency context for provider_search_index when needed.
+    const agencyIdRaw = req.query.agencyId ? parseInt(String(req.query.agencyId), 10) : null;
+    let resolvedAgencyId = Number.isFinite(agencyIdRaw) && agencyIdRaw > 0 ? agencyIdRaw : null;
+
+    let requesterAgencyIds = null;
     if (!isSuperAdmin) {
       const userAgencies = await User.getAgencies(req.user.id);
       const agencyIds = (userAgencies || []).map((a) => a.id).filter(Boolean);
       if (agencyIds.length === 0) {
         return res.json({ results: [], emailsSemicolon: '', meta: { keywords: terms, total: 0 } });
       }
+      requesterAgencyIds = agencyIds;
       whereParts.push(`ua.agency_id IN (${agencyIds.map(() => '?').join(',')})`);
       params.push(...agencyIds);
+      if (!resolvedAgencyId && agencyIds.length === 1) resolvedAgencyId = agencyIds[0];
     }
 
-    // Search all user_info_values (across all user info fields).
-    const termClauses = terms.map(
-      () =>
-        `(LOWER(COALESCE(uiv.value, '')) LIKE ? OR LOWER(COALESCE(uifd.field_label, '')) LIKE ? OR LOWER(COALESCE(uifd.field_key, '')) LIKE ?)`
-    );
-    const existsClause = `
-      EXISTS (
-        SELECT 1
-        FROM user_info_values uiv
-        JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
-        WHERE uiv.user_id = u.id
-          AND (${termClauses.join(' OR ')})
-      )
-    `;
-    whereParts.push(existsClause);
+    // Provider-index path (field-aware): requires agencyId context.
+    if (looksLikeProviderMatchQuery) {
+      if (!resolvedAgencyId) {
+        return res.status(400).json({
+          error: { message: 'Select an agency (Filter by Agency) to run provider matching searches.' }
+        });
+      }
+
+      if (!isSuperAdmin && Array.isArray(requesterAgencyIds) && !requesterAgencyIds.includes(resolvedAgencyId)) {
+        return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
+      }
+
+      const ProviderSearchIndex = (await import('../models/ProviderSearchIndex.model.js')).default;
+
+      // If the index is empty (common after migrations), rebuild once on demand.
+      let rebuilt = false;
+      try {
+        const [cRows] = await pool.execute(
+          `SELECT COUNT(*) AS c FROM provider_search_index WHERE agency_id = ?`,
+          [resolvedAgencyId]
+        );
+        const c = Number(cRows?.[0]?.c || 0);
+        if (c === 0) {
+          await ProviderSearchIndex.rebuildForAgency({ agencyId: resolvedAgencyId });
+          rebuilt = true;
+        }
+      } catch {
+        // If the table doesn't exist yet, fall through to the generic search below.
+      }
+
+      // Build structured filters (OR over possible field keys by trying fallbacks).
+      const modalityFieldKeys = ['treatment_prefs_max15', 'provider_marketing_treatment_modalities', 'modality'];
+      const ageFieldKeys = ['age_specialty', 'provider_marketing_age_specialty'];
+      const issueFieldKeys = ['pt_specialties_max25', 'provider_marketing_issues_specialties', 'specialties_general'];
+
+      const desiredModalities = detectedModalities.length ? detectedModalities : [];
+      const desiredIssues = detectedIssues.length ? detectedIssues : [];
+      const desiredAge = detectedAge ? [detectedAge] : [];
+
+      const trySearch = async ({ modalityKey, ageKey, issueKey }) => {
+        const filters = [];
+        for (const m of desiredModalities) filters.push({ fieldKey: modalityKey, op: 'hasOption', value: m });
+        for (const a of desiredAge) filters.push({ fieldKey: ageKey, op: 'hasOption', value: a });
+        for (const i of desiredIssues) filters.push({ fieldKey: issueKey, op: 'hasOption', value: i });
+        const out = await ProviderSearchIndex.search({ agencyId: resolvedAgencyId, filters, limit: 200, offset: 0, textQuery: '' });
+        return { out, filters };
+      };
+
+      let best = null;
+      let bestFilters = [];
+      const modalityCandidates = desiredModalities.length ? modalityFieldKeys : [modalityFieldKeys[0]];
+      const ageCandidates = desiredAge.length ? ageFieldKeys : [ageFieldKeys[0]];
+      const issueCandidates = desiredIssues.length ? issueFieldKeys : [issueFieldKeys[0]];
+
+      for (const mk of modalityCandidates) {
+        for (const ak of ageCandidates) {
+          for (const ik of issueCandidates) {
+            try {
+              const { out, filters } = await trySearch({ modalityKey: mk, ageKey: ak, issueKey: ik });
+              const users = Array.isArray(out?.users) ? out.users : [];
+              if (!best || users.length > best.length) {
+                best = users;
+                bestFilters = filters;
+              }
+              // If we got any hits, stop early (good enough).
+              if (users.length > 0) break;
+            } catch {
+              // ignore and keep trying other keys
+            }
+          }
+          if (best && best.length > 0) break;
+        }
+        if (best && best.length > 0) break;
+      }
+
+      const matchedUsers = Array.isArray(best) ? best : [];
+      const ids = matchedUsers.map((u) => parseInt(u.id, 10)).filter(Boolean);
+      if (!ids.length) {
+        return res.json({
+          results: [],
+          emailsSemicolon: '',
+          meta: {
+            mode: 'provider_index',
+            agencyId: resolvedAgencyId,
+            rebuiltIndex: rebuilt,
+            parsed: { modalities: desiredModalities, issues: desiredIssues, age: desiredAge[0] || null },
+            filters: bestFilters,
+            total: 0
+          }
+        });
+      }
+
+      // Apply role/status constraints in SQL to keep results aligned with UI expectations.
+      const placeholders = ids.map(() => '?').join(',');
+      const uWhere = [];
+      const uParams = [...ids];
+
+      if (activeOnly) {
+        uWhere.push(`UPPER(COALESCE(u.status, '')) IN ('ACTIVE_EMPLOYEE','ACTIVE')`);
+      }
+      // Provider matching searches should almost always return providers.
+      const effectiveProvidersOnly = providersOnly || looksLikeProviderMatchQuery;
+      if (effectiveProvidersOnly) {
+        uWhere.push(`LOWER(COALESCE(u.role, '')) IN ('provider','clinician')`);
+      }
+
+      const uWhereSql = uWhere.length ? `AND ${uWhere.join(' AND ')}` : '';
+      const [uRows] = await pool.execute(
+        `SELECT u.id, u.email, u.first_name, u.last_name
+         FROM users u
+         WHERE u.id IN (${placeholders})
+         ${uWhereSql}
+         ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC
+         LIMIT ${limit}`,
+        uParams
+      );
+
+      const results = (uRows || []).map((r) => ({
+        id: r.id,
+        email: r.email,
+        first_name: r.first_name,
+        last_name: r.last_name
+      }));
+
+      const emailsSemicolon = results
+        .map((u) => {
+          const name = `${u.first_name || ''} ${u.last_name || ''}`.trim() || String(u.email || '').trim();
+          const email = String(u.email || '').trim();
+          if (!email) return '';
+          return `${name} <${email}>`;
+        })
+        .filter(Boolean)
+        .join('; ');
+
+      return res.json({
+        results,
+        emailsSemicolon,
+        meta: {
+          mode: 'provider_index',
+          agencyId: resolvedAgencyId,
+          rebuiltIndex: rebuilt,
+          parsed: { modalities: desiredModalities, issues: desiredIssues, age: desiredAge[0] || null },
+          filters: bestFilters,
+          total: results.length,
+          limit
+        }
+      });
+    }
+
+    // Search all user_info_values.value (across all user info fields).
+    // Important: require ALL terms to be present somewhere (AND of EXISTS),
+    // otherwise queries like “10 year old adhd cbt” match almost everyone.
     for (const t of terms) {
       const like = `%${String(t).toLowerCase()}%`;
-      params.push(like, like, like);
+      whereParts.push(
+        `EXISTS (
+          SELECT 1
+          FROM user_info_values uiv
+          WHERE uiv.user_id = u.id
+            AND LOWER(COALESCE(uiv.value, '')) LIKE ?
+        )`
+      );
+      params.push(like);
     }
 
     const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
@@ -555,7 +763,7 @@ export const aiQueryUsers = async (req, res, next) => {
     res.json({
       results,
       emailsSemicolon,
-      meta: { keywords: terms, total: results.length, limit }
+      meta: { keywords: terms, total: results.length, limit, activeOnly, providersOnly, includeArchived }
     });
   } catch (error) {
     next(error);

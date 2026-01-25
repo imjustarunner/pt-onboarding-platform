@@ -73,6 +73,21 @@
             />
           </div>
 
+          <div class="ai-query-toggles">
+            <label class="ai-query-toggle">
+              <input type="checkbox" v-model="aiActiveOnly" :disabled="aiState === 'thinking'" />
+              <span>Active only</span>
+            </label>
+            <label class="ai-query-toggle">
+              <input type="checkbox" v-model="aiProvidersOnly" :disabled="aiState === 'thinking'" />
+              <span>Providers only</span>
+            </label>
+            <label class="ai-query-toggle" :class="{ muted: aiActiveOnly }" :title="aiActiveOnly ? 'Turn off Active only to include archived users.' : ''">
+              <input type="checkbox" v-model="aiIncludeArchived" :disabled="aiState === 'thinking' || aiActiveOnly" />
+              <span>Include archived</span>
+            </label>
+          </div>
+
           <div v-if="aiState === 'thinking'" class="ai-query-status muted">Thinking… searching user info fields.</div>
           <div v-else-if="aiState === 'error'" class="ai-query-status error">{{ aiError || 'No results found.' }}</div>
           <div v-else-if="aiState === 'success'" class="ai-query-status success">
@@ -1191,6 +1206,9 @@ const aiResults = ref([]);
 const aiEmailsSemicolon = ref('');
 const aiError = ref('');
 const aiMeta = ref(null);
+const aiActiveOnly = ref(true);
+const aiProvidersOnly = ref(false);
+const aiIncludeArchived = ref(false);
 
 const aiIconSrc = aiIconAsset;
 const aiBannerSrc = computed(() => {
@@ -1207,6 +1225,9 @@ const clearAiQuery = () => {
   aiEmailsSemicolon.value = '';
   aiError.value = '';
   aiMeta.value = null;
+  aiActiveOnly.value = true;
+  aiProvidersOnly.value = false;
+  aiIncludeArchived.value = false;
 };
 
 const runAiQuery = async () => {
@@ -1223,7 +1244,19 @@ const runAiQuery = async () => {
     aiEmailsSemicolon.value = '';
     aiMeta.value = null;
 
-    const response = await api.get('/users/ai-query', { params: { query: q, limit: 500, includeArchived: true } });
+    // Guard: “Active only” and “Include archived” are contradictory.
+    const includeArchived = aiIncludeArchived.value === true && aiActiveOnly.value !== true;
+    const response = await api.get('/users/ai-query', {
+      params: {
+        query: q,
+        limit: 500,
+        activeOnly: aiActiveOnly.value,
+        providersOnly: aiProvidersOnly.value,
+        includeArchived,
+        // Provider matching is agency-scoped when using the provider index.
+        agencyId: agencySort.value ? parseInt(String(agencySort.value), 10) : undefined
+      }
+    });
     const data = response.data || {};
     aiResults.value = Array.isArray(data.results) ? data.results : [];
     aiEmailsSemicolon.value = String(data.emailsSemicolon || '');
@@ -2746,6 +2779,26 @@ onMounted(() => {
   border: 1px solid var(--border, #dee2e6);
   border-radius: 10px;
   font-size: 14px;
+}
+
+.ai-query-toggles {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+.ai-query-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.ai-query-toggle input[type="checkbox"] {
+  transform: translateY(0.5px);
 }
 
 .ai-query-status {
