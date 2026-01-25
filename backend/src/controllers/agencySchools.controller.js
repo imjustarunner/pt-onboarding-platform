@@ -1,12 +1,13 @@
 import { validationResult } from 'express-validator';
 import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 
 export const listAgencySchools = async (req, res, next) => {
   try {
     const { agencyId } = req.params;
     const includeInactive = req.query.includeInactive === 'true';
-    const rows = await AgencySchool.listByAgency(agencyId, { includeInactive });
+    const rows = await AgencySchool.listBillingSchoolsByAgency(agencyId, { includeInactive });
     res.json(rows);
   } catch (error) {
     next(error);
@@ -39,6 +40,17 @@ export const linkAgencySchool = async (req, res, next) => {
       isActive: isActive !== undefined ? !!isActive : true
     });
 
+    // Keep organization_affiliations in sync (this is what billing counts too).
+    try {
+      await OrganizationAffiliation.upsert({
+        agencyId,
+        organizationId: schoolOrganizationId,
+        isActive: isActive !== undefined ? !!isActive : true
+      });
+    } catch {
+      // best-effort (older DBs may not have table yet)
+    }
+
     res.status(201).json(linked);
   } catch (error) {
     next(error);
@@ -49,6 +61,12 @@ export const unlinkAgencySchool = async (req, res, next) => {
   try {
     const { agencyId, schoolOrganizationId } = req.params;
     const ok = await AgencySchool.setActive({ agencyId, schoolOrganizationId, isActive: false });
+    // Also deactivate org affiliation (best-effort).
+    try {
+      await OrganizationAffiliation.upsert({ agencyId, organizationId: schoolOrganizationId, isActive: false });
+    } catch {
+      // ignore
+    }
     if (!ok) {
       return res.status(404).json({ error: { message: 'Link not found' } });
     }
