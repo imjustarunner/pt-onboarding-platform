@@ -79,9 +79,6 @@
                 <router-link :to="orgTo(`/admin/users/${r.userId}?tab=provider_info`)">
                   {{ r.first_name }} {{ r.last_name }}
                 </router-link>
-                <div class="muted" style="font-size: 12px; margin-top: 2px;">
-                  <span v-if="r.personal_email">{{ r.personal_email }}</span>
-                </div>
               </td>
 
               <td>
