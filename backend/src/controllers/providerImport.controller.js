@@ -96,7 +96,6 @@ function isRestrictedFieldKey(fieldKey) {
   return (
     s.includes('password') ||
     s.includes('ssn') ||
-    s === 'tax_id' ||
     s.includes('medicaid_password') ||
     s.includes('itsco_password')
   );
@@ -1486,8 +1485,14 @@ export const importEmployeeInfo = [
       const hasWorkEmail = await hasUsersColumn('work_email');
       const hasAliases = await hasUserLoginEmailsTable();
 
-      // Ensure user_info definitions exist for our backfill fields (platform-wide, not per agency)
-      // We use is_platform_template=TRUE and agency_id=NULL when possible; fallback to agency_id=agencyId.
+      // Ensure user_info definitions exist for our backfill fields.
+      //
+      // IMPORTANT:
+      // user_info_field_definitions has UNIQUE(agency_id, field_key). When agency_id IS NULL,
+      // MySQL allows multiple rows with the same field_key (because NULL != NULL), so
+      // "INSERT ... ON DUPLICATE KEY" does NOT prevent duplicates for platform templates.
+      //
+      // To avoid creating more duplicates, we create/ensure *agency-scoped* definitions here.
       const ensureDefs = async () => {
         const defs = [
           // Canonical keys (see app_form_header_map.md)
@@ -1555,32 +1560,33 @@ export const importEmployeeInfo = [
         ];
 
         for (const d of defs) {
-          try {
-            await pool.execute(
-              `INSERT INTO user_info_field_definitions
-                (field_key, field_label, field_type, options, is_required, is_platform_template, agency_id, parent_field_id, order_index, created_by_user_id)
-               VALUES (?, ?, ?, NULL, FALSE, TRUE, NULL, NULL, 0, ?)
-               ON DUPLICATE KEY UPDATE field_key = field_key`,
-              [d.key, d.label, d.type, req.user?.id || null]
-            );
-          } catch {
-            await pool.execute(
-              `INSERT INTO user_info_field_definitions
-                (field_key, field_label, field_type, options, is_required, is_platform_template, agency_id, parent_field_id, order_index, created_by_user_id)
-               VALUES (?, ?, ?, NULL, FALSE, FALSE, ?, NULL, 0, ?)
-               ON DUPLICATE KEY UPDATE field_key = field_key`,
-              [d.key, d.label, d.type, agencyId, req.user?.id || null]
-            );
-          }
+          await pool.execute(
+            `INSERT INTO user_info_field_definitions
+              (field_key, field_label, field_type, options, is_required, is_platform_template, agency_id, parent_field_id, order_index, created_by_user_id)
+             VALUES (?, ?, ?, NULL, FALSE, FALSE, ?, NULL, 0, ?)
+             ON DUPLICATE KEY UPDATE
+               field_label = VALUES(field_label),
+               field_type = VALUES(field_type)`,
+            [d.key, d.label, d.type, agencyId, req.user?.id || null]
+          );
         }
 
         const keys = defs.map((d) => d.key);
         const placeholders = keys.map(() => '?').join(',');
         const [rows] = await pool.execute(
-          `SELECT id, field_key, field_type FROM user_info_field_definitions WHERE field_key IN (${placeholders})`,
-          keys
+          `SELECT id, field_key, field_type, agency_id, is_platform_template
+           FROM user_info_field_definitions
+           WHERE field_key IN (${placeholders}) AND (agency_id = ? OR agency_id IS NULL)
+           ORDER BY (agency_id = ?) DESC, (is_platform_template = TRUE) DESC, id ASC`,
+          [...keys, agencyId, agencyId]
         );
-        return new Map((rows || []).map((r) => [r.field_key, r]));
+        const best = new Map();
+        for (const r of rows || []) {
+          const k = String(r.field_key || '').trim();
+          if (!k || best.has(k)) continue;
+          best.set(k, r);
+        }
+        return best;
       };
 
       const defByKey = await ensureDefs();
@@ -1624,6 +1630,74 @@ export const importEmployeeInfo = [
           const h = normalizeHeader((rows[0] || [])[i]);
           if (h) headerIndex.set(h, i);
         }
+      }
+
+      // If the sheet uses field_key headers (snake_case), import them directly.
+      // Example: header `license_type_number` -> normalizeHeader -> `license type number` -> field_key `license_type_number`.
+      const headerFieldKeyCandidates = (() => {
+        if (!looksHeader(rows[0])) return [];
+        const out = [];
+        for (let i = 0; i < (rows[0] || []).length; i++) {
+          const raw = String((rows[0] || [])[i] ?? '').trim();
+          if (!raw) continue;
+          const snake = normalizeHeader(raw).replace(/\s+/g, '_');
+          if (snake) out.push(snake);
+          const rawKey = raw.trim().toLowerCase();
+          if (rawKey && /^[a-z0-9_]+$/.test(rawKey)) out.push(rawKey);
+        }
+        return Array.from(new Set(out)).filter(Boolean);
+      })();
+
+      // Ensure header field_keys exist as definitions (auto-create missing as text, scoped to agency to avoid NULL-agency dupes).
+      try {
+        const coreSkip = new Set([
+          'full_name',
+          'first_name',
+          'last_name',
+          'email_address',
+          'email',
+          'personal_email',
+          'cell_number'
+        ]);
+        const extraKeys = headerFieldKeyCandidates.filter((k) => !coreSkip.has(k)).filter((k) => !isRestrictedFieldKey(k));
+        for (const k of extraKeys) {
+          if (defByKey.has(k)) continue;
+          const label = k
+            .split('_')
+            .map((p) => (p ? p[0].toUpperCase() + p.slice(1) : ''))
+            .join(' ')
+            .trim();
+          try {
+            await pool.execute(
+              `INSERT INTO user_info_field_definitions
+                (field_key, field_label, field_type, options, is_required, is_platform_template, agency_id, parent_field_id, order_index, created_by_user_id)
+               VALUES (?, ?, 'text', NULL, FALSE, FALSE, ?, NULL, 0, ?)
+               ON DUPLICATE KEY UPDATE field_key = field_key`,
+              [k, label || k, agencyId, req.user?.id || null]
+            );
+          } catch {
+            // ignore
+          }
+        }
+
+        // Load best definitions for these keys into defByKey (prefer agency definition over platform template).
+        if (extraKeys.length) {
+          const placeholders = extraKeys.map(() => '?').join(',');
+          const [rows2] = await pool.execute(
+            `SELECT id, field_key, field_type, agency_id, is_platform_template
+             FROM user_info_field_definitions
+             WHERE field_key IN (${placeholders}) AND (agency_id = ? OR agency_id IS NULL)
+             ORDER BY (agency_id = ?) DESC, (is_platform_template = TRUE) DESC, id ASC`,
+            [...extraKeys, agencyId, agencyId]
+          );
+          for (const r of rows2 || []) {
+            const fk = String(r.field_key || '').trim();
+            if (!fk) continue;
+            if (!defByKey.has(fk)) defByKey.set(fk, r);
+          }
+        }
+      } catch {
+        // ignore
       }
 
       // Optional Gemini-assisted mapping for header variants.
@@ -1880,7 +1954,9 @@ export const importEmployeeInfo = [
         }
 
         results.processed += 1;
-        const loginEmail = normalizeEmail(personalEmailCell) || '';
+        const emailAddressCell = headerIndex.size ? getByHeader(r, 'email_address') : null;
+        const workEmailCell = headerIndex.size ? getByHeader(r, 'work_email') : null;
+        const loginEmail = normalizeEmail(personalEmailCell) || normalizeEmail(emailAddressCell) || normalizeEmail(workEmailCell) || '';
 
         // Match user by (a) personal/work/primary email if present, else (b) name within agency.
         let userRow = null;
@@ -1990,8 +2066,12 @@ export const importEmployeeInfo = [
 
         // User info backfill
         const upserts = [];
+        const seenKeys = new Set();
         const pushVal = (key, raw) => {
-          const def = defByKey.get(key);
+          const k = String(key || '').trim();
+          if (!k) return;
+          if (seenKeys.has(k)) return;
+          const def = defByKey.get(k);
           if (!def?.id) return;
           const type = String(def.field_type || '');
           let stored = null;
@@ -2008,6 +2088,7 @@ export const importEmployeeInfo = [
           // Safety: do not overwrite existing values with blanks.
           if (stored === null) return;
           upserts.push({ fieldDefinitionId: def.id, value: stored });
+          seenKeys.add(k);
         };
 
         // Canonical mapping (app_form_header_map.md)
@@ -2023,7 +2104,6 @@ export const importEmployeeInfo = [
         pushVal('npi_number', npiCell);
         pushVal('taxonomy_code', taxonomyCell);
         pushVal('medicaid_provider_type', medicaidProviderTypeCell);
-        // tax_id intentionally excluded (restricted)
         pushVal('medicaid_location_id', medicaidLocCell);
         pushVal('medicaid_effective_date', medicaidEffectiveDateCell);
         pushVal('medicare_number', medicareNumberCell);
@@ -2079,6 +2159,30 @@ export const importEmployeeInfo = [
         pushVal('inspires_concerns', inspiresConcernsCell);
         pushVal('challenges_finished', challengesFinishedCell);
         pushVal('fun_questions', funQuestionsCell);
+
+        // Generic import for field_key headers (snake_case): import any column whose header maps to a known field_key.
+        // This makes uploads based on your .md field keys "just work" without curated prompt lists.
+        if (headerIndex.size) {
+          const coreSkip = new Set([
+            'full_name',
+            'first_name',
+            'last_name',
+            'email_address',
+            'email',
+            'personal_email',
+            'cell_number'
+          ]);
+          for (const [h, idx] of headerIndex.entries()) {
+            const rawHeader = String((rows[0] || [])[idx] ?? '').trim();
+            if (!rawHeader) continue;
+            const fieldKey = normalizeHeader(rawHeader).replace(/\s+/g, '_');
+            if (!fieldKey) continue;
+            if (coreSkip.has(fieldKey)) continue;
+            if (isRestrictedFieldKey(fieldKey)) continue;
+            const cell = (r || [])[idx];
+            pushVal(fieldKey, cell);
+          }
+        }
 
         if (upserts.length) {
           results.updatedUserInfoFields += upserts.length;
