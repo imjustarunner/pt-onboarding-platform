@@ -1559,15 +1559,22 @@ export const importEmployeeInfo = [
           { key: 'fun_questions', label: 'Fun questions', type: 'textarea' }
         ];
 
-        for (const d of defs) {
+        const chunkSize = 200;
+        for (let i = 0; i < defs.length; i += chunkSize) {
+          const chunk = defs.slice(i, i + chunkSize);
+          const valuesSql = chunk.map(() => '(?, ?, ?, NULL, FALSE, FALSE, ?, NULL, 0, ?)').join(',');
+          const params = [];
+          for (const d of chunk) {
+            params.push(d.key, d.label, d.type, agencyId, req.user?.id || null);
+          }
           await pool.execute(
             `INSERT INTO user_info_field_definitions
               (field_key, field_label, field_type, options, is_required, is_platform_template, agency_id, parent_field_id, order_index, created_by_user_id)
-             VALUES (?, ?, ?, NULL, FALSE, FALSE, ?, NULL, 0, ?)
+             VALUES ${valuesSql}
              ON DUPLICATE KEY UPDATE
                field_label = VALUES(field_label),
                field_type = VALUES(field_type)`,
-            [d.key, d.label, d.type, agencyId, req.user?.id || null]
+            params
           );
         }
 
@@ -1660,23 +1667,28 @@ export const importEmployeeInfo = [
           'cell_number'
         ]);
         const extraKeys = headerFieldKeyCandidates.filter((k) => !coreSkip.has(k)).filter((k) => !isRestrictedFieldKey(k));
-        for (const k of extraKeys) {
-          if (defByKey.has(k)) continue;
-          const label = k
-            .split('_')
-            .map((p) => (p ? p[0].toUpperCase() + p.slice(1) : ''))
-            .join(' ')
-            .trim();
-          try {
+        const missingKeys = extraKeys.filter((k) => !defByKey.has(k));
+        if (missingKeys.length) {
+          const chunkSize = 200;
+          for (let i = 0; i < missingKeys.length; i += chunkSize) {
+            const chunk = missingKeys.slice(i, i + chunkSize);
+            const valuesSql = chunk.map(() => '(?, ?, \'text\', NULL, FALSE, FALSE, ?, NULL, 0, ?)').join(',');
+            const params = [];
+            for (const k of chunk) {
+              const label = k
+                .split('_')
+                .map((p) => (p ? p[0].toUpperCase() + p.slice(1) : ''))
+                .join(' ')
+                .trim();
+              params.push(k, label || k, agencyId, req.user?.id || null);
+            }
             await pool.execute(
               `INSERT INTO user_info_field_definitions
                 (field_key, field_label, field_type, options, is_required, is_platform_template, agency_id, parent_field_id, order_index, created_by_user_id)
-               VALUES (?, ?, 'text', NULL, FALSE, FALSE, ?, NULL, 0, ?)
+               VALUES ${valuesSql}
                ON DUPLICATE KEY UPDATE field_key = field_key`,
-              [k, label || k, agencyId, req.user?.id || null]
+              params
             );
-          } catch {
-            // ignore
           }
         }
 
@@ -1762,6 +1774,94 @@ export const importEmployeeInfo = [
         const parts = s.split(/[,;\n]/).map((x) => x.trim()).filter(Boolean);
         return parts.length ? JSON.stringify(parts) : null;
       };
+
+      // Preload agency users and build fast lookup maps (avoids per-row SELECTs).
+      const [agencyUsersForMatch] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email${hasPersonalEmail ? ', u.personal_email' : ''}${hasWorkEmail ? ', u.work_email' : ''}
+         FROM users u
+         INNER JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ?`,
+        [agencyId]
+      );
+      const agencyEmailToUser = new Map();
+      const agencyNameToUser = new Map();
+      for (const u of agencyUsersForMatch || []) {
+        const first = String(u.first_name || '').trim();
+        const last = String(u.last_name || '').trim();
+        const nameKey = normalizeNameKey(`${first} ${last}`);
+        if (nameKey && !agencyNameToUser.has(nameKey)) agencyNameToUser.set(nameKey, u);
+        const lastFirstKey = normalizeNameKey(`${last} ${first}`);
+        if (lastFirstKey && !agencyNameToUser.has(lastFirstKey)) agencyNameToUser.set(lastFirstKey, u);
+
+        const candidates = [u.email];
+        if (hasPersonalEmail) candidates.push(u.personal_email);
+        if (hasWorkEmail) candidates.push(u.work_email);
+        for (const c of candidates) {
+          const e = normalizeEmail(c);
+          if (e && !agencyEmailToUser.has(e)) agencyEmailToUser.set(e, u);
+        }
+      }
+
+      // Preload global email matches for emails present in this sheet (avoids per-row User.findByEmail).
+      const emailCandidates = new Set();
+      for (let i = startIndex; i < rows.length; i++) {
+        const r = rows[i] || [];
+        const v = getByAnyHeader(r, ['personal_email', 'Personal Email', 'email_address', 'Email Address', 'work_email', 'Work Email', 'Email']);
+        const e = normalizeEmail(v);
+        if (e && isValidEmail(e)) emailCandidates.add(e);
+      }
+      const globalEmailToUserId = new Map();
+      const emailList = Array.from(emailCandidates);
+      const emailChunkSize = 400;
+      for (let i = 0; i < emailList.length; i += emailChunkSize) {
+        const chunk = emailList.slice(i, i + emailChunkSize);
+        const placeholders = chunk.map(() => '?').join(',');
+        const ors = [];
+        const params = [];
+        ors.push(`LOWER(TRIM(u.email)) IN (${placeholders})`);
+        params.push(...chunk);
+        if (hasPersonalEmail) {
+          ors.push(`LOWER(TRIM(u.personal_email)) IN (${placeholders})`);
+          params.push(...chunk);
+        }
+        if (hasWorkEmail) {
+          ors.push(`LOWER(TRIM(u.work_email)) IN (${placeholders})`);
+          params.push(...chunk);
+        }
+        const [rowsU] = await pool.execute(
+          `SELECT u.id, u.email${hasPersonalEmail ? ', u.personal_email' : ''}${hasWorkEmail ? ', u.work_email' : ''}
+           FROM users u
+           WHERE ${ors.join(' OR ')}`,
+          params
+        );
+        for (const u of rowsU || []) {
+          const e1 = normalizeEmail(u.email);
+          if (e1 && !globalEmailToUserId.has(e1)) globalEmailToUserId.set(e1, Number(u.id));
+          if (hasPersonalEmail) {
+            const e2 = normalizeEmail(u.personal_email);
+            if (e2 && !globalEmailToUserId.has(e2)) globalEmailToUserId.set(e2, Number(u.id));
+          }
+          if (hasWorkEmail) {
+            const e3 = normalizeEmail(u.work_email);
+            if (e3 && !globalEmailToUserId.has(e3)) globalEmailToUserId.set(e3, Number(u.id));
+          }
+        }
+      }
+      if (hasAliases && emailList.length) {
+        for (let i = 0; i < emailList.length; i += emailChunkSize) {
+          const chunk = emailList.slice(i, i + emailChunkSize);
+          const placeholders = chunk.map(() => '?').join(',');
+          const [rowsA] = await pool.execute(
+            `SELECT user_id, email FROM user_login_emails WHERE LOWER(TRIM(email)) IN (${placeholders})`,
+            chunk
+          );
+          for (const r of rowsA || []) {
+            const e = normalizeEmail(r.email);
+            const uid = Number(r.user_id);
+            if (e && uid && !globalEmailToUserId.has(e)) globalEmailToUserId.set(e, uid);
+          }
+        }
+      }
 
       for (let i = startIndex; i < rows.length; i++) {
         const r = rows[i] || [];
@@ -1961,25 +2061,54 @@ export const importEmployeeInfo = [
         // Match user by (a) personal/work/primary email if present, else (b) name within agency.
         let userRow = null;
         if (loginEmail && isValidEmail(loginEmail)) {
-          try {
-            const existing = await User.findByEmail(loginEmail);
-            if (existing?.id) userRow = existing;
-          } catch {
-            // ignore
+          userRow = agencyEmailToUser.get(loginEmail) || null;
+          if (!userRow) {
+            const uid = globalEmailToUserId.get(loginEmail);
+            if (uid) userRow = { id: uid };
           }
         }
 
         if (!userRow) {
-          // Try name lookup within agency
-          const [agencyUsers] = await pool.execute(
-            `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
-             FROM users u
-             INNER JOIN user_agencies ua ON ua.user_id = u.id
-             WHERE ua.agency_id = ? AND LOWER(u.first_name) = LOWER(?) AND LOWER(u.last_name) = LOWER(?)
-             LIMIT 1`,
-            [agencyId, first, last]
-          );
-          if (agencyUsers?.[0]?.id) userRow = agencyUsers[0];
+          // Try name lookup within agency (preloaded)
+          const nameKey = normalizeNameKey(`${first} ${last}`);
+          userRow = agencyNameToUser.get(nameKey) || null;
+        }
+
+        // If user exists globally by email but wasn't in this agency, assign them now (best-effort).
+        if (userRow?.id && loginEmail && isValidEmail(loginEmail) && !agencyEmailToUser.has(loginEmail)) {
+          const uid = Number(userRow.id);
+          if (uid && !dryRun) {
+            try {
+              await pool.execute(`INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?)`, [uid, agencyId]);
+            } catch {
+              // ignore
+            }
+          }
+          // Update local maps for subsequent rows
+          try {
+            const [urows] = await pool.execute(
+              `SELECT u.id, u.first_name, u.last_name, u.email${hasPersonalEmail ? ', u.personal_email' : ''}${hasWorkEmail ? ', u.work_email' : ''}
+               FROM users u WHERE u.id = ? LIMIT 1`,
+              [uid]
+            );
+            const u = urows?.[0];
+            if (u) {
+              const n1 = normalizeNameKey(`${String(u.first_name || '').trim()} ${String(u.last_name || '').trim()}`);
+              if (n1 && !agencyNameToUser.has(n1)) agencyNameToUser.set(n1, u);
+              const e1 = normalizeEmail(u.email);
+              if (e1 && !agencyEmailToUser.has(e1)) agencyEmailToUser.set(e1, u);
+              if (hasPersonalEmail) {
+                const e2 = normalizeEmail(u.personal_email);
+                if (e2 && !agencyEmailToUser.has(e2)) agencyEmailToUser.set(e2, u);
+              }
+              if (hasWorkEmail) {
+                const e3 = normalizeEmail(u.work_email);
+                if (e3 && !agencyEmailToUser.has(e3)) agencyEmailToUser.set(e3, u);
+              }
+            }
+          } catch {
+            // ignore
+          }
         }
 
         if (!userRow) {
@@ -2013,6 +2142,17 @@ export const importEmployeeInfo = [
 
           try {
             await pool.execute(`INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?)`, [newUserId, agencyId]);
+          } catch {
+            // ignore
+          }
+
+          // Update local maps for later rows
+          try {
+            const u = { id: newUserId, first_name: first, last_name: last, email: vals[0] };
+            const nk = normalizeNameKey(`${first} ${last}`);
+            if (nk && !agencyNameToUser.has(nk)) agencyNameToUser.set(nk, u);
+            const ek = normalizeEmail(loginEmail) || normalizeEmail(vals[0]);
+            if (ek && !agencyEmailToUser.has(ek)) agencyEmailToUser.set(ek, u);
           } catch {
             // ignore
           }
