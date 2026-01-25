@@ -2088,12 +2088,6 @@ export const importEmployeeInfo = [
           results.updatedUserInfoFields += upserts.length;
           if (!dryRun) {
             await UserInfoValue.bulkUpdate(userId, upserts);
-            // Keep provider_search_index in sync so AI/provider search is accurate immediately.
-            try {
-              await ProviderSearchIndex.upsertForUserInAgency({ userId, agencyId });
-            } catch {
-              // ignore if index table is missing
-            }
           }
         }
       }
