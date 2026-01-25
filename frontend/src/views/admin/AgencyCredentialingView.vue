@@ -32,6 +32,12 @@
           <input v-model="search" type="text" placeholder="Search name/email…" />
         </div>
       </div>
+      <div style="margin-top: 10px;">
+        <label style="display:flex; align-items:center; gap:8px; margin:0;">
+          <input type="checkbox" v-model="showSources" :disabled="loading" />
+          <span class="muted" style="font-size: 13px;">Show field keys / sources</span>
+        </label>
+      </div>
     </div>
 
     <div v-if="error" class="error" style="margin-top: 12px;">{{ error }}</div>
@@ -78,27 +84,60 @@
                 </div>
               </td>
 
-              <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'date_of_birth')" :value="getValue(r.userId, 'date_of_birth')" @input="setValue(r.userId, 'date_of_birth', $event.target.value)" /></td>
+              <td>
+                <input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'date_of_birth')" :value="getValue(r.userId, 'date_of_birth')" @input="setValue(r.userId, 'date_of_birth', $event.target.value)" />
+                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'date_of_birth') }}</div>
+              </td>
               <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'first_client_date')" :value="getValue(r.userId, 'first_client_date')" @input="setValue(r.userId, 'first_client_date', $event.target.value)" /></td>
-              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'npi_number')" :value="getValue(r.userId, 'npi_number')" @input="setValue(r.userId, 'npi_number', $event.target.value)" /></td>
+              <td>
+                <input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'npi_number')" :value="getValue(r.userId, 'npi_number')" @input="setValue(r.userId, 'npi_number', $event.target.value)" />
+                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'npi_number') }}</div>
+              </td>
               <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'npi_id')" :value="getValue(r.userId, 'npi_id')" @input="setValue(r.userId, 'npi_id', $event.target.value)" /></td>
-              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'taxonomy_code')" :value="getValue(r.userId, 'taxonomy_code')" @input="setValue(r.userId, 'taxonomy_code', $event.target.value)" /></td>
+              <td>
+                <input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'taxonomy_code')" :value="getValue(r.userId, 'taxonomy_code')" @input="setValue(r.userId, 'taxonomy_code', $event.target.value)" />
+                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'taxonomy_code') }}</div>
+              </td>
               <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'zipcode')" :value="getValue(r.userId, 'zipcode')" @input="setValue(r.userId, 'zipcode', $event.target.value)" /></td>
 
-              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'license_type_number')" :value="getValue(r.userId, 'license_type_number')" @input="setValue(r.userId, 'license_type_number', $event.target.value)" /></td>
-              <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'license_issued')" :value="getValue(r.userId, 'license_issued')" @input="setValue(r.userId, 'license_issued', $event.target.value)" /></td>
-              <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'license_expires')" :value="getValue(r.userId, 'license_expires')" @input="setValue(r.userId, 'license_expires', $event.target.value)" /></td>
+              <td>
+                <input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'license_type_number')" :value="getValue(r.userId, 'license_type_number')" @input="setValue(r.userId, 'license_type_number', $event.target.value)" />
+                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'license_type_number') }}</div>
+              </td>
+              <td>
+                <input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'license_issued')" :value="getValue(r.userId, 'license_issued')" @input="setValue(r.userId, 'license_issued', $event.target.value)" />
+                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'license_issued') }}</div>
+              </td>
+              <td>
+                <input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'license_expires')" :value="getValue(r.userId, 'license_expires')" @input="setValue(r.userId, 'license_expires', $event.target.value)" />
+                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'license_expires') }}</div>
+              </td>
 
               <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicaid_provider_type')" :value="getValue(r.userId, 'medicaid_provider_type')" @input="setValue(r.userId, 'medicaid_provider_type', $event.target.value)" /></td>
               <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'tax_id')" :value="getValue(r.userId, 'tax_id')" @input="setValue(r.userId, 'tax_id', $event.target.value)" /></td>
-              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicaid_location_id')" :value="getValue(r.userId, 'medicaid_location_id')" @input="setValue(r.userId, 'medicaid_location_id', $event.target.value)" /></td>
+              <td>
+                <input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicaid_location_id')" :value="getValue(r.userId, 'medicaid_location_id')" @input="setValue(r.userId, 'medicaid_location_id', $event.target.value)" />
+                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'medicaid_location_id') }}</div>
+              </td>
               <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicaid_effective_date')" :value="getValue(r.userId, 'medicaid_effective_date')" @input="setValue(r.userId, 'medicaid_effective_date', $event.target.value)" /></td>
-              <td><input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicaid_revalidation')" :value="getValue(r.userId, 'medicaid_revalidation')" @input="setValue(r.userId, 'medicaid_revalidation', $event.target.value)" /></td>
+              <td>
+                <input type="date" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicaid_revalidation')" :value="getValue(r.userId, 'medicaid_revalidation')" @input="setValue(r.userId, 'medicaid_revalidation', $event.target.value)" />
+                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'medicaid_revalidation') }}</div>
+              </td>
               <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'medicare_number')" :value="getValue(r.userId, 'medicare_number')" @input="setValue(r.userId, 'medicare_number', $event.target.value)" /></td>
-              <td><input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'caqh_provider_id')" :value="getValue(r.userId, 'caqh_provider_id')" @input="setValue(r.userId, 'caqh_provider_id', $event.target.value)" /></td>
+              <td>
+                <input type="text" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'caqh_provider_id')" :value="getValue(r.userId, 'caqh_provider_id')" @input="setValue(r.userId, 'caqh_provider_id', $event.target.value)" />
+                <div v-if="showSources" class="muted" style="font-size: 11px;">{{ sourceLabel(r,'caqh_provider_id') }}</div>
+              </td>
 
-              <td><input type="email" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'personal_email')" :value="getValue(r.userId, 'personal_email')" @input="setValue(r.userId, 'personal_email', $event.target.value)" /></td>
-              <td><input type="tel" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'cell_number')" :value="getValue(r.userId, 'cell_number')" @input="setValue(r.userId, 'cell_number', $event.target.value)" /></td>
+              <td>
+                <input type="email" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'personal_email')" :value="getValue(r.userId, 'personal_email')" @input="setValue(r.userId, 'personal_email', $event.target.value)" />
+                <div v-if="showSources" class="muted" style="font-size: 11px;">src: users.personal_email</div>
+              </td>
+              <td>
+                <input type="tel" :disabled="!isEditingRow(r.userId)" :title="cellTitle(r,'cell_number')" :value="getValue(r.userId, 'cell_number')" @input="setValue(r.userId, 'cell_number', $event.target.value)" />
+                <div v-if="showSources" class="muted" style="font-size: 11px;">src: users.personal_phone</div>
+              </td>
 
               <td class="right" style="white-space: nowrap;">
                 <button
@@ -148,6 +187,7 @@ const info = ref('');
 const search = ref('');
 
 const rows = ref([]);
+const showSources = ref(false);
 
 const editingUserId = ref(null);
 // draftValues: Map<fieldKey, value> for the currently-edited user row.
@@ -316,7 +356,9 @@ const refresh = async () => {
     loading.value = true;
     error.value = '';
     info.value = '';
-    const res = await api.get(`/agencies/${selectedAgencyId.value}/credentialing/providers`);
+    const res = await api.get(`/agencies/${selectedAgencyId.value}/credentialing/providers`, {
+      params: { debug: showSources.value ? 'true' : 'false' }
+    });
     rows.value = res.data?.rows || [];
     cancelEdit();
   } catch (e) {
@@ -324,6 +366,24 @@ const refresh = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+watch(
+  () => showSources.value,
+  async () => {
+    if (!selectedAgencyId.value) return;
+    await refresh();
+  }
+);
+
+const sourceLabel = (row, uiKey) => {
+  const src = String(row?.sources?.[uiKey] || '').trim();
+  if (!src) return 'src: (none found)';
+  const list = Array.isArray(row?.debug?.[src]) ? row.debug[src] : [];
+  const picked = list?.[0] || null;
+  const defId = picked?.fieldDefinitionId ? String(picked.fieldDefinitionId) : '';
+  const dup = list?.length > 1 ? ` (dups: ${list.length})` : '';
+  return `src: ${src}${defId ? ` (#${defId})` : ''}${dup}`;
 };
 
 const exportCsv = async () => {

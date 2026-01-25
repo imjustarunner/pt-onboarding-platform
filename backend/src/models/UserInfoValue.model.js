@@ -4,6 +4,37 @@ import { parseUsAddressLoose } from '../utils/addressParsing.js';
 import { formOptionSources } from '../config/formOptionSources.js';
 
 class UserInfoValue {
+  static async _getFieldKeyForDefinitionId(fieldDefinitionId) {
+    const id = Number(fieldDefinitionId);
+    if (!Number.isInteger(id) || id <= 0) return '';
+    const [rows] = await pool.execute(
+      'SELECT field_key FROM user_info_field_definitions WHERE id = ? LIMIT 1',
+      [id]
+    );
+    return String(rows?.[0]?.field_key || '').trim();
+  }
+
+  static async _dedupeByFieldKeyKeepDefinition({ userId, fieldKey, keepFieldDefinitionId }) {
+    const uid = Number(userId);
+    const keepId = Number(keepFieldDefinitionId);
+    const fk = String(fieldKey || '').trim();
+    if (!Number.isInteger(uid) || uid <= 0) return;
+    if (!fk) return;
+    if (!Number.isInteger(keepId) || keepId <= 0) return;
+
+    // Enforce: at most one value per (user_id, field_key).
+    // Keep the row for keepFieldDefinitionId, delete any others for the same field_key.
+    await pool.execute(
+      `DELETE uiv
+       FROM user_info_values uiv
+       JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
+       WHERE uiv.user_id = ?
+         AND uifd.field_key = ?
+         AND uiv.field_definition_id <> ?`,
+      [uid, fk, keepId]
+    );
+  }
+
   static async findByUserId(userId, agencyId = null) {
     let query = `
       SELECT 
@@ -76,6 +107,8 @@ class UserInfoValue {
   }
 
   static async createOrUpdate(userId, fieldDefinitionId, value) {
+    const fk = await this._getFieldKeyForDefinitionId(fieldDefinitionId);
+
     // Check if value exists
     const existing = await this.findByUserAndField(userId, fieldDefinitionId);
     
@@ -85,6 +118,8 @@ class UserInfoValue {
         'UPDATE user_info_values SET value = ? WHERE user_id = ? AND field_definition_id = ?',
         [value, userId, fieldDefinitionId]
       );
+      // Ensure we don't retain duplicate values for the same logical field_key.
+      await this._dedupeByFieldKeyKeepDefinition({ userId, fieldKey: fk, keepFieldDefinitionId: fieldDefinitionId });
       return this.findByUserAndField(userId, fieldDefinitionId);
     } else {
       // Create
@@ -93,6 +128,9 @@ class UserInfoValue {
         [userId, fieldDefinitionId, value]
       );
       
+      // Ensure we don't retain duplicate values for the same logical field_key.
+      await this._dedupeByFieldKeyKeepDefinition({ userId, fieldKey: fk, keepFieldDefinitionId: fieldDefinitionId });
+
       const [rows] = await pool.execute(
         'SELECT * FROM user_info_values WHERE id = ?',
         [result.insertId]
@@ -250,10 +288,43 @@ class UserInfoValue {
   static async bulkUpdate(userId, values) {
     // values is an array of { fieldDefinitionId, value }
     const results = [];
+    const touchedFieldKeys = new Set();
     
     for (const item of values) {
+      const fk = await this._getFieldKeyForDefinitionId(item.fieldDefinitionId);
+      if (fk) touchedFieldKeys.add(fk);
       const result = await this.createOrUpdate(userId, item.fieldDefinitionId, item.value);
       results.push(result);
+    }
+
+    // Final safety pass: if the same field_key was written via multiple definition ids in this batch,
+    // keep only the newest updated row for that field_key.
+    try {
+      const uid = Number(userId);
+      const keys = Array.from(touchedFieldKeys);
+      if (Number.isInteger(uid) && uid > 0 && keys.length) {
+        const placeholders = keys.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT uiv.field_definition_id, uifd.field_key
+           FROM user_info_values uiv
+           JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
+           WHERE uiv.user_id = ?
+             AND uifd.field_key IN (${placeholders})
+           ORDER BY uifd.field_key ASC, uiv.updated_at DESC, uiv.id DESC`,
+          [uid, ...keys]
+        );
+        const keepDefByKey = new Map();
+        for (const r of rows || []) {
+          const k = String(r.field_key || '').trim();
+          if (!k || keepDefByKey.has(k)) continue;
+          keepDefByKey.set(k, Number(r.field_definition_id));
+        }
+        for (const [k, keepId] of keepDefByKey.entries()) {
+          await this._dedupeByFieldKeyKeepDefinition({ userId: uid, fieldKey: k, keepFieldDefinitionId: keepId });
+        }
+      }
+    } catch {
+      // ignore (best-effort)
     }
 
     // Best-effort: also sync certain canonical profile keys into core `users` columns.

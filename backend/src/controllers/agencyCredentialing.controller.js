@@ -188,6 +188,7 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
     }
 
     await assertAgencyAccess(req, agencyId);
+    const includeDebug = String(req.query.debug || '').toLowerCase() === 'true';
 
     const [users] = await pool.execute(
       `SELECT u.id AS userId, u.first_name, u.last_name, u.role, u.status, u.personal_email, u.personal_phone
@@ -211,7 +212,8 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
         role: u.role || '',
         personal_email: u.personal_email || '',
         cell_number: u.personal_phone || '',
-        fields: {}
+        fields: {},
+        ...(includeDebug ? { debug: {} } : null)
       });
     }
 
@@ -220,7 +222,7 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
       const fieldPlaceholders = UIV_READ_FIELD_KEYS.map(() => '?').join(',');
       const params = [agencyId, ...userIds, ...UIV_READ_FIELD_KEYS];
       const [vals] = await pool.execute(
-        `SELECT uiv.user_id, uifd.field_key, uiv.value, uiv.updated_at, uiv.id
+        `SELECT uiv.user_id, uifd.field_key, uiv.value, uiv.updated_at, uiv.id, uiv.field_definition_id
          FROM user_info_values uiv
          JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
          JOIN user_agencies ua ON ua.user_id = uiv.user_id AND ua.agency_id = ?
@@ -236,6 +238,15 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
         if (!row) continue;
         const k = String(v.field_key || '').trim();
         if (!k) continue;
+        if (includeDebug) {
+          const list = Array.isArray(row.debug?.[k]) ? row.debug[k] : [];
+          list.push({
+            fieldDefinitionId: Number(v.field_definition_id || 0) || null,
+            value: v.value ?? null,
+            updatedAt: v.updated_at ? new Date(v.updated_at).toISOString() : null
+          });
+          row.debug[k] = list;
+        }
         if (row.fields[k] !== undefined) continue;
         row.fields[k] = v.value ?? null;
       }
