@@ -177,23 +177,69 @@ class UserInfoValue {
       }
     }
     
+    const isMeaningful = (val, fieldType) => {
+      if (val === null || val === undefined) return false;
+      const t = String(fieldType || '').toLowerCase();
+      const s = typeof val === 'string' ? val.trim() : val;
+      if (typeof s === 'string' && !s) return false;
+      if (typeof s === 'string' && (s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined')) return false;
+      if (t === 'multi_select' && typeof s === 'string') {
+        if (s === '[]') return false;
+        try {
+          const parsed = JSON.parse(s);
+          if (Array.isArray(parsed)) return parsed.length > 0;
+        } catch {
+          // fall through (treat non-empty string as meaningful)
+        }
+      }
+      // For boolean fields stored as 'true'/'false', both are meaningful.
+      return true;
+    };
+
     // Get all values for user (may include multiple field_definition_ids for the same field_key).
-    // IMPORTANT: we resolve values by field_key so duplicates never cause "missing" data in the UI.
+    // IMPORTANT: resolve values by field_key AND pick the best value even if duplicates exist:
+    // - prefer meaningful over non-meaningful (e.g., avoid getting stuck on '[]')
+    // - if both meaningful, prefer the newest updated_at (or highest id)
     const values = await this.findByUserId(userId, agencyId);
     const valueByFieldKey = new Map();
+    const metaByFieldKey = new Map(); // { updatedAtMs, id, fieldType }
     for (const v of values || []) {
       const k = String(v.field_key || '').trim();
       if (!k) continue;
-      // Prefer the latest non-empty value if duplicates exist.
       const incoming = v.value ?? null;
-      const existing = valueByFieldKey.get(k);
-      if (existing === undefined) {
+      const incomingType = String(v.field_type || '').toLowerCase();
+      const incomingMeaningful = isMeaningful(incoming, incomingType);
+      const updatedAtMs = v.updated_at ? new Date(v.updated_at).getTime() : 0;
+      const rowId = Number(v.id || 0) || 0;
+
+      if (!metaByFieldKey.has(k)) {
         valueByFieldKey.set(k, incoming);
-      } else {
-        const a = String(existing || '').trim();
-        const b = String(incoming || '').trim();
-        if (!a && b) valueByFieldKey.set(k, incoming);
+        metaByFieldKey.set(k, { updatedAtMs, id: rowId, fieldType: incomingType, meaningful: incomingMeaningful });
+        continue;
       }
+
+      const curMeta = metaByFieldKey.get(k);
+      const curVal = valueByFieldKey.get(k);
+      const curType = curMeta?.fieldType || incomingType;
+      const curMeaningful = curMeta?.meaningful ?? isMeaningful(curVal, curType);
+
+      // Prefer meaningful values over non-meaningful ones.
+      if (!curMeaningful && incomingMeaningful) {
+        valueByFieldKey.set(k, incoming);
+        metaByFieldKey.set(k, { updatedAtMs, id: rowId, fieldType: incomingType, meaningful: incomingMeaningful });
+        continue;
+      }
+      // If both meaningful, prefer newest.
+      if (curMeaningful && incomingMeaningful) {
+        const curUpdated = Number(curMeta?.updatedAtMs || 0);
+        const curId = Number(curMeta?.id || 0);
+        if (updatedAtMs > curUpdated || (updatedAtMs === curUpdated && rowId > curId)) {
+          valueByFieldKey.set(k, incoming);
+          metaByFieldKey.set(k, { updatedAtMs, id: rowId, fieldType: incomingType, meaningful: incomingMeaningful });
+        }
+        continue;
+      }
+      // If both non-meaningful, keep current (doesn't matter).
     }
 
     // Dedupe field definitions by field_key (prefer platform template, then lowest id).
@@ -229,25 +275,6 @@ class UserInfoValue {
     return Array.from(bestDefByKey.values()).map(field => {
       const fk = String(field.field_key || '').trim();
       const rawValue = valueByFieldKey.has(fk) ? valueByFieldKey.get(fk) : null;
-
-      const isMeaningful = (val, fieldType) => {
-        if (val === null || val === undefined) return false;
-        const t = String(fieldType || '').toLowerCase();
-        const s = typeof val === 'string' ? val.trim() : val;
-        if (typeof s === 'string' && !s) return false;
-        if (typeof s === 'string' && (s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined')) return false;
-        if (t === 'multi_select' && typeof s === 'string') {
-          if (s === '[]') return false;
-          try {
-            const parsed = JSON.parse(s);
-            if (Array.isArray(parsed)) return parsed.length > 0;
-          } catch {
-            // fall through (treat non-empty string as meaningful)
-          }
-        }
-        // For boolean fields stored as 'true'/'false', both are meaningful.
-        return true;
-      };
 
       const fieldWithValue = {
         ...field,
