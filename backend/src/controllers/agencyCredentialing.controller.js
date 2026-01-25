@@ -123,6 +123,64 @@ export const CREDENTIALING_COLUMNS = [
   { key: 'cell_number', label: 'cell_number', kind: 'users', usersCol: 'personal_phone' }
 ];
 
+// Best-effort typing for auto-created field definitions (when migrations haven't been run yet).
+// These are the storage keys that the credentialing grid actually writes to.
+const CREDENTIALING_FIELD_TYPE_BY_KEY = new Map([
+  ['date_of_birth', 'date'],
+  ['first_client_date', 'date'],
+  ['medicaid_effective_date', 'date'],
+  ['provider_credential_license_issued_date', 'date'],
+  ['provider_credential_license_expiration_date', 'date'],
+  ['provider_credential_medicaid_revalidation_date', 'date']
+]);
+
+function labelizeFieldKey(k) {
+  return String(k || '')
+    .trim()
+    .split('_')
+    .filter(Boolean)
+    .map((p) => p[0]?.toUpperCase() + p.slice(1))
+    .join(' ')
+    .trim();
+}
+
+async function ensureAgencyFieldDefinitions({ agencyId, fieldKeys, createdByUserId = null }) {
+  const keys = Array.from(new Set((fieldKeys || []).map((k) => String(k || '').trim()).filter(Boolean)));
+  if (!keys.length) return;
+
+  // Check what already exists (agency-scoped or platform).
+  const placeholders = keys.map(() => '?').join(',');
+  const [existing] = await pool.execute(
+    `SELECT DISTINCT field_key
+     FROM user_info_field_definitions
+     WHERE field_key IN (${placeholders})
+       AND (agency_id = ? OR agency_id IS NULL)`,
+    [...keys, agencyId]
+  );
+  const have = new Set((existing || []).map((r) => String(r.field_key || '').trim()).filter(Boolean));
+  const missing = keys.filter((k) => !have.has(k));
+  if (!missing.length) return;
+
+  // Create missing as agency-scoped defs so we don't create NULL-agency duplicates.
+  const chunkSize = 200;
+  for (let i = 0; i < missing.length; i += chunkSize) {
+    const chunk = missing.slice(i, i + chunkSize);
+    const valuesSql = chunk.map(() => '(?, ?, ?, NULL, FALSE, FALSE, ?, NULL, \'credentialing\', 0, ?)').join(',');
+    const params = [];
+    for (const k of chunk) {
+      const type = CREDENTIALING_FIELD_TYPE_BY_KEY.get(k) || 'text';
+      params.push(k, labelizeFieldKey(k) || k, type, agencyId, createdByUserId);
+    }
+    await pool.execute(
+      `INSERT INTO user_info_field_definitions
+        (field_key, field_label, field_type, options, is_required, is_platform_template, agency_id, parent_field_id, category_key, order_index, created_by_user_id)
+       VALUES ${valuesSql}
+       ON DUPLICATE KEY UPDATE field_key = field_key`,
+      params
+    );
+  }
+}
+
 const UIV_READ_FIELD_KEYS = Array.from(
   new Set(
     CREDENTIALING_COLUMNS
@@ -264,7 +322,16 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
 
 async function resolveBestDefinitionIdsForAgency({ agencyId, fieldKeys }) {
   if (!fieldKeys.length) return new Map();
-  const placeholders = fieldKeys.map(() => '?').join(',');
+  const keys = Array.from(new Set(fieldKeys.map((k) => String(k || '').trim()).filter(Boolean)));
+
+  // Ensure missing keys exist as definitions (best-effort) so PATCH never silently "does nothing".
+  try {
+    await ensureAgencyFieldDefinitions({ agencyId, fieldKeys: keys, createdByUserId: null });
+  } catch {
+    // ignore; we'll still attempt to resolve whatever exists
+  }
+
+  const placeholders = keys.map(() => '?').join(',');
   const [defs] = await pool.execute(
     `SELECT id, field_key, agency_id, is_platform_template
      FROM user_info_field_definitions
@@ -275,7 +342,7 @@ async function resolveBestDefinitionIdsForAgency({ agencyId, fieldKeys }) {
        (is_platform_template = TRUE) DESC,
        (agency_id IS NULL) DESC,
        id ASC`,
-    [...fieldKeys, agencyId, agencyId]
+    [...keys, agencyId, agencyId]
   );
 
   const best = new Map();
@@ -364,7 +431,19 @@ export const patchAgencyProvidersCredentialing = async (req, res, next) => {
       .filter((u) => !!u.storageKey);
 
     const storageKeys = Array.from(new Set(uivUpdates.map((u) => String(u.storageKey))));
+    // Ensure defs exist (if migrations weren't run yet) so edits actually persist.
+    await ensureAgencyFieldDefinitions({ agencyId, fieldKeys: storageKeys, createdByUserId: req.user?.id || null });
     const defIdByFieldKey = await resolveBestDefinitionIdsForAgency({ agencyId, fieldKeys: storageKeys });
+
+    const stillMissing = storageKeys.filter((k) => !defIdByFieldKey.get(String(k)));
+    if (stillMissing.length) {
+      return res.status(500).json({
+        error: {
+          message: 'Credentialing fields are missing definitions; cannot save changes.',
+          missingFieldKeys: stillMissing
+        }
+      });
+    }
 
     let updatedCount = coreUpdates.length;
     for (const u of uivUpdates) {
