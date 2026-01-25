@@ -30,10 +30,28 @@ class UserInfoValue {
     
     const [rows] = await pool.execute(query, params);
     
-    // Parse JSON options
-    return rows.map(row => ({
+    const parseOptionsLoose = (raw) => {
+      if (!raw) return null;
+      if (typeof raw !== 'string') return null;
+      const s = raw.trim();
+      if (!s) return null;
+      // Preferred: JSON array stored in DB
+      try {
+        const parsed = JSON.parse(s);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        // Fall back: some legacy rows stored a comma-separated string.
+      }
+      if (s.includes(',')) {
+        return s.split(',').map((x) => String(x).trim()).filter(Boolean);
+      }
+      return null;
+    };
+
+    // Parse options robustly (never throw; bad data should not 500 the API)
+    return rows.map((row) => ({
       ...row,
-      options: row.options ? JSON.parse(row.options) : null
+      options: parseOptionsLoose(row.options)
     }));
   }
 
