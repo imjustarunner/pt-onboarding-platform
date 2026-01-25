@@ -248,7 +248,9 @@ const exportCsv = async () => {
 };
 
 onMounted(async () => {
-  await agencyStore.fetchAgencies();
+  // Use the agency list scoped to the current user (works for admin/support/staff).
+  // `fetchAgencies()` hits /agencies which may be restricted for staff.
+  await agencyStore.fetchUserAgencies();
   if (!selectedAgencyId.value && agencies.value.length) {
     selectedAgencyId.value = agencies.value[0].id;
   }
