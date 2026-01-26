@@ -6,6 +6,7 @@ import {
   createClient,
   updateClient,
   updateClientStatus,
+  unarchiveClient,
   assignProvider,
   deleteBulkImportedClients,
   getClientHistory,
@@ -38,6 +39,9 @@ router.post('/', createClient);
 
 // Update client
 router.put('/:id', updateClient);
+
+// Unarchive client (admin/staff/support/super_admin)
+router.post('/:id/unarchive', unarchiveClient);
 
 // Update client status
 router.put('/:id/status', updateClientStatus);

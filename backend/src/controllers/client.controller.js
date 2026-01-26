@@ -166,7 +166,7 @@ export const createClient = async (req, res, next) => {
       agency_id,
       provider_id,
       initials,
-      status = 'PENDING_REVIEW',
+      client_status_id,
       submission_date,
       document_status = 'NONE',
       source = 'ADMIN_CREATED'
@@ -256,17 +256,84 @@ export const createClient = async (req, res, next) => {
       // This avoids blocking client creation in older environments.
     }
 
+    // Duplicate detection (entire DB) by identifier_code (client initials/code).
+    // If a matching archived client exists, return details so UI can offer "unarchive" instead of creating a duplicate.
+    const identifierCode = String(initials || '').toUpperCase().trim();
+    if (identifierCode) {
+      const [dupes] = await pool.execute(
+        `SELECT
+           c.id AS client_id,
+           c.status AS client_status_workflow,
+           c.client_status_id AS client_status_id,
+           cs.label AS client_status_label,
+           cs.status_key AS client_status_key,
+           c.organization_id,
+           org.name AS organization_name,
+           org.slug AS organization_slug,
+           c.provider_id,
+           CONCAT(p.first_name, ' ', p.last_name) AS provider_name,
+           c.agency_id,
+           a.name AS agency_name
+         FROM clients c
+         LEFT JOIN agencies org ON c.organization_id = org.id
+         LEFT JOIN agencies a ON c.agency_id = a.id
+         LEFT JOIN users p ON c.provider_id = p.id
+         LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
+         WHERE UPPER(c.identifier_code) = ?
+         ORDER BY (c.status = 'ARCHIVED') DESC, c.id DESC
+         LIMIT 10`,
+        [identifierCode]
+      );
+      const matches = (dupes || []).map((r) => ({
+        clientId: Number(r.client_id),
+        workflowStatus: r.client_status_workflow || null,
+        clientStatusId: r.client_status_id || null,
+        clientStatusLabel: r.client_status_label || null,
+        clientStatusKey: r.client_status_key || null,
+        organizationId: r.organization_id || null,
+        organizationName: r.organization_name || null,
+        organizationSlug: r.organization_slug || null,
+        providerId: r.provider_id || null,
+        providerName: r.provider_name || null,
+        agencyId: r.agency_id || null,
+        agencyName: r.agency_name || null
+      }));
+      if (matches.length > 0) {
+        // If there is any non-archived match, treat as an existing client and block duplicates.
+        const nonArchived = matches.find((m) => String(m.workflowStatus || '').toUpperCase() !== 'ARCHIVED');
+        const archived = matches.find((m) => String(m.workflowStatus || '').toUpperCase() === 'ARCHIVED');
+        if (nonArchived) {
+          return res.status(409).json({
+            error: {
+              message: 'A client with this code already exists.',
+              errorMeta: { matches, canUnarchive: false }
+            }
+          });
+        }
+        if (archived) {
+          return res.status(409).json({
+            error: {
+              message: 'A client with this code exists but is archived. Unarchive instead?',
+              errorMeta: { matches, canUnarchive: true }
+            }
+          });
+        }
+      }
+    }
+
     // Create client
     const client = await Client.create({
       organization_id: parsedOrganizationId,
       agency_id: parsedAgencyId,
       provider_id: provider_id || null,
       initials: initials.toUpperCase().trim(),
-      status,
+      // "status" is treated as internal workflow/archive flag; new clients are not archived.
+      status: 'PENDING_REVIEW',
       submission_date,
       document_status,
       source,
-      created_by_user_id: userId
+      created_by_user_id: userId,
+      client_status_id: client_status_id ? parseInt(client_status_id, 10) : null
     });
 
     // Log initial creation to history
@@ -275,7 +342,7 @@ export const createClient = async (req, res, next) => {
       changed_by_user_id: userId,
       field_changed: 'created',
       from_value: null,
-      to_value: JSON.stringify({ status, source }),
+      to_value: JSON.stringify({ status: 'PENDING_REVIEW', source }),
       note: 'Client created'
     });
 
@@ -283,6 +350,50 @@ export const createClient = async (req, res, next) => {
   } catch (error) {
     console.error('Create client error:', error);
     next(error);
+  }
+};
+
+/**
+ * Unarchive client (optionally update affiliation/provider)
+ * POST /api/clients/:id/unarchive
+ */
+export const unarchiveClient = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const currentClient = await Client.findById(id, { includeSensitive: true });
+    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    // Permission: only admin/staff/support/super_admin can unarchive.
+    const roleNorm = String(userRole || '').toLowerCase();
+    const canUnarchive = roleNorm === 'super_admin' || roleNorm === 'admin' || roleNorm === 'support' || roleNorm === 'staff';
+    if (!canUnarchive) {
+      return res.status(403).json({ error: { message: 'Only admin/staff can unarchive clients' } });
+    }
+
+    const isArchived = String(currentClient.status || '').toUpperCase() === 'ARCHIVED';
+    if (!isArchived) {
+      return res.status(400).json({ error: { message: 'Client is not archived' } });
+    }
+
+    const nextOrgId = req.body?.organization_id ? parseInt(req.body.organization_id, 10) : null;
+    const nextProviderId = req.body?.provider_id === null ? null : (req.body?.provider_id ? parseInt(req.body.provider_id, 10) : undefined);
+
+    // Unarchive + optional reassignment.
+    await Client.updateStatus(id, 'PENDING_REVIEW', userId, 'Unarchived');
+    if (nextOrgId || nextProviderId !== undefined) {
+      const patch = {};
+      if (nextOrgId) patch.organization_id = nextOrgId;
+      if (nextProviderId !== undefined) patch.provider_id = nextProviderId;
+      await Client.update(id, patch, userId);
+    }
+
+    const updated = await Client.findById(id, { includeSensitive: true });
+    res.json(updated);
+  } catch (e) {
+    next(e);
   }
 };
 

@@ -342,9 +342,10 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         // Note: the DB column may be sized differently across environments; migrations should align it.
         const identifierCode = clientCode;
 
-        const existingClientQuery = `SELECT id, referral_date, provider_id, organization_id, service_day, paperwork_received_at FROM clients WHERE agency_id = ? AND identifier_code = ? LIMIT 1`;
+        const existingClientQuery = `SELECT id, referral_date, provider_id, organization_id, service_day, paperwork_received_at, status FROM clients WHERE agency_id = ? AND identifier_code = ? LIMIT 1`;
         const [existingRows] = await connection.execute(existingClientQuery, [agencyId, identifierCode]);
         const existing = existingRows[0] || null;
+        const existingWasArchived = String(existing?.status || '').toUpperCase() === 'ARCHIVED';
 
         const clientStatusKey = normalizeClientStatusKey(row.status);
         const paperworkStatusKey = normalizePaperworkStatusKey(row.paperworkStatus);
@@ -416,9 +417,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         if (!existing) {
           const submissionDate = row.referralDate || todayYmd();
           const referralDate = row.referralDate || submissionDate;
-          const workflow = String(row.workflow || '').trim().toUpperCase();
-          const allowedWorkflow = new Set(['PENDING_REVIEW', 'ACTIVE', 'ON_HOLD', 'DECLINED', 'ARCHIVED']);
-          const statusToSet = allowedWorkflow.has(workflow) ? workflow : 'PENDING_REVIEW';
+          const statusToSet = 'PENDING_REVIEW';
 
           await connection.execute(
             `INSERT INTO clients (
@@ -500,11 +499,10 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
             set('referral_date', row.referralDate);
           }
 
-          // Workflow/status: sheet wins when provided; otherwise preserve existing.
-          const workflow = String(row.workflow || '').trim().toUpperCase();
-          const allowedWorkflow = new Set(['PENDING_REVIEW', 'ACTIVE', 'ON_HOLD', 'DECLINED', 'ARCHIVED']);
-          if (allowedWorkflow.has(workflow)) {
-            set('status', workflow);
+          // If the existing client was archived, unarchive on re-import.
+          if (existingWasArchived) {
+            set('status', 'PENDING_REVIEW');
+            warnings.push('Existing client was archived; unarchived during import.');
           }
 
           // Always update last_activity + updated_by

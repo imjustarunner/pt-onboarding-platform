@@ -274,12 +274,10 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Status *</label>
-            <select v-model="newClient.status" required>
-              <option value="PENDING_REVIEW">Pending Review</option>
-              <option value="ACTIVE">Active</option>
-              <option value="ON_HOLD">On Hold</option>
-              <option value="DECLINED">Declined</option>
+            <label>Client Status</label>
+            <select v-model="newClient.client_status_id">
+              <option :value="null">—</option>
+              <option v-for="s in clientStatuses" :key="s.id" :value="s.id">{{ s.label }}</option>
             </select>
           </div>
           <div class="form-group">
@@ -302,6 +300,54 @@
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Duplicate initials modal -->
+    <div v-if="dupesModalOpen" class="modal-overlay" @click.self="closeDupesModal">
+      <div class="modal-content" @click.stop style="max-width: 860px;">
+        <h3>Similar client code found</h3>
+        <p style="margin-top: 6px; color: var(--text-secondary);">
+          We found one or more clients with the same code in the database. If it’s the same student, unarchive instead of creating a duplicate.
+        </p>
+
+        <div style="margin-top: 12px; overflow-x: auto;">
+          <table class="clients-table" style="min-width: 780px;">
+            <thead>
+              <tr>
+                <th>Agency</th>
+                <th>Affiliation</th>
+                <th>Prior Provider</th>
+                <th>Client Status</th>
+                <th>Archived?</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="m in dupesMatches" :key="m.clientId">
+                <td>{{ m.agencyName || '-' }}</td>
+                <td>{{ m.organizationName || '-' }}</td>
+                <td>{{ m.providerName || '-' }}</td>
+                <td>{{ m.clientStatusLabel || '-' }}</td>
+                <td>{{ String(m.workflowStatus || '').toUpperCase() === 'ARCHIVED' ? 'Yes' : 'No' }}</td>
+                <td>
+                  <button
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    :disabled="String(m.workflowStatus || '').toUpperCase() !== 'ARCHIVED'"
+                    @click="unarchiveMatch(m)"
+                  >
+                    Unarchive
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 14px;">
+          <button type="button" class="btn btn-secondary" @click="closeDupesModal">Close</button>
+        </div>
       </div>
     </div>
 
@@ -362,10 +408,14 @@ const newClient = ref({
   organization_id: null,
   initials: '',
   provider_id: null,
-  status: 'PENDING_REVIEW',
+  client_status_id: null,
   submission_date: new Date().toISOString().split('T')[0],
   document_status: 'NONE'
 });
+
+const dupesModalOpen = ref(false);
+const dupesMatches = ref([]);
+const dupesForNewClient = ref(null);
 
 const activeAgencyId = computed(() => {
   const current = agencyStore.currentAgency;
@@ -754,6 +804,14 @@ const createClient = async () => {
     closeCreateModal();
   } catch (err) {
     console.error('Failed to create client:', err);
+    const status = err.response?.status;
+    const meta = err.response?.data?.error?.errorMeta || null;
+    if (status === 409 && meta?.matches && Array.isArray(meta.matches)) {
+      dupesMatches.value = meta.matches;
+      dupesForNewClient.value = { ...newClient.value };
+      dupesModalOpen.value = true;
+      return;
+    }
     error.value = err.response?.data?.error?.message || 'Failed to create client';
   } finally {
     creating.value = false;
@@ -766,10 +824,32 @@ const closeCreateModal = () => {
     organization_id: null,
     initials: '',
     provider_id: null,
-    status: 'PENDING_REVIEW',
+    client_status_id: null,
     submission_date: new Date().toISOString().split('T')[0],
     document_status: 'NONE'
   };
+};
+
+const closeDupesModal = () => {
+  dupesModalOpen.value = false;
+  dupesMatches.value = [];
+  dupesForNewClient.value = null;
+};
+
+const unarchiveMatch = async (m) => {
+  if (!m?.clientId) return;
+  const payload = {
+    organization_id: dupesForNewClient.value?.organization_id || undefined,
+    provider_id: dupesForNewClient.value?.provider_id ?? undefined
+  };
+  try {
+    await api.post(`/clients/${m.clientId}/unarchive`, payload);
+    await fetchClients();
+    closeDupesModal();
+    closeCreateModal();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || e.message || 'Failed to unarchive client');
+  }
 };
 
 const handleBulkImported = () => {
