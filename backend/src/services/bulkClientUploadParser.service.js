@@ -63,6 +63,21 @@ const normalizeDay = (value) => {
   return map[s] || null;
 };
 
+const normalizeWorkflow = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const s = raw.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (s === 'pending' || s === 'pending review' || s === 'pending_review') return 'PENDING_REVIEW';
+  if (s === 'active' || s === 'current') return 'ACTIVE';
+  if (s === 'on hold' || s === 'on_hold' || s === 'hold') return 'ON_HOLD';
+  if (s === 'declined' || s === 'denied') return 'DECLINED';
+  if (s === 'archived' || s === 'archive') return 'ARCHIVED';
+  // If the sheet already uses canonical enum values, accept them.
+  const upper = raw.toUpperCase().trim();
+  const allowed = new Set(['PENDING_REVIEW', 'ACTIVE', 'ON_HOLD', 'DECLINED', 'ARCHIVED']);
+  return allowed.has(upper) ? upper : '';
+};
+
 /**
  * Bulk Client Upload Parser
  * Supports CSV and XLSX with a fixed set of expected headers (case-insensitive).
@@ -117,10 +132,19 @@ export default class BulkClientUploadParserService {
         normalized['initials'] ||
         '';
 
+      const workflowRaw =
+        normalized['workflow'] ||
+        normalized['workflow status'] ||
+        normalized['client workflow'] ||
+        normalized['client workflow status'] ||
+        normalized['client status workflow'] ||
+        '';
+
       const out = {
         rowNumber: i + 2, // header row is 1
         clientName: String(clientName || '').trim(),
         status: String(normalized['status'] || '').trim(),
+        workflow: normalizeWorkflow(workflowRaw),
         referralDate: toDateString(normalized['referral date']),
         skills: toBool(normalized['skills']),
         insurance: String(normalized['insurance'] || '').trim(),

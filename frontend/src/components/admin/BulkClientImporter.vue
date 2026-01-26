@@ -3,7 +3,7 @@
     <div class="importer-header">
       <h2>Bulk Client Importer</h2>
       <p class="importer-description">
-        Upload a CSV file to import multiple clients at once. This tool is designed for legacy data migration.
+        Upload a CSV file to import multiple clients at once. This tool links clients to existing schools and (when found) existing providers.
       </p>
     </div>
 
@@ -228,15 +228,6 @@ const handleImport = async () => {
       errors: [],
       message: `Upload completed. Job #${jobId}: ${response.data.successRows} succeeded, ${response.data.failedRows} failed.`
     };
-
-    const createdSchools = Array.isArray(response.data.createdSchools) ? response.data.createdSchools : [];
-    const createdProviders = Array.isArray(response.data.createdProviders) ? response.data.createdProviders : [];
-    if (createdSchools.length || createdProviders.length) {
-      const schoolLine = createdSchools.length ? `${createdSchools.length} school(s) created` : null;
-      const providerLine = createdProviders.length ? `${createdProviders.length} provider(s) created` : null;
-      const extra = [schoolLine, providerLine].filter(Boolean).join(', ');
-      importResults.value.message = `${importResults.value.message} (${extra})`;
-    }
 
     // Fetch per-row results for actionable feedback
     if (jobId) {

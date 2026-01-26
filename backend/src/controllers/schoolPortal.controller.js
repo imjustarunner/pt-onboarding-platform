@@ -59,7 +59,9 @@ export const getSchoolClients = async (req, res, next) => {
     }
 
     // Get clients for this school (restricted view - no sensitive data)
-    const clients = await Client.findByOrganizationId(parseInt(organizationId));
+    // Exclude archived clients so rosters show all active/non-archived students.
+    const all = await Client.findByOrganizationId(parseInt(organizationId));
+    const clients = (all || []).filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
 
     // Unread note counts (per user) - best effort if table exists.
     const unreadCountsByClientId = new Map();
@@ -91,7 +93,10 @@ export const getSchoolClients = async (req, res, next) => {
       return {
         id: client.id,
         initials: client.initials,
-        status: client.status,
+        // "status" (workflow) is treated as an internal archive flag; schools should see the configured client status.
+        client_status_id: client.client_status_id || null,
+        client_status_label: client.client_status_label || null,
+        client_status_key: client.client_status_key || null,
         provider_id: client.provider_id || null,
         provider_name: client.provider_name || null,
         service_day: client.service_day || null,

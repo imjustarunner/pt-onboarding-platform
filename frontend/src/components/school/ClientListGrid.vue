@@ -16,7 +16,7 @@
       <table>
         <thead>
           <tr>
-            <th>Status</th>
+            <th>Client Status</th>
             <th>Doc Status</th>
             <th>Assigned Provider</th>
             <th>Assigned Day</th>
@@ -27,8 +27,8 @@
         <tbody>
           <tr v-for="client in clients" :key="client.id" class="client-row">
             <td>
-              <span :class="['status-badge', `status-${client.status.toLowerCase().replace('_', '-')}`]">
-                {{ formatStatus(client.status) }}
+              <span :class="['status-badge', `status-${String(client.client_status_key || 'unknown').toLowerCase().replace('_', '-')}`]">
+                {{ client.client_status_label || '—' }}
               </span>
             </td>
             <td>{{ formatDocStatus(client.document_status) }}</td>
@@ -58,7 +58,6 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue';
 import api from '../../services/api';
-import ClientStatusBadge from '../admin/ClientStatusBadge.vue';
 import SchoolClientChatModal from './SchoolClientChatModal.vue';
 
 const props = defineProps({

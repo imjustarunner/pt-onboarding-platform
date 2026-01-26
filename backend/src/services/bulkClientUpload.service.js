@@ -165,22 +165,22 @@ async function findOrCreateSchool(connection, { agencyId, schoolName, districtNa
   if (!name) throw new Error('School is required');
   const slug = slugify(name);
 
+  // Find-only: bulk client upload must NOT create schools.
+  // Schools are created/maintained via the school directory import + org management.
   const [existing] = await connection.execute(
-    `SELECT id FROM agencies WHERE organization_type = 'school' AND (name = ? OR slug = ?) LIMIT 1`,
+    `SELECT id
+     FROM agencies
+     WHERE organization_type = 'school'
+       AND (LOWER(name) = LOWER(?) OR slug = ?)
+     LIMIT 1`,
     [name, slug]
   );
-  let schoolId = existing[0]?.id || null;
-
+  const schoolId = existing[0]?.id || null;
   if (!schoolId) {
-    const [result] = await connection.execute(
-      `INSERT INTO agencies (name, slug, logo_url, color_palette, terminology_settings, is_active, organization_type)
-       VALUES (?, ?, NULL, NULL, NULL, TRUE, 'school')`,
-      [name, slug || crypto.randomBytes(8).toString('hex')]
-    );
-    schoolId = result.insertId;
+    throw new Error(`School not found: "${name}"`);
   }
 
-  // Link to agency via organization_affiliations
+  // Best-effort: ensure the school is affiliated to the agency (non-destructive).
   await connection.execute(
     `INSERT INTO organization_affiliations (agency_id, organization_id, is_active)
      VALUES (?, ?, TRUE)
@@ -188,103 +188,76 @@ async function findOrCreateSchool(connection, { agencyId, schoolName, districtNa
     [agencyId, schoolId]
   );
 
-  if (districtName && String(districtName).trim()) {
-    await connection.execute(
-      `INSERT INTO school_profiles (school_organization_id, district_name)
-       VALUES (?, ?)
-       ON DUPLICATE KEY UPDATE district_name = VALUES(district_name)`,
-      [schoolId, String(districtName).trim()]
-    );
-  }
+  // We intentionally do NOT upsert district/school_profiles from the client uploader.
+  // That data is owned by the school directory import.
 
   return schoolId;
 }
 
-async function findOrCreateProvider(connection, { agencyId, providerName }) {
-  const name = String(providerName || '').trim();
-  if (!name) return null;
+function normalizePersonNameKey(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  // Drop parentheticals (e.g., credentials, notes)
+  let s = raw.replace(/\([^)]*\)/g, ' ');
+  // Normalize separators/punctuation
+  s = s.replace(/[.,/\\]+/g, ' ').replace(/-/g, ' ');
+  // Keep only letters + spaces for matching
+  s = s.replace(/[^a-zA-Z\s]+/g, ' ');
+  s = s.toLowerCase().replace(/\s+/g, ' ').trim();
 
-  // Basic name parsing: "Last, First" or "First Last"
-  let firstName = '';
-  let lastName = '';
-  if (name.includes(',')) {
-    const [l, f] = name.split(',').map(s => String(s || '').trim());
-    firstName = f || '';
-    lastName = l || '';
-  } else {
-    const parts = name.split(/\s+/).filter(Boolean);
-    firstName = parts[0] || '';
-    lastName = parts.length > 1 ? parts[parts.length - 1] : '';
+  // Remove common credential tokens (best-effort)
+  const drop = new Set([
+    'dr', 'doctor', 'phd', 'psyd', 'psy', 'd', 'ma', 'ms', 'msw', 'lpc', 'lcsw', 'lmft', 'lpcc', 'ccc', 'cccs',
+    'm', 'ed', 'med', 'ba', 'bs', 'b', 'a', 'rbt', 'bcba'
+  ]);
+  const parts = s.split(' ').filter(Boolean).filter((t) => !drop.has(t));
+  return parts.join(' ').trim();
+}
+
+function nameTokens(value) {
+  const k = normalizePersonNameKey(value);
+  if (!k) return [];
+  return k.split(' ').filter(Boolean);
+}
+
+function buildProviderIndex(providerRows) {
+  const map = new Map();
+  for (const r of providerRows || []) {
+    const id = r?.id;
+    const first = String(r?.first_name || '').trim();
+    const last = String(r?.last_name || '').trim();
+    if (!id || (!first && !last)) continue;
+    const full = `${first} ${last}`.trim();
+    const rev = `${last} ${first}`.trim();
+    const k1 = normalizePersonNameKey(full);
+    const k2 = normalizePersonNameKey(rev);
+    if (k1 && !map.has(k1)) map.set(k1, id);
+    if (k2 && !map.has(k2)) map.set(k2, id);
+  }
+  return map;
+}
+
+async function findProviderIdByName({ providerIndex, providerName }) {
+  const raw = String(providerName || '').trim();
+  if (!raw) return null;
+  const directKey = normalizePersonNameKey(raw);
+  if (directKey && providerIndex?.has(directKey)) return providerIndex.get(directKey);
+
+  // Handle "Last, First" by flipping.
+  if (raw.includes(',')) {
+    const [l, f] = raw.split(',').map((x) => String(x || '').trim());
+    const flipped = `${f} ${l}`.trim();
+    const k = normalizePersonNameKey(flipped);
+    if (k && providerIndex?.has(k)) return providerIndex.get(k);
   }
 
-  // Try to match an existing agency user by name
-  if (firstName && lastName) {
-    const firstToken = String(firstName).trim().split(/\s+/)[0] || firstName;
-    const [rows] = await connection.execute(
-      `SELECT u.id
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ? AND u.first_name = ? AND u.last_name = ?
-       LIMIT 1`,
-      [agencyId, firstToken, lastName]
-    );
-    if (rows[0]?.id) return rows[0].id;
+  // Fallback: try matching on first+last token only (strip middle names).
+  const toks = nameTokens(raw);
+  if (toks.length >= 2) {
+    const key = `${toks[0]} ${toks[toks.length - 1]}`.trim();
+    if (key && providerIndex?.has(key)) return providerIndex.get(key);
   }
-
-  // Use a canonical name key for placeholder-email hashing so imports match even if one file uses
-  // "Last, First" and another uses "First Last".
-  const firstToken = String(firstName).trim().split(/\s+/)[0] || '';
-  const canonicalName = (firstToken && lastName) ? `${firstToken} ${lastName}` : name;
-  const hashNew = crypto.createHash('sha256').update(`${agencyId}:${canonicalName.toLowerCase()}`).digest('hex').slice(0, 10);
-  const hashOld = crypto.createHash('sha256').update(`${agencyId}:${name}`).digest('hex').slice(0, 10);
-  const emailNew = `provider+${hashNew}@example.invalid`;
-  const emailOld = `provider+${hashOld}@example.invalid`;
-
-  // Backward-compat: check both the old and new email hashes to avoid duplicates.
-  const [existing] = await connection.execute(
-    `SELECT id FROM users WHERE email IN (?, ?) LIMIT 1`,
-    [emailNew, emailOld]
-  );
-  let userId = existing[0]?.id || null;
-
-  if (!userId) {
-    const safeStatusCandidates = ['ACTIVE_EMPLOYEE', 'active', 'completed', 'pending'];
-    let inserted = false;
-    let lastErr = null;
-
-    for (const status of safeStatusCandidates) {
-      try {
-        const [result] = await connection.execute(
-          `INSERT INTO users (role, status, first_name, last_name, email)
-           VALUES ('provider', ?, ?, ?, ?)`,
-          [status, firstName || 'Provider', lastName || 'User', emailNew]
-        );
-        userId = result.insertId;
-        inserted = true;
-        break;
-      } catch (e) {
-        lastErr = e;
-        // Try next candidate if ENUM mismatch
-        if (e?.code === 'ER_WRONG_VALUE_FOR_FIELD' || String(e?.message || '').includes('Incorrect')) {
-          continue;
-        }
-        throw e;
-      }
-    }
-
-    if (!inserted) {
-      throw lastErr || new Error('Failed to create provider user');
-    }
-  }
-
-  await connection.execute(
-    `INSERT INTO user_agencies (user_id, agency_id)
-     VALUES (?, ?)
-     ON DUPLICATE KEY UPDATE user_id = user_id`,
-    [userId, agencyId]
-  );
-
-  return userId;
+  return null;
 }
 
 async function ensureProviderAvailability(connection, { providerUserId, schoolId, dayOfWeek, slots }) {
@@ -320,8 +293,17 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
 
     let successRows = 0;
     let failedRows = 0;
-    const createdSchools = new Map(); // name -> id
-    const createdProviders = new Map(); // provider display -> userId
+
+    // Build a provider name index once for this agency (find-only; no creation).
+    const [providerRows] = await connection.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.role
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND LOWER(u.role) IN ('provider','clinician','supervisor','admin')`,
+      [agencyId]
+    );
+    const providerIndex = buildProviderIndex(providerRows || []);
 
     for (const row of rows) {
       await connection.beginTransaction();
@@ -331,19 +313,15 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           schoolName: row.school,
           districtName: row.district
         });
-        if (row.school && schoolId) {
-          // Best-effort "created" tracking: if the name doesn't exist in map yet, record it.
-          const key = String(row.school).trim();
-          if (key && !createdSchools.has(key)) createdSchools.set(key, schoolId);
-        }
+        const providerProvided = String(row.provider || '').trim() !== '';
+        const providerUserId = await findProviderIdByName({ providerIndex, providerName: row.provider });
 
-        const providerUserId = await findOrCreateProvider(connection, { agencyId, providerName: row.provider });
-        if (row.provider && providerUserId) {
-          const key = String(row.provider).trim();
-          if (key && !createdProviders.has(key)) createdProviders.set(key, providerUserId);
+        const warnings = [];
+        if (providerProvided && !providerUserId) {
+          warnings.push(`Provider not found: "${String(row.provider || '').trim()}". Client will be unassigned.`);
         }
-        if (row.day && !providerUserId) {
-          throw new Error('Day provided but Provider is missing');
+        if ((row.day || row.providerAvailability !== undefined) && (!providerProvided || !providerUserId)) {
+          warnings.push('Provider scheduling fields were ignored because provider is not assigned.');
         }
 
         const providerSlots = parseIntOrNull(row.providerAvailability);
@@ -385,9 +363,10 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         const deliveryMethodId =
           (await getDeliveryMethodId(connection, { schoolId, label: deliveryKey || row.paperworkDelivery })) || defaults.deliveryMethodId;
 
-        // Determine if this assignment changes slots
+        // Determine if this assignment changes slots.
+        // Only store day if provider is assigned.
         const newProviderId = providerUserId || null;
-        const newDay = row.day || null;
+        const newDay = newProviderId ? (row.day || null) : null;
         const newSchoolId = schoolId;
         const oldIsCurrent = !!(existing?.provider_id && existing?.service_day);
         const newIsCurrent = !!(newProviderId && newDay);
@@ -437,6 +416,9 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         if (!existing) {
           const submissionDate = row.referralDate || todayYmd();
           const referralDate = row.referralDate || submissionDate;
+          const workflow = String(row.workflow || '').trim().toUpperCase();
+          const allowedWorkflow = new Set(['PENDING_REVIEW', 'ACTIVE', 'ON_HOLD', 'DECLINED', 'ARCHIVED']);
+          const statusToSet = allowedWorkflow.has(workflow) ? workflow : 'PENDING_REVIEW';
 
           await connection.execute(
             `INSERT INTO clients (
@@ -458,7 +440,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
               newProviderId,
               clientCode,
               clientCode,
-              newProviderId && newDay ? 'ACTIVE' : 'PENDING_REVIEW',
+              statusToSet,
               submissionDate,
               'NONE',
               'BULK_IMPORT',
@@ -490,8 +472,12 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           };
 
           set('organization_id', newSchoolId);
-          set('provider_id', newProviderId);
-          set('service_day', newDay);
+          // Provider/day: only update if a provider was explicitly provided AND successfully matched.
+          // If the sheet contains a provider name that we can't match, do NOT clear the existing assignment.
+          if (providerProvided && providerUserId) {
+            set('provider_id', newProviderId);
+            set('service_day', newDay);
+          }
           set('full_name', clientCode);
           set('initials', clientCode);
           set('client_status_id', clientStatusId);
@@ -514,8 +500,12 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
             set('referral_date', row.referralDate);
           }
 
-          // Keep legacy status enum roughly aligned with assignment state
-          set('status', newProviderId && newDay ? 'ACTIVE' : 'PENDING_REVIEW');
+          // Workflow/status: sheet wins when provided; otherwise preserve existing.
+          const workflow = String(row.workflow || '').trim().toUpperCase();
+          const allowedWorkflow = new Set(['PENDING_REVIEW', 'ACTIVE', 'ON_HOLD', 'DECLINED', 'ARCHIVED']);
+          if (allowedWorkflow.has(workflow)) {
+            set('status', workflow);
+          }
 
           // Always update last_activity + updated_by
           set('updated_by_user_id', userId);
@@ -535,7 +525,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           jobId,
           rowNumber: row.rowNumber,
           status: 'success',
-          message: 'Imported successfully',
+          message: warnings.length ? `Imported with warnings: ${warnings.join(' ')}` : 'Imported successfully',
           entityIds: { clientId, providerUserId, schoolOrganizationId: schoolId }
         });
 
@@ -584,9 +574,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
       jobId,
       totalRows: rows.length,
       successRows,
-      failedRows,
-      createdSchools: Array.from(createdSchools.entries()).map(([name, id]) => ({ name, id })),
-      createdProviders: Array.from(createdProviders.entries()).map(([name, id]) => ({ name, id }))
+      failedRows
     };
   } finally {
     connection.release();

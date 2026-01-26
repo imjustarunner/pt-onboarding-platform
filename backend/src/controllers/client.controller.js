@@ -419,6 +419,13 @@ export const updateClientStatus = async (req, res, next) => {
       });
     }
 
+    // Archive permission: only admin/staff/support/super_admin may archive.
+    const roleNorm = String(userRole || '').toLowerCase();
+    const canArchive = roleNorm === 'super_admin' || roleNorm === 'admin' || roleNorm === 'support' || roleNorm === 'staff';
+    if (String(status || '').toUpperCase() === 'ARCHIVED' && !canArchive) {
+      return res.status(403).json({ error: { message: 'Only admin/staff can archive clients' } });
+    }
+
     // Update status with history logging
     const updatedClient = await Client.updateStatus(id, status, userId, note);
 

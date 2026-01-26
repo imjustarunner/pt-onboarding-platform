@@ -18,26 +18,51 @@
           class="search-input"
           @input="applyFilters"
         />
-        <select v-model="workflowStatusFilter" @change="applyFilters" class="filter-select">
-          <option value="">All Workflows</option>
-          <option value="PENDING_REVIEW">Pending Review</option>
-          <option value="ACTIVE">Active</option>
-          <option value="ON_HOLD">On Hold</option>
-          <option value="DECLINED">Declined</option>
-          <option value="ARCHIVED">Archived</option>
-        </select>
         <select v-model="clientStatusFilter" @change="applyFilters" class="filter-select">
           <option value="">All Client Statuses</option>
           <option v-for="s in clientStatuses" :key="s.id" :value="String(s.id)">
             {{ s.label }}
           </option>
         </select>
-        <select v-model="organizationFilter" @change="applyFilters" class="filter-select">
-          <option value="">All Organizations</option>
-          <option v-for="org in availableOrganizations" :key="org.id" :value="org.id">
-            {{ org.name }}
-          </option>
-        </select>
+        <div v-if="showSchoolSearch" class="school-search">
+          <input
+            v-model="schoolSearchQuery"
+            type="text"
+            class="school-search-input"
+            placeholder="Search schools..."
+            @focus="schoolSearchOpen = true"
+            @input="schoolSearchOpen = true"
+            @keydown.esc="schoolSearchOpen = false"
+          />
+          <div v-if="schoolSearchOpen && schoolSearchResults.length" class="school-search-menu">
+            <button
+              v-for="s in schoolSearchResults"
+              :key="s.id"
+              type="button"
+              class="school-search-item"
+              @click="selectSchool(s)"
+            >
+              <span class="school-search-name">{{ s.name }}</span>
+              <span class="school-search-meta">School</span>
+            </button>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select v-model="organizationFilter" @change="applyFilters" class="filter-select">
+            <option value="">All Affiliations</option>
+            <option v-for="org in availableAffiliations" :key="org.id" :value="org.id">
+              {{ org.name }}
+            </option>
+          </select>
+          <button
+            v-if="selectedAffiliation"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="goToAffiliationDashboard"
+          >
+            {{ selectedAffiliation.name }} Dashboard
+          </button>
+        </div>
         <select v-model="providerFilter" @change="applyFilters" class="filter-select">
           <option value="">All Providers</option>
           <option v-for="provider in availableProviders" :key="provider.id" :value="provider.id">
@@ -88,13 +113,51 @@
     </div>
 
     <div v-else class="clients-table-container">
+      <div v-if="selectedIds.size > 0" class="bulk-bar">
+        <div class="bulk-left">
+          <strong>{{ selectedIds.size }}</strong> selected
+          <button class="btn btn-secondary btn-sm" type="button" @click="clearSelection">Clear</button>
+        </div>
+        <div class="bulk-right">
+          <select v-model="bulkAffiliationId" class="filter-select">
+            <option value="">Move to affiliation…</option>
+            <option v-for="org in availableAffiliations" :key="org.id" :value="String(org.id)">{{ org.name }}</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" type="button" :disabled="!bulkAffiliationId || bulkWorking" @click="bulkMoveAffiliation">
+            Move
+          </button>
+
+          <select v-model="bulkClientStatusId" class="filter-select">
+            <option value="">Set client status…</option>
+            <option v-for="s in clientStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" type="button" :disabled="!bulkClientStatusId || bulkWorking" @click="bulkSetClientStatus">
+            Set
+          </button>
+
+          <select v-model="bulkProviderId" class="filter-select">
+            <option value="">Assign provider…</option>
+            <option :value="'__unassign__'">Unassign</option>
+            <option v-for="p in availableProviders" :key="p.id" :value="String(p.id)">{{ p.first_name }} {{ p.last_name }}</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" type="button" :disabled="!bulkProviderId || bulkWorking" @click="bulkAssignProvider">
+            Assign
+          </button>
+
+          <button class="btn btn-danger btn-sm" type="button" :disabled="bulkWorking" @click="bulkArchive">
+            Archive
+          </button>
+        </div>
+      </div>
       <table class="clients-table">
         <thead>
           <tr>
+            <th style="width: 34px;">
+              <input type="checkbox" :checked="allPageSelected" @change.stop="toggleSelectAllPage($event)" />
+            </th>
             <th>Initials</th>
-            <th>Organization</th>
+            <th>Affiliation</th>
             <th>Client Status</th>
-            <th>Workflow</th>
             <th>Provider</th>
             <th>Submission Date</th>
             <th>Paperwork</th>
@@ -110,13 +173,23 @@
             @click="openClientDetail(client)"
             class="client-row"
           >
+            <td class="select-cell" @click.stop>
+              <input type="checkbox" :checked="selectedIds.has(client.id)" @change.stop="toggleSelected(client.id)" />
+            </td>
             <td>{{ client.initials }}</td>
-            <td>{{ client.organization_name || '-' }}</td>
             <td>
-              {{ client.client_status_label || '-' }}
+              <button
+                v-if="client.organization_slug"
+                type="button"
+                class="link-button"
+                @click.stop="router.push(`/${client.organization_slug}/dashboard`)"
+              >
+                {{ client.organization_name || '-' }}
+              </button>
+              <span v-else>{{ client.organization_name || '-' }}</span>
             </td>
             <td>
-              <ClientStatusBadge :status="client.status" />
+              {{ client.client_status_label || '-' }}
             </td>
             <td>
               <select
@@ -144,25 +217,12 @@
             <td>{{ formatDate(client.last_activity_at) || '-' }}</td>
             <td class="actions-cell" @click.stop>
               <button @click="openClientDetail(client)" class="btn btn-primary btn-sm">View</button>
-              <select
-                v-if="editingStatusId === client.id"
-                v-model="editingStatusValue"
-                @change="saveStatus(client.id, editingStatusValue)"
-                @blur="cancelEdit"
-                class="inline-select status-select"
-              >
-                <option value="PENDING_REVIEW">Pending Review</option>
-                <option value="ACTIVE">Active</option>
-                <option value="ON_HOLD">On Hold</option>
-                <option value="DECLINED">Declined</option>
-                <option value="ARCHIVED">Archived</option>
-              </select>
               <button 
                 v-else
                 @click.stop="startEditStatus(client)" 
                 class="btn btn-secondary btn-sm"
               >
-                Change Status
+                Archive
               </button>
             </td>
           </tr>
@@ -256,21 +316,21 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
-import ClientStatusBadge from '../../components/admin/ClientStatusBadge.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const router = useRouter();
 
 const clients = ref([]);
 const loading = ref(false);
 const error = ref('');
 const searchQuery = ref('');
-const workflowStatusFilter = ref('');
 const clientStatusFilter = ref('');
 const organizationFilter = ref('');
 const providerFilter = ref('');
@@ -287,10 +347,15 @@ const currentPage = ref(1);
 const pageSize = ref(50);
 
 // Inline editing state
-const editingStatusId = ref(null);
-const editingStatusValue = ref(null);
 const editingProviderId = ref(null);
 const editingProviderValue = ref(null);
+
+// Bulk selection + actions
+const selectedIds = ref(new Set());
+const bulkWorking = ref(false);
+const bulkAffiliationId = ref('');
+const bulkProviderId = ref('');
+const bulkClientStatusId = ref('');
 
 // New client form
 const newClient = ref({
@@ -316,13 +381,30 @@ const activeAgencyId = computed(() => {
 const fetchLinkedOrganizations = async () => {
   try {
     loadingOrganizations.value = true;
+    // Super admins: show all schools platform-wide so the filter always has options.
+    if (authStore.user?.role === 'super_admin') {
+      const response = await api.get('/agencies');
+      const rows = Array.isArray(response.data) ? response.data : [];
+      linkedOrganizations.value = rows
+        // Affiliations: any non-agency org type (school/program/learning)
+        .filter((r) => String(r?.organization_type || '').toLowerCase() !== 'agency')
+        .map((r) => ({
+          id: r.id,
+          name: r.name,
+          slug: r.slug || r.portal_url || null,
+          organization_type: r.organization_type,
+          is_active: r.is_active
+        }));
+      return;
+    }
+
     const agencyId = activeAgencyId.value;
     if (!agencyId) {
       linkedOrganizations.value = [];
       return;
     }
 
-    // This endpoint returns agency-linked organizations (school/program/learning) via agency_schools linkage table
+    // Agency admins: only show orgs linked to the active agency.
     const response = await api.get(`/agencies/${agencyId}/schools`);
     const rows = response.data || [];
     linkedOrganizations.value = rows.map((r) => ({
@@ -346,6 +428,57 @@ const availableOrganizations = computed(() => {
   return linkedOrganizations.value || [];
 });
 
+const availableSchools = computed(() => {
+  return (availableOrganizations.value || []).filter(
+    (o) => String(o?.organization_type || '').toLowerCase() === 'school'
+  );
+});
+
+const showSchoolSearch = computed(() => {
+  // Only show when the user actually has schools in scope (superadmin = platform-wide).
+  return (availableSchools.value || []).length > 0;
+});
+
+const schoolSearchQuery = ref('');
+const schoolSearchOpen = ref(false);
+
+const schoolSearchResults = computed(() => {
+  const list = availableSchools.value || [];
+  const q = String(schoolSearchQuery.value || '').trim().toLowerCase();
+  const ranked = q
+    ? list
+        .filter((s) => String(s?.name || '').toLowerCase().includes(q))
+        .slice(0, 20)
+    : list.slice(0, 12);
+  return ranked;
+});
+
+const selectSchool = (school) => {
+  if (!school?.id) return;
+  organizationFilter.value = String(school.id);
+  // Keep the typed value stable as a “selection”
+  schoolSearchQuery.value = school.name || '';
+  schoolSearchOpen.value = false;
+  applyFilters();
+};
+
+const availableAffiliations = computed(() => {
+  return (availableOrganizations.value || []).filter(
+    (o) => String(o?.organization_type || '').toLowerCase() !== 'agency'
+  );
+});
+
+const selectedAffiliation = computed(() => {
+  const id = Number(organizationFilter.value);
+  if (!id) return null;
+  return (availableAffiliations.value || []).find((o) => Number(o?.id) === id) || null;
+});
+
+const goToAffiliationDashboard = () => {
+  if (!selectedAffiliation.value?.slug) return;
+  router.push(`/${selectedAffiliation.value.slug}/dashboard`);
+};
+
 // Get available providers
 const availableProviders = ref([]);
 
@@ -355,7 +488,6 @@ const fetchClients = async () => {
     error.value = '';
     
     const params = new URLSearchParams();
-    if (workflowStatusFilter.value) params.append('status', workflowStatusFilter.value);
     if (clientStatusFilter.value) params.append('client_status_id', clientStatusFilter.value);
     if (organizationFilter.value) params.append('organization_id', organizationFilter.value);
     if (providerFilter.value) params.append('provider_id', providerFilter.value);
@@ -430,6 +562,90 @@ const pagedClients = computed(() => {
   return filteredClients.value.slice(start, start + pageSize.value);
 });
 
+const allPageSelected = computed(() => {
+  const page = pagedClients.value || [];
+  if (!page.length) return false;
+  for (const c of page) {
+    if (!selectedIds.value.has(c.id)) return false;
+  }
+  return true;
+});
+
+const toggleSelected = (id) => {
+  const set = new Set(selectedIds.value);
+  if (set.has(id)) set.delete(id);
+  else set.add(id);
+  selectedIds.value = set;
+};
+
+const toggleSelectAllPage = (evt) => {
+  const checked = !!evt?.target?.checked;
+  const set = new Set(selectedIds.value);
+  for (const c of pagedClients.value || []) {
+    if (checked) set.add(c.id);
+    else set.delete(c.id);
+  }
+  selectedIds.value = set;
+};
+
+const clearSelection = () => {
+  selectedIds.value = new Set();
+  bulkAffiliationId.value = '';
+  bulkProviderId.value = '';
+  bulkClientStatusId.value = '';
+};
+
+const runBulk = async (fn) => {
+  const ids = Array.from(selectedIds.value || []);
+  if (!ids.length) return;
+  bulkWorking.value = true;
+  try {
+    // Small concurrency limit to avoid hammering the API.
+    const concurrency = 5;
+    let i = 0;
+    const workers = Array.from({ length: concurrency }).map(async () => {
+      while (i < ids.length) {
+        const id = ids[i++];
+        // eslint-disable-next-line no-await-in-loop
+        await fn(id);
+      }
+    });
+    await Promise.all(workers);
+    await fetchClients();
+    clearSelection();
+  } catch (e) {
+    console.error('Bulk action failed:', e);
+    alert(e.response?.data?.error?.message || e.message || 'Bulk action failed');
+  } finally {
+    bulkWorking.value = false;
+  }
+};
+
+const bulkArchive = async () => {
+  const ok = window.confirm(`Archive ${selectedIds.value.size} client(s)? This removes them from rosters.`);
+  if (!ok) return;
+  await runBulk((id) => api.put(`/clients/${id}/status`, { status: 'ARCHIVED' }));
+};
+
+const bulkMoveAffiliation = async () => {
+  const orgId = bulkAffiliationId.value ? parseInt(String(bulkAffiliationId.value), 10) : null;
+  if (!orgId) return;
+  await runBulk((id) => api.put(`/clients/${id}`, { organization_id: orgId }));
+};
+
+const bulkSetClientStatus = async () => {
+  const csId = bulkClientStatusId.value ? parseInt(String(bulkClientStatusId.value), 10) : null;
+  if (!csId) return;
+  await runBulk((id) => api.put(`/clients/${id}`, { client_status_id: csId }));
+};
+
+const bulkAssignProvider = async () => {
+  const raw = String(bulkProviderId.value || '');
+  if (!raw) return;
+  const providerId = raw === '__unassign__' ? null : parseInt(raw, 10);
+  await runBulk((id) => api.put(`/clients/${id}/provider`, { provider_id: providerId }));
+};
+
 const applyFilters = () => {
   fetchClients();
 };
@@ -463,9 +679,18 @@ const formatDocumentStatus = (status) => {
   return statusMap[status] || status;
 };
 
-const startEditStatus = (client) => {
-  editingStatusId.value = client.id;
-  editingStatusValue.value = client.status;
+const startEditStatus = async (client) => {
+  const ok = window.confirm('Archive this client? This will remove them from all school rosters.');
+  if (!ok) return;
+  try {
+    await api.put(`/clients/${client.id}/status`, { status: 'ARCHIVED' });
+    await fetchClients();
+  } catch (err) {
+    console.error('Failed to archive client:', err);
+    alert(err.response?.data?.error?.message || 'Failed to archive client');
+  } finally {
+    cancelEdit();
+  }
 };
 
 const startEditProvider = (client) => {
@@ -474,23 +699,11 @@ const startEditProvider = (client) => {
 };
 
 const cancelEdit = () => {
-  editingStatusId.value = null;
-  editingStatusValue.value = null;
   editingProviderId.value = null;
   editingProviderValue.value = null;
 };
 
-const saveStatus = async (clientId, newStatus) => {
-  try {
-    await api.put(`/clients/${clientId}/status`, { status: newStatus });
-    await fetchClients();
-    cancelEdit();
-  } catch (err) {
-    console.error('Failed to update status:', err);
-    alert(err.response?.data?.error?.message || 'Failed to update status');
-    cancelEdit();
-  }
-};
+// Workflow editing removed; "status" is now treated as an internal archive flag.
 
 const saveProvider = async (clientId, providerId) => {
   try {
@@ -614,6 +827,116 @@ onMounted(async () => {
   border-radius: 6px;
   font-size: 14px;
   min-width: 150px;
+}
+
+.school-search {
+  position: relative;
+  min-width: 220px;
+}
+
+.school-search-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.school-search-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  max-height: 280px;
+  overflow: auto;
+  padding: 6px;
+}
+
+.school-search-item {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 8px;
+  text-align: left;
+  font: inherit;
+}
+
+.school-search-item:hover {
+  background: var(--bg-alt);
+}
+
+.school-search-name {
+  font-weight: 600;
+}
+
+.school-search-meta {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.link-button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: underline;
+  font: inherit;
+}
+
+.link-button:hover {
+  opacity: 0.85;
+}
+
+.bulk-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+
+.bulk-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bulk-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.select-cell {
+  width: 34px;
+}
+
+.btn-danger {
+  background: var(--danger, #d92d20);
+  color: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.btn-danger:hover {
+  opacity: 0.92;
 }
 
 .pagination-bar {
