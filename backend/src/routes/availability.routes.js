@@ -17,7 +17,8 @@ import {
   setProviderSkills,
   listProvidersForAvailability,
   searchAvailability,
-  getAdminPendingCounts
+  getAdminPendingCounts,
+  listSkillBuildersAvailability
 } from '../controllers/availability.controller.js';
 
 const router = express.Router();
@@ -44,6 +45,7 @@ router.put('/admin/providers/:providerId/skills', setProviderSkills);
 router.get('/admin/providers', listProvidersForAvailability);
 
 router.get('/admin/pending-counts', getAdminPendingCounts);
+router.get('/admin/skill-builders', listSkillBuildersAvailability);
 router.get('/admin/search', searchAvailability);
 
 export default router;

@@ -608,6 +608,22 @@
             </div>
             <div class="icon-description">Icon for the "Agency Calendar" action card</div>
           </div>
+          <div class="icon-row">
+            <div class="icon-label">Skill Builders Availability Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.skillBuildersAvailabilityIconId" />
+              <button
+                v-if="platformForm.skillBuildersAvailabilityIconId"
+                @click="platformForm.skillBuildersAvailabilityIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Skill Builders Availability" action card</div>
+          </div>
         </div>
 
         <div class="section-divider"></div>
@@ -1145,6 +1161,22 @@
               </div>
             <div class="icon-description">Icon for the "Agency Calendar" action card</div>
             </div>
+          <div class="icon-row">
+            <div class="icon-label">Skill Builders Availability Icon</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.skillBuildersAvailabilityIconId" />
+                <button
+                  v-if="agencyBrandingForm.skillBuildersAvailabilityIconId"
+                  @click="agencyBrandingForm.skillBuildersAvailabilityIconId = null"
+                  class="btn btn-sm btn-danger"
+                  type="button"
+                  title="Remove icon"
+                >
+                  Clear
+                </button>
+              </div>
+            <div class="icon-description">Icon for the "Skill Builders Availability" action card</div>
+          </div>
           </div>
 
           <div class="section-divider"></div>
@@ -1543,6 +1575,22 @@
             </div>
             <div class="icon-description">Icon for the "Agency Calendar" action card</div>
           </div>
+          <div class="icon-row">
+            <div class="icon-label">Skill Builders Availability Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.skillBuildersAvailabilityIconId" />
+              <button
+                v-if="brandingForm.skillBuildersAvailabilityIconId"
+                @click="brandingForm.skillBuildersAvailabilityIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Skill Builders Availability" action card</div>
+          </div>
         </div>
 
         <div class="section-divider"></div>
@@ -1860,6 +1908,7 @@ const platformForm = ref({
   dashboardBillingIconId: null,
       allAgenciesNotificationsIconId: null,
       externalCalendarAuditIconId: null,
+      skillBuildersAvailabilityIconId: null,
       organizationName: null,
       organizationLogoIconId: null,
       organizationLogoUrl: null,
@@ -1898,6 +1947,7 @@ const agencyBrandingForm = ref({
   settingsIconId: null,
   platformSettingsIconId: null,
   externalCalendarAuditIconId: null,
+  skillBuildersAvailabilityIconId: null,
   dashboardNotificationsIconId: null,
   dashboardCommunicationsIconId: null,
   dashboardChatsIconId: null,
@@ -1953,6 +2003,7 @@ const brandingForm = ref({
   settingsIconId: null,
   platformSettingsIconId: null,
   externalCalendarAuditIconId: null,
+  skillBuildersAvailabilityIconId: null,
   dashboardNotificationsIconId: null,
   dashboardCommunicationsIconId: null,
   dashboardChatsIconId: null,
@@ -2030,6 +2081,7 @@ watch(currentAgency, async (agency) => {
         settingsIconId: freshAgency.settings_icon_id ?? null,
         platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
         externalCalendarAuditIconId: freshAgency.external_calendar_audit_icon_id ?? null,
+        skillBuildersAvailabilityIconId: freshAgency.skill_builders_availability_icon_id ?? null,
 
         companyProfileIconId: freshAgency.company_profile_icon_id ?? null,
         teamRolesIconId: freshAgency.team_roles_icon_id ?? null,
@@ -2116,6 +2168,7 @@ const onBrandingScopeChange = async () => {
         settingsIconId: freshAgency.settings_icon_id ?? null,
         platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
         externalCalendarAuditIconId: freshAgency.external_calendar_audit_icon_id ?? null,
+        skillBuildersAvailabilityIconId: freshAgency.skill_builders_availability_icon_id ?? null,
         dashboardNotificationsIconId: freshAgency.dashboard_notifications_icon_id ?? null,
         dashboardCommunicationsIconId: freshAgency.dashboard_communications_icon_id ?? null,
         dashboardChatsIconId: freshAgency.dashboard_chats_icon_id ?? null,
@@ -2191,6 +2244,7 @@ const saveAgencyBrandingForSuperAdmin = async () => {
       settingsIconId: agencyBrandingForm.value.settingsIconId ?? null,
       platformSettingsIconId: agencyBrandingForm.value.platformSettingsIconId ?? null,
       externalCalendarAuditIconId: agencyBrandingForm.value.externalCalendarAuditIconId ?? null,
+      skillBuildersAvailabilityIconId: agencyBrandingForm.value.skillBuildersAvailabilityIconId ?? null,
       dashboardNotificationsIconId: agencyBrandingForm.value.dashboardNotificationsIconId ?? null,
       dashboardCommunicationsIconId: agencyBrandingForm.value.dashboardCommunicationsIconId ?? null,
       dashboardChatsIconId: agencyBrandingForm.value.dashboardChatsIconId ?? null,
@@ -2249,6 +2303,7 @@ const saveAgencyBrandingForSuperAdmin = async () => {
           settingsIconId: freshAgency.settings_icon_id ?? null,
           platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
           externalCalendarAuditIconId: freshAgency.external_calendar_audit_icon_id ?? null,
+          skillBuildersAvailabilityIconId: freshAgency.skill_builders_availability_icon_id ?? null,
           dashboardNotificationsIconId: freshAgency.dashboard_notifications_icon_id ?? null,
           dashboardCommunicationsIconId: freshAgency.dashboard_communications_icon_id ?? null,
           dashboardChatsIconId: freshAgency.dashboard_chats_icon_id ?? null,
@@ -2311,6 +2366,7 @@ const saveBranding = async () => {
       settingsIconId: brandingForm.value.settingsIconId ?? null,
       platformSettingsIconId: brandingForm.value.platformSettingsIconId ?? null,
       externalCalendarAuditIconId: brandingForm.value.externalCalendarAuditIconId ?? null,
+      skillBuildersAvailabilityIconId: brandingForm.value.skillBuildersAvailabilityIconId ?? null,
       dashboardNotificationsIconId: brandingForm.value.dashboardNotificationsIconId ?? null,
       dashboardCommunicationsIconId: brandingForm.value.dashboardCommunicationsIconId ?? null,
       dashboardChatsIconId: brandingForm.value.dashboardChatsIconId ?? null,
@@ -2681,6 +2737,7 @@ const applySelectedTemplate = async (event) => {
           viewAllProgressIconId: brandingStore.platformBranding.view_all_progress_icon_id ?? null,
           allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
         externalCalendarAuditIconId: brandingStore.platformBranding.external_calendar_audit_icon_id ?? null,
+          skillBuildersAvailabilityIconId: brandingStore.platformBranding.skill_builders_availability_icon_id ?? null,
           settingsIconId: brandingStore.platformBranding.settings_icon_id ?? null,
           dashboardNotificationsIconId: brandingStore.platformBranding.dashboard_notifications_icon_id ?? null,
           dashboardCommunicationsIconId: brandingStore.platformBranding.dashboard_communications_icon_id ?? null,
@@ -2742,6 +2799,8 @@ const applySelectedTemplate = async (event) => {
               manageUsersIconId: agency.manage_users_icon_id ?? null,
               settingsIconId: agency.settings_icon_id ?? null,
               platformSettingsIconId: agency.platform_settings_icon_id ?? null,
+              externalCalendarAuditIconId: agency.external_calendar_audit_icon_id ?? null,
+              skillBuildersAvailabilityIconId: agency.skill_builders_availability_icon_id ?? null,
 
               companyProfileIconId: agency.company_profile_icon_id ?? null,
               teamRolesIconId: agency.team_roles_icon_id ?? null,
@@ -2773,6 +2832,8 @@ const applySelectedTemplate = async (event) => {
               manageUsersIconId: agency.manage_users_icon_id ?? null,
               settingsIconId: agency.settings_icon_id ?? null,
               platformSettingsIconId: agency.platform_settings_icon_id ?? null,
+              externalCalendarAuditIconId: agency.external_calendar_audit_icon_id ?? null,
+              skillBuildersAvailabilityIconId: agency.skill_builders_availability_icon_id ?? null,
 
               companyProfileIconId: agency.company_profile_icon_id ?? null,
               teamRolesIconId: agency.team_roles_icon_id ?? null,
@@ -3026,6 +3087,7 @@ const savePlatformBranding = async () => {
       dashboardBillingIconId: platformForm.value.dashboardBillingIconId ?? null,
       allAgenciesNotificationsIconId: platformForm.value.allAgenciesNotificationsIconId ?? null,
       externalCalendarAuditIconId: platformForm.value.externalCalendarAuditIconId ?? null,
+      skillBuildersAvailabilityIconId: platformForm.value.skillBuildersAvailabilityIconId ?? null,
       organizationName: platformForm.value.organizationName?.trim() || null,
       organizationLogoIconId: platformForm.value.organizationLogoIconId ?? null,
       organizationLogoUrl: platformLogoInputMethod.value === 'url' ? (platformForm.value.organizationLogoUrl?.trim() || null) : null,
@@ -3294,6 +3356,8 @@ onMounted(async () => {
         platformSettingsIconId: brandingStore.platformBranding.platform_settings_icon_id ?? null,
         viewAllProgressIconId: brandingStore.platformBranding.view_all_progress_icon_id ?? null,
         allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
+        externalCalendarAuditIconId: brandingStore.platformBranding.external_calendar_audit_icon_id ?? null,
+        skillBuildersAvailabilityIconId: brandingStore.platformBranding.skill_builders_availability_icon_id ?? null,
 
         companyProfileIconId: brandingStore.platformBranding.company_profile_icon_id ?? null,
         teamRolesIconId: brandingStore.platformBranding.team_roles_icon_id ?? null,

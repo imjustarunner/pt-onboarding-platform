@@ -214,7 +214,7 @@ export const getMyAvailabilityPending = async (req, res, next) => {
     if (skillBuilderEligible) {
       try {
         const [blockRows] = await pool.execute(
-          `SELECT day_of_week, block_type, start_time, end_time
+          `SELECT day_of_week, block_type, start_time, end_time, depart_from, depart_time, is_booked
            FROM provider_skill_builder_availability
            WHERE agency_id = ? AND provider_id = ?
            ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
@@ -224,14 +224,17 @@ export const getMyAvailabilityPending = async (req, res, next) => {
           dayOfWeek: b.day_of_week,
           blockType: b.block_type,
           startTime: String(b.start_time || '').slice(0, 5),
-          endTime: String(b.end_time || '').slice(0, 5)
+          endTime: String(b.end_time || '').slice(0, 5),
+          departFrom: String(b.depart_from || '').trim(),
+          departTime: b.depart_time ? String(b.depart_time).slice(0, 5) : '',
+          isBooked: b.is_booked === true || b.is_booked === 1 || b.is_booked === '1'
         }));
         // Compute hours/week
         let totalMinutes = 0;
         for (const b of blockRows || []) {
           const t = String(b.block_type || '').toUpperCase();
-          if (t === 'AFTER_SCHOOL') totalMinutes += 150;
-          else if (t === 'WEEKEND') totalMinutes += 240;
+          if (t === 'AFTER_SCHOOL') totalMinutes += 90;
+          else if (t === 'WEEKEND') totalMinutes += 180;
           else totalMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
         }
         const [confRows] = await pool.execute(
@@ -544,18 +547,43 @@ function normalizeSkillBuilderBlocks(blocks) {
     const blockType = normalizeBlockType(b?.blockType);
     if (!dayOfWeek || !blockType) continue;
 
+    const departFrom = String(b?.departFrom || '').trim().slice(0, 255);
+    if (!departFrom) continue;
+    const departTime = b?.departTime ? normalizeTimeHHMM(b.departTime) : null;
+    const isBooked =
+      b?.isBooked === true ||
+      b?.isBooked === 1 ||
+      b?.isBooked === '1' ||
+      String(b?.isBooked || '').toLowerCase() === 'true';
+
     if (blockType === 'AFTER_SCHOOL') {
       if (!WEEKDAY_SET.has(dayOfWeek)) continue;
-      normalized.push({ dayOfWeek, blockType, startTime: '14:30:00', endTime: '17:00:00' });
+      normalized.push({
+        dayOfWeek,
+        blockType,
+        startTime: '15:00:00',
+        endTime: '16:30:00',
+        departFrom,
+        departTime,
+        isBooked
+      });
     } else if (blockType === 'WEEKEND') {
       if (!WEEKEND_SET.has(dayOfWeek)) continue;
-      normalized.push({ dayOfWeek, blockType, startTime: '11:30:00', endTime: '15:30:00' });
+      normalized.push({
+        dayOfWeek,
+        blockType,
+        startTime: '12:00:00',
+        endTime: '15:00:00',
+        departFrom,
+        departTime,
+        isBooked
+      });
     } else {
       const startTime = normalizeTimeHHMM(b?.startTime);
       const endTime = normalizeTimeHHMM(b?.endTime);
       if (!startTime || !endTime) continue;
       if (endTime <= startTime) continue;
-      normalized.push({ dayOfWeek, blockType, startTime, endTime });
+      normalized.push({ dayOfWeek, blockType, startTime, endTime, departFrom, departTime, isBooked });
     }
   }
   return normalized;
@@ -565,8 +593,8 @@ function totalMinutesForSkillBuilderBlocks(blocks) {
   let total = 0;
   for (const b of blocks || []) {
     const t = String(b?.blockType || '').toUpperCase();
-    if (t === 'AFTER_SCHOOL') total += 150;
-    else if (t === 'WEEKEND') total += 240;
+    if (t === 'AFTER_SCHOOL') total += 90;
+    else if (t === 'WEEKEND') total += 180;
     else total += minutesBetween(b?.startTime, b?.endTime);
   }
   return total;
@@ -609,9 +637,9 @@ export const submitMySkillBuilderAvailability = async (req, res, next) => {
     for (const b of normalizedBlocks) {
       await conn.execute(
         `INSERT INTO provider_skill_builder_availability
-          (agency_id, provider_id, day_of_week, block_type, start_time, end_time)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [agencyId, providerId, b.dayOfWeek, b.blockType, b.startTime, b.endTime]
+          (agency_id, provider_id, depart_from, depart_time, is_booked, day_of_week, block_type, start_time, end_time)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [agencyId, providerId, b.departFrom, b.departTime || null, b.isBooked ? 1 : 0, b.dayOfWeek, b.blockType, b.startTime, b.endTime]
       );
     }
 
@@ -668,8 +696,8 @@ export const confirmMySkillBuilderAvailability = async (req, res, next) => {
     let totalMinutes = 0;
     for (const b of rows) {
       const t = String(b.block_type || '').toUpperCase();
-      if (t === 'AFTER_SCHOOL') totalMinutes += 150;
-      else if (t === 'WEEKEND') totalMinutes += 240;
+      if (t === 'AFTER_SCHOOL') totalMinutes += 90;
+      else if (t === 'WEEKEND') totalMinutes += 180;
       else totalMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
     }
 
@@ -699,6 +727,75 @@ export const confirmMySkillBuilderAvailability = async (req, res, next) => {
     next(e);
   } finally {
     if (conn) conn.release();
+  }
+};
+
+export const listSkillBuildersAvailability = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    // Week start (Monday) for confirmation lookup; defaults to current week.
+    const ws = String(req.query.weekStart || '').trim();
+    const weekStart = ws && /^\d{4}-\d{2}-\d{2}$/.test(ws) ? ws : toYmd(startOfWeekMonday(new Date()));
+
+    const [providerRows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.email,
+              c.confirmed_at
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       LEFT JOIN provider_skill_builder_availability_confirmations c
+         ON c.agency_id = ua.agency_id AND c.provider_id = u.id AND c.week_start_date = ?
+       WHERE u.skill_builder_eligible = TRUE
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND (u.is_active = TRUE OR u.is_active IS NULL)
+         AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [agencyId, weekStart]
+    );
+    const providers = (providerRows || []).map((r) => ({
+      id: Number(r.id),
+      firstName: r.first_name || '',
+      lastName: r.last_name || '',
+      email: r.email || '',
+      confirmedAt: r.confirmed_at || null,
+      blocks: []
+    }));
+
+    const ids = providers.map((p) => Number(p.id)).filter((n) => Number.isInteger(n) && n > 0);
+    if (ids.length === 0) return res.json({ ok: true, agencyId, weekStart, providers: [] });
+
+    const placeholders = ids.map(() => '?').join(',');
+    const [blockRows] = await pool.execute(
+      `SELECT provider_id, day_of_week, block_type, start_time, end_time, depart_from, depart_time, is_booked
+       FROM provider_skill_builder_availability
+       WHERE agency_id = ?
+         AND provider_id IN (${placeholders})
+       ORDER BY provider_id ASC,
+                FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'),
+                start_time ASC`,
+      [agencyId, ...ids]
+    );
+
+    const byId = new Map(providers.map((p) => [Number(p.id), p]));
+    for (const b of blockRows || []) {
+      const p = byId.get(Number(b.provider_id));
+      if (!p) continue;
+      p.blocks.push({
+        dayOfWeek: b.day_of_week,
+        blockType: b.block_type,
+        startTime: String(b.start_time || '').slice(0, 5),
+        endTime: String(b.end_time || '').slice(0, 5),
+        departFrom: String(b.depart_from || '').trim(),
+        departTime: b.depart_time ? String(b.depart_time).slice(0, 5) : '',
+        isBooked: b.is_booked === true || b.is_booked === 1 || b.is_booked === '1'
+      });
+    }
+
+    res.json({ ok: true, agencyId, weekStart, providers });
+  } catch (e) {
+    next(e);
   }
 };
 

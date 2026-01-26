@@ -188,15 +188,19 @@ class Agency {
         hasExtraDashboardQuickActionIcons = false;
       }
 
-      // Optional quick action icon: External Calendar Audit
+      // Optional quick action icons (added over time via migrations)
       let hasExternalCalendarAuditIcon = false;
+      let hasSkillBuildersAvailabilityIcon = false;
       try {
         const [cols] = await pool.execute(
-          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'external_calendar_audit_icon_id'"
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('external_calendar_audit_icon_id','skill_builders_availability_icon_id')"
         );
-        hasExternalCalendarAuditIcon = (cols || []).length > 0;
+        const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+        hasExternalCalendarAuditIcon = names.has('external_calendar_audit_icon_id');
+        hasSkillBuildersAvailabilityIcon = names.has('skill_builders_availability_icon_id');
       } catch (e) {
         hasExternalCalendarAuditIcon = false;
+        hasSkillBuildersAvailabilityIcon = false;
       }
 
       const extraDashSelects = hasExtraDashboardQuickActionIcons
@@ -225,6 +229,16 @@ class Agency {
       const extCalJoins = hasExternalCalendarAuditIcon
         ? `
         LEFT JOIN icons eca_i ON a.external_calendar_audit_icon_id = eca_i.id`
+        : '';
+
+      const skillBuildersSelects = hasSkillBuildersAvailabilityIcon
+        ? `,
+        sba_i.file_path as skill_builders_availability_icon_path, sba_i.name as skill_builders_availability_icon_name`
+        : '';
+
+      const skillBuildersJoins = hasSkillBuildersAvailabilityIcon
+        ? `
+        LEFT JOIN icons sba_i ON a.skill_builders_availability_icon_id = sba_i.id`
         : '';
 
       const myDashSelects = hasMyDashboardIcons
@@ -260,7 +274,7 @@ class Agency {
         ps_i.file_path as platform_settings_icon_path, ps_i.name as platform_settings_icon_name,
         vap_i.file_path as view_all_progress_icon_path, vap_i.name as view_all_progress_icon_name,
         pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
-        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${extCalSelects}${myDashSelects}
+        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${extCalSelects}${skillBuildersSelects}${myDashSelects}
         FROM agencies a
         ${hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : ''}
         ${hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : ''}
@@ -272,7 +286,7 @@ class Agency {
         LEFT JOIN icons ps_i ON a.platform_settings_icon_id = ps_i.id
         LEFT JOIN icons vap_i ON a.view_all_progress_icon_id = vap_i.id
         LEFT JOIN icons pd_i ON a.progress_dashboard_icon_id = pd_i.id
-        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${extCalJoins}${myDashJoins}
+        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${extCalJoins}${skillBuildersJoins}${myDashJoins}
         WHERE a.id = ?`;
     } else {
       // Even without dashboard icons, join for master icon if column exists
@@ -643,7 +657,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
     } = agencyData;
     
@@ -931,6 +945,21 @@ class Agency {
           if ((cols || []).length > 0) {
             updates.push('external_calendar_audit_icon_id = ?');
             values.push(externalCalendarAuditIconId || null);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Skill Builders Availability quick-action icon (optional)
+      if (skillBuildersAvailabilityIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'skill_builders_availability_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            updates.push('skill_builders_availability_icon_id = ?');
+            values.push(skillBuildersAvailabilityIconId || null);
           }
         } catch {
           // ignore

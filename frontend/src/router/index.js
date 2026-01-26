@@ -598,6 +598,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
   },
   {
+    path: '/admin/skill-builders-availability',
+    name: 'SkillBuildersAvailability',
+    component: () => import('../views/admin/SkillBuildersAvailabilityView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+  },
+  {
     path: '/admin/documents',
     name: 'DocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),

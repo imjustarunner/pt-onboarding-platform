@@ -370,6 +370,17 @@ const quickActions = computed(() => ([
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'skill_builders_availability',
+    title: 'Skill Builders Availability',
+    description: 'Review Skill Builders availability by day',
+    to: '/admin/skill-builders-availability',
+    emoji: '🧩',
+    iconKey: 'skill_builders_availability',
+    category: 'Scheduling',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'notifications',
     title: 'Notifications',
     description: 'View notifications',
@@ -413,6 +424,7 @@ const defaultQuickActionIds = computed(() => ([
   'manage_users',
   'settings',
   'external_calendar_audit',
+  'skill_builders_availability',
   'notifications',
   'communications',
   'chats',

@@ -95,7 +95,7 @@
             <div>
               <div class="title">Skill Builders availability (required)</div>
               <div class="muted">
-                You must submit (or confirm) at least <strong>6 hours/week</strong>.
+                You must submit (or confirm) at least <strong>6 hours/week of direct time</strong>.
               </div>
             </div>
           </div>
@@ -116,14 +116,20 @@
                   <option v-for="d in dayNames" :key="d" :value="d">{{ d }}</option>
                 </select>
                 <select class="select" v-model="b.blockType">
-                  <option value="AFTER_SCHOOL">After school (14:30–17:00)</option>
-                  <option value="WEEKEND">Weekend (11:30–15:30)</option>
+                  <option value="AFTER_SCHOOL">After school (usually 3:00–4:30, subject to change)</option>
+                  <option value="WEEKEND">Weekend (12:00–3:00)</option>
                   <option value="CUSTOM">Custom</option>
                 </select>
                 <template v-if="b.blockType === 'CUSTOM'">
                   <input class="input" v-model="b.startTime" placeholder="HH:MM" />
                   <input class="input" v-model="b.endTime" placeholder="HH:MM" />
                 </template>
+                <input class="input" v-model="b.departFrom" placeholder="Departing from (required)" />
+                <input class="input" v-model="b.departTime" type="time" placeholder="Depart time (optional)" />
+                <label class="chk" style="display:flex; align-items:center; gap:6px; margin: 0 6px;">
+                  <input type="checkbox" v-model="b.isBooked" />
+                  <span class="muted" style="white-space:nowrap;">Already booked</span>
+                </label>
                 <button class="btn btn-secondary btn-sm" @click="removeSkillBuilderBlock(idx)">Remove</button>
               </div>
               <button class="btn btn-secondary btn-sm" @click="addSkillBuilderBlock">Add block</button>
@@ -267,14 +273,14 @@ const removeSchoolBlock = (idx) => {
 
 const skillBuilderForm = reactive({
   blocks: [
-    { dayOfWeek: 'Monday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '' },
-    { dayOfWeek: 'Wednesday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '' },
-    { dayOfWeek: 'Friday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '' }
+    { dayOfWeek: 'Monday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '', departFrom: '', departTime: '', isBooked: false },
+    { dayOfWeek: 'Wednesday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '', departFrom: '', departTime: '', isBooked: false },
+    { dayOfWeek: 'Friday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '', departFrom: '', departTime: '', isBooked: false }
   ]
 });
 
 const addSkillBuilderBlock = () => {
-  skillBuilderForm.blocks.push({ dayOfWeek: 'Monday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '' });
+  skillBuilderForm.blocks.push({ dayOfWeek: 'Monday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '', departFrom: '', departTime: '', isBooked: false });
 };
 const removeSkillBuilderBlock = (idx) => {
   skillBuilderForm.blocks.splice(idx, 1);
@@ -282,8 +288,8 @@ const removeSkillBuilderBlock = (idx) => {
 
 const minutesForSkillBlock = (b) => {
   const t = String(b?.blockType || '').toUpperCase();
-  if (t === 'AFTER_SCHOOL') return 150;
-  if (t === 'WEEKEND') return 240;
+  if (t === 'AFTER_SCHOOL') return 90;
+  if (t === 'WEEKEND') return 180;
   const st = String(b?.startTime || '').trim();
   const et = String(b?.endTime || '').trim();
   if (!/^\d{1,2}:\d{2}$/.test(st) || !/^\d{1,2}:\d{2}$/.test(et)) return 0;
@@ -298,8 +304,10 @@ const minutesForSkillBlock = (b) => {
 
 const skillBuilderValidationError = computed(() => {
   if (!pending.skillBuilder?.eligible) return '';
+  const missingDepartFrom = (skillBuilderForm.blocks || []).some((b) => !String(b?.departFrom || '').trim());
+  if (missingDepartFrom) return 'Skill Builders requires a “Departing from” value for every block.';
   const mins = (skillBuilderForm.blocks || []).reduce((sum, b) => sum + minutesForSkillBlock(b), 0);
-  if (mins < 360) return 'Skill Builders requires at least 6 hours/week. Add more blocks.';
+  if (mins < 360) return 'Skill Builders requires at least 6 hours/week of direct time. Add more blocks.';
   return '';
 });
 
@@ -353,7 +361,10 @@ const refresh = async () => {
           dayOfWeek: b.dayOfWeek,
           blockType: b.blockType,
           startTime: b.startTime || '',
-          endTime: b.endTime || ''
+          endTime: b.endTime || '',
+          departFrom: b.departFrom || '',
+          departTime: b.departTime || '',
+          isBooked: !!b.isBooked
         }));
       }
     }
