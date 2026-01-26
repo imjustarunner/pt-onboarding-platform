@@ -177,6 +177,13 @@ export default class BulkClientUploadParserService {
         ).trim(),
         notes: String(normalized['notes'] || '').trim(),
         grade: String(normalized['grade'] || '').trim(),
+        schoolYear: String(
+          normalized['school year'] ||
+            normalized['school_year'] ||
+            normalized['schoolyear'] ||
+            normalized['year'] ||
+            ''
+        ).trim(),
         gender: String(normalized['gender'] || '').trim(),
         identifierCode: String(normalized['identifier code'] || normalized['identifier'] || '').trim(),
         district: String(normalized['district'] || '').trim(),

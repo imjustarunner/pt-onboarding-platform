@@ -93,10 +93,13 @@ export const getSchoolClients = async (req, res, next) => {
       return {
         id: client.id,
         initials: client.initials,
+        identifier_code: client.identifier_code || null,
         // "status" (workflow) is treated as an internal archive flag; schools should see the configured client status.
         client_status_id: client.client_status_id || null,
         client_status_label: client.client_status_label || null,
         client_status_key: client.client_status_key || null,
+        grade: client.grade || null,
+        school_year: client.school_year || null,
         provider_id: client.provider_id || null,
         provider_name: client.provider_name || null,
         service_day: client.service_day || null,

@@ -424,7 +424,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
               organization_id, agency_id, provider_id, initials, full_name, status,
               submission_date, document_status, source, created_by_user_id,
               referral_date, client_status_id, paperwork_status_id, insurance_type_id, paperwork_delivery_method_id,
-              doc_date, grade, gender, identifier_code, primary_client_language, primary_parent_language,
+              doc_date, grade, school_year, gender, identifier_code, primary_client_language, primary_parent_language,
               skills, internal_notes, service_day, paperwork_received_at
             ) VALUES (
               ?, ?, ?, ?, ?, ?,
@@ -451,6 +451,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
               deliveryMethodId,
               row.docDate || null,
               row.grade || null,
+              row.schoolYear || null,
               row.gender || null,
               identifierCode,
               row.primaryClientLanguage || null,
@@ -485,6 +486,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           set('paperwork_delivery_method_id', deliveryMethodId);
           set('doc_date', row.docDate || null);
           set('grade', row.grade || null);
+          set('school_year', row.schoolYear || null);
           set('gender', row.gender || null);
           set('primary_client_language', row.primaryClientLanguage || null);
           set('primary_parent_language', row.primaryParentLanguage || null);

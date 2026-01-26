@@ -167,6 +167,8 @@ export const createClient = async (req, res, next) => {
       provider_id,
       initials,
       client_status_id,
+      school_year,
+      grade,
       submission_date,
       document_status = 'NONE',
       source = 'ADMIN_CREATED'
@@ -333,7 +335,9 @@ export const createClient = async (req, res, next) => {
       document_status,
       source,
       created_by_user_id: userId,
-      client_status_id: client_status_id ? parseInt(client_status_id, 10) : null
+      client_status_id: client_status_id ? parseInt(client_status_id, 10) : null,
+      school_year: school_year ? String(school_year).trim() : null,
+      grade: grade ? String(grade).trim() : null
     });
 
     // Log initial creation to history
@@ -350,6 +354,113 @@ export const createClient = async (req, res, next) => {
   } catch (error) {
     console.error('Create client error:', error);
     next(error);
+  }
+};
+
+function normalizeSchoolYearLabel(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  // Accept YYYY-YYYY
+  const m = s.match(/^(\d{4})\s*-\s*(\d{4})$/);
+  if (m) return `${m[1]}-${m[2]}`;
+  // Accept YYYY/YYYY
+  const m2 = s.match(/^(\d{4})\s*\/\s*(\d{4})$/);
+  if (m2) return `${m2[1]}-${m2[2]}`;
+  return s;
+}
+
+function computeNextSchoolYearLabel(fromLabel = null) {
+  const lbl = normalizeSchoolYearLabel(fromLabel);
+  const m = lbl ? lbl.match(/^(\d{4})-(\d{4})$/) : null;
+  if (m) {
+    const a = parseInt(m[1], 10);
+    const b = parseInt(m[2], 10);
+    if (Number.isFinite(a) && Number.isFinite(b) && b === a + 1) {
+      return `${a + 1}-${b + 1}`;
+    }
+  }
+  // Default: infer current school year by date (Jul+ => year-year+1 else year-1-year)
+  const now = new Date();
+  const y = now.getFullYear();
+  const mth = now.getMonth() + 1;
+  const start = mth >= 7 ? y : y - 1;
+  return `${start + 1}-${start + 2}`;
+}
+
+function bumpGrade(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  const upper = s.toUpperCase();
+  if (upper === 'K' || upper === 'KG' || upper === 'KINDERGARTEN') return '1';
+  const n = parseInt(s, 10);
+  if (!Number.isFinite(n)) return null;
+  const next = Math.min(12, n + 1);
+  return String(next);
+}
+
+/**
+ * Bulk promote clients to the next school year (and bump grade +1 when numeric).
+ * POST /api/clients/bulk/promote-school-year
+ * body: { clientIds: number[], toSchoolYear?: string }
+ */
+export const bulkPromoteSchoolYear = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const roleNorm = String(userRole || '').toLowerCase();
+    const canManage = roleNorm === 'super_admin' || roleNorm === 'admin' || roleNorm === 'support' || roleNorm === 'staff';
+    if (!canManage) {
+      return res.status(403).json({ error: { message: 'Only admin/staff can promote clients' } });
+    }
+
+    const ids = Array.isArray(req.body?.clientIds) ? req.body.clientIds : [];
+    const clientIds = ids.map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0);
+    if (!clientIds.length) return res.status(400).json({ error: { message: 'clientIds is required' } });
+
+    const toSchoolYear = normalizeSchoolYearLabel(req.body?.toSchoolYear || null);
+
+    // Fetch clients in one query (include agency_id for access checks).
+    const placeholders = clientIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT id, agency_id, school_year, grade, status
+       FROM clients
+       WHERE id IN (${placeholders})`,
+      clientIds
+    );
+
+    // Access check: non-super_admin must have agency access.
+    let allowedAgencyIds = null;
+    if (roleNorm !== 'super_admin') {
+      const userAgencies = await User.getAgencies(userId);
+      allowedAgencyIds = new Set((userAgencies || []).map((a) => Number(a?.id)).filter(Boolean));
+    }
+
+    const updated = [];
+    const skipped = [];
+    for (const r of rows || []) {
+      const id = Number(r.id);
+      if (!id) continue;
+      if (allowedAgencyIds && !allowedAgencyIds.has(Number(r.agency_id))) {
+        skipped.push({ id, reason: 'no_access' });
+        continue;
+      }
+      // Don't promote archived clients automatically; they should be unarchived first.
+      if (String(r.status || '').toUpperCase() === 'ARCHIVED') {
+        skipped.push({ id, reason: 'archived' });
+        continue;
+      }
+
+      const nextYear = toSchoolYear || computeNextSchoolYearLabel(r.school_year || null);
+      const nextGrade = bumpGrade(r.grade);
+      const patch = { school_year: nextYear };
+      if (nextGrade !== null) patch.grade = nextGrade;
+      await Client.update(id, patch, userId);
+      updated.push({ id, school_year: nextYear, grade: patch.grade ?? null });
+    }
+
+    res.json({ success: true, updated, skipped, requested: clientIds.length, found: (rows || []).length });
+  } catch (e) {
+    next(e);
   }
 };
 

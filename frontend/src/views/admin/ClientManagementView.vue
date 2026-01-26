@@ -119,6 +119,15 @@
           <button class="btn btn-secondary btn-sm" type="button" @click="clearSelection">Clear</button>
         </div>
         <div class="bulk-right">
+          <select v-model="bulkPromoteYear" class="filter-select">
+            <option value="">Promote to next year…</option>
+            <option :value="nextSchoolYear">Next: {{ nextSchoolYear }}</option>
+            <option :value="currentSchoolYear">Current: {{ currentSchoolYear }}</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" type="button" :disabled="!bulkPromoteYear || bulkWorking" @click="bulkPromoteToNextYear">
+            Promote
+          </button>
+
           <select v-model="bulkAffiliationId" class="filter-select">
             <option value="">Move to affiliation…</option>
             <option v-for="org in availableAffiliations" :key="org.id" :value="String(org.id)">{{ org.name }}</option>
@@ -280,6 +289,16 @@
             </select>
           </div>
           <div class="form-group">
+            <label>School Year</label>
+            <input v-model="newClient.school_year" type="text" placeholder="2025-2026" />
+            <small>Optional. Format: YYYY-YYYY</small>
+          </div>
+          <div class="form-group">
+            <label>Grade</label>
+            <input v-model="newClient.grade" type="text" placeholder="5" />
+            <small>Optional. Numeric grades will be promoted +1 in bulk.</small>
+          </div>
+          <div class="form-group">
             <label>Submission Date *</label>
             <input v-model="newClient.submission_date" type="date" required />
           </div>
@@ -401,6 +420,7 @@ const bulkWorking = ref(false);
 const bulkAffiliationId = ref('');
 const bulkProviderId = ref('');
 const bulkClientStatusId = ref('');
+const bulkPromoteYear = ref('');
 
 // New client form
 const newClient = ref({
@@ -408,6 +428,8 @@ const newClient = ref({
   initials: '',
   provider_id: null,
   client_status_id: null,
+  school_year: '',
+  grade: '',
   submission_date: new Date().toISOString().split('T')[0],
   document_status: 'NONE'
 });
@@ -642,6 +664,52 @@ const clearSelection = () => {
   bulkAffiliationId.value = '';
   bulkProviderId.value = '';
   bulkClientStatusId.value = '';
+  bulkPromoteYear.value = '';
+};
+
+const normalizeSchoolYearLabel = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{4})\s*-\s*(\d{4})$/);
+  if (m) return `${m[1]}-${m[2]}`;
+  const m2 = s.match(/^(\d{4})\s*\/\s*(\d{4})$/);
+  if (m2) return `${m2[1]}-${m2[2]}`;
+  return s;
+};
+
+const currentSchoolYear = computed(() => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const start = m >= 7 ? y : y - 1;
+  return `${start}-${start + 1}`;
+});
+
+const nextSchoolYear = computed(() => {
+  const c = String(currentSchoolYear.value);
+  const m = c.match(/^(\d{4})-(\d{4})$/);
+  if (!m) return '';
+  const a = parseInt(m[1], 10);
+  const b = parseInt(m[2], 10);
+  return `${a + 1}-${b + 1}`;
+});
+
+const bulkPromoteToNextYear = async () => {
+  const ids = Array.from(selectedIds.value || []);
+  if (!ids.length) return;
+  const toSchoolYear = normalizeSchoolYearLabel(bulkPromoteYear.value || nextSchoolYear.value);
+  if (!toSchoolYear) return;
+  bulkWorking.value = true;
+  try {
+    await api.post('/clients/bulk/promote-school-year', { clientIds: ids, toSchoolYear });
+    await fetchClients();
+    clearSelection();
+  } catch (e) {
+    console.error('Bulk promote failed:', e);
+    alert(e.response?.data?.error?.message || e.message || 'Bulk promote failed');
+  } finally {
+    bulkWorking.value = false;
+  }
 };
 
 const runBulk = async (fn) => {
@@ -793,11 +861,16 @@ const createClient = async () => {
       return;
     }
 
-    await api.post('/clients', {
+    // Normalize optional fields
+    const payload = {
       ...newClient.value,
+      school_year: normalizeSchoolYearLabel(newClient.value.school_year) || null,
+      grade: String(newClient.value.grade || '').trim() || null,
       agency_id: agencyId,
       source: 'ADMIN_CREATED'
-    });
+    };
+
+    await api.post('/clients', payload);
 
     await fetchClients();
     closeCreateModal();
@@ -824,6 +897,8 @@ const closeCreateModal = () => {
     initials: '',
     provider_id: null,
     client_status_id: null,
+    school_year: '',
+    grade: '',
     submission_date: new Date().toISOString().split('T')[0],
     document_status: 'NONE'
   };
@@ -861,6 +936,11 @@ onMounted(async () => {
   await fetchClientStatuses();
   await fetchProviders();
   await fetchClients();
+
+  // Default school year for new clients (best-effort; user can override).
+  if (!newClient.value.school_year) {
+    newClient.value.school_year = currentSchoolYear.value;
+  }
 });
 </script>
 

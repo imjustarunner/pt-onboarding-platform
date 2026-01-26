@@ -7,6 +7,7 @@ import {
   updateClient,
   updateClientStatus,
   unarchiveClient,
+  bulkPromoteSchoolYear,
   assignProvider,
   deleteBulkImportedClients,
   getClientHistory,
@@ -30,6 +31,9 @@ router.get('/', getClients);
 // Delete bulk-imported clients for an agency (admin only)
 // DELETE /api/clients/bulk-import?agencyId=123&confirm=true
 router.delete('/bulk-import', deleteBulkImportedClients);
+
+// Bulk actions
+router.post('/bulk/promote-school-year', bulkPromoteSchoolYear);
 
 // Get client detail
 router.get('/:id', getClientById);

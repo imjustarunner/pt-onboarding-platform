@@ -16,16 +16,38 @@
       <table>
         <thead>
           <tr>
-            <th>Client Status</th>
-            <th>Doc Status</th>
-            <th>Assigned Provider</th>
-            <th>Assigned Day</th>
+            <th class="sortable" @click="toggleSort('initials')" role="button" tabindex="0">
+              Student
+              <span class="sort-indicator" v-if="sortKey === 'initials'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+            <th class="sortable" @click="toggleSort('status')" role="button" tabindex="0">
+              Client Status
+              <span class="sort-indicator" v-if="sortKey === 'status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+            <th class="sortable" @click="toggleSort('document_status')" role="button" tabindex="0">
+              Doc Status
+              <span class="sort-indicator" v-if="sortKey === 'document_status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+            <th class="sortable" @click="toggleSort('provider_name')" role="button" tabindex="0">
+              Assigned Provider
+              <span class="sort-indicator" v-if="sortKey === 'provider_name'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
+            <th class="sortable" @click="toggleSort('service_day')" role="button" tabindex="0">
+              Assigned Day
+              <span class="sort-indicator" v-if="sortKey === 'service_day'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
             <th></th>
-            <th>Submission Date</th>
+            <th class="sortable" @click="toggleSort('submission_date')" role="button" tabindex="0">
+              Submission Date
+              <span class="sort-indicator" v-if="sortKey === 'submission_date'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="client in clients" :key="client.id" class="client-row">
+          <tr v-for="client in sortedClients" :key="client.id" class="client-row">
+            <td class="initials-cell">
+              <span class="initials">{{ formatRosterInitials(client) }}</span>
+            </td>
             <td>
               <span :class="['status-badge', `status-${String(client.client_status_key || 'unknown').toLowerCase().replace('_', '-')}`]">
                 {{ client.client_status_label || '—' }}
@@ -56,7 +78,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { computed, ref, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import SchoolClientChatModal from './SchoolClientChatModal.vue';
 
@@ -75,6 +97,9 @@ const clients = ref([]);
 const loading = ref(false);
 const error = ref('');
 const selectedClient = ref(null);
+
+const sortKey = ref('submission_date');
+const sortDir = ref('desc');
 
 const fetchClients = async () => {
   if (!props.organizationId) {
@@ -104,10 +129,62 @@ const fetchClients = async () => {
   }
 };
 
+const toggleSort = (key) => {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  sortKey.value = key;
+  // Default date sorts newest-first; everything else asc.
+  sortDir.value = key === 'submission_date' ? 'desc' : 'asc';
+};
+
+const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+const sortValue = (client, key) => {
+  if (!client) return '';
+  if (key === 'status') return String(client.client_status_label || client.status || '').toLowerCase();
+  if (key === 'document_status') return String(client.document_status || '').toLowerCase();
+  if (key === 'provider_name') return String(client.provider_name || '').toLowerCase();
+  if (key === 'service_day') {
+    const d = String(client.service_day || '');
+    const idx = dayOrder.indexOf(d);
+    return idx < 0 ? 999 : idx;
+  }
+  if (key === 'submission_date') {
+    const t = client.submission_date ? new Date(client.submission_date).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+  }
+  if (key === 'initials') return String(formatRosterInitials(client) || '').toLowerCase();
+  return String(client[key] || '').toLowerCase();
+};
+
+const sortedClients = computed(() => {
+  const list = Array.isArray(clients.value) ? clients.value.slice() : [];
+  const key = sortKey.value;
+  const dir = sortDir.value === 'asc' ? 1 : -1;
+  return list.sort((a, b) => {
+    const av = sortValue(a, key);
+    const bv = sortValue(b, key);
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    const cmp = String(av).localeCompare(String(bv));
+    if (cmp !== 0) return cmp * dir;
+    // Stable fallback
+    return Number(a?.id || 0) - Number(b?.id || 0);
+  });
+});
+
 const formatDate = (dateString) => {
   if (!dateString) return '-';
   const date = new Date(dateString);
   return date.toLocaleDateString();
+};
+
+const formatRosterInitials = (client) => {
+  const raw = String(client?.identifier_code || client?.initials || '').replace(/\s+/g, '').toUpperCase();
+  if (!raw) return '—';
+  if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
+  return raw;
 };
 
 const formatDocStatus = (s) => {
@@ -170,6 +247,31 @@ th {
   font-weight: 600;
   color: var(--text-primary);
   border-bottom: 2px solid var(--border);
+}
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sortable:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+.sort-indicator {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.initials-cell {
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+.initials {
+  display: inline-block;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
 }
 
 td {
