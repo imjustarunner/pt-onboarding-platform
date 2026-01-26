@@ -217,8 +217,7 @@
             <td>{{ formatDate(client.last_activity_at) || '-' }}</td>
             <td class="actions-cell" @click.stop>
               <button @click="openClientDetail(client)" class="btn btn-primary btn-sm">View</button>
-              <button 
-                v-else
+              <button
                 @click.stop="startEditStatus(client)" 
                 class="btn btn-secondary btn-sm"
               >
