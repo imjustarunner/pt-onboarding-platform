@@ -64,6 +64,16 @@ function mergeBusyIntervals(busy) {
 }
 
 export class ExternalBusyCalendarService {
+  static normalizeIcsFetchUrl(icsUrl) {
+    const raw = String(icsUrl || '').trim();
+    if (!raw) return '';
+    // Many EHRs provide `webcal://` links intended for calendar clients.
+    // Our server fetcher must use http(s).
+    if (raw.startsWith('webcal://')) return `https://${raw.slice('webcal://'.length)}`;
+    if (raw.startsWith('webcals://')) return `https://${raw.slice('webcals://'.length)}`;
+    return raw;
+  }
+
   static cacheKey({ userId, weekStart }) {
     return `${userId}:${String(weekStart || '')}`;
   }
@@ -87,7 +97,7 @@ export class ExternalBusyCalendarService {
   }
 
   static async fetchAndParseIcsBusy({ icsUrl }) {
-    const url = String(icsUrl || '').trim();
+    const url = this.normalizeIcsFetchUrl(icsUrl);
     if (!url) return [];
 
     // node-ical is CommonJS; in ESM we load it dynamically.

@@ -43,21 +43,29 @@
 
     <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
     <div v-if="loading" class="loading" style="margin-top: 10px;">Loading schedule…</div>
+    <div v-if="overlayErrorText" class="error" style="margin-top: 10px;">
+      {{ overlayErrorText }}
+    </div>
 
     <div v-else-if="summary" class="sched-grid-wrap">
       <div class="legend">
-        <div class="legend-item"><span class="dot dot-request"></span> Pending request</div>
-        <div class="legend-item"><span class="dot dot-school"></span> School assigned</div>
-        <div class="legend-item"><span class="dot dot-oa"></span> Office assigned available</div>
-        <div class="legend-item"><span class="dot dot-ot"></span> Office temporary</div>
-        <div class="legend-item"><span class="dot dot-ob"></span> Office booked</div>
-        <div class="legend-item" v-if="showGoogleBusy"><span class="dot dot-gbusy"></span> Google busy</div>
-        <div class="legend-item" v-if="selectedExternalCalendarIds.length"><span class="dot dot-ebusy"></span> EHR busy</div>
+        <div class="legend-item"><span class="swatch swatch-request"></span> Pending request</div>
+        <div class="legend-item"><span class="swatch swatch-school"></span> School assigned</div>
+        <div class="legend-item"><span class="swatch swatch-oa"></span> Office assigned</div>
+        <div class="legend-item"><span class="swatch swatch-ot"></span> Office temporary</div>
+        <div class="legend-item"><span class="swatch swatch-ob"></span> Office booked</div>
+        <div class="legend-item" v-if="showGoogleBusy"><span class="swatch swatch-gbusy"></span> Google busy</div>
+        <div class="legend-item" v-if="selectedExternalCalendarIds.length"><span class="swatch swatch-ebusy"></span> EHR busy</div>
       </div>
 
       <div class="sched-grid" :style="gridStyle">
         <div class="sched-head-cell"></div>
-        <div v-for="d in visibleDays" :key="d" class="sched-head-cell">{{ d }}</div>
+        <div v-for="d in visibleDays" :key="d" class="sched-head-cell">
+          <div class="sched-head-day">
+            <div class="sched-head-dow">{{ d }}</div>
+            <div class="sched-head-date">{{ dayDateLabel(d) }}</div>
+          </div>
+        </div>
 
         <template v-for="h in hours" :key="`h-${h}`">
           <div class="sched-hour">{{ hourLabel(h) }}</div>
@@ -70,20 +78,16 @@
             :class="{ clickable: canCreateRequests }"
             @click="onCellClick(d, h)"
           >
-            <div class="cell-dots">
-              <span v-if="hasRequest(d, h)" class="dot dot-request" :title="requestTitle(d, h)"></span>
-              <span v-if="hasSchool(d, h)" class="dot dot-school" :title="schoolTitle(d, h)"></span>
-
-              <span v-if="officeState(d, h) === 'ASSIGNED_AVAILABLE'" class="dot dot-oa" :title="officeTitle(d, h)"></span>
-              <span v-else-if="officeState(d, h) === 'ASSIGNED_TEMPORARY'" class="dot dot-ot" :title="officeTitle(d, h)"></span>
-              <span v-else-if="officeState(d, h) === 'ASSIGNED_BOOKED'" class="dot dot-ob" :title="officeTitle(d, h)"></span>
-
-              <span v-if="showGoogleBusy && hasGoogleBusy(d, h)" class="dot dot-gbusy" :title="googleBusyTitle(d, h)"></span>
-              <span
-                v-if="selectedExternalCalendarIds.length && hasExternalBusy(d, h)"
-                class="dot dot-ebusy"
-                :title="externalBusyTitle(d, h)"
-              ></span>
+            <div class="cell-blocks">
+              <div
+                v-for="b in cellBlocks(d, h)"
+                :key="b.key"
+                class="cell-block"
+                :class="`cell-block-${b.kind}`"
+                :title="b.title"
+              >
+                <span class="cell-block-text">{{ b.shortLabel }}</span>
+              </div>
             </div>
           </button>
         </template>
@@ -161,6 +165,7 @@ const summary = ref(null);
 const showGoogleBusy = ref(false);
 const selectedExternalCalendarIds = ref([]);
 const hideWeekend = ref(props.mode === 'self');
+const initializedOverlayDefaults = ref(false);
 
 const visibleDays = computed(() => (hideWeekend.value ? ALL_DAYS.slice(0, 5) : ALL_DAYS.slice()));
 
@@ -184,6 +189,21 @@ const externalCalendarsAvailable = computed(() => {
 
 const pad2 = (n) => String(n).padStart(2, '0');
 
+const localYmd = (d) => {
+  const yy = d.getFullYear();
+  const mm = pad2(d.getMonth() + 1);
+  const dd = pad2(d.getDate());
+  return `${yy}-${mm}-${dd}`;
+};
+
+const toLocalDateNoon = (dateLike) => {
+  // IMPORTANT: `new Date('YYYY-MM-DD')` parses as UTC and can shift the local day.
+  // Use local noon for YMD strings to avoid off-by-one-day/week bugs.
+  const s = typeof dateLike === 'string' ? dateLike.trim() : '';
+  if (s && /^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T12:00:00`);
+  return new Date(dateLike || Date.now());
+};
+
 const hourLabel = (h) => {
   const d = new Date();
   d.setHours(Number(h), 0, 0, 0);
@@ -191,25 +211,29 @@ const hourLabel = (h) => {
 };
 
 const startOfWeekMondayYmd = (dateLike) => {
-  const d = new Date(dateLike || Date.now());
+  const d = toLocalDateNoon(dateLike);
+  d.setHours(0, 0, 0, 0);
   const day = d.getDay(); // 0=Sun..6=Sat
   const diff = (day === 0 ? -6 : 1) - day;
-  d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
+  return localYmd(d);
 };
 
 const addDaysYmd = (ymd, daysToAdd) => {
-  const d = new Date(`${String(ymd).slice(0, 10)}T00:00:00`);
+  const d = toLocalDateNoon(String(ymd).slice(0, 10));
+  d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() + Number(daysToAdd || 0));
-  return d.toISOString().slice(0, 10);
+  return localYmd(d);
 };
 
-const localYmd = (d) => {
-  const yy = d.getFullYear();
-  const mm = pad2(d.getMonth() + 1);
-  const dd = pad2(d.getDate());
-  return `${yy}-${mm}-${dd}`;
+const dayDateLabel = (dayName) => {
+  const idx = ALL_DAYS.indexOf(String(dayName || ''));
+  if (idx < 0) return '';
+  const ymd = addDaysYmd(weekStart.value, idx);
+  // Use noon to avoid DST edge-cases around midnight.
+  const d = new Date(`${ymd}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 };
 
 const weekStart = ref(startOfWeekMondayYmd(props.weekStartYmd || new Date()));
@@ -273,6 +297,16 @@ watch(externalCalendarsAvailable, (next) => {
   const current = (selectedExternalCalendarIds.value || []).map((n) => Number(n)).filter((n) => allowed.has(n));
   if (current.length !== (selectedExternalCalendarIds.value || []).length) {
     selectedExternalCalendarIds.value = current;
+  }
+
+  // Admin/audit view should show overlays by default (first load only).
+  if (!initializedOverlayDefaults.value && props.mode === 'admin') {
+    if (selectedExternalCalendarIds.value.length === 0 && allowed.size > 0) {
+      selectedExternalCalendarIds.value = Array.from(allowed.values());
+    }
+    // Default Google busy on for admin auditing.
+    showGoogleBusy.value = true;
+    initializedOverlayDefaults.value = true;
   }
 });
 
@@ -412,7 +446,7 @@ const officeTitle = (dayName, hour) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime())) return false;
     const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
-    const dn = days[idx] || null;
+    const dn = ALL_DAYS[idx] || null;
     return dn === dayName && startLocal.getHours() === Number(hour);
   });
   const top = hits.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0];
@@ -441,6 +475,71 @@ const externalBusyTitle = (dayName, hour) => {
   const suffix = labels.length ? ` (${labels.join(', ')})` : '';
   return `EHR busy${suffix} — ${dayName} ${hourLabel(hour)}`;
 };
+
+const externalBusyShortLabel = (dayName, hour) => {
+  const labels = externalBusyLabels(dayName, hour);
+  if (!labels.length) return 'Busy';
+  if (labels.length === 1) return labels[0];
+  return `${labels[0]}+${labels.length - 1}`;
+};
+
+const cellBlocks = (dayName, hour) => {
+  const blocks = [];
+
+  // Office assignment state
+  const st = String(officeState(dayName, hour) || '').toUpperCase();
+  if (st === 'ASSIGNED_BOOKED') {
+    blocks.push({ key: 'office-booked', kind: 'ob', shortLabel: 'Booked', title: officeTitle(dayName, hour) });
+  } else if (st === 'ASSIGNED_TEMPORARY') {
+    blocks.push({ key: 'office-temp', kind: 'ot', shortLabel: 'Temp', title: officeTitle(dayName, hour) });
+  } else if (st === 'ASSIGNED_AVAILABLE') {
+    blocks.push({ key: 'office-assigned', kind: 'oa', shortLabel: 'Office', title: officeTitle(dayName, hour) });
+  }
+
+  // Assigned school
+  if (hasSchool(dayName, hour)) {
+    blocks.push({ key: 'school-assigned', kind: 'school', shortLabel: 'School', title: schoolTitle(dayName, hour) });
+  }
+
+  // Pending request
+  if (hasRequest(dayName, hour)) {
+    blocks.push({ key: 'request', kind: 'request', shortLabel: 'Req', title: requestTitle(dayName, hour) });
+  }
+
+  // Busy overlays
+  if (showGoogleBusy.value && hasGoogleBusy(dayName, hour)) {
+    blocks.push({ key: 'gbusy', kind: 'gbusy', shortLabel: 'G', title: googleBusyTitle(dayName, hour) });
+  }
+  if (selectedExternalCalendarIds.value.length && hasExternalBusy(dayName, hour)) {
+    blocks.push({ key: 'ebusy', kind: 'ebusy', shortLabel: externalBusyShortLabel(dayName, hour), title: externalBusyTitle(dayName, hour) });
+  }
+
+  // Side-by-side if multiple; keep it readable: show at most 3 blocks, then "+N".
+  if (blocks.length > 3) {
+    const extra = blocks.length - 2;
+    return [
+      blocks[0],
+      blocks[1],
+      { key: 'more', kind: 'more', shortLabel: `+${extra}`, title: `${extra} more items in this hour` }
+    ];
+  }
+  return blocks;
+};
+
+const overlayErrorText = computed(() => {
+  const s = summary.value;
+  if (!s) return '';
+  const googleErr = showGoogleBusy.value ? String(s?.googleBusyError || '').trim() : '';
+  const cals = Array.isArray(s.externalCalendars) ? s.externalCalendars : [];
+  const errors = (cals || [])
+    .map((c) => ({ label: String(c?.label || '').trim(), err: String(c?.error || '').trim() }))
+    .filter((x) => x.err)
+    .slice(0, 2);
+  const parts = [];
+  if (googleErr) parts.push(`Google busy: ${googleErr}`);
+  if (errors.length) parts.push(`EHR: ${errors.map((e) => (e.label ? `${e.label}: ${e.err}` : e.err)).join(' • ')}`);
+  return parts.length ? `Calendar overlay error: ${parts.join(' • ')}` : '';
+});
 
 // ---- In-grid request creation (self mode) ----
 const showRequestModal = ref(false);
@@ -618,6 +717,20 @@ watch(modalHour, () => {
   align-items: center;
   gap: 6px;
 }
+.swatch {
+  width: 14px;
+  height: 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,0.12);
+  display: inline-block;
+}
+.swatch-request { background: rgba(242, 201, 76, 0.35); border-color: rgba(242, 201, 76, 0.65); }
+.swatch-school { background: rgba(45, 156, 219, 0.28); border-color: rgba(45, 156, 219, 0.60); }
+.swatch-oa { background: rgba(39, 174, 96, 0.22); border-color: rgba(39, 174, 96, 0.55); }
+.swatch-ot { background: rgba(242, 153, 74, 0.24); border-color: rgba(242, 153, 74, 0.58); }
+.swatch-ob { background: rgba(235, 87, 87, 0.22); border-color: rgba(235, 87, 87, 0.58); }
+.swatch-gbusy { background: rgba(17, 24, 39, 0.18); border-color: rgba(17, 24, 39, 0.45); }
+.swatch-ebusy { background: rgba(107, 114, 128, 0.18); border-color: rgba(107, 114, 128, 0.45); }
 .sched-grid {
   display: grid;
   border: 1px solid var(--border);
@@ -638,6 +751,22 @@ watch(modalHour, () => {
 .sched-grid > .sched-head-cell:first-child {
   border-left: none;
 }
+.sched-head-day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.05;
+}
+.sched-head-dow {
+  font-weight: 900;
+}
+.sched-head-date {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
 .sched-hour {
   padding: 8px 10px;
   font-weight: 800;
@@ -645,38 +774,55 @@ watch(modalHour, () => {
   background: var(--bg-alt);
 }
 .sched-cell {
-  border-top: 1px solid var(--border);
-  border-left: 1px solid var(--border);
-  background: white;
-  min-height: 28px;
-  padding: 6px 8px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+  border-left: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.65);
+  min-height: 32px;
+  padding: 4px 6px;
   text-align: left;
 }
 .sched-cell.clickable {
   cursor: pointer;
 }
 .sched-cell.clickable:hover {
-  background: rgba(0, 0, 0, 0.02);
+  background: rgba(2, 132, 199, 0.06);
 }
-.cell-dots {
+.cell-blocks {
   display: flex;
-  gap: 6px;
+  gap: 4px;
+  align-items: stretch;
+  justify-content: flex-start;
+  height: 100%;
+}
+.cell-block {
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(0,0,0,0.12);
+  padding: 2px 6px;
+  display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(1px);
 }
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  display: inline-block;
+.cell-block-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.dot-request { background: #f2c94c; } /* yellow */
-.dot-school { background: #2d9cdb; } /* blue */
-.dot-oa { background: #27ae60; } /* green */
-.dot-ot { background: #f2994a; } /* orange */
-.dot-ob { background: #eb5757; } /* red */
-.dot-gbusy { background: #111827; } /* near-black */
-.dot-ebusy { background: #6b7280; } /* gray */
+.cell-block-request { background: rgba(242, 201, 76, 0.35); border-color: rgba(242, 201, 76, 0.65); }
+.cell-block-school { background: rgba(45, 156, 219, 0.28); border-color: rgba(45, 156, 219, 0.60); }
+.cell-block-oa { background: rgba(39, 174, 96, 0.22); border-color: rgba(39, 174, 96, 0.55); }
+.cell-block-ot { background: rgba(242, 153, 74, 0.24); border-color: rgba(242, 153, 74, 0.58); }
+.cell-block-ob { background: rgba(235, 87, 87, 0.22); border-color: rgba(235, 87, 87, 0.58); }
+.cell-block-gbusy { background: rgba(17, 24, 39, 0.14); border-color: rgba(17, 24, 39, 0.42); color: rgba(17, 24, 39, 0.9); }
+.cell-block-ebusy { background: rgba(107, 114, 128, 0.16); border-color: rgba(107, 114, 128, 0.45); color: rgba(17, 24, 39, 0.9); }
+.cell-block-more { background: rgba(148, 163, 184, 0.18); border-color: rgba(148, 163, 184, 0.45); color: rgba(51, 65, 85, 0.92); }
 
 .modal-backdrop {
   position: fixed;

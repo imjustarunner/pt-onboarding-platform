@@ -17,7 +17,7 @@ export const listProvidersForScheduling = async (req, res, next) => {
     const agencyId = parseAgencyId(req);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
 
-    // Backward compatible: provider_accepting_new_clients may not exist yet.
+    // Backward compatible: some user fields may not exist yet (provider_accepting_new_clients, is_archived, etc).
     try {
       const [rows] = await pool.execute(
         `SELECT u.id,
@@ -26,10 +26,16 @@ export const listProvidersForScheduling = async (req, res, next) => {
                 u.email,
                 u.role,
                 u.has_provider_access,
+                u.is_active,
+                u.status,
+                u.is_archived,
                 u.provider_accepting_new_clients
          FROM users u
          JOIN user_agencies ua ON ua.user_id = u.id
          WHERE ua.agency_id = ?
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
            AND (
              u.role IN ('clinician','provider')
              OR (u.has_provider_access = TRUE)
@@ -42,10 +48,13 @@ export const listProvidersForScheduling = async (req, res, next) => {
       const msg = String(e?.message || '');
       if (!msg.includes('Unknown column')) throw e;
       const [rows] = await pool.execute(
-        `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.has_provider_access
+        `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.has_provider_access, u.is_active, u.status, u.is_archived
          FROM users u
          JOIN user_agencies ua ON ua.user_id = u.id
          WHERE ua.agency_id = ?
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
            AND (
              u.role IN ('clinician','provider')
              OR (u.has_provider_access = TRUE)

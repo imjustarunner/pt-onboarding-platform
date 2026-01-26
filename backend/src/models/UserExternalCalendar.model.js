@@ -185,6 +185,32 @@ class UserExternalCalendar {
     return Number(r?.affectedRows || 0) > 0;
   }
 
+  static async setCalendarLabel({ userId, calendarId, label }) {
+    const uid = Number(userId || 0);
+    const cid = Number(calendarId || 0);
+    if (!uid) throw new Error('Invalid userId');
+    if (!cid) throw new Error('Invalid calendarId');
+    const lab = this.normalizeLabel(label);
+    if (!lab) throw new Error('label is required');
+
+    try {
+      const [r] = await pool.execute(
+        `UPDATE user_external_calendars
+         SET label = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND user_id = ?`,
+        [lab, cid, uid]
+      );
+      return Number(r?.affectedRows || 0) > 0;
+    } catch (e) {
+      if (e?.code === 'ER_DUP_ENTRY') {
+        const err = new Error('Calendar label already exists for this user');
+        err.statusCode = 409;
+        throw err;
+      }
+      throw e;
+    }
+  }
+
   static async setFeedActive({ userId, calendarId, feedId, isActive }) {
     const uid = Number(userId || 0);
     const cid = Number(calendarId || 0);
