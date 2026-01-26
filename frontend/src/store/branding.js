@@ -638,6 +638,7 @@ export const useBrandingStore = defineStore('branding', () => {
       progress_dashboard: 'progress_dashboard_icon_path',
       manage_clients: 'manage_clients_icon_path',
       manage_agencies: 'manage_agencies_icon_path',
+      school_overview: 'school_overview_icon_path',
       manage_modules: 'manage_modules_icon_path',
       manage_documents: 'manage_documents_icon_path',
       manage_users: 'manage_users_icon_path',

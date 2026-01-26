@@ -4,6 +4,13 @@
       <h1>Client Management</h1>
       <div class="header-actions">
         <button @click="showBulkImportModal = true" class="btn btn-secondary">Bulk Import</button>
+        <router-link
+          v-if="canBackofficeEdit"
+          to="/admin/schools/overview"
+          class="btn btn-secondary"
+        >
+          Show all schools
+        </router-link>
         <button
           v-if="authStore.user?.role === 'super_admin'"
           @click="openDeleteImportedModal"
@@ -14,11 +21,19 @@
         </button>
         <button
           v-if="authStore.user?.role !== 'school_staff'"
-          @click="openRolloverModal"
+          @click="openRolloverModal('rollover')"
           class="btn btn-secondary"
           :disabled="rolloverWorking"
         >
           {{ rolloverWorking ? 'Rolling over…' : 'Rollover School Year…' }}
+        </button>
+        <button
+          v-if="authStore.user?.role !== 'school_staff'"
+          @click="openRolloverModal('reset_docs')"
+          class="btn btn-secondary"
+          :disabled="rolloverWorking"
+        >
+          {{ rolloverWorking ? 'Working…' : 'Reset Documentation…' }}
         </button>
         <button @click="showCreateModal = true" class="btn btn-primary">Create Client</button>
       </div>
@@ -85,6 +100,10 @@
             {{ provider.first_name }} {{ provider.last_name }}
           </option>
         </select>
+        <label class="checkbox-label" style="display:flex; align-items:center; gap: 8px;">
+          <input type="checkbox" v-model="skillsOnly" @change="applyFilters" />
+          <span>Skills clients only</span>
+        </label>
         <select v-model="sortBy" @change="applyFilters" class="filter-select">
           <option value="submission_date-desc">Sort: Submission Date (Newest)</option>
           <option value="submission_date-asc">Sort: Submission Date (Oldest)</option>
@@ -422,6 +441,13 @@
             <small>Optional. Numeric grades will be promoted +1 in bulk.</small>
           </div>
           <div class="form-group">
+            <label class="checkbox-label" style="display:flex; align-items:center; gap: 8px;">
+              <input type="checkbox" v-model="newClient.skills" />
+              <span>Skills client</span>
+            </label>
+            <small>Marks this client as eligible for Skills Groups.</small>
+          </div>
+          <div class="form-group">
             <label>Submission Date *</label>
             <input v-model="newClient.submission_date" type="date" required />
           </div>
@@ -451,12 +477,17 @@
     <!-- Rollover Modal (extra confirmation gates) -->
     <div v-if="showRolloverModal" class="modal-overlay" @click.self="closeRolloverModal">
       <div class="modal-content" @click.stop style="max-width: 720px;">
-        <h3>Rollover School Year</h3>
+        <h3>{{ rolloverAction === 'reset_docs' ? 'Reset Documentation' : 'Rollover School Year' }}</h3>
         <p style="margin-top: 6px; color: var(--text-secondary);">
-          This is a high-impact action. It will update many clients at once and reset paperwork fields to “New Docs”.
+          <template v-if="rolloverAction === 'reset_docs'">
+            This is a high-impact action. It will reset documentation status for many clients at once (sets paperwork to “New Docs” and clears delivery/doc dates).
+          </template>
+          <template v-else>
+            This is a high-impact action. It will update many clients at once and reset paperwork fields to “New Docs”.
+          </template>
         </p>
 
-        <div class="form-group" style="margin-top: 12px;">
+        <div v-if="rolloverAction !== 'reset_docs'" class="form-group" style="margin-top: 12px;">
           <label>To School Year</label>
           <input :value="normalizeSchoolYearLabel(nextSchoolYear)" disabled />
           <small>Target year is calculated automatically.</small>
@@ -487,13 +518,19 @@
 
         <div v-if="rolloverPreview" style="margin-top: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);">
           <div style="color: var(--text-secondary); font-size: 13px;">
-            Confirm you want to rollover <strong>{{ Number(rolloverPreview?.willUpdate || 0) }}</strong> client(s)
-            to <strong>{{ normalizeSchoolYearLabel(nextSchoolYear) }}</strong>.
+            <template v-if="rolloverAction === 'reset_docs'">
+              Confirm you want to reset documentation for <strong>{{ Number(rolloverPreview?.willUpdate || 0) }}</strong> client(s).
+            </template>
+            <template v-else>
+              Confirm you want to rollover <strong>{{ Number(rolloverPreview?.willUpdate || 0) }}</strong> client(s)
+              to <strong>{{ normalizeSchoolYearLabel(nextSchoolYear) }}</strong>.
+            </template>
           </div>
           <div style="margin-top: 10px;">
             <label style="display: flex; gap: 8px; align-items: center;">
               <input type="checkbox" v-model="rolloverConfirmChecked" />
-              <span>I understand this will reset paperwork fields to “New Docs”.</span>
+              <span v-if="rolloverAction === 'reset_docs'">I understand this will reset documentation status to “New Docs”.</span>
+              <span v-else>I understand this will reset paperwork fields to “New Docs”.</span>
             </label>
           </div>
           <div class="form-group" style="margin-top: 10px;">
@@ -696,6 +733,7 @@ const searchQuery = ref('');
 const clientStatusFilter = ref('');
 const organizationFilter = ref('');
 const providerFilter = ref('');
+const skillsOnly = ref(false);
 const sortBy = ref('submission_date-desc');
 const selectedClient = ref(null);
 const showCreateModal = ref(false);
@@ -729,6 +767,7 @@ const newClient = ref({
   client_status_id: null,
   school_year: '',
   grade: '',
+  skills: false,
   submission_date: new Date().toISOString().split('T')[0],
   referral_date: new Date().toISOString().split('T')[0],
   paperwork_delivery_method_id: null,
@@ -876,7 +915,12 @@ const providersWithOpenSlotsForOrg = computed(() => {
   for (const a of providerAssignmentsForOrg.value || []) {
     if (!a) continue;
     const active = a.is_active === undefined ? true : !!a.is_active;
-    if (active) set.add(Number(a.provider_user_id));
+    if (!active) continue;
+    // Hide full days for individual booking: only treat a provider as "available" if they have
+    // at least one active day with slots_available > 0. If slots_available is missing, treat as available (best-effort).
+    const avail = a.slots_available;
+    const hasCapacity = avail === null || avail === undefined ? true : Number(avail) > 0;
+    if (hasCapacity) set.add(Number(a.provider_user_id));
   }
   return set;
 });
@@ -899,6 +943,9 @@ const availableServiceDays = computed(() => {
     if (Number(a.provider_user_id) !== providerId) continue;
     const active = a.is_active === undefined ? true : !!a.is_active;
     if (!active) continue;
+    const avail = a.slots_available;
+    const hasCapacity = avail === null || avail === undefined ? true : Number(avail) > 0;
+    if (!hasCapacity) continue;
     if (a.day_of_week) days.push(String(a.day_of_week));
   }
   // stable ordering Mon–Fri
@@ -923,10 +970,13 @@ const fetchClients = async () => {
     error.value = '';
     
     const params = new URLSearchParams();
+    // Always scope to the active agency so we don't load every agency's clients (can be huge and slow).
+    if (activeAgencyId.value) params.append('agency_id', String(activeAgencyId.value));
     if (clientStatusFilter.value) params.append('client_status_id', clientStatusFilter.value);
     if (organizationFilter.value) params.append('organization_id', organizationFilter.value);
     if (providerFilter.value) params.append('provider_id', providerFilter.value);
     if (searchQuery.value) params.append('search', searchQuery.value);
+    if (skillsOnly.value) params.append('skills', 'true');
 
     const response = await api.get(`/clients?${params.toString()}`);
     clients.value = response.data || [];
@@ -1126,14 +1176,19 @@ const showRolloverModal = ref(false);
 const rolloverScope = ref('all'); // 'selected' | 'all'
 const rolloverConfirmChecked = ref(false);
 const rolloverConfirmText = ref('');
+const rolloverAction = ref('rollover'); // 'rollover' | 'reset_docs'
 
-const rolloverConfirmPhrase = computed(() => `ROLLOVER ${normalizeSchoolYearLabel(nextSchoolYear.value)}`);
+const rolloverConfirmPhrase = computed(() => {
+  if (rolloverAction.value === 'reset_docs') return 'RESET DOCS';
+  return `ROLLOVER ${normalizeSchoolYearLabel(nextSchoolYear.value)}`;
+});
 
-const openRolloverModal = () => {
+const openRolloverModal = (action = 'rollover') => {
   rolloverPreview.value = null;
   rolloverConfirmChecked.value = false;
   rolloverConfirmText.value = '';
   rolloverScope.value = organizationFilter.value ? 'selected' : 'all';
+  rolloverAction.value = action === 'reset_docs' ? 'reset_docs' : 'rollover';
   showRolloverModal.value = true;
 };
 
@@ -1151,7 +1206,7 @@ const resolveRolloverOrgId = () => {
 
 const runRolloverPreview = async () => {
   const toSchoolYear = normalizeSchoolYearLabel(nextSchoolYear.value);
-  if (!toSchoolYear) return;
+  if (rolloverAction.value !== 'reset_docs' && !toSchoolYear) return;
   const orgId = resolveRolloverOrgId();
   if (rolloverScope.value === 'selected' && !orgId) {
     alert('Select an affiliation in the filter first, or choose “All affiliations”.');
@@ -1161,9 +1216,10 @@ const runRolloverPreview = async () => {
   try {
     const preview = await api.post('/clients/bulk/rollover-school-year', {
       organizationId: orgId || undefined,
-      toSchoolYear,
+      toSchoolYear: rolloverAction.value === 'reset_docs' ? undefined : toSchoolYear,
       resetDocs: true,
       paperworkStatusKey: 'new_docs',
+      keepSchoolYear: rolloverAction.value === 'reset_docs',
       confirm: false
     });
     rolloverPreview.value = preview.data;
@@ -1185,15 +1241,16 @@ const canExecuteRollover = computed(() => {
 
 const executeRollover = async () => {
   const toSchoolYear = normalizeSchoolYearLabel(nextSchoolYear.value);
-  if (!toSchoolYear) return;
+  if (rolloverAction.value !== 'reset_docs' && !toSchoolYear) return;
   const orgId = resolveRolloverOrgId();
   rolloverWorking.value = true;
   try {
     await api.post('/clients/bulk/rollover-school-year', {
       organizationId: orgId || undefined,
-      toSchoolYear,
+      toSchoolYear: rolloverAction.value === 'reset_docs' ? undefined : toSchoolYear,
       resetDocs: true,
       paperworkStatusKey: 'new_docs',
+      keepSchoolYear: rolloverAction.value === 'reset_docs',
       confirm: true
     });
     await fetchClients();
@@ -1397,8 +1454,13 @@ const closeClientDetail = () => {
   selectedClient.value = null;
 };
 
-const handleClientUpdated = () => {
+const handleClientUpdated = (payload) => {
   fetchClients();
+  // Keep the panel open for "light" updates (e.g., toggling Skills boolean)
+  if (payload?.keepOpen) {
+    if (payload?.client) selectedClient.value = payload.client;
+    return;
+  }
   closeClientDetail();
 };
 

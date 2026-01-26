@@ -57,6 +57,12 @@ export const getSchoolClients = async (req, res, next) => {
     const { organizationId } = req.params;
     const userId = req.user?.id;
     const userRole = req.user?.role;
+    const skillsOnly = String(req.query?.skillsOnly || '').toLowerCase() === 'true';
+
+    // Provider privacy: providers should not access the roster endpoint (they see Skills Groups instead).
+    if (String(userRole || '').toLowerCase() === 'provider') {
+      return res.status(403).json({ error: { message: 'Providers cannot access the roster.' } });
+    }
 
     // Verify organization exists (school/program/learning)
     const organization = await Agency.findById(organizationId);
@@ -108,6 +114,14 @@ export const getSchoolClients = async (req, res, next) => {
            MAX(CASE WHEN ? IS NOT NULL AND cpa.provider_user_id = ? THEN 1 ELSE 0 END) AS user_is_assigned_provider,
            c.submission_date,
            c.document_status,
+           c.paperwork_status_id,
+           ps.label AS paperwork_status_label,
+           ps.status_key AS paperwork_status_key,
+           c.paperwork_delivery_method_id,
+           pdm.label AS paperwork_delivery_method_label,
+           c.doc_date,
+           c.roi_expires_at,
+           c.skills,
            c.status
          FROM clients c
          JOIN client_organization_assignments coa
@@ -115,15 +129,18 @@ export const getSchoolClients = async (req, res, next) => {
           AND coa.organization_id = ?
           AND coa.is_active = TRUE
          LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+         LEFT JOIN paperwork_statuses ps ON ps.id = c.paperwork_status_id
+         LEFT JOIN paperwork_delivery_methods pdm ON pdm.id = c.paperwork_delivery_method_id
          LEFT JOIN client_provider_assignments cpa
            ON cpa.client_id = c.id
           AND cpa.organization_id = coa.organization_id
           AND cpa.is_active = TRUE
          LEFT JOIN users u ON u.id = cpa.provider_user_id
          WHERE UPPER(c.status) <> 'ARCHIVED'
+           AND (? = 0 OR c.skills = TRUE)
          GROUP BY c.id
          ORDER BY c.submission_date DESC, c.id DESC`,
-        [providerUserId, providerUserId, orgId]
+        [providerUserId, providerUserId, orgId, skillsOnly ? 1 : 0]
       );
       clients = rows || [];
     } catch (e) {
@@ -138,6 +155,7 @@ export const getSchoolClients = async (req, res, next) => {
       // Legacy fallback
       const all = await Client.findByOrganizationId(parseInt(organizationId, 10));
       clients = (all || []).filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+      if (skillsOnly) clients = (clients || []).filter((c) => !!c?.skills);
     }
 
     // Unread note counts (per user) - best effort if table exists.
@@ -182,7 +200,17 @@ export const getSchoolClients = async (req, res, next) => {
         service_day: client.service_day || null,
         user_is_assigned_provider: client.user_is_assigned_provider === 1 || client.user_is_assigned_provider === true,
         submission_date: client.submission_date,
+        // For the portal, "Doc Status" should reflect paperwork status/delivery (new model),
+        // while still exposing legacy document_status for backward compatibility.
         document_status: client.document_status,
+        paperwork_status_id: client.paperwork_status_id || null,
+        paperwork_status_label: client.paperwork_status_label || null,
+        paperwork_status_key: client.paperwork_status_key || null,
+        paperwork_delivery_method_id: client.paperwork_delivery_method_id || null,
+        paperwork_delivery_method_label: client.paperwork_delivery_method_label || null,
+        doc_date: client.doc_date || null,
+        roi_expires_at: client.roi_expires_at || null,
+        skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0
       };
     });

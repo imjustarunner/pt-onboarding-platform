@@ -5,7 +5,7 @@
         <div class="name">{{ provider.last_name }}, {{ provider.first_name }}</div>
         <div class="meta">
           <span v-if="provider.slots_total != null" class="badge badge-secondary">
-            {{ provider.slots_available ?? '—' }} / {{ provider.slots_total }} slots
+            {{ (provider.slots_used ?? 0) }} / {{ provider.slots_total }} assigned
           </span>
           <span v-if="provider.start_time || provider.end_time" class="badge badge-secondary">
             {{ (provider.start_time || '—').toString().slice(0, 5) }}–{{ (provider.end_time || '—').toString().slice(0, 5) }}
@@ -22,6 +22,9 @@
             <option value="afternoon">Afternoon</option>
           </select>
         </label>
+        <button class="btn btn-secondary btn-sm" type="button" @click="collapsed = !collapsed">
+          {{ collapsed ? 'Expand' : 'Collapse' }}
+        </button>
         <button class="btn btn-secondary btn-sm" type="button" @click="$emit('open-provider', provider.provider_user_id)">
           Provider profile
         </button>
@@ -29,6 +32,10 @@
     </div>
 
     <div v-if="loading" class="loading">Loading…</div>
+    <div v-else-if="collapsed" class="collapsed-hint">
+      <span class="muted">Hidden.</span>
+      <span class="muted">Caseload: {{ (caseloadClients || []).length }}</span>
+    </div>
     <div v-else class="content">
       <div class="caseload">
         <div class="section-title">Caseload</div>
@@ -65,6 +72,7 @@ defineProps({
 defineEmits(['open-client', 'save-slots', 'move-slot', 'open-provider']);
 
 const selectedSection = ref('all');
+const collapsed = ref(false);
 </script>
 
 <style scoped>
@@ -72,7 +80,7 @@ const selectedSection = ref('all');
   border: 1px solid var(--border);
   border-radius: 14px;
   background: white;
-  padding: 14px;
+  padding: 10px;
 }
 .panel-header {
   display: flex;
@@ -113,28 +121,39 @@ const selectedSection = ref('all');
   flex-wrap: wrap;
 }
 .content {
-  display: grid;
-  grid-template-columns: 360px 1fr;
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .caseload {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg);
-  padding: 12px;
+  padding: 10px;
 }
 .section-title {
   font-weight: 900;
   color: var(--text-primary);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .loading {
   color: var(--text-secondary);
   padding: 10px 0;
 }
+.collapsed-hint {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: var(--text-secondary);
+  padding: 10px 0;
+}
+.muted {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
 @media (max-width: 1050px) {
   .content {
-    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 }
 </style>

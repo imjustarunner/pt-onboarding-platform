@@ -476,9 +476,21 @@
                   <div v-for="agency in userAgencies" :key="agency.id" class="agency-item">
                     <div style="display:flex; align-items:center; gap: 10px; flex-wrap: wrap;">
                       <span class="agency-name">{{ agency.name }}</span>
+                      <span v-if="agency.organization_type" class="muted" style="font-size: 12px; font-weight: 800;">
+                        ({{ agency.organization_type }})
+                      </span>
+
+                      <div v-if="isSchoolOrProgramOrg(agency)" style="display:flex; align-items:center; gap: 8px; flex-wrap: wrap;">
+                        <button class="btn btn-secondary btn-sm" type="button" @click="openSchoolSchedulingFromAgencyRow(agency)">
+                          Days &amp; slots
+                        </button>
+                        <span class="muted" style="font-size: 12px;">
+                          (Set the day, 08:00–15:00 default, and slots)
+                        </span>
+                      </div>
 
                       <div
-                        v-if="canEditUser"
+                        v-if="canEditUser && isAgencyOrg(agency)"
                         style="display:flex; align-items:center; gap: 6px;"
                         title="Optional per-organization login email alias. This email can be used to log into the same account under this organization."
                       >
@@ -494,7 +506,7 @@
                       </div>
 
                       <div
-                        v-if="canEditUser && isProviderLikeRole"
+                        v-if="canEditUser && isProviderLikeRole && isAgencyOrg(agency)"
                         style="display:flex; align-items:center; gap: 6px;"
                         title="H0032 mode is per-organization. Cat1 Hour means H0032 rows require manual minutes entry and will appear in Payroll → Raw Import → Process H0032. Cat2 Flat means H0032 defaults to 30 minutes and will not appear in that queue."
                       >
@@ -512,7 +524,7 @@
                       </div>
 
                       <div
-                        v-if="canEditUser && canShowPrelicensedSupervision"
+                        v-if="canEditUser && canShowPrelicensedSupervision && isAgencyOrg(agency)"
                         style="display:flex; align-items:center; gap: 8px; flex-wrap: wrap;"
                         title="Prelicensed supervision tracking is per-organization. Baseline hours are added to accrued payroll supervision hours (99414/99416). Pay for 99414/99416 is $0 until the user has already reached ≥50 individual and ≥100 total hours in prior pay periods."
                       >
@@ -574,10 +586,11 @@
                     </option>
                   </select>
                   <input
+                    v-if="selectedAgencyAllowsAlias"
                     v-model="newAgencyLoginEmail"
                     class="agency-select"
                     style="min-width: 260px;"
-                    placeholder="Optional login email alias for this org"
+                    placeholder="Optional login email alias (agencies only)"
                     :disabled="!selectedAgencyId || assigningAgency"
                   />
                   <button @click="addAgency" class="btn btn-primary btn-sm" :disabled="!selectedAgencyId || assigningAgency">
@@ -1267,7 +1280,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -1949,10 +1962,21 @@ const availableAgencies = ref([]);
 const selectedAgencyId = ref('');
 const assigningAgency = ref(false);
 
+const orgTypeFor = (org) => String(org?.organization_type || 'agency').toLowerCase();
+const isAgencyOrg = (org) => orgTypeFor(org) === 'agency';
+const isSchoolOrProgramOrg = (org) => !isAgencyOrg(org);
+
 // Per-organization login email alias (stored in user_login_emails)
 const newAgencyLoginEmail = ref('');
 const loginEmailAliasesDetailed = ref([]);
 const savingAgencyAliasId = ref(null);
+
+const selectedAgencyOption = computed(() => {
+  const id = Number(selectedAgencyId.value || 0);
+  if (!id) return null;
+  return (availableAgencies.value || []).find((a) => Number(a?.id) === id) || null;
+});
+const selectedAgencyAllowsAlias = computed(() => isAgencyOrg(selectedAgencyOption.value));
 
 const accountInfo = ref({ loginEmail: '', personalEmail: '', phoneNumber: '', personalPhone: '', workPhone: '', workPhoneExtension: '', supervisors: [], status: null, passwordlessLoginLink: null, passwordlessTokenExpiresAt: null, passwordlessTokenExpiresInHours: null, passwordlessTokenIsExpired: false });
 const accountInfoLoading = ref(false);
@@ -2416,7 +2440,7 @@ const addAgency = async () => {
     });
 
     // Optional: set per-org login email alias immediately.
-    if (newAgencyLoginEmail.value && String(newAgencyLoginEmail.value).includes('@')) {
+    if (selectedAgencyAllowsAlias.value && newAgencyLoginEmail.value && String(newAgencyLoginEmail.value).includes('@')) {
       try {
         await api.post(`/users/${userId.value}/login-email-alias`, {
           agencyId: parseInt(selectedAgencyId.value),
@@ -2435,6 +2459,16 @@ const addAgency = async () => {
   } finally {
     assigningAgency.value = false;
   }
+};
+
+const openSchoolSchedulingFromAgencyRow = async (org) => {
+  const id = Number(org?.id || 0);
+  if (!id) return;
+  activeTab.value = 'school_affiliation';
+  await nextTick();
+  await loadSchoolAffiliations();
+  selectedSchoolAffiliationId.value = String(id);
+  await loadSchoolAssignments();
 };
 
 const removeAgency = async (agencyId) => {

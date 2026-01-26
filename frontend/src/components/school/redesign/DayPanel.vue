@@ -22,7 +22,7 @@
         <div v-for="p in providers" :key="p.provider_user_id" class="provider-card">
           <div class="name">{{ p.last_name }}, {{ p.first_name }}</div>
           <div class="meta">
-            <span v-if="p.slots_total != null" class="badge badge-secondary">{{ p.slots_available ?? '—' }} / {{ p.slots_total }} slots</span>
+            <span v-if="p.slots_total != null" class="badge badge-secondary">{{ (p.slots_used ?? 0) }} / {{ p.slots_total }} assigned</span>
             <span v-if="p.start_time || p.end_time" class="badge badge-secondary">
               {{ (p.start_time || '—').toString().slice(0, 5) }}–{{ (p.end_time || '—').toString().slice(0, 5) }}
             </span>
@@ -124,7 +124,7 @@ const confirmAddProvider = async () => {
 <style scoped>
 .day-panel {
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 300px 1fr;
   gap: 12px;
   align-items: start;
 }
@@ -133,7 +133,7 @@ const confirmAddProvider = async () => {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: white;
-  padding: 12px;
+  padding: 10px;
 }
 .pane-header {
   display: flex;
@@ -153,13 +153,13 @@ const confirmAddProvider = async () => {
 }
 .provider-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 .provider-card {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg);
-  padding: 10px;
+  padding: 8px;
 }
 .name {
   font-weight: 900;
@@ -178,7 +178,7 @@ const confirmAddProvider = async () => {
 }
 .provider-panels {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 .error {
   color: #c33;

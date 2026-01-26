@@ -201,6 +201,10 @@ export const listDayProviders = async (req, res, next) => {
     const weekday = normalizeDay(weekdayParam);
     if (!weekday) return res.status(400).json({ error: { message: `Invalid weekday (allowed: ${allowedDays.join(', ')})` } });
 
+    // Provider privacy: providers should only be able to view their own schedule/caseload.
+    const role = String(req.user?.role || '').toLowerCase();
+    const providerOnlyUserId = role === 'provider' ? parseInt(req.user?.id || 0, 10) : null;
+
     const [rows] = await pool.execute(
       `SELECT a.id AS day_provider_assignment_id,
               a.provider_user_id,
@@ -219,10 +223,61 @@ export const listDayProviders = async (req, res, next) => {
         AND psa.day_of_week COLLATE utf8mb4_unicode_ci = a.weekday COLLATE utf8mb4_unicode_ci
         AND psa.is_active = TRUE
        WHERE a.school_organization_id = ? AND a.weekday = ? COLLATE utf8mb4_unicode_ci AND a.is_active = TRUE
+         AND (? IS NULL OR a.provider_user_id = ?)
        ORDER BY u.last_name ASC, u.first_name ASC`,
-      [parseInt(schoolId, 10), weekday]
+      [parseInt(schoolId, 10), weekday, providerOnlyUserId, providerOnlyUserId]
     );
-    res.json(rows || []);
+
+    // Compute assigned client count per provider/day for display (so "4/7" reflects reality even if slots_available drifted).
+    const providerIds = (rows || []).map((r) => parseInt(r.provider_user_id, 10)).filter(Boolean);
+    const assignedCountByProvider = new Map();
+    if (providerIds.length > 0) {
+      try {
+        const placeholders = providerIds.map(() => '?').join(',');
+        const [cntRows] = await pool.execute(
+          `SELECT cpa.provider_user_id, COUNT(*) AS cnt
+           FROM client_provider_assignments cpa
+           JOIN clients c ON c.id = cpa.client_id
+           WHERE cpa.organization_id = ?
+             AND cpa.service_day = ?
+             AND cpa.is_active = TRUE
+             AND c.status <> 'ARCHIVED'
+             AND cpa.provider_user_id IN (${placeholders})
+           GROUP BY cpa.provider_user_id`,
+          [parseInt(schoolId, 10), weekday, ...providerIds]
+        );
+        for (const r of cntRows || []) assignedCountByProvider.set(Number(r.provider_user_id), Number(r.cnt || 0));
+      } catch (e) {
+        const msg = String(e?.message || '');
+        const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+        if (!missing) throw e;
+        const placeholders = providerIds.map(() => '?').join(',');
+        const [cntRows] = await pool.execute(
+          `SELECT provider_id AS provider_user_id, COUNT(*) AS cnt
+           FROM clients
+           WHERE organization_id = ?
+             AND service_day = ?
+             AND status <> 'ARCHIVED'
+             AND provider_id IN (${placeholders})
+           GROUP BY provider_id`,
+          [parseInt(schoolId, 10), weekday, ...providerIds]
+        );
+        for (const r of cntRows || []) assignedCountByProvider.set(Number(r.provider_user_id), Number(r.cnt || 0));
+      }
+    }
+
+    const out = (rows || []).map((r) => {
+      const used = assignedCountByProvider.get(Number(r.provider_user_id)) || 0;
+      const total = r.slots_total === null || r.slots_total === undefined ? null : Number(r.slots_total);
+      const availCalc = total === null || !Number.isFinite(total) ? null : Math.max(0, total - used);
+      return {
+        ...r,
+        slots_used: used,
+        slots_available_calculated: availCalc
+      };
+    });
+
+    res.json(out);
   } catch (e) {
     next(e);
   }

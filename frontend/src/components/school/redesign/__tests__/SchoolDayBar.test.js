@@ -10,7 +10,7 @@ describe('SchoolDayBar', () => {
         days: [
           { weekday: 'Monday', has_providers: true },
           { weekday: 'Tuesday', has_providers: false },
-          { weekday: 'Wednesday', has_providers: false },
+          { weekday: 'Wednesday', has_providers: true },
           { weekday: 'Thursday', has_providers: false },
           { weekday: 'Friday', has_providers: false }
         ]
@@ -21,8 +21,13 @@ describe('SchoolDayBar', () => {
     expect(buttons.length).toBe(5);
     expect(wrapper.text()).toContain('Mon');
 
+    // Disabled day should not be selectable
     await buttons[1].trigger('click');
-    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['Tuesday']);
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined();
+
+    // Enabled day should emit selection
+    await buttons[2].trigger('click');
+    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual(['Wednesday']);
   });
 });
 

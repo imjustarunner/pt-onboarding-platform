@@ -283,6 +283,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/schools/overview',
+    name: 'OrganizationSchoolOverviewDashboard',
+    component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/settings',
     name: 'OrganizationSettings',
     component: () => import('../views/admin/SettingsView.vue'),
@@ -548,6 +554,12 @@ const routes = [
     name: 'SchoolContactsImport',
     component: () => import('../views/admin/SchoolContactsImportView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+  },
+  {
+    path: '/admin/schools/overview',
+    name: 'SchoolOverviewDashboard',
+    component: () => import('../views/admin/SchoolOverviewDashboard.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
   },
   {
     path: '/admin/settings',

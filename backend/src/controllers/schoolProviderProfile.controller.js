@@ -57,6 +57,11 @@ export const getProviderSchoolProfile = async (req, res, next) => {
     const providerUserId = parseInt(providerId, 10);
     if (!providerUserId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
 
+    // Provider privacy: providers may only view their own profile in this context.
+    if (String(req.user?.role || '').toLowerCase() === 'provider' && parseInt(req.user?.id || 0, 10) !== providerUserId) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
     const aff = await ensureProviderAffiliated(providerUserId, schoolId);
     if (!aff.ok) return res.status(404).json({ error: { message: 'Provider is not affiliated with this school' } });
 
@@ -86,6 +91,11 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
     const providerUserId = parseInt(providerId, 10);
     if (!providerUserId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
 
+    // Provider privacy: providers may only view their own caseload in this context.
+    if (String(req.user?.role || '').toLowerCase() === 'provider' && parseInt(req.user?.id || 0, 10) !== providerUserId) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
     const aff = await ensureProviderAffiliated(providerUserId, schoolId);
     if (!aff.ok) return res.status(404).json({ error: { message: 'Provider is not affiliated with this school' } });
 
@@ -105,17 +115,38 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
     const clientsByDay = new Map();
     for (const d of allowedDays) clientsByDay.set(d, []);
 
+    // Prefer multi-provider assignments; fall back to legacy clients columns.
+    let clientRows = [];
     if (activeDays.length > 0) {
       const placeholders = activeDays.map(() => '?').join(',');
-      const [clientRows] = await pool.execute(
-        `SELECT id, initials, identifier_code, status, document_status, service_day
-         FROM clients
-         WHERE organization_id = ?
-           AND provider_id = ?
-           AND service_day IN (${placeholders})
-         ORDER BY service_day ASC, initials ASC`,
-        [parseInt(schoolId, 10), providerUserId, ...activeDays]
-      );
+      try {
+        const [rows] = await pool.execute(
+          `SELECT c.id, c.initials, c.identifier_code, c.status, c.document_status, cpa.service_day
+           FROM client_provider_assignments cpa
+           JOIN clients c ON c.id = cpa.client_id
+           WHERE cpa.organization_id = ?
+             AND cpa.provider_user_id = ?
+             AND cpa.is_active = TRUE
+             AND cpa.service_day IN (${placeholders})
+           ORDER BY cpa.service_day ASC, c.initials ASC`,
+          [parseInt(schoolId, 10), providerUserId, ...activeDays]
+        );
+        clientRows = rows || [];
+      } catch (e) {
+        const msg = String(e?.message || '');
+        const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+        if (!missing) throw e;
+        const [rows] = await pool.execute(
+          `SELECT id, initials, identifier_code, status, document_status, service_day
+           FROM clients
+           WHERE organization_id = ?
+             AND provider_id = ?
+             AND service_day IN (${placeholders})
+           ORDER BY service_day ASC, initials ASC`,
+          [parseInt(schoolId, 10), providerUserId, ...activeDays]
+        );
+        clientRows = rows || [];
+      }
 
       const userId = req.user?.id;
       const unreadCounts = new Map();
@@ -141,17 +172,22 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
       }
 
       for (const c of clientRows || []) {
-        const d = String(c.service_day || '');
+        const d = String(c.service_day || c.service_day || '');
         const list = clientsByDay.get(d) || [];
         list.push({ ...c, unread_notes_count: unreadCounts.get(Number(c.id)) || 0 });
         clientsByDay.set(d, list);
       }
     }
 
+    // Used count per day for display (assigned/total)
+    const usedByDay = new Map();
+    for (const d of allowedDays) usedByDay.set(d, (clientsByDay.get(d) || []).length);
+
     const out = (assignments || []).map((a) => ({
       day_of_week: a.day_of_week,
       slots_total: a.slots_total,
       slots_available: a.slots_available,
+      slots_used: usedByDay.get(String(a.day_of_week)) || 0,
       start_time: a.start_time,
       end_time: a.end_time,
       is_active: !!a.is_active,

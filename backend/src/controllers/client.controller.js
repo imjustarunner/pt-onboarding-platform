@@ -14,7 +14,7 @@ import { logClientAccess } from '../services/clientAccessLog.service.js';
  */
 export const getClients = async (req, res, next) => {
   try {
-    const { status, organization_id, provider_id, search, client_status_id, paperwork_status_id, insurance_type_id } = req.query;
+    const { status, organization_id, provider_id, search, client_status_id, paperwork_status_id, insurance_type_id, skills, agency_id } = req.query;
     const userId = req.user.id;
     const userRole = req.user.role;
 
@@ -35,6 +35,16 @@ export const getClients = async (req, res, next) => {
       return res.json([]);
     }
 
+    // Optional: scope to a single agency for performance (used by Admin Client Management).
+    const requestedAgencyId = agency_id ? parseInt(agency_id, 10) : null;
+    if (requestedAgencyId) {
+      if (userRole === 'super_admin') {
+        agencyIds = [requestedAgencyId];
+      } else if (agencyIds.includes(requestedAgencyId)) {
+        agencyIds = [requestedAgencyId];
+      }
+    }
+
     // Build query options
     const options = {
       includeSensitive: true, // Agency view includes all fields
@@ -44,7 +54,8 @@ export const getClients = async (req, res, next) => {
       search,
       client_status_id: client_status_id ? parseInt(client_status_id, 10) : undefined,
       paperwork_status_id: paperwork_status_id ? parseInt(paperwork_status_id, 10) : undefined,
-      insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : undefined
+      insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : undefined,
+      skills: skills === undefined ? undefined : (String(skills).toLowerCase() === 'true' || String(skills) === '1')
     };
 
     // Get clients for all user's agencies
@@ -175,7 +186,8 @@ export const createClient = async (req, res, next) => {
       referral_date,
       paperwork_delivery_method_id,
       primary_client_language,
-      primary_parent_language
+      primary_parent_language,
+      skills
     } = req.body;
 
     const userId = req.user.id;
@@ -368,7 +380,8 @@ export const createClient = async (req, res, next) => {
       referral_date: referral_date || null,
       paperwork_delivery_method_id: paperwork_delivery_method_id || null,
       primary_client_language: primary_client_language ? String(primary_client_language).trim() : null,
-      primary_parent_language: primary_parent_language ? String(primary_parent_language).trim() : null
+      primary_parent_language: primary_parent_language ? String(primary_parent_language).trim() : null,
+      skills: skills === undefined || skills === null ? undefined : !!skills
     });
 
     // Log initial creation to history
@@ -513,6 +526,9 @@ export const bulkPromoteSchoolYear = async (req, res, next) => {
           if (psId) patch.paperwork_status_id = psId;
         }
         patch.paperwork_received_at = null;
+        patch.paperwork_delivery_method_id = null;
+        patch.doc_date = null;
+        patch.roi_expires_at = null;
         patch.document_status = 'NONE';
       }
 
@@ -545,8 +561,12 @@ export const rolloverSchoolYear = async (req, res, next) => {
     const agencyIdFromBody = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
     const toSchoolYear = normalizeSchoolYearLabel(req.body?.toSchoolYear || null);
     const resetDocs = req.body?.resetDocs === undefined ? true : !!req.body.resetDocs;
+    const keepSchoolYear = req.body?.keepSchoolYear === true || req.body?.keepSchoolYear === 'true';
     const paperworkStatusKey = String(req.body?.paperworkStatusKey || 'new_docs').trim().toLowerCase();
     const confirm = !!req.body?.confirm;
+    if (keepSchoolYear && !resetDocs) {
+      return res.status(400).json({ error: { message: 'keepSchoolYear requires resetDocs=true' } });
+    }
 
     // Access check: non-super_admin must have the agency in their org list.
     let allowedAgencyIds = null;
@@ -589,8 +609,9 @@ export const rolloverSchoolYear = async (req, res, next) => {
         willUpdate: cnt,
         organizationId,
         agencyId: scopedAgencyId,
-        toSchoolYear: toSchoolYear || '(computed per client)',
-        resetDocs
+        toSchoolYear: keepSchoolYear ? '(unchanged)' : (toSchoolYear || '(computed per client)'),
+        resetDocs,
+        keepSchoolYear
       });
     }
 
@@ -624,8 +645,11 @@ export const rolloverSchoolYear = async (req, res, next) => {
         if (!id) continue;
         const nextYear = toSchoolYear || computeNextSchoolYearLabel(r.school_year || null);
         const nextGrade = bumpGrade(r.grade);
-        const patch = { school_year: nextYear };
-        if (nextGrade !== null) patch.grade = nextGrade;
+        const patch = {};
+        if (!keepSchoolYear) {
+          patch.school_year = nextYear;
+          if (nextGrade !== null) patch.grade = nextGrade;
+        }
         if (resetDocs) {
           const aId = Number(r.agency_id);
           if (aId) {
@@ -644,6 +668,9 @@ export const rolloverSchoolYear = async (req, res, next) => {
             if (psId) patch.paperwork_status_id = psId;
           }
           patch.paperwork_received_at = null;
+          patch.paperwork_delivery_method_id = null;
+          patch.doc_date = null;
+          patch.roi_expires_at = null;
           patch.document_status = 'NONE';
         }
         await Client.update(id, patch, userId);
@@ -801,8 +828,7 @@ export const updateClient = async (req, res, next) => {
                 providerUserId: newProviderId,
                 schoolId: newOrgId,
                 dayOfWeek: newDay,
-                delta: -1,
-                allowNegative: true
+                delta: -1
               });
               if (!take.ok) {
                 // Best-effort: do not block the update if capacity cannot be adjusted.
@@ -1172,24 +1198,72 @@ export const assignProvider = async (req, res, next) => {
           providerUserId: providerId,
           schoolId,
           dayOfWeek: targetDay,
-          delta: -1,
-          allowNegative: true
+          delta: -1
         });
         if (!take.ok && String(take.reason || '').toLowerCase().includes('not scheduled')) {
           // Best-effort: auto-create a default schedule entry (08:00–15:00, 7 slots) then retry.
+          // Also ensure the provider is affiliated to the school organization for portal/profile visibility.
+          try {
+            await connection.execute(
+              `INSERT INTO user_agencies (user_id, agency_id)
+               VALUES (?, ?)
+               ON DUPLICATE KEY UPDATE user_id = user_id`,
+              [providerId, schoolId]
+            );
+          } catch {
+            // ignore (best-effort)
+          }
+
+          let currentCount = 0;
+          if (currentStatusId) {
+            try {
+              const [cntRows] = await connection.execute(
+                `SELECT COUNT(*) AS cnt
+                 FROM client_provider_assignments cpa
+                 JOIN clients c ON c.id = cpa.client_id
+                 WHERE c.agency_id = ?
+                   AND cpa.organization_id = ?
+                   AND cpa.provider_user_id = ?
+                   AND cpa.service_day = ?
+                   AND cpa.is_active = TRUE
+                   AND c.status <> 'ARCHIVED'
+                   AND c.client_status_id = ?`,
+                [currentClient.agency_id, schoolId, providerId, targetDay, currentStatusId]
+              );
+              currentCount = parseInt(String(cntRows?.[0]?.cnt ?? 0), 10) || 0;
+            } catch (e) {
+              const msg = String(e?.message || '');
+              const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+              if (!missing) throw e;
+              const [cntRows] = await connection.execute(
+                `SELECT COUNT(*) AS cnt
+                 FROM clients
+                 WHERE agency_id = ?
+                   AND organization_id = ?
+                   AND provider_id = ?
+                   AND service_day = ?
+                   AND status <> 'ARCHIVED'
+                   AND client_status_id = ?`,
+                [currentClient.agency_id, schoolId, providerId, targetDay, currentStatusId]
+              );
+              currentCount = parseInt(String(cntRows?.[0]?.cnt ?? 0), 10) || 0;
+            }
+          }
+
+          const slotsTotal = 7;
+          const slotsAvailable = Math.max(0, slotsTotal - currentCount);
           await connection.execute(
             `INSERT INTO provider_school_assignments
               (provider_user_id, school_organization_id, day_of_week, slots_total, slots_available, start_time, end_time, is_active)
-             VALUES (?, ?, ?, 7, 7, '08:00:00', '15:00:00', TRUE)
+             VALUES (?, ?, ?, ?, ?, '08:00:00', '15:00:00', TRUE)
              ON DUPLICATE KEY UPDATE is_active = TRUE`,
-            [providerId, schoolId, targetDay]
+            [providerId, schoolId, targetDay, slotsTotal, slotsAvailable]
           );
           take = await adjustProviderSlots(connection, {
             providerUserId: providerId,
             schoolId,
             dayOfWeek: targetDay,
-            delta: -1,
-            allowNegative: true
+            delta: -1
           });
         }
         if (!take.ok) {
@@ -1430,6 +1504,7 @@ export const createClientPaperworkHistory = async (req, res, next) => {
     }
 
     const note = req.body?.note ? String(req.body.note).trim() : null;
+    const roiExpiresAt = parseYmdDateOrNull(req.body?.roi_expires_at);
 
     const connection = await pool.getConnection();
     try {
@@ -1470,6 +1545,17 @@ export const createClientPaperworkHistory = async (req, res, next) => {
         await connection.rollback();
         return res.status(400).json({ error: { message: 'Invalid paperwork_status_id for this client' } });
       }
+      const statusKey = String(statusRow.status_key || '').toLowerCase();
+
+      // ROI expiration: required when status is ROI.
+      let nextRoiExpiresAt = null;
+      if (statusKey === 'roi') {
+        if (!roiExpiresAt) {
+          await connection.rollback();
+          return res.status(400).json({ error: { message: 'roi_expires_at is required when paperwork status is ROI (YYYY-MM-DD)' } });
+        }
+        nextRoiExpiresAt = roiExpiresAt;
+      }
 
       // Validate delivery method belongs to the client's school/org, if provided.
       if (paperworkDeliveryMethodId) {
@@ -1486,13 +1572,13 @@ export const createClientPaperworkHistory = async (req, res, next) => {
       // Insert history row.
       await connection.execute(
         `INSERT INTO client_paperwork_history
-          (client_id, paperwork_status_id, paperwork_delivery_method_id, effective_date, note, changed_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [clientId, paperworkStatusId, paperworkDeliveryMethodId, effectiveDate, note, userId]
+          (client_id, paperwork_status_id, paperwork_delivery_method_id, effective_date, roi_expires_at, note, changed_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [clientId, paperworkStatusId, paperworkDeliveryMethodId, effectiveDate, nextRoiExpiresAt, note, userId]
       );
 
       // Update current fields on clients.
-      const completed = String(statusRow.status_key || '').toLowerCase() === 'completed';
+      const completed = statusKey === 'completed';
       const nextReceivedAt = completed && !currentClient.paperwork_received_at ? effectiveDate : undefined;
 
       // NOTE: doc_date is treated as "effective date of current paperwork status".
@@ -1500,10 +1586,11 @@ export const createClientPaperworkHistory = async (req, res, next) => {
         `paperwork_status_id = ?`,
         `paperwork_delivery_method_id = ?`,
         `doc_date = ?`,
+        `roi_expires_at = ?`,
         `updated_by_user_id = ?`,
         `last_activity_at = CURRENT_TIMESTAMP`
       ];
-      const values = [paperworkStatusId, paperworkDeliveryMethodId, effectiveDate, userId];
+      const values = [paperworkStatusId, paperworkDeliveryMethodId, effectiveDate, nextRoiExpiresAt, userId];
       if (nextReceivedAt !== undefined) {
         updates.push(`paperwork_received_at = ?`);
         values.push(nextReceivedAt);

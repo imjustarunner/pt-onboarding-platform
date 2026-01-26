@@ -385,6 +385,22 @@
             <div class="icon-description">Icon for the "Manage Clients" action card</div>
           </div>
           <div class="icon-row">
+            <div class="icon-label">School Overview Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.schoolOverviewIconId" />
+              <button
+                v-if="platformForm.schoolOverviewIconId"
+                @click="platformForm.schoolOverviewIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "School Overview" action card</div>
+          </div>
+          <div class="icon-row">
             <div class="icon-label">Manage Modules Icon</div>
             <div class="icon-selector-cell">
               <IconSelector v-model="platformForm.manageModulesIconId" />
@@ -1830,6 +1846,7 @@ const platformForm = ref({
   progressDashboardIconId: null,
   manageAgenciesIconId: null,
   manageClientsIconId: null,
+  schoolOverviewIconId: null,
   manageModulesIconId: null,
   manageDocumentsIconId: null,
   manageUsersIconId: null,
@@ -2656,6 +2673,7 @@ const applySelectedTemplate = async (event) => {
           progressDashboardIconId: brandingStore.platformBranding.progress_dashboard_icon_id ?? null,
           manageAgenciesIconId: brandingStore.platformBranding.manage_agencies_icon_id ?? null,
           manageClientsIconId: brandingStore.platformBranding.manage_clients_icon_id ?? null,
+          schoolOverviewIconId: brandingStore.platformBranding.school_overview_icon_id ?? null,
           manageModulesIconId: brandingStore.platformBranding.manage_modules_icon_id ?? null,
           manageDocumentsIconId: brandingStore.platformBranding.manage_documents_icon_id ?? null,
           manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,
@@ -2994,6 +3012,7 @@ const savePlatformBranding = async () => {
       progressDashboardIconId: platformForm.value.progressDashboardIconId ?? null,
       manageAgenciesIconId: platformForm.value.manageAgenciesIconId ?? null,
       manageClientsIconId: platformForm.value.manageClientsIconId ?? null,
+      schoolOverviewIconId: platformForm.value.schoolOverviewIconId ?? null,
       manageModulesIconId: platformForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: platformForm.value.manageDocumentsIconId ?? null,
       manageUsersIconId: platformForm.value.manageUsersIconId ?? null,
@@ -3158,6 +3177,7 @@ const savePlatformBranding = async () => {
       platformForm.value.progressDashboardIconId = response.data.progress_dashboard_icon_id ?? platformForm.value.progressDashboardIconId ?? null;
       platformForm.value.manageAgenciesIconId = response.data.manage_agencies_icon_id ?? platformForm.value.manageAgenciesIconId ?? null;
       platformForm.value.manageClientsIconId = response.data.manage_clients_icon_id ?? platformForm.value.manageClientsIconId ?? null;
+      platformForm.value.schoolOverviewIconId = response.data.school_overview_icon_id ?? platformForm.value.schoolOverviewIconId ?? null;
       platformForm.value.manageModulesIconId = response.data.manage_modules_icon_id ?? platformForm.value.manageModulesIconId ?? null;
       platformForm.value.manageDocumentsIconId = response.data.manage_documents_icon_id ?? platformForm.value.manageDocumentsIconId ?? null;
       platformForm.value.manageUsersIconId = response.data.manage_users_icon_id ?? platformForm.value.manageUsersIconId ?? null;
@@ -3198,6 +3218,8 @@ const savePlatformBranding = async () => {
       platformForm.value.documentDefaultIconId = brandingStore.platformBranding.document_default_icon_id ?? null;
       platformForm.value.masterBrandIconId = brandingStore.platformBranding.master_brand_icon_id ?? null;
       platformForm.value.manageAgenciesIconId = brandingStore.platformBranding.manage_agencies_icon_id ?? null;
+      platformForm.value.manageClientsIconId = brandingStore.platformBranding.manage_clients_icon_id ?? null;
+      platformForm.value.schoolOverviewIconId = brandingStore.platformBranding.school_overview_icon_id ?? null;
       platformForm.value.manageModulesIconId = brandingStore.platformBranding.manage_modules_icon_id ?? null;
       platformForm.value.manageDocumentsIconId = brandingStore.platformBranding.manage_documents_icon_id ?? null;
       platformForm.value.manageUsersIconId = brandingStore.platformBranding.manage_users_icon_id ?? null;
@@ -3264,6 +3286,8 @@ onMounted(async () => {
         documentDefaultIconId: brandingStore.platformBranding.document_default_icon_id ?? null,
         masterBrandIconId: brandingStore.platformBranding.master_brand_icon_id ?? null,
         manageAgenciesIconId: brandingStore.platformBranding.manage_agencies_icon_id ?? null,
+        manageClientsIconId: brandingStore.platformBranding.manage_clients_icon_id ?? null,
+        schoolOverviewIconId: brandingStore.platformBranding.school_overview_icon_id ?? null,
         manageModulesIconId: brandingStore.platformBranding.manage_modules_icon_id ?? null,
         manageDocumentsIconId: brandingStore.platformBranding.manage_documents_icon_id ?? null,
         manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,

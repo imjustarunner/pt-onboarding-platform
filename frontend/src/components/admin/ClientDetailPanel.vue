@@ -21,6 +21,20 @@
       <div class="tab-content">
         <!-- Overview Tab -->
         <div v-if="activeTab === 'overview'" class="detail-section">
+          <div v-if="canEditAccount" class="form-actions" style="margin-top: 0; margin-bottom: 12px; justify-content: flex-start;">
+            <button v-if="!editingOverview" class="btn btn-secondary" type="button" @click="startEditOverview">
+              Edit client
+            </button>
+            <template v-else>
+              <button class="btn btn-primary" type="button" @click="saveOverview" :disabled="savingOverview">
+                {{ savingOverview ? 'Saving…' : 'Save' }}
+              </button>
+              <button class="btn btn-secondary" type="button" @click="cancelEditOverview" :disabled="savingOverview">
+                Cancel
+              </button>
+            </template>
+          </div>
+
           <div class="info-grid">
             <div class="info-item">
               <label>Initials</label>
@@ -83,16 +97,66 @@
               <div class="info-value">{{ formatDate(client.doc_date) }}</div>
             </div>
             <div class="info-item">
+              <label>School Year</label>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <input v-model="overviewForm.school_year" class="inline-input" placeholder="2025-2026" />
+                </template>
+                <template v-else>
+                  {{ client.school_year || '-' }}
+                </template>
+              </div>
+            </div>
+            <div class="info-item">
+              <label>Grade</label>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <input v-model="overviewForm.grade" class="inline-input" placeholder="5" />
+                </template>
+                <template v-else>
+                  {{ client.grade || '-' }}
+                </template>
+              </div>
+            </div>
+            <div class="info-item">
+              <label>Skills client</label>
+              <div class="info-value">
+                <template v-if="canEditAccount">
+                  <label style="display:flex; align-items:center; gap: 8px;">
+                    <input type="checkbox" v-model="skillsValue" @change="saveSkills" />
+                    <span>{{ skillsValue ? 'Yes' : 'No' }}</span>
+                  </label>
+                </template>
+                <template v-else>
+                  {{ client.skills ? 'Yes' : 'No' }}
+                </template>
+              </div>
+            </div>
+            <div class="info-item">
               <label>Referral Date</label>
               <div class="info-value">{{ formatDate(client.referral_date) }}</div>
             </div>
             <div class="info-item">
               <label>Client primary language</label>
-              <div class="info-value">{{ client.primary_client_language || '-' }}</div>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <input v-model="overviewForm.primary_client_language" class="inline-input" placeholder="e.g., English" />
+                </template>
+                <template v-else>
+                  {{ client.primary_client_language || '-' }}
+                </template>
+              </div>
             </div>
             <div class="info-item">
               <label>Guardian primary language</label>
-              <div class="info-value">{{ client.primary_parent_language || '-' }}</div>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <input v-model="overviewForm.primary_parent_language" class="inline-input" placeholder="e.g., Spanish" />
+                </template>
+                <template v-else>
+                  {{ client.primary_parent_language || '-' }}
+                </template>
+              </div>
             </div>
             <div class="info-item">
               <label>Document Status (legacy)</label>
@@ -636,7 +700,7 @@
           </div>
         </div>
 
-        <!-- PHI Packets Tab -->
+        <!-- Documentation Tab -->
         <div v-if="activeTab === 'phi'" class="detail-section">
           <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
             <h3 style="margin:0;">Document status history</h3>
@@ -655,6 +719,15 @@
             <div class="info-item">
               <label>Effective date</label>
               <div class="info-value">{{ currentPaperworkSummary.effectiveDateText }}</div>
+            </div>
+            <div class="info-item" v-if="currentPaperworkSummary.roiExpiresAtText">
+              <label>ROI expires</label>
+              <div class="info-value">
+                {{ currentPaperworkSummary.roiExpiresAtText }}
+                <span v-if="currentPaperworkSummary.roiExpired" style="color: var(--danger, #d92d20); font-weight: 800;">
+                  (Expired)
+                </span>
+              </div>
             </div>
           </div>
 
@@ -677,6 +750,13 @@
               <div class="filters-group" style="min-width: 180px;">
                 <label class="filters-label">Effective date *</label>
                 <input v-model="paperworkForm.effectiveDate" type="date" class="filters-input" />
+              </div>
+            </div>
+            <div v-if="selectedPaperworkStatusKey === 'roi'" class="filters-row" style="margin-top: 10px;">
+              <div class="filters-group" style="min-width: 220px; flex: 1;">
+                <label class="filters-label">ROI expiration date *</label>
+                <input v-model="paperworkForm.roiExpiresAt" type="date" class="filters-input" />
+                <div class="hint" style="margin-top: 4px;">When this date passes, the client’s ROI is considered expired.</div>
               </div>
             </div>
             <div class="filters-row" style="margin-top: 10px;">
@@ -708,6 +788,9 @@
                 <div class="hint" style="margin-top: 2px;">
                   Delivery: {{ h.paperwork_delivery_method_label || '—' }}
                   <span v-if="h.changed_by_name"> · by {{ h.changed_by_name }}</span>
+                </div>
+                <div v-if="h.roi_expires_at" class="hint" style="margin-top: 2px;">
+                  ROI expires: {{ formatDate(h.roi_expires_at) }}
                 </div>
                 <div v-if="h.note" class="history-note">Note: {{ h.note }}</div>
               </div>
@@ -756,7 +839,7 @@ const tabs = computed(() => {
     { id: 'access', label: 'Access Log' },
     { id: 'messages', label: 'Messages' },
     { id: 'guardians', label: 'Guardians' },
-    { id: 'phi', label: 'Referral Packets' }
+    { id: 'phi', label: 'Documentation' }
   ];
   if (canEditAccount.value) {
     // Insert before PHI tab
@@ -772,6 +855,15 @@ const statusValue = ref(null);
 const editingProvider = ref(false);
 const providerValue = ref(null);
 const availableProviders = ref([]);
+const skillsValue = ref(false);
+const editingOverview = ref(false);
+const savingOverview = ref(false);
+const overviewForm = ref({
+  school_year: '',
+  grade: '',
+  primary_client_language: '',
+  primary_parent_language: ''
+});
 
 // History tab state
 const history = ref([]);
@@ -806,6 +898,7 @@ const paperworkForm = ref({
   paperworkStatusId: '',
   deliveryMethodId: '',
   effectiveDate: new Date().toISOString().split('T')[0],
+  roiExpiresAt: '',
   note: ''
 });
 
@@ -870,6 +963,13 @@ const canManageGuardians = computed(() => {
 const canEditPaperwork = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'staff'].includes(r) && hasAgencyAccess.value;
+});
+
+const selectedPaperworkStatusKey = computed(() => {
+  const id = paperworkForm.value.paperworkStatusId ? Number(paperworkForm.value.paperworkStatusId) : null;
+  if (!id) return '';
+  const row = (paperworkStatuses.value || []).find((s) => Number(s?.id) === id) || null;
+  return String(row?.status_key || row?.statusKey || '').toLowerCase();
 });
 
 const availableAffiliationOptions = computed(() => {
@@ -983,6 +1083,64 @@ const saveProvider = async () => {
     console.error('Failed to assign provider:', err);
     alert(err.response?.data?.error?.message || 'Failed to assign provider');
     cancelEditProvider();
+  }
+};
+
+const saveSkills = async () => {
+  if (!canEditAccount.value) return;
+  try {
+    await api.put(`/clients/${props.client.id}`, { skills: !!skillsValue.value });
+    // Refresh client payload so UI stays consistent without closing the panel.
+    let refreshed = null;
+    try {
+      const r = await api.get(`/clients/${props.client.id}`);
+      refreshed = r.data || null;
+    } catch {
+      // ignore
+    }
+    emit('updated', { keepOpen: true, client: refreshed });
+  } catch (err) {
+    console.error('Failed to update skills flag:', err);
+    alert(err.response?.data?.error?.message || 'Failed to update skills flag');
+    skillsValue.value = !!props.client?.skills;
+  }
+};
+
+const hydrateOverviewForm = () => {
+  overviewForm.value.school_year = String(props.client?.school_year || '');
+  overviewForm.value.grade = String(props.client?.grade || '');
+  overviewForm.value.primary_client_language = String(props.client?.primary_client_language || '');
+  overviewForm.value.primary_parent_language = String(props.client?.primary_parent_language || '');
+};
+
+const startEditOverview = () => {
+  editingOverview.value = true;
+  hydrateOverviewForm();
+};
+
+const cancelEditOverview = () => {
+  editingOverview.value = false;
+  hydrateOverviewForm();
+};
+
+const saveOverview = async () => {
+  if (!canEditAccount.value) return;
+  try {
+    savingOverview.value = true;
+    const payload = {
+      school_year: String(overviewForm.value.school_year || '').trim() || null,
+      grade: String(overviewForm.value.grade || '').trim() || null,
+      primary_client_language: String(overviewForm.value.primary_client_language || '').trim() || null,
+      primary_parent_language: String(overviewForm.value.primary_parent_language || '').trim() || null
+    };
+    await api.put(`/clients/${props.client.id}`, payload);
+    const refreshed = (await api.get(`/clients/${props.client.id}`)).data || null;
+    emit('updated', { keepOpen: true, client: refreshed });
+    editingOverview.value = false;
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to update client');
+  } finally {
+    savingOverview.value = false;
   }
 };
 
@@ -1370,6 +1528,7 @@ const savePaperworkHistory = async () => {
   if (!paperworkStatusId || !effectiveDate) return;
   const deliveryId = paperworkForm.value.deliveryMethodId ? Number(paperworkForm.value.deliveryMethodId) : null;
   const note = String(paperworkForm.value.note || '').trim() || null;
+  const roiExpiresAt = String(paperworkForm.value.roiExpiresAt || '').trim() || null;
   try {
     savingPaperwork.value = true;
     paperworkError.value = '';
@@ -1377,6 +1536,7 @@ const savePaperworkHistory = async () => {
       paperwork_status_id: paperworkStatusId,
       paperwork_delivery_method_id: deliveryId,
       effective_date: effectiveDate,
+      roi_expires_at: selectedPaperworkStatusKey.value === 'roi' ? roiExpiresAt : null,
       note
     });
     paperworkForm.value.note = '';
@@ -1397,7 +1557,18 @@ const currentPaperworkSummary = computed(() => {
     '—';
   const dateVal = h?.effective_date || props.client?.doc_date || null;
   const effectiveDateText = dateVal ? formatDate(dateVal) : '—';
-  return { statusLabel, deliveryLabel, effectiveDateText };
+  const roiExpiresAt = h?.roi_expires_at || props.client?.roi_expires_at || null;
+  const statusKey = String(h?.paperwork_status_key || props.client?.paperwork_status_key || '').toLowerCase();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const roiExpired = statusKey === 'roi' && roiExpiresAt ? (new Date(String(roiExpiresAt)).getTime() < today.getTime()) : false;
+  return {
+    statusLabel: roiExpired ? 'ROI (Expired)' : statusLabel,
+    deliveryLabel,
+    effectiveDateText,
+    roiExpiresAtText: roiExpiresAt ? formatDate(roiExpiresAt) : '',
+    roiExpired
+  };
 });
 
 const fetchProviders = async () => {
@@ -1476,7 +1647,11 @@ watch(() => props.client, () => {
   // Reset editing states when client changes
   editingStatus.value = false;
   editingProvider.value = false;
-}, { deep: true });
+  skillsValue.value = !!props.client?.skills;
+  if (!editingOverview.value) {
+    hydrateOverviewForm();
+  }
+}, { deep: true, immediate: true });
 
 const hydrateChecklist = async () => {
   try {
@@ -1591,6 +1766,28 @@ watch(
 </script>
 
 <style scoped>
+.modal-content.large {
+  /* Give more room for wide headers/tabs */
+  width: min(1200px, 96vw);
+}
+
+.modal-tabs {
+  /* Prevent tab header overflow; allow horizontal scroll */
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+}
+.modal-tabs::-webkit-scrollbar {
+  height: 10px;
+}
+.modal-tabs::-webkit-scrollbar-thumb {
+  background: rgba(0,0,0,0.15);
+  border-radius: 999px;
+}
+.tab-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
 .modal-overlay {
   position: fixed;
   top: 0;

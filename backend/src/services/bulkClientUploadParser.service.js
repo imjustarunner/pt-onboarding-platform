@@ -193,7 +193,16 @@ export default class BulkClientUploadParserService {
         status: String(normalized['status'] || '').trim(),
         workflow: normalizeWorkflow(workflowRaw),
         referralDate: toDateString(normalized['referral date']),
-        skills: toBool(normalized['skills']),
+        // Accept common header variants: "Skills", "Skills Client", etc.
+        skills: toBool(
+          normalized['skills'] ??
+          normalized['skills client'] ??
+          normalized['skills eligible'] ??
+          normalized['skill client'] ??
+          normalized['skill eligible'] ??
+          normalized['skill builder'] ??
+          normalized['skill builders']
+        ),
         insurance: String(normalized['insurance'] || '').trim(),
         school: String(
           normalized['school'] ||

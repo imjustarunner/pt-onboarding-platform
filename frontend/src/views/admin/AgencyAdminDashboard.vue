@@ -272,6 +272,17 @@ const quickActions = computed(() => ([
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'school_overview',
+    title: 'School Overview',
+    description: 'View affiliated schools and key staffing/slot stats',
+    to: '/admin/schools/overview',
+    emoji: '🏫',
+    iconKey: 'school_overview',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'manage_modules',
     title: 'Manage Modules',
     description: 'Create and edit training modules',
@@ -396,6 +407,7 @@ const quickActions = computed(() => ([
 const defaultQuickActionIds = computed(() => ([
   'progress_dashboard',
   'manage_clients',
+  'school_overview',
   'manage_modules',
   'manage_documents',
   'manage_users',

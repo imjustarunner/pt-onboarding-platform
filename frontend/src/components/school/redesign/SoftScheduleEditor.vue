@@ -132,7 +132,7 @@ const move = (idx, direction) => {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: white;
-  padding: 12px;
+  padding: 10px;
 }
 .header {
   display: flex;
@@ -152,32 +152,32 @@ const move = (idx, direction) => {
 }
 .rows {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 .row {
   display: grid;
-  grid-template-columns: 86px 1.2fr 140px 140px 1.8fr;
-  gap: 10px;
+  grid-template-columns: 70px 1.2fr 120px 120px 1.8fr;
+  gap: 8px;
   align-items: end;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg);
 }
 .order {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 label {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   color: var(--text-secondary);
 }
 .input {
   width: 100%;
   margin-top: 6px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: white;

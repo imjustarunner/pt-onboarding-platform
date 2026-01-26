@@ -4,11 +4,13 @@
       v-for="d in days"
       :key="d.weekday"
       class="day"
-      :class="{ selected: d.weekday === modelValue, lit: !!d.has_providers }"
+      :class="{ selected: d.weekday === modelValue, lit: !!d.has_providers, disabled: !d.has_providers }"
       type="button"
       role="tab"
       :aria-selected="d.weekday === modelValue"
-      @click="$emit('update:modelValue', d.weekday)"
+      :aria-disabled="!d.has_providers"
+      :disabled="!d.has_providers"
+      @click="d.has_providers && $emit('update:modelValue', d.weekday)"
     >
       <span class="label">{{ shortLabel(d.weekday) }}</span>
     </button>
@@ -52,6 +54,15 @@ const shortLabel = (weekday) => {
 .day.selected {
   border-color: rgba(79, 70, 229, 0.55);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+.day.disabled,
+.day:disabled {
+  background: var(--bg, #f7f7fb);
+  color: var(--text-secondary);
+  border-color: var(--border);
+  box-shadow: none;
+  opacity: 0.8;
+  cursor: not-allowed;
 }
 .label {
   display: inline-block;

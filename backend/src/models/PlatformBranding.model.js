@@ -391,6 +391,7 @@ class PlatformBranding {
       masterBrandIconId,
       manageClientsIconId,
       manageAgenciesIconId,
+      schoolOverviewIconId,
       manageModulesIconId,
       manageDocumentsIconId,
       manageUsersIconId,
@@ -565,6 +566,22 @@ class PlatformBranding {
             }
           } catch (e) {
             console.warn('PlatformBranding.update: Error checking for manage_clients_icon_id column:', e.message);
+          }
+        }
+
+        if (schoolOverviewIconId !== undefined) {
+          // Optional column; best-effort for older DBs.
+          try {
+            const [cols] = await pool.execute(
+              "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'school_overview_icon_id'"
+            );
+            if ((cols || []).length > 0) {
+              updates.push('school_overview_icon_id = ?');
+              values.push(schoolOverviewIconId ?? null);
+              console.log('PlatformBranding.update: Setting school_overview_icon_id to:', schoolOverviewIconId ?? null);
+            }
+          } catch (e) {
+            console.warn('PlatformBranding.update: Error checking for school_overview_icon_id column:', e.message);
           }
         }
 
@@ -902,6 +919,21 @@ class PlatformBranding {
           }
         } catch (e) {
           // Column doesn't exist, skip
+        }
+      }
+
+      // School Overview quick-action icon (optional) - for INSERT
+      if (schoolOverviewIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'school_overview_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            insertFields.push('school_overview_icon_id');
+            insertValues.push(schoolOverviewIconId || null);
+          }
+        } catch {
+          // ignore
         }
       }
       

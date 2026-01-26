@@ -41,6 +41,15 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     if (!schoolId.value) return;
     const r = await api.get(`/school-portal/${schoolId.value}/days`);
     days.value = Array.isArray(r.data) && r.data.length ? r.data : days.value;
+
+    // UX: default to a day that has providers assigned.
+    const selected = (days.value || []).find((d) => d.weekday === selectedWeekday.value) || null;
+    if (!selected?.has_providers) {
+      const firstWithProviders = (days.value || []).find((d) => !!d?.has_providers) || null;
+      if (firstWithProviders?.weekday) {
+        selectedWeekday.value = String(firstWithProviders.weekday);
+      }
+    }
   };
 
   const addDay = async (weekday) => {

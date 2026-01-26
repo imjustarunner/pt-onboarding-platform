@@ -7,14 +7,37 @@
 
     <div class="portal-content">
       <div class="top-row">
-        <SchoolDayBar v-model="store.selectedWeekday" :days="store.days" />
+        <div class="top-left">
+          <SchoolDayBar
+            v-if="showSchedule"
+            v-model="store.selectedWeekday"
+            :days="store.days"
+          />
+          <div v-else class="muted-small">{{ viewMode === 'roster' ? 'Roster view' : 'Skills Groups view' }}</div>
+        </div>
         <div class="top-actions">
+          <button
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="viewMode = viewMode === 'skills' ? 'schedule' : 'skills'"
+            v-if="canToggleSkills"
+          >
+            {{ viewMode === 'skills' ? 'Back to schedule' : 'Skills Groups' }}
+          </button>
+          <button
+            v-if="canToggleRoster"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="viewMode = viewMode === 'schedule' ? 'roster' : 'schedule'"
+          >
+            {{ viewMode === 'schedule' ? 'Roster only' : 'Show schedule' }}
+          </button>
           <button class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact Admin</button>
         </div>
       </div>
 
       <DayPanel
-        v-if="organizationId"
+        v-if="organizationId && showSchedule"
         :weekday="store.selectedWeekday"
         :providers="store.dayProviders"
         :eligible-providers="store.eligibleProvidersForSelectedDay"
@@ -28,9 +51,13 @@
         @move-slot="handleMoveSlot"
         @open-provider="goToProviderSchoolProfile"
       />
+      <SkillsGroupsPanel
+        v-else-if="organizationId && viewMode === 'skills'"
+        :organization-id="organizationId"
+      />
       <div v-else class="empty-state">Organization not loaded.</div>
 
-      <div class="roster">
+      <div class="roster" v-if="showRoster">
         <div class="roster-header">
           <h2 style="margin: 0;">School roster</h2>
           <div class="muted">Assigned + unassigned (restricted fields)</div>
@@ -63,15 +90,28 @@ import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue
 import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
 import DayPanel from '../../components/school/redesign/DayPanel.vue';
 import ClientModal from '../../components/school/redesign/ClientModal.vue';
+import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPanel.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
+import { useAuthStore } from '../../store/auth';
 
 const route = useRoute();
 const router = useRouter();
 const organizationStore = useOrganizationStore();
 const store = useSchoolPortalRedesignStore();
+const authStore = useAuthStore();
 
 const showHelpDesk = ref(false);
 const selectedClient = ref(null);
+const viewMode = ref('schedule');
+
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isProvider = computed(() => roleNorm.value === 'provider');
+
+// Provider privacy: providers should not see other providers’ schedules/caseload or the roster by default.
+const showSchedule = computed(() => !isProvider.value && viewMode.value === 'schedule');
+const showRoster = computed(() => !isProvider.value && (viewMode.value === 'schedule' || viewMode.value === 'roster'));
+const canToggleSkills = computed(() => !isProvider.value);
+const canToggleRoster = computed(() => !isProvider.value && viewMode.value !== 'skills');
 
 const organizationSlug = computed(() => route.params.organizationSlug);
 
@@ -94,6 +134,7 @@ const panelFor = (providerUserId) => {
 
 const loadForDay = async (weekday) => {
   if (!organizationId.value) return;
+  if (!showSchedule.value) return;
   await store.fetchDays();
   await store.fetchEligibleProviders();
   await store.fetchDayProviders(weekday);
@@ -137,6 +178,8 @@ onMounted(async () => {
   if (organizationId.value) {
     store.reset();
     store.setSchoolId(organizationId.value);
+    // Provider default: show skills groups only.
+    if (isProvider.value) viewMode.value = 'skills';
     await loadForDay(store.selectedWeekday);
   }
 });
@@ -145,6 +188,7 @@ watch(organizationId, async (id) => {
   if (!id) return;
   store.reset();
   store.setSchoolId(id);
+  if (isProvider.value) viewMode.value = 'skills';
   await loadForDay(store.selectedWeekday);
 });
 
@@ -196,6 +240,15 @@ watch(() => store.selectedWeekday, async (weekday) => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+}
+.top-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.muted-small {
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .top-actions {

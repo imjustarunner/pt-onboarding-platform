@@ -878,6 +878,21 @@ class Agency {
           // ignore
         }
       }
+
+      if (agencyData.schoolOverviewIconId !== undefined) {
+        // Optional column; keep best-effort for older DBs.
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'school_overview_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            updates.push('school_overview_icon_id = ?');
+            values.push(agencyData.schoolOverviewIconId || null);
+          }
+        } catch {
+          // ignore
+        }
+      }
       if (manageModulesIconId !== undefined) {
         updates.push('manage_modules_icon_id = ?');
         values.push(manageModulesIconId || null);

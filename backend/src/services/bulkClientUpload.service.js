@@ -71,7 +71,11 @@ const normalizeClientStatusKey = (value) => {
   if (raw.includes('pending')) return 'pending';
   if (raw.includes('current') || raw === 'active') return 'current';
   if (raw.includes('inactive')) return 'inactive';
-  if (raw.includes('terminated') || raw.includes('terminate')) return 'terminated';
+  // Handle common misspellings like "termianted"
+  if (raw.includes('terminated') || raw.includes('terminate') || raw === 'termianted' || (raw.includes('term') && raw.includes('inat'))) {
+    return 'terminated';
+  }
+  if (raw.includes('dead') || raw.includes('deceased')) return 'dead';
   if (raw.includes('waitlist')) return 'waitlist';
   if (raw.includes('screener') || raw.includes('screen')) return 'screener';
   if (raw.includes('packet')) return 'packet';
@@ -109,10 +113,13 @@ const normalizeInsuranceKey = (value) => {
 const normalizeDeliveryMethodKey = (value) => {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return '';
-  if (raw.includes('upload')) return 'uploaded';
-  if (raw.includes('school') && raw.includes('email')) return 'school_emailed';
-  if (raw.includes('set home') || (raw.includes('sent') && raw.includes('home'))) return 'set_home';
+  // Current supported delivery methods for schools:
+  // emailed, sent_home, portal, school_email, unknown
   if (raw.includes('unknown')) return 'unknown';
+  if (raw.includes('portal')) return 'portal';
+  if (raw.includes('school') && raw.includes('email')) return 'school_email';
+  if (raw.includes('sent') && raw.includes('home')) return 'sent_home';
+  if (raw.includes('email')) return 'emailed';
   return normalizeKey(raw);
 };
 
@@ -120,6 +127,22 @@ const parseIntOrNull = (v) => {
   if (v === null || v === undefined) return null;
   const n = parseInt(String(v).trim(), 10);
   return Number.isFinite(n) ? n : null;
+};
+
+const normalizeWeekday = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const s = raw.toLowerCase();
+  // Common variants from spreadsheets
+  if (s === 'm' || s.startsWith('mon')) return 'Monday';
+  if (s === 't' || s === 'tu' || s.startsWith('tue')) return 'Tuesday';
+  if (s === 'w' || s.startsWith('wed')) return 'Wednesday';
+  if (s === 'th' || s.startsWith('thu') || s.startsWith('thur')) return 'Thursday';
+  if (s === 'f' || s.startsWith('fri')) return 'Friday';
+  // Accept already-normalized values
+  const titled = titleCase(raw);
+  const allowed = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
+  return allowed.has(titled) ? titled : '';
 };
 
 const todayYmd = () => new Date().toISOString().split('T')[0];
@@ -142,6 +165,26 @@ async function getCatalogId(connection, { table, agencyId, label, keyColumn, lab
     [agencyId, rawLabel, k]
   );
   return rows[0]?.id || null;
+}
+
+async function ensureClientStatusId(connection, { agencyId, statusKey, label }) {
+  const aId = parseInt(agencyId, 10);
+  const key = String(statusKey || '').trim().toLowerCase();
+  if (!aId || !key) return null;
+  const lbl = String(label || '').trim() || key;
+
+  // Upsert, then read id.
+  await connection.execute(
+    `INSERT INTO client_statuses (agency_id, status_key, label, is_active)
+     VALUES (?, ?, ?, TRUE)
+     ON DUPLICATE KEY UPDATE label = VALUES(label), is_active = TRUE`,
+    [aId, key, lbl]
+  );
+  const [rows] = await connection.execute(
+    `SELECT id FROM client_statuses WHERE agency_id = ? AND status_key = ? LIMIT 1`,
+    [aId, key]
+  );
+  return rows?.[0]?.id || null;
 }
 
 async function getDeliveryMethodId(connection, { schoolId, label }) {
@@ -236,10 +279,40 @@ async function findOrCreateSchool(connection, { agencyId, schoolName, districtNa
 async function ensureProviderSchoolAssignmentDefault(connection, { agencyId, currentStatusId, providerUserId, schoolId, dayOfWeek }) {
   if (!providerUserId || !schoolId || !dayOfWeek) return;
 
+  // Ensure the provider is affiliated with the school org.
+  // School portal provider profiles depend on this membership (User.getAgencies -> user_agencies).
+  await connection.execute(
+    `INSERT INTO user_agencies (user_id, agency_id)
+     VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE user_id = user_id`,
+    [providerUserId, schoolId]
+  );
+
   // Count existing "current" clients already assigned to this provider/school/day.
-  // This ensures a brand new schedule starts from the right baseline (and may already be overbooked).
-  const [cntRows] = currentStatusId
-    ? await connection.execute(
+  // This ensures a brand new schedule starts from the right baseline.
+  // Prefer the new client_provider_assignments table, but fall back to legacy clients columns.
+  let currentCount = 0;
+  if (currentStatusId) {
+    try {
+      const [cntRows] = await connection.execute(
+        `SELECT COUNT(*) AS cnt
+         FROM client_provider_assignments cpa
+         JOIN clients c ON c.id = cpa.client_id
+         WHERE c.agency_id = ?
+           AND cpa.organization_id = ?
+           AND cpa.provider_user_id = ?
+           AND cpa.service_day = ?
+           AND cpa.is_active = TRUE
+           AND c.status <> 'ARCHIVED'
+           AND c.client_status_id = ?`,
+        [agencyId, schoolId, providerUserId, dayOfWeek, currentStatusId]
+      );
+      currentCount = parseInt(String(cntRows?.[0]?.cnt ?? 0), 10) || 0;
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (!missing) throw e;
+      const [cntRows] = await connection.execute(
         `SELECT COUNT(*) AS cnt
          FROM clients
          WHERE agency_id = ?
@@ -249,12 +322,14 @@ async function ensureProviderSchoolAssignmentDefault(connection, { agencyId, cur
            AND status <> 'ARCHIVED'
            AND client_status_id = ?`,
         [agencyId, schoolId, providerUserId, dayOfWeek, currentStatusId]
-      )
-    : [[{ cnt: 0 }]];
-  const currentCount = parseInt(String(cntRows?.[0]?.cnt ?? 0), 10) || 0;
+      );
+      currentCount = parseInt(String(cntRows?.[0]?.cnt ?? 0), 10) || 0;
+    }
+  }
 
   // Upsert the assignment. We only set defaults when values are missing.
-  // We do NOT overwrite existing slots_available because that represents live capacity management.
+  // Bulk upload must allow over-capacity scheduling (negative availability) because per-school/day capacity
+  // may not be configured yet. We still repair obviously invalid values (NULL / NaN / > total).
   const [existing] = await connection.execute(
     `SELECT id, slots_total, slots_available, start_time, end_time
      FROM provider_school_assignments
@@ -265,7 +340,7 @@ async function ensureProviderSchoolAssignmentDefault(connection, { agencyId, cur
 
   if (!existing?.[0]?.id) {
     const slotsTotal = 7;
-    const slotsAvail = slotsTotal - currentCount; // can be negative
+    const slotsAvail = slotsTotal - currentCount; // can be negative (overbooked)
     await connection.execute(
       `INSERT INTO provider_school_assignments
         (provider_user_id, school_organization_id, day_of_week, slots_total, slots_available, start_time, end_time, is_active)
@@ -293,6 +368,24 @@ async function ensureProviderSchoolAssignmentDefault(connection, { agencyId, cur
   if (updates.length) {
     values.push(row.id);
     await connection.execute(`UPDATE provider_school_assignments SET ${updates.join(', ')} WHERE id = ?`, values);
+  }
+
+  // Repair invalid availability (NULL / NaN / > total) using current assignment count.
+  // Note: negative is allowed here (over capacity).
+  const [after] = await connection.execute(
+    `SELECT id, slots_total, slots_available
+     FROM provider_school_assignments
+     WHERE id = ?
+     LIMIT 1`,
+    [row.id]
+  );
+  const slotsTotal = parseInt(String(after?.[0]?.slots_total ?? 0), 10) || 7;
+  const slotsAvail = after?.[0]?.slots_available === null || after?.[0]?.slots_available === undefined
+    ? null
+    : parseInt(String(after?.[0]?.slots_available ?? 0), 10);
+  if (slotsAvail === null || !Number.isFinite(slotsAvail) || slotsAvail > slotsTotal) {
+    const desired = slotsTotal - currentCount; // can be negative
+    await connection.execute(`UPDATE provider_school_assignments SET slots_available = ? WHERE id = ?`, [desired, row.id]);
   }
 }
 
@@ -490,28 +583,32 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         });
         const providerProvided = String(row.provider || '').trim() !== '';
         const providerUserId = await findProviderIdByName({ providerIndex, providerName: row.provider });
+        const normalizedDay = normalizeWeekday(row.day);
 
         const warnings = [];
         if (providerProvided && !providerUserId) {
           warnings.push(`Provider not found: "${String(row.provider || '').trim()}". Client will be unassigned.`);
         }
-        if ((row.day || row.providerAvailability !== undefined) && (!providerProvided || !providerUserId)) {
+        if (String(row.day || '').trim() && !normalizedDay) {
+          warnings.push(`Invalid day value "${String(row.day)}" (expected Monday–Friday). Day was ignored.`);
+        }
+        if ((normalizedDay || row.providerAvailability !== undefined) && (!providerProvided || !providerUserId)) {
           warnings.push('Provider scheduling fields were ignored because provider is not assigned.');
         }
 
         // Ensure the provider is scheduled for this school/day with default hours + default slots.
-        if (providerUserId && schoolId && row.day) {
+        if (providerUserId && schoolId && normalizedDay) {
           await ensureProviderSchoolAssignmentDefault(connection, {
             agencyId,
             currentStatusId,
             providerUserId,
             schoolId,
-            dayOfWeek: row.day
+            dayOfWeek: normalizedDay
           });
           // Also ensure the provider is visible on the school portal day view.
           await ensureSchoolDayProviderAssignment(connection, {
             schoolId,
-            weekday: row.day,
+            weekday: normalizedDay,
             providerUserId,
             userId
           });
@@ -540,9 +637,19 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         const insuranceKey = normalizeInsuranceKey(row.insurance);
         const deliveryKey = normalizeDeliveryMethodKey(row.paperworkDelivery);
 
-        const clientStatusId =
+        let clientStatusId =
           (await getCatalogId(connection, { table: 'client_statuses', agencyId, label: clientStatusKey || row.status, keyColumn: 'status_key', labelColumn: 'label' })) ||
-          defaults.clientStatusId;
+          null;
+        // If the sheet contains a terminal status but the catalog row doesn't exist yet, create it so
+        // the client doesn't silently fall back to "Pending".
+        if (!clientStatusId && (clientStatusKey === 'dead' || clientStatusKey === 'terminated')) {
+          clientStatusId = await ensureClientStatusId(connection, {
+            agencyId,
+            statusKey: clientStatusKey,
+            label: clientStatusKey === 'dead' ? 'Dead' : 'Terminated'
+          });
+        }
+        if (!clientStatusId) clientStatusId = defaults.clientStatusId;
         const paperworkStatusId =
           (await getCatalogId(connection, { table: 'paperwork_statuses', agencyId, label: paperworkStatusKey || row.paperworkStatus, keyColumn: 'status_key', labelColumn: 'label' })) ||
           defaults.paperworkStatusId;
@@ -553,9 +660,9 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           (await getDeliveryMethodId(connection, { schoolId, label: deliveryKey || row.paperworkDelivery })) || defaults.deliveryMethodId;
 
         // Provider/day: only store day if provider is assigned and the day is provided.
-        const wantsAssignProvider = providerUserId && row.day;
+        const wantsAssignProvider = providerUserId && normalizedDay;
         const newProviderId = wantsAssignProvider ? providerUserId : (existing?.provider_id || null);
-        const newDay = wantsAssignProvider ? (row.day || null) : (existing?.service_day || null);
+        const newDay = wantsAssignProvider ? (normalizedDay || null) : (existing?.service_day || null);
         const newSchoolId = schoolId;
 
         // Slot consumption only applies to CURRENT client status.
@@ -617,7 +724,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           });
           if (!slotResult.ok) throw new Error(slotResult.reason);
           if (slotResult.nextSlotsAvailable < 0) {
-            warnings.push('Provider schedule is over capacity for that school/day. Add additional slots to resolve.');
+            warnings.push('Provider schedule is over capacity for that school/day. Update provider school capacity to resolve.');
           }
         }
 
@@ -681,7 +788,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           set('organization_id', newSchoolId);
           // Provider/day: only update if a provider was explicitly provided AND successfully matched.
           // If the sheet contains a provider name that we can't match, do NOT clear the existing assignment.
-          if (providerProvided && providerUserId && row.day) {
+          if (providerProvided && providerUserId && normalizedDay) {
             set('provider_id', newProviderId);
             set('service_day', newDay);
           }
@@ -737,7 +844,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         // Best-effort; if migrations aren't applied in an environment, we fall back silently.
         if (clientId) {
           await upsertClientOrganizationAssignment(connection, { clientId, organizationId: newSchoolId });
-          if (providerProvided && providerUserId && row.day) {
+          if (providerProvided && providerUserId && normalizedDay) {
             await upsertClientProviderAssignment(connection, {
               clientId,
               organizationId: newSchoolId,

@@ -23,6 +23,16 @@ import {
   getProviderSchoolProfile,
   getProviderSchoolCaseloadSlots
 } from '../controllers/schoolProviderProfile.controller.js';
+import {
+  listSkillsGroups,
+  createSkillsGroup,
+  updateSkillsGroup,
+  deleteSkillsGroup,
+  updateSkillsGroupProvider,
+  updateSkillsGroupClient,
+  listSkillsEligibleClients,
+  listSkillsEligibleProviders
+} from '../controllers/schoolSkillsGroups.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -56,5 +66,15 @@ router.delete('/:schoolId/providers/:providerId/schedule-entries/:entryId', auth
 
 // School-scoped provider assignment (slot-safe)
 router.post('/:schoolId/clients/:clientId/assign-provider', authenticate, assignProviderForSchoolClient);
+
+// Skills Groups (org-scoped; initially used in school portal UI)
+router.get('/:orgId/skills-groups', authenticate, listSkillsGroups);
+router.post('/:orgId/skills-groups', authenticate, createSkillsGroup);
+router.put('/:orgId/skills-groups/:groupId', authenticate, updateSkillsGroup);
+router.delete('/:orgId/skills-groups/:groupId', authenticate, deleteSkillsGroup);
+router.post('/:orgId/skills-groups/:groupId/providers', authenticate, updateSkillsGroupProvider);
+router.post('/:orgId/skills-groups/:groupId/clients', authenticate, updateSkillsGroupClient);
+router.get('/:orgId/skills-eligible-clients', authenticate, listSkillsEligibleClients);
+router.get('/:orgId/skills-eligible-providers', authenticate, listSkillsEligibleProviders);
 
 export default router;

@@ -13,11 +13,15 @@
       <div class="status-bar">
         <div class="pill">
           <div class="k">Status</div>
-          <div class="v">{{ formatKey(props.client?.status) }}</div>
+          <div class="v">{{ formatKey(props.client?.client_status_label || props.client?.status) }}</div>
         </div>
         <div class="pill">
           <div class="k">Doc status</div>
-          <div class="v">{{ formatKey(props.client?.document_status) }}</div>
+          <div class="v">
+            {{ formatKey(props.client?.paperwork_status_label || props.client?.document_status) }}
+            <span v-if="props.client?.paperwork_delivery_method_label"> · {{ formatKey(props.client?.paperwork_delivery_method_label) }}</span>
+            <span v-if="props.client?.doc_date"> · {{ formatDateOnly(props.client?.doc_date) }}</span>
+          </div>
         </div>
         <div class="pill">
           <div class="k">Assigned day</div>

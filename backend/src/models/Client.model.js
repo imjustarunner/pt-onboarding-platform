@@ -64,6 +64,7 @@ class Client {
       insurance_type_id,
       paperwork_delivery_method_id,
       doc_date,
+      roi_expires_at,
       grade,
       gender,
       identifier_code,
@@ -110,6 +111,7 @@ class Client {
       ['insurance_type_id', insurance_type_id],
       ['paperwork_delivery_method_id', paperwork_delivery_method_id],
       ['doc_date', doc_date],
+      ['roi_expires_at', roi_expires_at],
       ['grade', grade],
       ['school_year', clientData.school_year],
       ['gender', gender],
@@ -218,6 +220,7 @@ class Client {
       client_status_id,
       paperwork_status_id,
       insurance_type_id,
+      skills,
       includeSensitive = true
     } = options;
 
@@ -294,6 +297,10 @@ class Client {
     if (insurance_type_id) {
       query += ' AND c.insurance_type_id = ?';
       values.push(insurance_type_id);
+    }
+    if (skills !== undefined) {
+      query += ' AND c.skills = ?';
+      values.push(skills ? 1 : 0);
     }
 
     query += ' ORDER BY c.submission_date DESC, c.created_at DESC';
@@ -409,6 +416,7 @@ class Client {
       'insurance_type_id',
       'paperwork_delivery_method_id',
       'doc_date',
+      'roi_expires_at',
       'grade',
       'school_year',
       'gender',

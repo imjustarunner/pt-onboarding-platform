@@ -692,24 +692,9 @@ export const assignProviderForSchoolClient = async (req, res, next) => {
           allowNegative: false
         });
         if (!take.ok) {
-          const canForce = force && (requesterRole === 'admin' || requesterRole === 'super_admin' || requesterRole === 'support');
-          if (!canForce) {
-            await connection.rollback();
-            return res.status(400).json({ error: { message: take.reason } });
-          }
-
-          const forced = await adjustProviderSlots(connection, {
-            providerUserId,
-            schoolId: parseInt(schoolId, 10),
-            dayOfWeek: serviceDay,
-            delta: -1,
-            allowNegative: true
-          });
-          if (!forced.ok) {
-            await connection.rollback();
-            return res.status(400).json({ error: { message: forced.reason || take.reason } });
-          }
-          warnings.push({ code: 'forced_over_capacity', message: 'Assigned past capacity (admin override).' });
+          await connection.rollback();
+          // Capacity should be enforced (no negative availability).
+          return res.status(409).json({ error: { message: take.reason } });
         }
       }
 

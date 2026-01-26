@@ -1379,6 +1379,11 @@
                 <small>Icon for the "Manage Clients" action card</small>
               </div>
               <div class="dashboard-icon-item">
+                <label>School Overview Icon</label>
+                <IconSelector v-model="agencyForm.schoolOverviewIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "School Overview" action card</small>
+              </div>
+              <div class="dashboard-icon-item">
                 <label>Payroll Icon</label>
                 <IconSelector v-model="agencyForm.dashboardPayrollIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Payroll" action card</small>
@@ -2854,6 +2859,7 @@ const ICON_TEMPLATE_FIELDS = [
   'progressDashboardIconId',
   'viewAllProgressIconId',
   'manageClientsIconId',
+  'schoolOverviewIconId',
   'dashboardPayrollIconId',
   'dashboardBillingIconId',
   'manageModulesIconId',
@@ -2905,6 +2911,7 @@ const agencyForm = ref({
   progressDashboardIconId: null,
   viewAllProgressIconId: null,
   manageClientsIconId: null,
+  schoolOverviewIconId: null,
   dashboardPayrollIconId: null,
   dashboardBillingIconId: null,
   manageModulesIconId: null,
@@ -3768,6 +3775,7 @@ const editAgency = async (agency) => {
     progressDashboardIconId: agency.progress_dashboard_icon_id ?? null,
     viewAllProgressIconId: agency.view_all_progress_icon_id ?? null,
     manageClientsIconId: agency.manage_clients_icon_id ?? null,
+    schoolOverviewIconId: agency.school_overview_icon_id ?? null,
     dashboardPayrollIconId: agency.dashboard_payroll_icon_id ?? null,
     dashboardBillingIconId: agency.dashboard_billing_icon_id ?? null,
     manageModulesIconId: agency.manage_modules_icon_id ?? null,
@@ -4315,6 +4323,7 @@ const saveAgency = async () => {
       progressDashboardIconId: agencyForm.value.progressDashboardIconId ?? null,
       viewAllProgressIconId: agencyForm.value.viewAllProgressIconId ?? null,
       manageClientsIconId: agencyForm.value.manageClientsIconId ?? null,
+      schoolOverviewIconId: agencyForm.value.schoolOverviewIconId ?? null,
       dashboardPayrollIconId: agencyForm.value.dashboardPayrollIconId ?? null,
       dashboardBillingIconId: agencyForm.value.dashboardBillingIconId ?? null,
       manageModulesIconId: agencyForm.value.manageModulesIconId ?? null,
@@ -4628,6 +4637,7 @@ const closeModal = () => {
     progressDashboardIconId: null,
     viewAllProgressIconId: null,
     manageClientsIconId: null,
+    schoolOverviewIconId: null,
     dashboardPayrollIconId: null,
     dashboardBillingIconId: null,
     manageModulesIconId: null,

@@ -32,6 +32,10 @@
               Assigned Provider
               <span class="sort-indicator" v-if="sortKey === 'provider_name'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
+            <th class="sortable" @click="toggleSort('skills')" role="button" tabindex="0">
+              Skills
+              <span class="sort-indicator" v-if="sortKey === 'skills'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
             <th class="sortable" @click="toggleSort('service_day')" role="button" tabindex="0">
               Assigned Day
               <span class="sort-indicator" v-if="sortKey === 'service_day'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
@@ -55,8 +59,9 @@
                 {{ client.client_status_label || '—' }}
               </span>
             </td>
-            <td>{{ formatDocStatus(client.document_status) }}</td>
+            <td>{{ formatDocSummary(client) }}</td>
             <td>{{ client.provider_name || 'Not assigned' }}</td>
+            <td>{{ client.skills ? 'Yes' : 'No' }}</td>
             <td>{{ client.service_day || '—' }}</td>
             <td>
               <button class="btn btn-secondary btn-sm comment-btn" @click="openClient(client)">
@@ -182,8 +187,9 @@ const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const sortValue = (client, key) => {
   if (!client) return '';
   if (key === 'status') return String(client.client_status_label || client.status || '').toLowerCase();
-  if (key === 'document_status') return String(client.document_status || '').toLowerCase();
+  if (key === 'document_status') return String(formatDocSummary(client) || '').toLowerCase();
   if (key === 'provider_name') return String(client.provider_name || '').toLowerCase();
+  if (key === 'skills') return client.skills ? 1 : 0;
   if (key === 'service_day') {
     // Multi-provider may return "Mon, Wed"; sort by first day token.
     const raw = String(client.service_day || '');
@@ -222,14 +228,31 @@ const formatDate = (dateString) => {
 };
 
 const formatRosterInitials = (client) => {
-  const raw = String(client?.identifier_code || client?.initials || '').replace(/\s+/g, '').toUpperCase();
+  // School roster should show the client's normal initials everywhere.
+  const raw = String(client?.initials || client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
   if (!raw) return '—';
-  if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
   return raw;
 };
 
-const formatDocStatus = (s) => {
-  const v = String(s || '').trim();
+const formatDocSummary = (client) => {
+  // Prefer paperwork status (new model) so the portal reflects bulk upload fields:
+  // paperwork_status / paperwork_delivery / doc_date.
+  const status = String(client?.paperwork_status_label || '').trim();
+  const delivery = String(client?.paperwork_delivery_method_label || '').trim();
+  const date = client?.doc_date ? new Date(client.doc_date).toLocaleDateString() : '';
+  const statusKey = String(client?.paperwork_status_key || '').toLowerCase();
+  const roiExpiresAt = client?.roi_expires_at ? new Date(String(client.roi_expires_at)) : null;
+  const roiExpired =
+    statusKey === 'roi' && roiExpiresAt ? (roiExpiresAt.getTime() < new Date().setHours(0, 0, 0, 0)) : false;
+
+  const parts = [];
+  if (status) parts.push(roiExpired ? 'ROI Expired' : status);
+  if (delivery) parts.push(delivery);
+  if (date) parts.push(date);
+  if (parts.length) return parts.join(' · ');
+
+  // Fallback: legacy document_status
+  const v = String(client?.document_status || '').trim();
   if (!v) return '—';
   if (v.toUpperCase() === 'NONE') return 'None';
   return v.replace(/_/g, ' ');
