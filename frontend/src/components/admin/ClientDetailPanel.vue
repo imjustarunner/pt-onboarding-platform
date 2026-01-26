@@ -179,25 +179,21 @@
           <div v-if="canEditAccount" class="quick-actions">
             <h3>Quick Actions</h3>
             <div class="actions-grid">
-              <select
-                v-if="editingStatus"
-                v-model="statusValue"
-                @change="saveStatus"
-                @blur="cancelEditStatus"
-                class="inline-select status-select"
+              <button
+                v-if="!isClientArchived"
+                class="btn btn-danger"
+                type="button"
+                @click="archiveClient"
               >
-                <option value="PENDING_REVIEW">Pending Review</option>
-                <option value="ACTIVE">Active</option>
-                <option value="ON_HOLD">On Hold</option>
-                <option value="DECLINED">Declined</option>
-                <option value="ARCHIVED">Archived</option>
-              </select>
+                Archive client
+              </button>
               <button
                 v-else
-                @click="startEditStatus"
-                class="btn btn-primary"
+                class="btn btn-secondary"
+                type="button"
+                @click="unarchiveClient"
               >
-                Change Status
+                Unarchive client
               </button>
             </div>
           </div>
@@ -1051,25 +1047,28 @@ const formatFieldName = (field) => {
   return fieldMap[field] || field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 };
 
-const startEditStatus = () => {
-  editingStatus.value = true;
-  statusValue.value = props.client.status;
-};
+const isClientArchived = computed(() => String(props.client?.status || '').toUpperCase() === 'ARCHIVED');
 
-const cancelEditStatus = () => {
-  editingStatus.value = false;
-  statusValue.value = null;
-};
-
-const saveStatus = async () => {
+const archiveClient = async () => {
+  if (!canEditAccount.value) return;
+  if (!confirm('Archive this client?')) return;
   try {
-    await api.put(`/clients/${props.client.id}/status`, { status: statusValue.value });
+    await api.put(`/clients/${props.client.id}/status`, { status: 'ARCHIVED' });
     emit('updated');
-    cancelEditStatus();
   } catch (err) {
-    console.error('Failed to update status:', err);
-    alert(err.response?.data?.error?.message || 'Failed to update status');
-    cancelEditStatus();
+    console.error('Failed to archive client:', err);
+    alert(err.response?.data?.error?.message || 'Failed to archive client');
+  }
+};
+
+const unarchiveClient = async () => {
+  if (!canEditAccount.value) return;
+  try {
+    await api.post(`/clients/${props.client.id}/unarchive`);
+    emit('updated');
+  } catch (err) {
+    console.error('Failed to unarchive client:', err);
+    alert(err.response?.data?.error?.message || 'Failed to unarchive client');
   }
 };
 
