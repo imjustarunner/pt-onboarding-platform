@@ -216,9 +216,9 @@ export const listDayProviders = async (req, res, next) => {
        LEFT JOIN provider_school_assignments psa
          ON psa.school_organization_id = a.school_organization_id
         AND psa.provider_user_id = a.provider_user_id
-        AND psa.day_of_week = a.weekday
+        AND psa.day_of_week COLLATE utf8mb4_unicode_ci = a.weekday COLLATE utf8mb4_unicode_ci
         AND psa.is_active = TRUE
-       WHERE a.school_organization_id = ? AND a.weekday = ? AND a.is_active = TRUE
+       WHERE a.school_organization_id = ? AND a.weekday = ? COLLATE utf8mb4_unicode_ci AND a.is_active = TRUE
        ORDER BY u.last_name ASC, u.first_name ASC`,
       [parseInt(schoolId, 10), weekday]
     );

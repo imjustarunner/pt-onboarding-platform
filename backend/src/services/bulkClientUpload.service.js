@@ -343,6 +343,31 @@ async function upsertClientProviderAssignment(connection, { clientId, organizati
   }
 }
 
+async function ensureSchoolDayProviderAssignment(connection, { schoolId, weekday, providerUserId, userId }) {
+  if (!schoolId || !weekday || !providerUserId) return;
+  try {
+    // Ensure the day is active
+    await connection.execute(
+      `INSERT INTO school_day_schedules (school_organization_id, weekday, is_active, created_by_user_id)
+       VALUES (?, ?, TRUE, ?)
+       ON DUPLICATE KEY UPDATE is_active = TRUE`,
+      [parseInt(schoolId, 10), String(weekday), userId || null]
+    );
+
+    // Ensure provider shows up on that day in the redesign day view
+    await connection.execute(
+      `INSERT INTO school_day_provider_assignments (school_organization_id, weekday, provider_user_id, is_active, created_by_user_id)
+       VALUES (?, ?, ?, TRUE, ?)
+       ON DUPLICATE KEY UPDATE is_active = TRUE`,
+      [parseInt(schoolId, 10), String(weekday), parseInt(providerUserId, 10), userId || null]
+    );
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+    if (!missing) throw e;
+  }
+}
+
 function normalizePersonNameKey(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -482,6 +507,13 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
             providerUserId,
             schoolId,
             dayOfWeek: row.day
+          });
+          // Also ensure the provider is visible on the school portal day view.
+          await ensureSchoolDayProviderAssignment(connection, {
+            schoolId,
+            weekday: row.day,
+            providerUserId,
+            userId
           });
         }
 
