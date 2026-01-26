@@ -296,6 +296,53 @@ async function ensureProviderSchoolAssignmentDefault(connection, { agencyId, cur
   }
 }
 
+async function upsertClientOrganizationAssignment(connection, { clientId, organizationId }) {
+  if (!clientId || !organizationId) return;
+  try {
+    await connection.execute(
+      `INSERT INTO client_organization_assignments (client_id, organization_id, is_primary, is_active)
+       VALUES (?, ?, TRUE, TRUE)
+       ON DUPLICATE KEY UPDATE is_primary = TRUE, is_active = TRUE, updated_at = CURRENT_TIMESTAMP`,
+      [clientId, organizationId]
+    );
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+    if (!missing) throw e;
+  }
+}
+
+async function upsertClientProviderAssignment(connection, { clientId, organizationId, providerUserId, serviceDay, userId }) {
+  if (!clientId || !organizationId || !providerUserId) return;
+  try {
+    // Deactivate other provider assignments for this client+org (so the roster reflects the current assignment).
+    await connection.execute(
+      `UPDATE client_provider_assignments
+       SET is_active = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE client_id = ?
+         AND organization_id = ?
+         AND provider_user_id <> ?`,
+      [userId || null, clientId, organizationId, providerUserId]
+    );
+
+    await connection.execute(
+      `INSERT INTO client_provider_assignments
+        (client_id, organization_id, provider_user_id, service_day, is_active, created_by_user_id, updated_by_user_id)
+       VALUES (?, ?, ?, ?, TRUE, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         service_day = VALUES(service_day),
+         is_active = TRUE,
+         updated_by_user_id = VALUES(updated_by_user_id),
+         updated_at = CURRENT_TIMESTAMP`,
+      [clientId, organizationId, providerUserId, serviceDay || null, userId || null, userId || null]
+    );
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+    if (!missing) throw e;
+  }
+}
+
 function normalizePersonNameKey(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -653,6 +700,21 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         );
         const clientId = clientRows[0]?.id || null;
         const noteMsg = String(row.notes || '').trim();
+
+        // Keep multi-affiliation tables in sync so the school portal roster shows imported clients.
+        // Best-effort; if migrations aren't applied in an environment, we fall back silently.
+        if (clientId) {
+          await upsertClientOrganizationAssignment(connection, { clientId, organizationId: newSchoolId });
+          if (providerProvided && providerUserId && row.day) {
+            await upsertClientProviderAssignment(connection, {
+              clientId,
+              organizationId: newSchoolId,
+              providerUserId: newProviderId,
+              serviceDay: newDay,
+              userId
+            });
+          }
+        }
 
         await upsertBulkJobRow(connection, {
           jobId,

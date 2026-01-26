@@ -1,7 +1,7 @@
 <template>
   <div class="client-list-grid">
     <div v-if="loading" class="loading-state">
-      <p>Loading students...</p>
+      <p>Loading clients...</p>
     </div>
 
     <div v-else-if="error" class="error-state">
@@ -9,7 +9,7 @@
     </div>
 
     <div v-else-if="clients.length === 0" class="empty-state">
-      <p>No students found.</p>
+      <p>No clients found.</p>
     </div>
 
     <div v-else class="clients-table">
@@ -17,7 +17,7 @@
         <thead>
           <tr>
             <th class="sortable" @click="toggleSort('initials')" role="button" tabindex="0">
-              Student
+              Client
               <span class="sort-indicator" v-if="sortKey === 'initials'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
             <th class="sortable" @click="toggleSort('status')" role="button" tabindex="0">
