@@ -559,7 +559,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
               ?, ?, ?, ?,
               ?, ?, ?, ?, ?,
               ?, ?, ?, ?, ?, ?,
-              ?, ?, ?, ?
+              ?, ?, ?, ?, ?
             )`,
             [
               newSchoolId,

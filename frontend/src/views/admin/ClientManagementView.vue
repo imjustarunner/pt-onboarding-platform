@@ -941,7 +941,12 @@ const fetchClients = async () => {
 
 const fetchClientStatuses = async () => {
   try {
-    const response = await api.get('/client-settings/client-statuses');
+    const agencyId = activeAgencyId.value;
+    if (!agencyId) {
+      clientStatuses.value = [];
+      return;
+    }
+    const response = await api.get('/client-settings/client-statuses', { params: { agencyId } });
     clientStatuses.value = (response.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
   } catch (err) {
     clientStatuses.value = [];
