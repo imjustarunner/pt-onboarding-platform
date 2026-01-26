@@ -1833,6 +1833,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
     // 5) Optional busy overlays (busy blocks only)
     let googleBusy = [];
+    let googleBusyError = null;
     let externalBusy = [];
     let externalCalendarsAvailable = [];
     let externalCalendars = [];
@@ -1854,8 +1855,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
           calendarId: 'primary'
         });
         if (r?.ok) googleBusy = r.busy || [];
+        else googleBusyError = r?.error || r?.reason || 'Google busy is not available';
       } catch {
         googleBusy = [];
+        googleBusyError = 'Google busy lookup failed';
       }
     }
 
@@ -1887,7 +1890,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
             timeMinIso,
             timeMaxIso
           });
-          out.push({ id: c.id, label: c.label, busy: r?.ok ? (r.busy || []) : [] });
+          out.push({
+            id: c.id,
+            label: c.label,
+            busy: r?.ok ? (r.busy || []) : [],
+            ok: r?.ok !== false,
+            error: r?.ok ? null : (r?.error || r?.reason || 'Failed to fetch calendar feed')
+          });
         }
         externalCalendars = out;
       } catch {
@@ -1923,7 +1932,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       officeEvents,
       externalCalendarsAvailable,
       ...(externalCalendarIds.length ? { externalCalendars } : {}),
-      ...(includeGoogleBusy ? { googleBusy } : {}),
+      ...(includeGoogleBusy ? { googleBusy, googleBusyError } : {}),
       ...(includeExternalBusy ? { externalBusy } : {})
     });
   } catch (e) {
@@ -2022,12 +2031,22 @@ export const patchUserExternalCalendar = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const isActive = req.body?.isActive;
-    if (isActive === undefined) return res.status(400).json({ error: { message: 'isActive is required' } });
+    const label = req.body?.label;
+    if (isActive === undefined && label === undefined) {
+      return res.status(400).json({ error: { message: 'isActive or label is required' } });
+    }
 
-    const updated = await UserExternalCalendar.setCalendarActive({ userId, calendarId, isActive });
-    if (!updated) return res.status(404).json({ error: { message: 'Calendar not found' } });
+    if (label !== undefined) {
+      const updatedLabel = await UserExternalCalendar.setCalendarLabel({ userId, calendarId, label });
+      if (!updatedLabel) return res.status(404).json({ error: { message: 'Calendar not found' } });
+    }
+    if (isActive !== undefined) {
+      const updatedActive = await UserExternalCalendar.setCalendarActive({ userId, calendarId, isActive });
+      if (!updatedActive) return res.status(404).json({ error: { message: 'Calendar not found' } });
+    }
     res.json({ ok: true });
   } catch (e) {
+    if (e?.statusCode === 409) return res.status(409).json({ error: { message: e.message } });
     next(e);
   }
 };

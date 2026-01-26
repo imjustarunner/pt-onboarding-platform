@@ -82,10 +82,6 @@
               <input type="checkbox" v-model="aiProvidersOnly" :disabled="aiState === 'thinking'" />
               <span>Providers only</span>
             </label>
-            <label class="ai-query-toggle" :class="{ muted: aiActiveOnly }" :title="aiActiveOnly ? 'Turn off Active only to include archived users.' : ''">
-              <input type="checkbox" v-model="aiIncludeArchived" :disabled="aiState === 'thinking' || aiActiveOnly" />
-              <span>Include archived</span>
-            </label>
           </div>
 
           <div v-if="aiState === 'thinking'" class="ai-query-status muted">Thinking… searching user info fields.</div>
@@ -142,7 +138,6 @@
             <option value="ONBOARDING">Onboarding</option>
             <option value="ACTIVE_EMPLOYEE">Active</option>
             <option value="TERMINATED_PENDING">Terminated (Grace Period)</option>
-            <option value="ARCHIVED">Archived</option>
           </select>
         </div>
         <div class="sort-controls">
@@ -1208,7 +1203,6 @@ const aiError = ref('');
 const aiMeta = ref(null);
 const aiActiveOnly = ref(true);
 const aiProvidersOnly = ref(false);
-const aiIncludeArchived = ref(false);
 
 const aiIconSrc = aiIconAsset;
 const aiBannerSrc = computed(() => {
@@ -1227,7 +1221,6 @@ const clearAiQuery = () => {
   aiMeta.value = null;
   aiActiveOnly.value = true;
   aiProvidersOnly.value = false;
-  aiIncludeArchived.value = false;
 };
 
 const runAiQuery = async () => {
@@ -1244,15 +1237,12 @@ const runAiQuery = async () => {
     aiEmailsSemicolon.value = '';
     aiMeta.value = null;
 
-    // Guard: “Active only” and “Include archived” are contradictory.
-    const includeArchived = aiIncludeArchived.value === true && aiActiveOnly.value !== true;
     const response = await api.get('/users/ai-query', {
       params: {
         query: q,
         limit: 500,
         activeOnly: aiActiveOnly.value,
         providersOnly: aiProvidersOnly.value,
-        includeArchived,
         // Provider matching is agency-scoped when using the provider index.
         agencyId: agencySort.value ? parseInt(String(agencySort.value), 10) : undefined
       }
@@ -1371,8 +1361,8 @@ const usernameInput = ref(null);
 const fetchUsers = async () => {
   try {
     loading.value = true;
-    // Fetch with includeArchived=true so searches/filters can actually “see” archived records.
-    const response = await api.get('/users', { params: { includeArchived: true } });
+    // Archived users are managed in Settings → Archive, not in the main user list.
+    const response = await api.get('/users');
     users.value = response.data;
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load users';

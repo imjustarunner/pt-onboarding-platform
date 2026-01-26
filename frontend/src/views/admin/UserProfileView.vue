@@ -241,25 +241,11 @@
                   </label>
                 </div>
 
-                <div class="form-group form-group-full">
-                  <div class="section-divider" style="margin: 12px 0 6px;">
-                    <h3 style="margin: 0;">Schedule Auditing (external)</h3>
-                  </div>
-                  <p class="hint" style="margin: 0 0 10px;">
-                    Optional per-user calendar feed used to overlay “busy” blocks on the schedule for auditing. This displays busy/free only.
-                  </p>
-                </div>
-
-                <div class="form-group form-group-full">
-                  <label>Legacy external busy calendar (single ICS URL) — deprecated</label>
-                  <input
-                    v-model="accountForm.externalBusyIcsUrl"
-                    type="url"
-                    placeholder="https://…/calendar.ics"
-                    disabled
-                  />
+                <div v-if="accountForm.externalBusyIcsUrl" class="form-group form-group-full">
+                  <label>Legacy external busy calendar (deprecated)</label>
+                  <input v-model="accountForm.externalBusyIcsUrl" type="url" disabled />
                   <small class="form-help">
-                    Replaced by “External calendars (ICS)” below. This field is retained for backward compatibility.
+                    This legacy field is no longer used. Use “External calendars (ICS)” below.
                   </small>
                 </div>
 
@@ -270,6 +256,40 @@
                   <p class="hint" style="margin: 0 0 10px;">
                     Add one or more named calendars (e.g., “Bachelors EHR”). Each calendar can have multiple ICS feed URLs.
                   </p>
+
+                  <div style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: white;">
+                    <div style="font-weight: 900;">EHR calendar (paste URL only)</div>
+                    <p class="hint" style="margin: 6px 0 10px;">
+                      Paste this user’s personal ICS feed URL from the EHR. You don’t need to create or name a calendar — we save it under this user automatically.
+                    </p>
+                    <div class="muted small" style="margin: -6px 0 10px;">
+                      If your EHR gives you a <strong>webcal://</strong> link, that’s OK — we’ll fetch it as <strong>https://</strong>.
+                    </div>
+                    <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
+                      <div style="flex: 1; min-width: 260px;">
+                        <label class="lbl">ICS URL</label>
+                        <input
+                          class="agency-select"
+                          v-model="ehrIcsUrl"
+                          type="url"
+                          placeholder="https://…/calendar.ics"
+                          :disabled="ehrIcsSaving || externalCalendarsSaving"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        @click="saveEhrIcsUrl"
+                        :disabled="ehrIcsSaving || externalCalendarsSaving"
+                      >
+                        {{ ehrIcsSaving ? 'Saving…' : 'Save' }}
+                      </button>
+                    </div>
+                    <div v-if="ehrIcsError" class="error" style="margin-top: 8px;">{{ ehrIcsError }}</div>
+                    <div class="muted small" style="margin-top: 8px;">
+                      Tip: pasting a new URL will automatically make it the only active EHR feed for this user.
+                    </div>
+                  </div>
 
                   <div v-if="externalCalendarsError" class="error" style="margin-top: 8px;">{{ externalCalendarsError }}</div>
                   <div v-if="externalCalendarsLoading" class="muted" style="margin-top: 8px;">Loading external calendars…</div>
@@ -300,7 +320,25 @@
                     <div v-else style="margin-top: 10px; display:flex; flex-direction: column; gap: 10px;">
                       <div v-for="c in externalCalendars" :key="`ec-${c.id}`" style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg-alt);">
                         <div style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
-                          <div style="font-weight: 900;">{{ c.label }}</div>
+                          <div style="display:flex; align-items: end; gap: 8px; flex-wrap: wrap;">
+                            <div style="min-width: 240px;">
+                              <label class="lbl">Calendar label</label>
+                              <input
+                                class="agency-select"
+                                :value="editExternalCalendarLabelById[c.id] ?? c.label"
+                                :disabled="externalCalendarsSaving"
+                                @input="editExternalCalendarLabelById = { ...(editExternalCalendarLabelById || {}), [c.id]: $event.target.value }"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-sm"
+                              :disabled="externalCalendarsSaving"
+                              @click="saveExternalCalendarLabel(c)"
+                            >
+                              Save label
+                            </button>
+                          </div>
                           <label class="toggle-label" style="margin:0;">
                             <span style="font-size: 12px;">Active</span>
                             <div class="toggle-switch">
@@ -1472,12 +1510,35 @@ const canEditExternalBusyIcsUrl = computed(() => {
   return r === 'admin' || r === 'super_admin';
 });
 
+const ehrIcsUrl = ref('');
+const ehrIcsSaving = ref(false);
+const ehrIcsError = ref('');
+
 const externalCalendarsLoading = ref(false);
 const externalCalendarsError = ref('');
 const externalCalendarsSaving = ref(false);
 const externalCalendars = ref([]);
 const newExternalCalendarLabel = ref('');
 const newExternalFeedUrlByCalendarId = ref({});
+const editExternalCalendarLabelById = ref({});
+
+const EHR_DEFAULT_CALENDAR_LABEL = 'EHR';
+
+const ehrCalendar = computed(() => {
+  const list = Array.isArray(externalCalendars.value) ? externalCalendars.value : [];
+  return list.find((c) => String(c?.label || '').trim().toLowerCase() === EHR_DEFAULT_CALENDAR_LABEL.toLowerCase()) || null;
+});
+
+const syncEhrIcsFromCalendars = () => {
+  const cal = ehrCalendar.value;
+  if (!cal) {
+    ehrIcsUrl.value = '';
+    return;
+  }
+  const feeds = Array.isArray(cal.feeds) ? cal.feeds : [];
+  const activeFeed = feeds.find((f) => !!f?.isActive) || feeds[0] || null;
+  ehrIcsUrl.value = String(activeFeed?.icsUrl || '').trim();
+};
 
 const loadExternalCalendars = async () => {
   if (!canEditExternalBusyIcsUrl.value) return;
@@ -1486,11 +1547,103 @@ const loadExternalCalendars = async () => {
     externalCalendarsError.value = '';
     const r = await api.get(`/users/${userId.value}/external-calendars`);
     externalCalendars.value = Array.isArray(r.data?.calendars) ? r.data.calendars : [];
+    // Keep the simple EHR ICS field in sync with loaded calendars.
+    if (!ehrIcsSaving.value) syncEhrIcsFromCalendars();
   } catch (e) {
     externalCalendars.value = [];
     externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to load external calendars';
+    if (!ehrIcsSaving.value) ehrIcsUrl.value = '';
   } finally {
     externalCalendarsLoading.value = false;
+  }
+};
+
+const saveEhrIcsUrl = async () => {
+  if (!canEditExternalBusyIcsUrl.value) return;
+  const url = String(ehrIcsUrl.value || '').trim();
+  try {
+    ehrIcsSaving.value = true;
+    ehrIcsError.value = '';
+
+    // Ensure calendars are loaded so we can find existing EHR feed(s).
+    if (!externalCalendarsLoading.value && (!Array.isArray(externalCalendars.value) || externalCalendars.value.length === 0)) {
+      await loadExternalCalendars();
+    }
+
+    let cal = ehrCalendar.value;
+    let calendarId = Number(cal?.id || 0);
+
+    if (!calendarId && url) {
+      const created = await api.post(`/users/${userId.value}/external-calendars`, { label: EHR_DEFAULT_CALENDAR_LABEL });
+      calendarId = Number(created.data?.calendar?.id || 0);
+      await loadExternalCalendars();
+      cal = ehrCalendar.value;
+      calendarId = Number(cal?.id || calendarId || 0);
+    }
+
+    if (!calendarId) {
+      // Nothing to do (e.g. blank URL and no calendar exists)
+      return;
+    }
+
+    // Always keep the calendar active if a URL is provided.
+    if (url) {
+      await api.patch(`/users/${userId.value}/external-calendars/${calendarId}`, { isActive: true });
+    }
+
+    const feeds = Array.isArray(cal?.feeds) ? cal.feeds : [];
+
+    if (!url) {
+      // Blank URL means disable all feeds for the EHR calendar.
+      for (const f of feeds) {
+        const feedId = Number(f?.id || 0);
+        if (!feedId) continue;
+        if (f?.isActive) {
+          await api.patch(`/users/${userId.value}/external-calendars/${calendarId}/feeds/${feedId}`, { isActive: false });
+        }
+      }
+      await loadExternalCalendars();
+      return;
+    }
+
+    // If this exact URL already exists, enable it and disable others.
+    const existingSame = feeds.find((f) => String(f?.icsUrl || '').trim() === url) || null;
+    if (existingSame?.id) {
+      const keepId = Number(existingSame.id);
+      if (!existingSame.isActive) {
+        await api.patch(`/users/${userId.value}/external-calendars/${calendarId}/feeds/${keepId}`, { isActive: true });
+      }
+      for (const f of feeds) {
+        const feedId = Number(f?.id || 0);
+        if (!feedId || feedId === keepId) continue;
+        if (f?.isActive) {
+          await api.patch(`/users/${userId.value}/external-calendars/${calendarId}/feeds/${feedId}`, { isActive: false });
+        }
+      }
+      await loadExternalCalendars();
+      return;
+    }
+
+    // Otherwise create a new feed for this URL, then disable all others.
+    const added = await api.post(`/users/${userId.value}/external-calendars/${calendarId}/feeds`, { icsUrl: url });
+    const newFeedId = Number(added.data?.feed?.id || 0);
+
+    // Refresh so we have the latest feed list, then deactivate all but the new one.
+    await loadExternalCalendars();
+    const nextCal = ehrCalendar.value;
+    const nextFeeds = Array.isArray(nextCal?.feeds) ? nextCal.feeds : [];
+    for (const f of nextFeeds) {
+      const feedId = Number(f?.id || 0);
+      if (!feedId || (newFeedId && feedId === newFeedId)) continue;
+      if (f?.isActive) {
+        await api.patch(`/users/${userId.value}/external-calendars/${calendarId}/feeds/${feedId}`, { isActive: false });
+      }
+    }
+    await loadExternalCalendars();
+  } catch (e) {
+    ehrIcsError.value = e.response?.data?.error?.message || 'Failed to save ICS URL';
+  } finally {
+    ehrIcsSaving.value = false;
   }
 };
 
@@ -1541,6 +1694,24 @@ const toggleExternalCalendar = async (calendar, enabled) => {
     await loadExternalCalendars();
   } catch (e) {
     externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to update calendar';
+  } finally {
+    externalCalendarsSaving.value = false;
+  }
+};
+
+const saveExternalCalendarLabel = async (calendar) => {
+  if (!canEditExternalBusyIcsUrl.value) return;
+  const calendarId = Number(calendar?.id || 0);
+  if (!calendarId) return;
+  const label = String(editExternalCalendarLabelById.value?.[calendarId] ?? calendar?.label ?? '').trim();
+  if (!label) return;
+  try {
+    externalCalendarsSaving.value = true;
+    externalCalendarsError.value = '';
+    await api.patch(`/users/${userId.value}/external-calendars/${calendarId}`, { label });
+    await loadExternalCalendars();
+  } catch (e) {
+    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to update calendar label';
   } finally {
     externalCalendarsSaving.value = false;
   }
@@ -1840,6 +2011,15 @@ const fetchUser = async () => {
     loading.value = true;
     const response = await api.get(`/users/${userId.value}`);
     user.value = response.data;
+
+    // Archived users should not be accessible via the main user profile route.
+    // They are managed in Settings → Archive Management.
+    if (String(user.value?.status || '').toUpperCase() === 'ARCHIVED') {
+      const orgSlug = route?.params?.organizationSlug;
+      const path = orgSlug ? `/${orgSlug}/admin/settings` : '/admin/settings';
+      await router.replace({ path, query: { category: 'system', item: 'archive' } });
+      return;
+    }
 
     // Provider open/closed flag (best-effort; defaults to open if missing)
     if (user.value?.provider_accepting_new_clients !== undefined && user.value?.provider_accepting_new_clients !== null) {
