@@ -112,8 +112,14 @@ const props = defineProps({
   organizationId: {
     type: Number,
     default: null
+  },
+  editMode: {
+    type: String,
+    default: 'navigate' // 'navigate' | 'inline'
   }
 });
+
+const emit = defineEmits(['edit-client']);
 
 const clients = ref([]);
 const loading = ref(false);
@@ -264,6 +270,10 @@ const openClient = (client) => {
 
 const goEdit = (client) => {
   if (!client?.id) return;
+  if (props.editMode === 'inline') {
+    emit('edit-client', client);
+    return;
+  }
   router.push({ path: '/admin/clients', query: { clientId: String(client.id) } });
 };
 

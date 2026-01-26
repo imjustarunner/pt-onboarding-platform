@@ -62,7 +62,12 @@
           <h2 style="margin: 0;">School roster</h2>
           <div class="muted">Assigned + unassigned (restricted fields)</div>
         </div>
-        <ClientListGrid :organization-slug="organizationSlug" :organization-id="organizationId" />
+        <ClientListGrid
+          :organization-slug="organizationSlug"
+          :organization-id="organizationId"
+          edit-mode="inline"
+          @edit-client="openAdminClientEditor"
+        />
       </div>
     </div>
 
@@ -71,6 +76,13 @@
       :client="selectedClient"
       :school-organization-id="organizationId"
       @close="selectedClient = null"
+    />
+
+    <ClientDetailPanel
+      v-if="adminSelectedClient"
+      :client="adminSelectedClient"
+      @close="closeAdminClientEditor"
+      @updated="handleAdminClientUpdated"
     />
 
     <SchoolHelpDeskModal
@@ -91,8 +103,10 @@ import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
 import DayPanel from '../../components/school/redesign/DayPanel.vue';
 import ClientModal from '../../components/school/redesign/ClientModal.vue';
 import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPanel.vue';
+import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
+import api from '../../services/api';
 
 const route = useRoute();
 const router = useRouter();
@@ -103,6 +117,8 @@ const authStore = useAuthStore();
 const showHelpDesk = ref(false);
 const selectedClient = ref(null);
 const viewMode = ref('schedule');
+const adminSelectedClient = ref(null);
+const adminClientLoading = ref(false);
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isProvider = computed(() => roleNorm.value === 'provider');
@@ -162,6 +178,31 @@ const handleMoveSlot = async ({ providerUserId, slotId, direction }) => {
 
 const openClient = (client) => {
   selectedClient.value = client;
+};
+
+const openAdminClientEditor = async (client) => {
+  if (!client?.id) return;
+  adminClientLoading.value = true;
+  try {
+    const r = await api.get(`/clients/${client.id}`);
+    adminSelectedClient.value = r.data || null;
+  } catch (e) {
+    console.error('Failed to open client editor:', e);
+    alert(e.response?.data?.error?.message || e.message || 'Failed to open client editor');
+    adminSelectedClient.value = null;
+  } finally {
+    adminClientLoading.value = false;
+  }
+};
+
+const closeAdminClientEditor = () => {
+  adminSelectedClient.value = null;
+};
+
+const handleAdminClientUpdated = (payload) => {
+  if (payload?.client) {
+    adminSelectedClient.value = payload.client;
+  }
 };
 
 const goToProviderSchoolProfile = (providerUserId) => {
