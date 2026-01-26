@@ -124,6 +124,53 @@ export default class BulkClientUploadParserService {
         normalized[normalizeHeader(k)] = v;
       });
 
+      // Skip fully-empty rows (common when a CSV has delimiter-only blank lines).
+      // csv-parse's skip_empty_lines only removes truly empty lines, not ",,,,,," rows.
+      const keyFieldsToCheck = [
+        'initials',
+        'client name',
+        'client',
+        'student name',
+        'student',
+        'status',
+        'referral date',
+        'skills',
+        'insurance',
+        'school',
+        'school name',
+        'organization',
+        'organization name',
+        'provider',
+        'provider name',
+        'assigned provider',
+        'day',
+        'paperwork delivery',
+        'delivery',
+        'doc date',
+        'paperwork status',
+        'document status',
+        'doc status',
+        'notes',
+        'grade',
+        'gender',
+        'identifier code',
+        'identifier',
+        'district',
+        'school year',
+        'schoolyear',
+        'year'
+      ];
+      const hasAnyMeaningfulValue = keyFieldsToCheck.some((k) => {
+        const v = normalized[k];
+        if (v === null || v === undefined) return false;
+        if (typeof v === 'number') return !Number.isNaN(v);
+        const s = String(v).trim();
+        return s !== '';
+      });
+      if (!hasAnyMeaningfulValue) {
+        continue;
+      }
+
       const clientName =
         normalized['client name'] ||
         normalized['client'] ||
