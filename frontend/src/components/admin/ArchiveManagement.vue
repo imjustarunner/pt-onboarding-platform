@@ -7,6 +7,17 @@
       </p>
     </div>
 
+    <!-- Super admin agency filter -->
+    <div v-if="authStore.user?.role === 'super_admin'" class="archive-filters">
+      <label class="filter-label">Agency:</label>
+      <select v-model="archiveAgencyFilter" class="filter-select">
+        <option value="">All agencies</option>
+        <option v-for="a in allAgenciesForFilter" :key="a.id" :value="String(a.id)">
+          {{ a.name }}
+        </option>
+      </select>
+    </div>
+
     <div class="archive-tabs">
       <button
         v-for="tab in tabs"
@@ -271,6 +282,16 @@ const loadingDocuments = ref(false);
 const loadingAgencies = ref(false);
 const loadingBuildings = ref(false);
 
+// For super_admin: allow choosing "All agencies" vs a specific agency.
+// Do NOT implicitly filter by agencyStore.currentAgency for super_admin, since it's persisted in localStorage
+// and unintentionally hides "global" results.
+const archiveAgencyFilter = ref(''); // '' = all
+const allAgenciesForFilter = computed(() => {
+  const list = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
+  // Stable sort for nicer UX.
+  return list.slice().sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+});
+
 const tabs = computed(() => {
   const allTabs = [
     { id: 'training-focuses', label: 'Training Focuses', count: archivedTrainingFocuses.value.length },
@@ -288,8 +309,17 @@ const tabs = computed(() => {
   return allTabs;
 });
 
+const getSelectedArchivedByAgencyId = () => {
+  if (authStore.user?.role === 'super_admin') {
+    const raw = String(archiveAgencyFilter.value || '').trim();
+    const id = raw ? parseInt(raw, 10) : null;
+    return Number.isFinite(id) ? id : null;
+  }
+  return agencyStore.currentAgency?.id ? Number(agencyStore.currentAgency.id) : null;
+};
+
 // Watch for agency changes and refetch archived items
-watch(() => agencyStore.currentAgency, () => {
+watch([() => agencyStore.currentAgency, () => archiveAgencyFilter.value], () => {
   fetchAllArchived();
 });
 
@@ -298,9 +328,8 @@ const fetchArchivedTrainingFocuses = async () => {
     loadingTrainingFocuses.value = true;
     const params = {};
     // If an agency is selected, filter by that agency's archived items
-    if (agencyStore.currentAgency?.id) {
-      params.archivedByAgencyId = agencyStore.currentAgency.id;
-    }
+    const selectedId = getSelectedArchivedByAgencyId();
+    if (selectedId) params.archivedByAgencyId = selectedId;
     const response = await api.get('/training-focuses/archived', { params });
     archivedTrainingFocuses.value = response.data || [];
   } catch (err) {
@@ -316,9 +345,8 @@ const fetchArchivedModules = async () => {
     loadingModules.value = true;
     const params = {};
     // If an agency is selected, filter by that agency's archived items
-    if (agencyStore.currentAgency?.id) {
-      params.archivedByAgencyId = agencyStore.currentAgency.id;
-    }
+    const selectedId = getSelectedArchivedByAgencyId();
+    if (selectedId) params.archivedByAgencyId = selectedId;
     const response = await api.get('/modules/archived', { params });
     archivedModules.value = response.data || [];
   } catch (err) {
@@ -334,9 +362,8 @@ const fetchArchivedUsers = async () => {
     loadingUsers.value = true;
     const params = {};
     // If an agency is selected, filter by that agency's archived items
-    if (agencyStore.currentAgency?.id) {
-      params.archivedByAgencyId = agencyStore.currentAgency.id;
-    }
+    const selectedId = getSelectedArchivedByAgencyId();
+    if (selectedId) params.archivedByAgencyId = selectedId;
     const response = await api.get('/users/archived', { params });
     archivedUsers.value = response.data || [];
   } catch (err) {
@@ -352,9 +379,8 @@ const fetchArchivedDocuments = async () => {
     loadingDocuments.value = true;
     const params = {};
     // If an agency is selected, filter by that agency's archived items
-    if (agencyStore.currentAgency?.id) {
-      params.archivedByAgencyId = agencyStore.currentAgency.id;
-    }
+    const selectedId = getSelectedArchivedByAgencyId();
+    if (selectedId) params.archivedByAgencyId = selectedId;
     const response = await api.get('/document-templates/archived', { params });
     archivedDocuments.value = response.data || [];
   } catch (err) {
@@ -583,7 +609,11 @@ const permanentlyDeleteBuilding = async (id) => {
 
 onMounted(async () => {
   // Ensure agencies are loaded
-  await agencyStore.fetchUserAgencies();
+  if (authStore.user?.role === 'super_admin') {
+    await agencyStore.fetchAgencies();
+  } else {
+    await agencyStore.fetchUserAgencies();
+  }
   // Fetch archived items
   await fetchAllArchived();
 });
@@ -591,7 +621,26 @@ onMounted(async () => {
 
 <style scoped>
 .archive-management {
-  padding: 24px;
+  padding: 16px;
+}
+
+.archive-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px 0;
+}
+
+.filter-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.filter-select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 260px;
 }
 
 .section-header {
@@ -655,7 +704,7 @@ onMounted(async () => {
 .archive-content {
   background: white;
   border-radius: 12px;
-  padding: 32px;
+  padding: 16px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
 }
@@ -675,7 +724,7 @@ onMounted(async () => {
 .archive-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 800px;
+  table-layout: fixed;
 }
 
 .archive-table thead {
@@ -683,7 +732,7 @@ onMounted(async () => {
 }
 
 .archive-table th {
-  padding: 10px 8px;
+  padding: 6px 6px;
   text-align: left;
   font-weight: 600;
   color: var(--text-primary);
@@ -694,11 +743,12 @@ onMounted(async () => {
 }
 
 .archive-table td {
-  padding: 10px 8px;
+  padding: 6px 6px;
   border-bottom: 1px solid var(--border);
   color: var(--text-primary);
   font-size: 14px;
   vertical-align: middle;
+  word-break: break-word;
 }
 
 .archive-table tbody tr:hover {
@@ -712,10 +762,9 @@ onMounted(async () => {
 
 .description-cell {
   color: var(--text-secondary);
-  max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .actions-cell {
@@ -724,9 +773,18 @@ onMounted(async () => {
 }
 
 .actions-cell .btn-sm {
-  padding: 4px 8px;
-  font-size: 11px;
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 1.1;
+  min-height: 0;
+  height: auto;
   margin: 0 2px;
+}
+
+/* Some global button styles set large padding; keep archive actions compact. */
+.actions-cell .btn {
+  padding: 2px 6px;
+  line-height: 1.1;
 }
 
 .empty-state {
