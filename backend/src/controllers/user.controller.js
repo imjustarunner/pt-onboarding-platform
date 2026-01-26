@@ -1195,6 +1195,7 @@ export const updateUser = async (req, res, next) => {
       workPhone,
       workPhoneExtension,
       homeStreetAddress,
+      homeAddressLine2,
       homeCity,
       homeState,
       homePostalCode,
@@ -1542,6 +1543,7 @@ export const updateUser = async (req, res, next) => {
 
     // Home address (used for mileage calculations)
     if (homeStreetAddress !== undefined) updateData.homeStreetAddress = homeStreetAddress;
+    if (homeAddressLine2 !== undefined) updateData.homeAddressLine2 = homeAddressLine2;
     if (homeCity !== undefined) updateData.homeCity = homeCity;
     if (homeState !== undefined) updateData.homeState = homeState;
     if (homePostalCode !== undefined) updateData.homePostalCode = homePostalCode;
@@ -2844,6 +2846,7 @@ export const getAccountInfo = async (req, res, next) => {
       workPhone: user.work_phone || null,
       workPhoneExtension: user.work_phone_extension || null,
       homeStreetAddress: user.home_street_address || null,
+      homeAddressLine2: user.home_address_line2 || null,
       homeCity: user.home_city || null,
       homeState: user.home_state || null,
       homePostalCode: user.home_postal_code || null,

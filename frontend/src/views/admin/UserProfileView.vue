@@ -157,6 +157,10 @@
                   <input v-model="accountForm.homeStreetAddress" type="text" placeholder="123 Main St" :disabled="!isEditingAccount" />
                 </div>
                 <div class="form-group">
+                  <label>Apt / Unit</label>
+                  <input v-model="accountForm.homeAddressLine2" type="text" placeholder="Apt 4B (optional)" :disabled="!isEditingAccount" />
+                </div>
+                <div class="form-group">
                   <label>City</label>
                   <input v-model="accountForm.homeCity" type="text" placeholder="City" :disabled="!isEditingAccount" />
                 </div>
@@ -1479,6 +1483,7 @@ const accountForm = ref({
   workPhone: '',
   workPhoneExtension: '',
   homeStreetAddress: '',
+  homeAddressLine2: '',
   homeCity: '',
   homeState: '',
   homePostalCode: '',
@@ -2149,6 +2154,7 @@ const fetchAccountInfo = async () => {
     // Keep the admin account form in sync with home address from account-info endpoint.
     // This avoids relying on /users/:id returning home_* columns in older deployments.
     accountForm.value.homeStreetAddress = response.data?.homeStreetAddress || accountForm.value.homeStreetAddress || '';
+    accountForm.value.homeAddressLine2 = response.data?.homeAddressLine2 || accountForm.value.homeAddressLine2 || '';
     accountForm.value.homeCity = response.data?.homeCity || accountForm.value.homeCity || '';
     accountForm.value.homeState = response.data?.homeState || accountForm.value.homeState || '';
     accountForm.value.homePostalCode = response.data?.homePostalCode || accountForm.value.homePostalCode || '';
@@ -2524,6 +2530,7 @@ const saveAccount = async () => {
       workPhone: accountForm.value.workPhone,
       workPhoneExtension: accountForm.value.workPhoneExtension,
       homeStreetAddress: accountForm.value.homeStreetAddress,
+      homeAddressLine2: accountForm.value.homeAddressLine2,
       homeCity: accountForm.value.homeCity,
       homeState: accountForm.value.homeState,
       homePostalCode: accountForm.value.homePostalCode,

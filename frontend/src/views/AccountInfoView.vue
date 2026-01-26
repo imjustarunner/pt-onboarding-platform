@@ -131,6 +131,10 @@
               <input v-model="homeAddressForm.street" type="text" placeholder="123 Main St" />
             </div>
             <div class="field-item">
+              <label>Apt / Unit</label>
+              <input v-model="homeAddressForm.line2" type="text" placeholder="Apt 4B (optional)" />
+            </div>
+            <div class="field-item">
               <label>City</label>
               <input v-model="homeAddressForm.city" type="text" placeholder="City" />
             </div>
@@ -515,6 +519,7 @@ const savingHomeAddress = ref(false);
 const homeAddressError = ref('');
 const homeAddressForm = ref({
   street: '',
+  line2: '',
   city: '',
   state: '',
   postalCode: ''
@@ -707,6 +712,7 @@ const fetchAccountInfo = async () => {
     preferredNameForm.value = response.data?.preferredName || '';
     homeAddressForm.value = {
       street: response.data?.homeStreetAddress || '',
+      line2: response.data?.homeAddressLine2 || '',
       city: response.data?.homeCity || '',
       state: response.data?.homeState || '',
       postalCode: response.data?.homePostalCode || ''
@@ -745,6 +751,7 @@ const saveHomeAddress = async () => {
     homeAddressError.value = '';
     await api.put('/payroll/me/home-address', {
       homeStreetAddress: homeAddressForm.value.street,
+      homeAddressLine2: homeAddressForm.value.line2,
       homeCity: homeAddressForm.value.city,
       homeState: homeAddressForm.value.state,
       homePostalCode: homeAddressForm.value.postalCode

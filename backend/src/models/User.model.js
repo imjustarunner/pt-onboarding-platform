@@ -263,7 +263,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'skill_builder_eligible')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'skill_builder_eligible')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -286,6 +286,7 @@ class User {
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
       if (existingColumns.includes('system_phone_number')) query += ', system_phone_number';
       if (existingColumns.includes('home_street_address')) query += ', home_street_address';
+      if (existingColumns.includes('home_address_line2')) query += ', home_address_line2';
       if (existingColumns.includes('home_city')) query += ', home_city';
       if (existingColumns.includes('home_state')) query += ', home_state';
       if (existingColumns.includes('home_postal_code')) query += ', home_postal_code';
@@ -612,6 +613,7 @@ class User {
       workPhone,
       workPhoneExtension,
       homeStreetAddress,
+      homeAddressLine2,
       homeCity,
       homeState,
       homePostalCode,
@@ -887,6 +889,19 @@ class User {
         }
       } catch (err) {
         console.warn('home_street_address column does not exist yet');
+      }
+    }
+    if (homeAddressLine2 !== undefined) {
+      try {
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'home_address_line2'"
+        );
+        if (columns.length > 0) {
+          updates.push('home_address_line2 = ?');
+          values.push(homeAddressLine2);
+        }
+      } catch (err) {
+        console.warn('home_address_line2 column does not exist yet');
       }
     }
     if (homeCity !== undefined) {

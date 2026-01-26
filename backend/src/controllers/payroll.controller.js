@@ -6515,12 +6515,12 @@ export const createMyMileageClaim = async (req, res, next) => {
     if (claimType === 'school_travel' && miles === null && (computedHomeSchoolRt === null || computedHomeOfficeRt === null)) {
       // Home address (user)
       const [uRows] = await pool.execute(
-        `SELECT home_street_address, home_city, home_state, home_postal_code
+        `SELECT home_street_address, home_address_line2, home_city, home_state, home_postal_code
          FROM users WHERE id = ? LIMIT 1`,
         [userId]
       );
       const u = uRows?.[0] || {};
-      const homeAddr = [u.home_street_address, u.home_city, u.home_state, u.home_postal_code].filter(Boolean).join(', ');
+      const homeAddr = [u.home_street_address, u.home_address_line2, u.home_city, u.home_state, u.home_postal_code].filter(Boolean).join(', ');
       if (!homeAddr) {
         return res.status(409).json({ error: { message: 'Home address is required to auto-calculate mileage. Please set it first.' } });
       }
@@ -6916,15 +6916,16 @@ export const updateMyHomeAddress = async (req, res, next) => {
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     const body = req.body || {};
     const homeStreetAddress = body.homeStreetAddress ? String(body.homeStreetAddress).slice(0, 255) : null;
+    const homeAddressLine2 = body.homeAddressLine2 ? String(body.homeAddressLine2).slice(0, 255) : null;
     const homeCity = body.homeCity ? String(body.homeCity).slice(0, 128) : null;
     const homeState = body.homeState ? String(body.homeState).slice(0, 64) : null;
     const homePostalCode = body.homePostalCode ? String(body.homePostalCode).slice(0, 32) : null;
 
     await pool.execute(
       `UPDATE users
-       SET home_street_address = ?, home_city = ?, home_state = ?, home_postal_code = ?
+       SET home_street_address = ?, home_address_line2 = ?, home_city = ?, home_state = ?, home_postal_code = ?
        WHERE id = ?`,
-      [homeStreetAddress, homeCity, homeState, homePostalCode, userId]
+      [homeStreetAddress, homeAddressLine2, homeCity, homeState, homePostalCode, userId]
     );
     res.json({ ok: true });
   } catch (e) {
@@ -6937,13 +6938,14 @@ export const getMyHomeAddress = async (req, res, next) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     const [rows] = await pool.execute(
-      `SELECT home_street_address, home_city, home_state, home_postal_code
+      `SELECT home_street_address, home_address_line2, home_city, home_state, home_postal_code
        FROM users WHERE id = ? LIMIT 1`,
       [userId]
     );
     const u = rows?.[0] || {};
     res.json({
       homeStreetAddress: u.home_street_address || '',
+      homeAddressLine2: u.home_address_line2 || '',
       homeCity: u.home_city || '',
       homeState: u.home_state || '',
       homePostalCode: u.home_postal_code || ''
