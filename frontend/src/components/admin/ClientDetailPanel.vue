@@ -703,8 +703,10 @@
         <!-- Documentation Tab -->
         <div v-if="activeTab === 'phi'" class="detail-section">
           <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
-            <h3 style="margin:0;">Document status history</h3>
-            <div class="hint">Tracks dated paperwork status + delivery method updates for this client.</div>
+            <h3 style="margin:0;">Packet / documentation status (no upload required)</h3>
+            <div class="hint">
+              Use this to record what’s needed/what was received and when. Uploading a file is optional and handled separately below.
+            </div>
           </div>
 
           <div class="info-grid" style="margin-bottom: 14px;">
@@ -739,6 +741,9 @@
                   <option value="">Select…</option>
                   <option v-for="s in paperworkStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
                 </select>
+                <div v-if="paperworkStatuses.length === 0" class="hint" style="margin-top: 4px;">
+                  No statuses are configured for this agency yet.
+                </div>
               </div>
               <div class="filters-group" style="min-width: 220px; flex: 1;">
                 <label class="filters-label">Document delivery method</label>
@@ -766,7 +771,7 @@
               </div>
               <div class="actions" style="align-self: end;">
                 <button class="btn btn-primary" type="button" @click="savePaperworkHistory" :disabled="savingPaperwork">
-                  {{ savingPaperwork ? 'Saving…' : 'Add update' }}
+                  {{ savingPaperwork ? 'Saving…' : 'Save status update' }}
                 </button>
               </div>
             </div>
@@ -797,6 +802,10 @@
             </div>
           </div>
 
+          <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 10px;">
+            <h3 style="margin:0;">Files (optional)</h3>
+            <div class="hint">Upload a PDF/image only when you need a stored copy.</div>
+          </div>
           <PhiDocumentsPanel :client-id="Number(client.id)" />
         </div>
       </div>

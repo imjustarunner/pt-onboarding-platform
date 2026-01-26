@@ -252,7 +252,11 @@ const formatDocSummary = (client) => {
     statusKey === 'roi' && roiExpiresAt ? (roiExpiresAt.getTime() < new Date().setHours(0, 0, 0, 0)) : false;
 
   const parts = [];
-  if (status) parts.push(roiExpired ? 'ROI Expired' : status);
+  const normalizedStatus =
+    statusKey === 'new_docs' ? 'Docs Needed' :
+    statusKey === 'completed' ? 'Received' :
+    (roiExpired ? 'ROI Expired' : status);
+  if (normalizedStatus) parts.push(normalizedStatus);
   if (delivery) parts.push(delivery);
   if (date) parts.push(date);
   if (parts.length) return parts.join(' · ');

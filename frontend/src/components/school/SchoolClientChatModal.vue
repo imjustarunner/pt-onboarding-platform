@@ -18,7 +18,7 @@
         <div class="pill">
           <div class="k">Doc status</div>
           <div class="v">
-            {{ formatKey(props.client?.paperwork_status_label || props.client?.document_status) }}
+            {{ formatKey(normalizeDocStatusLabel(props.client)) }}
             <span v-if="props.client?.paperwork_delivery_method_label"> · {{ formatKey(props.client?.paperwork_delivery_method_label) }}</span>
             <span v-if="props.client?.doc_date"> · {{ formatDateOnly(props.client?.doc_date) }}</span>
           </div>
@@ -108,6 +108,14 @@ const props = defineProps({
   schoolOrganizationId: { type: Number, default: null }
 });
 defineEmits(['close']);
+
+const normalizeDocStatusLabel = (c) => {
+  const key = String(c?.paperwork_status_key || '').toLowerCase();
+  const base = String(c?.paperwork_status_label || c?.document_status || '').trim();
+  if (key === 'new_docs') return 'Docs Needed';
+  if (key === 'completed') return 'Received';
+  return base || '—';
+};
 
 const loading = ref(false);
 const sending = ref(false);
