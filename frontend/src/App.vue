@@ -93,7 +93,12 @@
                 :to="orgTo('/buildings')"
                 @click="closeMobileMenu"
                 class="nav-link"
-              >Buildings</router-link>
+              >
+                Buildings
+                <span v-if="showBuildingsPendingBadge && buildingsPendingCount > 0" class="nav-badge" :title="`${buildingsPendingCount} pending availability request(s)`">
+                  {{ buildingsPendingCount }}
+                </span>
+              </router-link>
               <div v-if="showGlobalAvailabilityToggle" class="nav-availability" @click.stop>
                 <div class="nav-availability-label">Global availability</div>
                 <label class="switch" :title="globalAvailabilityTitle">
@@ -530,12 +535,38 @@ const handleLogout = async () => {
   router.push('/login');
 };
 
+// ---- Buildings pending availability badge (admin/staff/CPA) ----
+const showBuildingsPendingBadge = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'clinical_practice_assistant' || r === 'staff';
+});
+
+const buildingsPendingCount = ref(0);
+let buildingsPendingInterval = null;
+
+const fetchBuildingsPendingCounts = async () => {
+  if (!isAuthenticated.value) return;
+  if (!showBuildingsPendingBadge.value) return;
+  try {
+    const resp = await api.get('/availability/admin/pending-counts');
+    buildingsPendingCount.value = Number(resp?.data?.total || 0);
+  } catch {
+    // ignore (badge is best-effort)
+  }
+};
+
 // Start/stop activity tracking based on authentication status
 watch(isAuthenticated, (authenticated) => {
   if (authenticated) {
     startActivityTracking();
+    fetchBuildingsPendingCounts();
+    if (buildingsPendingInterval) clearInterval(buildingsPendingInterval);
+    buildingsPendingInterval = setInterval(fetchBuildingsPendingCounts, 2 * 60 * 1000);
   } else {
     stopActivityTracking();
+    buildingsPendingCount.value = 0;
+    if (buildingsPendingInterval) clearInterval(buildingsPendingInterval);
+    buildingsPendingInterval = null;
   }
 }, { immediate: true });
 
@@ -602,6 +633,8 @@ onUnmounted(() => {
   document.removeEventListener('click', onDocumentClick);
   window.removeEventListener('superadmin-preview-updated', onPreviewUpdated);
   stopActivityTracking();
+  if (buildingsPendingInterval) clearInterval(buildingsPendingInterval);
+  buildingsPendingInterval = null;
 });
 </script>
 
@@ -907,6 +940,21 @@ onUnmounted(() => {
 .nav-links a:hover,
 .nav-links a.router-link-active {
   background-color: rgba(255,255,255,0.1);
+}
+
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  background: var(--danger);
+  color: white;
 }
 
 .nav-links .btn {

@@ -181,6 +181,14 @@
                   </div>
                 </button>
 
+                <button type="button" class="dash-card dash-card-submit" @click="openMySchedule">
+                  <div class="dash-card-title">My Schedule</div>
+                  <div class="dash-card-desc">View weekly schedule and request availability directly from the grid.</div>
+                  <div class="dash-card-meta">
+                    <span class="dash-card-cta">Open</span>
+                  </div>
+                </button>
+
                 <button type="button" class="dash-card" @click="goToSubmission('mileage')">
                   <div class="dash-card-title">Mileage</div>
                   <div class="dash-card-desc">Submit other mileage.</div>
@@ -295,6 +303,16 @@
               <div class="hint" style="margin-top: 6px;">Additional Availability</div>
               <AdditionalAvailabilitySubmit v-if="currentAgencyId" :agency-id="Number(currentAgencyId)" />
             </div>
+
+            <div v-else-if="submitPanelView === 'schedule'">
+              <div class="hint" style="margin-top: 6px;">My Schedule</div>
+              <ScheduleAvailabilityGrid
+                v-if="currentAgencyId && authStore.user?.id"
+                :user-id="Number(authStore.user.id)"
+                :agency-id="Number(currentAgencyId)"
+                mode="self"
+              />
+            </div>
           </div>
 
           <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'payroll'" class="my-panel">
@@ -406,6 +424,7 @@ import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
 import UserPreferencesHub from '../components/UserPreferencesHub.vue';
 import AdditionalAvailabilitySubmit from '../components/AdditionalAvailabilitySubmit.vue';
+import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
 import CredentialsView from './CredentialsView.vue';
 import AccountInfoView from './AccountInfoView.vue';
 import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
@@ -661,7 +680,7 @@ const syncFromQuery = () => {
   }
 };
 
-const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability'
+const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability' | 'schedule'
 
 const openTimeClaims = () => {
   submitPanelView.value = 'time';
@@ -673,6 +692,14 @@ const openAdditionalAvailability = () => {
     return;
   }
   submitPanelView.value = 'availability';
+};
+
+const openMySchedule = () => {
+  if (!currentAgencyId.value) {
+    window.alert('Select an organization first.');
+    return;
+  }
+  submitPanelView.value = 'schedule';
 };
 
 const parseFeatureFlags = (raw) => {

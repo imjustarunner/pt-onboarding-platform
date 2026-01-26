@@ -75,6 +75,30 @@ const canManageAvailability = (role) => {
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const WEEKDAY_SET = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']);
 const WEEKEND_SET = new Set(['Saturday', 'Sunday']);
+const SKILL_BUILDER_MINUTES_PER_WEEK = 6 * 60;
+
+function minutesBetween(startHHMMSS, endHHMMSS) {
+  const s = String(startHHMMSS || '');
+  const e = String(endHHMMSS || '');
+  const m1 = s.match(/^(\d{2}):(\d{2}):\d{2}$/);
+  const m2 = e.match(/^(\d{2}):(\d{2}):\d{2}$/);
+  if (!m1 || !m2) return 0;
+  const a = Number(m1[1]) * 60 + Number(m1[2]);
+  const b = Number(m2[1]) * 60 + Number(m2[2]);
+  return b > a ? b - a : 0;
+}
+
+async function getSkillBuilderEligibility(providerId) {
+  try {
+    const [rows] = await pool.execute(`SELECT skill_builder_eligible FROM users WHERE id = ? LIMIT 1`, [providerId]);
+    const v = rows?.[0]?.skill_builder_eligible;
+    return v === true || v === 1 || v === '1';
+  } catch (e) {
+    // Migration may not be applied yet.
+    if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.code === 'ER_NO_SUCH_TABLE') return false;
+    throw e;
+  }
+}
 
 function normalizeDayName(d) {
   const s = String(d || '').trim();
@@ -177,11 +201,70 @@ export const getMyAvailabilityPending = async (req, res, next) => {
       confirmation = rows?.[0] || null;
     }
 
+    // Skill Builder weekly availability (recurring blocks + weekly confirmation)
+    const skillBuilderEligible = await getSkillBuilderEligibility(providerId);
+    let skillBuilder = {
+      eligible: skillBuilderEligible,
+      requiredHoursPerWeek: 6,
+      totalHoursPerWeek: 0,
+      confirmedAt: null,
+      needsConfirmation: false,
+      blocks: []
+    };
+    if (skillBuilderEligible) {
+      try {
+        const [blockRows] = await pool.execute(
+          `SELECT day_of_week, block_type, start_time, end_time
+           FROM provider_skill_builder_availability
+           WHERE agency_id = ? AND provider_id = ?
+           ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
+          [agencyId, providerId]
+        );
+        const blocks = (blockRows || []).map((b) => ({
+          dayOfWeek: b.day_of_week,
+          blockType: b.block_type,
+          startTime: String(b.start_time || '').slice(0, 5),
+          endTime: String(b.end_time || '').slice(0, 5)
+        }));
+        // Compute hours/week
+        let totalMinutes = 0;
+        for (const b of blockRows || []) {
+          const t = String(b.block_type || '').toUpperCase();
+          if (t === 'AFTER_SCHOOL') totalMinutes += 150;
+          else if (t === 'WEEKEND') totalMinutes += 240;
+          else totalMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
+        }
+        const [confRows] = await pool.execute(
+          `SELECT confirmed_at
+           FROM provider_skill_builder_availability_confirmations
+           WHERE agency_id = ? AND provider_id = ? AND week_start_date = ?
+           LIMIT 1`,
+          [agencyId, providerId, week1Start]
+        );
+        const confirmedAt = confRows?.[0]?.confirmed_at || null;
+        skillBuilder = {
+          eligible: true,
+          requiredHoursPerWeek: 6,
+          totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100,
+          confirmedAt,
+          needsConfirmation: !confirmedAt,
+          blocks
+        };
+      } catch (e) {
+        if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+          // tables not migrated yet
+        } else {
+          throw e;
+        }
+      }
+    }
+
     res.json({
       ok: true,
       agencyId,
       officeRequests: officeReqs,
       schoolRequests: schoolReqs,
+      skillBuilder,
       supervised: {
         isSupervised: supervised,
         cycleStartDate: week1Start,
@@ -288,8 +371,8 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
     const providerId = req.user.id;
 
-    const preferredSchoolOrgIds = Array.isArray(req.body?.preferredSchoolOrgIds) ? req.body.preferredSchoolOrgIds : [];
-    const schoolOrgIds = preferredSchoolOrgIds.map((n) => parseIntSafe(n)).filter((n) => Number.isInteger(n) && n > 0);
+    // Daytime school availability does not allow selecting a school.
+    const schoolOrgIds = [];
     const notes = String(req.body?.notes || '').trim().slice(0, 2000);
     const blocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
 
@@ -303,42 +386,22 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'You already have a pending school availability request.' } });
     }
 
-    // Validate preferred schools belong to this agency via organization_affiliations.
-    if (schoolOrgIds.length > 0 && req.user?.role !== 'super_admin') {
-      const placeholders = schoolOrgIds.map(() => '?').join(',');
-      const [rows] = await pool.execute(
-        `SELECT DISTINCT organization_id
-         FROM organization_affiliations
-         WHERE agency_id = ? AND is_active = TRUE AND organization_id IN (${placeholders})`,
-        [agencyId, ...schoolOrgIds]
-      );
-      const allowed = new Set((rows || []).map((r) => Number(r.organization_id)));
-      const bad = schoolOrgIds.filter((id) => !allowed.has(Number(id)));
-      if (bad.length) return res.status(400).json({ error: { message: 'One or more selected schools are not available for this agency.' } });
-    }
-
     const normalizedBlocks = [];
     for (const b of blocks) {
       const dayOfWeek = normalizeDayName(b?.dayOfWeek);
-      const blockType = normalizeBlockType(b?.blockType);
-      if (!dayOfWeek || !blockType) continue;
-
-      if (blockType === 'AFTER_SCHOOL') {
-        if (!WEEKDAY_SET.has(dayOfWeek)) continue;
-        normalizedBlocks.push({ dayOfWeek, blockType, startTime: '14:30:00', endTime: '17:00:00' });
-      } else if (blockType === 'WEEKEND') {
-        if (!WEEKEND_SET.has(dayOfWeek)) continue;
-        normalizedBlocks.push({ dayOfWeek, blockType, startTime: '11:30:00', endTime: '15:30:00' });
-      } else {
-        const startTime = normalizeTimeHHMM(b?.startTime);
-        const endTime = normalizeTimeHHMM(b?.endTime);
-        if (!startTime || !endTime) continue;
-        if (endTime <= startTime) continue;
-        normalizedBlocks.push({ dayOfWeek, blockType, startTime, endTime });
-      }
+      if (!dayOfWeek) continue;
+      if (!WEEKDAY_SET.has(dayOfWeek)) continue; // school daytime is weekday-only
+      const startTime = normalizeTimeHHMM(b?.startTime);
+      const endTime = normalizeTimeHHMM(b?.endTime);
+      if (!startTime || !endTime) continue;
+      if (endTime <= startTime) continue;
+      // Soft guard to keep this "daytime" (allow 06:00–18:00)
+      if (startTime < '06:00:00') continue;
+      if (endTime > '18:00:00') continue;
+      normalizedBlocks.push({ dayOfWeek, blockType: 'CUSTOM', startTime, endTime });
     }
     if (normalizedBlocks.length === 0) {
-      return res.status(400).json({ error: { message: 'At least one availability block is required.' } });
+      return res.status(400).json({ error: { message: 'At least one weekday daytime block is required (06:00–18:00).' } });
     }
 
     conn = await pool.getConnection();
@@ -348,7 +411,7 @@ export const createMySchoolAvailabilityRequest = async (req, res, next) => {
       `INSERT INTO provider_school_availability_requests
         (agency_id, provider_id, preferred_school_org_ids_json, notes, status)
        VALUES (?, ?, ?, ?, 'PENDING')`,
-      [agencyId, providerId, schoolOrgIds.length ? JSON.stringify(schoolOrgIds) : null, notes || null]
+      [agencyId, providerId, null, notes || null]
     );
     const requestId = result.insertId;
 
@@ -464,6 +527,171 @@ export const confirmMySupervisedAvailability = async (req, res, next) => {
 
     await conn.commit();
     res.json({ ok: true, confirmationId, cycleStartDate: week1Start, cycleEndDate: cycleEnd });
+  } catch (e) {
+    if (conn) {
+      try { await conn.rollback(); } catch { /* ignore */ }
+    }
+    next(e);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
+function normalizeSkillBuilderBlocks(blocks) {
+  const normalized = [];
+  for (const b of blocks || []) {
+    const dayOfWeek = normalizeDayName(b?.dayOfWeek);
+    const blockType = normalizeBlockType(b?.blockType);
+    if (!dayOfWeek || !blockType) continue;
+
+    if (blockType === 'AFTER_SCHOOL') {
+      if (!WEEKDAY_SET.has(dayOfWeek)) continue;
+      normalized.push({ dayOfWeek, blockType, startTime: '14:30:00', endTime: '17:00:00' });
+    } else if (blockType === 'WEEKEND') {
+      if (!WEEKEND_SET.has(dayOfWeek)) continue;
+      normalized.push({ dayOfWeek, blockType, startTime: '11:30:00', endTime: '15:30:00' });
+    } else {
+      const startTime = normalizeTimeHHMM(b?.startTime);
+      const endTime = normalizeTimeHHMM(b?.endTime);
+      if (!startTime || !endTime) continue;
+      if (endTime <= startTime) continue;
+      normalized.push({ dayOfWeek, blockType, startTime, endTime });
+    }
+  }
+  return normalized;
+}
+
+function totalMinutesForSkillBuilderBlocks(blocks) {
+  let total = 0;
+  for (const b of blocks || []) {
+    const t = String(b?.blockType || '').toUpperCase();
+    if (t === 'AFTER_SCHOOL') total += 150;
+    else if (t === 'WEEKEND') total += 240;
+    else total += minutesBetween(b?.startTime, b?.endTime);
+  }
+  return total;
+}
+
+export const submitMySkillBuilderAvailability = async (req, res, next) => {
+  let conn = null;
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    const providerId = req.user.id;
+
+    const eligible = await getSkillBuilderEligibility(providerId);
+    if (!eligible) {
+      return res.status(403).json({ error: { message: 'Skill Builder availability is not enabled for your account.' } });
+    }
+
+    const blocks = Array.isArray(req.body?.blocks) ? req.body.blocks : [];
+    const normalizedBlocks = normalizeSkillBuilderBlocks(blocks);
+    if (normalizedBlocks.length === 0) {
+      return res.status(400).json({ error: { message: 'At least one availability block is required.' } });
+    }
+
+    const totalMinutes = totalMinutesForSkillBuilderBlocks(normalizedBlocks);
+    if (totalMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+      return res.status(400).json({ error: { message: 'Skill Builder availability must total at least 6 hours per week.' } });
+    }
+
+    const cycleStart = startOfWeekMonday(new Date());
+    const weekStart = toYmd(cycleStart);
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    // Replace recurring availability blocks
+    await conn.execute(
+      `DELETE FROM provider_skill_builder_availability WHERE agency_id = ? AND provider_id = ?`,
+      [agencyId, providerId]
+    );
+    for (const b of normalizedBlocks) {
+      await conn.execute(
+        `INSERT INTO provider_skill_builder_availability
+          (agency_id, provider_id, day_of_week, block_type, start_time, end_time)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [agencyId, providerId, b.dayOfWeek, b.blockType, b.startTime, b.endTime]
+      );
+    }
+
+    // Upsert weekly confirmation for this week
+    await conn.execute(
+      `INSERT INTO provider_skill_builder_availability_confirmations
+        (agency_id, provider_id, week_start_date, confirmed_at)
+       VALUES (?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE confirmed_at = VALUES(confirmed_at)`,
+      [agencyId, providerId, weekStart]
+    );
+
+    await conn.commit();
+    res.json({ ok: true, weekStartDate: weekStart, totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100 });
+  } catch (e) {
+    if (conn) {
+      try { await conn.rollback(); } catch { /* ignore */ }
+    }
+    next(e);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
+export const confirmMySkillBuilderAvailability = async (req, res, next) => {
+  let conn = null;
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    const providerId = req.user.id;
+
+    const eligible = await getSkillBuilderEligibility(providerId);
+    if (!eligible) {
+      return res.status(403).json({ error: { message: 'Skill Builder availability is not enabled for your account.' } });
+    }
+
+    // Confirm requires existing saved availability meeting the minimum.
+    let rows = [];
+    try {
+      const [blockRows] = await pool.execute(
+        `SELECT block_type, start_time, end_time
+         FROM provider_skill_builder_availability
+         WHERE agency_id = ? AND provider_id = ?`,
+        [agencyId, providerId]
+      );
+      rows = blockRows || [];
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') {
+        return res.status(400).json({ error: { message: 'Skill Builder availability tables are not available yet. Run migrations.' } });
+      }
+      throw e;
+    }
+
+    let totalMinutes = 0;
+    for (const b of rows) {
+      const t = String(b.block_type || '').toUpperCase();
+      if (t === 'AFTER_SCHOOL') totalMinutes += 150;
+      else if (t === 'WEEKEND') totalMinutes += 240;
+      else totalMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
+    }
+
+    if (totalMinutes < SKILL_BUILDER_MINUTES_PER_WEEK) {
+      return res.status(400).json({ error: { message: 'Your saved Skill Builder availability is under 6 hours/week. Please update and submit your availability.' } });
+    }
+
+    const cycleStart = startOfWeekMonday(new Date());
+    const weekStart = toYmd(cycleStart);
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    await conn.execute(
+      `INSERT INTO provider_skill_builder_availability_confirmations
+        (agency_id, provider_id, week_start_date, confirmed_at)
+       VALUES (?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE confirmed_at = VALUES(confirmed_at)`,
+      [agencyId, providerId, weekStart]
+    );
+    await conn.commit();
+
+    res.json({ ok: true, weekStartDate: weekStart, totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100 });
   } catch (e) {
     if (conn) {
       try { await conn.rollback(); } catch { /* ignore */ }
@@ -1123,6 +1351,79 @@ export const searchAvailability = async (req, res, next) => {
       })),
       supervisedAvailability: Array.from(supervisedByProvider.values()),
       inOfficeAvailability: inOffice
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getAdminPendingCounts = async (req, res, next) => {
+  try {
+    if (!canManageAvailability(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const role = String(req.user?.role || '').toLowerCase();
+    let officeRequestsPending = 0;
+    let schoolRequestsPending = 0;
+
+    if (role === 'super_admin') {
+      try {
+        const [[o]] = await pool.execute(
+          `SELECT COUNT(*) AS c FROM provider_office_availability_requests WHERE status = 'PENDING'`
+        );
+        const [[s]] = await pool.execute(
+          `SELECT COUNT(*) AS c FROM provider_school_availability_requests WHERE status = 'PENDING'`
+        );
+        officeRequestsPending = Number(o?.c || 0);
+        schoolRequestsPending = Number(s?.c || 0);
+      } catch (e) {
+        if (e?.code === 'ER_NO_SUCH_TABLE') {
+          officeRequestsPending = 0;
+          schoolRequestsPending = 0;
+        } else {
+          throw e;
+        }
+      }
+    } else {
+      const agencies = await User.getAgencies(req.user.id);
+      const agencyIds = (agencies || [])
+        .map((a) => parseIntSafe(a?.id))
+        .filter((n) => Number.isInteger(n) && n > 0);
+      if (agencyIds.length === 0) {
+        return res.json({ ok: true, officeRequestsPending: 0, schoolRequestsPending: 0, total: 0 });
+      }
+      const placeholders = agencyIds.map(() => '?').join(',');
+      try {
+        const [[o]] = await pool.execute(
+          `SELECT COUNT(*) AS c
+           FROM provider_office_availability_requests
+           WHERE status = 'PENDING' AND agency_id IN (${placeholders})`,
+          agencyIds
+        );
+        const [[s]] = await pool.execute(
+          `SELECT COUNT(*) AS c
+           FROM provider_school_availability_requests
+           WHERE status = 'PENDING' AND agency_id IN (${placeholders})`,
+          agencyIds
+        );
+        officeRequestsPending = Number(o?.c || 0);
+        schoolRequestsPending = Number(s?.c || 0);
+      } catch (e) {
+        if (e?.code === 'ER_NO_SUCH_TABLE') {
+          officeRequestsPending = 0;
+          schoolRequestsPending = 0;
+        } else {
+          throw e;
+        }
+      }
+    }
+
+    res.json({
+      ok: true,
+      officeRequestsPending,
+      schoolRequestsPending,
+      total: officeRequestsPending + schoolRequestsPending
     });
   } catch (e) {
     next(e);

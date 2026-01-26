@@ -54,6 +54,34 @@ export class GoogleCalendarService {
     return google.calendar({ version: 'v3', auth });
   }
 
+  static async freeBusy({ subjectEmail, timeMin, timeMax, calendarId = 'primary' }) {
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    if (!subject) return { ok: false, reason: 'missing_subject_email', busy: [] };
+    if (!timeMin || !timeMax) return { ok: false, reason: 'missing_time_window', busy: [] };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured', busy: [] };
+
+    try {
+      const cal = this.buildCalendarClientForSubject(subject);
+      const r = await cal.freebusy.query({
+        requestBody: {
+          timeMin,
+          timeMax,
+          items: [{ id: calendarId }]
+        }
+      });
+      const busy = r?.data?.calendars?.[calendarId]?.busy || r?.data?.calendars?.primary?.busy || [];
+      return {
+        ok: true,
+        busy: (busy || []).map((b) => ({
+          startAt: b.start || null,
+          endAt: b.end || null
+        })).filter((x) => x.startAt && x.endAt)
+      };
+    } catch (e) {
+      return { ok: false, reason: 'freebusy_failed', error: String(e?.message || e), busy: [] };
+    }
+  }
+
   static async dryRunBookedOfficeEvent({ officeEventId }) {
     const eid = parseInt(officeEventId, 10);
     if (!eid) return { ok: false, reason: 'invalid_office_event_id' };

@@ -216,6 +216,154 @@
                     Only users with a company card should have this turned on.
                   </small>
                 </div>
+
+                <div class="form-group form-group-full">
+                  <div class="section-divider" style="margin: 12px 0 6px;">
+                    <h3 style="margin: 0;">Skill Builders (program)</h3>
+                  </div>
+                  <p class="hint" style="margin: 0 0 10px;">
+                    If enabled, this provider must submit (or confirm) at least 6 hours/week via Submit → Additional Availability.
+                  </p>
+                </div>
+
+                <div class="form-group form-group-full">
+                  <label class="toggle-label">
+                    <span>Skill Builder eligible</span>
+                    <div class="toggle-switch">
+                      <input
+                        id="skill-builder-eligible-toggle"
+                        type="checkbox"
+                        v-model="accountForm.skillBuilderEligible"
+                        :disabled="!isEditingAccount"
+                      />
+                      <span class="slider"></span>
+                    </div>
+                  </label>
+                </div>
+
+                <div class="form-group form-group-full">
+                  <div class="section-divider" style="margin: 12px 0 6px;">
+                    <h3 style="margin: 0;">Schedule Auditing (external)</h3>
+                  </div>
+                  <p class="hint" style="margin: 0 0 10px;">
+                    Optional per-user calendar feed used to overlay “busy” blocks on the schedule for auditing. This displays busy/free only.
+                  </p>
+                </div>
+
+                <div class="form-group form-group-full">
+                  <label>Legacy external busy calendar (single ICS URL) — deprecated</label>
+                  <input
+                    v-model="accountForm.externalBusyIcsUrl"
+                    type="url"
+                    placeholder="https://…/calendar.ics"
+                    disabled
+                  />
+                  <small class="form-help">
+                    Replaced by “External calendars (ICS)” below. This field is retained for backward compatibility.
+                  </small>
+                </div>
+
+                <div v-if="canEditExternalBusyIcsUrl" class="form-group form-group-full">
+                  <div class="section-divider" style="margin: 12px 0 6px;">
+                    <h3 style="margin: 0;">External calendars (ICS)</h3>
+                  </div>
+                  <p class="hint" style="margin: 0 0 10px;">
+                    Add one or more named calendars (e.g., “Bachelors EHR”). Each calendar can have multiple ICS feed URLs.
+                  </p>
+
+                  <div v-if="externalCalendarsError" class="error" style="margin-top: 8px;">{{ externalCalendarsError }}</div>
+                  <div v-if="externalCalendarsLoading" class="muted" style="margin-top: 8px;">Loading external calendars…</div>
+
+                  <div v-else>
+                    <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
+                      <div style="flex: 1; min-width: 240px;">
+                        <label class="lbl">New calendar label</label>
+                        <input class="agency-select" v-model="newExternalCalendarLabel" placeholder="e.g. Bachelors EHR" />
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        @click="createExternalCalendar"
+                        :disabled="externalCalendarsSaving || !newExternalCalendarLabel.trim()"
+                      >
+                        {{ externalCalendarsSaving ? 'Saving…' : 'Create calendar' }}
+                      </button>
+                      <button type="button" class="btn btn-secondary btn-sm" @click="loadExternalCalendars" :disabled="externalCalendarsSaving">
+                        Refresh
+                      </button>
+                    </div>
+
+                    <div v-if="externalCalendars.length === 0" class="muted" style="margin-top: 10px;">
+                      No external calendars yet.
+                    </div>
+
+                    <div v-else style="margin-top: 10px; display:flex; flex-direction: column; gap: 10px;">
+                      <div v-for="c in externalCalendars" :key="`ec-${c.id}`" style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg-alt);">
+                        <div style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+                          <div style="font-weight: 900;">{{ c.label }}</div>
+                          <label class="toggle-label" style="margin:0;">
+                            <span style="font-size: 12px;">Active</span>
+                            <div class="toggle-switch">
+                              <input
+                                type="checkbox"
+                                :checked="!!c.isActive"
+                                :disabled="externalCalendarsSaving"
+                                @change="toggleExternalCalendar(c, $event.target.checked)"
+                              />
+                              <span class="slider"></span>
+                            </div>
+                          </label>
+                        </div>
+
+                        <div class="muted" style="margin-top: 6px;">Feeds</div>
+                        <div v-if="(c.feeds || []).length === 0" class="muted" style="margin-top: 4px;">No feeds yet.</div>
+                        <div v-else style="margin-top: 6px; display:flex; flex-direction: column; gap: 6px;">
+                          <div
+                            v-for="f in c.feeds"
+                            :key="`ecf-${f.id}`"
+                            style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;"
+                          >
+                            <div class="muted" style="max-width: 100%; overflow: hidden; text-overflow: ellipsis;">
+                              {{ f.icsUrl }}
+                            </div>
+                            <label class="toggle-label" style="margin:0;">
+                              <span style="font-size: 12px;">Active</span>
+                              <div class="toggle-switch">
+                                <input
+                                  type="checkbox"
+                                  :checked="!!f.isActive"
+                                  :disabled="externalCalendarsSaving"
+                                  @change="toggleExternalFeed(c, f, $event.target.checked)"
+                                />
+                                <span class="slider"></span>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div style="display:flex; gap: 8px; align-items: end; margin-top: 10px; flex-wrap: wrap;">
+                          <div style="flex: 1; min-width: 260px;">
+                            <label class="lbl">Add ICS URL</label>
+                            <input
+                              class="agency-select"
+                              v-model="newExternalFeedUrlByCalendarId[c.id]"
+                              placeholder="https://…/calendar.ics"
+                              :disabled="externalCalendarsSaving"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            @click="addExternalFeed(c)"
+                            :disabled="externalCalendarsSaving || !String(newExternalFeedUrlByCalendarId[c.id] || '').trim()"
+                          >
+                            Add feed
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 
                 <div v-if="canToggleSupervisorPrivileges" class="form-group form-group-full">
                   <label class="toggle-label">
@@ -849,6 +997,19 @@
           </div>
         </div>
 
+        <div v-if="activeTab === 'schedule_availability'" class="tab-panel">
+          <h2>Schedule & Availability</h2>
+          <p class="hint" style="margin-top: -6px;">
+            Weekly view (Mon–Sun, 7am–9pm). Shows pending requests, school assigned hours, office schedule states, and optional busy overlays.
+          </p>
+
+          <ScheduleAvailabilityGrid
+            :user-id="Number(userId)"
+            :agency-id="Number(agencyStore.currentAgency?.id || 0)"
+            mode="admin"
+          />
+        </div>
+
         <UserTrainingTab
           v-if="activeTab === 'training'"
           :userId="userId"
@@ -1085,6 +1246,7 @@ import UserPayrollTab from '../../components/admin/UserPayrollTab.vue';
 import SupervisorAssignmentManager from '../../components/admin/SupervisorAssignmentManager.vue';
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
 import UserPreferencesHub from '../../components/UserPreferencesHub.vue';
+import ScheduleAvailabilityGrid from '../../components/schedule/ScheduleAvailabilityGrid.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -1234,6 +1396,7 @@ const tabs = computed(() => {
     { id: 'additional', label: 'Additional' },
     ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Provider Info' }] : []),
     ...(canViewProviderInfo.value ? [{ id: 'school_affiliation', label: 'School Affiliation' }] : []),
+    ...(canViewProviderInfo.value ? [{ id: 'schedule_availability', label: 'Schedule & Availability' }] : []),
     { id: 'training', label: 'Training' },
     { id: 'documents', label: 'Documents' },
     { id: 'communications', label: 'Communications' },
@@ -1270,6 +1433,8 @@ const accountForm = ref({
   homePostalCode: '',
   medcancelRateSchedule: 'none',
   companyCardEnabled: false,
+  skillBuilderEligible: false,
+  externalBusyIcsUrl: '',
   role: '',
   credential: '',
   hasSupervisorPrivileges: false,
@@ -1301,6 +1466,102 @@ const canToggleGlobalAvailability = computed(() => {
   const isSelf = parseInt(current.id || 0, 10) === parseInt(userId.value || 0, 10);
   return isAdminLike || isSelf;
 });
+
+const canEditExternalBusyIcsUrl = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return r === 'admin' || r === 'super_admin';
+});
+
+const externalCalendarsLoading = ref(false);
+const externalCalendarsError = ref('');
+const externalCalendarsSaving = ref(false);
+const externalCalendars = ref([]);
+const newExternalCalendarLabel = ref('');
+const newExternalFeedUrlByCalendarId = ref({});
+
+const loadExternalCalendars = async () => {
+  if (!canEditExternalBusyIcsUrl.value) return;
+  try {
+    externalCalendarsLoading.value = true;
+    externalCalendarsError.value = '';
+    const r = await api.get(`/users/${userId.value}/external-calendars`);
+    externalCalendars.value = Array.isArray(r.data?.calendars) ? r.data.calendars : [];
+  } catch (e) {
+    externalCalendars.value = [];
+    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to load external calendars';
+  } finally {
+    externalCalendarsLoading.value = false;
+  }
+};
+
+const createExternalCalendar = async () => {
+  if (!canEditExternalBusyIcsUrl.value) return;
+  const label = String(newExternalCalendarLabel.value || '').trim();
+  if (!label) return;
+  try {
+    externalCalendarsSaving.value = true;
+    externalCalendarsError.value = '';
+    await api.post(`/users/${userId.value}/external-calendars`, { label });
+    newExternalCalendarLabel.value = '';
+    await loadExternalCalendars();
+  } catch (e) {
+    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to create calendar';
+  } finally {
+    externalCalendarsSaving.value = false;
+  }
+};
+
+const addExternalFeed = async (calendar) => {
+  if (!canEditExternalBusyIcsUrl.value) return;
+  const calendarId = Number(calendar?.id || 0);
+  if (!calendarId) return;
+  const url = String(newExternalFeedUrlByCalendarId.value?.[calendarId] || '').trim();
+  if (!url) return;
+  try {
+    externalCalendarsSaving.value = true;
+    externalCalendarsError.value = '';
+    await api.post(`/users/${userId.value}/external-calendars/${calendarId}/feeds`, { icsUrl: url });
+    newExternalFeedUrlByCalendarId.value = { ...(newExternalFeedUrlByCalendarId.value || {}), [calendarId]: '' };
+    await loadExternalCalendars();
+  } catch (e) {
+    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to add feed';
+  } finally {
+    externalCalendarsSaving.value = false;
+  }
+};
+
+const toggleExternalCalendar = async (calendar, enabled) => {
+  if (!canEditExternalBusyIcsUrl.value) return;
+  const calendarId = Number(calendar?.id || 0);
+  if (!calendarId) return;
+  try {
+    externalCalendarsSaving.value = true;
+    externalCalendarsError.value = '';
+    await api.patch(`/users/${userId.value}/external-calendars/${calendarId}`, { isActive: !!enabled });
+    await loadExternalCalendars();
+  } catch (e) {
+    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to update calendar';
+  } finally {
+    externalCalendarsSaving.value = false;
+  }
+};
+
+const toggleExternalFeed = async (calendar, feed, enabled) => {
+  if (!canEditExternalBusyIcsUrl.value) return;
+  const calendarId = Number(calendar?.id || 0);
+  const feedId = Number(feed?.id || 0);
+  if (!calendarId || !feedId) return;
+  try {
+    externalCalendarsSaving.value = true;
+    externalCalendarsError.value = '';
+    await api.patch(`/users/${userId.value}/external-calendars/${calendarId}/feeds/${feedId}`, { isActive: !!enabled });
+    await loadExternalCalendars();
+  } catch (e) {
+    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to update feed';
+  } finally {
+    externalCalendarsSaving.value = false;
+  }
+};
 
 const saveGlobalAvailability = async () => {
   try {
@@ -1498,6 +1759,9 @@ watch(activeTab, async (t) => {
     await loadSchoolAffiliations();
     await loadSchoolAssignments();
   }
+  if (t === 'schedule_availability') {
+    await loadScheduleSummary();
+  }
 });
 
 watch(selectedSchoolAffiliationId, async () => {
@@ -1623,6 +1887,8 @@ const fetchUser = async () => {
       workPhoneExtension: user.value.work_phone_extension || accountForm.value?.workPhoneExtension || '',
       medcancelRateSchedule: ['low', 'high', 'none'].includes(currentMedcancelRateSchedule) ? currentMedcancelRateSchedule : 'none',
       companyCardEnabled: currentCompanyCardEnabled,
+      skillBuilderEligible: user.value.skill_builder_eligible === true || user.value.skill_builder_eligible === 1 || user.value.skill_builder_eligible === '1' || false,
+      externalBusyIcsUrl: String(user.value.external_busy_ics_url || '').trim(),
       role: currentRole,
       hasSupervisorPrivileges: currentHasSupervisorPrivileges || String(currentRoleRaw || '').trim().toLowerCase() === 'supervisor',
       credential: accountForm.value?.credential || '',
@@ -1638,6 +1904,8 @@ const fetchUser = async () => {
     await fetchAccountInfo();
     // Fetch provider credential value (best-effort)
     await fetchProviderCredential();
+    // Fetch external calendars (admin/super_admin only)
+    await loadExternalCalendars();
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load user';
     console.error('Error fetching user:', err);
@@ -2045,8 +2313,14 @@ const saveAccount = async () => {
       homePostalCode: accountForm.value.homePostalCode,
       medcancelRateSchedule: String(accountForm.value.medcancelRateSchedule || 'none').toLowerCase(),
       companyCardEnabled: Boolean(accountForm.value.companyCardEnabled),
+      skillBuilderEligible: Boolean(accountForm.value.skillBuilderEligible),
       role: accountForm.value.role
     };
+
+    // External busy ICS URL: admins/super admins only
+    if (canEditExternalBusyIcsUrl.value) {
+      updateData.externalBusyIcsUrl = String(accountForm.value.externalBusyIcsUrl || '').trim() || null;
+    }
     
     // Include supervisor privileges if user has eligible role
     // Always include it if the toggle is visible (even if false) to ensure it's saved

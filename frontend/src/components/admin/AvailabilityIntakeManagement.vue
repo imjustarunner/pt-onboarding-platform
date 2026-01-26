@@ -72,16 +72,11 @@
             <div v-for="r in schoolRequests" :key="r.id" class="row">
               <div class="main">
                 <div class="title">{{ r.providerName }}</div>
-                <div class="meta">
-                  Preferred schools:
-                  <span v-if="(r.preferredSchoolOrgIds || []).length === 0">Any</span>
-                  <span v-else>{{ r.preferredSchoolOrgIds.map((id) => schoolName(id)).join(', ') }}</span>
-                </div>
                 <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
                 <div class="meta">
-                  Blocks:
+                  Daytime blocks:
                   <span v-for="(b, idx) in r.blocks" :key="idx" class="pill">
-                    {{ b.dayOfWeek }} {{ b.startTime }}–{{ b.endTime }} ({{ b.blockType }})
+                    {{ b.dayOfWeek }} {{ b.startTime }}–{{ b.endTime }}
                   </span>
                 </div>
               </div>

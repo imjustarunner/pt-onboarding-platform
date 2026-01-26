@@ -617,7 +617,9 @@ class User {
       systemPhoneNumber,
       medcancelEnabled,
       medcancelRateSchedule,
-      companyCardEnabled
+      companyCardEnabled,
+      skillBuilderEligible,
+      externalBusyIcsUrl
     } = userData;
     
     // Get current user to check if it's superadmin
@@ -998,6 +1000,48 @@ class User {
         } else {
           // If caller provided this field but DB doesn't have column, fail loudly so admins know to run migrations.
           throw new Error('Database is missing users.company_card_enabled. Run migrations (see database/migrations/173_users_add_company_card_enabled.sql).');
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // Skill Builder program eligibility
+    if (skillBuilderEligible !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'skill_builder_eligible'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('skill_builder_eligible = ?');
+          values.push(skillBuilderEligible ? 1 : 0);
+        } else {
+          throw new Error('Database is missing users.skill_builder_eligible. Run migrations (see database/migrations/250_skill_builder_availability.sql).');
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // External busy calendar ICS URL (for schedule overlays / auditing)
+    if (externalBusyIcsUrl !== undefined) {
+      const url = externalBusyIcsUrl === null ? null : String(externalBusyIcsUrl || '').trim();
+      if (url && url.length > 1024) {
+        throw new Error('externalBusyIcsUrl is too long (max 1024 chars)');
+      }
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'external_busy_ics_url'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('external_busy_ics_url = ?');
+          values.push(url || null);
+        } else {
+          throw new Error('Database is missing users.external_busy_ics_url. Run migrations (see database/migrations/251_user_external_busy_ics.sql).');
         }
       } catch (err) {
         throw err;

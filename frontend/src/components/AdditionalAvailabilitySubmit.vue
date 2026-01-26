@@ -7,11 +7,11 @@
 
     <div v-else>
       <div class="grid">
-        <!-- Building availability request (office slots inside a building) -->
+        <!-- Additional office availability request (office slots inside a building) -->
         <div class="card">
           <div class="card-head">
             <div>
-              <div class="title">Building availability request</div>
+              <div class="title">Additional office availability request</div>
               <div class="muted">For providers who are open to being assigned a temporary office slot inside a building.</div>
             </div>
             <button class="btn btn-secondary btn-sm" @click="refresh" :disabled="saving">Refresh</button>
@@ -48,17 +48,17 @@
             <textarea class="textarea" v-model="officeForm.notes" rows="3" placeholder="Any constraints or preferences…" />
 
             <div class="actions">
-              <button class="btn btn-primary" @click="submitOffice" :disabled="saving">Submit building availability</button>
+              <button class="btn btn-primary" @click="submitOffice" :disabled="saving">Submit office availability</button>
             </div>
           </div>
         </div>
 
-        <!-- School availability request -->
+        <!-- School daytime availability request -->
         <div class="card">
           <div class="card-head">
             <div>
-              <div class="title">School availability request</div>
-              <div class="muted">Share day/time availability for staff to assign you to a school.</div>
+              <div class="title">School daytime availability</div>
+              <div class="muted">Share weekday daytime availability so staff can assign you to a school day (you will not select the school).</div>
             </div>
           </div>
 
@@ -67,14 +67,51 @@
           </div>
 
           <div v-else class="form">
-            <label class="lbl">Preferred schools/programs (optional)</label>
-            <select class="select" multiple v-model="schoolForm.preferredSchoolOrgIds">
-              <option v-for="s in schools" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
-            </select>
-
-            <label class="lbl" style="margin-top: 10px;">Blocks</label>
+            <label class="lbl">Weekday daytime blocks (06:00–18:00)</label>
             <div class="slots">
               <div v-for="(b, idx) in schoolForm.blocks" :key="idx" class="slot-row">
+                <select class="select" v-model="b.dayOfWeek">
+                  <option v-for="d in weekdayNames" :key="d" :value="d">{{ d }}</option>
+                </select>
+                <input class="input" v-model="b.startTime" placeholder="HH:MM" />
+                <input class="input" v-model="b.endTime" placeholder="HH:MM" />
+                <button class="btn btn-secondary btn-sm" @click="removeSchoolBlock(idx)">Remove</button>
+              </div>
+              <button class="btn btn-secondary btn-sm" @click="addSchoolBlock">Add block</button>
+            </div>
+
+            <label class="lbl" style="margin-top: 10px;">Notes (optional)</label>
+            <textarea class="textarea" v-model="schoolForm.notes" rows="3" placeholder="Any constraints or preferences…" />
+
+            <div class="actions">
+              <button class="btn btn-primary" @click="submitSchool" :disabled="saving">Submit school availability</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Skill Builders weekly availability (eligible providers) -->
+        <div class="card" v-if="pending.skillBuilder?.eligible">
+          <div class="card-head">
+            <div>
+              <div class="title">Skill Builders availability (required)</div>
+              <div class="muted">
+                You must submit (or confirm) at least <strong>6 hours/week</strong>.
+              </div>
+            </div>
+          </div>
+
+          <div v-if="pending.skillBuilder.confirmedAt" class="notice">
+            Confirmed for this week at {{ new Date(pending.skillBuilder.confirmedAt).toLocaleString() }}.
+          </div>
+
+          <div class="form">
+            <div class="muted" style="margin-bottom: 10px;">
+              Current saved total: <strong>{{ pending.skillBuilder.totalHoursPerWeek }}</strong> hrs/week.
+            </div>
+
+            <label class="lbl">Availability blocks</label>
+            <div class="slots">
+              <div v-for="(b, idx) in skillBuilderForm.blocks" :key="idx" class="slot-row">
                 <select class="select" v-model="b.dayOfWeek">
                   <option v-for="d in dayNames" :key="d" :value="d">{{ d }}</option>
                 </select>
@@ -87,16 +124,20 @@
                   <input class="input" v-model="b.startTime" placeholder="HH:MM" />
                   <input class="input" v-model="b.endTime" placeholder="HH:MM" />
                 </template>
-                <button class="btn btn-secondary btn-sm" @click="removeSchoolBlock(idx)">Remove</button>
+                <button class="btn btn-secondary btn-sm" @click="removeSkillBuilderBlock(idx)">Remove</button>
               </div>
-              <button class="btn btn-secondary btn-sm" @click="addSchoolBlock">Add block</button>
+              <button class="btn btn-secondary btn-sm" @click="addSkillBuilderBlock">Add block</button>
             </div>
 
-            <label class="lbl" style="margin-top: 10px;">Notes (optional)</label>
-            <textarea class="textarea" v-model="schoolForm.notes" rows="3" placeholder="Any constraints or preferences…" />
+            <div v-if="skillBuilderValidationError" class="error-box" style="margin-top: 10px;">{{ skillBuilderValidationError }}</div>
 
-            <div class="actions">
-              <button class="btn btn-primary" @click="submitSchool" :disabled="saving">Submit school availability</button>
+            <div class="actions" style="gap: 8px;">
+              <button class="btn btn-secondary" @click="confirmSkillBuilder" :disabled="saving || !!skillBuilderValidationError">
+                Confirm current availability
+              </button>
+              <button class="btn btn-primary" @click="submitSkillBuilder" :disabled="saving || !!skillBuilderValidationError">
+                Save / Submit availability
+              </button>
             </div>
           </div>
         </div>
@@ -173,11 +214,11 @@ const error = ref('');
 const pending = reactive({
   officeRequests: [],
   schoolRequests: [],
+  skillBuilder: null,
   supervised: null
 });
 
 const offices = ref([]);
-const schools = ref([]);
 
 const weekdays = [
   { value: 1, label: 'Mon' },
@@ -190,6 +231,7 @@ const weekdays = [
 ];
 
 const dayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const weekdayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
 const hours = Array.from({ length: 15 }, (_, i) => i + 7); // 7..21
 const hoursEnd = Array.from({ length: 16 }, (_, i) => i + 8); // 8..23
 const hourLabel = (h) => {
@@ -205,8 +247,7 @@ const officeForm = reactive({
 });
 
 const schoolForm = reactive({
-  preferredSchoolOrgIds: [],
-  blocks: [{ dayOfWeek: 'Monday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '' }],
+  blocks: [{ dayOfWeek: 'Monday', startTime: '08:00', endTime: '15:00' }],
   notes: ''
 });
 
@@ -218,11 +259,49 @@ const removeOfficeSlot = (idx) => {
 };
 
 const addSchoolBlock = () => {
-  schoolForm.blocks.push({ dayOfWeek: 'Monday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '' });
+  schoolForm.blocks.push({ dayOfWeek: 'Monday', startTime: '08:00', endTime: '15:00' });
 };
 const removeSchoolBlock = (idx) => {
   schoolForm.blocks.splice(idx, 1);
 };
+
+const skillBuilderForm = reactive({
+  blocks: [
+    { dayOfWeek: 'Monday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '' },
+    { dayOfWeek: 'Wednesday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '' },
+    { dayOfWeek: 'Friday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '' }
+  ]
+});
+
+const addSkillBuilderBlock = () => {
+  skillBuilderForm.blocks.push({ dayOfWeek: 'Monday', blockType: 'AFTER_SCHOOL', startTime: '', endTime: '' });
+};
+const removeSkillBuilderBlock = (idx) => {
+  skillBuilderForm.blocks.splice(idx, 1);
+};
+
+const minutesForSkillBlock = (b) => {
+  const t = String(b?.blockType || '').toUpperCase();
+  if (t === 'AFTER_SCHOOL') return 150;
+  if (t === 'WEEKEND') return 240;
+  const st = String(b?.startTime || '').trim();
+  const et = String(b?.endTime || '').trim();
+  if (!/^\d{1,2}:\d{2}$/.test(st) || !/^\d{1,2}:\d{2}$/.test(et)) return 0;
+  const [sh, sm] = st.split(':').map((x) => parseInt(x, 10));
+  const [eh, em] = et.split(':').map((x) => parseInt(x, 10));
+  if (!(sh >= 0 && sh <= 23 && sm >= 0 && sm <= 59)) return 0;
+  if (!(eh >= 0 && eh <= 23 && em >= 0 && em <= 59)) return 0;
+  const a = sh * 60 + sm;
+  const c = eh * 60 + em;
+  return c > a ? (c - a) : 0;
+};
+
+const skillBuilderValidationError = computed(() => {
+  if (!pending.skillBuilder?.eligible) return '';
+  const mins = (skillBuilderForm.blocks || []).reduce((sum, b) => sum + minutesForSkillBlock(b), 0);
+  if (mins < 360) return 'Skill Builders requires at least 6 hours/week. Add more blocks.';
+  return '';
+});
 
 const selection = ref(new Set()); // key = `${weekStart}|${day}|${type}`
 const keyFor = (wk, day, type) => `${wk}|${day}|${type}`;
@@ -255,18 +334,29 @@ const refresh = async () => {
     loading.value = true;
     error.value = '';
 
-    const [pendingResp, officesResp, schoolsResp] = await Promise.all([
+    const [pendingResp, officesResp] = await Promise.all([
       api.get('/availability/me/pending', { params: { agencyId: props.agencyId } }),
-      api.get('/offices'),
-      api.get(`/agencies/${props.agencyId}/affiliated-organizations`)
+      api.get('/offices')
     ]);
 
     pending.officeRequests = pendingResp.data?.officeRequests || [];
     pending.schoolRequests = pendingResp.data?.schoolRequests || [];
+    pending.skillBuilder = pendingResp.data?.skillBuilder || null;
     pending.supervised = pendingResp.data?.supervised || null;
 
     offices.value = officesResp.data || [];
-    schools.value = (schoolsResp.data || []).filter((o) => String(o.organization_type || 'agency').toLowerCase() !== 'agency');
+    // Seed skill builder form from saved blocks (if any)
+    if (pending.skillBuilder?.eligible) {
+      const saved = Array.isArray(pending.skillBuilder.blocks) ? pending.skillBuilder.blocks : [];
+      if (saved.length) {
+        skillBuilderForm.blocks = saved.map((b) => ({
+          dayOfWeek: b.dayOfWeek,
+          blockType: b.blockType,
+          startTime: b.startTime || '',
+          endTime: b.endTime || ''
+        }));
+      }
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load availability';
   } finally {
@@ -298,13 +388,49 @@ const submitSchool = async () => {
     error.value = '';
     await api.post('/availability/school-requests', {
       agencyId: props.agencyId,
-      preferredSchoolOrgIds: schoolForm.preferredSchoolOrgIds.map((x) => Number(x)),
       notes: schoolForm.notes,
-      blocks: schoolForm.blocks
+      blocks: schoolForm.blocks.map((b) => ({ dayOfWeek: b.dayOfWeek, startTime: b.startTime, endTime: b.endTime }))
     });
     await refresh();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to submit school availability';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const submitSkillBuilder = async () => {
+  try {
+    if (skillBuilderValidationError.value) {
+      error.value = skillBuilderValidationError.value;
+      return;
+    }
+    saving.value = true;
+    error.value = '';
+    await api.post('/availability/me/skill-builder/submit', {
+      agencyId: props.agencyId,
+      blocks: skillBuilderForm.blocks
+    });
+    await refresh();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to submit Skill Builder availability';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const confirmSkillBuilder = async () => {
+  try {
+    if (skillBuilderValidationError.value) {
+      error.value = skillBuilderValidationError.value;
+      return;
+    }
+    saving.value = true;
+    error.value = '';
+    await api.post('/availability/me/skill-builder/confirm', { agencyId: props.agencyId });
+    await refresh();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to confirm Skill Builder availability';
   } finally {
     saving.value = false;
   }

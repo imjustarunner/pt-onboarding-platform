@@ -15,6 +15,19 @@ function normalizeMultiSelect(raw) {
   return s.split(',').map((x) => x.trim()).filter(Boolean);
 }
 
+function isBachelorsCredentialText(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  if (lower.includes('bachelor')) return true;
+  // Look for BA/BS tokens as standalone words
+  if (/\bba\b/i.test(s)) return true;
+  if (/\bbs\b/i.test(s)) return true;
+  if (/\bb\.a\.\b/i.test(lower)) return true;
+  if (/\bb\.s\.\b/i.test(lower)) return true;
+  return false;
+}
+
 class ProviderSearchIndex {
   static async upsertForUserInAgency({ userId, agencyId, fieldKeys = null }) {
     const uid = Number(userId);
@@ -82,6 +95,16 @@ class ProviderSearchIndex {
            VALUES (?, ?, ?, ?, ?, NULL)`,
           [aid, uid, fieldKey, fieldType, text]
         );
+
+        // Derived tag: degree_level=bachelors from credentialing text
+        if (fieldKey === 'provider_credential' && isBachelorsCredentialText(text)) {
+          await pool.execute(
+            `INSERT INTO provider_search_index
+             (agency_id, user_id, field_key, field_type, value_text, value_option)
+             VALUES (?, ?, 'degree_level', 'multi_select', NULL, 'bachelors')`,
+            [aid, uid]
+          );
+        }
       }
     }
 

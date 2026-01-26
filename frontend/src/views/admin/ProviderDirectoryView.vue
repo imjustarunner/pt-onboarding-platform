@@ -36,6 +36,14 @@
         </div>
       </div>
 
+      <div style="margin-top: 12px; display:flex; align-items:center; gap: 10px; flex-wrap: wrap;">
+        <label style="display:inline-flex; align-items:center; gap: 8px; font-weight: 700;">
+          <input type="checkbox" v-model="bachelorsOnly" />
+          <span>Bachelors only</span>
+        </label>
+        <span class="muted" style="font-size: 12px;">Uses credentialing field <code>provider_credential</code> to tag bachelor-level providers.</span>
+      </div>
+
       <div v-if="aiEnabled" class="card" style="margin-top: 12px;">
         <h4 style="margin: 0 0 8px 0;">AI (Gemini) – Generate filters</h4>
         <div class="field-row" style="grid-template-columns: 1fr auto; gap: 10px; align-items: end;">
@@ -364,7 +372,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
@@ -397,6 +405,20 @@ const total = ref(0);
 const loading = ref(false);
 const error = ref('');
 const rebuilding = ref(false);
+
+const bachelorsOnly = ref(false);
+const ensureBachelorsFilter = () => {
+  const key = 'degree_level';
+  const op = 'hasOption';
+  const value = 'bachelors';
+  const has = (filters.value || []).some((f) => f?.fieldKey === key && f?.op === op && String(f?.value || '') === value);
+  if (bachelorsOnly.value) {
+    if (!has) filters.value.push({ fieldKey: key, op, value });
+  } else {
+    filters.value = (filters.value || []).filter((f) => !(f?.fieldKey === key && f?.op === op && String(f?.value || '') === value));
+  }
+};
+watch(bachelorsOnly, () => ensureBachelorsFilter());
 
 const aiQuery = ref('');
 const compilingAi = ref(false);
@@ -484,6 +506,7 @@ const runSearch = async () => {
   try {
     loading.value = true;
     error.value = '';
+    ensureBachelorsFilter();
     const payload = {
       agencyId: agencyId.value,
       textQuery: textQuery.value || '',
@@ -513,6 +536,7 @@ const compileAi = async () => {
       allowedFields: searchableFields.value
     });
     filters.value = Array.isArray(r.data?.filters) ? r.data.filters : [];
+    ensureBachelorsFilter();
     aiExplanation.value = r.data?.explanation || '';
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'AI compile failed';

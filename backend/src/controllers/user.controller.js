@@ -12,9 +12,28 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { getUserCapabilities } from '../utils/capabilities.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
+import GoogleCalendarService from '../services/googleCalendar.service.js';
+import ExternalBusyCalendarService from '../services/externalBusyCalendar.service.js';
+import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const isAdminOrSuperAdmin = (req) => {
+  const r = String(req.user?.role || '').toLowerCase();
+  return r === 'admin' || r === 'super_admin';
+};
+
+async function requireSharedAgencyAccessOrSuperAdmin({ actorUserId, targetUserId, actorRole }) {
+  const r = String(actorRole || '').toLowerCase();
+  if (r === 'super_admin') return true;
+  const actorAgencies = await User.getAgencies(actorUserId);
+  const targetAgencies = await User.getAgencies(targetUserId);
+  const actorIds = new Set((actorAgencies || []).map((a) => Number(a.id)));
+  const shared = (targetAgencies || []).map((a) => Number(a.id)).filter((id) => actorIds.has(id));
+  return shared.length > 0;
+}
 
 export const getCurrentUser = async (req, res, next) => {
   try {
@@ -1182,7 +1201,9 @@ export const updateUser = async (req, res, next) => {
       medcancelEnabled,
       medcancelRateSchedule,
       companyCardEnabled,
-      billingAcknowledged
+      billingAcknowledged,
+      skillBuilderEligible,
+      externalBusyIcsUrl
     } = req.body;
     const loginEmailAliases = req.body?.loginEmailAliases;
 
@@ -1533,6 +1554,18 @@ export const updateUser = async (req, res, next) => {
     // Company Card (contract feature)
     if (companyCardEnabled !== undefined) updateData.companyCardEnabled = Boolean(companyCardEnabled);
 
+    // Skill Builder eligibility (provider program)
+    if (skillBuilderEligible !== undefined) updateData.skillBuilderEligible = Boolean(skillBuilderEligible);
+
+    // External busy calendar (ICS) URL (admin/support/super admin only)
+    if (externalBusyIcsUrl !== undefined) {
+      if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+        return res.status(403).json({ error: { message: 'Only admins or super admins can change external busy calendar URL' } });
+      }
+      const v = externalBusyIcsUrl === null ? null : String(externalBusyIcsUrl || '').trim();
+      updateData.externalBusyIcsUrl = v || null;
+    }
+
     console.log('Calling User.update with updateData:', updateData);
     const user = await User.update(id, updateData);
     console.log('User.update returned user:', user ? {
@@ -1554,6 +1587,476 @@ export const updateUser = async (req, res, next) => {
     }
     console.error('Error updating user:', error);
     next(error);
+  }
+};
+
+function startOfWeekMondayYmd(dateStr) {
+  const d = new Date(`${String(dateStr || '').slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const diff = (day === 0 ? -6 : 1) - day; // shift to Monday
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function addDaysYmd(ymd, days) {
+  const d = new Date(`${String(ymd).slice(0, 10)}T00:00:00`);
+  d.setDate(d.getDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+const canViewProviderScheduleSummary = (role) => {
+  const r = String(role || '').toLowerCase();
+  return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff' || r === 'clinical_practice_assistant';
+};
+
+export const getUserScheduleSummary = async (req, res, next) => {
+  try {
+    const pool = (await import('../config/database.js')).default;
+
+    const providerId = parseInt(req.params.id, 10);
+    if (!providerId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    const isSelf = Number(req.user?.id || 0) === Number(providerId);
+    if (!isSelf && !canViewProviderScheduleSummary(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const provider = await User.findById(providerId);
+    if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
+
+    // Resolve agency context (used for access checks + scoping)
+    let agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) {
+      try {
+        // fallback to requester's first agency (super_admin may have none)
+        const reqAgencies = await User.getAgencies(req.user.id);
+        agencyId = reqAgencies?.[0]?.id ? Number(reqAgencies[0].id) : null;
+      } catch {
+        agencyId = null;
+      }
+    }
+
+    // Access control: super_admin can view any user; otherwise must share agency with provider.
+    if (!isSelf && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      const actorAgencies = await User.getAgencies(req.user.id);
+      const targetAgencies = await User.getAgencies(providerId);
+      const actorIds = new Set((actorAgencies || []).map((a) => Number(a.id)));
+      const shared = (targetAgencies || []).map((a) => Number(a.id)).filter((id) => actorIds.has(id));
+      if (shared.length === 0) return res.status(403).json({ error: { message: 'Access denied' } });
+      if (!agencyId || !shared.includes(Number(agencyId))) {
+        agencyId = shared[0];
+      }
+    }
+
+    const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const weekStart = startOfWeekMondayYmd(weekStartRaw);
+    if (!weekStart) return res.status(400).json({ error: { message: 'weekStart must be YYYY-MM-DD' } });
+    const weekEnd = addDaysYmd(weekStart, 7);
+
+    const windowStart = `${weekStart} 00:00:00`;
+    const windowEnd = `${weekEnd} 00:00:00`;
+    const timeMinIso = `${weekStart}T00:00:00Z`;
+    const timeMaxIso = `${weekEnd}T00:00:00Z`;
+
+    const includeGoogleBusy = String(req.query.includeGoogleBusy || '').toLowerCase() === 'true';
+    const includeExternalBusy = String(req.query.includeExternalBusy || '').toLowerCase() === 'true';
+    const externalCalendarIdsRaw = String(req.query.externalCalendarIds || '').trim();
+    const externalCalendarIds = externalCalendarIdsRaw
+      ? externalCalendarIdsRaw
+        .split(',')
+        .map((x) => parseInt(String(x).trim(), 10))
+        .filter((n) => Number.isInteger(n) && n > 0)
+      : [];
+
+    // Ensure office_events are materialized for this week for buildings relevant to this provider (best-effort).
+    try {
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT osa.office_location_id
+         FROM office_standing_assignments osa
+         JOIN office_location_agencies ola ON ola.office_location_id = osa.office_location_id
+         WHERE osa.provider_id = ?
+           AND osa.is_active = TRUE
+           AND ola.agency_id = ?`,
+        [providerId, agencyId]
+      );
+      const officeLocationIds = (rows || []).map((r) => Number(r.office_location_id)).filter((n) => Number.isInteger(n) && n > 0);
+      for (const officeLocationId of officeLocationIds) {
+        try {
+          await OfficeScheduleMaterializer.materializeWeek({
+            officeLocationId,
+            weekStartRaw: weekStart,
+            createdByUserId: req.user.id
+          });
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // ignore if tables don't exist yet
+    }
+
+    // 1) Pending office availability requests (PENDING)
+    const officeRequests = [];
+    try {
+      const [reqRows] = await pool.execute(
+        `SELECT id, preferred_office_ids_json, notes, created_at
+         FROM provider_office_availability_requests
+         WHERE agency_id = ? AND provider_id = ? AND status = 'PENDING'
+         ORDER BY created_at DESC`,
+        [agencyId, providerId]
+      );
+      for (const r of reqRows || []) {
+        const [slotRows] = await pool.execute(
+          `SELECT weekday, start_hour, end_hour
+           FROM provider_office_availability_request_slots
+           WHERE request_id = ?
+           ORDER BY weekday ASC, start_hour ASC`,
+          [r.id]
+        );
+        officeRequests.push({
+          id: r.id,
+          notes: r.notes || '',
+          createdAt: r.created_at,
+          preferredOfficeIds: r.preferred_office_ids_json ? JSON.parse(r.preferred_office_ids_json) : [],
+          slots: (slotRows || []).map((s) => ({ weekday: s.weekday, startHour: s.start_hour, endHour: s.end_hour }))
+        });
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    // 2) Pending school daytime availability requests (PENDING)
+    const schoolRequests = [];
+    try {
+      const [reqRows] = await pool.execute(
+        `SELECT id, notes, created_at
+         FROM provider_school_availability_requests
+         WHERE agency_id = ? AND provider_id = ? AND status = 'PENDING'
+         ORDER BY created_at DESC`,
+        [agencyId, providerId]
+      );
+      for (const r of reqRows || []) {
+        const [blockRows] = await pool.execute(
+          `SELECT day_of_week, block_type, start_time, end_time
+           FROM provider_school_availability_request_blocks
+           WHERE request_id = ?
+           ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
+          [r.id]
+        );
+        schoolRequests.push({
+          id: r.id,
+          notes: r.notes || '',
+          createdAt: r.created_at,
+          blocks: (blockRows || []).map((b) => ({
+            dayOfWeek: b.day_of_week,
+            blockType: b.block_type,
+            startTime: String(b.start_time || '').slice(0, 5),
+            endTime: String(b.end_time || '').slice(0, 5)
+          }))
+        });
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    // 3) School scheduled hours (provider_school_assignments; not soft schedule)
+    let schoolAssignments = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           psa.school_organization_id,
+           a.name AS school_name,
+           psa.day_of_week,
+           psa.start_time,
+           psa.end_time
+         FROM provider_school_assignments psa
+         JOIN agencies a ON a.id = psa.school_organization_id
+         JOIN organization_affiliations oa ON oa.organization_id = psa.school_organization_id AND oa.agency_id = ? AND oa.is_active = TRUE
+         WHERE psa.provider_user_id = ?
+           AND psa.is_active = TRUE
+         ORDER BY FIELD(psa.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday'), psa.start_time ASC`,
+        [agencyId, providerId]
+      );
+      schoolAssignments = (rows || []).map((r) => ({
+        schoolOrgId: r.school_organization_id,
+        schoolName: r.school_name,
+        dayOfWeek: r.day_of_week,
+        startTime: String(r.start_time || '').slice(0, 5),
+        endTime: String(r.end_time || '').slice(0, 5)
+      }));
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    // 4) Office schedule (office_events with slot_state)
+    let officeEvents = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           e.id,
+           e.office_location_id,
+           ol.name AS building_name,
+           e.room_id,
+           r.room_number,
+           r.label AS room_label,
+           r.name AS room_name,
+           e.start_at,
+           e.end_at,
+           e.status,
+           e.slot_state
+         FROM office_events e
+         JOIN office_rooms r ON r.id = e.room_id
+         JOIN office_locations ol ON ol.id = e.office_location_id
+         JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
+         WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
+           AND e.start_at < ?
+           AND e.end_at > ?
+         ORDER BY e.start_at ASC`,
+        [agencyId, providerId, providerId, windowEnd, windowStart]
+      );
+      officeEvents = (rows || []).map((r) => ({
+        id: r.id,
+        buildingId: r.office_location_id,
+        buildingName: r.building_name,
+        roomId: r.room_id,
+        roomNumber: r.room_number,
+        roomLabel: r.room_label || r.room_name,
+        startAt: r.start_at,
+        endAt: r.end_at,
+        status: r.status,
+        slotState: r.slot_state
+      }));
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    // 5) Optional busy overlays (busy blocks only)
+    let googleBusy = [];
+    let externalBusy = [];
+    let externalCalendarsAvailable = [];
+    let externalCalendars = [];
+
+    // Always include available calendars (labels only; no URLs)
+    try {
+      externalCalendarsAvailable = await UserExternalCalendar.listAvailableCalendars({ userId: providerId });
+    } catch {
+      externalCalendarsAvailable = [];
+    }
+
+    if (includeGoogleBusy) {
+      try {
+        const providerEmail = String(provider?.email || '').trim().toLowerCase();
+        const r = await GoogleCalendarService.freeBusy({
+          subjectEmail: providerEmail,
+          timeMin: timeMinIso,
+          timeMax: timeMaxIso,
+          calendarId: 'primary'
+        });
+        if (r?.ok) googleBusy = r.busy || [];
+      } catch {
+        googleBusy = [];
+      }
+    }
+
+    // New: per-calendar external busy overlays
+    // - If externalCalendarIds is provided, return per-calendar busy for those ids.
+    // - If includeExternalBusy=true and no ids provided, fall back to legacy single-URL behavior.
+    if (externalCalendarIds.length > 0) {
+      try {
+        const feeds = await UserExternalCalendar.listFeedsForCalendars({
+          userId: providerId,
+          calendarIds: externalCalendarIds,
+          activeOnly: true
+        });
+        const byCalendar = new Map();
+        for (const f of feeds || []) {
+          if (!byCalendar.has(f.calendarId)) {
+            byCalendar.set(f.calendarId, { id: f.calendarId, label: f.calendarLabel, feeds: [] });
+          }
+          byCalendar.get(f.calendarId).feeds.push({ id: f.feedId, url: f.icsUrl });
+        }
+        const calendarsToFetch = Array.from(byCalendar.values());
+        const out = [];
+        for (const c of calendarsToFetch) {
+          // Busy per feed is fetched/parsed server-side; we union per calendar in the service layer.
+          const r = await ExternalBusyCalendarService.getBusyForFeeds({
+            userId: providerId,
+            weekStart,
+            feeds: c.feeds,
+            timeMinIso,
+            timeMaxIso
+          });
+          out.push({ id: c.id, label: c.label, busy: r?.ok ? (r.busy || []) : [] });
+        }
+        externalCalendars = out;
+      } catch {
+        externalCalendars = [];
+      }
+    } else if (includeExternalBusy) {
+      try {
+        const icsUrl = provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || null;
+        const r = await ExternalBusyCalendarService.getBusyForWeek({
+          userId: providerId,
+          weekStart,
+          icsUrl,
+          timeMinIso,
+          timeMaxIso
+        });
+        if (r?.ok) externalBusy = r.busy || [];
+      } catch {
+        externalBusy = [];
+      }
+    }
+
+    res.json({
+      ok: true,
+      providerId,
+      agencyId,
+      weekStart,
+      weekEnd,
+      windowStart,
+      windowEnd,
+      officeRequests,
+      schoolRequests,
+      schoolAssignments,
+      officeEvents,
+      externalCalendarsAvailable,
+      ...(externalCalendarIds.length ? { externalCalendars } : {}),
+      ...(includeGoogleBusy ? { googleBusy } : {}),
+      ...(includeExternalBusy ? { externalBusy } : {})
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getUserExternalCalendars = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const ok = await requireSharedAgencyAccessOrSuperAdmin({
+      actorUserId: req.user.id,
+      targetUserId: userId,
+      actorRole: req.user.role
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const calendars = await UserExternalCalendar.listForUser({ userId, includeFeeds: true, activeOnly: false });
+    res.json({ ok: true, userId, calendars });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createUserExternalCalendar = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const ok = await requireSharedAgencyAccessOrSuperAdmin({
+      actorUserId: req.user.id,
+      targetUserId: userId,
+      actorRole: req.user.role
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const label = String(req.body?.label || '').trim();
+    if (!label) return res.status(400).json({ error: { message: 'label is required' } });
+
+    const calendar = await UserExternalCalendar.createCalendar({
+      userId,
+      label,
+      createdByUserId: req.user.id
+    });
+    res.status(201).json({ ok: true, calendar });
+  } catch (e) {
+    if (e?.statusCode === 409) return res.status(409).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const addUserExternalCalendarFeed = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const calendarId = parseInt(req.params.calendarId, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    if (!calendarId) return res.status(400).json({ error: { message: 'Invalid calendar id' } });
+    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const ok = await requireSharedAgencyAccessOrSuperAdmin({
+      actorUserId: req.user.id,
+      targetUserId: userId,
+      actorRole: req.user.role
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const icsUrl = String(req.body?.icsUrl || '').trim();
+    if (!icsUrl) return res.status(400).json({ error: { message: 'icsUrl is required' } });
+
+    const feed = await UserExternalCalendar.addFeed({ userId, calendarId, icsUrl });
+    res.status(201).json({ ok: true, feed });
+  } catch (e) {
+    if (e?.statusCode === 404) return res.status(404).json({ error: { message: e.message } });
+    if (e?.statusCode === 409) return res.status(409).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const patchUserExternalCalendar = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const calendarId = parseInt(req.params.calendarId, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    if (!calendarId) return res.status(400).json({ error: { message: 'Invalid calendar id' } });
+    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const ok = await requireSharedAgencyAccessOrSuperAdmin({
+      actorUserId: req.user.id,
+      targetUserId: userId,
+      actorRole: req.user.role
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const isActive = req.body?.isActive;
+    if (isActive === undefined) return res.status(400).json({ error: { message: 'isActive is required' } });
+
+    const updated = await UserExternalCalendar.setCalendarActive({ userId, calendarId, isActive });
+    if (!updated) return res.status(404).json({ error: { message: 'Calendar not found' } });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const patchUserExternalCalendarFeed = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    const calendarId = parseInt(req.params.calendarId, 10);
+    const feedId = parseInt(req.params.feedId, 10);
+    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+    if (!calendarId) return res.status(400).json({ error: { message: 'Invalid calendar id' } });
+    if (!feedId) return res.status(400).json({ error: { message: 'Invalid feed id' } });
+    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const ok = await requireSharedAgencyAccessOrSuperAdmin({
+      actorUserId: req.user.id,
+      targetUserId: userId,
+      actorRole: req.user.role
+    });
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const isActive = req.body?.isActive;
+    if (isActive === undefined) return res.status(400).json({ error: { message: 'isActive is required' } });
+
+    const updated = await UserExternalCalendar.setFeedActive({ userId, calendarId, feedId, isActive });
+    if (!updated) return res.status(404).json({ error: { message: 'Feed not found' } });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
   }
 };
 

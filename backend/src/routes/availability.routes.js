@@ -4,6 +4,8 @@ import {
   getMyAvailabilityPending,
   createMyOfficeAvailabilityRequest,
   createMySchoolAvailabilityRequest,
+  submitMySkillBuilderAvailability,
+  confirmMySkillBuilderAvailability,
   confirmMySupervisedAvailability,
   listOfficeAvailabilityRequests,
   assignTemporaryOfficeFromRequest,
@@ -14,7 +16,8 @@ import {
   deactivateAvailableSkill,
   setProviderSkills,
   listProvidersForAvailability,
-  searchAvailability
+  searchAvailability,
+  getAdminPendingCounts
 } from '../controllers/availability.controller.js';
 
 const router = express.Router();
@@ -24,6 +27,8 @@ router.use(authenticate);
 router.get('/me/pending', getMyAvailabilityPending);
 router.post('/office-requests', createMyOfficeAvailabilityRequest);
 router.post('/school-requests', createMySchoolAvailabilityRequest);
+router.post('/me/skill-builder/submit', submitMySkillBuilderAvailability);
+router.post('/me/skill-builder/confirm', confirmMySkillBuilderAvailability);
 router.post('/me/supervised/confirm', confirmMySupervisedAvailability);
 
 // Admin/staff tools (RBAC is enforced inside controller)
@@ -38,6 +43,7 @@ router.post('/admin/skills/:skillId/deactivate', deactivateAvailableSkill);
 router.put('/admin/providers/:providerId/skills', setProviderSkills);
 router.get('/admin/providers', listProvidersForAvailability);
 
+router.get('/admin/pending-counts', getAdminPendingCounts);
 router.get('/admin/search', searchAvailability);
 
 export default router;
