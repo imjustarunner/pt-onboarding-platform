@@ -1,30 +1,44 @@
 <template>
   <div class="sched-wrap">
     <div class="sched-toolbar">
-      <button class="btn btn-secondary btn-sm" type="button" @click="prevWeek" :disabled="loading">← Prev week</button>
-      <div class="sched-week-label">Week of {{ weekStart }}</div>
-      <button class="btn btn-secondary btn-sm" type="button" @click="nextWeek" :disabled="loading">Next week →</button>
+      <div class="sched-toolbar-top">
+        <h2 class="sched-week-title">Week of {{ weekStart }}</h2>
+      </div>
+      <div class="sched-toolbar-main">
+        <div class="sched-toolbar-left">
+          <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="prevWeek" :disabled="loading">← Prev</button>
+          <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="nextWeek" :disabled="loading">Next →</button>
+        </div>
 
-      <div class="sched-spacer" />
+        <div class="sched-toolbar-right">
+          <label class="sched-toggle">
+            <input type="checkbox" v-model="showGoogleBusy" :disabled="loading" />
+            <span>Google busy</span>
+          </label>
 
-      <label class="sched-toggle">
-        <input type="checkbox" v-model="showGoogleBusy" :disabled="loading" />
-        <span>Show Google busy</span>
-      </label>
-      <div v-if="externalCalendarsAvailable.length" class="sched-calendars">
-        <div class="sched-calendars-label">EHR calendars</div>
-        <label v-for="c in externalCalendarsAvailable" :key="`cal-${c.id}`" class="sched-toggle">
-          <input
-            type="checkbox"
-            v-model="selectedExternalCalendarIds"
-            :value="Number(c.id)"
-            :disabled="loading"
-          />
-          <span>{{ c.label }}</span>
-        </label>
+          <label class="sched-toggle">
+            <input type="checkbox" v-model="hideWeekend" :disabled="loading" />
+            <span>Hide weekends</span>
+          </label>
+
+          <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="load" :disabled="loading">Refresh</button>
+        </div>
       </div>
 
-      <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">Refresh</button>
+      <div v-if="externalCalendarsAvailable.length" class="sched-toolbar-secondary">
+        <div class="sched-calendars">
+          <div class="sched-calendars-label">EHR calendars</div>
+          <label v-for="c in externalCalendarsAvailable" :key="`cal-${c.id}`" class="sched-toggle">
+            <input
+              type="checkbox"
+              v-model="selectedExternalCalendarIds"
+              :value="Number(c.id)"
+              :disabled="loading"
+            />
+            <span>{{ c.label }}</span>
+          </label>
+        </div>
+      </div>
     </div>
 
     <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
@@ -41,15 +55,15 @@
         <div class="legend-item" v-if="selectedExternalCalendarIds.length"><span class="dot dot-ebusy"></span> EHR busy</div>
       </div>
 
-      <div class="sched-grid">
+      <div class="sched-grid" :style="gridStyle">
         <div class="sched-head-cell"></div>
-        <div v-for="d in days" :key="d" class="sched-head-cell">{{ d }}</div>
+        <div v-for="d in visibleDays" :key="d" class="sched-head-cell">{{ d }}</div>
 
         <template v-for="h in hours" :key="`h-${h}`">
           <div class="sched-hour">{{ hourLabel(h) }}</div>
 
           <button
-            v-for="d in days"
+            v-for="d in visibleDays"
             :key="`c-${d}-${h}`"
             type="button"
             class="sched-cell"
@@ -132,10 +146,12 @@ import api from '../../services/api';
 const props = defineProps({
   userId: { type: Number, required: true },
   agencyId: { type: [Number, String], default: null },
-  mode: { type: String, default: 'self' } // 'self' | 'admin'
+  mode: { type: String, default: 'self' }, // 'self' | 'admin'
+  // Optional: parent-controlled weekStart (any date; normalized to Monday).
+  weekStartYmd: { type: String, default: null }
 });
 
-const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const hours = Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21
 
 const loading = ref(false);
@@ -144,6 +160,19 @@ const summary = ref(null);
 
 const showGoogleBusy = ref(false);
 const selectedExternalCalendarIds = ref([]);
+const hideWeekend = ref(props.mode === 'self');
+
+const visibleDays = computed(() => (hideWeekend.value ? ALL_DAYS.slice(0, 5) : ALL_DAYS.slice()));
+
+const gridStyle = computed(() => {
+  const cols = visibleDays.value.length;
+  const dayMin = 120;
+  const timeCol = 90;
+  return {
+    gridTemplateColumns: `${timeCol}px repeat(${cols}, minmax(${dayMin}px, 1fr))`,
+    minWidth: `${timeCol + cols * dayMin}px`
+  };
+});
 
 const externalCalendarsAvailable = computed(() => {
   const s = summary.value;
@@ -183,7 +212,7 @@ const localYmd = (d) => {
   return `${yy}-${mm}-${dd}`;
 };
 
-const weekStart = ref(startOfWeekMondayYmd(new Date()));
+const weekStart = ref(startOfWeekMondayYmd(props.weekStartYmd || new Date()));
 
 const effectiveAgencyId = computed(() => {
   const n = Number(props.agencyId || 0);
@@ -226,6 +255,18 @@ const load = async () => {
 watch([() => props.userId, effectiveAgencyId], () => load(), { immediate: true });
 watch([showGoogleBusy, selectedExternalCalendarIds], () => load(), { deep: true });
 
+watch(
+  () => props.weekStartYmd,
+  (next) => {
+    if (!next) return;
+    const monday = startOfWeekMondayYmd(next);
+    if (monday && monday !== weekStart.value) {
+      weekStart.value = monday;
+      load();
+    }
+  }
+);
+
 watch(externalCalendarsAvailable, (next) => {
   // Drop selections that no longer exist in the available list.
   const allowed = new Set((next || []).map((c) => Number(c.id)));
@@ -264,7 +305,7 @@ const hasRequest = (dayName, hour) => {
   if (!s) return false;
   for (const r of s.officeRequests || []) {
     for (const slot of r.slots || []) {
-      const dn = days[((Number(slot.weekday) + 6) % 7)] || null; // 0=Sun -> Sunday(end), 1=Mon -> Monday
+      const dn = ALL_DAYS[((Number(slot.weekday) + 6) % 7)] || null; // 0=Sun -> Sunday(end), 1=Mon -> Monday
       if (dn !== dayName) continue;
       if (Number(hour) >= Number(slot.startHour) && Number(hour) < Number(slot.endHour)) return true;
     }
@@ -313,7 +354,7 @@ const officeState = (dayName, hour) => {
     const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
     if (Number.isNaN(startLocal.getTime())) continue;
     const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
-    const dn = days[idx] || null;
+    const dn = ALL_DAYS[idx] || null;
     if (dn !== dayName) continue;
     if (startLocal.getHours() !== Number(hour)) continue;
     const r = stateRank(e.slotState);
@@ -331,14 +372,14 @@ const hasBusyIntervals = (busyList, dayName, hour, ws) => {
     const end = new Date(b.endAt);
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
     const idx = dayIndexForDateLocal(localYmd(start), ws);
-    const dn = days[idx] || null;
+    const dn = ALL_DAYS[idx] || null;
     // Also handle intervals that span days by checking the localYmd for the hour cell’s day.
     if (dn !== dayName && localYmd(end) !== localYmd(start)) {
       // fallthrough: we’ll rely on overlap check below using day boundary
     }
 
     // Check overlap against the cell’s local hour window.
-    const cellDate = addDaysYmd(ws, days.indexOf(dayName));
+    const cellDate = addDaysYmd(ws, ALL_DAYS.indexOf(dayName));
     const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
     const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
     if (end > cellStart && start < cellEnd) return true;
@@ -501,18 +542,43 @@ watch(modalHour, () => {
 </script>
 
 <style scoped>
-.sched-toolbar {
+.sched-toolbar { margin-top: 10px; }
+.sched-toolbar-top {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.sched-week-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.sched-toolbar-main {
   display: flex;
   gap: 10px;
   align-items: center;
-  flex-wrap: wrap;
-  margin-top: 10px;
+  flex-wrap: nowrap;
+  justify-content: space-between;
 }
-.sched-week-label {
-  font-weight: 800;
+.sched-toolbar-left,
+.sched-toolbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
 }
-.sched-spacer {
-  flex: 1;
+.sched-btn {
+  width: auto;
+  min-width: auto;
+  white-space: nowrap;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+.sched-toolbar-secondary {
+  margin-top: 8px;
 }
 .sched-toggle {
   display: inline-flex;
@@ -537,6 +603,7 @@ watch(modalHour, () => {
 }
 .sched-grid-wrap {
   margin-top: 12px;
+  overflow-x: auto;
 }
 .legend {
   display: flex;
@@ -553,7 +620,6 @@ watch(modalHour, () => {
 }
 .sched-grid {
   display: grid;
-  grid-template-columns: 90px repeat(7, minmax(120px, 1fr));
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
@@ -563,6 +629,14 @@ watch(modalHour, () => {
   font-weight: 900;
   background: var(--bg-alt);
   border-bottom: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sched-grid > .sched-head-cell:first-child {
+  border-left: none;
 }
 .sched-hour {
   padding: 8px 10px;
@@ -647,6 +721,16 @@ watch(modalHour, () => {
   margin-top: 12px;
   display: flex;
   justify-content: flex-end;
+}
+
+@media (max-width: 860px) {
+  .sched-toolbar-main {
+    flex-wrap: wrap;
+  }
+  .sched-toolbar-left,
+  .sched-toolbar-right {
+    flex-wrap: wrap;
+  }
 }
 </style>
 

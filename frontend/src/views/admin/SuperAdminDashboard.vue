@@ -242,6 +242,17 @@ const quickActions = computed(() => ([
     capabilities: ['canUseChat']
   },
   {
+    id: 'external_calendar_audit',
+    title: 'Agency Calendar',
+    description: 'Review provider schedules with calendar busy overlays',
+    to: '/admin/external-calendar-audit',
+    emoji: '🗓️',
+    iconKey: 'external_calendar_audit',
+    category: 'Scheduling',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'notifications',
     title: 'Notifications',
     description: 'View all notifications',
@@ -304,6 +315,7 @@ const defaultQuickActionIds = computed(() => ([
   'manage_modules',
   'manage_documents',
   'manage_users',
+  'external_calendar_audit',
   'notifications',
   'communications',
   'chats',

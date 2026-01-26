@@ -313,6 +313,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/external-calendar-audit',
+    name: 'OrganizationExternalCalendarAudit',
+    component: () => import('../views/admin/ExternalCalendarAuditView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/documents',
     name: 'OrganizationDocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
@@ -571,6 +577,12 @@ const routes = [
     path: '/admin/schedule-approvals',
     name: 'OfficeScheduleApprovals',
     component: () => import('../views/admin/OfficeScheduleApprovalsView.vue'),
+    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+  },
+  {
+    path: '/admin/external-calendar-audit',
+    name: 'ExternalCalendarAudit',
+    component: () => import('../views/admin/ExternalCalendarAuditView.vue'),
     meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
   },
   {

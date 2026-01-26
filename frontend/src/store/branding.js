@@ -641,6 +641,7 @@ export const useBrandingStore = defineStore('branding', () => {
       manage_modules: 'manage_modules_icon_path',
       manage_documents: 'manage_documents_icon_path',
       manage_users: 'manage_users_icon_path',
+      external_calendar_audit: 'external_calendar_audit_icon_path',
       dashboard_notifications: 'dashboard_notifications_icon_path',
       dashboard_communications: 'dashboard_communications_icon_path',
       dashboard_chats: 'dashboard_chats_icon_path',

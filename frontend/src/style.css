@@ -108,6 +108,11 @@ h1 {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-width: auto;
   padding: 12px 24px;
   border: none;
   border-radius: 8px;

@@ -98,11 +98,33 @@ async function runMigration(migrationFile, dryRun = false) {
   const startTime = Date.now();
   let error = null;
   
+  const isIgnorableSchemaError = (err) => {
+    const code = String(err?.code || '');
+    const errno = Number(err?.errno || 0);
+    const msg = String(err?.message || '');
+    // Common idempotency / "already exists" schema errors
+    return (
+      code === 'ER_DUP_FIELDNAME' || errno === 1060 || msg.includes('Duplicate column name') ||
+      code === 'ER_DUP_KEYNAME' || errno === 1061 || msg.includes('Duplicate key name') ||
+      code === 'ER_DUP_ENTRY' || errno === 1062 ||
+      // MySQL: can't create table / already exists (should be rare if IF NOT EXISTS used)
+      code === 'ER_TABLE_EXISTS_ERROR' || errno === 1050 || msg.includes('already exists')
+    );
+  };
+
   try {
     // Execute each statement
     for (const statement of statements) {
-      if (statement.trim()) {
-        await pool.execute(statement);
+      const s = statement.trim();
+      if (!s) continue;
+      try {
+        await pool.execute(s);
+      } catch (err) {
+        if (isIgnorableSchemaError(err)) {
+          console.log(`  ⚠️  Skipping statement (already applied): ${String(err?.message || err)}`);
+          continue;
+        }
+        throw err;
       }
     }
     

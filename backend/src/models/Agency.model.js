@@ -188,6 +188,17 @@ class Agency {
         hasExtraDashboardQuickActionIcons = false;
       }
 
+      // Optional quick action icon: External Calendar Audit
+      let hasExternalCalendarAuditIcon = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'external_calendar_audit_icon_id'"
+        );
+        hasExternalCalendarAuditIcon = (cols || []).length > 0;
+      } catch (e) {
+        hasExternalCalendarAuditIcon = false;
+      }
+
       const extraDashSelects = hasExtraDashboardQuickActionIcons
         ? `,
         dn_i.file_path as dashboard_notifications_icon_path, dn_i.name as dashboard_notifications_icon_name,
@@ -204,6 +215,16 @@ class Agency {
         LEFT JOIN icons dchats_i ON a.dashboard_chats_icon_id = dchats_i.id
         LEFT JOIN icons dpay_i ON a.dashboard_payroll_icon_id = dpay_i.id
         LEFT JOIN icons dbill_i ON a.dashboard_billing_icon_id = dbill_i.id`
+        : '';
+
+      const extCalSelects = hasExternalCalendarAuditIcon
+        ? `,
+        eca_i.file_path as external_calendar_audit_icon_path, eca_i.name as external_calendar_audit_icon_name`
+        : '';
+
+      const extCalJoins = hasExternalCalendarAuditIcon
+        ? `
+        LEFT JOIN icons eca_i ON a.external_calendar_audit_icon_id = eca_i.id`
         : '';
 
       const myDashSelects = hasMyDashboardIcons
@@ -239,7 +260,7 @@ class Agency {
         ps_i.file_path as platform_settings_icon_path, ps_i.name as platform_settings_icon_name,
         vap_i.file_path as view_all_progress_icon_path, vap_i.name as view_all_progress_icon_name,
         pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
-        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${myDashSelects}
+        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${extCalSelects}${myDashSelects}
         FROM agencies a
         ${hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : ''}
         ${hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : ''}
@@ -251,7 +272,7 @@ class Agency {
         LEFT JOIN icons ps_i ON a.platform_settings_icon_id = ps_i.id
         LEFT JOIN icons vap_i ON a.view_all_progress_icon_id = vap_i.id
         LEFT JOIN icons pd_i ON a.progress_dashboard_icon_id = pd_i.id
-        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${myDashJoins}
+        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${extCalJoins}${myDashJoins}
         WHERE a.id = ?`;
     } else {
       // Even without dashboard icons, join for master icon if column exists
@@ -622,7 +643,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
     } = agencyData;
     
@@ -884,6 +905,21 @@ class Agency {
       if (settingsIconId !== undefined) {
         updates.push('settings_icon_id = ?');
         values.push(settingsIconId || null);
+      }
+
+      // External Calendar Audit quick-action icon (optional)
+      if (externalCalendarAuditIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'external_calendar_audit_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            updates.push('external_calendar_audit_icon_id = ?');
+            values.push(externalCalendarAuditIconId || null);
+          }
+        } catch {
+          // ignore
+        }
       }
 
       // New dashboard quick-action icon overrides (optional; best-effort for older DBs)

@@ -24,20 +24,27 @@
             <div v-else class="photo-fallback" aria-hidden="true">{{ initials }}</div>
           </div>
           <div class="photo-actions">
-            <input
-              ref="photoInput"
-              type="file"
-              accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
-              style="display:none;"
-              @change="onPhotoSelected"
-            />
-            <button class="btn btn-secondary btn-large" @click="photoInput?.click()" :disabled="photoUploading || !userId">
-              {{ photoUploading ? 'Uploading…' : 'Upload Photo' }}
-            </button>
-            <div class="hint" style="margin-top: 6px;">
-              Used across the app (school portal provider cards, chat, and profile headers).
-            </div>
-            <div v-if="photoError" class="error" style="margin-top: 10px;">{{ photoError }}</div>
+            <template v-if="canManageProfilePhoto">
+              <input
+                ref="photoInput"
+                type="file"
+                accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                style="display:none;"
+                @change="onPhotoSelected"
+              />
+              <button class="btn btn-secondary btn-large" @click="photoInput?.click()" :disabled="photoUploading || !userId">
+                {{ photoUploading ? 'Uploading…' : 'Upload Photo' }}
+              </button>
+              <div class="hint" style="margin-top: 6px;">
+                Used across the app (school portal provider cards, chat, and profile headers).
+              </div>
+              <div v-if="photoError" class="error" style="margin-top: 10px;">{{ photoError }}</div>
+            </template>
+            <template v-else>
+              <div class="hint">
+                Profile photos are managed by an administrator.
+              </div>
+            </template>
           </div>
         </div>
       </div>
@@ -416,6 +423,10 @@ const router = useRouter();
 const authStore = useAuthStore();
 const userId = computed(() => authStore.user?.id);
 const profilePhotoUrl = computed(() => authStore.user?.profilePhotoUrl || null);
+const canManageProfilePhoto = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'super_admin';
+});
 const initials = computed(() => {
   const f = String(authStore.user?.firstName || '').trim();
   const l = String(authStore.user?.lastName || '').trim();

@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="container" :class="{ 'container-wide': activeTab === 'my_schedule' }">
     <!-- Dashboard Header with Logo (shown in preview mode) -->
     <div v-if="previewMode" class="dashboard-header-preview">
       <div class="header-content">
@@ -103,7 +103,7 @@
     </div>
 
     <!-- Dashboard Shell: left rail + right detail -->
-    <div class="dashboard-shell">
+    <div class="dashboard-shell" :class="{ 'schedule-focus': activeTab === 'my_schedule' }">
       <div class="dashboard-rail" :class="{ disabled: previewMode }" role="navigation" aria-label="Dashboard sections">
         <button
           v-for="card in railCards"
@@ -135,7 +135,7 @@
 
       <div class="dashboard-detail">
         <!-- Card Content (for content cards) -->
-        <div class="card-content">
+        <div class="card-content" :class="{ 'card-content-schedule': activeTab === 'my_schedule' }">
           <TrainingFocusTab
             v-if="!previewMode"
             v-show="activeTab === 'training' && !isPending"
@@ -153,6 +153,25 @@
             v-show="activeTab === 'checklist'"
             @update-count="updateChecklistCount"
           />
+
+          <!-- My Schedule (full-width focus panel) -->
+          <div
+            v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && providerSurfacesEnabled"
+            v-show="activeTab === 'my_schedule'"
+            class="my-panel my-schedule-panel"
+          >
+            <div class="my-schedule-stage">
+              <div class="section-header">
+                <h2 style="margin: 0;">My Schedule</h2>
+              </div>
+              <ScheduleAvailabilityGrid
+                v-if="currentAgencyId && authStore.user?.id"
+                :user-id="Number(authStore.user.id)"
+                :agency-id="Number(currentAgencyId)"
+                mode="self"
+              />
+            </div>
+          </div>
 
           <!-- Submit (right panel) -->
           <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && providerSurfacesEnabled" v-show="activeTab === 'submit'" class="my-panel">
@@ -176,14 +195,6 @@
                 <button type="button" class="dash-card dash-card-submit" @click="openAdditionalAvailability">
                   <div class="dash-card-title">Additional Availability</div>
                   <div class="dash-card-desc">Office or school availability + supervised 2-week confirmations.</div>
-                  <div class="dash-card-meta">
-                    <span class="dash-card-cta">Open</span>
-                  </div>
-                </button>
-
-                <button type="button" class="dash-card dash-card-submit" @click="openMySchedule">
-                  <div class="dash-card-title">My Schedule</div>
-                  <div class="dash-card-desc">View weekly schedule and request availability directly from the grid.</div>
                   <div class="dash-card-meta">
                     <span class="dash-card-cta">Open</span>
                   </div>
@@ -302,16 +313,6 @@
             <div v-else-if="submitPanelView === 'availability'">
               <div class="hint" style="margin-top: 6px;">Additional Availability</div>
               <AdditionalAvailabilitySubmit v-if="currentAgencyId" :agency-id="Number(currentAgencyId)" />
-            </div>
-
-            <div v-else-if="submitPanelView === 'schedule'">
-              <div class="hint" style="margin-top: 6px;">My Schedule</div>
-              <ScheduleAvailabilityGrid
-                v-if="currentAgencyId && authStore.user?.id"
-                :user-id="Number(authStore.user.id)"
-                :agency-id="Number(currentAgencyId)"
-                mode="self"
-              />
             </div>
           </div>
 
@@ -540,6 +541,16 @@ const dashboardCards = computed(() => {
     if (!isSchoolStaff.value) {
       if (providerSurfacesEnabled.value) {
         cards.push({
+          id: 'my_schedule',
+          label: 'My Schedule',
+          kind: 'content',
+          badgeCount: 0,
+          iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
+          description: 'View weekly schedule and request availability from the grid.'
+        });
+      }
+      if (providerSurfacesEnabled.value) {
+        cards.push({
           id: 'submit',
           label: 'Submit',
           kind: 'content',
@@ -590,22 +601,24 @@ const railCards = computed(() => {
     if (hasMy) {
       return ({
         my: 0,
-        checklist: 1,
-        training: 2,
-        documents: 3,
-        submit: 4,
-        payroll: 5,
-        on_demand_training: 6
+        my_schedule: 1,
+        checklist: 2,
+        training: 3,
+        documents: 4,
+        submit: 5,
+        payroll: 6,
+        on_demand_training: 7
       })[k] ?? 999;
     }
     return ({
       checklist: 0,
       documents: 1,
       training: 2,
-      submit: 3,
-      payroll: 4,
-      my: 5,
-      on_demand_training: 6
+      my_schedule: 3,
+      submit: 4,
+      payroll: 5,
+      my: 6,
+      on_demand_training: 7
     })[k] ?? 999;
   };
 
@@ -680,7 +693,7 @@ const syncFromQuery = () => {
   }
 };
 
-const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability' | 'schedule'
+const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability'
 
 const openTimeClaims = () => {
   submitPanelView.value = 'time';
@@ -692,14 +705,6 @@ const openAdditionalAvailability = () => {
     return;
   }
   submitPanelView.value = 'availability';
-};
-
-const openMySchedule = () => {
-  if (!currentAgencyId.value) {
-    window.alert('Select an organization first.');
-    return;
-  }
-  submitPanelView.value = 'schedule';
 };
 
 const parseFeatureFlags = (raw) => {
@@ -1057,6 +1062,42 @@ h1 {
   gap: 14px;
   align-items: start;
   margin-bottom: 16px;
+}
+
+/* My Schedule focus mode: maximize schedule space */
+.container-wide {
+  max-width: none;
+  width: 100%;
+}
+.dashboard-shell.schedule-focus {
+  grid-template-columns: 1fr;
+}
+.dashboard-shell.schedule-focus .dashboard-rail {
+  position: static;
+  max-height: none;
+  overflow: visible;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+.dashboard-shell.schedule-focus .rail-card {
+  width: auto;
+  min-width: auto;
+  flex: 0 0 auto;
+}
+.card-content.card-content-schedule {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+.my-schedule-stage {
+  background: white;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  padding: 14px;
 }
 
 .dashboard-rail {

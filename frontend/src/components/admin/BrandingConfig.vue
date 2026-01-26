@@ -337,6 +337,22 @@
         
         <div class="icons-table">
           <div class="icon-row">
+            <div class="icon-label">Progress Dashboard Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.progressDashboardIconId" />
+              <button
+                v-if="platformForm.progressDashboardIconId"
+                @click="platformForm.progressDashboardIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Progress Dashboard" action card</div>
+          </div>
+          <div class="icon-row">
             <div class="icon-label">Manage Agencies Icon</div>
             <div class="icon-selector-cell">
               <IconSelector v-model="platformForm.manageAgenciesIconId" />
@@ -351,6 +367,22 @@
               </button>
             </div>
             <div class="icon-description">Icon for the "Manage Agencies" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Manage Clients Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.manageClientsIconId" />
+              <button
+                v-if="platformForm.manageClientsIconId"
+                @click="platformForm.manageClientsIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Manage Clients" action card</div>
           </div>
           <div class="icon-row">
             <div class="icon-label">Manage Modules Icon</div>
@@ -401,6 +433,22 @@
             <div class="icon-description">Icon for the "Manage Users" action card</div>
           </div>
           <div class="icon-row">
+            <div class="icon-label">Settings Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.settingsIconId" />
+              <button
+                v-if="platformForm.settingsIconId"
+                @click="platformForm.settingsIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Settings" action card</div>
+          </div>
+          <div class="icon-row">
             <div class="icon-label">Platform Settings Icon</div>
             <div class="icon-selector-cell">
               <IconSelector v-model="platformForm.platformSettingsIconId" />
@@ -433,6 +481,86 @@
             <div class="icon-description">Icon for the "View All Progress" action card</div>
           </div>
           <div class="icon-row">
+            <div class="icon-label">Notifications Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.dashboardNotificationsIconId" />
+              <button
+                v-if="platformForm.dashboardNotificationsIconId"
+                @click="platformForm.dashboardNotificationsIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Notifications" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Communications Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.dashboardCommunicationsIconId" />
+              <button
+                v-if="platformForm.dashboardCommunicationsIconId"
+                @click="platformForm.dashboardCommunicationsIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Communications" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Chats Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.dashboardChatsIconId" />
+              <button
+                v-if="platformForm.dashboardChatsIconId"
+                @click="platformForm.dashboardChatsIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Chats" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Payroll Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.dashboardPayrollIconId" />
+              <button
+                v-if="platformForm.dashboardPayrollIconId"
+                @click="platformForm.dashboardPayrollIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Payroll" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Billing Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.dashboardBillingIconId" />
+              <button
+                v-if="platformForm.dashboardBillingIconId"
+                @click="platformForm.dashboardBillingIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Billing" action card</div>
+          </div>
+          <div class="icon-row">
             <div class="icon-label">All Agencies Notifications Icon</div>
             <div class="icon-selector-cell">
               <IconSelector v-model="platformForm.allAgenciesNotificationsIconId" />
@@ -447,6 +575,22 @@
               </button>
             </div>
             <div class="icon-description">Icon for the "All Agencies" notification card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Agency Calendar Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.externalCalendarAuditIconId" />
+              <button
+                v-if="platformForm.externalCalendarAuditIconId"
+                @click="platformForm.externalCalendarAuditIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Agency Calendar" action card</div>
           </div>
         </div>
 
@@ -969,6 +1113,22 @@
               </div>
               <div class="icon-description">Icon for the "Settings" action card</div>
             </div>
+            <div class="icon-row">
+            <div class="icon-label">Agency Calendar Icon</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.externalCalendarAuditIconId" />
+                <button
+                  v-if="agencyBrandingForm.externalCalendarAuditIconId"
+                  @click="agencyBrandingForm.externalCalendarAuditIconId = null"
+                  class="btn btn-sm btn-danger"
+                  type="button"
+                  title="Remove icon"
+                >
+                  Clear
+                </button>
+              </div>
+            <div class="icon-description">Icon for the "Agency Calendar" action card</div>
+            </div>
           </div>
 
           <div class="section-divider"></div>
@@ -1351,6 +1511,22 @@
             </div>
             <div class="icon-description">Icon for the "Settings" action card</div>
           </div>
+          <div class="icon-row">
+            <div class="icon-label">Agency Calendar Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.externalCalendarAuditIconId" />
+              <button
+                v-if="brandingForm.externalCalendarAuditIconId"
+                @click="brandingForm.externalCalendarAuditIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Agency Calendar" action card</div>
+          </div>
         </div>
 
         <div class="section-divider"></div>
@@ -1650,13 +1826,23 @@ const platformForm = ref({
   userDefaultIconId: null,
   documentDefaultIconId: null,
   masterBrandIconId: null,
+  // Dashboard action icons (platform defaults)
+  progressDashboardIconId: null,
   manageAgenciesIconId: null,
+  manageClientsIconId: null,
   manageModulesIconId: null,
   manageDocumentsIconId: null,
   manageUsersIconId: null,
+  settingsIconId: null,
   platformSettingsIconId: null,
   viewAllProgressIconId: null,
+  dashboardNotificationsIconId: null,
+  dashboardCommunicationsIconId: null,
+  dashboardChatsIconId: null,
+  dashboardPayrollIconId: null,
+  dashboardBillingIconId: null,
       allAgenciesNotificationsIconId: null,
+      externalCalendarAuditIconId: null,
       organizationName: null,
       organizationLogoIconId: null,
       organizationLogoUrl: null,
@@ -1688,11 +1874,18 @@ const agencyBrandingForm = ref({
   userDefaultIconId: null,
   documentDefaultIconId: null,
   progressDashboardIconId: null,
+  manageClientsIconId: null,
   manageModulesIconId: null,
   manageDocumentsIconId: null,
   manageUsersIconId: null,
   settingsIconId: null,
   platformSettingsIconId: null,
+  externalCalendarAuditIconId: null,
+  dashboardNotificationsIconId: null,
+  dashboardCommunicationsIconId: null,
+  dashboardChatsIconId: null,
+  dashboardPayrollIconId: null,
+  dashboardBillingIconId: null,
 
   // Settings sidebar navigation icon overrides (agency-level)
   companyProfileIconId: null,
@@ -1736,11 +1929,18 @@ const brandingForm = ref({
   userDefaultIconId: null,
   documentDefaultIconId: null,
   progressDashboardIconId: null,
+  manageClientsIconId: null,
   manageModulesIconId: null,
   manageDocumentsIconId: null,
   manageUsersIconId: null,
   settingsIconId: null,
   platformSettingsIconId: null,
+  externalCalendarAuditIconId: null,
+  dashboardNotificationsIconId: null,
+  dashboardCommunicationsIconId: null,
+  dashboardChatsIconId: null,
+  dashboardPayrollIconId: null,
+  dashboardBillingIconId: null,
 
   // Settings sidebar navigation icon overrides (agency-level)
   companyProfileIconId: null,
@@ -1812,6 +2012,7 @@ watch(currentAgency, async (agency) => {
         manageUsersIconId: freshAgency.manage_users_icon_id ?? null,
         settingsIconId: freshAgency.settings_icon_id ?? null,
         platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
+        externalCalendarAuditIconId: freshAgency.external_calendar_audit_icon_id ?? null,
 
         companyProfileIconId: freshAgency.company_profile_icon_id ?? null,
         teamRolesIconId: freshAgency.team_roles_icon_id ?? null,
@@ -1843,11 +2044,17 @@ watch(currentAgency, async (agency) => {
         userDefaultIconId: agency.user_default_icon_id ?? null,
         documentDefaultIconId: agency.document_default_icon_id ?? null,
         progressDashboardIconId: agency.progress_dashboard_icon_id ?? null,
+        manageClientsIconId: agency.manage_clients_icon_id ?? null,
         manageModulesIconId: agency.manage_modules_icon_id ?? null,
         manageDocumentsIconId: agency.manage_documents_icon_id ?? null,
         manageUsersIconId: agency.manage_users_icon_id ?? null,
         settingsIconId: agency.settings_icon_id ?? null,
         platformSettingsIconId: agency.platform_settings_icon_id ?? null,
+        dashboardNotificationsIconId: agency.dashboard_notifications_icon_id ?? null,
+        dashboardCommunicationsIconId: agency.dashboard_communications_icon_id ?? null,
+        dashboardChatsIconId: agency.dashboard_chats_icon_id ?? null,
+        dashboardPayrollIconId: agency.dashboard_payroll_icon_id ?? null,
+        dashboardBillingIconId: agency.dashboard_billing_icon_id ?? null,
 
         companyProfileIconId: agency.company_profile_icon_id ?? null,
         teamRolesIconId: agency.team_roles_icon_id ?? null,
@@ -1885,11 +2092,18 @@ const onBrandingScopeChange = async () => {
         userDefaultIconId: freshAgency.user_default_icon_id ?? null,
         documentDefaultIconId: freshAgency.document_default_icon_id ?? null,
         progressDashboardIconId: freshAgency.progress_dashboard_icon_id ?? null,
+        manageClientsIconId: freshAgency.manage_clients_icon_id ?? null,
         manageModulesIconId: freshAgency.manage_modules_icon_id ?? null,
         manageDocumentsIconId: freshAgency.manage_documents_icon_id ?? null,
         manageUsersIconId: freshAgency.manage_users_icon_id ?? null,
         settingsIconId: freshAgency.settings_icon_id ?? null,
         platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
+        externalCalendarAuditIconId: freshAgency.external_calendar_audit_icon_id ?? null,
+        dashboardNotificationsIconId: freshAgency.dashboard_notifications_icon_id ?? null,
+        dashboardCommunicationsIconId: freshAgency.dashboard_communications_icon_id ?? null,
+        dashboardChatsIconId: freshAgency.dashboard_chats_icon_id ?? null,
+        dashboardPayrollIconId: freshAgency.dashboard_payroll_icon_id ?? null,
+        dashboardBillingIconId: freshAgency.dashboard_billing_icon_id ?? null,
 
         companyProfileIconId: freshAgency.company_profile_icon_id ?? null,
         teamRolesIconId: freshAgency.team_roles_icon_id ?? null,
@@ -1953,11 +2167,18 @@ const saveAgencyBrandingForSuperAdmin = async () => {
       userDefaultIconId: agencyBrandingForm.value.userDefaultIconId ?? null,
       documentDefaultIconId: agencyBrandingForm.value.documentDefaultIconId ?? null,
       progressDashboardIconId: agencyBrandingForm.value.progressDashboardIconId ?? null,
+      manageClientsIconId: agencyBrandingForm.value.manageClientsIconId ?? null,
       manageModulesIconId: agencyBrandingForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: agencyBrandingForm.value.manageDocumentsIconId ?? null,
       manageUsersIconId: agencyBrandingForm.value.manageUsersIconId ?? null,
       settingsIconId: agencyBrandingForm.value.settingsIconId ?? null,
       platformSettingsIconId: agencyBrandingForm.value.platformSettingsIconId ?? null,
+      externalCalendarAuditIconId: agencyBrandingForm.value.externalCalendarAuditIconId ?? null,
+      dashboardNotificationsIconId: agencyBrandingForm.value.dashboardNotificationsIconId ?? null,
+      dashboardCommunicationsIconId: agencyBrandingForm.value.dashboardCommunicationsIconId ?? null,
+      dashboardChatsIconId: agencyBrandingForm.value.dashboardChatsIconId ?? null,
+      dashboardPayrollIconId: agencyBrandingForm.value.dashboardPayrollIconId ?? null,
+      dashboardBillingIconId: agencyBrandingForm.value.dashboardBillingIconId ?? null,
 
       // Settings sidebar navigation icon overrides
       companyProfileIconId: agencyBrandingForm.value.companyProfileIconId ?? null,
@@ -2004,11 +2225,18 @@ const saveAgencyBrandingForSuperAdmin = async () => {
           userDefaultIconId: freshAgency.user_default_icon_id ?? null,
           documentDefaultIconId: freshAgency.document_default_icon_id ?? null,
           progressDashboardIconId: freshAgency.progress_dashboard_icon_id ?? null,
+          manageClientsIconId: freshAgency.manage_clients_icon_id ?? null,
           manageModulesIconId: freshAgency.manage_modules_icon_id ?? null,
           manageDocumentsIconId: freshAgency.manage_documents_icon_id ?? null,
           manageUsersIconId: freshAgency.manage_users_icon_id ?? null,
           settingsIconId: freshAgency.settings_icon_id ?? null,
           platformSettingsIconId: freshAgency.platform_settings_icon_id ?? null,
+          externalCalendarAuditIconId: freshAgency.external_calendar_audit_icon_id ?? null,
+          dashboardNotificationsIconId: freshAgency.dashboard_notifications_icon_id ?? null,
+          dashboardCommunicationsIconId: freshAgency.dashboard_communications_icon_id ?? null,
+          dashboardChatsIconId: freshAgency.dashboard_chats_icon_id ?? null,
+          dashboardPayrollIconId: freshAgency.dashboard_payroll_icon_id ?? null,
+          dashboardBillingIconId: freshAgency.dashboard_billing_icon_id ?? null,
 
           companyProfileIconId: freshAgency.company_profile_icon_id ?? null,
           teamRolesIconId: freshAgency.team_roles_icon_id ?? null,
@@ -2059,11 +2287,18 @@ const saveBranding = async () => {
       userDefaultIconId: brandingForm.value.userDefaultIconId ?? null,
       documentDefaultIconId: brandingForm.value.documentDefaultIconId ?? null,
       progressDashboardIconId: brandingForm.value.progressDashboardIconId ?? null,
+      manageClientsIconId: brandingForm.value.manageClientsIconId ?? null,
       manageModulesIconId: brandingForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: brandingForm.value.manageDocumentsIconId ?? null,
       manageUsersIconId: brandingForm.value.manageUsersIconId ?? null,
       settingsIconId: brandingForm.value.settingsIconId ?? null,
       platformSettingsIconId: brandingForm.value.platformSettingsIconId ?? null,
+      externalCalendarAuditIconId: brandingForm.value.externalCalendarAuditIconId ?? null,
+      dashboardNotificationsIconId: brandingForm.value.dashboardNotificationsIconId ?? null,
+      dashboardCommunicationsIconId: brandingForm.value.dashboardCommunicationsIconId ?? null,
+      dashboardChatsIconId: brandingForm.value.dashboardChatsIconId ?? null,
+      dashboardPayrollIconId: brandingForm.value.dashboardPayrollIconId ?? null,
+      dashboardBillingIconId: brandingForm.value.dashboardBillingIconId ?? null,
 
       // Settings sidebar navigation icon overrides
       companyProfileIconId: brandingForm.value.companyProfileIconId ?? null,
@@ -2418,13 +2653,22 @@ const applySelectedTemplate = async (event) => {
           userDefaultIconId: brandingStore.platformBranding.user_default_icon_id ?? null,
           documentDefaultIconId: brandingStore.platformBranding.document_default_icon_id ?? null,
           masterBrandIconId: brandingStore.platformBranding.master_brand_icon_id ?? null,
+          progressDashboardIconId: brandingStore.platformBranding.progress_dashboard_icon_id ?? null,
           manageAgenciesIconId: brandingStore.platformBranding.manage_agencies_icon_id ?? null,
+          manageClientsIconId: brandingStore.platformBranding.manage_clients_icon_id ?? null,
           manageModulesIconId: brandingStore.platformBranding.manage_modules_icon_id ?? null,
           manageDocumentsIconId: brandingStore.platformBranding.manage_documents_icon_id ?? null,
           manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,
           platformSettingsIconId: brandingStore.platformBranding.platform_settings_icon_id ?? null,
           viewAllProgressIconId: brandingStore.platformBranding.view_all_progress_icon_id ?? null,
           allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
+        externalCalendarAuditIconId: brandingStore.platformBranding.external_calendar_audit_icon_id ?? null,
+          settingsIconId: brandingStore.platformBranding.settings_icon_id ?? null,
+          dashboardNotificationsIconId: brandingStore.platformBranding.dashboard_notifications_icon_id ?? null,
+          dashboardCommunicationsIconId: brandingStore.platformBranding.dashboard_communications_icon_id ?? null,
+          dashboardChatsIconId: brandingStore.platformBranding.dashboard_chats_icon_id ?? null,
+          dashboardPayrollIconId: brandingStore.platformBranding.dashboard_payroll_icon_id ?? null,
+          dashboardBillingIconId: brandingStore.platformBranding.dashboard_billing_icon_id ?? null,
           organizationName: brandingStore.platformBranding.organization_name ?? null,
           organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null,
           organizationLogoUrl: brandingStore.platformBranding.organization_logo_url ?? null,
@@ -2747,13 +2991,22 @@ const savePlatformBranding = async () => {
       userDefaultIconId: platformForm.value.userDefaultIconId ?? null,
       documentDefaultIconId: platformForm.value.documentDefaultIconId ?? null,
       masterBrandIconId: platformForm.value.masterBrandIconId ?? null,
+      progressDashboardIconId: platformForm.value.progressDashboardIconId ?? null,
       manageAgenciesIconId: platformForm.value.manageAgenciesIconId ?? null,
+      manageClientsIconId: platformForm.value.manageClientsIconId ?? null,
       manageModulesIconId: platformForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: platformForm.value.manageDocumentsIconId ?? null,
       manageUsersIconId: platformForm.value.manageUsersIconId ?? null,
       platformSettingsIconId: platformForm.value.platformSettingsIconId ?? null,
       viewAllProgressIconId: platformForm.value.viewAllProgressIconId ?? null,
+      settingsIconId: platformForm.value.settingsIconId ?? null,
+      dashboardNotificationsIconId: platformForm.value.dashboardNotificationsIconId ?? null,
+      dashboardCommunicationsIconId: platformForm.value.dashboardCommunicationsIconId ?? null,
+      dashboardChatsIconId: platformForm.value.dashboardChatsIconId ?? null,
+      dashboardPayrollIconId: platformForm.value.dashboardPayrollIconId ?? null,
+      dashboardBillingIconId: platformForm.value.dashboardBillingIconId ?? null,
       allAgenciesNotificationsIconId: platformForm.value.allAgenciesNotificationsIconId ?? null,
+      externalCalendarAuditIconId: platformForm.value.externalCalendarAuditIconId ?? null,
       organizationName: platformForm.value.organizationName?.trim() || null,
       organizationLogoIconId: platformForm.value.organizationLogoIconId ?? null,
       organizationLogoUrl: platformLogoInputMethod.value === 'url' ? (platformForm.value.organizationLogoUrl?.trim() || null) : null,
@@ -2902,13 +3155,22 @@ const savePlatformBranding = async () => {
       platformForm.value.userDefaultIconId = response.data.user_default_icon_id ?? platformForm.value.userDefaultIconId ?? null;
       platformForm.value.documentDefaultIconId = response.data.document_default_icon_id ?? platformForm.value.documentDefaultIconId ?? null;
       platformForm.value.masterBrandIconId = response.data.master_brand_icon_id ?? platformForm.value.masterBrandIconId ?? null;
+      platformForm.value.progressDashboardIconId = response.data.progress_dashboard_icon_id ?? platformForm.value.progressDashboardIconId ?? null;
       platformForm.value.manageAgenciesIconId = response.data.manage_agencies_icon_id ?? platformForm.value.manageAgenciesIconId ?? null;
+      platformForm.value.manageClientsIconId = response.data.manage_clients_icon_id ?? platformForm.value.manageClientsIconId ?? null;
       platformForm.value.manageModulesIconId = response.data.manage_modules_icon_id ?? platformForm.value.manageModulesIconId ?? null;
       platformForm.value.manageDocumentsIconId = response.data.manage_documents_icon_id ?? platformForm.value.manageDocumentsIconId ?? null;
       platformForm.value.manageUsersIconId = response.data.manage_users_icon_id ?? platformForm.value.manageUsersIconId ?? null;
+      platformForm.value.settingsIconId = response.data.settings_icon_id ?? platformForm.value.settingsIconId ?? null;
       platformForm.value.platformSettingsIconId = response.data.platform_settings_icon_id ?? platformForm.value.platformSettingsIconId ?? null;
       platformForm.value.viewAllProgressIconId = response.data.view_all_progress_icon_id ?? platformForm.value.viewAllProgressIconId ?? null;
+      platformForm.value.dashboardNotificationsIconId = response.data.dashboard_notifications_icon_id ?? platformForm.value.dashboardNotificationsIconId ?? null;
+      platformForm.value.dashboardCommunicationsIconId = response.data.dashboard_communications_icon_id ?? platformForm.value.dashboardCommunicationsIconId ?? null;
+      platformForm.value.dashboardChatsIconId = response.data.dashboard_chats_icon_id ?? platformForm.value.dashboardChatsIconId ?? null;
+      platformForm.value.dashboardPayrollIconId = response.data.dashboard_payroll_icon_id ?? platformForm.value.dashboardPayrollIconId ?? null;
+      platformForm.value.dashboardBillingIconId = response.data.dashboard_billing_icon_id ?? platformForm.value.dashboardBillingIconId ?? null;
       platformForm.value.allAgenciesNotificationsIconId = response.data.all_agencies_notifications_icon_id ?? platformForm.value.allAgenciesNotificationsIconId ?? null;
+      platformForm.value.externalCalendarAuditIconId = response.data.external_calendar_audit_icon_id ?? platformForm.value.externalCalendarAuditIconId ?? null;
       
       // Update other fields
       platformForm.value.tagline = response.data.tagline ?? platformForm.value.tagline;

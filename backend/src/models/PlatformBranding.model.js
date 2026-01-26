@@ -71,13 +71,17 @@ class PlatformBranding {
 
       // Check if extra dashboard quick-action icons exist (optional)
       let hasExtraDashboardQuickActionIcons = false;
+      let hasExternalCalendarAuditIcon = false;
       try {
         const [cols] = await pool.execute(
-          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'dashboard_notifications_icon_id'"
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('dashboard_notifications_icon_id','external_calendar_audit_icon_id')"
         );
-        hasExtraDashboardQuickActionIcons = (cols || []).length > 0;
+        const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+        hasExtraDashboardQuickActionIcons = names.has('dashboard_notifications_icon_id');
+        hasExternalCalendarAuditIcon = names.has('external_calendar_audit_icon_id');
       } catch (e) {
         hasExtraDashboardQuickActionIcons = false;
+        hasExternalCalendarAuditIcon = false;
       }
       // Check if organization fields exist
       let hasOrgFields = false;
@@ -198,6 +202,16 @@ class PlatformBranding {
           LEFT JOIN icons dbill_i ON pb.dashboard_billing_icon_id = dbill_i.id`
           : '';
 
+        const extCalSelects = hasExternalCalendarAuditIcon
+          ? `,
+          eca_i.file_path as external_calendar_audit_icon_path, eca_i.name as external_calendar_audit_icon_name`
+          : '';
+
+        const extCalJoins = hasExternalCalendarAuditIcon
+          ? `
+          LEFT JOIN icons eca_i ON pb.external_calendar_audit_icon_id = eca_i.id`
+          : '';
+
         query = `SELECT pb.*,
           ${hasManageClientsIcon ? 'mc_i.file_path as manage_clients_icon_path, mc_i.name as manage_clients_icon_name,' : ''}
           ma_i.file_path as manage_agencies_icon_path, ma_i.name as manage_agencies_icon_name,
@@ -209,7 +223,7 @@ class PlatformBranding {
           pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
           s_i.file_path as settings_icon_path, s_i.name as settings_icon_name,
           mb_i.file_path as master_brand_icon_path, mb_i.name as master_brand_icon_name,
-          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${extraDashSelects}${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
+          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${extraDashSelects}${extCalSelects}${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
           FROM platform_branding pb
           ${hasManageClientsIcon ? 'LEFT JOIN icons mc_i ON pb.manage_clients_icon_id = mc_i.id' : ''}
           LEFT JOIN icons ma_i ON pb.manage_agencies_icon_id = ma_i.id
@@ -221,7 +235,7 @@ class PlatformBranding {
           LEFT JOIN icons pd_i ON pb.progress_dashboard_icon_id = pd_i.id
           LEFT JOIN icons s_i ON pb.settings_icon_id = s_i.id
           LEFT JOIN icons mb_i ON pb.master_brand_icon_id = mb_i.id
-          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${extraDashJoins}${orgJoins}${fontJoins}${settingsIconJoins}${myDashboardIconJoins}
+          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${extraDashJoins}${extCalJoins}${orgJoins}${fontJoins}${settingsIconJoins}${myDashboardIconJoins}
           ORDER BY pb.id DESC LIMIT 1`;
       } else {
         // Even if dashboard icons don't exist, try to include master brand icon if column exists
@@ -389,6 +403,7 @@ class PlatformBranding {
       dashboardChatsIconId,
       dashboardPayrollIconId,
       dashboardBillingIconId,
+      externalCalendarAuditIconId,
         myDashboardChecklistIconId,
         myDashboardTrainingIconId,
         myDashboardDocumentsIconId,
@@ -682,6 +697,21 @@ class PlatformBranding {
         }
       }
       
+      // External Calendar Audit quick-action icon (optional)
+      if (externalCalendarAuditIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'external_calendar_audit_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            updates.push('external_calendar_audit_icon_id = ?');
+            values.push(externalCalendarAuditIconId ?? null);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       // Check if all_agencies_notifications_icon_id column exists (separate from dashboard icons)
       if (allAgenciesNotificationsIconId !== undefined) {
         try {
@@ -887,6 +917,21 @@ class PlatformBranding {
           }
         } catch (e) {
           // Column doesn't exist, skip
+        }
+      }
+
+      // External Calendar Audit quick-action icon (optional) - for INSERT
+      if (externalCalendarAuditIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'external_calendar_audit_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            insertFields.push('external_calendar_audit_icon_id');
+            insertValues.push(externalCalendarAuditIconId || null);
+          }
+        } catch {
+          // ignore
         }
       }
       

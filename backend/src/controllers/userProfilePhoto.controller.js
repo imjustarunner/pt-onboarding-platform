@@ -21,12 +21,11 @@ const upload = multer({
 export { upload };
 
 const canEditTargetUserPhoto = (req, targetUserId) => {
-  const requesterId = parseInt(req.user?.id || 0, 10);
   const requesterRole = String(req.user?.role || '').toLowerCase();
   const tId = parseInt(targetUserId || 0, 10);
   if (!tId) return false;
-  if (requesterId && requesterId === tId) return true;
-  return requesterRole === 'admin' || requesterRole === 'super_admin' || requesterRole === 'support';
+  // Only backoffice admins may manage profile photos (no self-service uploads).
+  return requesterRole === 'admin' || requesterRole === 'super_admin';
 };
 
 /**
