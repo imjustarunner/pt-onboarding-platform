@@ -73,14 +73,14 @@ class ClientNotes {
    * @param {boolean} access.hasAgencyAccess - user belongs to client's agency
    * @returns {Promise<Object>} Created note object
    */
-  static async create(noteData, access = { hasAgencyAccess: false }) {
+  static async create(noteData, access = { hasAgencyAccess: false, canViewInternalNotes: false }) {
     const { client_id, author_id, message, is_internal_only = false } = noteData;
     const category = this.normalizeCategory(noteData.category);
     const urgency = this.normalizeUrgency(noteData.urgency);
     const scrubbedMessage = scrubClientNamesToCode(message);
 
     // Validation: only agency members can create internal notes
-    if (is_internal_only && !access?.hasAgencyAccess) {
+    if (is_internal_only && !(access?.hasAgencyAccess && access?.canViewInternalNotes)) {
       throw new Error('Only agency staff can create internal notes');
     }
 
@@ -170,9 +170,9 @@ class ClientNotes {
    * @param {boolean} access.hasAgencyAccess - user belongs to client's agency
    * @returns {Promise<Array>} Array of note objects (filtered)
    */
-  static async findByClientId(clientId, access = { hasAgencyAccess: false }) {
-    // If user does not have agency access, treat as school-side access: only shared notes.
-    const isSchoolSide = !access?.hasAgencyAccess;
+  static async findByClientId(clientId, access = { hasAgencyAccess: false, canViewInternalNotes: false }) {
+    // Only backoffice roles can see internal notes (even if they belong to the agency).
+    const canSeeInternal = !!access?.canViewInternalNotes;
 
     let query = `
       SELECT 
@@ -186,8 +186,8 @@ class ClientNotes {
 
     const values = [clientId];
 
-    // Filter: school-side only sees shared notes
-    if (isSchoolSide) {
+    // Filter: non-backoffice only sees shared notes
+    if (!canSeeInternal) {
       query += ' AND n.is_internal_only = FALSE';
     }
 
@@ -235,9 +235,9 @@ class ClientNotes {
       values.push(message);
     }
 
-    // Validation: School staff cannot set internal_only
+    // Validation: Only backoffice roles can set internal_only
     if (is_internal_only !== undefined) {
-      if (is_internal_only && (userRole === 'school_staff' || !['super_admin', 'admin', 'staff', 'provider'].includes(userRole))) {
+      if (is_internal_only && !['super_admin', 'admin', 'support', 'staff'].includes(userRole)) {
         throw new Error('Only agency staff can create internal notes');
       }
       updates.push('is_internal_only = ?');

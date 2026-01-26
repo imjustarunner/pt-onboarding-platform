@@ -43,22 +43,27 @@
             <div class="info-item">
               <label>Provider</label>
               <div class="info-value">
-                <select
-                  v-if="editingProvider"
-                  v-model="providerValue"
-                  @change="saveProvider"
-                  @blur="cancelEditProvider"
-                  class="inline-select"
-                >
-                  <option :value="null">Not assigned</option>
-                  <option v-for="p in availableProviders" :key="p.id" :value="p.id">
-                    {{ p.first_name }} {{ p.last_name }}
-                  </option>
-                </select>
-                <span v-else @click="startEditProvider" class="editable-field">
+                <template v-if="canEditAccount">
+                  <select
+                    v-if="editingProvider"
+                    v-model="providerValue"
+                    @change="saveProvider"
+                    @blur="cancelEditProvider"
+                    class="inline-select"
+                  >
+                    <option :value="null">Not assigned</option>
+                    <option v-for="p in availableProviders" :key="p.id" :value="p.id">
+                      {{ p.first_name }} {{ p.last_name }}
+                    </option>
+                  </select>
+                  <span v-else @click="startEditProvider" class="editable-field">
+                    {{ client.provider_name || 'Not assigned' }}
+                    <span class="edit-hint">(click to edit)</span>
+                  </span>
+                </template>
+                <template v-else>
                   {{ client.provider_name || 'Not assigned' }}
-                  <span class="edit-hint">(click to edit)</span>
-                </span>
+                </template>
               </div>
             </div>
             <div class="info-item">
@@ -82,6 +87,14 @@
               <div class="info-value">{{ formatDate(client.referral_date) }}</div>
             </div>
             <div class="info-item">
+              <label>Client primary language</label>
+              <div class="info-value">{{ client.primary_client_language || '-' }}</div>
+            </div>
+            <div class="info-item">
+              <label>Guardian primary language</label>
+              <div class="info-value">{{ client.primary_parent_language || '-' }}</div>
+            </div>
+            <div class="info-item">
               <label>Document Status (legacy)</label>
               <div class="info-value">
                 <span :class="['doc-status-badge', `doc-${client.document_status?.toLowerCase()}`]">
@@ -99,7 +112,7 @@
             </div>
           </div>
 
-          <div class="quick-actions">
+          <div v-if="canEditAccount" class="quick-actions">
             <h3>Quick Actions</h3>
             <div class="actions-grid">
               <select
@@ -465,8 +478,242 @@
           </div>
         </div>
 
+        <!-- Assignments Tab (backoffice only) -->
+        <div v-if="activeTab === 'assignments'" class="detail-section">
+          <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
+            <h3 style="margin:0;">Client assignments</h3>
+            <div class="hint">Manage multi-org affiliations and org-scoped provider assignments.</div>
+          </div>
+
+          <div v-if="assignmentsError" class="error" style="text-align:left;">{{ assignmentsError }}</div>
+
+          <div class="grid" style="display:grid; grid-template-columns: 1fr; gap: 16px;">
+            <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
+              <h4 style="margin:0 0 10px;">Affiliations (school/program)</h4>
+              <div v-if="affiliationsLoading" class="loading">Loading…</div>
+              <div v-else>
+                <div v-if="affiliations.length === 0" class="hint">No affiliations yet.</div>
+                <div v-else class="table-wrap">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Organization</th>
+                        <th>Type</th>
+                        <th>Primary</th>
+                        <th class="right"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="a in affiliations" :key="a.organization_id">
+                        <td>{{ a.organization_name }}</td>
+                        <td>{{ a.organization_type || '—' }}</td>
+                        <td>{{ a.is_primary ? 'Yes' : 'No' }}</td>
+                        <td class="right" style="white-space: nowrap;">
+                          <button
+                            v-if="!a.is_primary"
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            :disabled="savingAffiliation"
+                            @click="setPrimaryAffiliation(a.organization_id)"
+                          >
+                            Set primary
+                          </button>
+                          <button
+                            v-if="!a.is_primary"
+                            type="button"
+                            class="btn btn-danger btn-sm"
+                            :disabled="savingAffiliation"
+                            @click="removeAffiliation(a.organization_id)"
+                            style="margin-left: 8px;"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style="display:flex; gap: 10px; align-items:end; margin-top: 12px; flex-wrap: wrap;">
+                  <div style="min-width: 280px; flex: 1;">
+                    <label class="filters-label">Add affiliation</label>
+                    <select v-model="addAffiliationOrgId" class="filters-select">
+                      <option value="">Select…</option>
+                      <option v-for="o in availableAffiliationOptions" :key="o.id" :value="String(o.id)">
+                        {{ o.name }} <span v-if="o.organization_type">({{ o.organization_type }})</span>
+                      </option>
+                    </select>
+                  </div>
+                  <label class="checkbox-label" style="min-width: 200px;">
+                    <input v-model="addAffiliationMakePrimary" type="checkbox" />
+                    Make primary
+                  </label>
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    :disabled="savingAffiliation || !addAffiliationOrgId"
+                    @click="addAffiliation"
+                  >
+                    {{ savingAffiliation ? 'Saving…' : 'Add' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
+              <h4 style="margin:0 0 10px;">Providers (per affiliation)</h4>
+              <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items:end; margin-bottom: 12px;">
+                <div style="min-width: 280px; flex: 1;">
+                  <label class="filters-label">Affiliation</label>
+                  <select v-model="selectedAssignmentOrgId" class="filters-select">
+                    <option value="">Select…</option>
+                    <option v-for="a in affiliations" :key="a.organization_id" :value="String(a.organization_id)">
+                      {{ a.organization_name }}
+                    </option>
+                  </select>
+                </div>
+                <button type="button" class="btn btn-secondary" :disabled="!selectedAssignmentOrgId" @click="reloadProviderAssignments">
+                  Refresh
+                </button>
+              </div>
+
+              <div v-if="providerAssignmentsLoading" class="loading">Loading…</div>
+              <div v-else-if="providerAssignments.length === 0" class="hint">No providers assigned for this affiliation.</div>
+              <div v-else class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Day</th>
+                      <th class="right"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="pa in providerAssignments" :key="pa.id">
+                      <td>{{ pa.provider_last_name }}, {{ pa.provider_first_name }}</td>
+                      <td>{{ pa.service_day || '—' }}</td>
+                      <td class="right">
+                        <button class="btn btn-danger btn-sm" type="button" :disabled="savingProviderAssignment" @click="removeProviderAssignment(pa)">
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div v-if="selectedAssignmentOrgId" style="margin-top: 12px;">
+                <div class="filters-row" style="flex-wrap: wrap;">
+                  <div class="filters-group" style="min-width: 260px; flex: 1;">
+                    <label class="filters-label">Provider</label>
+                    <select v-model="addProviderUserId" class="filters-select">
+                      <option value="">Select…</option>
+                      <option v-for="p in providerOptions" :key="p.id" :value="String(p.id)">
+                        {{ p.last_name }}, {{ p.first_name }}
+                      </option>
+                    </select>
+                  </div>
+                  <div class="filters-group" style="min-width: 200px;">
+                    <label class="filters-label">Day</label>
+                    <select v-model="addProviderDay" class="filters-select">
+                      <option value="">Select…</option>
+                      <option v-for="d in weekdayOptions" :key="d" :value="d">{{ d }}</option>
+                    </select>
+                  </div>
+                  <div class="actions" style="align-self: end;">
+                    <button
+                      type="button"
+                      class="btn btn-primary"
+                      :disabled="savingProviderAssignment || !addProviderUserId || !addProviderDay"
+                      @click="addProviderAssignment"
+                    >
+                      {{ savingProviderAssignment ? 'Saving…' : 'Assign provider' }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- PHI Packets Tab -->
         <div v-if="activeTab === 'phi'" class="detail-section">
+          <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
+            <h3 style="margin:0;">Document status history</h3>
+            <div class="hint">Tracks dated paperwork status + delivery method updates for this client.</div>
+          </div>
+
+          <div class="info-grid" style="margin-bottom: 14px;">
+            <div class="info-item">
+              <label>Current status</label>
+              <div class="info-value">{{ currentPaperworkSummary.statusLabel }}</div>
+            </div>
+            <div class="info-item">
+              <label>Current delivery method</label>
+              <div class="info-value">{{ currentPaperworkSummary.deliveryLabel }}</div>
+            </div>
+            <div class="info-item">
+              <label>Effective date</label>
+              <div class="info-value">{{ currentPaperworkSummary.effectiveDateText }}</div>
+            </div>
+          </div>
+
+          <div v-if="canEditPaperwork" class="panel" style="padding: 14px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 14px;">
+            <div class="filters-row" style="flex-wrap: wrap;">
+              <div class="filters-group" style="min-width: 220px; flex: 1;">
+                <label class="filters-label">Paperwork status *</label>
+                <select v-model="paperworkForm.paperworkStatusId" class="filters-select">
+                  <option value="">Select…</option>
+                  <option v-for="s in paperworkStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
+                </select>
+              </div>
+              <div class="filters-group" style="min-width: 220px; flex: 1;">
+                <label class="filters-label">Document delivery method</label>
+                <select v-model="paperworkForm.deliveryMethodId" class="filters-select" :disabled="!deliveryMethods.length">
+                  <option value="">—</option>
+                  <option v-for="m in deliveryMethods" :key="m.id" :value="String(m.id)">{{ m.label }}</option>
+                </select>
+              </div>
+              <div class="filters-group" style="min-width: 180px;">
+                <label class="filters-label">Effective date *</label>
+                <input v-model="paperworkForm.effectiveDate" type="date" class="filters-input" />
+              </div>
+            </div>
+            <div class="filters-row" style="margin-top: 10px;">
+              <div class="filters-group" style="flex: 1;">
+                <label class="filters-label">Note</label>
+                <input v-model="paperworkForm.note" type="text" class="filters-input" placeholder="Optional note (e.g., sent home, provider scanned, etc.)" />
+              </div>
+              <div class="actions" style="align-self: end;">
+                <button class="btn btn-primary" type="button" @click="savePaperworkHistory" :disabled="savingPaperwork">
+                  {{ savingPaperwork ? 'Saving…' : 'Add update' }}
+                </button>
+              </div>
+            </div>
+            <div v-if="paperworkError" class="error" style="margin-top: 10px; text-align: left;">{{ paperworkError }}</div>
+          </div>
+
+          <div v-if="paperworkHistoryLoading" class="loading">Loading document history…</div>
+          <div v-else-if="paperworkHistoryError" class="error">{{ paperworkHistoryError }}</div>
+          <div v-else-if="paperworkHistory.length === 0" class="empty-state" style="padding: 18px 12px;">
+            <p>No document history yet.</p>
+          </div>
+          <div v-else class="history-timeline" style="margin-bottom: 18px;">
+            <div v-for="h in paperworkHistory" :key="h.id" class="history-item">
+              <div class="history-time">{{ formatDate(h.effective_date) }}</div>
+              <div class="history-content">
+                <div class="history-field">
+                  <strong>{{ h.paperwork_status_label || '—' }}</strong>
+                </div>
+                <div class="hint" style="margin-top: 2px;">
+                  Delivery: {{ h.paperwork_delivery_method_label || '—' }}
+                  <span v-if="h.changed_by_name"> · by {{ h.changed_by_name }}</span>
+                </div>
+                <div v-if="h.note" class="history-note">Note: {{ h.note }}</div>
+              </div>
+            </div>
+          </div>
+
           <PhiDocumentsPanel :client-id="Number(client.id)" />
         </div>
       </div>
@@ -485,6 +732,10 @@ const props = defineProps({
   client: {
     type: Object,
     required: true
+  },
+  initialTab: {
+    type: String,
+    default: ''
   }
 });
 
@@ -493,15 +744,27 @@ const emit = defineEmits(['close', 'updated']);
 const authStore = useAuthStore();
 
 const activeTab = ref('overview');
-const tabs = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'checklist', label: 'Checklist' },
-  { id: 'history', label: 'Status History' },
-  { id: 'access', label: 'Access Log' },
-  { id: 'messages', label: 'Messages' },
-  { id: 'guardians', label: 'Guardians' },
-  { id: 'phi', label: 'Referral Packets' }
-];
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isBackofficeRole = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
+const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
+
+const tabs = computed(() => {
+  const base = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'checklist', label: 'Checklist' },
+    { id: 'history', label: 'Status History' },
+    { id: 'access', label: 'Access Log' },
+    { id: 'messages', label: 'Messages' },
+    { id: 'guardians', label: 'Guardians' },
+    { id: 'phi', label: 'Referral Packets' }
+  ];
+  if (canEditAccount.value) {
+    // Insert before PHI tab
+    const idx = base.findIndex((t) => t.id === 'phi');
+    base.splice(idx < 0 ? base.length : idx, 0, { id: 'assignments', label: 'Assignments' });
+  }
+  return base;
+});
 
 // Overview tab state
 const editingStatus = ref(false);
@@ -530,6 +793,40 @@ const newNoteCategory = ref('general');
 const creatingNote = ref(false);
 
 const hasAgencyAccess = ref(false);
+
+// Paperwork/document status history (dated)
+const paperworkHistory = ref([]);
+const paperworkHistoryLoading = ref(false);
+const paperworkHistoryError = ref('');
+const paperworkStatuses = ref([]);
+const deliveryMethods = ref([]);
+const paperworkError = ref('');
+const savingPaperwork = ref(false);
+const paperworkForm = ref({
+  paperworkStatusId: '',
+  deliveryMethodId: '',
+  effectiveDate: new Date().toISOString().split('T')[0],
+  note: ''
+});
+
+// Multi-org + multi-provider assignments (backoffice only)
+const affiliations = ref([]);
+const affiliationsLoading = ref(false);
+const assignmentsError = ref('');
+const availableAffiliations = ref([]);
+const addAffiliationOrgId = ref('');
+const addAffiliationMakePrimary = ref(false);
+const savingAffiliation = ref(false);
+
+const selectedAssignmentOrgId = ref('');
+const providerAssignments = ref([]);
+const providerAssignmentsLoading = ref(false);
+const providerOptions = ref([]);
+const addProviderUserId = ref('');
+const addProviderDay = ref('');
+const savingProviderAssignment = ref(false);
+
+const weekdayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 // Compliance checklist
 const savingChecklist = ref(false);
@@ -568,6 +865,22 @@ const updatingGuardianId = ref(null);
 const canManageGuardians = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support'].includes(r) && hasAgencyAccess.value;
+});
+
+const canEditPaperwork = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'staff'].includes(r) && hasAgencyAccess.value;
+});
+
+const availableAffiliationOptions = computed(() => {
+  const existing = new Set((affiliations.value || []).map((a) => Number(a?.organization_id)).filter(Boolean));
+  return (availableAffiliations.value || []).filter((o) => {
+    const id = Number(o?.id);
+    const t = String(o?.organization_type || 'agency').toLowerCase();
+    if (!id) return false;
+    if (t === 'agency') return false;
+    return !existing.has(id);
+  });
 });
 
 const canCreateInternalNotes = computed(() => {
@@ -826,6 +1139,267 @@ const fetchAccess = async () => {
   }
 };
 
+watch([hasAgencyAccess, activeTab], async ([has, tab]) => {
+  if (!has) return;
+  if (tab !== 'phi') return;
+  await fetchPaperworkStatuses();
+  await fetchDeliveryMethods();
+  await fetchPaperworkHistory();
+});
+
+const fetchPaperworkStatuses = async () => {
+  if (!canEditPaperwork.value) {
+    paperworkStatuses.value = [];
+    return;
+  }
+  try {
+    const r = await api.get('/client-settings/paperwork-statuses');
+    paperworkStatuses.value = (r.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
+  } catch {
+    paperworkStatuses.value = [];
+  }
+};
+
+const fetchDeliveryMethods = async () => {
+  if (!canEditPaperwork.value) {
+    deliveryMethods.value = [];
+    return;
+  }
+  try {
+    const agencyId = props.client?.agency_id;
+    const schoolId = props.client?.organization_id;
+    if (!agencyId || !schoolId) {
+      deliveryMethods.value = [];
+      return;
+    }
+    const r = await api.get(`/school-settings/${schoolId}/paperwork-delivery-methods`, { params: { agencyId } });
+    deliveryMethods.value = (r.data || []).filter((m) => m && (m.is_active === 1 || m.is_active === true));
+  } catch {
+    deliveryMethods.value = [];
+  }
+};
+
+const fetchPaperworkHistory = async () => {
+  if (!canEditPaperwork.value) {
+    paperworkHistory.value = [];
+    return;
+  }
+  try {
+    paperworkHistoryLoading.value = true;
+    paperworkHistoryError.value = '';
+    const r = await api.get(`/clients/${props.client.id}/paperwork-history`);
+    paperworkHistory.value = r.data || [];
+  } catch (e) {
+    paperworkHistoryError.value = e.response?.data?.error?.message || 'Failed to load document history';
+    paperworkHistory.value = [];
+  } finally {
+    paperworkHistoryLoading.value = false;
+  }
+};
+
+const fetchAvailableAffiliations = async () => {
+  if (!canEditAccount.value) return;
+  try {
+    const agencyId = props.client?.agency_id;
+    if (!agencyId) {
+      availableAffiliations.value = [];
+      return;
+    }
+    const r = await api.get(`/agencies/${agencyId}/affiliated-organizations`);
+    availableAffiliations.value = r.data || [];
+  } catch {
+    availableAffiliations.value = [];
+  }
+};
+
+const fetchClientAffiliations = async () => {
+  if (!canEditAccount.value) return;
+  try {
+    affiliationsLoading.value = true;
+    assignmentsError.value = '';
+    const r = await api.get(`/clients/${props.client.id}/affiliations`);
+    affiliations.value = r.data || [];
+    if (!selectedAssignmentOrgId.value) {
+      const primary = (affiliations.value || []).find((a) => a?.is_primary) || affiliations.value?.[0] || null;
+      if (primary?.organization_id) selectedAssignmentOrgId.value = String(primary.organization_id);
+    }
+  } catch (e) {
+    assignmentsError.value = e.response?.data?.error?.message || 'Failed to load affiliations';
+    affiliations.value = [];
+  } finally {
+    affiliationsLoading.value = false;
+  }
+};
+
+const addAffiliation = async () => {
+  if (!canEditAccount.value) return;
+  const orgId = addAffiliationOrgId.value ? Number(addAffiliationOrgId.value) : null;
+  if (!orgId) return;
+  try {
+    savingAffiliation.value = true;
+    assignmentsError.value = '';
+    await api.post(`/clients/${props.client.id}/affiliations`, { organization_id: orgId, is_primary: addAffiliationMakePrimary.value });
+    addAffiliationOrgId.value = '';
+    addAffiliationMakePrimary.value = false;
+    await fetchClientAffiliations();
+  } catch (e) {
+    assignmentsError.value = e.response?.data?.error?.message || 'Failed to save affiliation';
+  } finally {
+    savingAffiliation.value = false;
+  }
+};
+
+const setPrimaryAffiliation = async (orgId) => {
+  if (!canEditAccount.value) return;
+  const id = Number(orgId);
+  if (!id) return;
+  try {
+    savingAffiliation.value = true;
+    assignmentsError.value = '';
+    await api.post(`/clients/${props.client.id}/affiliations`, { organization_id: id, is_primary: true });
+    await fetchClientAffiliations();
+    emit('updated');
+  } catch (e) {
+    assignmentsError.value = e.response?.data?.error?.message || 'Failed to set primary';
+  } finally {
+    savingAffiliation.value = false;
+  }
+};
+
+const removeAffiliation = async (orgId) => {
+  if (!canEditAccount.value) return;
+  const id = Number(orgId);
+  if (!id) return;
+  if (!window.confirm('Remove this affiliation? This will also remove any provider assignments for it.')) return;
+  try {
+    savingAffiliation.value = true;
+    assignmentsError.value = '';
+    await api.delete(`/clients/${props.client.id}/affiliations/${id}`);
+    if (String(selectedAssignmentOrgId.value) === String(id)) selectedAssignmentOrgId.value = '';
+    await fetchClientAffiliations();
+    emit('updated');
+  } catch (e) {
+    assignmentsError.value = e.response?.data?.error?.message || 'Failed to remove affiliation';
+  } finally {
+    savingAffiliation.value = false;
+  }
+};
+
+const fetchProviderOptions = async () => {
+  if (!canEditAccount.value) return;
+  try {
+    const agencyId = props.client?.agency_id;
+    if (!agencyId) {
+      providerOptions.value = [];
+      return;
+    }
+    const r = await api.get('/provider-scheduling/providers', { params: { agencyId } });
+    providerOptions.value = r.data || [];
+  } catch {
+    providerOptions.value = [];
+  }
+};
+
+const reloadProviderAssignments = async () => {
+  if (!canEditAccount.value) return;
+  const orgId = selectedAssignmentOrgId.value ? Number(selectedAssignmentOrgId.value) : null;
+  if (!orgId) {
+    providerAssignments.value = [];
+    return;
+  }
+  try {
+    providerAssignmentsLoading.value = true;
+    assignmentsError.value = '';
+    const r = await api.get(`/clients/${props.client.id}/provider-assignments`, { params: { organizationId: orgId } });
+    providerAssignments.value = r.data || [];
+  } catch (e) {
+    assignmentsError.value = e.response?.data?.error?.message || 'Failed to load provider assignments';
+    providerAssignments.value = [];
+  } finally {
+    providerAssignmentsLoading.value = false;
+  }
+};
+
+const addProviderAssignment = async () => {
+  if (!canEditAccount.value) return;
+  const orgId = selectedAssignmentOrgId.value ? Number(selectedAssignmentOrgId.value) : null;
+  const providerUserId = addProviderUserId.value ? Number(addProviderUserId.value) : null;
+  const day = String(addProviderDay.value || '').trim();
+  if (!orgId || !providerUserId || !day) return;
+  try {
+    savingProviderAssignment.value = true;
+    assignmentsError.value = '';
+    await api.post(`/clients/${props.client.id}/provider-assignments`, {
+      organization_id: orgId,
+      provider_user_id: providerUserId,
+      service_day: day
+    });
+    addProviderUserId.value = '';
+    addProviderDay.value = '';
+    await reloadProviderAssignments();
+    emit('updated');
+  } catch (e) {
+    assignmentsError.value = e.response?.data?.error?.message || 'Failed to assign provider';
+  } finally {
+    savingProviderAssignment.value = false;
+  }
+};
+
+const removeProviderAssignment = async (pa) => {
+  if (!canEditAccount.value) return;
+  const id = Number(pa?.id);
+  if (!id) return;
+  if (!window.confirm('Remove this provider assignment?')) return;
+  try {
+    savingProviderAssignment.value = true;
+    assignmentsError.value = '';
+    await api.delete(`/clients/${props.client.id}/provider-assignments/${id}`);
+    await reloadProviderAssignments();
+    emit('updated');
+  } catch (e) {
+    assignmentsError.value = e.response?.data?.error?.message || 'Failed to remove assignment';
+  } finally {
+    savingProviderAssignment.value = false;
+  }
+};
+
+const savePaperworkHistory = async () => {
+  if (!canEditPaperwork.value) return;
+  const paperworkStatusId = paperworkForm.value.paperworkStatusId ? Number(paperworkForm.value.paperworkStatusId) : null;
+  const effectiveDate = String(paperworkForm.value.effectiveDate || '').trim();
+  if (!paperworkStatusId || !effectiveDate) return;
+  const deliveryId = paperworkForm.value.deliveryMethodId ? Number(paperworkForm.value.deliveryMethodId) : null;
+  const note = String(paperworkForm.value.note || '').trim() || null;
+  try {
+    savingPaperwork.value = true;
+    paperworkError.value = '';
+    await api.post(`/clients/${props.client.id}/paperwork-history`, {
+      paperwork_status_id: paperworkStatusId,
+      paperwork_delivery_method_id: deliveryId,
+      effective_date: effectiveDate,
+      note
+    });
+    paperworkForm.value.note = '';
+    await fetchPaperworkHistory();
+  } catch (e) {
+    paperworkError.value = e.response?.data?.error?.message || 'Failed to save';
+  } finally {
+    savingPaperwork.value = false;
+  }
+};
+
+const currentPaperworkSummary = computed(() => {
+  const h = (paperworkHistory.value || [])[0] || null;
+  const statusLabel = h?.paperwork_status_label || props.client?.paperwork_status_label || '—';
+  const deliveryLabel =
+    h?.paperwork_delivery_method_label ||
+    props.client?.paperwork_delivery_method_label ||
+    '—';
+  const dateVal = h?.effective_date || props.client?.doc_date || null;
+  const effectiveDateText = dateVal ? formatDate(dateVal) : '—';
+  return { statusLabel, deliveryLabel, effectiveDateText };
+});
+
 const fetchProviders = async () => {
   try {
     const response = await api.get('/users');
@@ -886,6 +1460,15 @@ watch(() => activeTab.value, (newTab) => {
     fetchNotes();
   } else if (newTab === 'guardians' && guardians.value.length === 0) {
     fetchGuardians();
+  } else if (newTab === 'assignments') {
+    fetchAvailableAffiliations();
+    fetchClientAffiliations();
+    fetchProviderOptions();
+    reloadProviderAssignments();
+  } else if (newTab === 'phi') {
+    fetchPaperworkStatuses();
+    fetchDeliveryMethods();
+    fetchPaperworkHistory();
   }
 });
 
@@ -961,7 +1544,9 @@ const fetchAccessLog = async () => {
 };
 
 onMounted(async () => {
-  await fetchProviders();
+  if (isBackofficeRole.value) {
+    await fetchProviders();
+  }
   await fetchAccess();
   if (activeTab.value === 'history') {
     await fetchHistory();
@@ -973,8 +1558,36 @@ onMounted(async () => {
     await fetchNotes();
   } else if (activeTab.value === 'guardians') {
     await fetchGuardians();
+  } else if (activeTab.value === 'assignments') {
+    await fetchAvailableAffiliations();
+    await fetchClientAffiliations();
+    await fetchProviderOptions();
+    await reloadProviderAssignments();
+  } else if (activeTab.value === 'phi') {
+    await fetchPaperworkStatuses();
+    await fetchDeliveryMethods();
+    await fetchPaperworkHistory();
   }
 });
+
+// Open to a requested initial tab (e.g., ?tab=checklist)
+watch(
+  () => props.initialTab,
+  (t) => {
+    const desired = String(t || '').trim();
+    if (!desired) return;
+    const allowed = new Set((tabs.value || []).map((x) => x.id));
+    if (allowed.has(desired)) activeTab.value = desired;
+  },
+  { immediate: true }
+);
+
+watch(
+  () => selectedAssignmentOrgId.value,
+  async () => {
+    await reloadProviderAssignments();
+  }
+);
 </script>
 
 <style scoped>

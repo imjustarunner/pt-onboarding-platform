@@ -32,7 +32,11 @@
             <div class="name">{{ p.first_name }} {{ p.last_name }}</div>
             <div class="sub">
               <span class="badge badge-secondary">{{ p.accepting_new_clients === false ? 'Closed' : 'Open' }}</span>
-              <span v-if="totalSlotsFor(p) !== null" class="badge badge-secondary">
+              <span
+                v-if="totalSlotsFor(p) !== null"
+                class="badge badge-secondary"
+                :style="isOverbooked(p) ? 'background: rgba(217,45,32,0.12); color: var(--danger, #d92d20); border: 1px solid rgba(217,45,32,0.28);' : ''"
+              >
                 {{ availableSlotsFor(p) }} / {{ totalSlotsFor(p) }} slots
               </span>
             </div>
@@ -46,7 +50,12 @@
           <div v-for="a in assignmentsSorted" :key="a.day_of_week" class="assignment-row">
             <div class="day"><strong>{{ a.day_of_week }}</strong></div>
             <div class="badges">
-              <span class="badge badge-secondary">{{ a.slots_available }} / {{ a.slots_total }} slots</span>
+              <span
+                class="badge badge-secondary"
+                :style="Number(a.slots_available) < 0 ? 'background: rgba(217,45,32,0.12); color: var(--danger, #d92d20); border: 1px solid rgba(217,45,32,0.28);' : ''"
+              >
+                {{ a.slots_available }} / {{ a.slots_total }} slots
+              </span>
               <span v-if="a.start_time || a.end_time" class="badge badge-secondary">
                 {{ a.start_time || '—' }}–{{ a.end_time || '—' }}
               </span>
@@ -143,6 +152,11 @@ const availableSlotsFor = (p) => {
   const active = list.filter((a) => a && a.is_active);
   if (active.length === 0) return 0;
   return active.reduce((sum, a) => sum + Number(a?.slots_available || 0), 0);
+};
+
+const isOverbooked = (p) => {
+  const list = Array.isArray(p?.assignments) ? p.assignments : [];
+  return list.some((a) => a && a.is_active && Number(a.slots_available) < 0);
 };
 </script>
 

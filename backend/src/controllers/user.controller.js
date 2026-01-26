@@ -1212,6 +1212,7 @@ export const updateUser = async (req, res, next) => {
     const normalizeRole = (r) => {
       const v = String(r || '').trim().toLowerCase();
       if (!v) return null;
+      if (v === 'clinician') return 'provider';
       if (v === 'intern' || v === 'facilitator') return 'provider';
       if (v === 'supervisor') return 'provider'; // supervisor is represented by has_supervisor_privileges
       return v;
@@ -1219,8 +1220,6 @@ export const updateUser = async (req, res, next) => {
 
     const role = roleRaw !== undefined ? normalizeRole(roleRaw) : undefined;
     const forceSupervisorPrivileges = String(roleRaw || '').trim().toLowerCase() === 'supervisor';
-    
-    console.log('updateUser called with:', { id, role, hasSupervisorPrivileges, body: req.body });
 
     // Only admins/super_admins/support can change roles
     if (role && req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {

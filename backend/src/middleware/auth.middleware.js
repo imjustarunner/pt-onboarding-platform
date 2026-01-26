@@ -160,8 +160,8 @@ export const requireAgencyAdmin = async (req, res, next) => {
       return next();
     }
     
-    // Must be admin or support role
-    if (req.user.role !== 'admin' && req.user.role !== 'support') {
+    // Must be admin/support/staff role (agency-side backoffice)
+    if (req.user.role !== 'admin' && req.user.role !== 'support' && req.user.role !== 'staff') {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
     

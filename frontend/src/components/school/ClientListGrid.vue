@@ -37,6 +37,7 @@
               <span class="sort-indicator" v-if="sortKey === 'service_day'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
             <th></th>
+            <th v-if="showChecklistButton"></th>
             <th v-if="canEditClients" class="edit-col">Edit</th>
             <th class="sortable" @click="toggleSort('submission_date')" role="button" tabindex="0">
               Submission Date
@@ -63,6 +64,16 @@
                 View & Comment
               </button>
             </td>
+            <td v-if="showChecklistButton">
+              <button
+                v-if="client.user_is_assigned_provider"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="goChecklist(client)"
+              >
+                Checklist
+              </button>
+            </td>
             <td v-if="canEditClients" class="edit-col">
               <button class="btn btn-primary btn-sm" type="button" @click="goEdit(client)">Edit</button>
             </td>
@@ -86,6 +97,7 @@ import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import SchoolClientChatModal from './SchoolClientChatModal.vue';
+import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   organizationSlug: {
@@ -103,8 +115,13 @@ const loading = ref(false);
 const error = ref('');
 const selectedClient = ref(null);
 const router = useRouter();
+const authStore = useAuthStore();
 
 const canEditClients = ref(false);
+const showChecklistButton = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return r === 'provider';
+});
 
 const sortKey = ref('submission_date');
 const sortDir = ref('desc');
@@ -168,7 +185,10 @@ const sortValue = (client, key) => {
   if (key === 'document_status') return String(client.document_status || '').toLowerCase();
   if (key === 'provider_name') return String(client.provider_name || '').toLowerCase();
   if (key === 'service_day') {
-    const d = String(client.service_day || '');
+    // Multi-provider may return "Mon, Wed"; sort by first day token.
+    const raw = String(client.service_day || '');
+    const first = raw.split(',')[0]?.trim() || raw;
+    const d = first;
     const idx = dayOrder.indexOf(d);
     return idx < 0 ? 999 : idx;
   }
@@ -222,6 +242,11 @@ const openClient = (client) => {
 const goEdit = (client) => {
   if (!client?.id) return;
   router.push({ path: '/admin/clients', query: { clientId: String(client.id) } });
+};
+
+const goChecklist = (client) => {
+  if (!client?.id) return;
+  router.push({ path: '/admin/clients', query: { clientId: String(client.id), tab: 'checklist' } });
 };
 
 watch(() => props.organizationId, () => {

@@ -58,7 +58,7 @@ export const getSchoolClients = async (req, res, next) => {
     const userId = req.user?.id;
     const userRole = req.user?.role;
 
-    // Verify organization exists and is a school
+    // Verify organization exists (school/program/learning)
     const organization = await Agency.findById(organizationId);
     if (!organization) {
       return res.status(404).json({ 
@@ -66,10 +66,11 @@ export const getSchoolClients = async (req, res, next) => {
       });
     }
 
-    const orgType = organization.organization_type || 'agency';
-    if (orgType !== 'school') {
-      return res.status(400).json({ 
-        error: { message: 'This endpoint is only available for school organizations' } 
+    const orgType = String(organization.organization_type || 'agency').toLowerCase();
+    const allowedTypes = ['school', 'program', 'learning'];
+    if (!allowedTypes.includes(orgType)) {
+      return res.status(400).json({
+        error: { message: `This endpoint is only available for organizations of type: ${allowedTypes.join(', ')}` }
       });
     }
 
@@ -85,10 +86,59 @@ export const getSchoolClients = async (req, res, next) => {
       }
     }
 
-    // Get clients for this school (restricted view - no sensitive data)
-    // Exclude archived clients so rosters show all active/non-archived students.
-    const all = await Client.findByOrganizationId(parseInt(organizationId));
-    const clients = (all || []).filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+    // Get clients for this organization (restricted view - no sensitive data).
+    // Prefer multi-org assignment tables, fall back to legacy clients.organization_id.
+    let clients = [];
+    try {
+      const orgId = parseInt(organizationId, 10);
+      const providerUserId = req.user?.role === 'provider' ? parseInt(req.user?.id || 0, 10) : null;
+      const [rows] = await pool.execute(
+        `SELECT
+           c.id,
+           c.initials,
+           c.identifier_code,
+           c.client_status_id,
+           cs.label AS client_status_label,
+           cs.status_key AS client_status_key,
+           c.grade,
+           c.school_year,
+           GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name) ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ', ') AS provider_name,
+           GROUP_CONCAT(DISTINCT cpa.provider_user_id ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ',') AS provider_ids,
+           GROUP_CONCAT(DISTINCT cpa.service_day ORDER BY FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday') SEPARATOR ', ') AS service_day,
+           MAX(CASE WHEN ? IS NOT NULL AND cpa.provider_user_id = ? THEN 1 ELSE 0 END) AS user_is_assigned_provider,
+           c.submission_date,
+           c.document_status,
+           c.status
+         FROM clients c
+         JOIN client_organization_assignments coa
+           ON coa.client_id = c.id
+          AND coa.organization_id = ?
+          AND coa.is_active = TRUE
+         LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+         LEFT JOIN client_provider_assignments cpa
+           ON cpa.client_id = c.id
+          AND cpa.organization_id = coa.organization_id
+          AND cpa.is_active = TRUE
+         LEFT JOIN users u ON u.id = cpa.provider_user_id
+         WHERE UPPER(c.status) <> 'ARCHIVED'
+         GROUP BY c.id
+         ORDER BY c.submission_date DESC, c.id DESC`,
+        [providerUserId, providerUserId, orgId]
+      );
+      clients = rows || [];
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing =
+        msg.includes("doesn't exist") ||
+        msg.includes('ER_NO_SUCH_TABLE') ||
+        msg.includes('Unknown column') ||
+        msg.includes('ER_BAD_FIELD_ERROR');
+      if (!missing) throw e;
+
+      // Legacy fallback
+      const all = await Client.findByOrganizationId(parseInt(organizationId, 10));
+      clients = (all || []).filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+    }
 
     // Unread note counts (per user) - best effort if table exists.
     const unreadCountsByClientId = new Map();
@@ -127,9 +177,10 @@ export const getSchoolClients = async (req, res, next) => {
         client_status_key: client.client_status_key || null,
         grade: client.grade || null,
         school_year: client.school_year || null,
-        provider_id: client.provider_id || null,
+        provider_id: null,
         provider_name: client.provider_name || null,
         service_day: client.service_day || null,
+        user_is_assigned_provider: client.user_is_assigned_provider === 1 || client.user_is_assigned_provider === true,
         submission_date: client.submission_date,
         document_status: client.document_status,
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0
@@ -161,6 +212,7 @@ export const getSchoolPortalAffiliation = async (req, res, next) => {
     const activeAgencyId = await resolveActiveAgencyIdForOrg(sid);
     const userId = req.user?.id;
     const role = req.user?.role;
+    const roleNorm = String(role || '').toLowerCase();
 
     let userHasAgencyAccess = false;
     let userHasSchoolAccess = false;
@@ -172,7 +224,14 @@ export const getSchoolPortalAffiliation = async (req, res, next) => {
         : false;
     }
 
-    const canEditClients = roleCanUseAgencyAffiliation(role) && !!activeAgencyId && userHasAgencyAccess;
+    // UI gating:
+    // - Never allow edit from school_staff/provider
+    // - super_admin always allowed
+    // - admin/staff/support allowed when they have agency access via active affiliation
+    const canEditClients =
+      roleNorm === 'super_admin'
+        ? true
+        : (roleCanUseAgencyAffiliation(role) && !!activeAgencyId && userHasAgencyAccess && roleNorm !== 'provider' && roleNorm !== 'school_staff');
 
     res.json({
       school_organization_id: sid,

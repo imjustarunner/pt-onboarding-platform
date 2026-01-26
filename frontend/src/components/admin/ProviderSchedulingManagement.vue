@@ -77,7 +77,10 @@
                   <td>{{ a.school_name }}</td>
                   <td>{{ a.day_of_week }}</td>
                   <td>{{ a.slots_total }}</td>
-                  <td>{{ a.slots_available }}</td>
+                  <td :style="Number(a.slots_available) < 0 ? 'color: var(--danger, #d92d20); font-weight: 700;' : ''">
+                    {{ a.slots_available }}
+                    <span v-if="Number(a.slots_available) < 0" class="muted" style="margin-left: 6px;">(over)</span>
+                  </td>
                   <td>{{ a.is_active ? 'Yes' : 'No' }}</td>
                 </tr>
               </tbody>

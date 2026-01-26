@@ -19,7 +19,11 @@
       </div>
 
       <div class="meta">
-        <div class="chip" v-if="selectedAssignment">
+        <div
+          class="chip"
+          v-if="selectedAssignment"
+          :class="{ overbooked: Number(selectedAssignment.slots_available) < 0 }"
+        >
           <strong>Slots:</strong> {{ selectedAssignment.slots_available }} / {{ selectedAssignment.slots_total }}
         </div>
         <div class="chip" v-if="selectedAssignment && (selectedAssignment.start_time || selectedAssignment.end_time)">
@@ -35,6 +39,12 @@
     </div>
 
     <div v-if="error" class="error">{{ error }}</div>
+
+    <div v-if="selectedAssignment && Number(selectedAssignment.slots_available) < 0" class="warn" style="margin-top: 10px;">
+      <div class="warn-item">
+        <strong>Over capacity</strong>: this provider is scheduled for more “current” clients than available slots. Add slots in Provider Scheduling.
+      </div>
+    </div>
 
     <div v-if="warnings.length" class="warn">
       <div v-for="(w, idx) in warnings" :key="idx" class="warn-item">
@@ -372,6 +382,12 @@ onMounted(async () => {
   padding: 6px 10px;
   background: var(--bg);
   font-size: 12px;
+}
+
+.chip.overbooked {
+  background: rgba(217, 45, 32, 0.12);
+  border-color: rgba(217, 45, 32, 0.28);
+  color: var(--danger, #d92d20);
 }
 .card {
   border: 1px solid var(--border);

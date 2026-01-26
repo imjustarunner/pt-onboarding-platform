@@ -2,7 +2,7 @@
   <div class="catalog-page">
     <div class="page-header">
       <h1>School Settings</h1>
-      <p class="page-description">Manage school-specific dropdown values (e.g., paperwork delivery methods).</p>
+      <p class="page-description">Manage school-specific dropdown values (e.g., document delivery methods).</p>
     </div>
 
     <div v-if="!agencyId" class="empty-state">
@@ -28,7 +28,7 @@
       <div v-else-if="error" class="error">{{ error }}</div>
 
       <div v-else-if="!selectedSchoolId" class="empty-state">
-        <p>Select a school to manage its delivery methods.</p>
+        <p>Select a school to manage its document delivery methods.</p>
       </div>
 
       <div v-else class="table-wrap">

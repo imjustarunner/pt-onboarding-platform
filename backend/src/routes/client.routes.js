@@ -12,11 +12,19 @@ import {
   assignProvider,
   deleteBulkImportedClients,
   getClientHistory,
+  getClientPaperworkHistory,
+  createClientPaperworkHistory,
   getClientNotes,
   createClientNote,
   markClientNotesRead,
   updateClientComplianceChecklist,
-  getClientAccessLog
+  getClientAccessLog,
+  listClientAffiliations,
+  upsertClientAffiliation,
+  removeClientAffiliation,
+  listClientProviderAssignments,
+  upsertClientProviderAssignment,
+  removeClientProviderAssignment
 } from '../controllers/client.controller.js';
 import { listClientGuardians, upsertClientGuardian, updateClientGuardian, removeClientGuardian } from '../controllers/clientGuardian.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
@@ -58,6 +66,12 @@ router.put('/:id/provider', assignProvider);
 // Get status history
 router.get('/:id/history', getClientHistory);
 
+// Get paperwork/document history (agency-only)
+router.get('/:id/paperwork-history', getClientPaperworkHistory);
+
+// Create paperwork/document history entry (agency-only)
+router.post('/:id/paperwork-history', createClientPaperworkHistory);
+
 // Access log (admin/support)
 router.get('/:id/access-log', getClientAccessLog);
 
@@ -72,6 +86,16 @@ router.post('/:id/notes/read', markClientNotesRead);
 
 // Compliance checklist (provider/admin/staff)
 router.put('/:id/compliance-checklist', updateClientComplianceChecklist);
+
+// Multi-org affiliations (admin/staff/support/super_admin)
+router.get('/:id/affiliations', listClientAffiliations);
+router.post('/:id/affiliations', upsertClientAffiliation);
+router.delete('/:id/affiliations/:organizationId', removeClientAffiliation);
+
+// Multi-provider assignments (admin/staff/support/super_admin)
+router.get('/:id/provider-assignments', listClientProviderAssignments);
+router.post('/:id/provider-assignments', upsertClientProviderAssignment);
+router.delete('/:id/provider-assignments/:assignmentId', removeClientProviderAssignment);
 
 // Guardians (admin-managed)
 router.get('/:id/guardians', requireBackofficeAdmin, listClientGuardians);

@@ -5,12 +5,20 @@
       <div class="header-actions">
         <button @click="showBulkImportModal = true" class="btn btn-secondary">Bulk Import</button>
         <button
+          v-if="authStore.user?.role === 'super_admin'"
+          @click="openDeleteImportedModal"
+          class="btn btn-secondary"
+          :disabled="deleteImportedWorking"
+        >
+          Delete Imported Clients…
+        </button>
+        <button
           v-if="authStore.user?.role !== 'school_staff'"
-          @click="rolloverSchoolYearAll"
+          @click="openRolloverModal"
           class="btn btn-secondary"
           :disabled="rolloverWorking"
         >
-          {{ rolloverWorking ? 'Rolling over…' : 'Rollover School Year' }}
+          {{ rolloverWorking ? 'Rolling over…' : 'Rollover School Year…' }}
         </button>
         <button @click="showCreateModal = true" class="btn btn-primary">Create Client</button>
       </div>
@@ -88,6 +96,42 @@
           <option value="provider_name-desc">Sort: Provider (Z-A)</option>
           <option value="client_status_label-asc">Sort: Client Status (A-Z)</option>
         </select>
+
+        <div class="columns-control">
+          <button class="btn btn-secondary btn-sm" type="button" @click="columnsOpen = !columnsOpen">
+            Columns
+          </button>
+          <div v-if="columnsOpen" class="columns-menu" @click.stop>
+            <label class="columns-item">
+              <input type="checkbox" v-model="columnPrefs.affiliation" />
+              <span>Affiliation</span>
+            </label>
+            <label class="columns-item">
+              <input type="checkbox" v-model="columnPrefs.clientStatus" />
+              <span>Client Status</span>
+            </label>
+            <label class="columns-item">
+              <input type="checkbox" v-model="columnPrefs.provider" />
+              <span>Provider</span>
+            </label>
+            <label class="columns-item">
+              <input type="checkbox" v-model="columnPrefs.submissionDate" />
+              <span>Submission Date</span>
+            </label>
+            <label class="columns-item">
+              <input type="checkbox" v-model="columnPrefs.paperwork" />
+              <span>Paperwork</span>
+            </label>
+            <label class="columns-item">
+              <input type="checkbox" v-model="columnPrefs.insurance" />
+              <span>Insurance</span>
+            </label>
+            <label class="columns-item">
+              <input type="checkbox" v-model="columnPrefs.lastActivity" />
+              <span>Last Activity</span>
+            </label>
+          </div>
+        </div>
       </div>
 
       <div class="pagination-bar">
@@ -127,43 +171,73 @@
           <button class="btn btn-secondary btn-sm" type="button" @click="clearSelection">Clear</button>
         </div>
         <div class="bulk-right">
-          <select v-model="bulkPromoteYear" class="filter-select">
-            <option value="">Promote to next year…</option>
-            <option :value="nextSchoolYear">Next: {{ nextSchoolYear }}</option>
-            <option :value="currentSchoolYear">Current: {{ currentSchoolYear }}</option>
-          </select>
-          <button class="btn btn-secondary btn-sm" type="button" :disabled="!bulkPromoteYear || bulkWorking" @click="bulkPromoteToNextYear">
-            Promote
-          </button>
+          <div class="bulk-group">
+            <select v-model="bulkPromoteYear" class="filter-select">
+              <option value="">Promote to next year…</option>
+              <option :value="nextSchoolYear">Next: {{ nextSchoolYear }}</option>
+              <option :value="currentSchoolYear">Current: {{ currentSchoolYear }}</option>
+            </select>
+            <button
+              class="btn btn-secondary btn-sm"
+              type="button"
+              :disabled="!bulkPromoteYear || bulkWorking"
+              @click="bulkPromoteToNextYear"
+            >
+              Promote
+            </button>
+          </div>
 
-          <select v-model="bulkAffiliationId" class="filter-select">
-            <option value="">Move to affiliation…</option>
-            <option v-for="org in availableAffiliations" :key="org.id" :value="String(org.id)">{{ org.name }}</option>
-          </select>
-          <button class="btn btn-secondary btn-sm" type="button" :disabled="!bulkAffiliationId || bulkWorking" @click="bulkMoveAffiliation">
-            Move
-          </button>
+          <div class="bulk-group">
+            <select v-model="bulkAffiliationId" class="filter-select">
+              <option value="">Move to affiliation…</option>
+              <option v-for="org in availableAffiliations" :key="org.id" :value="String(org.id)">{{ org.name }}</option>
+            </select>
+            <button
+              class="btn btn-secondary btn-sm"
+              type="button"
+              :disabled="!bulkAffiliationId || bulkWorking"
+              @click="bulkMoveAffiliation"
+            >
+              Move
+            </button>
+          </div>
 
-          <select v-model="bulkClientStatusId" class="filter-select">
-            <option value="">Set client status…</option>
-            <option v-for="s in clientStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
-          </select>
-          <button class="btn btn-secondary btn-sm" type="button" :disabled="!bulkClientStatusId || bulkWorking" @click="bulkSetClientStatus">
-            Set
-          </button>
+          <div class="bulk-group">
+            <select v-model="bulkClientStatusId" class="filter-select">
+              <option value="">Set client status…</option>
+              <option v-for="s in clientStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
+            </select>
+            <button
+              class="btn btn-secondary btn-sm"
+              type="button"
+              :disabled="!bulkClientStatusId || bulkWorking"
+              @click="bulkSetClientStatus"
+            >
+              Set
+            </button>
+          </div>
 
-          <select v-model="bulkProviderId" class="filter-select">
-            <option value="">Assign provider…</option>
-            <option :value="'__unassign__'">Unassign</option>
-            <option v-for="p in availableProviders" :key="p.id" :value="String(p.id)">{{ p.first_name }} {{ p.last_name }}</option>
-          </select>
-          <button class="btn btn-secondary btn-sm" type="button" :disabled="!bulkProviderId || bulkWorking" @click="bulkAssignProvider">
-            Assign
-          </button>
+          <div class="bulk-group">
+            <select v-model="bulkProviderId" class="filter-select">
+              <option value="">Assign provider…</option>
+              <option :value="'__unassign__'">Unassign</option>
+              <option v-for="p in availableProviders" :key="p.id" :value="String(p.id)">{{ p.first_name }} {{ p.last_name }}</option>
+            </select>
+            <button
+              class="btn btn-secondary btn-sm"
+              type="button"
+              :disabled="!bulkProviderId || bulkWorking"
+              @click="bulkAssignProvider"
+            >
+              Assign
+            </button>
+          </div>
 
-          <button class="btn btn-danger btn-sm" type="button" :disabled="bulkWorking" @click="bulkArchive">
-            Archive
-          </button>
+          <div class="bulk-group">
+            <button class="btn btn-danger btn-sm" type="button" :disabled="bulkWorking" @click="bulkArchive">
+              Archive
+            </button>
+          </div>
         </div>
       </div>
       <table class="clients-table">
@@ -173,13 +247,13 @@
               <input type="checkbox" :checked="allPageSelected" @change.stop="toggleSelectAllPage($event)" />
             </th>
             <th>Initials</th>
-            <th>Affiliation</th>
-            <th>Client Status</th>
-            <th>Provider</th>
-            <th>Submission Date</th>
-            <th>Paperwork</th>
-            <th>Insurance</th>
-            <th>Last Activity</th>
+            <th v-if="columnPrefs.affiliation">Affiliation</th>
+            <th v-if="columnPrefs.clientStatus">Client Status</th>
+            <th v-if="columnPrefs.provider">Provider</th>
+            <th v-if="columnPrefs.submissionDate">Submission Date</th>
+            <th v-if="columnPrefs.paperwork">Paperwork</th>
+            <th v-if="columnPrefs.insurance">Insurance</th>
+            <th v-if="columnPrefs.lastActivity">Last Activity</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -194,7 +268,7 @@
               <input type="checkbox" :checked="selectedIds.has(client.id)" @change.stop="toggleSelected(client.id)" />
             </td>
             <td>{{ client.initials }}</td>
-            <td>
+            <td v-if="columnPrefs.affiliation">
               <button
                 v-if="client.organization_slug"
                 type="button"
@@ -205,10 +279,10 @@
               </button>
               <span v-else>{{ client.organization_name || '-' }}</span>
             </td>
-            <td>
+            <td v-if="columnPrefs.clientStatus">
               {{ client.client_status_label || '-' }}
             </td>
-            <td>
+            <td v-if="columnPrefs.provider">
               <select
                 v-if="editingProviderId === client.id"
                 v-model="editingProviderValue"
@@ -226,15 +300,16 @@
                 {{ client.provider_name || 'Not assigned' }}
               </span>
             </td>
-            <td>{{ formatDate(client.submission_date) }}</td>
-            <td>
+            <td v-if="columnPrefs.submissionDate">{{ formatDate(client.submission_date) }}</td>
+            <td v-if="columnPrefs.paperwork">
               {{ client.paperwork_status_label || '-' }}
             </td>
-            <td>{{ client.insurance_type_label || '-' }}</td>
-            <td>{{ formatDate(client.last_activity_at) || '-' }}</td>
+            <td v-if="columnPrefs.insurance">{{ client.insurance_type_label || '-' }}</td>
+            <td v-if="columnPrefs.lastActivity">{{ formatDate(client.last_activity_at) || '-' }}</td>
             <td class="actions-cell" @click.stop>
               <button @click="openClientDetail(client)" class="btn btn-primary btn-sm">View</button>
               <button
+                v-if="canBackofficeEdit"
                 @click.stop="startEditStatus(client)" 
                 class="btn btn-secondary btn-sm"
               >
@@ -250,6 +325,7 @@
     <ClientDetailPanel
       v-if="selectedClient"
       :client="selectedClient"
+      :initial-tab="String(route.query?.tab || '')"
       @close="closeClientDetail"
       @updated="handleClientUpdated"
     />
@@ -282,12 +358,30 @@
           </div>
           <div class="form-group">
             <label>Provider</label>
-            <select v-model="newClient.provider_id">
+            <select v-model="newClient.provider_id" :disabled="providerOptionsLoading || !newClient.organization_id">
               <option :value="null">Not assigned</option>
-              <option v-for="provider in availableProviders" :key="provider.id" :value="provider.id">
+              <option v-for="provider in availableProvidersForOrg" :key="provider.id" :value="provider.id">
                 {{ provider.first_name }} {{ provider.last_name }}
               </option>
             </select>
+            <small v-if="providerOptionsLoading">Loading provider schedules…</small>
+            <small v-else-if="newClient.organization_id && (availableProvidersForOrg || []).length === 0">
+              No scheduled providers found for this organization.
+            </small>
+          </div>
+          <div class="form-group" v-if="newClient.provider_id">
+            <label>Provider available day *</label>
+            <select v-model="newClient.service_day" required>
+              <option value="">Select day…</option>
+              <option v-for="d in availableServiceDays" :key="d" :value="d">{{ d }}</option>
+            </select>
+            <small v-if="selectedProviderDayAssignment">
+              Slots: <strong>{{ selectedProviderDayAssignment.slots_available }}</strong> / {{ selectedProviderDayAssignment.slots_total }}
+              <span v-if="Number(selectedProviderDayAssignment.slots_available) <= 0" style="color: var(--danger, #d92d20);">
+                (Over capacity if you add another current client)
+              </span>
+            </small>
+            <small v-else>Days are sourced from the provider’s schedule for this organization.</small>
           </div>
           <div class="form-group">
             <label>Client Status</label>
@@ -295,6 +389,27 @@
               <option :value="null">—</option>
               <option v-for="s in clientStatuses" :key="s.id" :value="s.id">{{ s.label }}</option>
             </select>
+          </div>
+          <div class="form-group">
+            <label>Referral Date</label>
+            <input v-model="newClient.referral_date" type="date" />
+            <small>Defaults to today.</small>
+          </div>
+          <div class="form-group" v-if="selectedOrgIsSchool">
+            <label>Document delivery method</label>
+            <select v-model="newClient.paperwork_delivery_method_id" :disabled="deliveryMethodsLoading">
+              <option :value="null">—</option>
+              <option v-for="m in deliveryMethods" :key="m.id" :value="m.id">{{ m.label }}</option>
+            </select>
+            <small>How paperwork was obtained (e.g., emailed, sent home, portal, school email, unknown).</small>
+          </div>
+          <div class="form-group">
+            <label>Client primary language</label>
+            <input v-model="newClient.primary_client_language" type="text" placeholder="e.g., English" />
+          </div>
+          <div class="form-group">
+            <label>Guardian primary language</label>
+            <input v-model="newClient.primary_parent_language" type="text" placeholder="e.g., Spanish" />
           </div>
           <div class="form-group">
             <label>School Year</label>
@@ -321,11 +436,142 @@
           </div>
           <div class="modal-actions">
             <button type="button" @click="closeCreateModal" class="btn btn-secondary">Cancel</button>
-            <button type="submit" class="btn btn-primary" :disabled="creating">
+            <button
+              type="submit"
+              class="btn btn-primary"
+              :disabled="creating || (newClient.provider_id && !newClient.service_day)"
+            >
               {{ creating ? 'Creating...' : 'Create Client' }}
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Rollover Modal (extra confirmation gates) -->
+    <div v-if="showRolloverModal" class="modal-overlay" @click.self="closeRolloverModal">
+      <div class="modal-content" @click.stop style="max-width: 720px;">
+        <h3>Rollover School Year</h3>
+        <p style="margin-top: 6px; color: var(--text-secondary);">
+          This is a high-impact action. It will update many clients at once and reset paperwork fields to “New Docs”.
+        </p>
+
+        <div class="form-group" style="margin-top: 12px;">
+          <label>To School Year</label>
+          <input :value="normalizeSchoolYearLabel(nextSchoolYear)" disabled />
+          <small>Target year is calculated automatically.</small>
+        </div>
+
+        <div class="form-group">
+          <label>Scope</label>
+          <select v-model="rolloverScope">
+            <option v-if="organizationFilter" value="selected">Selected affiliation only</option>
+            <option value="all">All affiliations</option>
+          </select>
+          <small v-if="organizationFilter && rolloverScope === 'selected'">
+            Will rollover clients in: <strong>{{ selectedAffiliation?.name || 'selected affiliation' }}</strong>
+          </small>
+          <small v-else-if="rolloverScope === 'all'">
+            Will rollover all non-archived clients you have access to.
+          </small>
+        </div>
+
+        <div class="modal-actions" style="justify-content: flex-start; gap: 10px; margin-top: 8px;">
+          <button class="btn btn-secondary" type="button" :disabled="rolloverWorking" @click="runRolloverPreview">
+            {{ rolloverWorking ? 'Previewing…' : 'Preview impact' }}
+          </button>
+          <span v-if="rolloverPreview" class="muted">
+            Preview: <strong>{{ Number(rolloverPreview?.willUpdate || 0) }}</strong> client(s) will be updated.
+          </span>
+        </div>
+
+        <div v-if="rolloverPreview" style="margin-top: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);">
+          <div style="color: var(--text-secondary); font-size: 13px;">
+            Confirm you want to rollover <strong>{{ Number(rolloverPreview?.willUpdate || 0) }}</strong> client(s)
+            to <strong>{{ normalizeSchoolYearLabel(nextSchoolYear) }}</strong>.
+          </div>
+          <div style="margin-top: 10px;">
+            <label style="display: flex; gap: 8px; align-items: center;">
+              <input type="checkbox" v-model="rolloverConfirmChecked" />
+              <span>I understand this will reset paperwork fields to “New Docs”.</span>
+            </label>
+          </div>
+          <div class="form-group" style="margin-top: 10px;">
+            <label>Type to confirm</label>
+            <input v-model="rolloverConfirmText" type="text" :placeholder="rolloverConfirmPhrase" />
+            <small>Required: <strong>{{ rolloverConfirmPhrase }}</strong></small>
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 14px;">
+          <button type="button" class="btn btn-secondary" :disabled="rolloverWorking" @click="closeRolloverModal">
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-danger"
+            :disabled="!canExecuteRollover || rolloverWorking"
+            @click="executeRollover"
+          >
+            {{ rolloverWorking ? 'Rolling over…' : 'Execute rollover' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Imported Clients Modal (superadmin only) -->
+    <div v-if="showDeleteImportedModal" class="modal-overlay" @click.self="closeDeleteImportedModal">
+      <div class="modal-content" @click.stop style="max-width: 720px;">
+        <h3>Delete Imported Clients</h3>
+        <p style="margin-top: 6px; color: var(--text-secondary);">
+          This will permanently delete clients that were created via bulk import (<code>source = BULK_IMPORT</code>) for the currently selected agency.
+        </p>
+
+        <div class="form-group" style="margin-top: 12px;">
+          <label>Agency</label>
+          <input :value="String(activeAgencyId || '')" disabled />
+          <small>Uses the active agency from the header context.</small>
+        </div>
+
+        <div class="modal-actions" style="justify-content: flex-start; gap: 10px; margin-top: 8px;">
+          <button class="btn btn-secondary" type="button" :disabled="deleteImportedWorking || !activeAgencyId" @click="runDeleteImportedPreview">
+            {{ deleteImportedWorking ? 'Previewing…' : 'Preview impact' }}
+          </button>
+          <span v-if="deleteImportedPreview" class="muted">
+            Preview: <strong>{{ Number(deleteImportedPreview?.willDeleteClients || 0) }}</strong> client(s) will be deleted.
+          </span>
+        </div>
+
+        <div v-if="deleteImportedPreview" style="margin-top: 14px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);">
+          <div style="color: var(--text-secondary); font-size: 13px;">
+            Confirm you want to delete <strong>{{ Number(deleteImportedPreview?.willDeleteClients || 0) }}</strong> bulk-imported client(s).
+          </div>
+          <div style="margin-top: 10px;">
+            <label style="display: flex; gap: 8px; align-items: center;">
+              <input type="checkbox" v-model="deleteImportedConfirmChecked" />
+              <span>I understand this permanently deletes client records.</span>
+            </label>
+          </div>
+          <div class="form-group" style="margin-top: 10px;">
+            <label>Type to confirm</label>
+            <input v-model="deleteImportedConfirmText" type="text" :placeholder="deleteImportedConfirmPhrase" />
+            <small>Required: <strong>{{ deleteImportedConfirmPhrase }}</strong></small>
+          </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 14px;">
+          <button type="button" class="btn btn-secondary" :disabled="deleteImportedWorking" @click="closeDeleteImportedModal">
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-danger"
+            :disabled="!canExecuteDeleteImported || deleteImportedWorking"
+            @click="executeDeleteImported"
+          >
+            {{ deleteImportedWorking ? 'Deleting…' : 'Delete imported clients' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -400,6 +646,49 @@ const agencyStore = useAgencyStore();
 const router = useRouter();
 const route = useRoute();
 
+const canBackofficeEdit = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return ['super_admin', 'admin', 'support', 'staff'].includes(r);
+});
+
+// Client table column visibility (persisted locally per user)
+const columnsOpen = ref(false);
+const columnsStorageKey = computed(() => `client_mgmt_columns_v1_${authStore.user?.id || 'anon'}`);
+const columnPrefs = ref({
+  affiliation: true,
+  clientStatus: true,
+  provider: true,
+  submissionDate: true,
+  paperwork: true,
+  insurance: true,
+  lastActivity: true
+});
+
+const loadColumnPrefs = () => {
+  try {
+    const raw = localStorage.getItem(columnsStorageKey.value);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      columnPrefs.value = { ...columnPrefs.value, ...parsed };
+    }
+  } catch {
+    // ignore
+  }
+};
+
+watch(
+  () => columnPrefs.value,
+  (v) => {
+    try {
+      localStorage.setItem(columnsStorageKey.value, JSON.stringify(v));
+    } catch {
+      // ignore
+    }
+  },
+  { deep: true }
+);
+
 const clients = ref([]);
 const loading = ref(false);
 const error = ref('');
@@ -436,10 +725,15 @@ const newClient = ref({
   organization_id: null,
   initials: '',
   provider_id: null,
+  service_day: '',
   client_status_id: null,
   school_year: '',
   grade: '',
   submission_date: new Date().toISOString().split('T')[0],
+  referral_date: new Date().toISOString().split('T')[0],
+  paperwork_delivery_method_id: null,
+  primary_client_language: '',
+  primary_parent_language: '',
   document_status: 'NONE'
 });
 
@@ -561,6 +855,67 @@ const goToAffiliationDashboard = () => {
 
 // Get available providers
 const availableProviders = ref([]);
+const providerOptionsLoading = ref(false);
+const providerAssignmentsForOrg = ref([]);
+
+const deliveryMethodsLoading = ref(false);
+const deliveryMethods = ref([]);
+
+const selectedNewClientOrg = computed(() => {
+  const id = Number(newClient.value?.organization_id);
+  if (!id) return null;
+  return (availableOrganizations.value || []).find((o) => Number(o?.id) === id) || null;
+});
+
+const selectedOrgIsSchool = computed(() => {
+  return String(selectedNewClientOrg.value?.organization_type || '').toLowerCase() === 'school';
+});
+
+const providersWithOpenSlotsForOrg = computed(() => {
+  const set = new Set();
+  for (const a of providerAssignmentsForOrg.value || []) {
+    if (!a) continue;
+    const active = a.is_active === undefined ? true : !!a.is_active;
+    if (active) set.add(Number(a.provider_user_id));
+  }
+  return set;
+});
+
+const availableProvidersForOrg = computed(() => {
+  const orgId = Number(newClient.value?.organization_id);
+  if (!orgId) return [];
+  const allowed = providersWithOpenSlotsForOrg.value;
+  // If we haven't loaded assignments yet, fall back to all providers (non-blocking).
+  if (!allowed || allowed.size === 0) return availableProviders.value || [];
+  return (availableProviders.value || []).filter((p) => allowed.has(Number(p.id)));
+});
+
+const availableServiceDays = computed(() => {
+  const providerId = Number(newClient.value?.provider_id);
+  if (!providerId) return [];
+  const days = [];
+  for (const a of providerAssignmentsForOrg.value || []) {
+    if (!a) continue;
+    if (Number(a.provider_user_id) !== providerId) continue;
+    const active = a.is_active === undefined ? true : !!a.is_active;
+    if (!active) continue;
+    if (a.day_of_week) days.push(String(a.day_of_week));
+  }
+  // stable ordering Mon–Fri
+  const order = new Map([['Monday', 1], ['Tuesday', 2], ['Wednesday', 3], ['Thursday', 4], ['Friday', 5]]);
+  return Array.from(new Set(days)).sort((a, b) => (order.get(a) || 99) - (order.get(b) || 99));
+});
+
+const selectedProviderDayAssignment = computed(() => {
+  const providerId = Number(newClient.value?.provider_id);
+  const day = String(newClient.value?.service_day || '');
+  if (!providerId || !day) return null;
+  return (
+    (providerAssignmentsForOrg.value || []).find(
+      (a) => Number(a?.provider_user_id) === providerId && String(a?.day_of_week || '') === day
+    ) || null
+  );
+});
 
 const fetchClients = async () => {
   try {
@@ -595,14 +950,52 @@ const fetchClientStatuses = async () => {
 
 const fetchProviders = async () => {
   try {
-    const response = await api.get('/users');
-    const allUsers = response.data || [];
-    // Filter to providers/clinicians
-    availableProviders.value = allUsers.filter(u => 
-      ['provider', 'supervisor', 'admin'].includes(u.role?.toLowerCase())
-    );
+    const agencyId = activeAgencyId.value;
+    if (!agencyId) {
+      availableProviders.value = [];
+      return;
+    }
+    const response = await api.get('/provider-scheduling/providers', { params: { agencyId } });
+    availableProviders.value = response.data || [];
   } catch (err) {
     console.error('Failed to fetch providers:', err);
+  }
+};
+
+const fetchProviderAssignmentsForOrg = async () => {
+  const agencyId = activeAgencyId.value;
+  const orgId = Number(newClient.value?.organization_id);
+  if (!agencyId || !orgId) {
+    providerAssignmentsForOrg.value = [];
+    return;
+  }
+  try {
+    providerOptionsLoading.value = true;
+    const resp = await api.get('/provider-scheduling/assignments', { params: { agencyId, schoolOrganizationId: orgId } });
+    providerAssignmentsForOrg.value = resp.data || [];
+  } catch (e) {
+    // Best-effort: don’t block creation; just disable provider/day guidance.
+    providerAssignmentsForOrg.value = [];
+  } finally {
+    providerOptionsLoading.value = false;
+  }
+};
+
+const fetchDeliveryMethodsForSchool = async () => {
+  const agencyId = activeAgencyId.value;
+  const orgId = Number(newClient.value?.organization_id);
+  if (!agencyId || !orgId || !selectedOrgIsSchool.value) {
+    deliveryMethods.value = [];
+    return;
+  }
+  try {
+    deliveryMethodsLoading.value = true;
+    const resp = await api.get(`/school-settings/${orgId}/paperwork-delivery-methods`, { params: { agencyId } });
+    deliveryMethods.value = (resp.data || []).filter((m) => m && (m.is_active === 1 || m.is_active === true));
+  } catch {
+    deliveryMethods.value = [];
+  } finally {
+    deliveryMethodsLoading.value = false;
   }
 };
 
@@ -724,12 +1117,43 @@ const bulkPromoteToNextYear = async () => {
 const rolloverWorking = ref(false);
 const rolloverPreview = ref(null);
 
-const rolloverSchoolYearAll = async () => {
+const showRolloverModal = ref(false);
+const rolloverScope = ref('all'); // 'selected' | 'all'
+const rolloverConfirmChecked = ref(false);
+const rolloverConfirmText = ref('');
+
+const rolloverConfirmPhrase = computed(() => `ROLLOVER ${normalizeSchoolYearLabel(nextSchoolYear.value)}`);
+
+const openRolloverModal = () => {
+  rolloverPreview.value = null;
+  rolloverConfirmChecked.value = false;
+  rolloverConfirmText.value = '';
+  rolloverScope.value = organizationFilter.value ? 'selected' : 'all';
+  showRolloverModal.value = true;
+};
+
+const closeRolloverModal = () => {
+  showRolloverModal.value = false;
+};
+
+const resolveRolloverOrgId = () => {
+  if (rolloverScope.value === 'selected') {
+    const orgId = organizationFilter.value ? parseInt(String(organizationFilter.value), 10) : null;
+    return orgId || null;
+  }
+  return null;
+};
+
+const runRolloverPreview = async () => {
   const toSchoolYear = normalizeSchoolYearLabel(nextSchoolYear.value);
-  const orgId = organizationFilter.value ? parseInt(String(organizationFilter.value), 10) : null;
+  if (!toSchoolYear) return;
+  const orgId = resolveRolloverOrgId();
+  if (rolloverScope.value === 'selected' && !orgId) {
+    alert('Select an affiliation in the filter first, or choose “All affiliations”.');
+    return;
+  }
   rolloverWorking.value = true;
   try {
-    // Preview first
     const preview = await api.post('/clients/bulk/rollover-school-year', {
       organizationId: orgId || undefined,
       toSchoolYear,
@@ -738,10 +1162,28 @@ const rolloverSchoolYearAll = async () => {
       confirm: false
     });
     rolloverPreview.value = preview.data;
-    const count = Number(preview.data?.willUpdate || 0);
-    const scopeLabel = orgId ? 'this affiliation' : 'all affiliations';
-    const ok = window.confirm(`Rollover ${count} client(s) in ${scopeLabel} to ${toSchoolYear}? This will reset paperwork to "New Docs" and clear received dates.`);
-    if (!ok) return;
+  } catch (e) {
+    console.error('Rollover preview failed:', e);
+    alert(e.response?.data?.error?.message || e.message || 'Rollover preview failed');
+  } finally {
+    rolloverWorking.value = false;
+  }
+};
+
+const canExecuteRollover = computed(() => {
+  if (!rolloverPreview.value) return false;
+  if (!rolloverConfirmChecked.value) return false;
+  const want = String(rolloverConfirmPhrase.value || '').trim().toUpperCase();
+  const got = String(rolloverConfirmText.value || '').trim().toUpperCase();
+  return Boolean(want) && got === want;
+});
+
+const executeRollover = async () => {
+  const toSchoolYear = normalizeSchoolYearLabel(nextSchoolYear.value);
+  if (!toSchoolYear) return;
+  const orgId = resolveRolloverOrgId();
+  rolloverWorking.value = true;
+  try {
     await api.post('/clients/bulk/rollover-school-year', {
       organizationId: orgId || undefined,
       toSchoolYear,
@@ -750,11 +1192,73 @@ const rolloverSchoolYearAll = async () => {
       confirm: true
     });
     await fetchClients();
+    closeRolloverModal();
   } catch (e) {
     console.error('Rollover failed:', e);
     alert(e.response?.data?.error?.message || e.message || 'Rollover failed');
   } finally {
     rolloverWorking.value = false;
+  }
+};
+
+// Delete bulk-imported clients (superadmin-only, strongly gated)
+const showDeleteImportedModal = ref(false);
+const deleteImportedWorking = ref(false);
+const deleteImportedPreview = ref(null);
+const deleteImportedConfirmChecked = ref(false);
+const deleteImportedConfirmText = ref('');
+const deleteImportedConfirmPhrase = computed(() => 'DELETE IMPORTED CLIENTS');
+
+const openDeleteImportedModal = () => {
+  deleteImportedPreview.value = null;
+  deleteImportedConfirmChecked.value = false;
+  deleteImportedConfirmText.value = '';
+  showDeleteImportedModal.value = true;
+};
+
+const closeDeleteImportedModal = () => {
+  showDeleteImportedModal.value = false;
+};
+
+const runDeleteImportedPreview = async () => {
+  const agencyId = activeAgencyId.value;
+  if (!agencyId) {
+    alert('No active agency found.');
+    return;
+  }
+  deleteImportedWorking.value = true;
+  try {
+    const r = await api.delete(`/clients/bulk-import?agencyId=${encodeURIComponent(String(agencyId))}`);
+    deleteImportedPreview.value = r.data || null;
+  } catch (e) {
+    console.error('Delete imported preview failed:', e);
+    alert(e.response?.data?.error?.message || e.message || 'Preview failed');
+  } finally {
+    deleteImportedWorking.value = false;
+  }
+};
+
+const canExecuteDeleteImported = computed(() => {
+  if (!deleteImportedPreview.value) return false;
+  if (!deleteImportedConfirmChecked.value) return false;
+  const want = String(deleteImportedConfirmPhrase.value || '').trim().toUpperCase();
+  const got = String(deleteImportedConfirmText.value || '').trim().toUpperCase();
+  return Boolean(want) && got === want;
+});
+
+const executeDeleteImported = async () => {
+  const agencyId = activeAgencyId.value;
+  if (!agencyId) return;
+  deleteImportedWorking.value = true;
+  try {
+    await api.delete(`/clients/bulk-import?agencyId=${encodeURIComponent(String(agencyId))}&confirm=true`);
+    await fetchClients();
+    closeDeleteImportedModal();
+  } catch (e) {
+    console.error('Delete imported failed:', e);
+    alert(e.response?.data?.error?.message || e.message || 'Delete failed');
+  } finally {
+    deleteImportedWorking.value = false;
   }
 };
 
@@ -912,11 +1416,22 @@ const createClient = async () => {
       ...newClient.value,
       school_year: normalizeSchoolYearLabel(newClient.value.school_year) || null,
       grade: String(newClient.value.grade || '').trim() || null,
+      // Assign provider/day in a second call so slot adjustments are enforced centrally.
+      provider_id: null,
+      service_day: null,
       agency_id: agencyId,
       source: 'ADMIN_CREATED'
     };
 
-    await api.post('/clients', payload);
+    const resp = await api.post('/clients', payload);
+    const created = resp.data || null;
+
+    // Slot-aware assignment (optional)
+    const providerId = newClient.value?.provider_id ? Number(newClient.value.provider_id) : null;
+    const serviceDay = String(newClient.value?.service_day || '').trim() || null;
+    if (created?.id && providerId && serviceDay) {
+      await api.put(`/clients/${created.id}/provider`, { provider_id: providerId, service_day: serviceDay });
+    }
 
     await fetchClients();
     closeCreateModal();
@@ -942,10 +1457,15 @@ const closeCreateModal = () => {
     organization_id: null,
     initials: '',
     provider_id: null,
+    service_day: '',
     client_status_id: null,
     school_year: '',
     grade: '',
     submission_date: new Date().toISOString().split('T')[0],
+    referral_date: new Date().toISOString().split('T')[0],
+    paperwork_delivery_method_id: null,
+    primary_client_language: '',
+    primary_parent_language: '',
     document_status: 'NONE'
   };
 };
@@ -996,6 +1516,7 @@ const openClientFromQuery = async () => {
 };
 
 onMounted(async () => {
+  loadColumnPrefs();
   await agencyStore.fetchUserAgencies();
   await fetchLinkedOrganizations();
   await fetchClientStatuses();
@@ -1008,6 +1529,29 @@ onMounted(async () => {
     newClient.value.school_year = currentSchoolYear.value;
   }
 });
+
+watch(
+  () => newClient.value?.organization_id,
+  async () => {
+    // Reset downstream selections when org changes
+    newClient.value.provider_id = null;
+    newClient.value.service_day = '';
+    newClient.value.paperwork_delivery_method_id = null;
+    deliveryMethods.value = [];
+    providerAssignmentsForOrg.value = [];
+
+    await fetchProviderAssignmentsForOrg();
+    await fetchDeliveryMethodsForSchool();
+  }
+);
+
+watch(
+  () => newClient.value?.provider_id,
+  () => {
+    // Force day re-selection when provider changes
+    newClient.value.service_day = '';
+  }
+);
 
 watch(() => route.query?.clientId, async () => {
   await openClientFromQuery();
@@ -1039,6 +1583,32 @@ watch(() => route.query?.clientId, async () => {
   gap: 12px;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.columns-control {
+  position: relative;
+}
+
+.columns-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  min-width: 210px;
+}
+
+.columns-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-primary);
+  padding: 4px 0;
 }
 
 .search-input {
@@ -1154,6 +1724,18 @@ watch(() => route.query?.clientId, async () => {
   justify-content: flex-end;
 }
 
+.bulk-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.bulk-group .btn {
+  width: auto;
+  flex: 0 0 auto;
+}
+
 .select-cell {
   width: 34px;
 }
@@ -1210,7 +1792,7 @@ watch(() => route.query?.clientId, async () => {
 }
 
 .clients-table th {
-  padding: 12px 16px;
+  padding: 8px 10px;
   text-align: left;
   font-weight: 600;
   color: var(--text-primary);
@@ -1219,7 +1801,7 @@ watch(() => route.query?.clientId, async () => {
 }
 
 .clients-table td {
-  padding: 12px 16px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   color: var(--text-primary);
 }
@@ -1235,6 +1817,16 @@ watch(() => route.query?.clientId, async () => {
 
 .actions-cell {
   white-space: nowrap;
+}
+
+.actions-cell .btn {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 4px 8px;
+}
+
+.actions-cell .btn + .btn {
+  margin-left: 6px;
 }
 
 .inline-select {

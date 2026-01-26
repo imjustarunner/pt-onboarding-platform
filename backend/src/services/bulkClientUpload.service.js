@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import pool from '../config/database.js';
 import { adjustProviderSlots } from './providerSlots.service.js';
 import { notifyClientBecameCurrent, notifyPaperworkReceived } from './clientNotifications.service.js';
+import ClientNotes from '../models/ClientNotes.model.js';
 
 const slugify = (s) =>
   String(s || '')
@@ -24,18 +25,37 @@ const normalizeClientCode = (value) => {
   return s;
 };
 
-const generateIdentifierCode = (fullName) => {
-  const parts = String(fullName || '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  const first = safeLetters(parts[0] || '');
-  const last = safeLetters(parts[parts.length - 1] || '');
-  const last3 = (last.slice(0, 3) || '').padEnd(3, 'x');
-  const first3 = (first.slice(0, 3) || '').padEnd(3, 'x');
-  const base = `${titleCase(last3)}${titleCase(first3)}`.slice(0, 6);
-  return base;
+const normalizeIdentifierCodeFromSheet = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const alnum = raw.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  // Only accept exactly 6 chars (DB column is typically VARCHAR(6)).
+  return alnum.length === 6 ? alnum : '';
 };
+
+const IDENT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no O/0/I/1
+
+const randomIdentifierCode = () => {
+  const bytes = crypto.randomBytes(6);
+  let out = '';
+  for (let i = 0; i < 6; i++) {
+    out += IDENT_CODE_ALPHABET[bytes[i] % IDENT_CODE_ALPHABET.length];
+  }
+  return out;
+};
+
+async function generateUniqueIdentifierCode(connection, { agencyId, maxAttempts = 25 }) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const code = randomIdentifierCode();
+    // Uniqueness per agency
+    const [rows] = await connection.execute(
+      `SELECT 1 FROM clients WHERE agency_id = ? AND identifier_code = ? LIMIT 1`,
+      [agencyId, code]
+    );
+    if (!rows?.length) return code;
+  }
+  throw new Error('Failed to generate a unique identifier code (too many collisions)');
+}
 
 const normalizeKey = (s) =>
   String(s || '')
@@ -160,6 +180,25 @@ async function ensureDefaultCatalogIds(connection, agencyId, schoolId) {
   };
 }
 
+async function getCurrentClientStatusId(connection, agencyId) {
+  const [rows] = await connection.execute(
+    `SELECT id FROM client_statuses WHERE agency_id = ? AND status_key = 'current' LIMIT 1`,
+    [agencyId]
+  );
+  return rows?.[0]?.id || null;
+}
+
+function isCurrentStatusFromRowLabel(rowStatus) {
+  return normalizeClientStatusKey(rowStatus) === 'current';
+}
+
+function isTerminalClientStatus(rowStatus) {
+  const key = normalizeClientStatusKey(rowStatus);
+  if (key === 'dead' || key === 'terminated') return true;
+  const raw = String(rowStatus || '').toLowerCase();
+  return raw.includes('dead') || raw.includes('terminated');
+}
+
 async function findOrCreateSchool(connection, { agencyId, schoolName, districtName }) {
   const name = String(schoolName || '').trim();
   if (!name) throw new Error('School is required');
@@ -192,6 +231,69 @@ async function findOrCreateSchool(connection, { agencyId, schoolName, districtNa
   // That data is owned by the school directory import.
 
   return schoolId;
+}
+
+async function ensureProviderSchoolAssignmentDefault(connection, { agencyId, currentStatusId, providerUserId, schoolId, dayOfWeek }) {
+  if (!providerUserId || !schoolId || !dayOfWeek) return;
+
+  // Count existing "current" clients already assigned to this provider/school/day.
+  // This ensures a brand new schedule starts from the right baseline (and may already be overbooked).
+  const [cntRows] = currentStatusId
+    ? await connection.execute(
+        `SELECT COUNT(*) AS cnt
+         FROM clients
+         WHERE agency_id = ?
+           AND organization_id = ?
+           AND provider_id = ?
+           AND service_day = ?
+           AND status <> 'ARCHIVED'
+           AND client_status_id = ?`,
+        [agencyId, schoolId, providerUserId, dayOfWeek, currentStatusId]
+      )
+    : [[{ cnt: 0 }]];
+  const currentCount = parseInt(String(cntRows?.[0]?.cnt ?? 0), 10) || 0;
+
+  // Upsert the assignment. We only set defaults when values are missing.
+  // We do NOT overwrite existing slots_available because that represents live capacity management.
+  const [existing] = await connection.execute(
+    `SELECT id, slots_total, slots_available, start_time, end_time
+     FROM provider_school_assignments
+     WHERE provider_user_id = ? AND school_organization_id = ? AND day_of_week = ?
+     LIMIT 1`,
+    [providerUserId, schoolId, dayOfWeek]
+  );
+
+  if (!existing?.[0]?.id) {
+    const slotsTotal = 7;
+    const slotsAvail = slotsTotal - currentCount; // can be negative
+    await connection.execute(
+      `INSERT INTO provider_school_assignments
+        (provider_user_id, school_organization_id, day_of_week, slots_total, slots_available, start_time, end_time, is_active)
+       VALUES (?, ?, ?, ?, ?, '08:00:00', '15:00:00', TRUE)`,
+      [providerUserId, schoolId, dayOfWeek, slotsTotal, slotsAvail]
+    );
+    return;
+  }
+
+  const row = existing[0];
+  const updates = [];
+  const values = [];
+  const set = (f, v) => {
+    updates.push(`${f} = ?`);
+    values.push(v);
+  };
+
+  // Keep it active
+  set('is_active', true);
+
+  if (!row.start_time) set('start_time', '08:00:00');
+  if (!row.end_time) set('end_time', '15:00:00');
+  if (!row.slots_total || Number(row.slots_total) <= 0) set('slots_total', 7);
+
+  if (updates.length) {
+    values.push(row.id);
+    await connection.execute(`UPDATE provider_school_assignments SET ${updates.join(', ')} WHERE id = ?`, values);
+  }
 }
 
 function normalizePersonNameKey(value) {
@@ -304,6 +406,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
       [agencyId]
     );
     const providerIndex = buildProviderIndex(providerRows || []);
+    const currentStatusId = await getCurrentClientStatusId(connection, agencyId);
 
     for (const row of rows) {
       await connection.beginTransaction();
@@ -324,30 +427,36 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           warnings.push('Provider scheduling fields were ignored because provider is not assigned.');
         }
 
-        const providerSlots = parseIntOrNull(row.providerAvailability);
-        if (providerUserId && schoolId && row.day && providerSlots !== null) {
-          await ensureProviderAvailability(connection, {
+        // Ensure the provider is scheduled for this school/day with default hours + default slots.
+        if (providerUserId && schoolId && row.day) {
+          await ensureProviderSchoolAssignmentDefault(connection, {
+            agencyId,
+            currentStatusId,
             providerUserId,
             schoolId,
-            dayOfWeek: row.day,
-            slots: providerSlots
+            dayOfWeek: row.day
           });
         }
 
         const defaults = await ensureDefaultCatalogIds(connection, agencyId, schoolId);
 
-        const clientCode = normalizeClientCode(row.clientName || row.identifierCode);
-        if (!clientCode) throw new Error('Client Name is required');
-        // Preserve the client identifier code for UI + matching.
-        // Note: the DB column may be sized differently across environments; migrations should align it.
-        const identifierCode = clientCode;
+        const initials = normalizeClientCode(row.clientName);
+        if (!initials) throw new Error('Initials is required');
 
-        const existingClientQuery = `SELECT id, referral_date, provider_id, organization_id, service_day, paperwork_received_at, status FROM clients WHERE agency_id = ? AND identifier_code = ? LIMIT 1`;
+        const identifierFromSheet = normalizeIdentifierCodeFromSheet(row.identifierCode);
+        const identifierCode = identifierFromSheet || (await generateUniqueIdentifierCode(connection, { agencyId }));
+
+        const existingClientQuery =
+          `SELECT id, referral_date, provider_id, organization_id, service_day, paperwork_received_at, status, client_status_id
+           FROM clients
+           WHERE agency_id = ? AND identifier_code = ?
+           LIMIT 1`;
         const [existingRows] = await connection.execute(existingClientQuery, [agencyId, identifierCode]);
         const existing = existingRows[0] || null;
         const existingWasArchived = String(existing?.status || '').toUpperCase() === 'ARCHIVED';
 
         const clientStatusKey = normalizeClientStatusKey(row.status);
+        const shouldArchive = isTerminalClientStatus(row.status);
         const paperworkStatusKey = normalizePaperworkStatusKey(row.paperworkStatus);
         const insuranceKey = normalizeInsuranceKey(row.insurance);
         const deliveryKey = normalizeDeliveryMethodKey(row.paperworkDelivery);
@@ -364,60 +473,79 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         const deliveryMethodId =
           (await getDeliveryMethodId(connection, { schoolId, label: deliveryKey || row.paperworkDelivery })) || defaults.deliveryMethodId;
 
-        // Determine if this assignment changes slots.
-        // Only store day if provider is assigned.
-        const newProviderId = providerUserId || null;
-        const newDay = newProviderId ? (row.day || null) : null;
+        // Provider/day: only store day if provider is assigned and the day is provided.
+        const wantsAssignProvider = providerUserId && row.day;
+        const newProviderId = wantsAssignProvider ? providerUserId : (existing?.provider_id || null);
+        const newDay = wantsAssignProvider ? (row.day || null) : (existing?.service_day || null);
         const newSchoolId = schoolId;
-        const oldIsCurrent = !!(existing?.provider_id && existing?.service_day);
-        const newIsCurrent = !!(newProviderId && newDay);
+
+        // Slot consumption only applies to CURRENT client status.
+        const newIsCurrentStatus = currentStatusId
+          ? parseInt(String(clientStatusId || 0), 10) === parseInt(String(currentStatusId), 10)
+          : isCurrentStatusFromRowLabel(row.status);
+        const newConsumesSlot = !!(newProviderId && newDay && newSchoolId && newIsCurrentStatus && !shouldArchive);
+        const oldConsumesSlot = !!(
+          existing?.provider_id &&
+          existing?.service_day &&
+          existing?.organization_id &&
+          existing?.client_status_id &&
+          currentStatusId &&
+          parseInt(existing.client_status_id, 10) === parseInt(currentStatusId, 10) &&
+          String(existing?.status || '').toUpperCase() !== 'ARCHIVED'
+        );
 
         const paperworkKey = normalizeKey(paperworkStatusKey || row.paperworkStatus);
         const paperworkIsCompleted = paperworkKey === 'completed' || String(row.paperworkStatus || '').toLowerCase() === 'completed';
         const oldPaperworkReceived = !!existing?.paperwork_received_at;
         const willMarkPaperworkReceived = paperworkIsCompleted && !oldPaperworkReceived;
 
-        if (newProviderId && newDay) {
-          // If existing assignment differs, release old slot then take new slot
-          if (existing?.provider_id && existing?.service_day && existing?.organization_id) {
-            const same =
-              parseInt(existing.provider_id, 10) === parseInt(newProviderId, 10) &&
-              String(existing.service_day) === String(newDay) &&
-              parseInt(existing.organization_id, 10) === parseInt(newSchoolId, 10);
-            if (!same) {
-              await adjustProviderSlots(connection, {
-                providerUserId: existing.provider_id,
-                schoolId: existing.organization_id,
-                dayOfWeek: existing.service_day,
-                delta: +1
-              });
-            }
-          }
+        // Slot adjustments:
+        // - Release old slot if the old record consumed one and either assignment changed or the new record won't consume.
+        // - Take new slot if the new record consumes one and either assignment changed or old record didn't consume.
+        const assignmentSame = !!(
+          existing &&
+          existing.provider_id &&
+          existing.service_day &&
+          existing.organization_id &&
+          parseInt(existing.provider_id, 10) === parseInt(newProviderId || 0, 10) &&
+          String(existing.service_day) === String(newDay || '') &&
+          parseInt(existing.organization_id, 10) === parseInt(newSchoolId || 0, 10)
+        );
 
-          // Take new slot if it’s a new assignment
-          const needsTake =
-            !existing ||
-            !existing.provider_id ||
-            !existing.service_day ||
-            !existing.organization_id ||
-            parseInt(existing.provider_id, 10) !== parseInt(newProviderId, 10) ||
-            String(existing.service_day) !== String(newDay) ||
-            parseInt(existing.organization_id, 10) !== parseInt(newSchoolId, 10);
-          if (needsTake) {
-            const slotResult = await adjustProviderSlots(connection, {
-              providerUserId: newProviderId,
-              schoolId: newSchoolId,
-              dayOfWeek: newDay,
-              delta: -1
-            });
-            if (!slotResult.ok) throw new Error(slotResult.reason);
+        if (oldConsumesSlot && (!assignmentSame || !newConsumesSlot)) {
+          await adjustProviderSlots(connection, {
+            providerUserId: existing.provider_id,
+            schoolId: existing.organization_id,
+            dayOfWeek: existing.service_day,
+            delta: +1
+          });
+        }
+
+        if (newConsumesSlot && (!assignmentSame || !oldConsumesSlot)) {
+          await ensureProviderSchoolAssignmentDefault(connection, {
+            agencyId,
+            currentStatusId,
+            providerUserId: newProviderId,
+            schoolId: newSchoolId,
+            dayOfWeek: newDay
+          });
+          const slotResult = await adjustProviderSlots(connection, {
+            providerUserId: newProviderId,
+            schoolId: newSchoolId,
+            dayOfWeek: newDay,
+            delta: -1,
+            allowNegative: true
+          });
+          if (!slotResult.ok) throw new Error(slotResult.reason);
+          if (slotResult.nextSlotsAvailable < 0) {
+            warnings.push('Provider schedule is over capacity for that school/day. Add additional slots to resolve.');
           }
         }
 
         if (!existing) {
           const submissionDate = row.referralDate || todayYmd();
           const referralDate = row.referralDate || submissionDate;
-          const statusToSet = 'PENDING_REVIEW';
+          const statusToSet = shouldArchive ? 'ARCHIVED' : 'PENDING_REVIEW';
 
           await connection.execute(
             `INSERT INTO clients (
@@ -437,8 +565,8 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
               newSchoolId,
               agencyId,
               newProviderId,
-              clientCode,
-              clientCode,
+              initials,
+              initials,
               statusToSet,
               submissionDate,
               'NONE',
@@ -457,7 +585,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
               row.primaryClientLanguage || null,
               row.primaryParentLanguage || null,
               row.skills ? 1 : 0,
-              row.notes || null,
+              null,
               newDay,
               willMarkPaperworkReceived ? new Date() : null
             ]
@@ -474,12 +602,12 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           set('organization_id', newSchoolId);
           // Provider/day: only update if a provider was explicitly provided AND successfully matched.
           // If the sheet contains a provider name that we can't match, do NOT clear the existing assignment.
-          if (providerProvided && providerUserId) {
+          if (providerProvided && providerUserId && row.day) {
             set('provider_id', newProviderId);
             set('service_day', newDay);
           }
-          set('full_name', clientCode);
-          set('initials', clientCode);
+          set('full_name', initials);
+          set('initials', initials);
           set('client_status_id', clientStatusId);
           set('paperwork_status_id', paperworkStatusId);
           set('insurance_type_id', insuranceTypeId);
@@ -491,7 +619,8 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           set('primary_client_language', row.primaryClientLanguage || null);
           set('primary_parent_language', row.primaryParentLanguage || null);
           set('skills', row.skills ? 1 : 0);
-          set('internal_notes', row.notes || null);
+          // Imported notes are stored as internal client notes (not on the client row).
+          set('internal_notes', null);
           if (willMarkPaperworkReceived) {
             set('paperwork_received_at', new Date());
           }
@@ -502,9 +631,12 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           }
 
           // If the existing client was archived, unarchive on re-import.
-          if (existingWasArchived) {
+          if (existingWasArchived && !shouldArchive) {
             set('status', 'PENDING_REVIEW');
             warnings.push('Existing client was archived; unarchived during import.');
+          }
+          if (shouldArchive) {
+            set('status', 'ARCHIVED');
           }
 
           // Always update last_activity + updated_by
@@ -520,6 +652,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
           [agencyId, identifierCode]
         );
         const clientId = clientRows[0]?.id || null;
+        const noteMsg = String(row.notes || '').trim();
 
         await upsertBulkJobRow(connection, {
           jobId,
@@ -532,8 +665,23 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         await connection.commit();
         successRows += 1;
 
+        // Imported notes -> internal client note (backoffice-only). Best-effort; after commit.
+        if (clientId && noteMsg) {
+          ClientNotes.create(
+            {
+              client_id: clientId,
+              author_id: userId,
+              category: 'administrative',
+              urgency: 'low',
+              message: noteMsg,
+              is_internal_only: true
+            },
+            { hasAgencyAccess: true, canViewInternalNotes: true }
+          ).catch(() => {});
+        }
+
         // Notifications (best-effort, outside the transaction)
-        if (!oldIsCurrent && newIsCurrent && clientId) {
+        if (!oldConsumesSlot && newConsumesSlot && clientId) {
           notifyClientBecameCurrent({
             agencyId,
             schoolOrganizationId: schoolId,

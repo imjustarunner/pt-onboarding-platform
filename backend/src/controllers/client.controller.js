@@ -171,15 +171,21 @@ export const createClient = async (req, res, next) => {
       grade,
       submission_date,
       document_status = 'NONE',
-      source = 'ADMIN_CREATED'
+      source = 'ADMIN_CREATED',
+      referral_date,
+      paperwork_delivery_method_id,
+      primary_client_language,
+      primary_parent_language
     } = req.body;
 
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // Permission check: Only admin, provider (or staff with provider access), or super_admin can create clients
+    // Permission check: agency-side only (admin/staff/support/provider with provider access), or super_admin
     const { hasProviderAccess } = await import('../utils/accessControl.js');
-    if (!hasProviderAccess(req.user) && userRole !== 'admin' && userRole !== 'super_admin') {
+    const roleNorm = String(userRole || '').toLowerCase();
+    const isAgencyStaffRole = roleNorm === 'admin' || roleNorm === 'staff' || roleNorm === 'support';
+    if (!hasProviderAccess(req.user) && !isAgencyStaffRole && userRole !== 'super_admin') {
       return res.status(403).json({ 
         error: { message: 'You do not have permission to create clients' } 
       });
@@ -324,20 +330,45 @@ export const createClient = async (req, res, next) => {
     }
 
     // Create client
+    // Auto-archive for terminal client statuses (Dead/Terminated).
+    let workflowStatus = 'PENDING_REVIEW';
+    try {
+      const csId = client_status_id ? parseInt(client_status_id, 10) : null;
+      if (csId) {
+        const [rows] = await pool.execute(
+          `SELECT status_key, label FROM client_statuses WHERE id = ? LIMIT 1`,
+          [csId]
+        );
+        const key = String(rows?.[0]?.status_key || '').toLowerCase();
+        const lbl = String(rows?.[0]?.label || '').toLowerCase();
+        if (key === 'dead' || key === 'terminated' || lbl.includes('dead') || lbl.includes('terminated')) {
+          workflowStatus = 'ARCHIVED';
+        }
+      }
+    } catch {
+      // best-effort only
+    }
+
     const client = await Client.create({
       organization_id: parsedOrganizationId,
       agency_id: parsedAgencyId,
       provider_id: provider_id || null,
       initials: initials.toUpperCase().trim(),
       // "status" is treated as internal workflow/archive flag; new clients are not archived.
-      status: 'PENDING_REVIEW',
+      status: workflowStatus,
       submission_date,
       document_status,
       source,
       created_by_user_id: userId,
       client_status_id: client_status_id ? parseInt(client_status_id, 10) : null,
       school_year: school_year ? String(school_year).trim() : null,
-      grade: grade ? String(grade).trim() : null
+      grade: grade ? String(grade).trim() : null,
+
+      // New intake fields (optional)
+      referral_date: referral_date || null,
+      paperwork_delivery_method_id: paperwork_delivery_method_id || null,
+      primary_client_language: primary_client_language ? String(primary_client_language).trim() : null,
+      primary_parent_language: primary_parent_language ? String(primary_parent_language).trim() : null
     });
 
     // Log initial creation to history
@@ -711,6 +742,94 @@ export const updateClient = async (req, res, next) => {
     // Update client
     let updatedClient = await Client.update(id, req.body, userId);
 
+    // If client_status_id changes:
+    // - auto-archive for Dead/Terminated
+    // - adjust provider slots only when status is "current"
+    // This keeps availability aligned with "current" as the capacity-driving status.
+    if (req.body.client_status_id !== undefined) {
+      try {
+        const agencyId = currentClient.agency_id;
+        const [statusRows] = await pool.execute(
+          `SELECT id, status_key, label FROM client_statuses WHERE agency_id = ?`,
+          [agencyId]
+        );
+        const currentStatusId = (statusRows || []).find((r) => String(r?.status_key || '').toLowerCase() === 'current')?.id || null;
+        const newStatusRow = (statusRows || []).find((r) => parseInt(r?.id, 10) === parseInt(updatedClient.client_status_id || 0, 10)) || null;
+        const newKey = String(newStatusRow?.status_key || '').toLowerCase();
+        const newLabel = String(newStatusRow?.label || '').toLowerCase();
+        const shouldArchive = newKey === 'dead' || newKey === 'terminated' || newLabel.includes('dead') || newLabel.includes('terminated');
+
+        const oldWorkflowArchived = String(currentClient.status || '').toUpperCase() === 'ARCHIVED';
+        const newWorkflowArchived = shouldArchive || String(updatedClient.status || '').toUpperCase() === 'ARCHIVED';
+
+        const oldProviderId = currentClient.provider_id ? parseInt(currentClient.provider_id, 10) : null;
+        const oldDay = currentClient.service_day ? String(currentClient.service_day) : null;
+        const oldOrgId = currentClient.organization_id ? parseInt(currentClient.organization_id, 10) : null;
+
+        const newProviderId = updatedClient.provider_id ? parseInt(updatedClient.provider_id, 10) : null;
+        const newDay = updatedClient.service_day ? String(updatedClient.service_day) : null;
+        const newOrgId = updatedClient.organization_id ? parseInt(updatedClient.organization_id, 10) : null;
+
+        const oldWasCurrent = !!(currentStatusId && parseInt(currentClient.client_status_id || 0, 10) === parseInt(currentStatusId, 10));
+        const newIsCurrent = !!(currentStatusId && parseInt(updatedClient.client_status_id || 0, 10) === parseInt(currentStatusId, 10));
+
+        const oldConsumesSlot = !!(oldWasCurrent && !oldWorkflowArchived && oldProviderId && oldDay && oldOrgId);
+        const newConsumesSlot = !!(newIsCurrent && !newWorkflowArchived && newProviderId && newDay && newOrgId);
+
+        const assignmentSame =
+          oldProviderId &&
+          oldDay &&
+          oldOrgId &&
+          newProviderId &&
+          newDay &&
+          newOrgId &&
+          oldProviderId === newProviderId &&
+          oldDay === newDay &&
+          oldOrgId === newOrgId;
+
+        if (currentStatusId && (oldConsumesSlot || newConsumesSlot) && (!assignmentSame || oldConsumesSlot !== newConsumesSlot)) {
+          const conn = await pool.getConnection();
+          try {
+            await conn.beginTransaction();
+
+            if (oldConsumesSlot && (!newConsumesSlot || !assignmentSame)) {
+              await adjustProviderSlots(conn, { providerUserId: oldProviderId, schoolId: oldOrgId, dayOfWeek: oldDay, delta: +1 });
+            }
+
+            if (newConsumesSlot && (!oldConsumesSlot || !assignmentSame)) {
+              const take = await adjustProviderSlots(conn, {
+                providerUserId: newProviderId,
+                schoolId: newOrgId,
+                dayOfWeek: newDay,
+                delta: -1,
+                allowNegative: true
+              });
+              if (!take.ok) {
+                // Best-effort: do not block the update if capacity cannot be adjusted.
+              }
+            }
+
+            await conn.commit();
+          } catch {
+            try { await conn.rollback(); } catch { /* ignore */ }
+          } finally {
+            conn.release();
+          }
+        }
+
+        // Auto-archive after adjusting capacity (so we can release slots as needed).
+        if (shouldArchive && String(updatedClient.status || '').toUpperCase() !== 'ARCHIVED') {
+          try {
+            updatedClient = await Client.update(id, { status: 'ARCHIVED' }, userId);
+          } catch {
+            // best-effort
+          }
+        }
+      } catch {
+        // best-effort: never block the update if slot adjustment fails
+      }
+    }
+
     // If paperwork status is set to "Completed" and paperwork_received_at isn't set, set it automatically.
     if (req.body.paperwork_status_id !== undefined) {
       try {
@@ -838,8 +957,29 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
 
     // Permission: provider assigned to client, or agency staff/admin/support/super_admin.
     const isSuper = userRole === 'super_admin';
-    const isAgencyStaffRole = ['admin', 'support', 'staff'].includes(String(userRole || '').toLowerCase());
-    const isAssignedProvider = String(userRole || '').toLowerCase() === 'provider' && parseInt(currentClient.provider_id || 0, 10) === parseInt(userId, 10);
+    const roleNorm = String(userRole || '').toLowerCase();
+    const isAgencyStaffRole = ['admin', 'support', 'staff'].includes(roleNorm);
+    let isAssignedProvider = false;
+    if (roleNorm === 'provider') {
+      // Prefer new multi-provider assignment table; fall back to legacy clients.provider_id.
+      try {
+        const [rows] = await pool.execute(
+          `SELECT 1
+           FROM client_provider_assignments
+           WHERE client_id = ?
+             AND provider_user_id = ?
+             AND is_active = TRUE
+           LIMIT 1`,
+          [clientId, userId]
+        );
+        isAssignedProvider = !!rows?.[0];
+      } catch (e) {
+        const msg = String(e?.message || '');
+        const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+        if (!missing) throw e;
+        isAssignedProvider = parseInt(currentClient.provider_id || 0, 10) === parseInt(userId, 10);
+      }
+    }
     if (!isSuper && !isAgencyStaffRole && !isAssignedProvider) {
       return res.status(403).json({ error: { message: 'You do not have permission to update this checklist' } });
     }
@@ -937,10 +1077,12 @@ export const assignProvider = async (req, res, next) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // Permission check: Only admin or super_admin can assign providers
-    if (!['super_admin', 'admin'].includes(userRole)) {
+    // Permission check: agency-side admin/staff/support/super_admin can assign providers
+    const roleNorm = String(userRole || '').toLowerCase();
+    const canAssign = roleNorm === 'super_admin' || roleNorm === 'admin' || roleNorm === 'support' || roleNorm === 'staff';
+    if (!canAssign) {
       return res.status(403).json({ 
-        error: { message: 'Only admins can assign providers' } 
+        error: { message: 'Only admin/staff can assign providers' } 
       });
     }
 
@@ -965,7 +1107,7 @@ export const assignProvider = async (req, res, next) => {
       await connection.beginTransaction();
 
       const [clientRows] = await connection.execute(
-        `SELECT id, agency_id, provider_id, organization_id, service_day
+        `SELECT id, agency_id, provider_id, organization_id, service_day, client_status_id
          FROM clients
          WHERE id = ?
          LIMIT 1
@@ -991,7 +1133,14 @@ export const assignProvider = async (req, res, next) => {
       const oldProviderId = currentClient.provider_id ? parseInt(currentClient.provider_id, 10) : null;
       const oldDay = currentClient.service_day ? String(currentClient.service_day) : null;
       const schoolId = parseInt(currentClient.organization_id, 10);
-      const oldIsCurrent = !!(oldProviderId && oldDay);
+      const workflowArchived = String(currentClient.status || '').toUpperCase() === 'ARCHIVED';
+      const [curStatusRows] = await connection.execute(
+        `SELECT id FROM client_statuses WHERE agency_id = ? AND status_key = 'current' LIMIT 1`,
+        [currentClient.agency_id]
+      );
+      const currentStatusId = curStatusRows?.[0]?.id || null;
+      const clientStatusId = currentClient.client_status_id ? parseInt(currentClient.client_status_id, 10) : null;
+      const oldConsumesSlot = !!(currentStatusId && clientStatusId === currentStatusId && oldProviderId && oldDay && !workflowArchived);
 
       // If changing provider while client has a day, require a day to be provided for slot safety.
       if (providerId !== null && oldDay && providerId !== oldProviderId && !normalizedDay) {
@@ -1010,30 +1159,49 @@ export const assignProvider = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'Cannot assign a day without a provider' } });
       }
 
-      // Release old slot if needed
-      if (oldProviderId && oldDay) {
-        const same = providerId === oldProviderId && targetDay === oldDay;
-        if (!same && (providerId === null || targetDay !== oldDay || providerId !== oldProviderId)) {
-          await adjustProviderSlots(connection, { providerUserId: oldProviderId, schoolId, dayOfWeek: oldDay, delta: +1 });
-        }
+      // Slot adjustments only apply to CURRENT client status.
+      const newConsumesSlot = !!(currentStatusId && clientStatusId === currentStatusId && providerId && targetDay && !workflowArchived);
+      const sameAssignment = providerId === oldProviderId && targetDay === oldDay;
+
+      if (oldConsumesSlot && (!sameAssignment || !newConsumesSlot)) {
+        await adjustProviderSlots(connection, { providerUserId: oldProviderId, schoolId, dayOfWeek: oldDay, delta: +1 });
       }
 
-      // Take new slot if needed
-      if (providerId && targetDay) {
-        const same = providerId === oldProviderId && targetDay === oldDay;
-        if (!same) {
-          const take = await adjustProviderSlots(connection, { providerUserId: providerId, schoolId, dayOfWeek: targetDay, delta: -1 });
-          if (!take.ok) {
-            await connection.rollback();
-            return res.status(400).json({ error: { message: take.reason } });
-          }
+      if (newConsumesSlot && (!sameAssignment || !oldConsumesSlot)) {
+        let take = await adjustProviderSlots(connection, {
+          providerUserId: providerId,
+          schoolId,
+          dayOfWeek: targetDay,
+          delta: -1,
+          allowNegative: true
+        });
+        if (!take.ok && String(take.reason || '').toLowerCase().includes('not scheduled')) {
+          // Best-effort: auto-create a default schedule entry (08:00–15:00, 7 slots) then retry.
+          await connection.execute(
+            `INSERT INTO provider_school_assignments
+              (provider_user_id, school_organization_id, day_of_week, slots_total, slots_available, start_time, end_time, is_active)
+             VALUES (?, ?, ?, 7, 7, '08:00:00', '15:00:00', TRUE)
+             ON DUPLICATE KEY UPDATE is_active = TRUE`,
+            [providerId, schoolId, targetDay]
+          );
+          take = await adjustProviderSlots(connection, {
+            providerUserId: providerId,
+            schoolId,
+            dayOfWeek: targetDay,
+            delta: -1,
+            allowNegative: true
+          });
+        }
+        if (!take.ok) {
+          await connection.rollback();
+          return res.status(400).json({ error: { message: take.reason } });
         }
       }
 
       // If provider cleared, clear day too.
       const finalProviderId = providerId;
       const finalDay = finalProviderId ? targetDay : null;
-      const newIsCurrent = !!(finalProviderId && finalDay);
+      const newConsumesSlotFinal = !!(currentStatusId && clientStatusId === currentStatusId && finalProviderId && finalDay);
 
       await connection.execute(
         `UPDATE clients
@@ -1061,8 +1229,8 @@ export const assignProvider = async (req, res, next) => {
       await connection.commit();
 
       const updatedClient = await Client.findById(id);
-      // Notifications: client became Current
-      if (!oldIsCurrent && newIsCurrent) {
+      // Notifications: client is current and newly assigned a provider/day (slot-consuming)
+      if (!oldConsumesSlot && newConsumesSlotFinal) {
         notifyClientBecameCurrent({
           agencyId: updatedClient.agency_id,
           schoolOrganizationId: updatedClient.organization_id,
@@ -1164,6 +1332,205 @@ export const getClientHistory = async (req, res, next) => {
   }
 };
 
+const parseYmdDateOrNull = (v) => {
+  if (v === null || v === undefined || v === '') return null;
+  const s = String(v).trim();
+  // Expect YYYY-MM-DD from <input type="date">
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  return s;
+};
+
+/**
+ * Get client paperwork/document status history (agency-only)
+ * GET /api/clients/:id/paperwork-history
+ */
+export const getClientPaperworkHistory = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    // Only agency-side access (admin/staff/support/provider via agency); no school-only access.
+    if (userRole !== 'super_admin') {
+      const userOrgs = await User.getAgencies(userId);
+      const ids = (userOrgs || []).map((o) => o.id);
+      const hasAgencyAccess = ids.includes(client.agency_id);
+      if (!hasAgencyAccess) {
+        return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+      }
+    }
+
+    // Best-effort: table may not exist yet in older environments.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT h.*,
+                ps.label AS paperwork_status_label,
+                ps.status_key AS paperwork_status_key,
+                pdm.label AS paperwork_delivery_method_label,
+                pdm.method_key AS paperwork_delivery_method_key,
+                CONCAT(u.first_name, ' ', u.last_name) AS changed_by_name
+         FROM client_paperwork_history h
+         LEFT JOIN paperwork_statuses ps ON ps.id = h.paperwork_status_id
+         LEFT JOIN paperwork_delivery_methods pdm ON pdm.id = h.paperwork_delivery_method_id
+         LEFT JOIN users u ON u.id = h.changed_by_user_id
+         WHERE h.client_id = ?
+         ORDER BY h.effective_date DESC, h.id DESC
+         LIMIT 500`,
+        [clientId]
+      );
+      return res.json(rows || []);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (missing) return res.json([]);
+      throw e;
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Create a dated paperwork/document status entry (updates current client fields too).
+ * POST /api/clients/:id/paperwork-history
+ * body: { paperwork_status_id, paperwork_delivery_method_id?, effective_date, note? }
+ */
+export const createClientPaperworkHistory = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user.id;
+    const roleNorm = String(req.user.role || '').toLowerCase();
+    const canWrite = roleNorm === 'super_admin' || roleNorm === 'admin' || roleNorm === 'support' || roleNorm === 'staff';
+    if (!canWrite) {
+      return res.status(403).json({ error: { message: 'Only admin/staff can update document status history' } });
+    }
+
+    const paperworkStatusIdRaw = req.body?.paperwork_status_id;
+    const paperworkStatusId = paperworkStatusIdRaw === null || paperworkStatusIdRaw === '' || paperworkStatusIdRaw === undefined
+      ? null
+      : parseInt(paperworkStatusIdRaw, 10);
+    if (!paperworkStatusId) {
+      return res.status(400).json({ error: { message: 'paperwork_status_id is required' } });
+    }
+
+    const deliveryIdRaw = req.body?.paperwork_delivery_method_id;
+    const paperworkDeliveryMethodId =
+      deliveryIdRaw === null || deliveryIdRaw === '' || deliveryIdRaw === undefined ? null : parseInt(deliveryIdRaw, 10);
+
+    const effectiveDate = parseYmdDateOrNull(req.body?.effective_date);
+    if (!effectiveDate) {
+      return res.status(400).json({ error: { message: 'effective_date is required (YYYY-MM-DD)' } });
+    }
+
+    const note = req.body?.note ? String(req.body.note).trim() : null;
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const [clientRows] = await connection.execute(
+        `SELECT id, agency_id, organization_id, paperwork_status_id, paperwork_delivery_method_id, doc_date, paperwork_received_at
+         FROM clients
+         WHERE id = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [clientId]
+      );
+      const currentClient = clientRows?.[0] || null;
+      if (!currentClient) {
+        await connection.rollback();
+        return res.status(404).json({ error: { message: 'Client not found' } });
+      }
+
+      // Access: must have agency access (unless super_admin).
+      if (roleNorm !== 'super_admin') {
+        const userOrgs = await User.getAgencies(userId);
+        const ids = (userOrgs || []).map((o) => o.id);
+        const hasAgencyAccess = ids.includes(currentClient.agency_id);
+        if (!hasAgencyAccess) {
+          await connection.rollback();
+          return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+        }
+      }
+
+      // Validate paperwork status belongs to the client's agency.
+      const [statusRows] = await connection.execute(
+        `SELECT id, status_key FROM paperwork_statuses WHERE id = ? AND agency_id = ? LIMIT 1`,
+        [paperworkStatusId, currentClient.agency_id]
+      );
+      const statusRow = statusRows?.[0] || null;
+      if (!statusRow) {
+        await connection.rollback();
+        return res.status(400).json({ error: { message: 'Invalid paperwork_status_id for this client' } });
+      }
+
+      // Validate delivery method belongs to the client's school/org, if provided.
+      if (paperworkDeliveryMethodId) {
+        const [deliveryRows] = await connection.execute(
+          `SELECT id FROM paperwork_delivery_methods WHERE id = ? AND school_organization_id = ? LIMIT 1`,
+          [paperworkDeliveryMethodId, currentClient.organization_id]
+        );
+        if (!deliveryRows?.[0]?.id) {
+          await connection.rollback();
+          return res.status(400).json({ error: { message: 'Invalid paperwork_delivery_method_id for this school' } });
+        }
+      }
+
+      // Insert history row.
+      await connection.execute(
+        `INSERT INTO client_paperwork_history
+          (client_id, paperwork_status_id, paperwork_delivery_method_id, effective_date, note, changed_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [clientId, paperworkStatusId, paperworkDeliveryMethodId, effectiveDate, note, userId]
+      );
+
+      // Update current fields on clients.
+      const completed = String(statusRow.status_key || '').toLowerCase() === 'completed';
+      const nextReceivedAt = completed && !currentClient.paperwork_received_at ? effectiveDate : undefined;
+
+      // NOTE: doc_date is treated as "effective date of current paperwork status".
+      const updates = [
+        `paperwork_status_id = ?`,
+        `paperwork_delivery_method_id = ?`,
+        `doc_date = ?`,
+        `updated_by_user_id = ?`,
+        `last_activity_at = CURRENT_TIMESTAMP`
+      ];
+      const values = [paperworkStatusId, paperworkDeliveryMethodId, effectiveDate, userId];
+      if (nextReceivedAt !== undefined) {
+        updates.push(`paperwork_received_at = ?`);
+        values.push(nextReceivedAt);
+      }
+      values.push(clientId);
+
+      await connection.execute(
+        `UPDATE clients SET ${updates.join(', ')} WHERE id = ?`,
+        values
+      );
+
+      await connection.commit();
+
+      // Return the latest client snapshot + history (best-effort).
+      const updatedClient = await Client.findById(clientId, { includeSensitive: true });
+      res.status(201).json({ ok: true, client: updatedClient });
+    } catch (e) {
+      try { await connection.rollback(); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      connection.release();
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
 /**
  * Get client notes
  * GET /api/clients/:id/notes
@@ -1173,6 +1540,8 @@ export const getClientNotes = async (req, res, next) => {
     const { id } = req.params;
     const userId = req.user.id;
     const userRole = req.user.role;
+    const roleNorm = String(userRole || '').toLowerCase();
+    const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
 
     // Get current client
     const currentClient = await Client.findById(id);
@@ -1198,7 +1567,10 @@ export const getClientNotes = async (req, res, next) => {
     }
 
     // Get notes (filtered by permission)
-    const notes = await ClientNotes.findByClientId(id, { hasAgencyAccess: userRole === 'super_admin' ? true : hasAgencyAccess });
+    const notes = await ClientNotes.findByClientId(id, {
+      hasAgencyAccess: userRole === 'super_admin' ? true : hasAgencyAccess,
+      canViewInternalNotes
+    });
     logClientAccess(req, parseInt(id, 10), 'view_client_notes').catch(() => {});
     res.json(notes);
   } catch (error) {
@@ -1217,6 +1589,8 @@ export const createClientNote = async (req, res, next) => {
     const { message, is_internal_only = false, category = 'general', urgency = 'low' } = req.body;
     const userId = req.user.id;
     const userRole = req.user.role;
+    const roleNorm = String(userRole || '').toLowerCase();
+    const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
 
     // Get current client
     const currentClient = await Client.findById(id);
@@ -1256,7 +1630,10 @@ export const createClientNote = async (req, res, next) => {
       is_internal_only,
       category,
       urgency
-    }, { hasAgencyAccess: userRole === 'super_admin' ? true : hasAgencyAccess });
+    }, {
+      hasAgencyAccess: userRole === 'super_admin' ? true : hasAgencyAccess,
+      canViewInternalNotes
+    });
     logClientAccess(req, parseInt(id, 10), 'create_client_note').catch(() => {});
 
     // Notify support staff (and assigned provider) about new note
@@ -1277,7 +1654,8 @@ export const createClientNote = async (req, res, next) => {
       const supportIds = supportRows.map((r) => r.id).filter((uid) => uid !== userId);
 
       const recipients = new Set(supportIds);
-      if (currentClient.provider_id && currentClient.provider_id !== userId) {
+      // Do not notify providers for internal-only notes (they cannot view them).
+      if (!is_internal_only && currentClient.provider_id && currentClient.provider_id !== userId) {
         recipients.add(currentClient.provider_id);
       }
 
@@ -1396,5 +1774,498 @@ export const markClientNotesRead = async (req, res, next) => {
     res.json({ ok: true });
   } catch (error) {
     next(error);
+  }
+};
+
+const isBackofficeRole = (role) => {
+  const r = String(role || '').toLowerCase();
+  return r === 'super_admin' || r === 'admin' || r === 'support' || r === 'staff';
+};
+
+async function ensureAgencyAccessToClient({ userId, role, clientId }) {
+  const client = await Client.findById(clientId, { includeSensitive: true });
+  if (!client) return { ok: false, status: 404, message: 'Client not found', client: null };
+  if (String(role || '').toLowerCase() === 'super_admin') return { ok: true, client };
+  const orgs = await User.getAgencies(userId);
+  const hasAgencyAccess = (orgs || []).some((o) => parseInt(o.id, 10) === parseInt(client.agency_id, 10));
+  if (!hasAgencyAccess) return { ok: false, status: 403, message: 'You do not have access to this client', client };
+  return { ok: true, client };
+}
+
+async function isOrgLinkedToAgency({ connection, agencyId, organizationId }) {
+  // Prefer organization_affiliations; fall back to legacy agency_schools.
+  const [rows] = await connection.execute(
+    `SELECT id
+     FROM organization_affiliations
+     WHERE agency_id = ? AND organization_id = ? AND is_active = TRUE
+     LIMIT 1`,
+    [agencyId, organizationId]
+  );
+  if (rows?.[0]?.id) return true;
+  try {
+    const [legacy] = await connection.execute(
+      `SELECT id
+       FROM agency_schools
+       WHERE agency_id = ? AND school_organization_id = ? AND (is_active = TRUE OR is_active IS NULL)
+       LIMIT 1`,
+      [agencyId, organizationId]
+    );
+    return !!legacy?.[0]?.id;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+    if (missing) return false;
+    throw e;
+  }
+}
+
+/**
+ * List client affiliations (multi-org)
+ * GET /api/clients/:id/affiliations
+ */
+export const listClientAffiliations = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    try {
+      const [rows] = await pool.execute(
+        `SELECT coa.organization_id,
+                coa.is_primary,
+                coa.is_active,
+                org.name AS organization_name,
+                org.slug AS organization_slug,
+                org.organization_type
+         FROM client_organization_assignments coa
+         JOIN agencies org ON org.id = coa.organization_id
+         WHERE coa.client_id = ?
+           AND coa.is_active = TRUE
+         ORDER BY coa.is_primary DESC, org.name ASC`,
+        [clientId]
+      );
+      return res.json(rows || []);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (!missing) throw e;
+      // Fallback: legacy single org
+      const c = access.client;
+      return res.json(
+        c?.organization_id
+          ? [
+              {
+                organization_id: c.organization_id,
+                is_primary: true,
+                is_active: true,
+                organization_name: c.organization_name || null,
+                organization_slug: c.organization_slug || null,
+                organization_type: null
+              }
+            ]
+          : []
+      );
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Add/update a client affiliation
+ * POST /api/clients/:id/affiliations
+ * body: { organization_id, is_primary? }
+ */
+export const upsertClientAffiliation = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    const orgId = parseInt(req.body?.organization_id, 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'organization_id is required' } });
+    const makePrimary = req.body?.is_primary === true || req.body?.is_primary === 'true' || req.body?.is_primary === 1 || req.body?.is_primary === '1';
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const client = access.client;
+
+      // Ensure the org exists and is a child org type
+      const org = await Agency.findById(orgId);
+      if (!org) {
+        await connection.rollback();
+        return res.status(404).json({ error: { message: 'Organization not found' } });
+      }
+      const t = String(org.organization_type || 'agency').toLowerCase();
+      if (!['school', 'program', 'learning'].includes(t)) {
+        await connection.rollback();
+        return res.status(400).json({ error: { message: 'Affiliations must be school/program/learning organizations' } });
+      }
+
+      // Ensure org is linked to the client’s agency
+      const linked = await isOrgLinkedToAgency({ connection, agencyId: client.agency_id, organizationId: orgId });
+      if (!linked && String(role || '').toLowerCase() !== 'super_admin') {
+        await connection.rollback();
+        return res.status(400).json({ error: { message: 'Selected organization is not linked to this agency' } });
+      }
+
+      // Upsert affiliation
+      await connection.execute(
+        `INSERT INTO client_organization_assignments (client_id, organization_id, is_primary, is_active)
+         VALUES (?, ?, ?, TRUE)
+         ON DUPLICATE KEY UPDATE is_active = TRUE, is_primary = GREATEST(is_primary, VALUES(is_primary))`,
+        [clientId, orgId, makePrimary ? 1 : 0]
+      );
+
+      if (makePrimary) {
+        // Ensure only one primary and keep legacy primary org column in sync.
+        await connection.execute(
+          `UPDATE client_organization_assignments
+           SET is_primary = CASE WHEN organization_id = ? THEN TRUE ELSE FALSE END
+           WHERE client_id = ?`,
+          [orgId, clientId]
+        );
+        await connection.execute(`UPDATE clients SET organization_id = ?, updated_by_user_id = ? WHERE id = ?`, [orgId, userId, clientId]);
+      }
+
+      await connection.commit();
+      // Return updated list
+      const [rows] = await pool.execute(
+        `SELECT coa.organization_id,
+                coa.is_primary,
+                coa.is_active,
+                org.name AS organization_name,
+                org.slug AS organization_slug,
+                org.organization_type
+         FROM client_organization_assignments coa
+         JOIN agencies org ON org.id = coa.organization_id
+         WHERE coa.client_id = ?
+           AND coa.is_active = TRUE
+         ORDER BY coa.is_primary DESC, org.name ASC`,
+        [clientId]
+      );
+      res.status(201).json(rows || []);
+    } catch (e) {
+      try { await connection.rollback(); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      connection.release();
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Remove a client affiliation (also deactivates provider assignments for that org and refunds slots).
+ * DELETE /api/clients/:id/affiliations/:organizationId
+ */
+export const removeClientAffiliation = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    const orgId = parseInt(req.params.organizationId, 10);
+    if (!clientId || !orgId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // Prevent removing the primary affiliation (must pick a new primary first).
+      const [primaryRows] = await connection.execute(
+        `SELECT is_primary FROM client_organization_assignments WHERE client_id = ? AND organization_id = ? LIMIT 1 FOR UPDATE`,
+        [clientId, orgId]
+      );
+      if (primaryRows?.[0]?.is_primary) {
+        await connection.rollback();
+        return res.status(400).json({ error: { message: 'Cannot remove the primary affiliation. Set a different primary first.' } });
+      }
+
+      // Refund slots for all active provider assignments in this org and deactivate them.
+      try {
+        const [assignRows] = await connection.execute(
+          `SELECT id, provider_user_id, service_day
+           FROM client_provider_assignments
+           WHERE client_id = ? AND organization_id = ? AND is_active = TRUE
+           FOR UPDATE`,
+          [clientId, orgId]
+        );
+        for (const a of assignRows || []) {
+          if (a?.provider_user_id && a?.service_day) {
+            // eslint-disable-next-line no-await-in-loop
+            await adjustProviderSlots(connection, { providerUserId: a.provider_user_id, schoolId: orgId, dayOfWeek: a.service_day, delta: +1 });
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await connection.execute(
+            `UPDATE client_provider_assignments SET is_active = FALSE, updated_by_user_id = ? WHERE id = ?`,
+            [userId, a.id]
+          );
+        }
+      } catch (e) {
+        const msg = String(e?.message || '');
+        const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+        if (!missing) throw e;
+      }
+
+      // Deactivate affiliation
+      await connection.execute(
+        `UPDATE client_organization_assignments
+         SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+         WHERE client_id = ? AND organization_id = ?`,
+        [clientId, orgId]
+      );
+
+      await connection.commit();
+      res.json({ ok: true });
+    } catch (e) {
+      try { await connection.rollback(); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      connection.release();
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * List provider assignments for a client (optionally scoped to an org).
+ * GET /api/clients/:id/provider-assignments?organizationId=123
+ */
+export const listClientProviderAssignments = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    const orgId = req.query?.organizationId ? parseInt(req.query.organizationId, 10) : null;
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    try {
+      const where = ['cpa.client_id = ?', 'cpa.is_active = TRUE'];
+      const vals = [clientId];
+      if (orgId) {
+        where.push('cpa.organization_id = ?');
+        vals.push(orgId);
+      }
+
+      const [rows] = await pool.execute(
+        `SELECT cpa.id,
+                cpa.client_id,
+                cpa.organization_id,
+                org.name AS organization_name,
+                org.slug AS organization_slug,
+                org.organization_type,
+                cpa.provider_user_id,
+                u.first_name AS provider_first_name,
+                u.last_name AS provider_last_name,
+                cpa.service_day,
+                cpa.created_at,
+                cpa.updated_at
+         FROM client_provider_assignments cpa
+         JOIN agencies org ON org.id = cpa.organization_id
+         JOIN users u ON u.id = cpa.provider_user_id
+         WHERE ${where.join(' AND ')}
+         ORDER BY org.name ASC, u.last_name ASC, u.first_name ASC`,
+        vals
+      );
+      res.json(rows || []);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (!missing) throw e;
+      res.json([]);
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Upsert a provider assignment for a client+org (slot-accounted).
+ * POST /api/clients/:id/provider-assignments
+ * body: { organization_id, provider_user_id, service_day }
+ */
+export const upsertClientProviderAssignment = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    const orgId = parseInt(req.body?.organization_id, 10);
+    const providerUserId = parseInt(req.body?.provider_user_id, 10);
+    const serviceDay = req.body?.service_day ? String(req.body.service_day).trim() : null;
+    const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    if (!orgId || !providerUserId || !serviceDay || !allowedDays.includes(serviceDay)) {
+      return res.status(400).json({ error: { message: 'organization_id, provider_user_id, and valid service_day are required' } });
+    }
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const client = access.client;
+
+      // Ensure client is affiliated to this org
+      const [affRows] = await connection.execute(
+        `SELECT is_active FROM client_organization_assignments WHERE client_id = ? AND organization_id = ? LIMIT 1`,
+        [clientId, orgId]
+      );
+      if (!affRows?.[0]?.is_active) {
+        await connection.rollback();
+        return res.status(400).json({ error: { message: 'Client is not affiliated to the selected organization' } });
+      }
+
+      // Ensure provider belongs to client's agency (best-effort)
+      const [provAgencyRows] = await connection.execute(
+        `SELECT 1
+         FROM user_agencies ua
+         WHERE ua.user_id = ? AND ua.agency_id = ?
+         LIMIT 1`,
+        [providerUserId, client.agency_id]
+      );
+      if (!provAgencyRows?.[0] && String(role || '').toLowerCase() !== 'super_admin') {
+        await connection.rollback();
+        return res.status(400).json({ error: { message: 'Provider is not part of this agency' } });
+      }
+
+      // Upsert with slot accounting
+      const [existingRows] = await connection.execute(
+        `SELECT id, is_active, service_day
+         FROM client_provider_assignments
+         WHERE client_id = ? AND organization_id = ? AND provider_user_id = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [clientId, orgId, providerUserId]
+      );
+      const existing = existingRows?.[0] || null;
+
+      const oldDay = existing?.service_day ? String(existing.service_day) : null;
+      const wasActive = existing ? (existing.is_active === 1 || existing.is_active === true) : false;
+
+      // Refund old slot if active and day changed
+      if (wasActive && oldDay && oldDay !== serviceDay) {
+        await adjustProviderSlots(connection, { providerUserId, schoolId: orgId, dayOfWeek: oldDay, delta: +1 });
+      }
+
+      // Take new slot if newly active or day changed
+      if (!wasActive || oldDay !== serviceDay) {
+        const take = await adjustProviderSlots(connection, { providerUserId, schoolId: orgId, dayOfWeek: serviceDay, delta: -1 });
+        if (!take.ok) {
+          await connection.rollback();
+          return res.status(400).json({ error: { message: take.reason } });
+        }
+      }
+
+      if (!existing) {
+        await connection.execute(
+          `INSERT INTO client_provider_assignments
+            (client_id, organization_id, provider_user_id, service_day, is_active, created_by_user_id, updated_by_user_id)
+           VALUES (?, ?, ?, ?, TRUE, ?, ?)`,
+          [clientId, orgId, providerUserId, serviceDay, userId, userId]
+        );
+      } else {
+        await connection.execute(
+          `UPDATE client_provider_assignments
+           SET service_day = ?, is_active = TRUE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [serviceDay, userId, existing.id]
+        );
+      }
+
+      await connection.commit();
+      res.status(201).json({ ok: true });
+    } catch (e) {
+      try { await connection.rollback(); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      connection.release();
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Remove a provider assignment (slot refund).
+ * DELETE /api/clients/:id/provider-assignments/:assignmentId
+ */
+export const removeClientProviderAssignment = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    const assignmentId = parseInt(req.params.assignmentId, 10);
+    if (!clientId || !assignmentId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const [rows] = await connection.execute(
+        `SELECT id, client_id, organization_id, provider_user_id, service_day, is_active
+         FROM client_provider_assignments
+         WHERE id = ? AND client_id = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [assignmentId, clientId]
+      );
+      const a = rows?.[0] || null;
+      if (!a) {
+        await connection.rollback();
+        return res.status(404).json({ error: { message: 'Assignment not found' } });
+      }
+      const active = a.is_active === 1 || a.is_active === true;
+      if (active && a.provider_user_id && a.service_day) {
+        await adjustProviderSlots(connection, { providerUserId: a.provider_user_id, schoolId: a.organization_id, dayOfWeek: a.service_day, delta: +1 });
+      }
+      await connection.execute(
+        `UPDATE client_provider_assignments
+         SET is_active = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [userId, assignmentId]
+      );
+
+      await connection.commit();
+      res.json({ ok: true });
+    } catch (e) {
+      try { await connection.rollback(); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      connection.release();
+    }
+  } catch (e) {
+    next(e);
   }
 };

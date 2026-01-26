@@ -221,11 +221,14 @@ class Client {
       includeSensitive = true
     } = options;
 
+    const values = [];
+    const useOrgAssignments = !!organization_id;
+
     let query = `
       SELECT 
         c.*,
-        org.name as organization_name,
-        org.slug as organization_slug,
+        ${useOrgAssignments ? 'COALESCE(orgf.name, org.name) as organization_name,' : 'org.name as organization_name,'}
+        ${useOrgAssignments ? 'COALESCE(orgf.slug, org.slug) as organization_slug,' : 'org.slug as organization_slug,'}
         provider.first_name as provider_first_name,
         provider.last_name as provider_last_name,
         cs.label as client_status_label,
@@ -237,6 +240,20 @@ class Client {
         pdm.label as paperwork_delivery_method_label,
         pdm.method_key as paperwork_delivery_method_key
       FROM clients c
+    `;
+
+    if (useOrgAssignments) {
+      query += `
+        JOIN client_organization_assignments coa
+          ON coa.client_id = c.id
+         AND coa.organization_id = ?
+         AND coa.is_active = TRUE
+        LEFT JOIN agencies orgf ON orgf.id = coa.organization_id
+      `;
+      values.push(organization_id);
+    }
+
+    query += `
       LEFT JOIN agencies org ON c.organization_id = org.id
       LEFT JOIN users provider ON c.provider_id = provider.id
       LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
@@ -246,16 +263,9 @@ class Client {
       WHERE 1=1
     `;
 
-    const values = [];
-
     if (agency_id) {
       query += ' AND c.agency_id = ?';
       values.push(agency_id);
-    }
-
-    if (organization_id) {
-      query += ' AND c.organization_id = ?';
-      values.push(organization_id);
     }
 
     if (provider_id) {
@@ -288,7 +298,77 @@ class Client {
 
     query += ' ORDER BY c.submission_date DESC, c.created_at DESC';
 
-    const [rows] = await pool.execute(query, values);
+    let rows = [];
+    try {
+      const [r] = await pool.execute(query, values);
+      rows = r || [];
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (!missing || !useOrgAssignments) throw e;
+
+      // Legacy fallback: filter by clients.organization_id.
+      const legacyValues = [];
+      let legacyQuery = `
+        SELECT 
+          c.*,
+          org.name as organization_name,
+          org.slug as organization_slug,
+          provider.first_name as provider_first_name,
+          provider.last_name as provider_last_name,
+          cs.label as client_status_label,
+          cs.status_key as client_status_key,
+          ps.label as paperwork_status_label,
+          ps.status_key as paperwork_status_key,
+          it.label as insurance_type_label,
+          it.insurance_key as insurance_type_key,
+          pdm.label as paperwork_delivery_method_label,
+          pdm.method_key as paperwork_delivery_method_key
+        FROM clients c
+        LEFT JOIN agencies org ON c.organization_id = org.id
+        LEFT JOIN users provider ON c.provider_id = provider.id
+        LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
+        LEFT JOIN paperwork_statuses ps ON c.paperwork_status_id = ps.id
+        LEFT JOIN insurance_types it ON c.insurance_type_id = it.id
+        LEFT JOIN paperwork_delivery_methods pdm ON c.paperwork_delivery_method_id = pdm.id
+        WHERE 1=1
+      `;
+
+      if (agency_id) {
+        legacyQuery += ' AND c.agency_id = ?';
+        legacyValues.push(agency_id);
+      }
+      legacyQuery += ' AND c.organization_id = ?';
+      legacyValues.push(organization_id);
+      if (provider_id) {
+        legacyQuery += ' AND c.provider_id = ?';
+        legacyValues.push(provider_id);
+      }
+      if (status) {
+        legacyQuery += ' AND c.status = ?';
+        legacyValues.push(status);
+      }
+      if (search) {
+        legacyQuery += ' AND c.initials LIKE ?';
+        legacyValues.push(`%${search}%`);
+      }
+      if (client_status_id) {
+        legacyQuery += ' AND c.client_status_id = ?';
+        legacyValues.push(client_status_id);
+      }
+      if (paperwork_status_id) {
+        legacyQuery += ' AND c.paperwork_status_id = ?';
+        legacyValues.push(paperwork_status_id);
+      }
+      if (insurance_type_id) {
+        legacyQuery += ' AND c.insurance_type_id = ?';
+        legacyValues.push(insurance_type_id);
+      }
+      legacyQuery += ' ORDER BY c.submission_date DESC, c.created_at DESC';
+
+      const [r2] = await pool.execute(legacyQuery, legacyValues);
+      rows = r2 || [];
+    }
 
     // Format provider names
     return rows.map(row => {
