@@ -4,6 +4,14 @@
       <h1>Client Management</h1>
       <div class="header-actions">
         <button @click="showBulkImportModal = true" class="btn btn-secondary">Bulk Import</button>
+        <button
+          v-if="authStore.user?.role !== 'school_staff'"
+          @click="rolloverSchoolYearAll"
+          class="btn btn-secondary"
+          :disabled="rolloverWorking"
+        >
+          {{ rolloverWorking ? 'Rolling over…' : 'Rollover School Year' }}
+        </button>
         <button @click="showCreateModal = true" class="btn btn-primary">Create Client</button>
       </div>
     </div>
@@ -701,7 +709,7 @@ const bulkPromoteToNextYear = async () => {
   if (!toSchoolYear) return;
   bulkWorking.value = true;
   try {
-    await api.post('/clients/bulk/promote-school-year', { clientIds: ids, toSchoolYear });
+    await api.post('/clients/bulk/promote-school-year', { clientIds: ids, toSchoolYear, resetDocs: true, paperworkStatusKey: 'new_docs' });
     await fetchClients();
     clearSelection();
   } catch (e) {
@@ -709,6 +717,43 @@ const bulkPromoteToNextYear = async () => {
     alert(e.response?.data?.error?.message || e.message || 'Bulk promote failed');
   } finally {
     bulkWorking.value = false;
+  }
+};
+
+const rolloverWorking = ref(false);
+const rolloverPreview = ref(null);
+
+const rolloverSchoolYearAll = async () => {
+  const toSchoolYear = normalizeSchoolYearLabel(nextSchoolYear.value);
+  const orgId = organizationFilter.value ? parseInt(String(organizationFilter.value), 10) : null;
+  rolloverWorking.value = true;
+  try {
+    // Preview first
+    const preview = await api.post('/clients/bulk/rollover-school-year', {
+      organizationId: orgId || undefined,
+      toSchoolYear,
+      resetDocs: true,
+      paperworkStatusKey: 'new_docs',
+      confirm: false
+    });
+    rolloverPreview.value = preview.data;
+    const count = Number(preview.data?.willUpdate || 0);
+    const scopeLabel = orgId ? 'this affiliation' : 'all affiliations';
+    const ok = window.confirm(`Rollover ${count} client(s) in ${scopeLabel} to ${toSchoolYear}? This will reset paperwork to "New Docs" and clear received dates.`);
+    if (!ok) return;
+    await api.post('/clients/bulk/rollover-school-year', {
+      organizationId: orgId || undefined,
+      toSchoolYear,
+      resetDocs: true,
+      paperworkStatusKey: 'new_docs',
+      confirm: true
+    });
+    await fetchClients();
+  } catch (e) {
+    console.error('Rollover failed:', e);
+    alert(e.response?.data?.error?.message || e.message || 'Rollover failed');
+  } finally {
+    rolloverWorking.value = false;
   }
 };
 

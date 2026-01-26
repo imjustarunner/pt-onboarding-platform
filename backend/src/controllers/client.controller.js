@@ -418,6 +418,8 @@ export const bulkPromoteSchoolYear = async (req, res, next) => {
     if (!clientIds.length) return res.status(400).json({ error: { message: 'clientIds is required' } });
 
     const toSchoolYear = normalizeSchoolYearLabel(req.body?.toSchoolYear || null);
+    const resetDocs = req.body?.resetDocs === undefined ? true : !!req.body.resetDocs;
+    const resetPaperworkStatusKey = String(req.body?.paperworkStatusKey || 'new_docs').trim().toLowerCase();
 
     // Fetch clients in one query (include agency_id for access checks).
     const placeholders = clientIds.map(() => '?').join(',');
@@ -437,6 +439,7 @@ export const bulkPromoteSchoolYear = async (req, res, next) => {
 
     const updated = [];
     const skipped = [];
+    const newDocsPaperworkStatusIdByAgencyId = new Map();
     for (const r of rows || []) {
       const id = Number(r.id);
       if (!id) continue;
@@ -454,11 +457,170 @@ export const bulkPromoteSchoolYear = async (req, res, next) => {
       const nextGrade = bumpGrade(r.grade);
       const patch = { school_year: nextYear };
       if (nextGrade !== null) patch.grade = nextGrade;
+
+      // Default rollover behavior: reset document workflow for the new year.
+      if (resetDocs) {
+        // Paperwork status: attempt to set to "New Docs" if present for this agency.
+        const agencyId = Number(r.agency_id);
+        if (agencyId) {
+          if (!newDocsPaperworkStatusIdByAgencyId.has(agencyId)) {
+            try {
+              const [ps] = await pool.execute(
+                `SELECT id
+                 FROM paperwork_statuses
+                 WHERE agency_id = ?
+                   AND LOWER(status_key) = ?
+                 LIMIT 1`,
+                [agencyId, resetPaperworkStatusKey]
+              );
+              newDocsPaperworkStatusIdByAgencyId.set(agencyId, ps?.[0]?.id || null);
+            } catch {
+              newDocsPaperworkStatusIdByAgencyId.set(agencyId, null);
+            }
+          }
+          const psId = newDocsPaperworkStatusIdByAgencyId.get(agencyId);
+          if (psId) patch.paperwork_status_id = psId;
+        }
+        patch.paperwork_received_at = null;
+        patch.document_status = 'NONE';
+      }
+
       await Client.update(id, patch, userId);
       updated.push({ id, school_year: nextYear, grade: patch.grade ?? null });
     }
 
     res.json({ success: true, updated, skipped, requested: clientIds.length, found: (rows || []).length });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Rollover all clients in a scope to next school year.
+ * POST /api/clients/bulk/rollover-school-year
+ * body: { organizationId?: number, agencyId?: number, toSchoolYear?: string, confirm?: boolean, resetDocs?: boolean }
+ */
+export const rolloverSchoolYear = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const roleNorm = String(userRole || '').toLowerCase();
+    const canManage = roleNorm === 'super_admin' || roleNorm === 'admin' || roleNorm === 'support' || roleNorm === 'staff';
+    if (!canManage) {
+      return res.status(403).json({ error: { message: 'Only admin/staff can rollover clients' } });
+    }
+
+    const organizationId = req.body?.organizationId ? parseInt(req.body.organizationId, 10) : null;
+    const agencyIdFromBody = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
+    const toSchoolYear = normalizeSchoolYearLabel(req.body?.toSchoolYear || null);
+    const resetDocs = req.body?.resetDocs === undefined ? true : !!req.body.resetDocs;
+    const paperworkStatusKey = String(req.body?.paperworkStatusKey || 'new_docs').trim().toLowerCase();
+    const confirm = !!req.body?.confirm;
+
+    // Access check: non-super_admin must have the agency in their org list.
+    let allowedAgencyIds = null;
+    if (roleNorm !== 'super_admin') {
+      const userAgencies = await User.getAgencies(userId);
+      allowedAgencyIds = new Set((userAgencies || []).map((a) => Number(a?.id)).filter(Boolean));
+    }
+
+    // Determine agency scope if provided; otherwise infer from org if possible.
+    const scopedAgencyId = agencyIdFromBody || null;
+    if (scopedAgencyId && allowedAgencyIds && !allowedAgencyIds.has(scopedAgencyId)) {
+      return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
+    }
+
+    // Preview eligible rows.
+    const where = [];
+    const vals = [];
+    where.push(`status <> 'ARCHIVED'`);
+    if (organizationId) {
+      where.push('organization_id = ?');
+      vals.push(organizationId);
+    }
+    if (scopedAgencyId) {
+      where.push('agency_id = ?');
+      vals.push(scopedAgencyId);
+    } else if (allowedAgencyIds) {
+      const ids = Array.from(allowedAgencyIds);
+      if (ids.length) {
+        where.push(`agency_id IN (${ids.map(() => '?').join(',')})`);
+        vals.push(...ids);
+      }
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const [cntRows] = await pool.execute(`SELECT COUNT(*) AS cnt FROM clients ${whereSql}`, vals);
+    const cnt = Number(cntRows?.[0]?.cnt || 0);
+    if (!confirm) {
+      return res.json({
+        dryRun: true,
+        willUpdate: cnt,
+        organizationId,
+        agencyId: scopedAgencyId,
+        toSchoolYear: toSchoolYear || '(computed per client)',
+        resetDocs
+      });
+    }
+
+    // Fetch ids (we reuse the existing bulkPromoteSchoolYear logic by chunking).
+    const [idRows] = await pool.execute(`SELECT id FROM clients ${whereSql}`, vals);
+    const idsToUpdate = (idRows || []).map((r) => Number(r.id)).filter(Boolean);
+    const updated = [];
+    const skipped = [];
+    const chunkSize = 500;
+    for (let i = 0; i < idsToUpdate.length; i += chunkSize) {
+      const chunk = idsToUpdate.slice(i, i + chunkSize);
+      // eslint-disable-next-line no-await-in-loop
+      const resp = await new Promise((resolve, reject) => {
+        // call handler directly without HTTP roundtrip
+        // emulate req/res by calling underlying logic: easiest is to call bulkPromoteSchoolYear via function,
+        // but it expects req/res; so we duplicate by invoking internal helper through a synthetic request.
+        resolve({ chunk });
+      });
+      // We can't reuse without refactor; do per-client updates by calling Client.update via existing logic:
+      // We'll do it simply here.
+      // eslint-disable-next-line no-await-in-loop
+      const placeholders = chunk.map(() => '?').join(',');
+      // eslint-disable-next-line no-await-in-loop
+      const [rows] = await pool.execute(
+        `SELECT id, agency_id, school_year, grade, status FROM clients WHERE id IN (${placeholders})`,
+        chunk
+      );
+      const newDocsPaperworkStatusIdByAgencyId = new Map();
+      for (const r of rows || []) {
+        const id = Number(r.id);
+        if (!id) continue;
+        const nextYear = toSchoolYear || computeNextSchoolYearLabel(r.school_year || null);
+        const nextGrade = bumpGrade(r.grade);
+        const patch = { school_year: nextYear };
+        if (nextGrade !== null) patch.grade = nextGrade;
+        if (resetDocs) {
+          const aId = Number(r.agency_id);
+          if (aId) {
+            if (!newDocsPaperworkStatusIdByAgencyId.has(aId)) {
+              try {
+                const [ps] = await pool.execute(
+                  `SELECT id FROM paperwork_statuses WHERE agency_id = ? AND LOWER(status_key) = ? LIMIT 1`,
+                  [aId, paperworkStatusKey]
+                );
+                newDocsPaperworkStatusIdByAgencyId.set(aId, ps?.[0]?.id || null);
+              } catch {
+                newDocsPaperworkStatusIdByAgencyId.set(aId, null);
+              }
+            }
+            const psId = newDocsPaperworkStatusIdByAgencyId.get(aId);
+            if (psId) patch.paperwork_status_id = psId;
+          }
+          patch.paperwork_received_at = null;
+          patch.document_status = 'NONE';
+        }
+        await Client.update(id, patch, userId);
+        updated.push({ id, school_year: nextYear });
+      }
+    }
+
+    res.json({ success: true, updatedCount: updated.length, willUpdate: cnt, organizationId, agencyId: scopedAgencyId });
   } catch (e) {
     next(e);
   }

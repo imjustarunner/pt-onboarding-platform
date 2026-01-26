@@ -8,6 +8,7 @@ import {
   updateClientStatus,
   unarchiveClient,
   bulkPromoteSchoolYear,
+  rolloverSchoolYear,
   assignProvider,
   deleteBulkImportedClients,
   getClientHistory,
@@ -34,6 +35,7 @@ router.delete('/bulk-import', deleteBulkImportedClients);
 
 // Bulk actions
 router.post('/bulk/promote-school-year', bulkPromoteSchoolYear);
+router.post('/bulk/rollover-school-year', rolloverSchoolYear);
 
 // Get client detail
 router.get('/:id', getClientById);
