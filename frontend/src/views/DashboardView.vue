@@ -119,8 +119,17 @@
           @click="handleCardClick(card)"
         >
           <div class="rail-card-left">
-            <div v-if="card.iconUrl" class="rail-card-icon">
-              <img :src="card.iconUrl" :alt="`${card.label} icon`" class="rail-card-icon-img" />
+            <div class="rail-card-icon">
+              <img
+                v-if="card.iconUrl && !failedRailIconIds.has(String(card.id))"
+                :src="card.iconUrl"
+                :alt="`${card.label} icon`"
+                class="rail-card-icon-img"
+                @error="(e) => onRailIconError(card, e)"
+              />
+              <div v-else class="rail-card-icon-fallback" aria-hidden="true">
+                {{ railIconFallback(card) }}
+              </div>
             </div>
             <div class="rail-card-text">
               <div class="rail-card-title">{{ card.label }}</div>
@@ -155,17 +164,19 @@
           />
 
           <!-- My Schedule (full-width focus panel) -->
-          <div
-            v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && providerSurfacesEnabled"
-            v-show="activeTab === 'my_schedule'"
-            class="my-panel my-schedule-panel"
-          >
+          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff" v-show="activeTab === 'my_schedule'" class="my-panel my-schedule-panel">
             <div class="my-schedule-stage">
               <div class="section-header">
                 <h2 style="margin: 0;">My Schedule</h2>
               </div>
+              <div v-if="!providerSurfacesEnabled" class="hint" style="margin-top: 8px;">
+                Scheduling is disabled for this organization.
+              </div>
+              <div v-else-if="!currentAgencyId" class="hint" style="margin-top: 8px;">
+                Select an organization to view your schedule.
+              </div>
               <ScheduleAvailabilityGrid
-                v-if="currentAgencyId && authStore.user?.id"
+                v-else-if="authStore.user?.id"
                 :user-id="Number(authStore.user.id)"
                 :agency-id="Number(currentAgencyId)"
                 mode="self"
@@ -466,6 +477,27 @@ const pendingCompletionStatus = ref(null);
 const tierBadgeText = ref('');
 const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 
+// If an icon URL 404s (or otherwise fails to load), show a simple fallback glyph.
+const failedRailIconIds = ref(new Set());
+const onRailIconError = (card, event) => {
+  try {
+    failedRailIconIds.value.add(String(card?.id));
+    // best-effort debugging
+    console.warn('[Dashboard] Icon failed to load', {
+      cardId: card?.id,
+      label: card?.label,
+      src: event?.target?.src
+    });
+  } catch {
+    // ignore
+  }
+};
+const railIconFallback = (card) => {
+  const label = String(card?.label || '').trim();
+  if (!label) return '•';
+  return label.slice(0, 1).toUpperCase();
+};
+
 const dashboardBannerLoading = ref(false);
 const dashboardBannerError = ref('');
 const dashboardBanner = ref(null); // { type, message, agencyId, names } | null
@@ -520,9 +552,9 @@ const filteredTabs = computed(() => {
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
 
 const dashboardCards = computed(() => {
-  // Super admins on the main platform brand should see platform-level defaults
-  // (ignore any selected/stale currentAgency).
-  const cardIconOrgOverride = String(authStore.user?.role || '').toLowerCase() === 'super_admin' ? null : undefined;
+  // Use the current organization (when selected) for icon overrides.
+  // If none is selected, we fall back to platform branding inside `getDashboardCardIconUrl`.
+  const cardIconOrgOverride = undefined;
   const cards = filteredTabs.value.map((t) => ({
     ...t,
     kind: 'content',
@@ -539,16 +571,14 @@ const dashboardCards = computed(() => {
   if (isOnboardingComplete.value) {
     // School staff should not see payroll/claims submission surfaces.
     if (!isSchoolStaff.value) {
-      if (providerSurfacesEnabled.value) {
-        cards.push({
-          id: 'my_schedule',
-          label: 'My Schedule',
-          kind: 'content',
-          badgeCount: 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
-          description: 'View weekly schedule and request availability from the grid.'
-        });
-      }
+      cards.push({
+        id: 'my_schedule',
+        label: 'My Schedule',
+        kind: 'content',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
+        description: 'View weekly schedule and request availability from the grid.'
+      });
       if (providerSurfacesEnabled.value) {
         cards.push({
           id: 'submit',
@@ -1174,6 +1204,17 @@ h1 {
   width: 20px;
   height: 20px;
   object-fit: contain;
+}
+
+.rail-card-icon-fallback {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .rail-card-text {

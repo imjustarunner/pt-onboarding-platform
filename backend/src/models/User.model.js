@@ -1136,18 +1136,21 @@ class User {
     // Best-effort: include icon paths when columns exist (keeps older DBs working).
     let hasIconId = false;
     let hasChatIconId = false;
+    let hasMyDashboardIcons = false;
     let hasPayrollAccess = false;
     let hasH0032ManualMinutes = false;
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('icon_id','chat_icon_id')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('icon_id','chat_icon_id','my_dashboard_checklist_icon_id')"
       );
       const names = (cols || []).map((c) => c.COLUMN_NAME);
       hasIconId = names.includes('icon_id');
       hasChatIconId = names.includes('chat_icon_id');
+      hasMyDashboardIcons = names.includes('my_dashboard_checklist_icon_id');
     } catch {
       hasIconId = false;
       hasChatIconId = false;
+      hasMyDashboardIcons = false;
     }
 
     // Best-effort: include membership fields from user_agencies.
@@ -1176,6 +1179,15 @@ class User {
     const selectExtra = [
       hasIconId ? 'master_i.file_path as icon_file_path, master_i.name as icon_name' : null,
       hasChatIconId ? 'chat_i.file_path as chat_icon_path, chat_i.name as chat_icon_name' : null,
+      // "My Dashboard" icon paths (needed for non-admin dashboards; they cannot call /icons).
+      hasMyDashboardIcons ? 'mdc_i.file_path as my_dashboard_checklist_icon_path, mdc_i.name as my_dashboard_checklist_icon_name' : null,
+      hasMyDashboardIcons ? 'mdt_i.file_path as my_dashboard_training_icon_path, mdt_i.name as my_dashboard_training_icon_name' : null,
+      hasMyDashboardIcons ? 'mdd_i.file_path as my_dashboard_documents_icon_path, mdd_i.name as my_dashboard_documents_icon_name' : null,
+      hasMyDashboardIcons ? 'mdm_i.file_path as my_dashboard_my_account_icon_path, mdm_i.name as my_dashboard_my_account_icon_name' : null,
+      hasMyDashboardIcons ? 'mdsch_i.file_path as my_dashboard_my_schedule_icon_path, mdsch_i.name as my_dashboard_my_schedule_icon_name' : null,
+      hasMyDashboardIcons ? 'mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name' : null,
+      hasMyDashboardIcons ? 'mdp_i.file_path as my_dashboard_payroll_icon_path, mdp_i.name as my_dashboard_payroll_icon_name' : null,
+      hasMyDashboardIcons ? 'mds_i.file_path as my_dashboard_submit_icon_path, mds_i.name as my_dashboard_submit_icon_name' : null,
       hasPayrollAccess ? 'ua.has_payroll_access' : null,
       hasH0032ManualMinutes ? 'ua.h0032_requires_manual_minutes' : null,
       hasSupervisionPrelicensed ? 'ua.supervision_is_prelicensed' : null,
@@ -1186,7 +1198,15 @@ class User {
 
     const joins = [
       hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : null,
-      hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : null
+      hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : null,
+      hasMyDashboardIcons ? 'LEFT JOIN icons mdc_i ON a.my_dashboard_checklist_icon_id = mdc_i.id' : null,
+      hasMyDashboardIcons ? 'LEFT JOIN icons mdt_i ON a.my_dashboard_training_icon_id = mdt_i.id' : null,
+      hasMyDashboardIcons ? 'LEFT JOIN icons mdd_i ON a.my_dashboard_documents_icon_id = mdd_i.id' : null,
+      hasMyDashboardIcons ? 'LEFT JOIN icons mdm_i ON a.my_dashboard_my_account_icon_id = mdm_i.id' : null,
+      hasMyDashboardIcons ? 'LEFT JOIN icons mdsch_i ON a.my_dashboard_my_schedule_icon_id = mdsch_i.id' : null,
+      hasMyDashboardIcons ? 'LEFT JOIN icons mdod_i ON a.my_dashboard_on_demand_training_icon_id = mdod_i.id' : null,
+      hasMyDashboardIcons ? 'LEFT JOIN icons mdp_i ON a.my_dashboard_payroll_icon_id = mdp_i.id' : null,
+      hasMyDashboardIcons ? 'LEFT JOIN icons mds_i ON a.my_dashboard_submit_icon_id = mds_i.id' : null
     ].filter(Boolean).join('\n       ');
 
     const query = `SELECT a.*${selectExtra ? ', ' + selectExtra : ''}

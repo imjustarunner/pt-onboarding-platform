@@ -1444,6 +1444,11 @@
                 <small>Icon for the "Documents" card</small>
               </div>
               <div class="dashboard-icon-item">
+                <label>My Schedule Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardMyScheduleIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "My Schedule" card</small>
+              </div>
+              <div class="dashboard-icon-item">
                 <label>Submit Card Icon</label>
                 <IconSelector v-model="agencyForm.myDashboardSubmitIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Submit" card</small>
@@ -2925,6 +2930,7 @@ const agencyForm = ref({
   myDashboardSubmitIconId: null,
   myDashboardPayrollIconId: null,
   myDashboardMyAccountIconId: null,
+  myDashboardMyScheduleIconId: null,
   myDashboardOnDemandTrainingIconId: null,
   onboardingTeamEmail: '',
   phoneNumber: '',
@@ -3787,6 +3793,7 @@ const editAgency = async (agency) => {
     myDashboardTrainingIconId: agency.my_dashboard_training_icon_id ?? null,
     myDashboardDocumentsIconId: agency.my_dashboard_documents_icon_id ?? null,
     myDashboardMyAccountIconId: agency.my_dashboard_my_account_icon_id ?? null,
+    myDashboardMyScheduleIconId: agency.my_dashboard_my_schedule_icon_id ?? null,
     myDashboardOnDemandTrainingIconId: agency.my_dashboard_on_demand_training_icon_id ?? null,
     myDashboardPayrollIconId: agency.my_dashboard_payroll_icon_id ?? null,
     myDashboardSubmitIconId: agency.my_dashboard_submit_icon_id ?? null,
@@ -4335,6 +4342,7 @@ const saveAgency = async () => {
       myDashboardTrainingIconId: agencyForm.value.myDashboardTrainingIconId ?? null,
       myDashboardDocumentsIconId: agencyForm.value.myDashboardDocumentsIconId ?? null,
       myDashboardMyAccountIconId: agencyForm.value.myDashboardMyAccountIconId ?? null,
+      myDashboardMyScheduleIconId: agencyForm.value.myDashboardMyScheduleIconId ?? null,
       myDashboardOnDemandTrainingIconId: agencyForm.value.myDashboardOnDemandTrainingIconId ?? null,
       myDashboardPayrollIconId: agencyForm.value.myDashboardPayrollIconId ?? null,
       myDashboardSubmitIconId: agencyForm.value.myDashboardSubmitIconId ?? null,
@@ -4651,6 +4659,7 @@ const closeModal = () => {
     myDashboardSubmitIconId: null,
     myDashboardPayrollIconId: null,
     myDashboardMyAccountIconId: null,
+    myDashboardMyScheduleIconId: null,
     myDashboardOnDemandTrainingIconId: null,
     onboardingTeamEmail: '',
     phoneNumber: '',

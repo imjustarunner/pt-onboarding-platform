@@ -2730,87 +2730,108 @@ export const getAccountInfo = async (req, res, next) => {
       });
     }
     
-    // Get user accounts (platform and agency level)
-    let accounts = [];
-    try {
-      accounts = await UserAccount.findByUserId(id);
-    } catch (accountError) {
+    // Run expensive lookups in parallel to reduce wall time.
+    const userIdInt = parseInt(id);
+    const pool = (await import('../config/database.js')).default;
+
+    const accountsPromise = UserAccount.findByUserId(id).catch((accountError) => {
       console.error('Error fetching user accounts:', accountError);
-      // Continue with empty accounts array
-    }
-    
-    // Get unified checklist for total progress count
-    let totalProgress = 0;
-    try {
-      const unifiedChecklist = await UserChecklistAssignment.getUnifiedChecklist(parseInt(id));
-      totalProgress = unifiedChecklist?.counts?.total || 0;
-    } catch (checklistError) {
-      console.error('Error fetching unified checklist:', checklistError);
-      // Continue with 0 progress
-    }
-    
-    // Get personal email from user info values (if exists)
-    let personalEmail = null;
-    try {
-      const userInfoValues = await UserInfoValue.findByUserId(parseInt(id));
-      const personalEmailField = userInfoValues.find(v => 
-        v.field_key === 'personal_email' || 
-        v.field_key === 'personalEmail' ||
-        v.field_label?.toLowerCase().includes('personal email')
-      );
-      personalEmail = personalEmailField?.value || null;
-    } catch (infoError) {
-      console.error('Error fetching user info values:', infoError);
-      // Continue with null personal email
-    }
-    
-    // Get total onboarding time from training focuses
-    let trainingData = [];
-    let totalTimeSeconds = 0;
-    let totalTimeMinutes = 0;
-    let totalTimeHours = 0;
-    let totalTimeMinutesRemainder = 0;
-    
-    try {
-      trainingData = await OnboardingDataService.getUserTrainingData(parseInt(id));
-      totalTimeSeconds = trainingData.reduce((sum, track) => sum + (track.totalTimeSeconds || 0), 0);
-      totalTimeMinutes = Math.round(totalTimeSeconds / 60);
-      totalTimeHours = Math.floor(totalTimeMinutes / 60);
-      totalTimeMinutesRemainder = totalTimeMinutes % 60;
-    } catch (trainingError) {
-      console.error('Error fetching training data for account info:', trainingError);
-      // Continue with default values if training data fails
-    }
-    
-    // Get supervisor information
-    let supervisors = [];
-    try {
-      const SupervisorAssignment = (await import('../models/SupervisorAssignment.model.js')).default;
-      const supervisorAssignments = await SupervisorAssignment.findBySupervisee(parseInt(id));
-      
-      // Format supervisor info with contact details
-      supervisors = supervisorAssignments.map(assignment => ({
-        id: assignment.supervisor_id,
-        firstName: assignment.supervisor_first_name,
-        lastName: assignment.supervisor_last_name,
-        email: assignment.supervisor_email,
-        workPhone: null,
-        workPhoneExtension: null,
-        agencyName: assignment.agency_name
-      }));
-      
-      // Fetch supervisor details to get phone numbers
-      for (let supervisor of supervisors) {
-        const supervisorUser = await User.findById(supervisor.id);
-        if (supervisorUser) {
-          supervisor.workPhone = supervisorUser.work_phone || null;
-          supervisor.workPhoneExtension = supervisorUser.work_phone_extension || null;
-        }
+      return [];
+    });
+
+    const totalProgressPromise = UserChecklistAssignment.getUnifiedChecklist(userIdInt)
+      .then((unifiedChecklist) => unifiedChecklist?.counts?.total || 0)
+      .catch((checklistError) => {
+        console.error('Error fetching unified checklist:', checklistError);
+        return 0;
+      });
+
+    // Targeted lookup instead of loading every user_info_value row.
+    const personalEmailPromise = (async () => {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT uiv.value
+           FROM user_info_values uiv
+           JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
+           WHERE uiv.user_id = ?
+             AND (
+               uifd.field_key IN ('personal_email', 'personalEmail')
+               OR LOWER(uifd.field_label) LIKE '%personal email%'
+             )
+           ORDER BY
+             (uifd.field_key IN ('personal_email', 'personalEmail')) DESC,
+             uifd.id ASC
+           LIMIT 1`,
+          [userIdInt]
+        );
+        const v = rows?.[0]?.value;
+        return v !== undefined && v !== null && String(v).trim() ? String(v) : null;
+      } catch (infoError) {
+        console.error('Error fetching personal email from user info values:', infoError);
+        return null;
       }
-    } catch (supervisorError) {
-      console.error('Error fetching supervisor information:', supervisorError);
-      // Continue with empty supervisors array
-    }
+    })();
+
+    const onboardingTimePromise = OnboardingDataService.getUserTrainingData(userIdInt)
+      .then((trainingData) => {
+        const totalTimeSeconds = (trainingData || []).reduce((sum, track) => sum + (track?.totalTimeSeconds || 0), 0);
+        const totalTimeMinutes = Math.round(totalTimeSeconds / 60);
+        const totalTimeHours = Math.floor(totalTimeMinutes / 60);
+        const totalTimeMinutesRemainder = totalTimeMinutes % 60;
+        return { totalTimeSeconds, totalTimeMinutes, totalTimeHours, totalTimeMinutesRemainder };
+      })
+      .catch((trainingError) => {
+        console.error('Error fetching training data for account info:', trainingError);
+        return { totalTimeSeconds: 0, totalTimeMinutes: 0, totalTimeHours: 0, totalTimeMinutesRemainder: 0 };
+      });
+
+    const supervisorsPromise = (async () => {
+      try {
+        const SupervisorAssignment = (await import('../models/SupervisorAssignment.model.js')).default;
+        const supervisorAssignments = await SupervisorAssignment.findBySupervisee(userIdInt);
+
+        const supervisors = (supervisorAssignments || []).map((assignment) => ({
+          id: assignment.supervisor_id,
+          firstName: assignment.supervisor_first_name,
+          lastName: assignment.supervisor_last_name,
+          email: assignment.supervisor_email,
+          workPhone: null,
+          workPhoneExtension: null,
+          agencyName: assignment.agency_name
+        }));
+
+        const ids = Array.from(new Set(supervisors.map((s) => Number(s.id)).filter((n) => Number.isInteger(n) && n > 0)));
+        if (ids.length) {
+          const placeholders = ids.map(() => '?').join(',');
+          const [rows] = await pool.execute(
+            `SELECT id, work_phone, work_phone_extension
+             FROM users
+             WHERE id IN (${placeholders})`,
+            ids
+          );
+          const byId = new Map((rows || []).map((r) => [Number(r.id), r]));
+          for (const s of supervisors) {
+            const r = byId.get(Number(s.id));
+            if (!r) continue;
+            s.workPhone = r.work_phone || null;
+            s.workPhoneExtension = r.work_phone_extension || null;
+          }
+        }
+
+        return supervisors;
+      } catch (supervisorError) {
+        console.error('Error fetching supervisor information:', supervisorError);
+        return [];
+      }
+    })();
+
+    const [accounts, totalProgress, personalEmail, onboardingTime, supervisors] = await Promise.all([
+      accountsPromise,
+      totalProgressPromise,
+      personalEmailPromise,
+      onboardingTimePromise,
+      supervisorsPromise
+    ]);
     
     const accountInfo = {
       loginEmail: user.email || user.work_email || 'Not provided',
@@ -2828,13 +2849,13 @@ export const getAccountInfo = async (req, res, next) => {
       homePostalCode: user.home_postal_code || null,
       totalProgress: totalProgress,
       totalOnboardingTime: {
-        seconds: totalTimeSeconds,
-        minutes: totalTimeMinutes,
-        hours: totalTimeHours,
-        minutesRemainder: totalTimeMinutesRemainder,
-        formatted: totalTimeHours > 0 
-          ? `${totalTimeHours}h ${totalTimeMinutesRemainder}m`
-          : `${totalTimeMinutes}m`
+        seconds: onboardingTime.totalTimeSeconds,
+        minutes: onboardingTime.totalTimeMinutes,
+        hours: onboardingTime.totalTimeHours,
+        minutesRemainder: onboardingTime.totalTimeMinutesRemainder,
+        formatted: onboardingTime.totalTimeHours > 0
+          ? `${onboardingTime.totalTimeHours}h ${onboardingTime.totalTimeMinutesRemainder}m`
+          : `${onboardingTime.totalTimeMinutes}m`
       },
       accounts: accounts,
       status: user.status,

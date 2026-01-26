@@ -91,6 +91,12 @@ export const useAgencyStore = defineStore('agency', () => {
           // ignore; best-effort
         }
       }
+
+      // If a current agency is already persisted, ensure we hydrate it so downstream UI
+      // (dashboard card icons, theme settings, etc.) gets the full shape.
+      if (currentAgency.value?.id) {
+        hydrateAgencyById(currentAgency.value.id);
+      }
     } catch (error) {
       console.error('Failed to fetch agencies:', error);
     }
@@ -141,6 +147,12 @@ export const useAgencyStore = defineStore('agency', () => {
         // If no current agency is set and user has agencies, set the first one
         if (!currentAgency.value && userAgencies.value.length > 0) {
           setCurrentAgency(userAgencies.value[0]);
+        }
+
+        // If a current agency is already persisted, ensure we hydrate it so downstream UI
+        // (dashboard card icons, theme settings, etc.) gets the full shape.
+        if (currentAgency.value?.id) {
+          hydrateAgencyById(currentAgency.value.id);
         }
         
         return response.data;

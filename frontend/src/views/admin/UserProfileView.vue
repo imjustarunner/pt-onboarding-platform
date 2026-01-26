@@ -2100,16 +2100,18 @@ const fetchUser = async () => {
       hasStaffAccess: user.value.has_staff_access === true || user.value.has_staff_access === 1 || user.value.has_staff_access === '1' || false
     };
     
-    // Fetch user agencies
-    await fetchUserAgencies();
-    // Fetch available agencies
-    await fetchAvailableAgencies();
-    // Fetch account info
-    await fetchAccountInfo();
-    // Fetch provider credential value (best-effort)
-    await fetchProviderCredential();
-    // Fetch external calendars (admin/super_admin only)
-    await loadExternalCalendars();
+    // Render the page as soon as the base user record is loaded.
+    // All other sections have their own loading states (or are best-effort), so don't block the profile UI.
+    loading.value = false;
+
+    // Kick off secondary requests in parallel (non-blocking).
+    void Promise.allSettled([
+      fetchUserAgencies(),
+      fetchAvailableAgencies(),
+      fetchAccountInfo(),
+      fetchProviderCredential(),
+      loadExternalCalendars()
+    ]);
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load user';
     console.error('Error fetching user:', err);
@@ -3032,9 +3034,9 @@ const fetchSupervisors = async () => {
   }
 };
 
-onMounted(async () => {
-  await fetchUser();
-  await Promise.all([fetchSupervisees(), fetchSupervisors()]);
+onMounted(() => {
+  fetchUser();
+  void Promise.allSettled([fetchSupervisees(), fetchSupervisors()]);
 });
 </script>
 
