@@ -56,7 +56,7 @@
                     :value="user.id"
                     v-model="selectedUserIds"
                   />
-                  {{ user.first_name }} {{ user.last_name }} ({{ user.email }})
+                  {{ getUserLabel(user) }}
                 </label>
               </div>
               <div v-if="filteredUsers.length === 0" class="info-message">
@@ -230,12 +230,25 @@ const fetchUsersForAgency = async () => {
   
   try {
     const response = await api.get(`/agencies/${selectedAgencyId.value}/users`);
-    filteredUsers.value = response.data || [];
+    // Safety net: some deployments returned mixed key casing; normalize + filter archived just in case
+    const users = Array.isArray(response.data) ? response.data : [];
+    filteredUsers.value = users.filter((u) => !(u?.is_archived === true || u?.is_archived === 1 || u?.status === 'ARCHIVED'));
   } catch (err) {
     console.error('Failed to fetch users for agency:', err);
     filteredUsers.value = [];
     error.value = 'Failed to load users for selected agency';
   }
+};
+
+const getUserLabel = (user) => {
+  const first = user?.first_name ?? user?.firstName ?? '';
+  const last = user?.last_name ?? user?.lastName ?? '';
+  const email = user?.email ?? '';
+  const name = `${first} ${last}`.trim();
+  if (name && email) return `${name} (${email})`;
+  if (name) return name;
+  if (email) return email;
+  return `User #${user?.id ?? ''}`.trim();
 };
 
 const fetchAgencies = async () => {

@@ -75,11 +75,8 @@ export const useDocumentsStore = defineStore('documents', () => {
     try {
       loading.value = true;
       error.value = '';
-      const response = await api.post('/document-templates/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
+      // NOTE: do not set Content-Type manually for FormData; browser must include boundary
+      const response = await api.post('/document-templates/upload', formData);
       await fetchTemplates();
       return response.data;
     } catch (err) {

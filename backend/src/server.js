@@ -498,6 +498,45 @@ app.use((err, req, res, next) => {
     sqlMessage: err.sqlMessage,
     sqlState: err.sqlState
   });
+
+  // Normalize common MySQL errors into actionable 4xx responses
+  const sqlMessage = String(err.sqlMessage || err.message || '');
+  const isForeignKeyError =
+    err.code === 'ER_NO_REFERENCED_ROW_2' ||
+    err.errno === 1452 ||
+    sqlMessage.includes('a foreign key constraint fails');
+  const isEnumTruncation =
+    err.code === 'ER_WARN_DATA_TRUNCATED' ||
+    sqlMessage.toLowerCase().includes('data truncated for column');
+
+  if (!err.status && isForeignKeyError) {
+    return res.status(400).json({
+      error: {
+        message:
+          'Invalid reference value (foreign key constraint). Please verify the selected agency/icon still exists.',
+        ...(config.nodeEnv === 'development' && {
+          code: err.code,
+          sqlMessage: err.sqlMessage,
+          sqlState: err.sqlState
+        })
+      }
+    });
+  }
+
+  if (!err.status && isEnumTruncation) {
+    return res.status(400).json({
+      error: {
+        message:
+          'Invalid enum value provided. If this is a document action type like "acroform", run the latest DB migrations to expand supported values.',
+        ...(config.nodeEnv === 'development' && {
+          code: err.code,
+          sqlMessage: err.sqlMessage,
+          sqlState: err.sqlState
+        })
+      }
+    });
+  }
+
   res.status(err.status || 500).json({
     error: {
       message: err.message || 'Internal server error',

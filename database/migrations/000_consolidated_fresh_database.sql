@@ -353,7 +353,7 @@ ADD INDEX idx_overridden (overridden_by_user_id);
 -- ========================================
 -- Add document_action_type column to tasks table
 ALTER TABLE tasks 
-ADD COLUMN document_action_type ENUM('signature', 'review') 
+ADD COLUMN document_action_type ENUM('signature', 'review', 'acroform') 
 DEFAULT 'signature' 
 AFTER task_type;
 
