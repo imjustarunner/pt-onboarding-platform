@@ -274,7 +274,7 @@ const routes = [
     path: '/:organizationSlug/admin/clients',
     name: 'OrganizationClientManagement',
     component: () => import('../views/admin/ClientManagementView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'provider'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/schools/import',
@@ -541,7 +541,7 @@ const routes = [
     path: '/admin/clients',
     name: 'ClientManagement',
     component: () => import('../views/admin/ClientManagementView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'provider'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin'] }
   },
   {
     path: '/admin/schools/import',

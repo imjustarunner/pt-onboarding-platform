@@ -249,7 +249,7 @@ export const updateUserInfo = async (req, res, next) => {
     }
 
     // Also drop any locked field keys for provider self-service edits (do not overwrite staff-managed ITSCO fields).
-    const isProviderSelf = isSelf && (req.user.role === 'provider' || req.user.role === 'clinician');
+    const isProviderSelf = isSelf && req.user.role === 'provider';
     if (isProviderSelf && Array.isArray(effectiveValues) && effectiveValues.length) {
       try {
         const ids = effectiveValues
@@ -413,7 +413,7 @@ export const updateUserInfoField = async (req, res, next) => {
         if (cat && SELF_READONLY_CATEGORY_KEYS.has(cat)) {
           return res.status(403).json({ error: { message: 'This section is managed by staff.' } });
         }
-        if ((req.user.role === 'provider' || req.user.role === 'clinician') && fk && SELF_PROVIDER_LOCKED_KEYS.has(fk)) {
+        if (req.user.role === 'provider' && fk && SELF_PROVIDER_LOCKED_KEYS.has(fk)) {
           return res.status(403).json({ error: { message: 'This section is managed by staff.' } });
         }
       } catch {

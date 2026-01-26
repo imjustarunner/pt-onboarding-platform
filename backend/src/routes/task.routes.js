@@ -22,7 +22,7 @@ const validateTaskAssignment = [
   body('title').notEmpty().withMessage('Title is required'),
   body('referenceId').optional().isInt().withMessage('Reference ID must be an integer'),
   body('assignedToUserId').optional().isInt().withMessage('Assigned user ID must be an integer'),
-  body('assignedToRole').optional().isIn(['super_admin', 'admin', 'support', 'supervisor', 'clinical_practice_assistant', 'staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern']),
+  body('assignedToRole').optional().isIn(['super_admin', 'admin', 'support', 'supervisor', 'clinical_practice_assistant', 'staff', 'provider', 'school_staff', 'facilitator', 'intern']),
   body('assignedToAgencyId').optional().isInt().withMessage('Assigned agency ID must be an integer'),
   body('dueDate').optional().isISO8601().withMessage('Due date must be a valid ISO 8601 date'),
   body('documentActionType').optional().isIn(['signature', 'review']).withMessage('Document action type must be signature or review')

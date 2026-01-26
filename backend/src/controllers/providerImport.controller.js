@@ -390,7 +390,7 @@ async function findOrCreateClinicianUser({ agencyId, clinicianName, desiredStatu
        WHERE ua.agency_id = ?
          AND u.first_name = ?
          AND u.last_name = ?
-         AND u.role IN ('provider','clinician')
+         AND u.role IN ('provider')
        LIMIT 1`,
       [agencyId, firstName, lastName]
     );
@@ -403,7 +403,7 @@ async function findOrCreateClinicianUser({ agencyId, clinicianName, desiredStatu
   // Deterministic placeholder email to avoid dupes across imports.
   const hash = crypto.createHash('sha256').update(`${agencyId}:${canonical.toLowerCase()}`).digest('hex').slice(0, 10);
   const email = `provider+${hash}@example.invalid`;
-  const [existing] = await pool.execute(`SELECT id FROM users WHERE email = ? AND role IN ('provider','clinician') LIMIT 1`, [email]);
+  const [existing] = await pool.execute(`SELECT id FROM users WHERE email = ? AND role IN ('provider') LIMIT 1`, [email]);
   if (existing?.[0]?.id) {
     await pool.execute(
       `INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id`,

@@ -1194,7 +1194,7 @@ export const listProvidersForAvailability = async (req, res, next) => {
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id
        WHERE ua.agency_id = ?
-         AND (u.role IN ('clinician','provider') OR u.has_provider_access = TRUE)
+         AND (u.role IN ('provider') OR u.has_provider_access = TRUE)
        ORDER BY u.last_name ASC, u.first_name ASC`,
       [agencyId]
     );

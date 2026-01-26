@@ -831,7 +831,7 @@ const fetchProviders = async () => {
     const response = await api.get('/users');
     const allUsers = response.data || [];
     availableProviders.value = allUsers.filter(u => 
-      ['provider', 'clinician', 'supervisor', 'admin'].includes(u.role?.toLowerCase())
+      ['provider', 'supervisor', 'admin'].includes(u.role?.toLowerCase())
     );
   } catch (err) {
     console.error('Failed to fetch providers:', err);

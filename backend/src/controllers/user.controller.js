@@ -235,7 +235,7 @@ export const getAllUsers = async (req, res, next) => {
           INNER JOIN user_agencies ua ON u.id = ua.user_id
           LEFT JOIN agencies a ON ua.agency_id = a.id
           WHERE ua.agency_id IN (${agencyIds.map(() => '?').join(',')})
-          AND u.role IN ('staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern')
+          AND u.role IN ('staff', 'provider', 'school_staff', 'facilitator', 'intern')
         `;
         
         if (!includeArchived) {
@@ -566,7 +566,7 @@ export const aiQueryUsers = async (req, res, next) => {
 
     if (providersOnly) {
       // Provider-like roles.
-      whereParts.push(`LOWER(COALESCE(u.role, '')) IN ('provider','clinician')`);
+      whereParts.push(`LOWER(COALESCE(u.role, '')) IN ('provider')`);
     }
 
     // Resolve an agency context for provider_search_index when needed.
@@ -700,7 +700,7 @@ export const aiQueryUsers = async (req, res, next) => {
       // Provider matching searches should almost always return providers.
       const effectiveProvidersOnly = providersOnly || looksLikeProviderMatchQuery;
       if (effectiveProvidersOnly) {
-        uWhere.push(`LOWER(COALESCE(u.role, '')) IN ('provider','clinician')`);
+        uWhere.push(`LOWER(COALESCE(u.role, '')) IN ('provider')`);
         // Your definition of “available”: provider must be accepting new clients.
         if (hasAcceptingNewClientsCol) {
           uWhere.push(`COALESCE(u.provider_accepting_new_clients, TRUE) = TRUE`);
@@ -1043,7 +1043,7 @@ export const getUserById = async (req, res, next) => {
       }
       
       // Check if target user is staff/provider/facilitator/intern
-      if (!['staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern'].includes(targetUser.role)) {
+      if (!['staff', 'provider', 'school_staff', 'facilitator', 'intern'].includes(targetUser.role)) {
         return res.status(403).json({ error: { message: 'Clinical Practice Assistants can only view staff, provider, school staff, facilitator, and intern users' } });
       }
       
@@ -1212,7 +1212,7 @@ export const updateUser = async (req, res, next) => {
     const normalizeRole = (r) => {
       const v = String(r || '').trim().toLowerCase();
       if (!v) return null;
-      if (v === 'clinician' || v === 'intern' || v === 'facilitator') return 'provider';
+      if (v === 'intern' || v === 'facilitator') return 'provider';
       if (v === 'supervisor') return 'provider'; // supervisor is represented by has_supervisor_privileges
       return v;
     };
@@ -1518,8 +1518,8 @@ export const updateUser = async (req, res, next) => {
     if (hasStaffAccess !== undefined) {
       const targetUser = await User.findById(id);
       if (targetUser) {
-        // Only allow staff access for provider/clinician roles
-        if (targetUser.role === 'provider' || targetUser.role === 'clinician' || (role && (role === 'provider' || role === 'clinician'))) {
+        // Only allow staff access for providers
+        if (targetUser.role === 'provider' || (role && role === 'provider')) {
           updateData.hasStaffAccess = Boolean(hasStaffAccess);
         }
       }
@@ -1530,7 +1530,7 @@ export const updateUser = async (req, res, next) => {
       const targetUser = await User.findById(id);
       if (!targetUser) return res.status(404).json({ error: { message: 'User not found' } });
       const targetRole = String(role || targetUser.role || '').toLowerCase();
-      const providerLike = targetRole === 'provider' || targetRole === 'clinician' || Boolean(targetUser.has_provider_access);
+      const providerLike = targetRole === 'provider' || Boolean(targetUser.has_provider_access);
       if (providerLike) {
         updateData.providerAcceptingNewClients = Boolean(providerAcceptingNewClients);
       }
@@ -1583,7 +1583,7 @@ export const updateUser = async (req, res, next) => {
     // Handle MySQL enum errors more gracefully
     if (error.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD' || error.message?.includes('enum')) {
       console.error('Role enum error:', error.message);
-      return res.status(400).json({ error: { message: `Invalid role value. Valid roles are: super_admin, admin, support, supervisor, clinical_practice_assistant, staff, clinician, facilitator, intern` } });
+      return res.status(400).json({ error: { message: `Invalid role value. Valid roles are: super_admin, admin, support, supervisor, clinical_practice_assistant, staff, provider, facilitator, intern` } });
     }
     console.error('Error updating user:', error);
     next(error);
@@ -3163,7 +3163,7 @@ export const createCurrentEmployee = async (req, res, next) => {
     const normalizeRole = (r) => {
       const v = String(r || '').trim().toLowerCase();
       if (!v) return 'provider';
-      if (v === 'clinician' || v === 'intern' || v === 'facilitator') return 'provider';
+      if (v === 'intern' || v === 'facilitator') return 'provider';
       if (v === 'supervisor') return 'provider';
       return v;
     };

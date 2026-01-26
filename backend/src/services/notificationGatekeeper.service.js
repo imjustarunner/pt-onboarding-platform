@@ -5,7 +5,7 @@ const employeeLikeRoles = new Set([
   'staff',
   'provider',
   'school_staff',
-  'clinician', // legacy
+  // 'clinician', // legacy (removed)
   'facilitator',
   'intern',
   'supervisor',

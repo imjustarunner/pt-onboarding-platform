@@ -232,9 +232,9 @@ const fetchSupervisors = async () => {
 const fetchAvailableUsers = async () => {
   try {
     const response = await api.get('/users');
-    // Filter to staff, clinician, facilitator, intern, admin
+    // Filter to staff, facilitator, intern, admin
     let users = response.data.filter(u => 
-      ['staff', 'clinician', 'facilitator', 'intern', 'admin'].includes(u.role)
+      ['staff', 'facilitator', 'intern', 'admin'].includes(u.role)
     );
     
     // If we have agencies (from supervisee), filter users by those agencies

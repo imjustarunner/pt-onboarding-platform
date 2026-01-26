@@ -222,7 +222,7 @@ const currentUser = computed(() => authStore.user || null);
 const currentUserId = computed(() => Number(currentUser.value?.id || 0));
 const currentRole = computed(() => String(currentUser.value?.role || '').trim().toLowerCase());
 const isSelf = computed(() => currentUserId.value > 0 && currentUserId.value === Number(props.userId));
-const isProviderSelf = computed(() => isSelf.value && (currentRole.value === 'provider' || currentRole.value === 'clinician'));
+const isProviderSelf = computed(() => isSelf.value && currentRole.value === 'provider');
 const canAdminEdit = computed(() => ['admin', 'super_admin', 'support', 'staff'].includes(currentRole.value));
 
 const loading = ref(true);

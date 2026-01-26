@@ -37,6 +37,7 @@
               <span class="sort-indicator" v-if="sortKey === 'service_day'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
             <th></th>
+            <th v-if="canEditClients" class="edit-col">Edit</th>
             <th class="sortable" @click="toggleSort('submission_date')" role="button" tabindex="0">
               Submission Date
               <span class="sort-indicator" v-if="sortKey === 'submission_date'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
@@ -62,6 +63,9 @@
                 View & Comment
               </button>
             </td>
+            <td v-if="canEditClients" class="edit-col">
+              <button class="btn btn-primary btn-sm" type="button" @click="goEdit(client)">Edit</button>
+            </td>
             <td>{{ formatDate(client.submission_date) }}</td>
           </tr>
         </tbody>
@@ -79,6 +83,7 @@
 
 <script setup>
 import { computed, ref, onMounted, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import SchoolClientChatModal from './SchoolClientChatModal.vue';
 
@@ -97,6 +102,9 @@ const clients = ref([]);
 const loading = ref(false);
 const error = ref('');
 const selectedClient = ref(null);
+const router = useRouter();
+
+const canEditClients = ref(false);
 
 const sortKey = ref('submission_date');
 const sortDir = ref('desc');
@@ -126,6 +134,19 @@ const fetchClients = async () => {
     clients.value = [];
   } finally {
     loading.value = false;
+  }
+};
+
+const fetchEditPermissions = async () => {
+  if (!props.organizationId) {
+    canEditClients.value = false;
+    return;
+  }
+  try {
+    const r = await api.get(`/school-portal/${props.organizationId}/affiliation`);
+    canEditClients.value = !!r.data?.can_edit_clients;
+  } catch {
+    canEditClients.value = false;
   }
 };
 
@@ -198,15 +219,22 @@ const openClient = (client) => {
   selectedClient.value = client;
 };
 
+const goEdit = (client) => {
+  if (!client?.id) return;
+  router.push({ path: '/admin/clients', query: { clientId: String(client.id) } });
+};
+
 watch(() => props.organizationId, () => {
   if (props.organizationId) {
     fetchClients();
+    fetchEditPermissions();
   }
 });
 
 onMounted(() => {
   if (props.organizationId) {
     fetchClients();
+    fetchEditPermissions();
   }
 });
 </script>
@@ -295,6 +323,9 @@ td {
 
 .comment-btn {
   position: relative;
+}
+.edit-col {
+  white-space: nowrap;
 }
 
 .unread-dot {

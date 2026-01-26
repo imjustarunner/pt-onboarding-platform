@@ -226,7 +226,7 @@ const fetchUsers = async () => {
     // This may fail for supervisors who don't have access, which is okay
     const response = await api.get('/users');
     users.value = response.data.filter(u => 
-      ['staff', 'clinician', 'facilitator', 'intern'].includes(u.role)
+      ['staff', 'facilitator', 'intern'].includes(u.role)
     );
   } catch (err) {
     // If we can't fetch users, that's okay - we'll extract user info from notifications

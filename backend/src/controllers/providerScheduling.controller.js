@@ -37,7 +37,7 @@ export const listProvidersForScheduling = async (req, res, next) => {
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
            AND (
-             u.role IN ('clinician','provider')
+             u.role IN ('provider')
              OR (u.has_provider_access = TRUE)
            )
          ORDER BY u.last_name ASC, u.first_name ASC`,
@@ -56,7 +56,7 @@ export const listProvidersForScheduling = async (req, res, next) => {
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
            AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
            AND (
-             u.role IN ('clinician','provider')
+             u.role IN ('provider')
              OR (u.has_provider_access = TRUE)
            )
          ORDER BY u.last_name ASC, u.first_name ASC`,

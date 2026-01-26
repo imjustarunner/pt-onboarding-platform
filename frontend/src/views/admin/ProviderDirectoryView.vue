@@ -345,8 +345,8 @@
     <div class="card" style="margin-top: 14px;">
       <h3 class="card-title" style="margin: 0 0 10px 0;">Bulk create providers (in-school list)</h3>
       <div class="muted">
-        Upload your school provider list (CSV/XLSX). This will create/link clinician accounts to the selected agency and store your columns into Provider Info fields.
-        Works with comma-CSV or semicolon-CSV. Matching is by clinician name (creates deterministic placeholder emails).
+        Upload your school provider list (CSV/XLSX). This will create/link provider accounts to the selected agency and store your columns into Provider Info fields.
+        Works with comma-CSV or semicolon-CSV. Matching is by provider name (creates deterministic placeholder emails).
       </div>
 
       <div class="field-row" style="grid-template-columns: 1fr auto; gap: 10px; align-items: end; margin-top: 10px;">

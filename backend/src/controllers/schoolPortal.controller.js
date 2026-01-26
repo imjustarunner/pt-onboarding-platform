@@ -8,6 +8,33 @@ import ClientNotes from '../models/ClientNotes.model.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import pool from '../config/database.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import AgencySchool from '../models/AgencySchool.model.js';
+
+async function resolveActiveAgencyIdForOrg(orgId) {
+  return (
+    (await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId)) ||
+    (await AgencySchool.getActiveAgencyIdForSchool(orgId)) ||
+    null
+  );
+}
+
+function roleCanUseAgencyAffiliation(role) {
+  const r = String(role || '').toLowerCase();
+  return r === 'admin' || r === 'support' || r === 'staff';
+}
+
+async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganizationId }) {
+  if (!userId) return false;
+  const userOrgs = await User.getAgencies(userId);
+  const hasDirect = (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(schoolOrganizationId, 10));
+  if (hasDirect) return true;
+
+  if (!roleCanUseAgencyAffiliation(role)) return false;
+  const activeAgencyId = await resolveActiveAgencyIdForOrg(schoolOrganizationId);
+  if (!activeAgencyId) return false;
+  return (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(activeAgencyId, 10));
+}
 
 /**
  * Get clients for school portal (restricted view)
@@ -46,14 +73,14 @@ export const getSchoolClients = async (req, res, next) => {
       });
     }
 
-    // Verify user is associated with this school organization
+    // Access rules:
+    // - school_staff/providers still rely on direct school membership
+    // - agency staff/admin/support may access via the school’s active affiliated agency
     if (userRole !== 'super_admin') {
-      const userAgencies = await User.getAgencies(userId);
-      const userHasAccess = userAgencies.some(org => org.id === parseInt(organizationId));
-      
-      if (!userHasAccess) {
-        return res.status(403).json({ 
-          error: { message: 'You do not have access to this school organization' } 
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: userRole, schoolOrganizationId: organizationId });
+      if (!ok) {
+        return res.status(403).json({
+          error: { message: 'You do not have access to this school organization' }
         });
       }
     }
@@ -113,5 +140,48 @@ export const getSchoolClients = async (req, res, next) => {
   } catch (error) {
     console.error('School portal clients error:', error);
     next(error);
+  }
+};
+
+/**
+ * Get school -> agency affiliation context for UI gating.
+ * GET /api/school-portal/:schoolId/affiliation
+ */
+export const getSchoolPortalAffiliation = async (req, res, next) => {
+  try {
+    const { schoolId } = req.params;
+    const sid = parseInt(schoolId, 10);
+    if (!sid) return res.status(400).json({ error: { message: 'Invalid schoolId' } });
+
+    const org = await Agency.findById(sid);
+    if (!org) return res.status(404).json({ error: { message: 'School organization not found' } });
+    const orgType = String(org.organization_type || 'agency').toLowerCase();
+    if (orgType !== 'school') return res.status(400).json({ error: { message: 'This endpoint is only available for school organizations' } });
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(sid);
+    const userId = req.user?.id;
+    const role = req.user?.role;
+
+    let userHasAgencyAccess = false;
+    let userHasSchoolAccess = false;
+    if (userId) {
+      const orgs = await User.getAgencies(userId);
+      userHasSchoolAccess = (orgs || []).some((o) => parseInt(o.id, 10) === sid);
+      userHasAgencyAccess = activeAgencyId
+        ? (orgs || []).some((o) => parseInt(o.id, 10) === parseInt(activeAgencyId, 10))
+        : false;
+    }
+
+    const canEditClients = roleCanUseAgencyAffiliation(role) && !!activeAgencyId && userHasAgencyAccess;
+
+    res.json({
+      school_organization_id: sid,
+      active_agency_id: activeAgencyId ? parseInt(activeAgencyId, 10) : null,
+      user_has_school_access: !!userHasSchoolAccess,
+      user_has_agency_access: !!userHasAgencyAccess,
+      can_edit_clients: !!canEditClients
+    });
+  } catch (e) {
+    next(e);
   }
 };

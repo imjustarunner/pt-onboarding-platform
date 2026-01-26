@@ -1492,7 +1492,7 @@ const showGlobalAvailabilityHint = ref(false);
 
 const showGlobalAvailabilityInHeader = computed(() => {
   const r = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
-  const isProviderLike = r === 'provider' || r === 'clinician' || r === 'intern' || r === 'facilitator' || r === 'supervisor';
+  const isProviderLike = r === 'provider' || r === 'intern' || r === 'facilitator' || r === 'supervisor';
   return !!user.value && isProviderLike;
 });
 
@@ -2032,7 +2032,7 @@ const fetchUser = async () => {
     const normalizeRole = (r) => {
       const v = String(r || '').trim().toLowerCase();
       if (!v) return '';
-      if (v === 'clinician' || v === 'intern' || v === 'facilitator') return 'provider';
+      if (v === 'intern' || v === 'facilitator') return 'provider';
       if (v === 'supervisor') return 'provider';
       return v;
     };
@@ -2306,7 +2306,7 @@ const saveAliasForAgency = async (agencyId, email) => {
 
 const isProviderLikeRole = computed(() => {
   const r = String(user.value?.role || '').trim().toLowerCase();
-  return r === 'provider' || r === 'clinician' || r === 'intern' || r === 'facilitator';
+  return r === 'provider' || r === 'intern' || r === 'facilitator';
 });
 
 const canShowPrelicensedSupervision = computed(() => {

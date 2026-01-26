@@ -387,8 +387,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, onMounted, watch } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
@@ -398,6 +398,7 @@ import BulkClientImporter from '../../components/admin/BulkClientImporter.vue';
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const router = useRouter();
+const route = useRoute();
 
 const clients = ref([]);
 const loading = ref(false);
@@ -598,7 +599,7 @@ const fetchProviders = async () => {
     const allUsers = response.data || [];
     // Filter to providers/clinicians
     availableProviders.value = allUsers.filter(u => 
-      ['provider', 'clinician', 'supervisor', 'admin'].includes(u.role?.toLowerCase())
+      ['provider', 'supervisor', 'admin'].includes(u.role?.toLowerCase())
     );
   } catch (err) {
     console.error('Failed to fetch providers:', err);
@@ -975,17 +976,41 @@ const handleBulkImported = () => {
   fetchClients();
 };
 
+const openClientFromQuery = async () => {
+  const raw = route.query?.clientId;
+  const id = raw ? parseInt(String(raw), 10) : null;
+  if (!id) return;
+  try {
+    // Prefer already-loaded list, fallback to single fetch.
+    const fromList = (clients.value || []).find((c) => Number(c.id) === id) || null;
+    if (fromList) {
+      selectedClient.value = fromList;
+      return;
+    }
+    const r = await api.get(`/clients/${id}`);
+    selectedClient.value = r.data || null;
+  } catch (e) {
+    // Best-effort; don't block page load.
+    console.warn('Failed to open client from URL:', e?.response?.data?.error?.message || e.message);
+  }
+};
+
 onMounted(async () => {
   await agencyStore.fetchUserAgencies();
   await fetchLinkedOrganizations();
   await fetchClientStatuses();
   await fetchProviders();
   await fetchClients();
+  await openClientFromQuery();
 
   // Default school year for new clients (best-effort; user can override).
   if (!newClient.value.school_year) {
     newClient.value.school_year = currentSchoolYear.value;
   }
+});
+
+watch(() => route.query?.clientId, async () => {
+  await openClientFromQuery();
 });
 </script>
 

@@ -1,5 +1,5 @@
 import express from 'express';
-import { getSchoolClients } from '../controllers/schoolPortal.controller.js';
+import { getSchoolClients, getSchoolPortalAffiliation } from '../controllers/schoolPortal.controller.js';
 import {
   listSchoolProvidersForScheduling,
   listScheduleEntries,
@@ -30,6 +30,7 @@ const router = express.Router();
 // School portal routes (authenticated)
 // GET /api/school-portal/:organizationId/clients
 router.get('/:organizationId/clients', authenticate, getSchoolClients);
+router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 
 // Provider page within a school (profile + slot-based caseload)
 router.get('/:schoolId/providers/:providerId/profile', authenticate, getProviderSchoolProfile);

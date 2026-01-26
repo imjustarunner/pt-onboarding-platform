@@ -295,7 +295,7 @@ const formatRole = (role) => {
     'clinical_practice_assistant': 'CPA',
     'staff': 'Onboarding Staff',
     'provider': 'Provider',
-    'clinician': 'Provider',
+    // 'clinician': 'Provider', // legacy (removed)
     'school_staff': 'School Staff',
     'facilitator': 'Facilitator',
     'intern': 'Intern'
@@ -309,7 +309,7 @@ const getRoleBadgeClass = (role) => {
     'admin': 'badge-info',
     'supervisor': 'badge-success',
     'provider': 'badge-secondary',
-    'clinician': 'badge-secondary',
+    // 'clinician': 'badge-secondary', // legacy (removed)
     'school_staff': 'badge-secondary',
     'facilitator': 'badge-secondary',
     'intern': 'badge-secondary'

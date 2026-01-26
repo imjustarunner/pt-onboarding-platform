@@ -500,7 +500,7 @@
                       <td class="right">{{ fmtNum(r.raw?.finalizedUnits || 0) }}</td>
                     </tr>
                     <tr v-if="(payrollToolsViewerResult.unmatched || []).length">
-                      <td colspan="5" class="muted"><strong>Unmatched providers</strong> (couldn’t map clinician/provider name to a user)</td>
+                      <td colspan="5" class="muted"><strong>Unmatched providers</strong> (couldn’t map provider name to a user)</td>
                     </tr>
                     <tr v-for="(r, idx) in (payrollToolsViewerResult.unmatched || [])" :key="`vw-u-${idx}`">
                       <td>{{ r.providerName || '—' }}</td>
@@ -2109,7 +2109,7 @@
           </div>
 
           <div v-if="stagingUnmatched?.length" class="warn-box" style="margin-top: 12px;">
-            <div><strong>Unmatched rows</strong> (couldn’t map clinician/provider name to a user in this org):</div>
+            <div><strong>Unmatched rows</strong> (couldn’t map provider name to a user in this org):</div>
             <div class="hint">These rows are not editable until the provider name matches a user (first+last) in this organization.</div>
             <div class="table-wrap" style="margin-top: 8px;">
               <table class="table">
@@ -2773,7 +2773,7 @@
                 <input
                   v-model="rawDraftSearch"
                   type="text"
-                  :placeholder="rawMode === 'missed_appts_paid_in_full' ? 'Search clinician…' : 'Search provider / code / DOS…'"
+                  :placeholder="rawMode === 'missed_appts_paid_in_full' ? 'Search provider…' : 'Search provider / code / DOS…'"
                 />
               </div>
               <div class="field">

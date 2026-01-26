@@ -541,7 +541,7 @@ class NotificationService {
            FROM users u
            INNER JOIN user_agencies ua ON u.id = ua.user_id
            WHERE ua.agency_id = ?
-           AND u.role IN ('staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern')
+           AND u.role IN ('staff', 'provider', 'school_staff', 'facilitator', 'intern')
            AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
           [targetAgencyId]
         );

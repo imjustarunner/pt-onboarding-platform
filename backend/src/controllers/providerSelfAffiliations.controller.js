@@ -50,7 +50,7 @@ async function resolveTargetProviderId(req) {
   if (!targetUser) return { ok: false, status: 404, message: 'Provider not found' };
 
   const role = String(targetUser.role || '').trim().toLowerCase();
-  const isProviderLike = role === 'provider' || role === 'clinician' || Boolean(targetUser.has_provider_access);
+  const isProviderLike = role === 'provider' || Boolean(targetUser.has_provider_access);
   if (!isProviderLike) {
     return { ok: false, status: 400, message: 'User is not a provider' };
   }

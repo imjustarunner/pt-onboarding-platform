@@ -11,7 +11,7 @@ function csvEscape(v) {
 }
 
 const ACTIVE_STATUSES = new Set(['ACTIVE_EMPLOYEE', 'ACTIVE']);
-const PROVIDER_ROLES = new Set(['provider', 'clinician']);
+const PROVIDER_ROLES = new Set(['provider']);
 
 function isMeaningfulValue(v) {
   if (v === null || v === undefined) return false;
@@ -253,7 +253,7 @@ export const listAgencyProvidersCredentialing = async (req, res, next) => {
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id
        WHERE ua.agency_id = ?
-         AND LOWER(COALESCE(u.role,'')) IN ('provider','clinician')
+        AND LOWER(COALESCE(u.role,'')) IN ('provider')
          AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE')
        ORDER BY COALESCE(u.last_name,''), COALESCE(u.first_name,''), u.id`,
       [agencyId]
@@ -492,7 +492,7 @@ export const downloadAgencyProvidersCredentialingCsv = async (req, res, next) =>
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id
        WHERE ua.agency_id = ?
-         AND LOWER(COALESCE(u.role,'')) IN ('provider','clinician')
+         AND LOWER(COALESCE(u.role,'')) IN ('provider')
          AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE_EMPLOYEE','ACTIVE')
        ORDER BY COALESCE(u.last_name,''), COALESCE(u.first_name,''), u.id`,
       [agencyId]
@@ -580,7 +580,7 @@ export const deleteAgencyProvidersCredentialingField = async (req, res, next) =>
        JOIN user_agencies ua ON ua.user_id = uiv.user_id AND ua.agency_id = ?
        JOIN users u ON u.id = uiv.user_id
        WHERE uifd.field_key = ?
-         AND LOWER(COALESCE(u.role,'')) IN ('provider','clinician')`,
+         AND LOWER(COALESCE(u.role,'')) IN ('provider')`,
       [agencyId, fieldKey]
     );
 

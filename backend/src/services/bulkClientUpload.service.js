@@ -300,7 +300,7 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id
        WHERE ua.agency_id = ?
-         AND LOWER(u.role) IN ('provider','clinician','supervisor','admin')`,
+         AND LOWER(u.role) IN ('provider','supervisor','admin')`,
       [agencyId]
     );
     const providerIndex = buildProviderIndex(providerRows || []);

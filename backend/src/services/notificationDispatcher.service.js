@@ -82,7 +82,7 @@ class NotificationDispatcherService {
       'staff',
       'provider',
       'school_staff',
-      'clinician',
+      // 'clinician', // legacy (removed)
       'facilitator',
       'intern'
     ]);

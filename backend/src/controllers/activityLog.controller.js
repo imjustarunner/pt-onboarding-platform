@@ -88,7 +88,7 @@ const checkActivityLogPermission = async (req, targetUserId) => {
     // CPAs can view activity for all users in their agencies
     if (requestingRole === 'clinical_practice_assistant') {
       try {
-        if (!['staff', 'provider', 'school_staff', 'clinician', 'facilitator', 'intern'].includes(targetUser.role)) {
+        if (!['staff', 'provider', 'school_staff', 'facilitator', 'intern'].includes(targetUser.role)) {
           return false;
         }
         // Check if CPA and target user share an agency

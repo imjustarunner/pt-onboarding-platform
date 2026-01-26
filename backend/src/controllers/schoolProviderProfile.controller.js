@@ -2,6 +2,8 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import AgencySchool from '../models/AgencySchool.model.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -21,8 +23,20 @@ async function ensureSchoolAccess(req, schoolId) {
 
   if (req.user?.role !== 'super_admin') {
     const orgs = await User.getAgencies(req.user.id);
-    const ok = (orgs || []).some((o) => parseInt(o.id, 10) === schoolOrgId);
-    if (!ok) return { ok: false, status: 403, message: 'You do not have access to this school organization' };
+    const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === schoolOrgId);
+    if (!hasDirect) {
+      const role = String(req.user?.role || '').toLowerCase();
+      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff';
+      if (!canUseAgencyAffiliation) return { ok: false, status: 403, message: 'You do not have access to this school organization' };
+      const activeAgencyId =
+        (await OrganizationAffiliation.getActiveAgencyIdForOrganization(schoolOrgId)) ||
+        (await AgencySchool.getActiveAgencyIdForSchool(schoolOrgId)) ||
+        null;
+      const hasAgency = activeAgencyId
+        ? (orgs || []).some((o) => parseInt(o.id, 10) === parseInt(activeAgencyId, 10))
+        : false;
+      if (!hasAgency) return { ok: false, status: 403, message: 'You do not have access to this school organization' };
+    }
   }
 
   return { ok: true, school };

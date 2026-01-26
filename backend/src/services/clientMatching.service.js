@@ -127,11 +127,11 @@ class ClientMatchingService {
 
     // Get all users for the agency
     // Note: This assumes users are associated with agencies via user_agencies table
-    // For now, we'll search all users and filter by role (provider, clinician, etc.)
+    // For now, we'll search all users and filter by role (provider, etc.)
     const allUsers = await User.findAll();
     
     // Filter to users that might be providers
-    const providerRoles = ['provider', 'clinician', 'supervisor', 'admin'];
+    const providerRoles = ['provider', 'supervisor', 'admin'];
     const potentialProviders = allUsers.filter(u => 
       providerRoles.includes(u.role?.toLowerCase())
     );

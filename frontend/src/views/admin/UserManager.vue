@@ -184,7 +184,7 @@
                 {{ formatRole(user.role) }}
               </span>
               <span
-                v-if="(String(user.role || '').toLowerCase() === 'provider' || String(user.role || '').toLowerCase() === 'clinician')"
+                v-if="(String(user.role || '').toLowerCase() === 'provider')"
                 :class="['badge', availabilityBadgeClass(user)]"
                 style="margin-left: 6px; font-size: 10px;"
                 :title="availabilityBadgeTitle(user)"
@@ -207,7 +207,7 @@
                 </label>
               </span>
               <span v-if="user.has_provider_access && (user.role === 'staff' || user.role === 'support')" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Provider</span>
-              <span v-if="user.has_staff_access && (user.role === 'provider' || user.role === 'clinician')" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Staff</span>
+              <span v-if="user.has_staff_access && user.role === 'provider'" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Staff</span>
             </td>
             <td class="muted">
               {{ user.provider_credential || '—' }}
@@ -2126,7 +2126,7 @@ const formatRole = (role) => {
     'clinical_practice_assistant': 'CPA',
     'staff': 'Staff',
     'provider': 'Provider',
-    'clinician': 'Provider',
+    // 'clinician': 'Provider', // legacy (removed)
     'school_staff': 'School Staff',
     'facilitator': 'Provider',
     'intern': 'Provider'
@@ -2159,7 +2159,7 @@ const availabilitySavingId = ref(null);
 const canQuickToggleAvailability = (u) => {
   const role = String(authStore.user?.role || '').toLowerCase();
   const can = role === 'super_admin' || role === 'admin' || role === 'support';
-  const isProviderLike = ['provider', 'clinician'].includes(String(u?.role || '').toLowerCase());
+  const isProviderLike = ['provider'].includes(String(u?.role || '').toLowerCase());
   return can && isProviderLike;
 };
 
@@ -2260,7 +2260,7 @@ const openAddSuperviseeModal = async (supervisor) => {
     // Get all users that could be supervisees (providers/staff)
     const usersResponse = await api.get('/users');
     let users = usersResponse.data.filter(u => 
-      ['provider', 'staff', 'clinician', 'facilitator', 'intern'].includes(u.role)
+      ['provider', 'staff', 'facilitator', 'intern'].includes(u.role)
     );
     
     // Filter by supervisor's agencies
@@ -2381,7 +2381,7 @@ const sortedUsers = computed(() => {
     filtered = filtered.filter((u) => {
       const r = String(u.role || '').trim();
       if (!r) return false;
-      if (roleSort.value === 'provider') return r === 'provider' || r === 'clinician';
+      if (roleSort.value === 'provider') return r === 'provider';
       return r === roleSort.value;
     });
   }

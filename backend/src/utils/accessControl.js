@@ -12,7 +12,7 @@ export function hasProviderAccess(user) {
   if (!user) return false;
   
   // Direct provider role
-  if (user.role === 'provider' || user.role === 'clinician') {
+  if (user.role === 'provider') {
     return true;
   }
   
@@ -43,7 +43,7 @@ export function hasStaffAccess(user) {
   }
   
   // Provider with staff access attribute
-  if ((user.role === 'provider' || user.role === 'clinician') && user.has_staff_access) {
+  if (user.role === 'provider' && user.has_staff_access) {
     return true;
   }
   

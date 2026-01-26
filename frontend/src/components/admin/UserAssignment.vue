@@ -162,7 +162,7 @@ const getRoleBadgeClass = (role) => {
     'super_admin': 'badge-warning',
     'admin': 'badge-info',
     'supervisor': 'badge-success',
-    'clinician': 'badge-secondary',
+    // 'clinician': 'badge-secondary', // legacy (removed)
     'facilitator': 'badge-secondary',
     'intern': 'badge-secondary'
   };
