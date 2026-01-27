@@ -17,6 +17,14 @@
         </div>
         <div class="top-actions">
           <button
+            v-if="!isProvider"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="openProvidersDirectory"
+          >
+            Providers
+          </button>
+          <button
             class="btn btn-secondary btn-sm"
             type="button"
             @click="viewMode = viewMode === 'skills' ? 'schedule' : 'skills'"
@@ -90,6 +98,14 @@
       :schoolOrganizationId="organizationId"
       @close="showHelpDesk = false"
     />
+
+    <ProvidersDirectoryModal
+      v-if="showProvidersDirectory && organizationId && !isProvider"
+      :providers="store.eligibleProviders"
+      :loading="store.eligibleProvidersLoading"
+      @close="showProvidersDirectory = false"
+      @open-provider="goToProviderSchoolProfile"
+    />
   </div>
 </template>
 
@@ -103,6 +119,7 @@ import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
 import DayPanel from '../../components/school/redesign/DayPanel.vue';
 import ClientModal from '../../components/school/redesign/ClientModal.vue';
 import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPanel.vue';
+import ProvidersDirectoryModal from '../../components/school/redesign/ProvidersDirectoryModal.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
@@ -115,6 +132,7 @@ const store = useSchoolPortalRedesignStore();
 const authStore = useAuthStore();
 
 const showHelpDesk = ref(false);
+const showProvidersDirectory = ref(false);
 const selectedClient = ref(null);
 const viewMode = ref('schedule');
 const adminSelectedClient = ref(null);
@@ -209,6 +227,14 @@ const goToProviderSchoolProfile = (providerUserId) => {
   const slug = organizationSlug.value;
   if (!slug || !providerUserId) return;
   router.push(`/${slug}/providers/${providerUserId}`);
+};
+
+const openProvidersDirectory = async () => {
+  showProvidersDirectory.value = true;
+  // Ensure we have the latest list even if schedule UI is hidden (roster-only mode).
+  if (!Array.isArray(store.eligibleProviders) || store.eligibleProviders.length === 0) {
+    await store.fetchEligibleProviders();
+  }
 };
 
 onMounted(async () => {

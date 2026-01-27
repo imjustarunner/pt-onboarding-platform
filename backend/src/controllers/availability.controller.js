@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
+import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -1130,6 +1131,16 @@ export const assignSchoolFromRequest = async (req, res, next) => {
         [slotsTotal, nextSlotsAvailable, startTime, endTime, assignmentId]
       );
     }
+
+    // Keep School Portal weekday/provider rows in sync with provider work-hour config.
+    await syncSchoolPortalDayProvider({
+      executor: conn,
+      schoolId: schoolOrganizationId,
+      providerUserId,
+      weekday: dayOfWeek,
+      isActive: true,
+      actorUserId: req.user?.id
+    });
 
     await conn.execute(
       `UPDATE provider_school_availability_requests

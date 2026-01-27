@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -204,6 +205,16 @@ export const upsertProviderSchoolAssignments = async (req, res, next) => {
             override
           ]
         );
+
+        // Keep School Portal weekday/provider rows in sync with provider work-hour config.
+        await syncSchoolPortalDayProvider({
+          executor: connection,
+          schoolId: aff.schoolId,
+          providerUserId: target.providerUserId,
+          weekday: dayOfWeek,
+          isActive,
+          actorUserId: req.user.id
+        });
         continue;
       }
 
@@ -225,6 +236,16 @@ export const upsertProviderSchoolAssignments = async (req, res, next) => {
          WHERE id = ?`,
         [slotsTotal, nextAvail, startTime, endTime, isActive ? 1 : 0, override, existing.id]
       );
+
+      // Keep School Portal weekday/provider rows in sync with provider work-hour config.
+      await syncSchoolPortalDayProvider({
+        executor: connection,
+        schoolId: aff.schoolId,
+        providerUserId: target.providerUserId,
+        weekday: dayOfWeek,
+        isActive,
+        actorUserId: req.user.id
+      });
     }
 
     // Propagate override across all days for this school/provider (treat as school-level)

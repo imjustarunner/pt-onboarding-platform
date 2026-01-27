@@ -21,31 +21,6 @@
         </div>
       </div>
 
-      <div class="assign-card" v-if="canAssign">
-        <div class="assign-title">Assign client to slot</div>
-        <div class="assign-row">
-          <label>
-            Day
-            <select v-model="assignDay" class="input">
-              <option v-for="d in weekdays" :key="d" :value="d">{{ d }}</option>
-            </select>
-          </label>
-          <label>
-            Client (school-attached)
-            <select v-model="assignClientId" class="input">
-              <option value="">Select…</option>
-              <option v-for="c in assignableClients" :key="c.id" :value="String(c.id)">
-                {{ clientLabel(c) }}
-              </option>
-            </select>
-          </label>
-          <button class="btn btn-primary" type="button" :disabled="assigning || !assignClientId" @click="assignClient">
-            {{ assigning ? 'Assigning…' : 'Assign' }}
-          </button>
-        </div>
-        <div v-if="assignError" class="error" style="margin-top: 8px;">{{ assignError }}</div>
-      </div>
-
       <div class="slots">
         <div class="slots-header">
           <h2 style="margin:0;">Slot-based caseload</h2>
@@ -86,8 +61,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
-import { useAuthStore } from '../../../store/auth';
+import { onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 
 const props = defineProps({
@@ -96,46 +70,16 @@ const props = defineProps({
 });
 defineEmits(['open-client']);
 
-const authStore = useAuthStore();
-
-const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-
 const profile = ref(null);
 const caseload = ref(null);
-const schoolClients = ref([]);
 const loading = ref(false);
 const error = ref('');
-
-const assignDay = ref('Monday');
-const assignClientId = ref('');
-const assigning = ref(false);
-const assignError = ref('');
-
-const canAssign = computed(() => {
-  const role = String(authStore.user?.role || '').toLowerCase();
-  if (role === 'school_staff') return false;
-  if (role === 'admin' || role === 'support' || role === 'super_admin') return true;
-  if (role === 'provider') return Number(authStore.user?.id) === Number(props.providerUserId);
-  return false;
-});
-
-const assignableClients = computed(() => {
-  // School-attached clients list comes from restricted roster endpoint.
-  // To avoid “reassign” surprises in v1, default to unassigned only.
-  return (schoolClients.value || []).filter((c) => !c.provider_id);
-});
 
 const clientShort = (c) => {
   const raw = String(c?.identifier_code || c?.initials || '').replace(/\s+/g, '').toUpperCase();
   if (!raw) return '—';
   if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
   return raw;
-};
-
-const clientLabel = (c) => {
-  const bits = [clientShort(c)];
-  if (c?.status) bits.push(String(c.status).replace(/_/g, ' '));
-  return bits.join(' — ');
 };
 
 const initialsFor = (p) => {
@@ -150,38 +94,17 @@ const load = async () => {
   try {
     loading.value = true;
     error.value = '';
-    assignError.value = '';
 
-    const [p, c, roster] = await Promise.all([
+    const [p, c] = await Promise.all([
       api.get(`/school-portal/${props.schoolOrganizationId}/providers/${props.providerUserId}/profile`),
-      api.get(`/school-portal/${props.schoolOrganizationId}/providers/${props.providerUserId}/caseload-slots`),
-      api.get(`/school-portal/${props.schoolOrganizationId}/clients`)
+      api.get(`/school-portal/${props.schoolOrganizationId}/providers/${props.providerUserId}/caseload-slots`)
     ]);
     profile.value = p.data || null;
     caseload.value = c.data || null;
-    schoolClients.value = Array.isArray(roster.data) ? roster.data : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load provider profile';
   } finally {
     loading.value = false;
-  }
-};
-
-const assignClient = async () => {
-  if (!assignClientId.value) return;
-  try {
-    assigning.value = true;
-    assignError.value = '';
-    await api.post(`/school-portal/${props.schoolOrganizationId}/clients/${assignClientId.value}/assign-provider`, {
-      providerUserId: Number(props.providerUserId),
-      serviceDay: assignDay.value
-    });
-    assignClientId.value = '';
-    await load();
-  } catch (e) {
-    assignError.value = e.response?.data?.error?.message || 'Failed to assign client';
-  } finally {
-    assigning.value = false;
   }
 };
 
@@ -227,20 +150,6 @@ watch(() => [props.schoolOrganizationId, props.providerUserId], load);
 .name { font-weight: 900; color: var(--text-primary); }
 .sub { color: var(--text-secondary); margin-top: 2px; }
 .link { display: inline-block; margin-top: 6px; font-weight: 800; }
-
-.assign-card {
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: white;
-  padding: 14px;
-}
-.assign-title { font-weight: 900; margin-bottom: 10px; }
-.assign-row {
-  display: grid;
-  grid-template-columns: 200px 1fr 140px;
-  gap: 10px;
-  align-items: end;
-}
 label {
   display: block;
   font-size: 12px;
@@ -308,8 +217,5 @@ label {
   vertical-align: middle;
 }
 .muted { color: var(--text-secondary); font-size: 13px; }
-@media (max-width: 900px) {
-  .assign-row { grid-template-columns: 1fr; }
-}
 </style>
 

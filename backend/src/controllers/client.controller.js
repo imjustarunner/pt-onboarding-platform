@@ -188,6 +188,7 @@ export const createClient = async (req, res, next) => {
       referral_date,
       insurance_type_id,
       paperwork_delivery_method_id,
+      doc_date,
       primary_client_language,
       primary_parent_language,
       skills
@@ -400,6 +401,7 @@ export const createClient = async (req, res, next) => {
       insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : null,
       school_year: school_year ? String(school_year).trim() : null,
       grade: grade ? String(grade).trim() : null,
+      doc_date: doc_date ? String(doc_date).slice(0, 10) : null,
 
       // New intake fields (optional)
       referral_date: referral_date || null,

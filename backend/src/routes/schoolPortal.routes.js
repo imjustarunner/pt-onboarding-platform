@@ -7,8 +7,7 @@ import {
   createScheduleEntry,
   updateScheduleEntry,
   moveScheduleEntry,
-  deleteScheduleEntry,
-  assignProviderForSchoolClient
+  deleteScheduleEntry
 } from '../controllers/schoolProviderSchedule.controller.js';
 import {
   listSchoolDays,
@@ -65,8 +64,6 @@ router.post('/:schoolId/providers/:providerId/schedule-entries/:entryId/move', a
 router.delete('/:schoolId/providers/:providerId/schedule-entries/:entryId', authenticate, deleteScheduleEntry);
 
 // School-scoped provider assignment (slot-safe)
-router.post('/:schoolId/clients/:clientId/assign-provider', authenticate, assignProviderForSchoolClient);
-
 // Skills Groups (org-scoped; initially used in school portal UI)
 router.get('/:orgId/skills-groups', authenticate, listSkillsGroups);
 router.post('/:orgId/skills-groups', authenticate, createSkillsGroup);

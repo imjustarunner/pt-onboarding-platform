@@ -422,6 +422,11 @@
             <input v-model="newClient.referral_date" type="date" />
             <small>Defaults to today.</small>
           </div>
+          <div class="form-group">
+            <label>Document Date</label>
+            <input v-model="newClient.doc_date" type="date" />
+            <small>Optional. Tracks the effective date for the current paperwork status.</small>
+          </div>
           <div class="form-group" v-if="selectedOrgIsSchool">
             <label>Document delivery method</label>
             <select v-model="newClient.paperwork_delivery_method_id" :disabled="deliveryMethodsLoading">
@@ -933,6 +938,7 @@ const newClient = ref({
   skills: false,
   submission_date: new Date().toISOString().split('T')[0],
   referral_date: new Date().toISOString().split('T')[0],
+  doc_date: '',
   paperwork_delivery_method_id: null,
   primary_client_language: '',
   primary_parent_language: ''
@@ -1677,6 +1683,7 @@ const createClient = async () => {
       school_year: normalizeSchoolYearLabel(newClient.value.school_year) || null,
       grade: String(newClient.value.grade || '').trim() || null,
       insurance_type_id: newClient.value.insurance_type_id ? Number(newClient.value.insurance_type_id) : null,
+      doc_date: newClient.value.doc_date ? String(newClient.value.doc_date).slice(0, 10) : null,
       // Assign provider/day in a second call so slot adjustments are enforced centrally.
       provider_id: null,
       service_day: null,
@@ -1755,6 +1762,7 @@ const closeCreateModal = () => {
     grade: '',
     submission_date: new Date().toISOString().split('T')[0],
     referral_date: new Date().toISOString().split('T')[0],
+    doc_date: '',
     paperwork_delivery_method_id: null,
     primary_client_language: '',
     primary_parent_language: ''

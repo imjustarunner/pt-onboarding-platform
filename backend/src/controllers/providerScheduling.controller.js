@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 
 const parseAgencyId = (req) => {
   const raw = req.query.agencyId || req.body.agencyId || req.user?.agencyId;
@@ -156,6 +157,15 @@ export const upsertProviderSchoolAssignment = async (req, res, next) => {
         [providerUserId, schoolOrganizationId, dayOfWeek, slotsTotal, slotsTotal, startTime, endTime, isActive ? 1 : 0, acceptingNewClientsOverride]
       );
       const [rows] = await pool.execute(`SELECT * FROM provider_school_assignments WHERE id = ?`, [result.insertId]);
+
+      // Keep School Portal weekday/provider rows in sync with provider work-hour config.
+      await syncSchoolPortalDayProvider({
+        schoolId: schoolOrganizationId,
+        providerUserId,
+        weekday: dayOfWeek,
+        isActive,
+        actorUserId: req.user?.id
+      });
       return res.status(201).json(rows[0] || null);
     }
 
@@ -171,6 +181,15 @@ export const upsertProviderSchoolAssignment = async (req, res, next) => {
       [slotsTotal, nextSlotsAvailable, startTime, endTime, isActive ? 1 : 0, acceptingNewClientsOverride, existing[0].id]
     );
     const [rows] = await pool.execute(`SELECT * FROM provider_school_assignments WHERE id = ?`, [existing[0].id]);
+
+    // Keep School Portal weekday/provider rows in sync with provider work-hour config.
+    await syncSchoolPortalDayProvider({
+      schoolId: schoolOrganizationId,
+      providerUserId,
+      weekday: dayOfWeek,
+      isActive,
+      actorUserId: req.user?.id
+    });
     res.json(rows[0] || null);
   } catch (e) {
     next(e);
