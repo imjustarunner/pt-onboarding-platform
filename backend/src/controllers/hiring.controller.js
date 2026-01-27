@@ -96,13 +96,23 @@ export const listCandidates = async (req, res, next) => {
       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
       LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
       WHERE u.status = ?${whereQ}
-      ORDER BY COALESCE(hp.updated_at, u.updated_at) DESC
+      -- Note: users table does not consistently have updated_at; prefer created_at for stable ordering.
+      ORDER BY COALESCE(hp.updated_at, hp.created_at, u.created_at) DESC, u.id DESC
       LIMIT ${limit}`,
       params
     );
 
     res.json(rows || []);
   } catch (e) {
+    // Common deployment issue: DB migrations not run yet for hiring tables.
+    if (e?.code === 'ER_NO_SUCH_TABLE' || String(e?.message || '').includes('hiring_profiles')) {
+      return res.status(503).json({
+        error: {
+          message:
+            'Hiring feature not available (database migrations not run yet). Run migrations 268-271 (and 270 for hiring tables).'
+        }
+      });
+    }
     next(e);
   }
 };
