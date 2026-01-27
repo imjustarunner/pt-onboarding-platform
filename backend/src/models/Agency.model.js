@@ -191,17 +191,30 @@ class Agency {
       // Optional quick action icons (added over time via migrations)
       let hasExternalCalendarAuditIcon = false;
       let hasSkillBuildersAvailabilityIcon = false;
+      let hasSchoolOverviewIcon = false;
       try {
         const [cols] = await pool.execute(
-          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('external_calendar_audit_icon_id','skill_builders_availability_icon_id')"
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('external_calendar_audit_icon_id','skill_builders_availability_icon_id','school_overview_icon_id')"
         );
         const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
         hasExternalCalendarAuditIcon = names.has('external_calendar_audit_icon_id');
         hasSkillBuildersAvailabilityIcon = names.has('skill_builders_availability_icon_id');
+        hasSchoolOverviewIcon = names.has('school_overview_icon_id');
       } catch (e) {
         hasExternalCalendarAuditIcon = false;
         hasSkillBuildersAvailabilityIcon = false;
+        hasSchoolOverviewIcon = false;
       }
+
+      const schoolOverviewSelects = hasSchoolOverviewIcon
+        ? `,
+        sov_i.file_path as school_overview_icon_path, sov_i.name as school_overview_icon_name`
+        : '';
+
+      const schoolOverviewJoins = hasSchoolOverviewIcon
+        ? `
+        LEFT JOIN icons sov_i ON a.school_overview_icon_id = sov_i.id`
+        : '';
 
       const extraDashSelects = hasExtraDashboardQuickActionIcons
         ? `,
@@ -276,7 +289,7 @@ class Agency {
         ps_i.file_path as platform_settings_icon_path, ps_i.name as platform_settings_icon_name,
         vap_i.file_path as view_all_progress_icon_path, vap_i.name as view_all_progress_icon_name,
         pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
-        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${extCalSelects}${skillBuildersSelects}${myDashSelects}
+        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${extCalSelects}${schoolOverviewSelects}${skillBuildersSelects}${myDashSelects}
         FROM agencies a
         ${hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : ''}
         ${hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : ''}
@@ -288,7 +301,7 @@ class Agency {
         LEFT JOIN icons ps_i ON a.platform_settings_icon_id = ps_i.id
         LEFT JOIN icons vap_i ON a.view_all_progress_icon_id = vap_i.id
         LEFT JOIN icons pd_i ON a.progress_dashboard_icon_id = pd_i.id
-        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${extCalJoins}${skillBuildersJoins}${myDashJoins}
+        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${extCalJoins}${schoolOverviewJoins}${skillBuildersJoins}${myDashJoins}
         WHERE a.id = ?`;
     } else {
       // Even without dashboard icons, join for master icon if column exists

@@ -1384,6 +1384,11 @@
                 <small>Icon for the "School Overview" action card</small>
               </div>
               <div class="dashboard-icon-item">
+                <label>Agency Calendar Icon</label>
+                <IconSelector v-model="agencyForm.externalCalendarAuditIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Agency Calendar" action card</small>
+              </div>
+              <div class="dashboard-icon-item">
                 <label>Payroll Icon</label>
                 <IconSelector v-model="agencyForm.dashboardPayrollIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Payroll" action card</small>
@@ -2865,6 +2870,7 @@ const ICON_TEMPLATE_FIELDS = [
   'viewAllProgressIconId',
   'manageClientsIconId',
   'schoolOverviewIconId',
+  'externalCalendarAuditIconId',
   'dashboardPayrollIconId',
   'dashboardBillingIconId',
   'manageModulesIconId',
@@ -2918,6 +2924,7 @@ const defaultAgencyForm = () => ({
   viewAllProgressIconId: null,
   manageClientsIconId: null,
   schoolOverviewIconId: null,
+  externalCalendarAuditIconId: null,
   dashboardPayrollIconId: null,
   dashboardBillingIconId: null,
   manageModulesIconId: null,
@@ -3785,6 +3792,7 @@ const editAgency = async (agency) => {
     viewAllProgressIconId: agency.view_all_progress_icon_id ?? null,
     manageClientsIconId: agency.manage_clients_icon_id ?? null,
     schoolOverviewIconId: agency.school_overview_icon_id ?? null,
+    externalCalendarAuditIconId: agency.external_calendar_audit_icon_id ?? null,
     dashboardPayrollIconId: agency.dashboard_payroll_icon_id ?? null,
     dashboardBillingIconId: agency.dashboard_billing_icon_id ?? null,
     manageModulesIconId: agency.manage_modules_icon_id ?? null,
@@ -4334,6 +4342,7 @@ const saveAgency = async () => {
       viewAllProgressIconId: agencyForm.value.viewAllProgressIconId ?? null,
       manageClientsIconId: agencyForm.value.manageClientsIconId ?? null,
       schoolOverviewIconId: agencyForm.value.schoolOverviewIconId ?? null,
+      externalCalendarAuditIconId: agencyForm.value.externalCalendarAuditIconId ?? null,
       dashboardPayrollIconId: agencyForm.value.dashboardPayrollIconId ?? null,
       dashboardBillingIconId: agencyForm.value.dashboardBillingIconId ?? null,
       manageModulesIconId: agencyForm.value.manageModulesIconId ?? null,
