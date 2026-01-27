@@ -275,20 +275,28 @@ export const createClient = async (req, res, next) => {
       });
     }
 
-    // Verify organization is linked to the agency (enforces nested/associated rule)
-    // Note: we reuse agency_schools as the linkage table for any non-agency organization types.
+    // Verify organization is linked to the agency (enforces nested/associated rule).
+    // Prefer organization_affiliations (supports schools + programs + learning). Fall back to legacy agency_schools.
+    let isLinked = false;
     try {
-      const AgencySchool = (await import('../models/AgencySchool.model.js')).default;
-      const links = await AgencySchool.listByAgency(parsedAgencyId, { includeInactive: false });
-      const isLinked = links.some((l) => parseInt(l.school_organization_id, 10) === parsedOrganizationId);
-      if (!isLinked) {
-        return res.status(400).json({
-          error: { message: 'Selected organization is not linked to this agency' }
-        });
+      const orgs = await OrganizationAffiliation.listActiveOrganizationsForAgency(parsedAgencyId);
+      isLinked = (orgs || []).some((o) => parseInt(o?.id, 10) === parsedOrganizationId);
+    } catch {
+      isLinked = false;
+    }
+    if (!isLinked) {
+      try {
+        const AgencySchool = (await import('../models/AgencySchool.model.js')).default;
+        const links = await AgencySchool.listByAgency(parsedAgencyId, { includeInactive: false });
+        isLinked = (links || []).some((l) => parseInt(l?.school_organization_id, 10) === parsedOrganizationId);
+      } catch {
+        // ignore
       }
-    } catch (e) {
-      // If linkage table/model isn't available for some reason, fall back to permissive behavior.
-      // This avoids blocking client creation in older environments.
+    }
+    if (!isLinked) {
+      return res.status(400).json({
+        error: { message: 'Selected organization is not linked to this agency' }
+      });
     }
 
     // Duplicate detection (entire DB) by identifier_code (client initials/code).
@@ -2482,6 +2490,7 @@ export const listClientProviderAssignments = async (req, res, next) => {
                 u.first_name AS provider_first_name,
                 u.last_name AS provider_last_name,
                 cpa.service_day,
+                cpa.is_primary,
                 cpa.created_at,
                 cpa.updated_at
          FROM client_provider_assignments cpa
@@ -2514,11 +2523,15 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
     if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
     const orgId = parseInt(req.body?.organization_id, 10);
     const providerUserId = parseInt(req.body?.provider_user_id, 10);
-    const serviceDay = req.body?.service_day ? String(req.body.service_day).trim() : null;
+    const rawDay = req.body?.service_day ? String(req.body.service_day).trim() : '';
+    const requestedPrimary = req.body?.is_primary === true || req.body?.is_primary === 1 || req.body?.is_primary === '1';
+    // Note: client_provider_assignments.service_day is an ENUM of weekdays (NULL allowed).
+    // We support "Unknown" in the API as a UI convenience, but store it as NULL.
     const allowedDays = ['Unknown', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-    if (!orgId || !providerUserId || !serviceDay || !allowedDays.includes(serviceDay)) {
+    if (!orgId || !providerUserId || !rawDay || !allowedDays.includes(rawDay)) {
       return res.status(400).json({ error: { message: 'organization_id, provider_user_id, and valid service_day are required (Unknown or weekday)' } });
     }
+    const serviceDay = rawDay === 'Unknown' ? null : rawDay;
 
     const userId = req.user.id;
     const role = req.user.role;
@@ -2568,8 +2581,8 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
 
       const oldDay = existing?.service_day ? String(existing.service_day) : null;
       const wasActive = existing ? (existing.is_active === 1 || existing.is_active === true) : false;
-      const oldConsumesSlot = wasActive && oldDay && oldDay !== 'Unknown';
-      const newConsumesSlot = serviceDay !== 'Unknown';
+      const oldConsumesSlot = wasActive && oldDay; // oldDay is NULL or weekday enum
+      const newConsumesSlot = !!serviceDay;
 
       // Refund old slot if active and day changed
       if (oldConsumesSlot && oldDay !== serviceDay) {
@@ -2585,20 +2598,48 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
         }
       }
 
+      // Ensure "primary provider" is tracked (best-effort if column exists).
+      if (requestedPrimary) {
+        try {
+          await connection.execute(
+            `UPDATE client_provider_assignments
+             SET is_primary = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE client_id = ?`,
+            [userId, clientId]
+          );
+        } catch {
+          // ignore (older DBs may not have column yet)
+        }
+      }
+
       if (!existing) {
         await connection.execute(
           `INSERT INTO client_provider_assignments
-            (client_id, organization_id, provider_user_id, service_day, is_active, created_by_user_id, updated_by_user_id)
-           VALUES (?, ?, ?, ?, TRUE, ?, ?)`,
+            (client_id, organization_id, provider_user_id, service_day, is_active, created_by_user_id, updated_by_user_id${requestedPrimary ? ', is_primary' : ''})
+           VALUES (?, ?, ?, ?, TRUE, ?, ?${requestedPrimary ? ', TRUE' : ''})`,
           [clientId, orgId, providerUserId, serviceDay, userId, userId]
         );
       } else {
         await connection.execute(
           `UPDATE client_provider_assignments
-           SET service_day = ?, is_active = TRUE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+           SET service_day = ?, is_active = TRUE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP${requestedPrimary ? ', is_primary = TRUE' : ''}
            WHERE id = ?`,
           [serviceDay, userId, existing.id]
         );
+      }
+
+      // Keep legacy single-provider fields in sync with the primary provider.
+      if (requestedPrimary) {
+        try {
+          await connection.execute(
+            `UPDATE clients
+             SET provider_id = ?, service_day = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [providerUserId, serviceDay, userId, clientId]
+          );
+        } catch {
+          // ignore (best-effort)
+        }
       }
 
       await connection.commit();

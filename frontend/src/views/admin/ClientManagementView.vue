@@ -241,19 +241,9 @@
           </div>
 
           <div class="bulk-group">
-            <select v-model="bulkProviderId" class="filter-select">
-              <option value="">Assign provider…</option>
-              <option :value="'__unassign__'">Unassign</option>
-              <option v-for="p in availableProviders" :key="p.id" :value="String(p.id)">{{ p.first_name }} {{ p.last_name }}</option>
-            </select>
-            <button
-              class="btn btn-secondary btn-sm"
-              type="button"
-              :disabled="!bulkProviderId || bulkWorking"
-              @click="bulkAssignProvider"
-            >
-              Assign
-            </button>
+            <div class="muted" style="max-width: 260px;">
+              Provider assignment is managed in the client detail <strong>Affiliations</strong> tab.
+            </div>
           </div>
 
           <div class="bulk-group">
@@ -306,22 +296,7 @@
               {{ client.client_status_label || '-' }}
             </td>
             <td v-if="columnPrefs.provider">
-              <select
-                v-if="editingProviderId === client.id"
-                v-model="editingProviderValue"
-                @change="saveProvider(client.id, editingProviderValue)"
-                @blur="cancelEdit"
-                class="inline-select"
-                @click.stop
-              >
-                <option :value="null">Not assigned</option>
-                <option v-for="provider in availableProviders" :key="provider.id" :value="provider.id">
-                  {{ provider.first_name }} {{ provider.last_name }}
-                </option>
-              </select>
-              <span v-else @click.stop="startEditProvider(client)" class="editable-field">
-                {{ client.provider_name || 'Not assigned' }}
-              </span>
+              {{ client.provider_name || 'Not assigned' }}
             </td>
             <td v-if="columnPrefs.submissionDate">{{ formatDate(client.submission_date) }}</td>
             <td v-if="columnPrefs.paperwork">
@@ -470,12 +445,50 @@
           </div>
           <div class="form-group">
             <label>Document Status</label>
-            <select v-model="newClient.document_status">
-              <option value="NONE">None</option>
-              <option value="UPLOADED">Uploaded</option>
-              <option value="APPROVED">Approved</option>
-              <option value="REJECTED">Rejected</option>
-            </select>
+            <div class="hint" style="margin-bottom: 6px;">
+              Select which items are <strong>Needed</strong>. When none are needed, status is <strong>Completed</strong>.
+            </div>
+            <div style="padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);">
+              <div class="check-row" style="margin-bottom: 6px;">
+                <label class="check-left">
+                  <input type="checkbox" :checked="createDocsIsCompleted" disabled />
+                  <span class="check-label"><strong>Completed</strong></span>
+                </label>
+                <div class="check-right">
+                  <span v-if="createDocsIsCompleted" class="badge badge-success">Yes</span>
+                  <span v-else class="badge badge-secondary">No</span>
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="creating || !createPaperworkStatuses.length"
+                    @click="markCreateDocsCompleted"
+                    style="margin-left: 10px;"
+                  >
+                    Mark completed
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="createPaperworkStatusesLoading" class="hint">Loading…</div>
+              <div v-else-if="createPaperworkStatusesError" class="error" style="margin: 0;">{{ createPaperworkStatusesError }}</div>
+              <div v-else>
+                <div v-for="s in createPaperworkStatuses" :key="s.id" class="check-row">
+                  <label class="check-left">
+                    <input
+                      type="checkbox"
+                      :disabled="creating"
+                      :checked="createDocsNeededIds.includes(Number(s.id))"
+                      @change="toggleCreateDocNeeded(s.id, $event)"
+                    />
+                    <span class="check-label">{{ s.label }}</span>
+                  </label>
+                  <div class="check-right">
+                    <span v-if="createDocsNeededIds.includes(Number(s.id))" class="badge badge-warning">Needed</span>
+                    <span v-else class="badge badge-secondary">Received</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="modal-actions">
             <button type="button" @click="closeCreateModal" class="btn btn-secondary">Cancel</button>
@@ -761,12 +774,56 @@ const openCreateClientModal = async () => {
     createAgencyId.value = String(activeAgencyId.value);
   }
   await fetchLinkedOrganizations();
+  await fetchCreatePaperworkStatuses();
 };
 const showBulkImportModal = ref(false);
 const creating = ref(false);
 const linkedOrganizations = ref([]);
 const loadingOrganizations = ref(false);
 const clientStatuses = ref([]);
+
+// Create-client: Document Status (Needed/Received) selection
+const createPaperworkStatuses = ref([]);
+const createPaperworkStatusesLoading = ref(false);
+const createPaperworkStatusesError = ref('');
+const createDocsNeededIds = ref([]);
+const createDocsIsCompleted = computed(() => (createDocsNeededIds.value || []).length === 0);
+
+const fetchCreatePaperworkStatuses = async () => {
+  try {
+    createPaperworkStatusesLoading.value = true;
+    createPaperworkStatusesError.value = '';
+    const r = await api.get('/client-settings/paperwork-statuses');
+    const rows = Array.isArray(r.data) ? r.data : [];
+    // Exclude "completed" from selectable-needed list (completed is computed/derived).
+    const filtered = rows
+      .filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true))
+      .filter((s) => String(s.status_key || s.statusKey || '').toLowerCase() !== 'completed');
+    createPaperworkStatuses.value = filtered;
+    // Default: everything is Needed (matches seed behavior).
+    createDocsNeededIds.value = filtered.map((s) => Number(s.id)).filter((n) => Number.isFinite(n));
+  } catch (e) {
+    createPaperworkStatuses.value = [];
+    createDocsNeededIds.value = [];
+    createPaperworkStatusesError.value = e.response?.data?.error?.message || 'Failed to load document statuses';
+  } finally {
+    createPaperworkStatusesLoading.value = false;
+  }
+};
+
+const toggleCreateDocNeeded = (statusId, event) => {
+  const id = statusId ? Number(statusId) : null;
+  if (!id) return;
+  const checked = !!event?.target?.checked; // checked = Needed
+  const cur = new Set((createDocsNeededIds.value || []).map((x) => Number(x)));
+  if (checked) cur.add(id);
+  else cur.delete(id);
+  createDocsNeededIds.value = Array.from(cur);
+};
+
+const markCreateDocsCompleted = () => {
+  createDocsNeededIds.value = [];
+};
 
 // Search debounce (prevents fetch + focus loss while typing)
 let searchDebounceTimer = null;
@@ -780,15 +837,10 @@ const onSearchInput = () => {
 const currentPage = ref(1);
 const pageSize = ref(50);
 
-// Inline editing state
-const editingProviderId = ref(null);
-const editingProviderValue = ref(null);
-
 // Bulk selection + actions
 const selectedIds = ref(new Set());
 const bulkWorking = ref(false);
 const bulkAffiliationId = ref('');
-const bulkProviderId = ref('');
 const bulkClientStatusId = ref('');
 const bulkPromoteYear = ref('');
 
@@ -806,8 +858,7 @@ const newClient = ref({
   referral_date: new Date().toISOString().split('T')[0],
   paperwork_delivery_method_id: null,
   primary_client_language: '',
-  primary_parent_language: '',
-  document_status: 'NONE'
+  primary_parent_language: ''
 });
 
 const dupesModalOpen = ref(false);
@@ -1191,7 +1242,6 @@ const toggleSelectAllPage = (evt) => {
 const clearSelection = () => {
   selectedIds.value = new Set();
   bulkAffiliationId.value = '';
-  bulkProviderId.value = '';
   bulkClientStatusId.value = '';
   bulkPromoteYear.value = '';
 };
@@ -1440,13 +1490,6 @@ const bulkSetClientStatus = async () => {
   await runBulk((id) => api.put(`/clients/${id}`, { client_status_id: csId }));
 };
 
-const bulkAssignProvider = async () => {
-  const raw = String(bulkProviderId.value || '');
-  if (!raw) return;
-  const providerId = raw === '__unassign__' ? null : parseInt(raw, 10);
-  await runBulk((id) => api.put(`/clients/${id}/provider`, { provider_id: providerId }));
-};
-
 const applyFilters = () => {
   fetchClients();
 };
@@ -1510,29 +1553,11 @@ const startEditStatus = async (client) => {
   }
 };
 
-const startEditProvider = (client) => {
-  editingProviderId.value = client.id;
-  editingProviderValue.value = client.provider_id;
-};
-
 const cancelEdit = () => {
-  editingProviderId.value = null;
-  editingProviderValue.value = null;
+  // kept for legacy callers; provider inline editing removed
 };
 
 // Workflow editing removed; "status" is now treated as an internal archive flag.
-
-const saveProvider = async (clientId, providerId) => {
-  try {
-    await api.put(`/clients/${clientId}/provider`, { provider_id: providerId });
-    await fetchClients();
-    cancelEdit();
-  } catch (err) {
-    console.error('Failed to assign provider:', err);
-    alert(err.response?.data?.error?.message || 'Failed to assign provider');
-    cancelEdit();
-  }
-};
 
 const openClientDetail = (client) => {
   selectedClient.value = client;
@@ -1584,11 +1609,33 @@ const createClient = async () => {
     const resp = await api.post('/clients', payload);
     const created = resp.data || null;
 
-    // Slot-aware assignment (optional)
+    // Slot-aware assignment (optional): assign as PRIMARY via affiliations system
     const providerId = newClient.value?.provider_id ? Number(newClient.value.provider_id) : null;
     const serviceDay = String(newClient.value?.service_day || '').trim() || null;
     if (created?.id && providerId && serviceDay) {
-      await api.put(`/clients/${created.id}/provider`, { provider_id: providerId, service_day: serviceDay });
+      try {
+        await api.post(`/clients/${created.id}/provider-assignments`, {
+          organization_id: Number(newClient.value.organization_id),
+          provider_user_id: providerId,
+          service_day: serviceDay,
+          is_primary: true
+        });
+      } catch {
+        // ignore (migration missing / permissions)
+      }
+    }
+
+    // Apply Document Status selections (Needed/Received)
+    if (created?.id && (createPaperworkStatuses.value || []).length) {
+      try {
+        const updates = (createPaperworkStatuses.value || []).map((s) => ({
+          paperwork_status_id: Number(s.id),
+          is_needed: (createDocsNeededIds.value || []).includes(Number(s.id))
+        }));
+        await api.put(`/clients/${created.id}/document-status`, { updates });
+      } catch {
+        // ignore (migration missing / permissions)
+      }
     }
 
     await fetchClients();
@@ -1624,9 +1671,9 @@ const closeCreateModal = () => {
     referral_date: new Date().toISOString().split('T')[0],
     paperwork_delivery_method_id: null,
     primary_client_language: '',
-    primary_parent_language: '',
-    document_status: 'NONE'
+    primary_parent_language: ''
   };
+  createDocsNeededIds.value = [];
 };
 
 const closeDupesModal = () => {
@@ -1708,6 +1755,7 @@ watch(
     await fetchLinkedOrganizations();
     await fetchClientStatuses();
     await fetchProviders();
+    await fetchCreatePaperworkStatuses();
   }
 );
 

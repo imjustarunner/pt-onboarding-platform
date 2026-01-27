@@ -86,37 +86,12 @@
             <div class="info-item">
               <label>Provider</label>
               <div class="info-value">
-                <template v-if="canEditAccount">
-                  <select
-                    v-if="editingOverview"
-                    v-model="overviewForm.provider_id"
-                    class="inline-select"
-                  >
-                    <option :value="''">Not assigned</option>
-                    <option v-for="p in availableProviders" :key="p.id" :value="String(p.id)">
-                      {{ p.first_name }} {{ p.last_name }}
-                    </option>
-                  </select>
-                  <select
-                    v-if="editingProvider"
-                    v-model="providerValue"
-                    @change="saveProvider"
-                    @blur="cancelEditProvider"
-                    class="inline-select"
-                  >
-                    <option :value="null">Not assigned</option>
-                    <option v-for="p in availableProviders" :key="p.id" :value="p.id">
-                      {{ p.first_name }} {{ p.last_name }}
-                    </option>
-                  </select>
-                  <span v-else @click="startEditProvider" class="editable-field">
-                    {{ client.provider_name || 'Not assigned' }}
-                    <span class="edit-hint">(click to edit)</span>
-                  </span>
-                </template>
-                <template v-else>
-                  {{ client.provider_name || 'Not assigned' }}
-                </template>
+                <div>
+                  <div>{{ client.provider_name || 'Not assigned' }}</div>
+                  <div class="hint" style="margin-top: 4px;">
+                    Editing affiliated providers is managed on the <strong>Affiliations</strong> tab.
+                  </div>
+                </div>
               </div>
             </div>
             <div class="info-item">
@@ -134,16 +109,59 @@
               <label>Document Status</label>
               <div class="info-value">
                 <template v-if="editingOverview">
-                  <select v-model="overviewForm.paperwork_status_id" class="inline-select">
-                    <option :value="''">—</option>
-                    <option v-for="s in paperworkStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
-                  </select>
-                  <div v-if="selectedOverviewPaperworkStatusKey === 'completed'" class="hint" style="margin-top: 6px;">
-                    Selecting <strong>Completed</strong> will mark all checklist items as <strong>Received</strong> in the Documentation tab.
-                  </div>
-                  <div v-else-if="overviewForm.paperwork_status_id" class="hint" style="margin-top: 6px;">
-                    Please go to the <strong>Documentation</strong> tab to mark individual items as needed/received.
-                  </div>
+                  <details ref="docStatusDetailsEl" class="doc-dropdown">
+                    <summary class="inline-select" style="list-style:none; cursor:pointer;">
+                      {{ documentStatusSummaryText || (client.paperwork_status_label || '—') }}
+                    </summary>
+                    <div style="margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-alt);">
+                      <div class="hint" style="margin-bottom: 8px;">
+                        Select the items that are <strong>Needed</strong>. When none are needed, status becomes <strong>Completed</strong>.
+                      </div>
+
+                      <div v-if="docChecklistAvailable">
+                        <div class="check-row" style="margin-bottom: 6px;">
+                          <label class="check-left">
+                            <input type="checkbox" :checked="docIsCompleted" disabled />
+                            <span class="check-label"><strong>Completed</strong></span>
+                          </label>
+                          <div class="check-right">
+                            <span v-if="docIsCompleted" class="badge badge-success">Yes</span>
+                            <span v-else class="badge badge-secondary">No</span>
+                            <button
+                              v-if="canEditPaperwork && !docIsCompleted"
+                              type="button"
+                              class="btn btn-secondary btn-sm"
+                              :disabled="docChecklistSaving"
+                              @click="onMarkDocsCompletedFromOverview"
+                              style="margin-left: 10px;"
+                            >
+                              Mark completed
+                            </button>
+                          </div>
+                        </div>
+
+                        <div v-for="it in docNeededOptions" :key="String(it.status_key || it.paperwork_status_id)" class="check-row">
+                          <label class="check-left">
+                            <input
+                              type="checkbox"
+                              :disabled="!canEditPaperwork || docChecklistSaving"
+                              :checked="!!it.is_needed"
+                              @change="onToggleDocNeeded(it, $event)"
+                            />
+                            <span class="check-label">{{ it.label }}</span>
+                          </label>
+                          <div class="check-right">
+                            <span v-if="it.is_needed" class="badge badge-warning">Needed</span>
+                            <span v-else class="badge badge-secondary">Received</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div v-else class="muted">
+                        Document Status checklist is not available yet (missing migration).
+                      </div>
+                    </div>
+                  </details>
                 </template>
                 <template v-else>
                   <span v-if="documentStatusSummaryText" class="doc-status-pill">{{ documentStatusSummaryText }}</span>
@@ -246,19 +264,9 @@
               </div>
             </div>
             <div class="info-item">
-              <label>Document Status (legacy)</label>
+              <label>Upload status (legacy)</label>
               <div class="info-value">
-                <template v-if="editingOverview">
-                  <select v-model="overviewForm.document_status" class="inline-select">
-                    <option value="NONE">None</option>
-                    <option value="UPLOADED">Uploaded</option>
-                    <option value="APPROVED">Approved</option>
-                    <option value="REJECTED">Rejected</option>
-                  </select>
-                </template>
-                <template v-else>
-                  <span class="muted">{{ formatDocumentStatus(client.document_status) }}</span>
-                </template>
+                <span class="muted">{{ formatDocumentStatus(client.document_status) }}</span>
               </div>
             </div>
             <div class="info-item">
@@ -758,9 +766,22 @@
                   </thead>
                   <tbody>
                     <tr v-for="pa in providerAssignments" :key="pa.id">
-                      <td>{{ pa.provider_last_name }}, {{ pa.provider_first_name }}</td>
-                      <td>{{ pa.service_day || '—' }}</td>
+                      <td>
+                        {{ pa.provider_last_name }}, {{ pa.provider_first_name }}
+                        <span v-if="pa.is_primary" class="badge badge-success" style="margin-left: 8px;">Primary</span>
+                      </td>
+                      <td>{{ pa.service_day || 'Unknown' }}</td>
                       <td class="right">
+                        <button
+                          v-if="!pa.is_primary"
+                          class="btn btn-secondary btn-sm"
+                          type="button"
+                          :disabled="savingProviderAssignment"
+                          @click="makePrimaryProvider(pa)"
+                          style="margin-right: 8px;"
+                        >
+                          Make primary
+                        </button>
                         <button class="btn btn-danger btn-sm" type="button" :disabled="savingProviderAssignment" @click="removeProviderAssignment(pa)">
                           Remove
                         </button>
@@ -788,6 +809,10 @@
                       <option v-for="d in availableProviderDaysForSelectedOrg" :key="d" :value="d">{{ d }}</option>
                     </select>
                   </div>
+                  <label class="checkbox-label" style="min-width: 180px;">
+                    <input v-model="addProviderMakePrimary" type="checkbox" />
+                    Make primary
+                  </label>
                   <div class="actions" style="align-self: end;">
                     <button
                       type="button"
@@ -1010,9 +1035,7 @@ const tabs = computed(() => {
 // Overview tab state
 const editingStatus = ref(false);
 const statusValue = ref(null);
-const editingProvider = ref(false);
-const providerValue = ref(null);
-const availableProviders = ref([]);
+const availableProviders = ref([]); // used by other tabs (e.g., assignments) and legacy helpers
 const skillsValue = ref(false);
 const editingOverview = ref(false);
 const savingOverview = ref(false);
@@ -1020,9 +1043,7 @@ const overviewForm = ref({
   initials: '',
   organization_id: '',
   client_status_id: '',
-  provider_id: '',
   submission_date: '',
-  paperwork_status_id: '',
   insurance_type_id: '',
   doc_date: '',
   school_year: '',
@@ -1031,7 +1052,6 @@ const overviewForm = ref({
   referral_date: '',
   primary_client_language: '',
   primary_parent_language: '',
-  document_status: 'NONE',
   source: ''
 });
 
@@ -1102,6 +1122,29 @@ const docChecklistItems = ref([]);
 const docChecklistLoading = ref(false);
 const docChecklistSaving = ref(false);
 const docChecklistError = ref('');
+const docStatusDetailsEl = ref(null);
+
+const docChecklistAvailable = computed(() => Array.isArray(docChecklistItems.value) && docChecklistItems.value.length > 0);
+const docCompletedRow = computed(() => (docChecklistItems.value || []).find((x) => String(x?.status_key || '').toLowerCase() === 'completed') || null);
+const docIsCompleted = computed(() => {
+  const row = docCompletedRow.value;
+  return !!row?.is_completed;
+});
+const docNeededOptions = computed(() => {
+  return (docChecklistItems.value || []).filter((x) => String(x?.status_key || '').toLowerCase() !== 'completed');
+});
+
+const onMarkDocsCompletedFromOverview = async () => {
+  if (!canEditPaperwork.value) return;
+  const updated = await markAllDocsCompleted();
+  if (updated && docStatusDetailsEl.value) {
+    try {
+      docStatusDetailsEl.value.open = false;
+    } catch {
+      // ignore
+    }
+  }
+};
 
 const documentStatusSummaryText = computed(() => {
   const count = props.client?.paperwork_needed_count;
@@ -1209,6 +1252,7 @@ const providerAssignmentsLoading = ref(false);
 const providerOptions = ref([]);
 const addProviderUserId = ref('');
 const addProviderDay = ref('');
+const addProviderMakePrimary = ref(true);
 const savingProviderAssignment = ref(false);
 
 const weekdayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
@@ -1265,10 +1309,7 @@ const selectedPaperworkStatusKey = computed(() => {
 });
 
 const selectedOverviewPaperworkStatusKey = computed(() => {
-  const id = overviewForm.value.paperwork_status_id ? Number(overviewForm.value.paperwork_status_id) : null;
-  if (!id) return '';
-  const row = (paperworkStatuses.value || []).find((s) => Number(s?.id) === id) || null;
-  return String(row?.status_key || row?.statusKey || '').toLowerCase();
+  return '';
 });
 
 const availableAffiliationOptions = computed(() => {
@@ -1366,28 +1407,6 @@ const unarchiveClient = async () => {
   }
 };
 
-const startEditProvider = () => {
-  editingProvider.value = true;
-  providerValue.value = props.client.provider_id;
-};
-
-const cancelEditProvider = () => {
-  editingProvider.value = false;
-  providerValue.value = null;
-};
-
-const saveProvider = async () => {
-  try {
-    await api.put(`/clients/${props.client.id}/provider`, { provider_id: providerValue.value });
-    emit('updated');
-    cancelEditProvider();
-  } catch (err) {
-    console.error('Failed to assign provider:', err);
-    alert(err.response?.data?.error?.message || 'Failed to assign provider');
-    cancelEditProvider();
-  }
-};
-
 const saveSkills = async () => {
   if (!canEditAccount.value) return;
   try {
@@ -1412,9 +1431,7 @@ const hydrateOverviewForm = () => {
   overviewForm.value.initials = String(props.client?.initials || '');
   overviewForm.value.organization_id = props.client?.organization_id ? String(props.client.organization_id) : '';
   overviewForm.value.client_status_id = props.client?.client_status_id ? String(props.client.client_status_id) : '';
-  overviewForm.value.provider_id = props.client?.provider_id ? String(props.client.provider_id) : '';
   overviewForm.value.submission_date = props.client?.submission_date ? String(props.client.submission_date).slice(0, 10) : '';
-  overviewForm.value.paperwork_status_id = props.client?.paperwork_status_id ? String(props.client.paperwork_status_id) : '';
   overviewForm.value.insurance_type_id = props.client?.insurance_type_id ? String(props.client.insurance_type_id) : '';
   overviewForm.value.doc_date = props.client?.doc_date ? String(props.client.doc_date).slice(0, 10) : '';
   overviewForm.value.school_year = String(props.client?.school_year || '');
@@ -1423,7 +1440,6 @@ const hydrateOverviewForm = () => {
   overviewForm.value.primary_parent_language = String(props.client?.primary_parent_language || '');
   overviewForm.value.skills = !!props.client?.skills;
   overviewForm.value.referral_date = props.client?.referral_date ? String(props.client.referral_date).slice(0, 10) : '';
-  overviewForm.value.document_status = String(props.client?.document_status || 'NONE');
   overviewForm.value.source = String(props.client?.source || '');
 };
 
@@ -1443,14 +1459,11 @@ const saveOverview = async () => {
   if (!canEditAccount.value) return;
   try {
     savingOverview.value = true;
-    const completedSelected = selectedOverviewPaperworkStatusKey.value === 'completed';
     const payload = {
       initials: String(overviewForm.value.initials || '').trim() || null,
       organization_id: overviewForm.value.organization_id ? Number(overviewForm.value.organization_id) : null,
       client_status_id: overviewForm.value.client_status_id ? Number(overviewForm.value.client_status_id) : null,
-      provider_id: overviewForm.value.provider_id ? Number(overviewForm.value.provider_id) : null,
       submission_date: overviewForm.value.submission_date ? String(overviewForm.value.submission_date) : null,
-      paperwork_status_id: overviewForm.value.paperwork_status_id ? Number(overviewForm.value.paperwork_status_id) : null,
       insurance_type_id: overviewForm.value.insurance_type_id ? Number(overviewForm.value.insurance_type_id) : null,
       doc_date: overviewForm.value.doc_date ? String(overviewForm.value.doc_date) : null,
       school_year: String(overviewForm.value.school_year || '').trim() || null,
@@ -1459,23 +1472,9 @@ const saveOverview = async () => {
       primary_parent_language: String(overviewForm.value.primary_parent_language || '').trim() || null,
       skills: !!overviewForm.value.skills,
       referral_date: overviewForm.value.referral_date ? String(overviewForm.value.referral_date) : null,
-      document_status: String(overviewForm.value.document_status || 'NONE'),
       source: String(overviewForm.value.source || '').trim() || null
     };
-    // If "Completed" is selected, we finalize via the checklist endpoint so it auto-clears all needed items.
-    if (completedSelected) {
-      delete payload.paperwork_status_id;
-    }
     await api.put(`/clients/${props.client.id}`, payload);
-    if (completedSelected) {
-      const updated = await markAllDocsCompleted();
-      if (!updated) {
-        const refreshed = (await api.get(`/clients/${props.client.id}`)).data || null;
-        emit('updated', { keepOpen: true, client: refreshed });
-      }
-      editingOverview.value = false;
-      return;
-    }
     const refreshed = (await api.get(`/clients/${props.client.id}`)).data || null;
     emit('updated', { keepOpen: true, client: refreshed });
     editingOverview.value = false;
@@ -1887,10 +1886,12 @@ const addProviderAssignment = async () => {
     await api.post(`/clients/${props.client.id}/provider-assignments`, {
       organization_id: orgId,
       provider_user_id: providerUserId,
-      service_day: day
+      service_day: day,
+      is_primary: addProviderMakePrimary.value === true
     });
     addProviderUserId.value = '';
     addProviderDay.value = '';
+    addProviderMakePrimary.value = true;
     await reloadProviderAssignments();
     emit('updated');
   } catch (e) {
@@ -1913,6 +1914,30 @@ const removeProviderAssignment = async (pa) => {
     emit('updated');
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to remove assignment';
+  } finally {
+    savingProviderAssignment.value = false;
+  }
+};
+
+const makePrimaryProvider = async (pa) => {
+  if (!canEditAccount.value) return;
+  const orgId = Number(pa?.organization_id);
+  const providerUserId = Number(pa?.provider_user_id);
+  const serviceDay = pa?.service_day ? String(pa.service_day) : 'Unknown';
+  if (!orgId || !providerUserId) return;
+  try {
+    savingProviderAssignment.value = true;
+    assignmentsError.value = '';
+    await api.post(`/clients/${props.client.id}/provider-assignments`, {
+      organization_id: orgId,
+      provider_user_id: providerUserId,
+      service_day: serviceDay || 'Unknown',
+      is_primary: true
+    });
+    await reloadProviderAssignments();
+    emit('updated');
+  } catch (e) {
+    assignmentsError.value = e.response?.data?.error?.message || 'Failed to set primary provider';
   } finally {
     savingProviderAssignment.value = false;
   }
@@ -2162,6 +2187,7 @@ watch(
   async () => {
     addProviderUserId.value = '';
     addProviderDay.value = '';
+    addProviderMakePrimary.value = true;
     await reloadProviderAssignments();
     await fetchProviderOptions();
   }
