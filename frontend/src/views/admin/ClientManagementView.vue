@@ -1092,6 +1092,7 @@ const goToAffiliationDashboard = () => {
 const availableProviders = ref([]);
 const providerOptionsLoading = ref(false);
 const providerAssignmentsForOrg = ref([]);
+const affiliatedProvidersForOrg = ref([]); // providers linked to school even if not scheduled yet
 
 const deliveryMethodsLoading = ref(false);
 const deliveryMethods = ref([]);
@@ -1125,15 +1126,23 @@ const availableProvidersForOrg = computed(() => {
   const orgId = Number(newClient.value?.organization_id);
   if (!orgId) return [];
   const allowed = providersWithOpenSlotsForOrg.value;
+  const affiliatedIds = new Set((affiliatedProvidersForOrg.value || []).map((p) => Number(p?.id)).filter((n) => Number.isFinite(n) && n > 0));
   // If we haven't loaded assignments yet, fall back to all providers (non-blocking).
-  if (!allowed || allowed.size === 0) return availableProviders.value || [];
-  return (availableProviders.value || []).filter((p) => allowed.has(Number(p.id)));
+  if (!allowed || allowed.size === 0) {
+    // Prefer org-affiliated list when available.
+    if (affiliatedIds.size > 0) return (availableProviders.value || []).filter((p) => affiliatedIds.has(Number(p.id)));
+    return availableProviders.value || [];
+  }
+  // Normal case: show those with capacity, plus rare affiliated-without-schedule providers.
+  return (availableProviders.value || []).filter((p) => allowed.has(Number(p.id)) || affiliatedIds.has(Number(p.id)));
 });
 
 const availableServiceDays = computed(() => {
   const providerId = Number(newClient.value?.provider_id);
   if (!providerId) return [];
   const days = [];
+  // Allow temporary provider assignment even when no day is configured yet.
+  days.push('Unknown');
   for (const a of providerAssignmentsForOrg.value || []) {
     if (!a) continue;
     if (Number(a.provider_user_id) !== providerId) continue;
@@ -1146,7 +1155,13 @@ const availableServiceDays = computed(() => {
   }
   // stable ordering Mon–Fri
   const order = new Map([['Monday', 1], ['Tuesday', 2], ['Wednesday', 3], ['Thursday', 4], ['Friday', 5]]);
-  return Array.from(new Set(days)).sort((a, b) => (order.get(a) || 99) - (order.get(b) || 99));
+  const uniq = Array.from(new Set(days));
+  // Keep Unknown first, then weekday order.
+  return uniq.sort((a, b) => {
+    if (a === 'Unknown' && b !== 'Unknown') return -1;
+    if (b === 'Unknown' && a !== 'Unknown') return 1;
+    return (order.get(a) || 99) - (order.get(b) || 99);
+  });
 });
 
 const selectedProviderDayAssignment = computed(() => {
@@ -1228,15 +1243,21 @@ const fetchProviderAssignmentsForOrg = async () => {
   const orgId = Number(newClient.value?.organization_id);
   if (!agencyId || !orgId) {
     providerAssignmentsForOrg.value = [];
+    affiliatedProvidersForOrg.value = [];
     return;
   }
   try {
     providerOptionsLoading.value = true;
-    const resp = await api.get('/provider-scheduling/assignments', { params: { agencyId, schoolOrganizationId: orgId } });
-    providerAssignmentsForOrg.value = resp.data || [];
+    const [sched, aff] = await Promise.all([
+      api.get('/provider-scheduling/assignments', { params: { agencyId, schoolOrganizationId: orgId } }),
+      api.get('/provider-scheduling/affiliated-providers', { params: { agencyId, schoolOrganizationId: orgId } })
+    ]);
+    providerAssignmentsForOrg.value = sched.data || [];
+    affiliatedProvidersForOrg.value = Array.isArray(aff.data) ? aff.data : [];
   } catch (e) {
     // Best-effort: don’t block creation; just disable provider/day guidance.
     providerAssignmentsForOrg.value = [];
+    affiliatedProvidersForOrg.value = [];
   } finally {
     providerOptionsLoading.value = false;
   }

@@ -87,7 +87,19 @@
               <label>Provider</label>
               <div class="info-value">
                 <div>
-                  <div>{{ client.provider_name || 'Not assigned' }}</div>
+                  <div v-if="overviewProvidersLoading" class="muted">Loading…</div>
+                  <div v-else-if="overviewProviders.length === 0">{{ client.provider_name || 'Not assigned' }}</div>
+                  <div v-else class="provider-list">
+                    <div v-for="p in overviewProviders" :key="p.id" class="provider-row">
+                      <div>
+                        <strong>{{ p.provider_last_name }}, {{ p.provider_first_name }}</strong>
+                        <span v-if="p.is_primary" class="badge badge-success" style="margin-left: 8px;">Primary</span>
+                      </div>
+                      <div class="muted" style="white-space: nowrap;">
+                        {{ p.service_day || 'Unknown' }}
+                      </div>
+                    </div>
+                  </div>
                   <div class="hint" style="margin-top: 4px;">
                     Editing affiliated providers is managed on the <strong>Affiliations</strong> tab.
                   </div>
@@ -1257,6 +1269,50 @@ const savingProviderAssignment = ref(false);
 
 const weekdayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
+// Overview: show all (primary + secondary) providers for the primary affiliation.
+const overviewProviders = ref([]);
+const overviewProvidersLoading = ref(false);
+
+const primaryOrgIdForOverview = computed(() => {
+  const primary = (affiliations.value || []).find((a) => a?.is_primary) || null;
+  return Number(primary?.organization_id) || Number(props.client?.organization_id) || null;
+});
+
+const refreshOverviewProviders = async () => {
+  if (!canEditAccount.value) {
+    overviewProviders.value = [];
+    overviewProvidersLoading.value = false;
+    return;
+  }
+  const clientId = Number(props.client?.id);
+  const orgId = primaryOrgIdForOverview.value;
+  if (!clientId || !orgId) {
+    overviewProviders.value = [];
+    overviewProvidersLoading.value = false;
+    return;
+  }
+  try {
+    overviewProvidersLoading.value = true;
+    const r = await api.get(`/clients/${clientId}/provider-assignments`, { params: { organizationId: orgId } });
+    const rows = Array.isArray(r.data) ? r.data : [];
+    // Sort primary first, then by last/first, then day.
+    overviewProviders.value = rows.sort((a, b) => {
+      const ap = a?.is_primary ? 1 : 0;
+      const bp = b?.is_primary ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      const ln = String(a?.provider_last_name || '').localeCompare(String(b?.provider_last_name || ''));
+      if (ln !== 0) return ln;
+      const fn = String(a?.provider_first_name || '').localeCompare(String(b?.provider_first_name || ''));
+      if (fn !== 0) return fn;
+      return String(a?.service_day || '').localeCompare(String(b?.service_day || ''));
+    });
+  } catch {
+    overviewProviders.value = [];
+  } finally {
+    overviewProvidersLoading.value = false;
+  }
+};
+
 // Compliance checklist
 const savingChecklist = ref(false);
 const checklistAuditText = ref('');
@@ -1727,9 +1783,12 @@ const fetchClientAffiliations = async () => {
       const primary = (affiliations.value || []).find((a) => a?.is_primary) || affiliations.value?.[0] || null;
       if (primary?.organization_id) selectedAssignmentOrgId.value = String(primary.organization_id);
     }
+    // Keep the Overview provider list in sync with affiliations.
+    await refreshOverviewProviders();
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to load affiliations';
     affiliations.value = [];
+    overviewProviders.value = [];
   } finally {
     affiliationsLoading.value = false;
   }
@@ -1801,11 +1860,13 @@ const fetchProviderOptions = async () => {
     return;
   }
   try {
-    // Pull provider_school_assignments for this org so we only show providers affiliated with it.
-    const r = await api.get('/provider-scheduling/assignments', {
-      params: { agencyId, schoolOrganizationId: orgId }
-    });
-    const rows = Array.isArray(r.data) ? r.data : [];
+    // Pull provider_school_assignments for this org (day/time rows) AND
+    // also allow providers affiliated with the org but not scheduled yet (rare; supports day='Unknown').
+    const [sched, aff] = await Promise.all([
+      api.get('/provider-scheduling/assignments', { params: { agencyId, schoolOrganizationId: orgId } }),
+      api.get('/provider-scheduling/affiliated-providers', { params: { agencyId, schoolOrganizationId: orgId } })
+    ]);
+    const rows = Array.isArray(sched.data) ? sched.data : [];
     providerScheduleForSelectedOrg.value = rows;
 
     const byProvider = new Map();
@@ -1817,6 +1878,19 @@ const fetchProviderOptions = async () => {
           id: pid,
           first_name: row?.provider_first_name || '',
           last_name: row?.provider_last_name || ''
+        });
+      }
+    }
+
+    const affRows = Array.isArray(aff.data) ? aff.data : [];
+    for (const p of affRows) {
+      const pid = Number(p?.id);
+      if (!pid) continue;
+      if (!byProvider.has(pid)) {
+        byProvider.set(pid, {
+          id: pid,
+          first_name: p?.first_name || '',
+          last_name: p?.last_name || ''
         });
       }
     }
@@ -1871,6 +1945,10 @@ const reloadProviderAssignments = async () => {
     assignmentsError.value = '';
     const r = await api.get(`/clients/${props.client.id}/provider-assignments`, { params: { organizationId: orgId } });
     providerAssignments.value = r.data || [];
+    // If this is the primary org, also refresh the Overview provider list.
+    if (Number(orgId) === Number(primaryOrgIdForOverview.value)) {
+      overviewProviders.value = providerAssignments.value.slice().sort((a, b) => (b?.is_primary ? 1 : 0) - (a?.is_primary ? 1 : 0));
+    }
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to load provider assignments';
     providerAssignments.value = [];
@@ -1898,6 +1976,7 @@ const addProviderAssignment = async () => {
     addProviderDay.value = '';
     addProviderMakePrimary.value = true;
     await reloadProviderAssignments();
+    await refreshOverviewProviders();
     emit('updated');
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to assign provider';
@@ -1916,6 +1995,7 @@ const removeProviderAssignment = async (pa) => {
     assignmentsError.value = '';
     await api.delete(`/clients/${props.client.id}/provider-assignments/${id}`);
     await reloadProviderAssignments();
+    await refreshOverviewProviders();
     emit('updated');
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to remove assignment';
@@ -1940,6 +2020,7 @@ const makePrimaryProvider = async (pa) => {
       is_primary: true
     });
     await reloadProviderAssignments();
+    await refreshOverviewProviders();
     emit('updated');
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to set primary provider';
@@ -2392,6 +2473,23 @@ watch(
 .hint {
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+.muted {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.provider-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+}
+.provider-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .detail-section {

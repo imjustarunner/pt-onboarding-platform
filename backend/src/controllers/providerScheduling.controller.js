@@ -109,6 +109,65 @@ export const listProviderSchoolAssignments = async (req, res, next) => {
   }
 };
 
+/**
+ * List providers affiliated with a specific school org, regardless of schedule rows.
+ * This supports rare cases where a provider is added to a school before days/times are configured.
+ *
+ * GET /api/provider-scheduling/affiliated-providers?agencyId=1&schoolOrganizationId=2
+ */
+export const listProvidersAffiliatedWithSchool = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const schoolOrganizationId = req.query.schoolOrganizationId ? parseInt(req.query.schoolOrganizationId, 10) : null;
+    if (!schoolOrganizationId) {
+      return res.status(400).json({ error: { message: 'schoolOrganizationId is required' } });
+    }
+
+    // Ensure school is linked to agency (same gate as /assignments).
+    const [aff] = await pool.execute(
+      `SELECT id FROM organization_affiliations WHERE agency_id = ? AND organization_id = ? AND is_active = TRUE LIMIT 1`,
+      [agencyId, schoolOrganizationId]
+    );
+    if (!aff[0] && req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'School is not linked to this agency' } });
+    }
+
+    // Provider-like users who belong to the agency AND are affiliated with the school org via user_agencies.
+    // Backward compatible: some user fields may not exist yet.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role, u.has_provider_access
+         FROM users u
+         JOIN user_agencies ua_agency ON ua_agency.user_id = u.id AND ua_agency.agency_id = ?
+         JOIN user_agencies ua_school ON ua_school.user_id = u.id AND ua_school.agency_id = ?
+         WHERE (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+           AND (u.role IN ('provider') OR (u.has_provider_access = TRUE))
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [agencyId, schoolOrganizationId]
+      );
+      return res.json(rows || []);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (!msg.includes('Unknown column')) throw e;
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role, u.has_provider_access
+         FROM users u
+         JOIN user_agencies ua_agency ON ua_agency.user_id = u.id AND ua_agency.agency_id = ?
+         JOIN user_agencies ua_school ON ua_school.user_id = u.id AND ua_school.agency_id = ?
+         WHERE (u.role IN ('provider') OR (u.has_provider_access = TRUE))
+         ORDER BY u.last_name ASC, u.first_name ASC`,
+        [agencyId, schoolOrganizationId]
+      );
+      return res.json(rows || []);
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const upsertProviderSchoolAssignment = async (req, res, next) => {
   try {
     const agencyId = parseAgencyId(req);
