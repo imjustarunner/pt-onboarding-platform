@@ -1,3 +1,13 @@
+/**
+ * Activity tracker: inactivity timeout and presence heartbeat.
+ *
+ * Inactivity: after INACTIVITY_TIMEOUT with no DOM events (mouse, key, scroll, etc.)
+ * while the tab is visible, the user is logged out. The presence heartbeat (every
+ * HEARTBEAT_INTERVAL) is treated as activity when it succeeds. When the tab is hidden
+ * (user in another window/tab), the inactivity countdown is paused so multiple windows
+ * don't cause spurious logouts. visibilitychange restarts the timer when the user
+ * returns to the tab.
+ */
 import { useAuthStore } from '../store/auth';
 import api from '../services/api';
 import { useAgencyStore } from '../store/agency';
@@ -14,12 +24,15 @@ const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchst
 
 function resetTimer() {
   lastActivityTime = Date.now();
-  
+
   if (activityTimer) {
     clearTimeout(activityTimer);
+    activityTimer = null;
   }
-  
-  if (isTracking) {
+
+  // Only run the inactivity countdown when this tab/window is visible.
+  // When the user has multiple windows open, a hidden tab should not log them out.
+  if (isTracking && document.visibilityState === 'visible') {
     activityTimer = setTimeout(() => {
       handleTimeout();
     }, INACTIVITY_TIMEOUT);
@@ -79,6 +92,23 @@ function onActivity() {
   resetTimer();
 }
 
+function onVisibilityChange() {
+  if (!isTracking) return;
+
+  if (document.visibilityState === 'visible') {
+    // User returned to this tab/window – start (or restart) the inactivity countdown.
+    resetTimer();
+    sendPresenceHeartbeat();
+  } else {
+    // Tab/window is now hidden (e.g. user switched to another window). Pause the
+    // inactivity countdown so multiple windows don't cause logout in the hidden one.
+    if (activityTimer) {
+      clearTimeout(activityTimer);
+      activityTimer = null;
+    }
+  }
+}
+
 async function sendPresenceHeartbeat() {
   const authStore = useAuthStore();
   const agencyStore = useAgencyStore();
@@ -90,6 +120,11 @@ async function sendPresenceHeartbeat() {
       agencyId,
       lastActivityAt: new Date(lastActivityTime).toISOString()
     });
+    // Success: treat heartbeat as activity so users with tab open stay logged in.
+    // This fixes "logged out despite doing things" when tab is open but no DOM events (e.g. reading, background tab).
+    if (isTracking) {
+      resetTimer();
+    }
   } catch {
     // ignore - presence is best-effort
   }
@@ -107,11 +142,14 @@ export function startActivityTracking() {
   activityEvents.forEach(event => {
     document.addEventListener(event, onActivity, true);
   });
-  
+
+  // When user returns to tab, reset inactivity timer (avoids logout after background tab)
+  document.addEventListener('visibilitychange', onVisibilityChange);
+
   // Start the timer
   resetTimer();
 
-  // Presence heartbeat (best-effort)
+  // Presence heartbeat (best-effort) – also resets inactivity timer on success
   sendPresenceHeartbeat();
   heartbeatTimer = setInterval(sendPresenceHeartbeat, HEARTBEAT_INTERVAL);
 }
@@ -127,7 +165,8 @@ export function stopActivityTracking() {
   activityEvents.forEach(event => {
     document.removeEventListener(event, onActivity, true);
   });
-  
+  document.removeEventListener('visibilitychange', onVisibilityChange);
+
   // Clear the timer
   if (activityTimer) {
     clearTimeout(activityTimer);
