@@ -49,9 +49,9 @@
               <div class="info-value">{{ client.client_status_label || '-' }}</div>
             </div>
             <div class="info-item">
-              <label>Workflow</label>
+              <label>Archived</label>
               <div class="info-value">
-                <ClientStatusBadge :status="client.status" />
+                {{ isClientArchived ? 'Yes' : 'No' }}
               </div>
             </div>
             <div class="info-item">
@@ -813,7 +813,6 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
-import ClientStatusBadge from './ClientStatusBadge.vue';
 import PhiDocumentsPanel from './PhiDocumentsPanel.vue';
 
 const props = defineProps({
