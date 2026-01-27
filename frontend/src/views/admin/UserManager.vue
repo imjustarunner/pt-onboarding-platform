@@ -711,13 +711,13 @@
         <p class="credentials-description">Copy these credentials and the generated email to send to the new user:</p>
         
         <div class="credentials-section">
-          <div class="credential-item">
-            <label>Passwordless Login Link:</label>
+          <div class="credential-item" v-if="userCredentials.portalLoginLink">
+            <label>Login Link:</label>
             <div class="credential-value">
-              <input type="text" :value="userCredentials.tokenLink || ''" readonly class="credential-input" ref="tokenLinkInput" />
-              <button @click="copyToClipboard('tokenLink')" class="btn-copy">Copy</button>
+              <input type="text" :value="userCredentials.portalLoginLink" readonly class="credential-input" />
+              <button @click="copyText(userCredentials.portalLoginLink)" class="btn-copy">Copy</button>
             </div>
-            <small>Direct login link that redirects to password change</small>
+            <small>User will be prompted to set a new password after login.</small>
           </div>
           
           <div class="credential-item">
@@ -728,8 +728,15 @@
             </div>
             <small>Work email will be set when user moves to active status</small>
           </div>
-          
-          <!-- Temporary passwords have been deprecated in favor of reset-password links -->
+
+          <div class="credential-item" v-if="userCredentials.temporaryPassword">
+            <label>Temporary Password:</label>
+            <div class="credential-value">
+              <input type="text" :value="userCredentials.temporaryPassword" readonly class="credential-input" />
+              <button @click="copyText(userCredentials.temporaryPassword)" class="btn-copy">Copy</button>
+            </div>
+            <small>This temporary password expires. User must set a new password after login.</small>
+          </div>
         </div>
         
         <!-- Generated Emails Section -->
@@ -1349,6 +1356,8 @@ const userCredentials = ref({
   token: '',
   tokenLink: '',
   username: '',
+  temporaryPassword: '',
+  portalLoginLink: '',
   generatedEmails: []
 });
 
@@ -1638,9 +1647,11 @@ const saveUser = async () => {
         
         // Show credentials modal
         userCredentials.value = {
-          token: response.data.passwordlessToken,
-          tokenLink: response.data.passwordlessTokenLink,
+          token: response.data.passwordlessToken || '',
+          tokenLink: response.data.passwordlessTokenLink || '',
           username: response.data.user.email,
+          temporaryPassword: response.data.temporaryPassword || response.data.credentials?.temporaryPassword || '',
+          portalLoginLink: response.data.portalLoginLink || response.data.credentials?.portalLoginLink || '',
           generatedEmails: []
         };
         
@@ -1752,9 +1763,11 @@ const saveUser = async () => {
         // Show credentials modal with generated email
         // For pending users, no temporary password is generated
         userCredentials.value = {
-          token: response.data.passwordlessToken,
-          tokenLink: response.data.passwordlessTokenLink,
-          username: userForm.value.email || 'N/A (Work email will be set when moved to active)',
+          token: response.data.passwordlessToken || '',
+          tokenLink: response.data.passwordlessTokenLink || '',
+          username: userForm.value.email || response.data.user?.email || response.data.user?.personalEmail || 'N/A',
+          temporaryPassword: response.data.temporaryPassword || '',
+          portalLoginLink: response.data.portalLoginLink || '',
           generatedEmails: response.data.generatedEmails || []
         };
         
@@ -2056,8 +2069,20 @@ const closeCredentialsModal = () => {
     token: '',
     tokenLink: '',
     username: '',
+    temporaryPassword: '',
+    portalLoginLink: '',
     generatedEmails: []
   };
+};
+
+const copyText = async (text) => {
+  const value = String(text || '');
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch (err) {
+    console.error('Failed to copy:', err);
+  }
 };
 
 const copyToClipboard = async (type) => {
@@ -2103,10 +2128,9 @@ const copyAllEmails = async () => {
 
 const copyAllCredentials = async () => {
   const parts = [];
-  if (userCredentials.value.tokenLink) {
-    parts.push(`Passwordless Login Link: ${userCredentials.value.tokenLink}`);
-  }
+  if (userCredentials.value.portalLoginLink) parts.push(`Login Link: ${userCredentials.value.portalLoginLink}`);
   parts.push(`Username: ${userCredentials.value.username}`);
+  if (userCredentials.value.temporaryPassword) parts.push(`Temporary Password: ${userCredentials.value.temporaryPassword}`);
   
   const allText = parts.join('\n');
   

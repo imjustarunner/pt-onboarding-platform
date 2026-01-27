@@ -610,17 +610,17 @@
             </div>
             
             <div class="password-status-layout">
-              <!-- Send Reset Password Link Section -->
+              <!-- Temporary Password Section -->
               <div class="reset-password-section">
-                <h4>Password Reset</h4>
-                <p>Send a password reset link to this user. They can use it to set or change their password.</p>
-                <button 
-                  @click="generateResetPasswordLink" 
-                  type="button" 
+                <h4>Temporary Password</h4>
+                <p>Generate an expiring temporary password. Send the username + temporary password to the user. After login, they will be prompted to set a new password.</p>
+                <button
+                  @click="generateTemporaryPasswordForUser"
+                  type="button"
                   class="btn btn-primary btn-sm"
-                  :disabled="generatingResetLink"
+                  :disabled="generatingTempPassword"
                 >
-                  {{ generatingResetLink ? 'Generating...' : 'Send Reset Password Link' }}
+                  {{ generatingTempPassword ? 'Generating...' : 'Generate Temporary Password' }}
                 </button>
               </div>
               
@@ -1127,53 +1127,52 @@
       @confirm="handleMoveToActive"
     />
     
-    <!-- Reset Password Link Modal -->
-    <div v-if="showResetPasswordLinkModal" class="modal-overlay" @click="closeResetPasswordLinkModal">
+    <!-- Temporary Password Modal -->
+    <div v-if="showTempPasswordModal" class="modal-overlay" @click="closeTempPasswordModal">
       <div class="modal-content credentials-modal" @click.stop>
-        <h2>Send Reset Password Link</h2>
-        <p class="credentials-description">Copy this reset password link to send to the user. They can use it to set or change their password.</p>
+        <h2>Temporary Password</h2>
+        <p class="credentials-description">Copy the username + temporary password to send to the user.</p>
         
         <div class="credentials-section">
           <div class="credential-item">
-            <label>Reset Password Link:</label>
+            <label>Username:</label>
             <div class="credential-value">
               <input 
                 type="text" 
-                :value="resetPasswordLink" 
+                :value="user?.username || user?.email || ''"
                 readonly 
                 class="credential-input" 
-                ref="resetLinkInput" 
+                ref="tempUsernameInput"
               />
-              <button @click="copyResetLink" class="btn-copy">Copy</button>
+              <button @click="copyTempUsername" class="btn-copy">Copy</button>
             </div>
-            <small>This link will expire in 48 hours. If the user is inactive, they will be activated when they set their password.</small>
+          </div>
+          <div class="credential-item">
+            <label>Temporary Password:</label>
+            <div class="credential-value">
+              <input
+                type="text"
+                :value="temporaryPassword"
+                readonly
+                class="credential-input"
+                ref="tempPasswordInput"
+              />
+              <button @click="copyTempPassword" class="btn-copy">Copy</button>
+            </div>
+            <small v-if="temporaryPasswordExpiresAt">Expires: {{ formatDate(temporaryPasswordExpiresAt) }}</small>
+            <small v-else>This temporary password expires. The user will be prompted to set a new password after login.</small>
           </div>
         </div>
         
         <div class="credentials-actions">
           <button 
-            @click="copyResetLink" 
+            @click="copyTempPassword" 
             class="btn btn-primary"
-            :disabled="!resetPasswordLink"
+            :disabled="!temporaryPassword"
           >
-            Copy Link
+            Copy Password
           </button>
-          <button 
-            @click="sendViaTextMessage" 
-            class="btn btn-secondary"
-            :disabled="!resetPasswordLink || sendingResetSms"
-          >
-            {{ sendingResetSms ? 'Sending…' : 'Send via Text Message' }}
-          </button>
-          <button 
-            @click="sendViaEmail" 
-            class="btn btn-secondary"
-            disabled
-            title="Email integration coming soon"
-          >
-            Send via Email
-          </button>
-          <button @click="closeResetPasswordLinkModal" class="btn btn-secondary">Close</button>
+          <button @click="closeTempPasswordModal" class="btn btn-secondary">Close</button>
         </div>
       </div>
     </div>
@@ -1957,10 +1956,12 @@ watch(selectedSchoolAffiliationId, async () => {
   await loadSchoolAssignments();
 });
 
-const showResetPasswordLinkModal = ref(false);
-const generatingResetLink = ref(false);
-const resetPasswordLink = ref('');
-const resetLinkInput = ref(null);
+const showTempPasswordModal = ref(false);
+const generatingTempPassword = ref(false);
+const temporaryPassword = ref('');
+const temporaryPasswordExpiresAt = ref('');
+const tempPasswordInput = ref(null);
+const tempUsernameInput = ref(null);
 
 const userAgencies = ref([]);
 const availableAgencies = ref([]);
@@ -2611,61 +2612,47 @@ const acknowledgeBillingAndSave = async () => {
   }
 };
 
-const generateResetPasswordLink = async () => {
+const generateTemporaryPasswordForUser = async () => {
   try {
-    generatingResetLink.value = true;
-    const response = await api.post(`/users/${userId.value}/send-reset-password-link`);
-    resetPasswordLink.value = response.data.tokenLink;
-    showResetPasswordLinkModal.value = true;
+    generatingTempPassword.value = true;
+    const response = await api.post(`/users/${userId.value}/generate-temporary-password`, { expiresInHours: 48 });
+    temporaryPassword.value = response.data.temporaryPassword || '';
+    temporaryPasswordExpiresAt.value = response.data.expiresAt || '';
+    showTempPasswordModal.value = true;
   } catch (err) {
-    error.value = err.response?.data?.error?.message || 'Failed to generate reset password link';
+    error.value = err.response?.data?.error?.message || 'Failed to generate temporary password';
     alert(error.value);
   } finally {
-    generatingResetLink.value = false;
+    generatingTempPassword.value = false;
   }
 };
 
-const copyResetLink = async () => {
-  if (resetLinkInput.value) {
-    resetLinkInput.value.select();
-    try {
-      await navigator.clipboard.writeText(resetPasswordLink.value);
-      // Could show a toast notification here
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
+const copyTempPassword = async () => {
+  if (tempPasswordInput.value) {
+    tempPasswordInput.value.select();
   }
-};
-
-const closeResetPasswordLinkModal = () => {
-  showResetPasswordLinkModal.value = false;
-  resetPasswordLink.value = '';
-};
-
-const sendViaTextMessage = () => {
-  // Implemented: send reset link via Twilio SMS
-  sendResetLinkSms();
-};
-
-const sendViaEmail = () => {
-  // Placeholder for future Email API integration
-  alert('Email integration coming soon');
-};
-
-const sendingResetSms = ref(false);
-const sendResetLinkSms = async () => {
   try {
-    if (!resetPasswordLink.value) return;
-    sendingResetSms.value = true;
-    const resp = await api.post(`/users/${userId.value}/send-reset-password-link-sms`, {
-      tokenLink: resetPasswordLink.value
-    });
-    alert(`Sent SMS to ${resp.data.to}`);
+    await navigator.clipboard.writeText(String(temporaryPassword.value || ''));
   } catch (err) {
-    alert(err.response?.data?.error?.message || 'Failed to send SMS');
-  } finally {
-    sendingResetSms.value = false;
+    console.error('Failed to copy:', err);
   }
+};
+
+const copyTempUsername = async () => {
+  if (tempUsernameInput.value) {
+    tempUsernameInput.value.select();
+  }
+  try {
+    await navigator.clipboard.writeText(String(user.value?.username || user.value?.email || ''));
+  } catch (err) {
+    console.error('Failed to copy:', err);
+  }
+};
+
+const closeTempPasswordModal = () => {
+  showTempPasswordModal.value = false;
+  temporaryPassword.value = '';
+  temporaryPasswordExpiresAt.value = '';
 };
 
 const formatDate = (dateString) => {

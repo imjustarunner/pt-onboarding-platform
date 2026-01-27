@@ -4644,9 +4644,12 @@ const payrollAgencyOptions = computed(() => {
   const ua = agencyStore.userAgencies?.value ?? agencyStore.userAgencies;
   const aa = agencyStore.agencies?.value ?? agencyStore.agencies;
 
-  const base = (Array.isArray(ua) && ua.length > 0)
-    ? ua
-    : (Array.isArray(aa) ? aa : []);
+  // Super admins should always see the full org list from /agencies, even if some
+  // other view populated userAgencies earlier (which may be a subset).
+  const role = String(authStore.user?.role || '').trim().toLowerCase();
+  const base = (role === 'super_admin')
+    ? (Array.isArray(aa) ? aa : [])
+    : ((Array.isArray(ua) && ua.length > 0) ? ua : (Array.isArray(aa) ? aa : []));
 
   // Payroll only runs at the Agency org level (not schools/programs/learning).
   return base.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');

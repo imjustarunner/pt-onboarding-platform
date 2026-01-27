@@ -72,6 +72,13 @@ export const getCurrentUser = async (req, res, next) => {
       };
     };
     const pw = calcPasswordExpiry(user);
+    const tempActive = (() => {
+      if (!user?.temporary_password_hash) return false;
+      if (!user?.temporary_password_expires_at) return true;
+      const expiresAt = new Date(user.temporary_password_expires_at);
+      if (Number.isNaN(expiresAt.getTime())) return true;
+      return expiresAt.getTime() > Date.now();
+    })();
 
     // Return user in same format as login response + capabilities
     res.json({
@@ -86,7 +93,7 @@ export const getCurrentUser = async (req, res, next) => {
       serviceFocus: user.service_focus ?? null,
       username: user.username || user.personal_email || user.email,
       profilePhotoUrl: publicUploadsUrlFromStoredPath(user.profile_photo_path),
-      requiresPasswordChange: pw.requiresPasswordChange,
+      requiresPasswordChange: pw.requiresPasswordChange || tempActive,
       passwordExpiresAt: pw.passwordExpiresAt,
       passwordExpired: pw.passwordExpired,
       // Provider global availability (best-effort; defaults true for older DBs)
@@ -2379,7 +2386,7 @@ export const generateInvitationToken = async (req, res, next) => {
 export const generateTemporaryPassword = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { expiresInDays } = req.body;
+    const { expiresInDays, expiresInHours } = req.body;
     
     // Only admins/super_admins can generate temporary passwords
     if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
@@ -2387,7 +2394,12 @@ export const generateTemporaryPassword = async (req, res, next) => {
     }
     
     const tempPassword = await User.generateTemporaryPassword();
-    const result = await User.setTemporaryPassword(id, tempPassword, expiresInDays || 30);
+    // Default to 48 hours if not specified
+    const finalExpiresInHours =
+      Number.isFinite(parseInt(expiresInHours)) ? parseInt(expiresInHours) :
+      Number.isFinite(parseInt(expiresInDays)) ? (parseInt(expiresInDays) * 24) :
+      48;
+    const result = await User.setTemporaryPassword(id, tempPassword, Math.max(1, finalExpiresInHours));
     
     res.json({ 
       temporaryPassword: tempPassword,

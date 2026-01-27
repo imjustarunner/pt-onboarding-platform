@@ -319,18 +319,42 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Verify password
-    if (!user.password_hash) {
-      return res.status(401).json({ 
-        error: { 
-          message: 'Please complete your account setup first. Use the passwordless login link sent to your email.',
+    // Verify password (supports temporary passwords)
+    const hasPasswordHash = !!user.password_hash;
+    const hasTempHash = !!user.temporary_password_hash;
+
+    if (!hasPasswordHash && !hasTempHash) {
+      return res.status(401).json({
+        error: {
+          message: 'Please complete your account setup first. Please contact your administrator for your temporary password.',
           requiresSetup: true
-        } 
+        }
       });
     }
-    
-    const isValidPassword = await bcrypt.compare(password, user.password_hash);
-    
+
+    let isValidPassword = false;
+    if (hasPasswordHash) {
+      isValidPassword = await bcrypt.compare(password, user.password_hash);
+    }
+
+    // If normal password did not match (or isn't set), fall back to temporary password if present + unexpired
+    if (!isValidPassword && hasTempHash) {
+      // Enforce expiration (with small clock-skew buffer)
+      if (user.temporary_password_expires_at) {
+        const expiresAt = new Date(user.temporary_password_expires_at);
+        const now = new Date();
+        const bufferMs = 60 * 1000; // 1 minute
+        if (expiresAt.getTime() < (now.getTime() - bufferMs)) {
+          return res.status(401).json({
+            error: {
+              message: 'Temporary password has expired. Please contact your administrator for a new temporary password.'
+            }
+          });
+        }
+      }
+      isValidPassword = await bcrypt.compare(password, user.temporary_password_hash);
+    }
+
     if (!isValidPassword) {
       return res.status(401).json({ error: { message: 'Invalid email or password' } });
     }
@@ -449,6 +473,15 @@ export const login = async (req, res, next) => {
     };
     const pw = calcPasswordExpiry(freshUser);
 
+    // Force a password change when a temporary password is active (and unexpired).
+    const tempActive = (() => {
+      if (!freshUser?.temporary_password_hash) return false;
+      if (!freshUser?.temporary_password_expires_at) return true;
+      const expiresAt = new Date(freshUser.temporary_password_expires_at);
+      if (Number.isNaN(expiresAt.getTime())) return true;
+      return expiresAt.getTime() > Date.now();
+    })();
+
     const medcancelRateSchedule = freshUser?.medcancel_rate_schedule || null;
     const medcancelEnabled = ['low', 'high'].includes(String(medcancelRateSchedule || '').toLowerCase());
     const companyCardEnabled = Boolean(freshUser?.company_card_enabled);
@@ -467,7 +500,7 @@ export const login = async (req, res, next) => {
         medcancelEnabled,
         medcancelRateSchedule,
         companyCardEnabled,
-        requiresPasswordChange: pw.requiresPasswordChange,
+        requiresPasswordChange: pw.requiresPasswordChange || tempActive,
         passwordExpiresAt: pw.passwordExpiresAt,
         passwordExpired: pw.passwordExpired,
         ...(await buildPayrollCaps(user))
@@ -1526,12 +1559,16 @@ export const register = async (req, res, next) => {
       }
     }
     
-    // For PENDING_SETUP users: NO temporary password, only passwordless token
-    // Create user without password (PENDING_SETUP users use passwordless access only)
-    // Email is set to personalEmail initially (username will also be personalEmail)
+    // New onboarding flow: create with a temporary (expiring) password.
+    // Admin will send username + temporary password; user logs in and is forced to set a new password.
+    // Email is set to personalEmail initially (username will also be personalEmail).
+    const tempPassword = await User.generateTemporaryPassword();
+    const bcrypt = (await import('bcrypt')).default;
+    const tempPasswordHash = await bcrypt.hash(tempPassword, 10);
+
     const user = await User.create({
       email: personalEmail, // Set email to personalEmail initially (for login compatibility)
-      passwordHash: null, // No password for PENDING_SETUP users - they'll set it via initial setup
+      passwordHash: tempPasswordHash,
       firstName,
       lastName,
       phoneNumber,
@@ -1540,12 +1577,13 @@ export const register = async (req, res, next) => {
       status: 'PENDING_SETUP' // New users start in PENDING_SETUP status
     });
     
-    // Do NOT set temporary password for pending users
-    // Generate passwordless login token (7 days expiration for pending users)
-    // This token will be used for initial setup (password creation)
-    const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 7 * 24); // 7 days in hours
-    // Link goes to passwordless-login which will redirect to initial-setup if password not set
-    const passwordlessTokenLink = `${config.frontendUrl}/passwordless-login/${passwordlessTokenResult.token}`;
+    // Store the temp password hash + expiry marker (this is what forces /change-password)
+    // Default: 48 hours
+    await User.setTemporaryPassword(user.id, tempPassword, 48);
+
+    // Login link (org-scoped if available once agencies are assigned)
+    // We'll update this later once assignedAgencyIds is computed; placeholder for now:
+    let portalLoginLink = `${config.frontendUrl}/login`;
     
     console.log('User created:', { id: user.id, email: user.email, workEmail: user.work_email });
     
@@ -1652,6 +1690,10 @@ export const register = async (req, res, next) => {
       if (agency) {
         agencyName = agency.name;
         peopleOpsEmail = agency.people_ops_email || peopleOpsEmail;
+        const portalSlug = agency.portal_url || agency.slug || null;
+        if (portalSlug) {
+          portalLoginLink = `${String(config.frontendUrl || '').replace(/\/\s*$/, '')}/${portalSlug}/login`;
+        }
       }
     }
     
@@ -1667,9 +1709,10 @@ export const register = async (req, res, next) => {
           FIRST_NAME: firstName || '',
           LAST_NAME: lastName || '',
           AGENCY_NAME: agencyName,
-          PORTAL_LOGIN_LINK: passwordlessTokenLink,
+          PORTAL_LOGIN_LINK: portalLoginLink,
           PORTAL_URL: config.frontendUrl,
           USERNAME: personalEmail || email || 'N/A (Work email will be set when moved to active)',
+          TEMP_PASSWORD: tempPassword,
           PEOPLE_OPS_EMAIL: peopleOpsEmail,
           SENDER_NAME: req.user?.firstName || 'Administrator'
         };
@@ -1688,7 +1731,7 @@ export const register = async (req, res, next) => {
       generatedEmails.push({
         type: 'Pending Welcome',
         subject: 'Your Pre-Hire Access Link',
-        body: `Hello ${firstName || ''} ${lastName || ''},\n\nYour pre-hire access link: ${passwordlessTokenLink}\n\nPlease contact ${peopleOpsEmail} if you have any questions.`
+        body: `Hello ${firstName || ''} ${lastName || ''},\n\nHere are your login credentials:\n\nUsername: ${personalEmail || email || ''}\nTemporary Password: ${tempPassword}\n\nLogin here: ${portalLoginLink}\n\nYou will be prompted to set a new password after logging in.\n\nPlease contact ${peopleOpsEmail} if you have any questions.`
       });
     }
     
@@ -1728,8 +1771,8 @@ export const register = async (req, res, next) => {
         role: user.role,
         status: user.status
       },
-      passwordlessToken: passwordlessTokenResult.token,
-      passwordlessTokenLink: passwordlessTokenLink,
+      temporaryPassword: tempPassword,
+      portalLoginLink,
       generatedEmails
     });
   } catch (error) {

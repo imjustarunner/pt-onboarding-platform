@@ -1372,9 +1372,13 @@ class User {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + expiresInHours);
     
+    // Temporary passwords are intended to *replace* the current password, so the user must
+    // log in with the temporary password and then set a permanent one.
+    // We store the hash in both password_hash (for login) and temporary_password_hash (to detect
+    // "must change password" state until cleared by changePassword()).
     await pool.execute(
-      'UPDATE users SET temporary_password_hash = ?, temporary_password_expires_at = ? WHERE id = ?',
-      [passwordHash, expiresAt, userId]
+      'UPDATE users SET password_hash = ?, temporary_password_hash = ?, temporary_password_expires_at = ? WHERE id = ?',
+      [passwordHash, passwordHash, expiresAt, userId]
     );
     
     return { password, expiresAt };
