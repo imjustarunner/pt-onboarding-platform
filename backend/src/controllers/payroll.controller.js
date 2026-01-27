@@ -17,6 +17,9 @@ import PayrollStagePriorUnpaid from '../models/PayrollStagePriorUnpaid.model.js'
 import PayrollAdjustment from '../models/PayrollAdjustment.model.js';
 import PayrollManualPayLine from '../models/PayrollManualPayLine.model.js';
 import PayrollImportMissedAppointment from '../models/PayrollImportMissedAppointment.model.js';
+import PayrollTodoTemplate from '../models/PayrollTodoTemplate.model.js';
+import PayrollPeriodTodo from '../models/PayrollPeriodTodo.model.js';
+import PayrollWizardProgress from '../models/PayrollWizardProgress.model.js';
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollServiceCodeRule from '../models/PayrollServiceCodeRule.model.js';
@@ -1568,6 +1571,11 @@ export const createPayrollPeriod = async (req, res, next) => {
       periodEnd,
       createdByUserId: req.user.id
     });
+    try {
+      await PayrollPeriodTodo.ensureMaterializedForPeriod({ payrollPeriodId: p?.id, agencyId: resolvedAgencyId });
+    } catch {
+      // best-effort
+    }
     res.status(201).json(p);
   } catch (e) {
     next(e);
@@ -1641,13 +1649,18 @@ export const ensureFuturePayrollPeriods = async (req, res, next) => {
         periodEnd
       });
       if (!existing) {
-        await PayrollPeriod.create({
+        const createdPeriod = await PayrollPeriod.create({
           agencyId,
           label,
           periodStart,
           periodEnd,
           createdByUserId: req.user?.id
         });
+        try {
+          await PayrollPeriodTodo.ensureMaterializedForPeriod({ payrollPeriodId: createdPeriod?.id, agencyId });
+        } catch {
+          // best-effort (tables may not exist yet)
+        }
         created += 1;
       }
 
@@ -3073,6 +3086,13 @@ export const importPayrollCsv = [
         uploadedByUserId: req.user.id
       });
 
+      // Ensure recurring To-Dos exist for this pay period (best-effort).
+      try {
+        await PayrollPeriodTodo.ensureMaterializedForPeriod({ payrollPeriodId, agencyId });
+      } catch {
+        // ignore
+      }
+
       // Save display-only missed appointment flags (Paid in Full).
       try {
         await PayrollImportMissedAppointment.replaceForImport({
@@ -3290,6 +3310,13 @@ export const importPayrollAuto = [
         originalFilename: req.file.originalname,
         uploadedByUserId: req.user.id
       });
+
+      // Ensure recurring To-Dos exist for this pay period (best-effort).
+      try {
+        await PayrollPeriodTodo.ensureMaterializedForPeriod({ payrollPeriodId: period.id, agencyId: resolvedAgencyId });
+      } catch {
+        // ignore
+      }
 
       // Save display-only missed appointment flags (Paid in Full).
       try {
@@ -4275,6 +4302,248 @@ export const listPayrollManualPayLines = async (req, res, next) => {
       throw e;
     }
   } catch (e) {
+    next(e);
+  }
+};
+
+// ==========================
+// Payroll To-Dos (blocking)
+// ==========================
+
+export const listPayrollTodoTemplates = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const rows = await PayrollTodoTemplate.listForAgency({ agencyId, includeInactive: true });
+    res.json(rows || []);
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json([]);
+    next(e);
+  }
+};
+
+export const createPayrollTodoTemplate = async (req, res, next) => {
+  try {
+    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const title = String(req.body?.title || '').trim().slice(0, 180);
+    const description = req.body?.description === null || req.body?.description === undefined ? null : String(req.body.description);
+    const scopeRaw = String(req.body?.scope || 'agency').trim().toLowerCase();
+    const scope = scopeRaw === 'provider' ? 'provider' : 'agency';
+    const targetUserId = req.body?.targetUserId ? parseInt(req.body.targetUserId, 10) : 0;
+    const startPayrollPeriodId = req.body?.startPayrollPeriodId ? parseInt(req.body.startPayrollPeriodId, 10) : 0;
+    const isActive = (req.body?.isActive === undefined || req.body?.isActive === null) ? 1 : (req.body.isActive ? 1 : 0);
+
+    if (!title) return res.status(400).json({ error: { message: 'title is required' } });
+    if (scope === 'provider' && !(targetUserId > 0)) {
+      return res.status(400).json({ error: { message: 'targetUserId is required for provider-scoped templates' } });
+    }
+
+    const id = await PayrollTodoTemplate.create({
+      agencyId,
+      title,
+      description,
+      scope,
+      targetUserId: scope === 'provider' ? targetUserId : 0,
+      startPayrollPeriodId: startPayrollPeriodId || 0,
+      createdByUserId: req.user.id,
+      updatedByUserId: req.user.id
+    });
+
+    // Best-effort: if a start period is set, materialize it immediately.
+    if (startPayrollPeriodId) {
+      try {
+        await PayrollPeriodTodo.ensureMaterializedForPeriod({ payrollPeriodId: startPayrollPeriodId, agencyId });
+      } catch { /* ignore */ }
+    }
+
+    res.status(201).json({ ok: true, id });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(409).json({ error: { message: 'Payroll To-Do tables are not available yet (run database migrations first).' } });
+    }
+    next(e);
+  }
+};
+
+export const patchPayrollTodoTemplate = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.templateId, 10);
+    if (!id) return res.status(400).json({ error: { message: 'templateId is required' } });
+    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : (req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const title = String(req.body?.title || '').trim().slice(0, 180);
+    const description = req.body?.description === null || req.body?.description === undefined ? null : String(req.body.description);
+    const scopeRaw = String(req.body?.scope || 'agency').trim().toLowerCase();
+    const scope = scopeRaw === 'provider' ? 'provider' : 'agency';
+    const targetUserId = req.body?.targetUserId ? parseInt(req.body.targetUserId, 10) : 0;
+    const startPayrollPeriodId = req.body?.startPayrollPeriodId ? parseInt(req.body.startPayrollPeriodId, 10) : 0;
+    const isActive = (req.body?.isActive === undefined || req.body?.isActive === null) ? 1 : (req.body.isActive ? 1 : 0);
+
+    if (!title) return res.status(400).json({ error: { message: 'title is required' } });
+    if (scope === 'provider' && !(targetUserId > 0)) {
+      return res.status(400).json({ error: { message: 'targetUserId is required for provider-scoped templates' } });
+    }
+
+    await PayrollTodoTemplate.update({
+      id,
+      agencyId,
+      title,
+      description,
+      scope,
+      targetUserId: scope === 'provider' ? targetUserId : 0,
+      startPayrollPeriodId: startPayrollPeriodId || 0,
+      isActive,
+      updatedByUserId: req.user.id
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.status(409).json({ error: { message: 'Payroll To-Do tables are not available yet (run database migrations first).' } });
+    next(e);
+  }
+};
+
+export const deletePayrollTodoTemplate = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.templateId, 10);
+    const agencyId = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!id || !agencyId) return res.status(400).json({ error: { message: 'templateId and agencyId are required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    await PayrollTodoTemplate.delete({ id, agencyId });
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true });
+    next(e);
+  }
+};
+
+export const listPayrollPeriodTodos = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    try {
+      await PayrollPeriodTodo.ensureMaterializedForPeriod({ payrollPeriodId, agencyId: period.agency_id });
+    } catch { /* ignore */ }
+    const rows = await PayrollPeriodTodo.listForPeriod({ payrollPeriodId, agencyId: period.agency_id });
+    res.json(rows || []);
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json([]);
+    next(e);
+  }
+};
+
+export const createPayrollPeriodTodo = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const title = String(req.body?.title || '').trim().slice(0, 180);
+    const description = req.body?.description === null || req.body?.description === undefined ? null : String(req.body.description);
+    const scopeRaw = String(req.body?.scope || 'agency').trim().toLowerCase();
+    const scope = scopeRaw === 'provider' ? 'provider' : 'agency';
+    const targetUserId = req.body?.targetUserId ? parseInt(req.body.targetUserId, 10) : 0;
+    if (!title) return res.status(400).json({ error: { message: 'title is required' } });
+    if (scope === 'provider' && !(targetUserId > 0)) {
+      return res.status(400).json({ error: { message: 'targetUserId is required for provider-scoped To-Dos' } });
+    }
+
+    const id = await PayrollPeriodTodo.createAdHoc({
+      payrollPeriodId,
+      agencyId: period.agency_id,
+      title,
+      description,
+      scope,
+      targetUserId: scope === 'provider' ? targetUserId : 0,
+      createdByUserId: req.user.id
+    });
+
+    res.status(201).json({ ok: true, id });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.status(409).json({ error: { message: 'Payroll To-Do tables are not available yet (run database migrations first).' } });
+    next(e);
+  }
+};
+
+export const patchPayrollPeriodTodo = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const todoId = parseInt(req.params.todoId, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    if (!todoId) return res.status(400).json({ error: { message: 'todoId is required' } });
+
+    const statusRaw = String(req.body?.status || '').trim().toLowerCase();
+    if (!(statusRaw === 'done' || statusRaw === 'pending')) {
+      return res.status(400).json({ error: { message: 'status must be done or pending' } });
+    }
+    await PayrollPeriodTodo.setStatus({
+      todoId,
+      payrollPeriodId,
+      agencyId: period.agency_id,
+      status: statusRaw,
+      doneByUserId: req.user.id
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.status(409).json({ error: { message: 'Payroll To-Do tables are not available yet (run database migrations first).' } });
+    next(e);
+  }
+};
+
+// ==========================
+// Payroll Wizard Progress
+// ==========================
+
+export const getPayrollWizardProgress = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const row = await PayrollWizardProgress.get({
+      agencyId: period.agency_id,
+      userId: req.user.id,
+      payrollPeriodId
+    });
+    res.json(row ? { state: row.state_json } : { state: null });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ state: null });
+    next(e);
+  }
+};
+
+export const putPayrollWizardProgress = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const state = req.body?.state ?? null;
+    const row = await PayrollWizardProgress.upsert({
+      agencyId: period.agency_id,
+      userId: req.user.id,
+      payrollPeriodId,
+      state
+    });
+    res.json({ ok: true, state: row?.state_json ?? null });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(409).json({ error: { message: 'Payroll wizard progress table is not available yet (run database migrations first).' } });
+    }
     next(e);
   }
 };
@@ -5459,6 +5728,22 @@ export const runPayrollPeriod = async (req, res, next) => {
     const st = String(period.status || '').toLowerCase();
     if (st === 'posted' || st === 'finalized') {
       return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
+    }
+
+    // Block running payroll if there are incomplete Payroll To-Dos for this pay period.
+    try {
+      await PayrollPeriodTodo.ensureMaterializedForPeriod({ payrollPeriodId, agencyId: period.agency_id });
+      const pendingTodoCount = await PayrollPeriodTodo.countPendingForPeriod({ payrollPeriodId, agencyId: period.agency_id });
+      if (pendingTodoCount > 0) {
+        const sample = await PayrollPeriodTodo.listPendingSampleForPeriod({ payrollPeriodId, agencyId: period.agency_id, limit: 50 });
+        return res.status(409).json({
+          error: { message: `Cannot run payroll: ${pendingTodoCount} payroll To-Do item(s) must be marked Done.` },
+          pendingTodos: { count: pendingTodoCount, sample }
+        });
+      }
+    } catch (e) {
+      // Best-effort: do not block payroll if To-Do tables aren't migrated yet.
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
     // Block running payroll if there are unresolved mileage submissions for this pay period.

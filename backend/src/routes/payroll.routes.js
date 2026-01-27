@@ -110,6 +110,15 @@ import {
   ,putPtoPolicy
   ,getUserPtoAccount
   ,upsertUserPtoAccount
+  ,listPayrollTodoTemplates
+  ,createPayrollTodoTemplate
+  ,patchPayrollTodoTemplate
+  ,deletePayrollTodoTemplate
+  ,listPayrollPeriodTodos
+  ,createPayrollPeriodTodo
+  ,patchPayrollPeriodTodo
+  ,getPayrollWizardProgress
+  ,putPayrollWizardProgress
   ,listUserSalaryPositions
   ,upsertUserSalaryPosition
   ,deleteUserSalaryPosition
@@ -192,6 +201,15 @@ router.put('/other-rate-titles/users/:userId', putPayrollOtherRateTitlesForUser)
 router.get('/periods/:id/manual-pay-lines', listPayrollManualPayLines);
 router.post('/periods/:id/manual-pay-lines', createPayrollManualPayLine);
 router.delete('/periods/:id/manual-pay-lines/:lineId', deletePayrollManualPayLine);
+router.get('/todo-templates', listPayrollTodoTemplates);
+router.post('/todo-templates', createPayrollTodoTemplate);
+router.patch('/todo-templates/:templateId', patchPayrollTodoTemplate);
+router.delete('/todo-templates/:templateId', deletePayrollTodoTemplate);
+router.get('/periods/:id/todos', listPayrollPeriodTodos);
+router.post('/periods/:id/todos', createPayrollPeriodTodo);
+router.patch('/periods/:id/todos/:todoId', patchPayrollPeriodTodo);
+router.get('/periods/:id/wizard-progress', getPayrollWizardProgress);
+router.put('/periods/:id/wizard-progress', putPayrollWizardProgress);
 router.get('/agency-schools', listAgencySchoolsForPayroll);
 router.get('/office-locations', listOfficeLocationsForPayroll);
 router.post('/office-locations', createOfficeLocationForPayroll);

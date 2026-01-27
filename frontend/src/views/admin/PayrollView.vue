@@ -739,6 +739,12 @@
         <button class="btn btn-secondary" @click="openPayrollToolsModal">
           Payroll Tools (Checker)
         </button>
+        <button class="btn btn-secondary" type="button" @click="openTodoModal" :disabled="!selectedPeriodId">
+          Add Single/Recurring Note or To Do
+        </button>
+        <button class="btn btn-primary" type="button" @click="openPayrollWizard" :disabled="!selectedPeriodId">
+          Payroll Wizard
+        </button>
         <button class="btn btn-secondary" @click="showStageModal = true" :disabled="!selectedPeriodId">
           Payroll Stage
         </button>
@@ -984,6 +990,50 @@
                   Unpost
                 </button>
                 <button class="btn btn-secondary btn-sm" @click="showStageModal = false" style="margin-left: 8px;">Close</button>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top: 12px; border-left: 4px solid var(--danger);">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Blocking Payroll To‑Dos</h3>
+              <div class="hint">Payroll cannot be run until all To‑Dos for this pay period are marked Done.</div>
+              <div v-if="payrollTodosError" class="warn-box" style="margin-top: 8px;">{{ payrollTodosError }}</div>
+              <div v-if="payrollTodosLoading" class="muted" style="margin-top: 8px;">Loading To‑Dos…</div>
+              <div v-else-if="!(payrollTodos || []).length" class="muted" style="margin-top: 8px;">No To‑Dos yet.</div>
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th style="width: 90px;">Done</th>
+                      <th>To‑Do</th>
+                      <th style="width: 220px;">Scope</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="t in payrollTodos" :key="t.id">
+                      <td>
+                        <input
+                          type="checkbox"
+                          :checked="String(t.status || '').toLowerCase() === 'done'"
+                          :disabled="updatingPayrollTodoId === t.id"
+                          @change="togglePayrollTodoDone(t, $event.target.checked)"
+                        />
+                      </td>
+                      <td>
+                        <div><strong>{{ t.title }}</strong></div>
+                        <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
+                      </td>
+                      <td class="muted">
+                        <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
+                        <span v-else>Agency-wide</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+                <button class="btn btn-secondary" type="button" @click="openTodoModal" :disabled="!selectedPeriodId">
+                  Manage To‑Dos
+                </button>
               </div>
             </div>
 
@@ -3105,6 +3155,314 @@
           <div class="hint" v-if="!agencyId">Select an organization first.</div>
         </div>
       </div>
+
+      <!-- Payroll To-Dos modal -->
+      <teleport to="body">
+        <div v-if="showTodoModal" class="modal-backdrop">
+          <div class="modal" style="width: min(920px, 100%);">
+            <div class="modal-header">
+              <div>
+                <div class="modal-title">Payroll To‑Dos</div>
+                <div class="hint">These block running payroll until marked Done.</div>
+              </div>
+              <div class="actions" style="margin: 0;">
+                <button class="btn btn-secondary btn-sm" type="button" @click="showTodoModal = false">Close</button>
+              </div>
+            </div>
+
+            <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+              <button class="btn btn-secondary btn-sm" type="button" @click="todoTab = 'period'">This pay period</button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="todoTab = 'templates'">Recurring templates</button>
+            </div>
+
+            <div v-if="todoTab === 'period'">
+              <div class="card" style="margin-top: 12px;">
+                <h3 class="card-title" style="margin: 0 0 6px 0;">Add a To‑Do (single)</h3>
+                <div class="field-row" style="grid-template-columns: 180px 1fr; margin-top: 10px;">
+                  <div class="field">
+                    <label>Scope</label>
+                    <select v-model="newTodoDraft.scope">
+                      <option value="agency">Agency-wide</option>
+                      <option value="provider">Per-provider</option>
+                    </select>
+                  </div>
+                  <div v-if="newTodoDraft.scope === 'provider'" class="field">
+                    <label>Provider</label>
+                    <select v-model="newTodoDraft.targetUserId">
+                      <option :value="null">Select provider…</option>
+                      <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="field" style="margin-top: 10px;">
+                  <label>Title</label>
+                  <input v-model="newTodoDraft.title" type="text" placeholder="e.g., Verify X before running payroll" />
+                </div>
+                <div class="field" style="margin-top: 10px;">
+                  <label>Description (optional)</label>
+                  <textarea v-model="newTodoDraft.description" rows="3" placeholder="Optional details…" />
+                </div>
+                <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+                  <button class="btn btn-primary" type="button" @click="createTodoForPeriod" :disabled="!String(newTodoDraft.title||'').trim()">
+                    Add To‑Do
+                  </button>
+                </div>
+              </div>
+
+              <div class="card" style="margin-top: 12px;">
+                <h3 class="card-title" style="margin: 0 0 6px 0;">To‑Dos for this pay period</h3>
+                <div v-if="payrollTodosError" class="warn-box" style="margin-top: 8px;">{{ payrollTodosError }}</div>
+                <div v-if="payrollTodosLoading" class="muted" style="margin-top: 8px;">Loading…</div>
+                <div v-else-if="!(payrollTodos||[]).length" class="muted" style="margin-top: 8px;">No To‑Dos yet.</div>
+                <div v-else class="table-wrap" style="margin-top: 10px;">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th style="width: 90px;">Done</th>
+                        <th>To‑Do</th>
+                        <th style="width: 220px;">Scope</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="t in payrollTodos" :key="t.id">
+                        <td>
+                          <input
+                            type="checkbox"
+                            :checked="String(t.status || '').toLowerCase() === 'done'"
+                            :disabled="updatingPayrollTodoId === t.id"
+                            @change="togglePayrollTodoDone(t, $event.target.checked)"
+                          />
+                        </td>
+                        <td>
+                          <div><strong>{{ t.title }}</strong></div>
+                          <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
+                        </td>
+                        <td class="muted">
+                          <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
+                          <span v-else>Agency-wide</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div v-else>
+              <div class="card" style="margin-top: 12px;">
+                <h3 class="card-title" style="margin: 0 0 6px 0;">Create recurring template</h3>
+                <div v-if="todoTemplatesError" class="warn-box" style="margin-top: 8px;">{{ todoTemplatesError }}</div>
+                <div class="field-row" style="grid-template-columns: 180px 1fr; margin-top: 10px;">
+                  <div class="field">
+                    <label>Scope</label>
+                    <select v-model="templateDraft.scope">
+                      <option value="agency">Agency-wide</option>
+                      <option value="provider">Per-provider</option>
+                    </select>
+                  </div>
+                  <div v-if="templateDraft.scope === 'provider'" class="field">
+                    <label>Provider</label>
+                    <select v-model="templateDraft.targetUserId">
+                      <option :value="null">Select provider…</option>
+                      <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+                  <div class="field">
+                    <label>Start at pay period</label>
+                    <select v-model="templateDraft.startPayrollPeriodId">
+                      <option :value="null">Start immediately</option>
+                      <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Active</label>
+                    <select v-model="templateDraft.isActive">
+                      <option :value="true">Active</option>
+                      <option :value="false">Inactive</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="field" style="margin-top: 10px;">
+                  <label>Title</label>
+                  <input v-model="templateDraft.title" type="text" placeholder="e.g., Confirm XYZ is correct" />
+                </div>
+                <div class="field" style="margin-top: 10px;">
+                  <label>Description (optional)</label>
+                  <textarea v-model="templateDraft.description" rows="3" placeholder="Optional details…" />
+                </div>
+                <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+                  <button class="btn btn-primary" type="button" @click="createTodoTemplate" :disabled="savingTodoTemplate || !String(templateDraft.title||'').trim()">
+                    {{ savingTodoTemplate ? 'Saving…' : 'Create template' }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="card" style="margin-top: 12px;">
+                <h3 class="card-title" style="margin: 0 0 6px 0;">Templates</h3>
+                <div v-if="todoTemplatesLoading" class="muted" style="margin-top: 8px;">Loading templates…</div>
+                <div v-else-if="!(todoTemplates||[]).length" class="muted" style="margin-top: 8px;">No templates yet.</div>
+                <div v-else class="table-wrap" style="margin-top: 10px;">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th style="width: 90px;">Active</th>
+                        <th>Template</th>
+                        <th style="width: 240px;">Starts</th>
+                        <th style="width: 120px;"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="t in todoTemplates" :key="t.id">
+                        <td>
+                          <input
+                            type="checkbox"
+                            :checked="Number(t.is_active) === 1"
+                            :disabled="deletingTodoTemplateId === t.id"
+                            @change="toggleTodoTemplateActive(t, $event.target.checked)"
+                          />
+                        </td>
+                        <td>
+                          <div><strong>{{ t.title }}</strong></div>
+                          <div class="muted" style="margin-top: 4px;">
+                            <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
+                            <span v-else>Agency-wide</span>
+                          </div>
+                          <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
+                        </td>
+                        <td class="muted">
+                          <span v-if="Number(t.start_payroll_period_id||0) > 0">From period #{{ t.start_payroll_period_id }}</span>
+                          <span v-else>Immediately</span>
+                        </td>
+                        <td class="right">
+                          <button class="btn btn-danger btn-sm" type="button" :disabled="deletingTodoTemplateId === t.id" @click="deleteTodoTemplate(t)">
+                            {{ deletingTodoTemplateId === t.id ? 'Deleting…' : 'Delete' }}
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </teleport>
+
+      <!-- Payroll Wizard modal (no click-out close) -->
+      <teleport to="body">
+        <div v-if="showPayrollWizardModal" class="modal-backdrop">
+          <div class="modal" style="width: min(980px, 100%);">
+            <div class="modal-header">
+              <div>
+                <div class="modal-title">Payroll Wizard</div>
+                <div class="hint">Step-by-step guide. Save anytime; no click-out close.</div>
+              </div>
+              <div class="actions" style="margin: 0;">
+                <button class="btn btn-secondary btn-sm" type="button" @click="wizardSaveAndExit" :disabled="wizardSaving">Save edits & exit</button>
+                <button class="btn btn-danger btn-sm" type="button" @click="wizardDiscardAndExit" :disabled="wizardSaving" style="margin-left: 8px;">Don’t save & exit</button>
+              </div>
+            </div>
+
+            <div v-if="wizardError" class="warn-box" style="margin-top: 10px;">{{ wizardError }}</div>
+            <div v-if="wizardLoading" class="muted" style="margin-top: 10px;">Loading wizard…</div>
+            <div v-else style="margin-top: 10px;">
+              <div class="card">
+                <div class="hint" style="font-weight: 700;">Step {{ wizardStepIdx + 1 }} of {{ wizardSteps.length }} — {{ wizardStep?.title }}</div>
+                <div class="hint" style="margin-top: 6px;">You can use Back/Next; the wizard saves progress as you move.</div>
+              </div>
+
+              <div class="card" style="margin-top: 12px;">
+                <h3 class="card-title" style="margin: 0 0 6px 0;">Current step actions</h3>
+
+                <div v-if="wizardStep?.key === 'prior'" class="hint">
+                  Submit/complete the prior payroll cycle before continuing (skipped automatically on first payroll).
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-secondary" type="button" @click="openPreviewPostModalV2" :disabled="!selectedPeriodId">Open Preview Post</button>
+                  </div>
+                </div>
+
+                <div v-else-if="wizardStep?.key === 'review'" class="hint">
+                  Review changes between runs (No-note/Draft Unpaid workflow).
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-secondary" type="button" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">Open No-note/Draft Unpaid</button>
+                  </div>
+                </div>
+
+                <div v-else-if="wizardStep?.key === 'apply'" class="hint">
+                  Apply changes (carryover) into the current pay period, then continue.
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-secondary" type="button" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">Open carryover tool</button>
+                    <button class="btn btn-secondary" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId" style="margin-left: 8px;">Open Payroll Stage</button>
+                  </div>
+                </div>
+
+                <div v-else-if="wizardStep?.key === 'drafts'" class="hint">
+                  Edit draft-payable decisions in Raw Import (Draft Audit).
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('draft_audit')" :disabled="!selectedPeriodId">Open Raw Import (Draft Audit)</button>
+                  </div>
+                </div>
+
+                <div v-else-if="wizardStep?.key === 'h0031'" class="hint">
+                  Process H0031 minutes + mark Done.
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('process_h0031')" :disabled="!selectedPeriodId">Open Raw Import (H0031)</button>
+                  </div>
+                </div>
+
+                <div v-else-if="wizardStep?.key === 'h0032'" class="hint">
+                  Process H0032 minutes + mark Done.
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('process_h0032')" :disabled="!selectedPeriodId">Open Raw Import (H0032)</button>
+                  </div>
+                </div>
+
+                <div v-else-if="wizardStep?.key === 'stage'" class="hint">
+                  Review Payroll Stage workspace edits, claims, To‑Dos, and adjustments.
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-secondary" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId">Open Payroll Stage</button>
+                    <button class="btn btn-secondary" type="button" @click="openTodoModal" :disabled="!selectedPeriodId" style="margin-left: 8px;">Manage To‑Dos</button>
+                  </div>
+                </div>
+
+                <div v-else-if="wizardStep?.key === 'run'" class="hint">
+                  Run payroll to compute totals (blocked if To‑Dos or submissions are pending).
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-primary" type="button" @click="runPayroll" :disabled="runningPayroll || isPeriodPosted || !selectedPeriodId">
+                      {{ runningPayroll ? 'Running…' : 'Run Payroll' }}
+                    </button>
+                  </div>
+                </div>
+
+                <div v-else-if="wizardStep?.key === 'preview'" class="hint">
+                  Preview provider view + post-time notifications.
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-secondary" type="button" @click="openPreviewPostModalV2" :disabled="!selectedPeriodId || !canSeeRunResults">Open Preview Post</button>
+                  </div>
+                </div>
+
+                <div v-else-if="wizardStep?.key === 'post'" class="hint">
+                  Post payroll to make it visible to providers.
+                  <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                    <button class="btn btn-primary" type="button" @click="postPayroll" :disabled="postingPayroll || isPeriodPosted || selectedPeriodStatus !== 'ran'">
+                      {{ postingPayroll ? 'Posting…' : 'Post Payroll' }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="actions" style="margin-top: 12px; justify-content: space-between;">
+                <button class="btn btn-secondary" type="button" @click="wizardBack" :disabled="wizardStepIdx <= 0 || wizardSaving">Back</button>
+                <button class="btn btn-primary" type="button" @click="wizardNext" :disabled="wizardStepIdx >= wizardSteps.length - 1 || wizardSaving">
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </teleport>
     </div>
 
     <!-- Rate Sheet Import removed (no longer needed) -->
@@ -3216,6 +3574,8 @@ const showStageModal = ref(false);
 const showRawModal = ref(false);
 const showRunModal = ref(false);
 const showPayrollToolsModal = ref(false);
+const showTodoModal = ref(false);
+const showPayrollWizardModal = ref(false);
 const payrollToolsTab = ref('compare'); // compare | viewer
 const payrollToolsLoading = ref(false);
 const payrollToolsError = ref('');
@@ -3811,6 +4171,273 @@ const loadManualPayLines = async () => {
     manualPayLinesLoading.value = false;
   }
 };
+
+// Payroll To-Dos (blocking)
+const payrollTodosLoading = ref(false);
+const payrollTodosError = ref('');
+const payrollTodos = ref([]);
+const updatingPayrollTodoId = ref(null);
+
+const loadPayrollTodos = async () => {
+  if (!selectedPeriodId.value) return;
+  try {
+    payrollTodosLoading.value = true;
+    payrollTodosError.value = '';
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/todos`);
+    payrollTodos.value = resp.data || [];
+  } catch (e) {
+    payrollTodosError.value = e.response?.data?.error?.message || e.message || 'Failed to load payroll To-Dos';
+    payrollTodos.value = [];
+  } finally {
+    payrollTodosLoading.value = false;
+  }
+};
+
+const togglePayrollTodoDone = async (t, done) => {
+  if (!selectedPeriodId.value || !t?.id) return;
+  try {
+    updatingPayrollTodoId.value = t.id;
+    payrollTodosError.value = '';
+    await api.patch(`/payroll/periods/${selectedPeriodId.value}/todos/${t.id}`, { status: done ? 'done' : 'pending' });
+    await loadPayrollTodos();
+  } catch (e) {
+    payrollTodosError.value = e.response?.data?.error?.message || e.message || 'Failed to update To-Do';
+  } finally {
+    updatingPayrollTodoId.value = null;
+  }
+};
+
+// To-Do modal: templates + ad-hoc
+const todoTab = ref('period'); // period | templates
+const todoTemplatesLoading = ref(false);
+const todoTemplatesError = ref('');
+const todoTemplates = ref([]);
+const savingTodoTemplate = ref(false);
+const deletingTodoTemplateId = ref(null);
+
+const newTodoDraft = ref({ scope: 'agency', targetUserId: null, title: '', description: '' });
+const templateDraft = ref({ scope: 'agency', targetUserId: null, startPayrollPeriodId: null, title: '', description: '', isActive: true });
+
+const loadTodoTemplates = async () => {
+  if (!agencyId.value) return;
+  try {
+    todoTemplatesLoading.value = true;
+    todoTemplatesError.value = '';
+    const resp = await api.get('/payroll/todo-templates', { params: { agencyId: agencyId.value } });
+    todoTemplates.value = resp.data || [];
+  } catch (e) {
+    todoTemplatesError.value = e.response?.data?.error?.message || e.message || 'Failed to load recurring To-Do templates';
+    todoTemplates.value = [];
+  } finally {
+    todoTemplatesLoading.value = false;
+  }
+};
+
+const createTodoForPeriod = async () => {
+  if (!selectedPeriodId.value) return;
+  const title = String(newTodoDraft.value?.title || '').trim();
+  const description = String(newTodoDraft.value?.description || '').trim();
+  const scope = String(newTodoDraft.value?.scope || 'agency') === 'provider' ? 'provider' : 'agency';
+  const targetUserId = Number(newTodoDraft.value?.targetUserId || 0);
+  if (!title) return;
+  if (scope === 'provider' && !(targetUserId > 0)) return;
+  try {
+    payrollTodosError.value = '';
+    await api.post(`/payroll/periods/${selectedPeriodId.value}/todos`, {
+      title,
+      description: description || null,
+      scope,
+      targetUserId: scope === 'provider' ? targetUserId : 0
+    });
+    newTodoDraft.value = { scope: 'agency', targetUserId: null, title: '', description: '' };
+    await loadPayrollTodos();
+  } catch (e) {
+    payrollTodosError.value = e.response?.data?.error?.message || e.message || 'Failed to create To-Do';
+  }
+};
+
+const createTodoTemplate = async () => {
+  if (!agencyId.value) return;
+  const title = String(templateDraft.value?.title || '').trim();
+  const description = String(templateDraft.value?.description || '').trim();
+  const scope = String(templateDraft.value?.scope || 'agency') === 'provider' ? 'provider' : 'agency';
+  const targetUserId = Number(templateDraft.value?.targetUserId || 0);
+  const startPayrollPeriodId = Number(templateDraft.value?.startPayrollPeriodId || 0);
+  const isActive = templateDraft.value?.isActive ? true : false;
+  if (!title) return;
+  if (scope === 'provider' && !(targetUserId > 0)) return;
+  try {
+    savingTodoTemplate.value = true;
+    todoTemplatesError.value = '';
+    await api.post('/payroll/todo-templates', {
+      agencyId: agencyId.value,
+      title,
+      description: description || null,
+      scope,
+      targetUserId: scope === 'provider' ? targetUserId : 0,
+      startPayrollPeriodId: startPayrollPeriodId || 0,
+      isActive
+    });
+    templateDraft.value = { scope: 'agency', targetUserId: null, startPayrollPeriodId: null, title: '', description: '', isActive: true };
+    await loadTodoTemplates();
+  } catch (e) {
+    todoTemplatesError.value = e.response?.data?.error?.message || e.message || 'Failed to create recurring To-Do template';
+  } finally {
+    savingTodoTemplate.value = false;
+  }
+};
+
+const toggleTodoTemplateActive = async (tpl, nextActive) => {
+  if (!tpl?.id || !agencyId.value) return;
+  try {
+    deletingTodoTemplateId.value = tpl.id;
+    await api.patch(`/payroll/todo-templates/${tpl.id}`, { agencyId: agencyId.value, ...tpl, isActive: !!nextActive, targetUserId: tpl.target_user_id, startPayrollPeriodId: tpl.start_payroll_period_id });
+    await loadTodoTemplates();
+  } catch (e) {
+    todoTemplatesError.value = e.response?.data?.error?.message || e.message || 'Failed to update template';
+  } finally {
+    deletingTodoTemplateId.value = null;
+  }
+};
+
+const deleteTodoTemplate = async (tpl) => {
+  if (!tpl?.id || !agencyId.value) return;
+  const ok = window.confirm('Delete this recurring To-Do template? (Existing pay period To-Dos will remain.)');
+  if (!ok) return;
+  try {
+    deletingTodoTemplateId.value = tpl.id;
+    await api.delete(`/payroll/todo-templates/${tpl.id}`, { params: { agencyId: agencyId.value } });
+    await loadTodoTemplates();
+  } catch (e) {
+    todoTemplatesError.value = e.response?.data?.error?.message || e.message || 'Failed to delete template';
+  } finally {
+    deletingTodoTemplateId.value = null;
+  }
+};
+
+const openTodoModal = async () => {
+  if (!selectedPeriodId.value) return;
+  showTodoModal.value = true;
+  todoTab.value = 'period';
+  await loadPayrollTodos();
+  await loadTodoTemplates();
+};
+
+// ==========================
+// Payroll Wizard (step-by-step)
+// ==========================
+
+const wizardLoading = ref(false);
+const wizardError = ref('');
+const wizardSaving = ref(false);
+const wizardStepIdx = ref(0);
+const wizardState = ref(null); // { stepIdx, priorPeriodId, completed?: any }
+
+const wizardSteps = computed(() => {
+  // Always show; if this is the first payroll, we skip the prior-payroll step.
+  const hasAnyPosted = (periods.value || []).some((p) => ['posted', 'finalized'].includes(String(p?.status || '').toLowerCase()));
+  const steps = [];
+  if (hasAnyPosted) {
+    steps.push({ key: 'prior', title: 'Submit old payroll' });
+  }
+  steps.push(
+    { key: 'review', title: 'Review changes' },
+    { key: 'apply', title: 'Apply changes to current' },
+    { key: 'drafts', title: 'Raw import: Draft audit' },
+    { key: 'h0031', title: 'Process H0031' },
+    { key: 'h0032', title: 'Process H0032' },
+    { key: 'stage', title: 'Payroll Stage' },
+    { key: 'run', title: 'Run payroll' },
+    { key: 'preview', title: 'Preview post' },
+    { key: 'post', title: 'Post payroll' }
+  );
+  return steps;
+});
+
+const wizardStep = computed(() => wizardSteps.value[wizardStepIdx.value] || wizardSteps.value[0] || null);
+
+const loadPayrollWizardProgress = async () => {
+  if (!selectedPeriodId.value) return;
+  try {
+    wizardLoading.value = true;
+    wizardError.value = '';
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/wizard-progress`);
+    const state = resp.data?.state || null;
+    wizardState.value = state && typeof state === 'object' ? state : null;
+    const idx = Number(wizardState.value?.stepIdx || 0);
+    wizardStepIdx.value = Number.isFinite(idx) && idx >= 0 ? Math.min(idx, Math.max(0, wizardSteps.value.length - 1)) : 0;
+  } catch (e) {
+    wizardError.value = e.response?.data?.error?.message || e.message || 'Failed to load wizard progress';
+    wizardState.value = null;
+    wizardStepIdx.value = 0;
+  } finally {
+    wizardLoading.value = false;
+  }
+};
+
+const savePayrollWizardProgress = async () => {
+  if (!selectedPeriodId.value) return;
+  try {
+    wizardSaving.value = true;
+    const state = {
+      ...(wizardState.value && typeof wizardState.value === 'object' ? wizardState.value : {}),
+      stepIdx: wizardStepIdx.value,
+      stepKey: wizardStep.value?.key || null,
+      updatedAt: new Date().toISOString()
+    };
+    const resp = await api.put(`/payroll/periods/${selectedPeriodId.value}/wizard-progress`, { state });
+    wizardState.value = resp.data?.state || state;
+  } finally {
+    wizardSaving.value = false;
+  }
+};
+
+const openPayrollWizard = async () => {
+  if (!selectedPeriodId.value) return;
+  showPayrollWizardModal.value = true;
+  await loadPayrollWizardProgress();
+};
+
+const wizardNext = async () => {
+  if (!wizardSteps.value.length) return;
+  await savePayrollWizardProgress();
+  wizardStepIdx.value = Math.min(wizardStepIdx.value + 1, wizardSteps.value.length - 1);
+  await savePayrollWizardProgress();
+};
+
+const wizardBack = async () => {
+  if (!wizardSteps.value.length) return;
+  await savePayrollWizardProgress();
+  wizardStepIdx.value = Math.max(0, wizardStepIdx.value - 1);
+  await savePayrollWizardProgress();
+};
+
+const wizardSaveAndExit = async () => {
+  await savePayrollWizardProgress();
+  showPayrollWizardModal.value = false;
+};
+
+const wizardDiscardAndExit = async () => {
+  if (!selectedPeriodId.value) {
+    showPayrollWizardModal.value = false;
+    return;
+  }
+  // Best-effort: overwrite with empty progress so reopening starts fresh.
+  try {
+    await api.put(`/payroll/periods/${selectedPeriodId.value}/wizard-progress`, { state: {} });
+  } catch {
+    // ignore
+  }
+  wizardState.value = null;
+  wizardStepIdx.value = 0;
+  showPayrollWizardModal.value = false;
+};
+
+const wizardOpenRawMode = async (mode) => {
+  rawMode.value = mode;
+  showRawModal.value = true;
+};
+
 
 const saveManualPayLines = async () => {
   if (!selectedPeriodId.value) return;
@@ -7237,6 +7864,10 @@ const runPayroll = async () => {
       showStageModal.value = true;
       await loadPendingMedcancelClaims();
     }
+      if (e.response?.status === 409 && e.response?.data?.pendingTodos) {
+        showStageModal.value = true;
+        try { await loadPayrollTodos(); } catch { /* ignore */ }
+      }
   } finally {
     runningPayroll.value = false;
   }
@@ -7356,6 +7987,7 @@ watch(selectedPeriodId, async (id) => {
   await loadApprovedMileageClaimsList();
   await loadApprovedMedcancelClaimsList();
   await loadManualPayLines();
+  await loadPayrollTodos();
 });
 
 watch(showStageModal, async (open) => {
@@ -7375,6 +8007,7 @@ watch(showStageModal, async (open) => {
   await loadApprovedMedcancelClaimsList();
   await loadApprovedReimbursementClaimsList();
   await loadManualPayLines();
+  await loadPayrollTodos();
 
   // Also load prior-period still-unpaid snapshot so the red backlog indicators persist
   // even if the user doesn’t reopen the comparison modal.
