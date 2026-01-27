@@ -119,6 +119,9 @@ import {
   ,patchPayrollPeriodTodo
   ,getPayrollWizardProgress
   ,putPayrollWizardProgress
+  ,getAgencyPayrollScheduleSettings
+  ,putAgencyPayrollScheduleSettings
+  ,cleanupFuturePayrollPeriods
   ,listUserSalaryPositions
   ,upsertUserSalaryPosition
   ,deleteUserSalaryPosition
@@ -210,6 +213,9 @@ router.post('/periods/:id/todos', createPayrollPeriodTodo);
 router.patch('/periods/:id/todos/:todoId', patchPayrollPeriodTodo);
 router.get('/periods/:id/wizard-progress', getPayrollWizardProgress);
 router.put('/periods/:id/wizard-progress', putPayrollWizardProgress);
+router.get('/schedule-settings', getAgencyPayrollScheduleSettings);
+router.put('/schedule-settings', putAgencyPayrollScheduleSettings);
+router.post('/periods/cleanup-future', cleanupFuturePayrollPeriods);
 router.get('/agency-schools', listAgencySchoolsForPayroll);
 router.get('/office-locations', listOfficeLocationsForPayroll);
 router.post('/office-locations', createOfficeLocationForPayroll);

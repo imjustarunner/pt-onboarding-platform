@@ -116,6 +116,7 @@ import ProviderCatalogManagement from './ProviderCatalogManagement.vue';
 import ProviderSchedulingManagement from './ProviderSchedulingManagement.vue';
 import AvailabilityIntakeManagement from './AvailabilityIntakeManagement.vue';
 import ViewportPreviewSettings from './ViewportPreviewSettings.vue';
+import PayrollScheduleSettings from './PayrollScheduleSettings.vue';
 
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
@@ -237,6 +238,16 @@ const allCategories = [
         component: 'AvailabilityIntakeManagement',
         requiresAgency: true,
         roles: ['super_admin', 'admin', 'support', 'clinical_practice_assistant', 'staff'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'payroll-schedule',
+        label: 'Payroll',
+        icon: '💰',
+        component: 'PayrollScheduleSettings',
+        requiresAgency: true,
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
       },
       {
@@ -444,6 +455,7 @@ const componentMap = {
   ProviderSchedulingManagement,
   AvailabilityIntakeManagement,
   ViewportPreviewSettings,
+  PayrollScheduleSettings,
   TeamRolesManagement,
   BillingManagement,
   IntegrationsManagement

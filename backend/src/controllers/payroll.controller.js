@@ -20,6 +20,7 @@ import PayrollImportMissedAppointment from '../models/PayrollImportMissedAppoint
 import PayrollTodoTemplate from '../models/PayrollTodoTemplate.model.js';
 import PayrollPeriodTodo from '../models/PayrollPeriodTodo.model.js';
 import PayrollWizardProgress from '../models/PayrollWizardProgress.model.js';
+import AgencyPayrollScheduleSettings from '../models/AgencyPayrollScheduleSettings.model.js';
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollServiceCodeRule from '../models/PayrollServiceCodeRule.model.js';
@@ -680,6 +681,102 @@ function previousFridayOnOrBefore(d) {
   return out;
 }
 
+function addDaysUtc(d, days) {
+  const out = new Date(d.getTime());
+  out.setUTCDate(out.getUTCDate() + Number(days || 0));
+  return out;
+}
+
+function clampDay(dayNum, monthDays) {
+  const d = parseInt(dayNum, 10);
+  if (!Number.isFinite(d) || d <= 0) return 1;
+  return Math.max(1, Math.min(monthDays, d));
+}
+
+function daysInMonthUtc(year, monthIndex0) {
+  // monthIndex0: 0-11
+  return new Date(Date.UTC(year, monthIndex0 + 1, 0)).getUTCDate();
+}
+
+function ymdToDateUtc(ymd) {
+  const s = String(ymd || '').slice(0, 10);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function computeBiweeklyPeriodForDate({ anchorEndYmd, date }) {
+  const anchor = ymdToDateUtc(anchorEndYmd);
+  if (!anchor) return null;
+  const dt = date instanceof Date ? date : new Date(date);
+  if (!dt || Number.isNaN(dt.getTime())) return null;
+  const d = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()));
+  const diffDays = Math.floor((d.getTime() - anchor.getTime()) / (24 * 3600 * 1000));
+  let periods = Math.floor(diffDays / 14);
+  let end = addDaysUtc(anchor, periods * 14);
+  let start = addDaysUtc(end, -13);
+  const ymd = formatYmd(d);
+  if (ymd < formatYmd(start)) {
+    end = addDaysUtc(end, -14);
+    start = addDaysUtc(end, -13);
+  } else if (ymd > formatYmd(end)) {
+    end = addDaysUtc(end, 14);
+    start = addDaysUtc(end, -13);
+  }
+  return { periodStart: formatYmd(start), periodEnd: formatYmd(end) };
+}
+
+function computeSemiMonthlyPeriodForDate({ day1, day2, date }) {
+  const dt = date instanceof Date ? date : new Date(date);
+  if (!dt || Number.isNaN(dt.getTime())) return null;
+  const year = dt.getUTCFullYear();
+  const month = dt.getUTCMonth(); // 0-11
+
+  const monthDays = daysInMonthUtc(year, month);
+  const prevMonthDays = daysInMonthUtc(month === 0 ? year - 1 : year, month === 0 ? 11 : month - 1);
+
+  const d1 = clampDay(day1, monthDays);
+  const d2 = clampDay(day2, monthDays);
+  const prevD2 = clampDay(day2, prevMonthDays);
+
+  const prevMonthEnd2 = new Date(Date.UTC(month === 0 ? year - 1 : year, month === 0 ? 11 : month - 1, prevD2));
+  const p1Start = addDaysUtc(prevMonthEnd2, 1);
+  const p1End = new Date(Date.UTC(year, month, d1));
+  const p2Start = addDaysUtc(p1End, 1);
+  const p2End = new Date(Date.UTC(year, month, d2));
+
+  const d = new Date(Date.UTC(year, month, dt.getUTCDate()));
+  if (d.getTime() <= p1End.getTime()) {
+    return { periodStart: formatYmd(p1Start), periodEnd: formatYmd(p1End) };
+  }
+  return { periodStart: formatYmd(p2Start), periodEnd: formatYmd(p2End) };
+}
+
+async function getScheduleSettingsOrDefault({ agencyId }) {
+  try {
+    const row = await AgencyPayrollScheduleSettings.getForAgency(agencyId);
+    if (row) return { ...row, _isDefault: false };
+  } catch (e) {
+    if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    return null;
+  }
+
+  // Default schedule (backward-compatible): biweekly anchored to latest known period_end, else previous Friday.
+  const latest = await PayrollPeriod.listByAgency(agencyId, { limit: 1, offset: 0 });
+  const latestEnd = latest?.[0]?.period_end ? String(latest[0].period_end).slice(0, 10) : null;
+  const anchorEnd = latestEnd || formatYmd(previousFridayOnOrBefore(new Date()));
+  return {
+    agency_id: agencyId,
+    schedule_type: 'biweekly',
+    biweekly_anchor_period_end: anchorEnd,
+    semi_monthly_day1: 15,
+    semi_monthly_day2: 30,
+    future_draft_count: 6,
+    _isDefault: true
+  };
+}
+
 async function guessExistingPayrollPeriodByMajorityDates({ agencyId, dates }) {
   const safeDates = (dates || []).filter((d) => d instanceof Date && !Number.isNaN(d.getTime()));
   if (!agencyId || safeDates.length === 0) {
@@ -723,6 +820,48 @@ async function guessExistingPayrollPeriodByMajorityDates({ agencyId, dates }) {
   return {
     period: bestCount > 0 ? best : null,
     stats: { totalDates: safeDates.length, matchedDates, bestCount }
+  };
+}
+
+async function guessScheduledPayrollPeriodByMajorityDates({ agencyId, dates }) {
+  const safeDates = (dates || []).filter((d) => d instanceof Date && !Number.isNaN(d.getTime()));
+  if (!agencyId || safeDates.length === 0) return { period: null, stats: { totalDates: safeDates.length } };
+
+  const sched = await getScheduleSettingsOrDefault({ agencyId });
+  if (!sched) return { period: null, stats: { totalDates: safeDates.length } };
+
+  const type = String(sched.schedule_type || 'biweekly');
+  const day1 = Number(sched.semi_monthly_day1 || 15);
+  const day2 = Number(sched.semi_monthly_day2 || 30);
+  const anchorEnd = sched.biweekly_anchor_period_end ? String(sched.biweekly_anchor_period_end).slice(0, 10) : null;
+
+  const counts = new Map(); // key start|end -> count
+  for (const dt of safeDates) {
+    const p =
+      type === 'semi_monthly'
+        ? computeSemiMonthlyPeriodForDate({ day1, day2, date: dt })
+        : computeBiweeklyPeriodForDate({ anchorEndYmd: anchorEnd, date: dt });
+    if (!p?.periodStart || !p?.periodEnd) continue;
+    const key = `${p.periodStart}|${p.periodEnd}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  let bestKey = null;
+  let bestCount = 0;
+  for (const [k, c] of counts.entries()) {
+    if (c > bestCount) {
+      bestKey = k;
+      bestCount = c;
+    }
+  }
+  if (!bestKey) return { period: null, stats: { totalDates: safeDates.length, bestCount: 0 } };
+
+  const [periodStart, periodEnd] = bestKey.split('|');
+  const period = await PayrollPeriod.findByAgencyAndDates({ agencyId, periodStart, periodEnd });
+  return {
+    period: period || null,
+    suggested: { periodStart, periodEnd },
+    stats: { totalDates: safeDates.length, bestCount, scheduleType: type }
   };
 }
 
@@ -1591,6 +1730,113 @@ export const ensureFuturePayrollPeriods = async (req, res, next) => {
     const pastPeriods = Number.isFinite(pastRaw) && pastRaw > 0 ? Math.min(12, Math.floor(pastRaw)) : 0;
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    // If schedule settings are available, prefer schedule-based generation (keeps min future drafts).
+    let sched = null;
+    try {
+      sched = await getScheduleSettingsOrDefault({ agencyId });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      sched = null;
+    }
+
+    if (sched) {
+      const type = String(sched.schedule_type || 'biweekly');
+      const minFutureDraftsRaw = req.body?.minFutureDrafts ?? req.body?.futureDraftCount ?? null;
+      const minFutureDrafts = Number.isFinite(Number(minFutureDraftsRaw))
+        ? Math.max(1, Math.min(60, parseInt(minFutureDraftsRaw, 10)))
+        : Math.max(1, Math.min(60, parseInt(sched.future_draft_count || 6, 10) || 6));
+
+      const periods = await PayrollPeriod.listByAgency(agencyId, { limit: 500, offset: 0 });
+      const existing = new Set((periods || []).map((p) => `${String(p.period_start).slice(0, 10)}|${String(p.period_end).slice(0, 10)}`));
+
+      const today = new Date();
+      const todayYmd = formatYmd(today);
+
+      let created = 0;
+      let checked = 0;
+      let futureCount = 0;
+
+      if (type === 'semi_monthly') {
+        const day1 = Number(sched.semi_monthly_day1 || 15);
+        const day2 = Number(sched.semi_monthly_day2 || 30);
+
+        // Generate starting from previous month to ensure cross-month starts are correct.
+        let y = today.getUTCFullYear();
+        let m = today.getUTCMonth(); // 0-11
+        // start at previous month
+        m -= 1;
+        if (m < 0) { m = 11; y -= 1; }
+
+        // Keep generating until we have enough future periods.
+        while (futureCount < minFutureDrafts && checked < 200) {
+          checked += 1;
+          const monthDays = daysInMonthUtc(y, m);
+          const prevMonthDays = daysInMonthUtc(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1);
+          const d1 = clampDay(day1, monthDays);
+          const d2 = clampDay(day2, monthDays);
+          const prevD2 = clampDay(day2, prevMonthDays);
+
+          const prevMonthEnd2 = new Date(Date.UTC(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1, prevD2));
+          const p1Start = addDaysUtc(prevMonthEnd2, 1);
+          const p1End = new Date(Date.UTC(y, m, d1));
+          const p2Start = addDaysUtc(p1End, 1);
+          const p2End = new Date(Date.UTC(y, m, d2));
+
+          const candidates = [
+            { start: formatYmd(p1Start), end: formatYmd(p1End) },
+            { start: formatYmd(p2Start), end: formatYmd(p2End) }
+          ];
+
+          for (const c of candidates) {
+            const key = `${c.start}|${c.end}`;
+            const isFuture = c.start > todayYmd;
+            if (isFuture) futureCount += 1;
+            if (existing.has(key)) continue;
+            const label = `${c.start} to ${c.end}`;
+            const createdPeriod = await PayrollPeriod.create({ agencyId, label, periodStart: c.start, periodEnd: c.end, createdByUserId: req.user?.id });
+            existing.add(key);
+            try {
+              await PayrollPeriodTodo.ensureMaterializedForPeriod({ payrollPeriodId: createdPeriod?.id, agencyId });
+            } catch { /* ignore */ }
+            created += 1;
+          }
+
+          // advance month
+          m += 1;
+          if (m > 11) { m = 0; y += 1; }
+        }
+
+        return res.json({ ok: true, agencyId, schedule: { ...sched, minFutureDrafts }, created, checked, futureCount });
+      }
+
+      // Default: biweekly
+      const anchorEnd = sched.biweekly_anchor_period_end ? String(sched.biweekly_anchor_period_end).slice(0, 10) : formatYmd(previousFridayOnOrBefore(new Date()));
+      const cur = computeBiweeklyPeriodForDate({ anchorEndYmd: anchorEnd, date: today }) || null;
+      let start = ymdToDateUtc(cur?.periodStart) || addDaysUtc(previousFridayOnOrBefore(today), -13);
+      let end = ymdToDateUtc(cur?.periodEnd) || previousFridayOnOrBefore(today);
+
+      while (futureCount < minFutureDrafts && checked < 200) {
+        checked += 1;
+        const periodStart = formatYmd(start);
+        const periodEnd = formatYmd(end);
+        const key = `${periodStart}|${periodEnd}`;
+        if (periodStart > todayYmd) futureCount += 1;
+        if (!existing.has(key)) {
+          const label = `${periodStart} to ${periodEnd}`;
+          const createdPeriod = await PayrollPeriod.create({ agencyId, label, periodStart, periodEnd, createdByUserId: req.user?.id });
+          existing.add(key);
+          try {
+            await PayrollPeriodTodo.ensureMaterializedForPeriod({ payrollPeriodId: createdPeriod?.id, agencyId });
+          } catch { /* ignore */ }
+          created += 1;
+        }
+        start = addDaysUtc(start, 14);
+        end = addDaysUtc(end, 14);
+      }
+
+      return res.json({ ok: true, agencyId, schedule: { ...sched, minFutureDrafts }, created, checked, futureCount });
+    }
 
     // Sat→Fri biweekly: end on the most recent Friday on/before today, start 13 days earlier.
     const now = new Date();
@@ -3219,8 +3465,8 @@ export const importPayrollAuto = [
 
       const maxDate = dates.reduce((a, b) => (a.getTime() > b.getTime() ? a : b));
 
-      // Prefer matching against existing pay period options by majority vote.
-      const guess = await guessExistingPayrollPeriodByMajorityDates({ agencyId: resolvedAgencyId, dates });
+      // Prefer matching against the agency's configured schedule (avoids "interim" periods).
+      const guess = await guessScheduledPayrollPeriodByMajorityDates({ agencyId: resolvedAgencyId, dates });
       let period = guess.period || null;
 
       // Fallback (legacy): compute Sat→Fri window from max DOS and match exact period if it already exists.
@@ -3248,6 +3494,7 @@ export const importPayrollAuto = [
               'Could not match this report to an existing pay period. Please choose an existing pay period (or create one) and import again.'
           },
           detected: { maxServiceDate: formatYmd(maxDate) },
+          suggested: guess?.suggested || null,
           stats: guess?.stats || null
         });
       }
@@ -3451,7 +3698,7 @@ export const detectPayrollAuto = [
       }
 
       const maxDate = dates.reduce((a, b) => (a.getTime() > b.getTime() ? a : b));
-      const guess = await guessExistingPayrollPeriodByMajorityDates({ agencyId: resolvedAgencyId, dates });
+      const guess = await guessScheduledPayrollPeriodByMajorityDates({ agencyId: resolvedAgencyId, dates });
       const best = guess.period || null;
 
       // Fallback: compute Sat→Fri and check if that exact period exists.
@@ -3479,6 +3726,7 @@ export const detectPayrollAuto = [
           label: best ? (best.label || `${String(best.period_start || '').slice(0, 10)} → ${String(best.period_end || '').slice(0, 10)}`) : ''
         },
         existingPeriodId: best?.id || fallbackExisting?.id || null,
+        suggested: guess?.suggested || null,
         stats: guess?.stats || null
       });
     } catch (e) {
@@ -4498,6 +4746,106 @@ export const patchPayrollPeriodTodo = async (req, res, next) => {
     res.json({ ok: true });
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') return res.status(409).json({ error: { message: 'Payroll To-Do tables are not available yet (run database migrations first).' } });
+    next(e);
+  }
+};
+
+// ==========================
+// Payroll Schedule Settings
+// ==========================
+
+export const getAgencyPayrollScheduleSettings = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const sched = await getScheduleSettingsOrDefault({ agencyId });
+    res.json(sched || null);
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json(null);
+    next(e);
+  }
+};
+
+export const putAgencyPayrollScheduleSettings = async (req, res, next) => {
+  try {
+    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : (req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const scheduleType = String(req.body?.scheduleType || req.body?.schedule_type || 'biweekly').trim().toLowerCase();
+    const type = scheduleType === 'semi_monthly' ? 'semi_monthly' : 'biweekly';
+
+    const futureDraftCountRaw = req.body?.futureDraftCount ?? req.body?.future_draft_count ?? 6;
+    const futureDraftCount = Math.max(1, Math.min(60, parseInt(futureDraftCountRaw, 10) || 6));
+
+    let biweeklyAnchorPeriodEnd = req.body?.biweeklyAnchorPeriodEnd ?? req.body?.biweekly_anchor_period_end ?? null;
+    biweeklyAnchorPeriodEnd = biweeklyAnchorPeriodEnd ? String(biweeklyAnchorPeriodEnd).slice(0, 10) : null;
+
+    const semiMonthlyDay1 = Math.max(1, Math.min(31, parseInt(req.body?.semiMonthlyDay1 ?? req.body?.semi_monthly_day1 ?? 15, 10) || 15));
+    const semiMonthlyDay2 = Math.max(1, Math.min(31, parseInt(req.body?.semiMonthlyDay2 ?? req.body?.semi_monthly_day2 ?? 30, 10) || 30));
+    if (semiMonthlyDay2 < semiMonthlyDay1) {
+      return res.status(400).json({ error: { message: 'semiMonthlyDay2 must be >= semiMonthlyDay1' } });
+    }
+
+    // If biweekly and no anchor provided, default to previous Friday.
+    if (type === 'biweekly' && !biweeklyAnchorPeriodEnd) {
+      biweeklyAnchorPeriodEnd = formatYmd(previousFridayOnOrBefore(new Date()));
+    }
+
+    const row = await AgencyPayrollScheduleSettings.upsert({
+      agencyId,
+      scheduleType: type,
+      biweeklyAnchorPeriodEnd,
+      semiMonthlyDay1,
+      semiMonthlyDay2,
+      futureDraftCount,
+      updatedByUserId: req.user?.id
+    });
+    res.json(row);
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(409).json({ error: { message: 'Payroll schedule settings table is not available yet (run database migrations first).' } });
+    }
+    next(e);
+  }
+};
+
+export const cleanupFuturePayrollPeriods = async (req, res, next) => {
+  try {
+    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : (req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const todayYmd = formatYmd(new Date());
+
+    // If a future period is marked ran but has no summaries and no imports, set it back to draft.
+    const [rows] = await pool.execute(
+      `SELECT pp.id
+       FROM payroll_periods pp
+       LEFT JOIN payroll_summaries ps ON ps.payroll_period_id = pp.id
+       LEFT JOIN payroll_imports pi ON pi.payroll_period_id = pp.id
+       WHERE pp.agency_id = ?
+         AND pp.period_start > ?
+         AND pp.status = 'ran'
+       GROUP BY pp.id
+       HAVING COUNT(ps.id) = 0 AND COUNT(pi.id) = 0`,
+      [agencyId, todayYmd]
+    );
+    const ids = (rows || []).map((r) => r.id).filter(Boolean);
+    if (ids.length) {
+      const placeholders = ids.map(() => '?').join(', ');
+      await pool.execute(
+        `UPDATE payroll_periods
+         SET status = 'draft',
+             ran_at = NULL,
+             ran_by_user_id = NULL
+         WHERE id IN (${placeholders})`,
+        ids
+      );
+    }
+    res.json({ ok: true, resetCount: ids.length });
+  } catch (e) {
     next(e);
   }
 };
