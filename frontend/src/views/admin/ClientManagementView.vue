@@ -1184,6 +1184,8 @@ const fetchClients = async () => {
     const params = new URLSearchParams();
     // Always scope to the active agency so we don't load every agency's clients (can be huge and slow).
     if (activeAgencyId.value) params.append('agency_id', String(activeAgencyId.value));
+    // Archived clients are managed in Settings -> Archive, not in the main client area.
+    params.append('includeArchived', 'false');
     if (clientStatusFilter.value) params.append('client_status_id', clientStatusFilter.value);
     if (organizationFilter.value) params.append('organization_id', organizationFilter.value);
     if (providerFilter.value) params.append('provider_id', providerFilter.value);
@@ -1193,7 +1195,9 @@ const fetchClients = async () => {
     const response = await api.get(`/clients?${params.toString()}`);
     const raw = response.data || [];
     const orgById = new Map((linkedOrganizations.value || []).map((o) => [Number(o?.id), o]));
-    clients.value = (Array.isArray(raw) ? raw : []).map((c) => {
+    clients.value = (Array.isArray(raw) ? raw : [])
+      .filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED')
+      .map((c) => {
       const orgId = Number(c?.organization_id);
       const org = orgById.get(orgId) || null;
       return {
@@ -1717,6 +1721,11 @@ const createClient = async () => {
 
     const resp = await api.post('/clients', payload);
     const created = resp.data || null;
+    const warnings = Array.isArray(created?.warnings) ? created.warnings : [];
+    if (warnings.length > 0) {
+      // Non-blocking warnings (duplicates, etc.)
+      alert(`Client created with warnings:\n- ${warnings.join('\n- ')}`);
+    }
 
     // Slot-aware assignment (optional): assign via affiliations system (optionally primary)
     const providerId = newClient.value?.provider_id ? Number(newClient.value.provider_id) : null;

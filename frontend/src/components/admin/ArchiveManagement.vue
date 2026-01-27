@@ -187,6 +187,40 @@
         </div>
       </div>
 
+      <!-- Clients Archive -->
+      <div v-if="activeTab === 'clients'" class="archive-section">
+        <h3>Archived Clients</h3>
+        <div v-if="loadingClients" class="loading">Loading archived clients...</div>
+        <div v-else-if="archivedClients.length === 0" class="empty-state">
+          <p>No archived clients.</p>
+        </div>
+        <div v-else class="archive-table-container">
+          <table class="archive-table">
+            <thead>
+              <tr>
+                <th>Initials</th>
+                <th>Client Code</th>
+                <th>School</th>
+                <th>Agency</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in archivedClients" :key="c.id">
+                <td class="name-cell">{{ c.initials }}</td>
+                <td>{{ c.identifier_code || '-' }}</td>
+                <td>{{ c.organization_name || ('Org ID: ' + c.organization_id) }}</td>
+                <td>{{ c.agency_name || ('Agency ID: ' + c.agency_id) }}</td>
+                <td class="actions-cell">
+                  <button @click="restoreClient(c.id)" class="btn btn-success btn-sm">Restore</button>
+                  <button @click="permanentlyDeleteClient(c.id)" class="btn btn-danger btn-sm">Delete</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Agencies Archive -->
       <div v-if="activeTab === 'agencies'" class="archive-section">
         <h3>Archived Agencies</h3>
@@ -273,12 +307,14 @@ const archivedTrainingFocuses = ref([]);
 const archivedModules = ref([]);
 const archivedUsers = ref([]);
 const archivedDocuments = ref([]);
+const archivedClients = ref([]);
 const archivedAgencies = ref([]);
 const archivedBuildings = ref([]);
 const loadingTrainingFocuses = ref(false);
 const loadingModules = ref(false);
 const loadingUsers = ref(false);
 const loadingDocuments = ref(false);
+const loadingClients = ref(false);
 const loadingAgencies = ref(false);
 const loadingBuildings = ref(false);
 
@@ -297,7 +333,8 @@ const tabs = computed(() => {
     { id: 'training-focuses', label: 'Training Focuses', count: archivedTrainingFocuses.value.length },
     { id: 'modules', label: 'Modules', count: archivedModules.value.length },
     { id: 'users', label: 'Users', count: archivedUsers.value.length },
-    { id: 'documents', label: 'Documents', count: archivedDocuments.value.length }
+    { id: 'documents', label: 'Documents', count: archivedDocuments.value.length },
+    { id: 'clients', label: 'Clients', count: archivedClients.value.length }
   ];
   
   // Only show agencies tab for super admins
@@ -391,6 +428,22 @@ const fetchArchivedDocuments = async () => {
   }
 };
 
+const fetchArchivedClients = async () => {
+  try {
+    loadingClients.value = true;
+    const params = {};
+    const selectedId = getSelectedArchivedByAgencyId();
+    if (selectedId) params.agency_id = selectedId;
+    const response = await api.get('/clients/archived', { params });
+    archivedClients.value = response.data || [];
+  } catch (err) {
+    console.error('Failed to load archived clients:', err);
+    archivedClients.value = [];
+  } finally {
+    loadingClients.value = false;
+  }
+};
+
 const fetchArchivedAgencies = async () => {
   // Only super admins can view archived agencies
   if (authStore.user?.role !== 'super_admin') {
@@ -434,7 +487,8 @@ const fetchAllArchived = async () => {
     fetchArchivedTrainingFocuses(),
     fetchArchivedModules(),
     fetchArchivedUsers(),
-    fetchArchivedDocuments()
+    fetchArchivedDocuments(),
+    fetchArchivedClients()
   ];
   
   // Only fetch agencies for super admins
@@ -560,6 +614,32 @@ const permanentlyDeleteDocument = async (id) => {
     alert('Document permanently deleted');
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to delete document');
+  }
+};
+
+const restoreClient = async (id) => {
+  if (!confirm('Are you sure you want to restore this client? They will be removed from the archive.')) {
+    return;
+  }
+  try {
+    await api.post(`/clients/${id}/unarchive`);
+    await fetchArchivedClients();
+    alert('Client restored successfully');
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to restore client');
+  }
+};
+
+const permanentlyDeleteClient = async (id) => {
+  if (!confirm('Are you sure you want to permanently delete this client? This action CANNOT be undone.')) {
+    return;
+  }
+  try {
+    await api.delete(`/clients/${id}`);
+    await fetchArchivedClients();
+    alert('Client permanently deleted');
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to delete client');
   }
 };
 

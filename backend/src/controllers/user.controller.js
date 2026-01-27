@@ -16,6 +16,8 @@ import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.s
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import ExternalBusyCalendarService from '../services/externalBusyCalendar.service.js';
 import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
+import pool from '../config/database.js';
+import { adjustProviderSlots } from '../services/providerSlots.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2275,18 +2277,208 @@ export const assignUserToAgency = async (req, res, next) => {
 
 
 export const removeUserFromAgency = async (req, res, next) => {
+  let conn = null;
   try {
     const { userId, agencyId } = req.body;
-    
+
     // Only admins/super_admins can remove users
     if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
-    
-    await User.removeFromAgency(userId, agencyId);
+
+    const uid = parseInt(userId, 10);
+    const aid = parseInt(agencyId, 10);
+    if (!uid || !aid) {
+      return res.status(400).json({ error: { message: 'userId and agencyId are required' } });
+    }
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    // Determine whether this "agency" is actually a school org. If so, clean up School Portal day/provider rows
+    // so orphaned day assignments never keep showing in the portal.
+    const [[orgRow]] = await conn.execute(
+      `SELECT organization_type
+       FROM agencies
+       WHERE id = ?
+       LIMIT 1`,
+      [aid]
+    );
+    const orgType = String(orgRow?.organization_type || 'agency').toLowerCase();
+
+    // Remove the membership itself.
+    await conn.execute('DELETE FROM user_agencies WHERE user_id = ? AND agency_id = ?', [uid, aid]);
+
+    const ignoreIfMissing = (e) => {
+      const msg = String(e?.message || '');
+      return (
+        msg.includes('ER_NO_SUCH_TABLE') ||
+        msg.includes("doesn't exist") ||
+        msg.includes('Unknown column') ||
+        msg.includes('ER_BAD_FIELD_ERROR')
+      );
+    };
+
+    if (orgType === 'school') {
+      // Unassign this provider from any clients at this school (and refund slots).
+      // This is intentionally best-effort/backward-compatible: older DBs may not have multi-provider tables.
+      try {
+        const [assignRows] = await conn.execute(
+          `SELECT id, client_id, service_day
+           FROM client_provider_assignments
+           WHERE provider_user_id = ? AND organization_id = ? AND is_active = TRUE
+           FOR UPDATE`,
+          [uid, aid]
+        );
+
+        for (const a of assignRows || []) {
+          if (a?.service_day) {
+            await adjustProviderSlots(conn, {
+              providerUserId: uid,
+              schoolId: aid,
+              dayOfWeek: a.service_day,
+              delta: +1
+            });
+          }
+
+          await conn.execute(
+            `UPDATE client_provider_assignments
+             SET is_active = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [req.user.id, a.id]
+          );
+
+          // Keep legacy single-provider fields in sync (snap back to Not assigned when none remain).
+          // Prefer explicit primary if available; otherwise pick most recent active assignment.
+          let next = null;
+          try {
+            const [nextRows] = await conn.execute(
+              `SELECT provider_user_id, service_day
+               FROM client_provider_assignments
+               WHERE client_id = ? AND is_active = TRUE
+               ORDER BY (CASE WHEN is_primary = TRUE THEN 1 ELSE 0 END) DESC, updated_at DESC
+               LIMIT 1`,
+              [a.client_id]
+            );
+            next = nextRows?.[0] || null;
+          } catch (e) {
+            const msg = String(e?.message || '');
+            const missingIsPrimary = msg.includes('Unknown column') && msg.includes('is_primary');
+            if (!missingIsPrimary) throw e;
+            const [nextRows] = await conn.execute(
+              `SELECT provider_user_id, service_day
+               FROM client_provider_assignments
+               WHERE client_id = ? AND is_active = TRUE
+               ORDER BY updated_at DESC
+               LIMIT 1`,
+              [a.client_id]
+            );
+            next = nextRows?.[0] || null;
+          }
+
+          try {
+            await conn.execute(
+              `UPDATE clients
+               SET provider_id = ?, service_day = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
+               WHERE id = ?`,
+              [next?.provider_user_id || null, next?.service_day || null, req.user.id, a.client_id]
+            );
+          } catch {
+            // best-effort
+          }
+        }
+      } catch (e) {
+        if (!ignoreIfMissing(e)) throw e;
+
+        // Legacy fallback: clients table only (no multi-provider assignments table).
+        try {
+          const [rows] = await conn.execute(
+            `SELECT id, service_day
+             FROM clients
+             WHERE organization_id = ? AND provider_id = ?`,
+            [aid, uid]
+          );
+          for (const r of rows || []) {
+            if (r?.service_day) {
+              await adjustProviderSlots(conn, {
+                providerUserId: uid,
+                schoolId: aid,
+                dayOfWeek: r.service_day,
+                delta: +1
+              });
+            }
+          }
+          await conn.execute(
+            `UPDATE clients
+             SET provider_id = NULL, service_day = NULL, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
+             WHERE organization_id = ? AND provider_id = ?`,
+            [req.user.id, aid, uid]
+          );
+        } catch (e2) {
+          if (!ignoreIfMissing(e2)) throw e2;
+        }
+      }
+
+      // Best-effort: deactivate work-hour assignments (legacy) so they don't continue to drive portal behavior.
+      try {
+        await conn.execute(
+          `UPDATE provider_school_assignments
+           SET is_active = FALSE
+           WHERE provider_user_id = ? AND school_organization_id = ?`,
+          [uid, aid]
+        );
+      } catch (e) {
+        if (!ignoreIfMissing(e)) throw e;
+      }
+
+      // Best-effort: deactivate School Portal day-provider roster rows.
+      try {
+        await conn.execute(
+          `UPDATE school_day_provider_assignments
+           SET is_active = FALSE
+           WHERE provider_user_id = ? AND school_organization_id = ?`,
+          [uid, aid]
+        );
+      } catch (e) {
+        if (!ignoreIfMissing(e)) throw e;
+      }
+
+      // Best-effort: remove soft schedule rows for this provider at this school.
+      try {
+        await conn.execute(
+          `DELETE FROM soft_schedule_slots
+           WHERE provider_user_id = ? AND school_organization_id = ?`,
+          [uid, aid]
+        );
+      } catch (e) {
+        if (!ignoreIfMissing(e)) throw e;
+      }
+
+      // Best-effort: remove school-entered logistics schedule entries for this provider at this school.
+      try {
+        await conn.execute(
+          `DELETE FROM school_provider_schedule_entries
+           WHERE provider_user_id = ? AND school_organization_id = ?`,
+          [uid, aid]
+        );
+      } catch (e) {
+        if (!ignoreIfMissing(e)) throw e;
+      }
+    }
+
+    await conn.commit();
     res.json({ message: 'User removed from agency successfully' });
   } catch (error) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore
+      }
+    }
     next(error);
+  } finally {
+    if (conn) conn.release();
   }
 };
 

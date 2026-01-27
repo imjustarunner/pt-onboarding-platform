@@ -112,6 +112,9 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
                 psa.end_time,
                 psa.is_active
          FROM provider_school_assignments psa
+         JOIN user_agencies ua
+           ON ua.user_id = psa.provider_user_id
+          AND ua.agency_id = psa.school_organization_id
          JOIN users u ON u.id = psa.provider_user_id
          WHERE psa.school_organization_id = ?
          ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
@@ -134,6 +137,9 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
                   psa.end_time,
                   psa.is_active
            FROM provider_school_assignments psa
+           JOIN user_agencies ua
+             ON ua.user_id = psa.provider_user_id
+            AND ua.agency_id = psa.school_organization_id
            JOIN users u ON u.id = psa.provider_user_id
            WHERE psa.school_organization_id = ?
            ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,

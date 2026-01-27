@@ -577,6 +577,12 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
     );
     const providerIndex = buildProviderIndex(providerRows || []);
     const currentStatusId = await getCurrentClientStatusId(connection, agencyId);
+    // We do not support separate DEAD/TERMINATED client statuses anymore; normalize all terminal statuses to ARCHIVED.
+    const archivedCatalogStatusId = await ensureClientStatusId(connection, {
+      agencyId,
+      statusKey: 'archived',
+      label: 'Archived'
+    });
 
     for (const row of rows) {
       await connection.beginTransaction();
@@ -642,19 +648,17 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         const insuranceKey = normalizeInsuranceKey(row.insurance);
         const deliveryKey = normalizeDeliveryMethodKey(row.paperworkDelivery);
 
-        let clientStatusId =
-          (await getCatalogId(connection, { table: 'client_statuses', agencyId, label: clientStatusKey || row.status, keyColumn: 'status_key', labelColumn: 'label' })) ||
-          null;
-        // If the sheet contains a terminal status but the catalog row doesn't exist yet, create it so
-        // the client doesn't silently fall back to "Pending".
-        if (!clientStatusId && (clientStatusKey === 'dead' || clientStatusKey === 'terminated')) {
-          clientStatusId = await ensureClientStatusId(connection, {
-            agencyId,
-            statusKey: clientStatusKey,
-            label: clientStatusKey === 'dead' ? 'Dead' : 'Terminated'
-          });
+        // Client status catalog:
+        // - Terminal sheet statuses (dead/terminated) are normalized to a single 'archived' catalog entry.
+        // - Otherwise, best-effort match by key/label; fall back to default.
+        let clientStatusId = null;
+        if (shouldArchive) {
+          clientStatusId = archivedCatalogStatusId || defaults.clientStatusId;
+        } else {
+          clientStatusId =
+            (await getCatalogId(connection, { table: 'client_statuses', agencyId, label: clientStatusKey || row.status, keyColumn: 'status_key', labelColumn: 'label' })) ||
+            defaults.clientStatusId;
         }
-        if (!clientStatusId) clientStatusId = defaults.clientStatusId;
         const paperworkStatusId =
           (await getCatalogId(connection, { table: 'paperwork_statuses', agencyId, label: paperworkStatusKey || row.paperworkStatus, keyColumn: 'status_key', labelColumn: 'label' })) ||
           defaults.paperworkStatusId;
@@ -923,6 +927,33 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
        WHERE id = ?`,
       [successRows, failedRows, jobId]
     );
+
+    // Final normalization pass for this agency:
+    // - Any clients whose catalog status is dead/terminated are remapped to archived.
+    // - Their workflow status is forced to ARCHIVED.
+    // Best-effort: older DBs may not have catalogs enabled yet.
+    try {
+      const archivedId = archivedCatalogStatusId || (await ensureClientStatusId(connection, { agencyId, statusKey: 'archived', label: 'Archived' }));
+      if (archivedId) {
+        await connection.execute(
+          `UPDATE clients c
+           JOIN client_statuses cs ON cs.id = c.client_status_id AND cs.agency_id = c.agency_id
+           SET c.status = 'ARCHIVED',
+               c.client_status_id = ?
+           WHERE c.agency_id = ?
+             AND cs.status_key IN ('dead','terminated')`,
+          [archivedId, agencyId]
+        );
+        await connection.execute(
+          `UPDATE client_statuses
+           SET is_active = FALSE
+           WHERE agency_id = ? AND status_key IN ('dead','terminated')`,
+          [agencyId]
+        );
+      }
+    } catch {
+      // ignore (older DBs)
+    }
 
     return {
       jobId,

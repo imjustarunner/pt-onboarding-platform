@@ -2,6 +2,14 @@
   <BrandingProvider>
     <div class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app">
+      <div v-if="pageLoading" class="agency-loading-overlay" aria-label="Loading">
+        <div class="agency-loading-card">
+          <div class="agency-loading-logo">
+            <BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" />
+          </div>
+          <div class="agency-loading-text">{{ loadingText }}</div>
+        </div>
+      </div>
       <nav v-if="isAuthenticated" class="navbar">
         <div class="container">
           <div class="nav-content">
@@ -13,7 +21,7 @@
             <div class="nav-brand">
               <div class="brand-switcher" @click.stop>
                 <button class="brand-trigger" @click="toggleBrandMenu" :title="`Switch Brand (${currentBrandLabel})`">
-                  <BrandingLogo size="medium" class="nav-logo" />
+                  <BrandingLogo :logoUrl="navBrandLogoUrl" size="medium" class="nav-logo" />
                   <span v-if="canSwitchBrand" class="brand-caret">▾</span>
                 </button>
 
@@ -250,6 +258,7 @@ import BrandingProvider from './components/BrandingProvider.vue';
 import BrandingLogo from './components/BrandingLogo.vue';
 import PoweredByFooter from './components/PoweredByFooter.vue';
 import TourManager from './components/TourManager.vue';
+import { toUploadsUrl } from './utils/uploadsUrl';
 
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
@@ -259,6 +268,51 @@ const tutorialStore = useTutorialStore();
 const router = useRouter();
 const route = useRoute();
 const mobileMenuOpen = ref(false);
+
+// Global loading overlay (simple route + boot spinner)
+const pageLoading = ref(true);
+const loadingText = ref('Loading…');
+let loadingStartedAt = 0;
+const LOADER_MIN_MS = 250;
+
+// Prefer the selected agency icon for the loader even before authStore hydrates.
+// This avoids showing platform branding briefly during boot.
+const loaderLogoUrl = computed(() => {
+  const a = agencyStore.currentAgency;
+  if (a?.logo_path) return toUploadsUrl(a.logo_path);
+  if (a?.icon_file_path) return toUploadsUrl(a.icon_file_path);
+  if (a?.logo_url) return a.logo_url;
+  return brandingStore.displayLogoUrl;
+});
+
+// The top-left brand logo should reflect the *current context* (Platform vs org portal),
+// even for super_admin (platform branding mode would otherwise override).
+const navBrandLogoUrl = computed(() => {
+  const slugFromRoute = route.params.organizationSlug;
+  if (typeof slugFromRoute === 'string' && slugFromRoute) {
+    // When inside a branded portal, prefer the portal theme logo, then agency icon fields.
+    if (brandingStore.portalAgency?.logoUrl) return String(brandingStore.portalAgency.logoUrl);
+    const a = agencyStore.currentAgency;
+    if (a?.logo_path) return toUploadsUrl(a.logo_path);
+    if (a?.icon_file_path) return toUploadsUrl(a.icon_file_path);
+    if (a?.logo_url) return a.logo_url;
+  }
+  // Platform context
+  return brandingStore.displayLogoUrl;
+});
+
+const startPageLoading = (text = 'Loading…') => {
+  loadingStartedAt = Date.now();
+  loadingText.value = text;
+  pageLoading.value = true;
+};
+const stopPageLoading = () => {
+  const elapsed = Date.now() - loadingStartedAt;
+  const wait = Math.max(0, LOADER_MIN_MS - elapsed);
+  window.setTimeout(() => {
+    pageLoading.value = false;
+  }, wait);
+};
 
 // ---- Superadmin viewport preview (Desktop/Tablet/Mobile) ----
 const PREVIEW_STORAGE_KEY = 'superadminPreviewViewport';
@@ -546,6 +600,8 @@ const canCreateEdit = computed(() => {
 const activeOrganizationSlug = computed(() => {
   const slugFromRoute = route.params.organizationSlug;
   if (typeof slugFromRoute === 'string' && slugFromRoute) return slugFromRoute;
+  // Super admins should not be implicitly forced into an agency context via persisted currentAgency.
+  if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') return null;
   const slugFromAgency = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url;
   if (slugFromAgency) return slugFromAgency;
   const slugFromOrg = organizationStore.organizationContext?.slug;
@@ -612,6 +668,7 @@ watch(() => route.params.organizationSlug, async (newSlug) => {
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick);
+  startPageLoading('Loading…');
 
   // Initialize superadmin preview mode (if enabled locally).
   if (isSuperAdminUser.value) {
@@ -658,6 +715,31 @@ onMounted(async () => {
     }
   }
 
+  // Super admin default: Platform context unless we're on a branded (slug) route.
+  // This prevents being "sent" into a random agency due to a persisted currentAgency from a prior session.
+  try {
+    const role = String(authStore.user?.role || '').toLowerCase();
+    const slugFromRoute = route.params.organizationSlug;
+    if (role === 'super_admin' && !(typeof slugFromRoute === 'string' && slugFromRoute)) {
+      if (agencyStore.currentAgency) agencyStore.setCurrentAgency(null);
+    }
+  } catch {
+    // ignore
+  }
+
+  stopPageLoading();
+});
+
+// Show loader during route navigations (best-effort; does not wait for page-level API calls).
+router.beforeEach((to, from, next) => {
+  // Avoid flashing loader on hash-only changes / same route.
+  if ((to.fullPath || '') !== (from.fullPath || '')) {
+    startPageLoading('Loading…');
+  }
+  next();
+});
+router.afterEach(() => {
+  stopPageLoading();
 });
 
 onUnmounted(() => {
@@ -672,6 +754,53 @@ onUnmounted(() => {
 <style scoped>
 .preview-root {
   min-height: 100vh;
+}
+
+.agency-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.98));
+  backdrop-filter: blur(4px);
+}
+
+.agency-loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 22px;
+  border-radius: 16px;
+  background: white;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  min-width: min(420px, 90vw);
+}
+
+.agency-loading-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Spin the actual logo image (when present). */
+:deep(.loader-logo .logo-image) {
+  animation: agencyLogoSpin 1.05s linear infinite;
+  transform-origin: 50% 50%;
+}
+
+@keyframes agencyLogoSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.agency-loading-text {
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 /* Constrain app width in preview modes */

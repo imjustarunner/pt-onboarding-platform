@@ -2,6 +2,7 @@ import express from 'express';
 import { body } from 'express-validator';
 import {
   getClients,
+  getArchivedClients,
   getClientById,
   createClient,
   updateClient,
@@ -26,7 +27,8 @@ import {
   removeClientAffiliation,
   listClientProviderAssignments,
   upsertClientProviderAssignment,
-  removeClientProviderAssignment
+  removeClientProviderAssignment,
+  deleteClient
 } from '../controllers/client.controller.js';
 import { listClientGuardians, upsertClientGuardian, updateClientGuardian, removeClientGuardian } from '../controllers/clientGuardian.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
@@ -38,6 +40,7 @@ router.use(authenticate);
 
 // List clients (agency view)
 router.get('/', getClients);
+router.get('/archived', getArchivedClients);
 
 // Delete bulk-imported clients for an agency (admin only)
 // DELETE /api/clients/bulk-import?agencyId=123&confirm=true
@@ -120,5 +123,8 @@ router.post(
 );
 router.patch('/:id/guardians/:guardianUserId', requireBackofficeAdmin, updateClientGuardian);
 router.delete('/:id/guardians/:guardianUserId', requireBackofficeAdmin, removeClientGuardian);
+
+// Permanently delete a client (archived-only; admin only)
+router.delete('/:id', requireBackofficeAdmin, deleteClient);
 
 export default router;

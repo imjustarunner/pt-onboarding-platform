@@ -142,11 +142,15 @@ export const listSchoolDays = async (req, res, next) => {
     );
     const dayMap = new Map((dayRows || []).map((r) => [String(r.weekday), !!r.is_active]));
 
+    // Count only providers still affiliated with the school organization.
     const [provRows] = await pool.execute(
-      `SELECT weekday, COUNT(*) AS provider_count
-       FROM school_day_provider_assignments
-       WHERE school_organization_id = ? AND is_active = TRUE
-       GROUP BY weekday`,
+      `SELECT a.weekday, COUNT(*) AS provider_count
+       FROM school_day_provider_assignments a
+       JOIN user_agencies ua
+         ON ua.user_id = a.provider_user_id
+        AND ua.agency_id = a.school_organization_id
+       WHERE a.school_organization_id = ? AND a.is_active = TRUE
+       GROUP BY a.weekday`,
       [parseInt(schoolId, 10)]
     );
     const provMap = new Map((provRows || []).map((r) => [String(r.weekday), Number(r.provider_count || 0)]));
@@ -216,6 +220,9 @@ export const listDayProviders = async (req, res, next) => {
               psa.start_time,
               psa.end_time
        FROM school_day_provider_assignments a
+       JOIN user_agencies ua
+         ON ua.user_id = a.provider_user_id
+        AND ua.agency_id = a.school_organization_id
        JOIN users u ON u.id = a.provider_user_id
        LEFT JOIN provider_school_assignments psa
          ON psa.school_organization_id = a.school_organization_id

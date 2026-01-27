@@ -17,6 +17,8 @@ import { logClientAccess } from '../services/clientAccessLog.service.js';
 export const getClients = async (req, res, next) => {
   try {
     const { status, organization_id, provider_id, search, client_status_id, paperwork_status_id, insurance_type_id, skills, agency_id } = req.query;
+    const includeArchived =
+      String(req.query.includeArchived || '').toLowerCase() === 'true' || String(req.query.includeArchived || '') === '1';
     const userId = req.user.id;
     const userRole = req.user.role;
 
@@ -72,10 +74,33 @@ export const getClients = async (req, res, next) => {
       new Map(allClients.map(c => [c.id, c])).values()
     );
 
-    res.json(uniqueClients);
+    // Default behavior: archived clients should not appear in the main client list.
+    // They are managed via Settings -> Archive, or by explicitly requesting status=ARCHIVED/includeArchived=true.
+    const statusNorm = String(status || '').toUpperCase();
+    const out =
+      includeArchived || statusNorm === 'ARCHIVED'
+        ? uniqueClients
+        : uniqueClients.filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+
+    res.json(out);
   } catch (error) {
     console.error('Get clients error:', error);
     next(error);
+  }
+};
+
+/**
+ * Get archived clients (agency view)
+ * GET /api/clients/archived
+ */
+export const getArchivedClients = async (req, res, next) => {
+  try {
+    // Force archived-only view; reuse the same access rules as getClients.
+    req.query.status = 'ARCHIVED';
+    req.query.includeArchived = 'true';
+    return await getClients(req, res, next);
+  } catch (e) {
+    next(e);
   }
 };
 
@@ -301,9 +326,26 @@ export const createClient = async (req, res, next) => {
       });
     }
 
+    const warnings = [];
+    let warningMeta = null;
+
+    // Check for an existing client with the same initials at the same school (agency-scoped).
+    // This is a warning only (we still allow creating a new client).
+    const normalizedInitials = String(initials || '').toUpperCase().trim();
+    try {
+      const existingByMatchKey = await Client.findByMatchKey(parsedAgencyId, parsedOrganizationId, normalizedInitials);
+      if (existingByMatchKey?.id) {
+        warnings.push(
+          `A client with initials "${normalizedInitials}" already exists at this school (clientId ${existingByMatchKey.id}).`
+        );
+      }
+    } catch {
+      // ignore (best-effort)
+    }
+
     // Duplicate detection (entire DB) by identifier_code (client initials/code).
-    // If a matching archived client exists, return details so UI can offer "unarchive" instead of creating a duplicate.
-    const identifierCode = String(initials || '').toUpperCase().trim();
+    // This is a warning only (we still allow creating a new client).
+    const identifierCode = normalizedInitials;
     if (identifierCode) {
       const [dupes] = await pool.execute(
         `SELECT
@@ -325,7 +367,7 @@ export const createClient = async (req, res, next) => {
          LEFT JOIN users p ON c.provider_id = p.id
          LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
          WHERE UPPER(c.identifier_code) = ?
-         ORDER BY (c.status = 'ARCHIVED') DESC, c.id DESC
+         ORDER BY c.id DESC
          LIMIT 10`,
         [identifierCode]
       );
@@ -344,25 +386,11 @@ export const createClient = async (req, res, next) => {
         agencyName: r.agency_name || null
       }));
       if (matches.length > 0) {
-        // If there is any non-archived match, treat as an existing client and block duplicates.
         const nonArchived = matches.find((m) => String(m.workflowStatus || '').toUpperCase() !== 'ARCHIVED');
         const archived = matches.find((m) => String(m.workflowStatus || '').toUpperCase() === 'ARCHIVED');
-        if (nonArchived) {
-          return res.status(409).json({
-            error: {
-              message: 'A client with this code already exists.',
-              errorMeta: { matches, canUnarchive: false }
-            }
-          });
-        }
-        if (archived) {
-          return res.status(409).json({
-            error: {
-              message: 'A client with this code exists but is archived. Unarchive instead?',
-              errorMeta: { matches, canUnarchive: true }
-            }
-          });
-        }
+        warningMeta = { matches, canUnarchive: !!archived };
+        if (nonArchived) warnings.push(`A client with code "${identifierCode}" already exists (active). Please review duplicates.`);
+        if (archived) warnings.push(`A client with code "${identifierCode}" exists but is archived. You may want to restore it instead of creating a duplicate.`);
       }
     }
 
@@ -391,6 +419,7 @@ export const createClient = async (req, res, next) => {
       agency_id: parsedAgencyId,
       provider_id: provider_id || null,
       initials: initials.toUpperCase().trim(),
+      identifier_code: identifierCode || null,
       // "status" is treated as internal workflow/archive flag; new clients are not archived.
       status: workflowStatus,
       submission_date,
@@ -477,7 +506,7 @@ export const createClient = async (req, res, next) => {
       note: 'Client created'
     });
 
-    res.status(201).json(client);
+    res.status(201).json(warnings.length ? { ...client, warnings, warningMeta } : client);
   } catch (error) {
     console.error('Create client error:', error);
     next(error);
@@ -1708,6 +1737,88 @@ export const deleteBulkImportedClients = async (req, res, next) => {
       agencyId,
       deletedClients: result.affectedRows || 0
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Permanently delete a client (archived-only safety).
+ * DELETE /api/clients/:id
+ */
+export const deleteClient = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user?.id;
+    const role = req.user?.role;
+    const roleNorm = String(role || '').toLowerCase();
+    if (roleNorm !== 'admin' && roleNorm !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Admin access required' } });
+    }
+
+    // Access check (agency-side only).
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      const [rows] = await conn.execute(
+        `SELECT id, status
+         FROM clients
+         WHERE id = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [clientId]
+      );
+      const c = rows?.[0] || null;
+      if (!c) {
+        await conn.rollback();
+        return res.status(404).json({ error: { message: 'Client not found' } });
+      }
+      if (String(c.status || '').toUpperCase() !== 'ARCHIVED') {
+        await conn.rollback();
+        return res.status(409).json({ error: { message: 'Client must be archived before it can be deleted.' } });
+      }
+
+      // Rely on ON DELETE CASCADE wherever available; the base clients row must be removed last.
+      // Best-effort deletes first for tables that may not be cascading in older DBs.
+      const bestEffortDelete = async (sql, params) => {
+        try {
+          await conn.execute(sql, params);
+        } catch (e) {
+          const msg = String(e?.message || '');
+          const missing = msg.includes('ER_NO_SUCH_TABLE') || msg.includes("doesn't exist");
+          if (!missing) throw e;
+        }
+      };
+
+      await bestEffortDelete(`DELETE FROM client_note_reads WHERE client_id = ?`, [clientId]);
+      await bestEffortDelete(`DELETE FROM client_notes WHERE client_id = ?`, [clientId]);
+      await bestEffortDelete(`DELETE FROM client_status_history WHERE client_id = ?`, [clientId]);
+      await bestEffortDelete(`DELETE FROM client_paperwork_history WHERE client_id = ?`, [clientId]);
+      await bestEffortDelete(`DELETE FROM client_paperwork_items WHERE client_id = ?`, [clientId]);
+      await bestEffortDelete(`DELETE FROM client_access_logs WHERE client_id = ?`, [clientId]);
+      await bestEffortDelete(`DELETE FROM client_phi_documents WHERE client_id = ?`, [clientId]);
+      await bestEffortDelete(`DELETE FROM client_guardians WHERE client_id = ?`, [clientId]);
+      await bestEffortDelete(`DELETE FROM client_provider_assignments WHERE client_id = ?`, [clientId]);
+      await bestEffortDelete(`DELETE FROM client_organization_assignments WHERE client_id = ?`, [clientId]);
+      await bestEffortDelete(`DELETE FROM soft_schedule_slots WHERE client_id = ?`, [clientId]);
+      await bestEffortDelete(`DELETE FROM school_provider_schedule_entries WHERE client_id = ?`, [clientId]);
+
+      const [del] = await conn.execute(`DELETE FROM clients WHERE id = ?`, [clientId]);
+      await conn.commit();
+
+      res.json({ ok: true, deleted: (del?.affectedRows || 0) > 0 });
+    } catch (e) {
+      try { await conn.rollback(); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      conn.release();
+    }
   } catch (e) {
     next(e);
   }
