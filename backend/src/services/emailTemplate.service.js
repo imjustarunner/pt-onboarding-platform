@@ -111,24 +111,12 @@ class EmailTemplateService {
     if (!agency || !agency.portal_url) {
       return baseUrl;
     }
-    
-    // Construct portal URL based on portal_url subdomain
-    const url = new URL(baseUrl);
-    
-    // If portal_url is set, use subdomain format
-    // For example: portal_url="itsco" -> "itsco.localhost:5173" or "itsco.app.plottwistco.com"
-    if (url.hostname === 'localhost' || url.hostname.includes('localhost')) {
-      // Development: use subdomain.localhost
-      return `${url.protocol}//${agency.portal_url}.${url.hostname}${url.port ? ':' + url.port : ''}`;
-    } else {
-      // Production: use subdomain.domain format
-      const parts = url.hostname.split('.');
-      if (parts.length >= 2) {
-        const domain = parts.slice(-2).join('.');
-        return `${url.protocol}//${agency.portal_url}.${domain}${url.port ? ':' + url.port : ''}`;
-      }
-      return baseUrl;
-    }
+
+    // IMPORTANT:
+    // This app uses path-based organization routing (e.g. "/{slug}/login"),
+    // not subdomain-based routing. Build links accordingly.
+    const trimmedBase = String(baseUrl || '').replace(/\/$/, '');
+    return `${trimmedBase}/${agency.portal_url}`;
   }
 
   /**
@@ -144,7 +132,8 @@ class EmailTemplateService {
    */
   static buildResetTokenLink(agency, token) {
     const portalUrl = this.buildPortalUrl(agency);
-    return `${portalUrl}/passwordless-login/${token}`;
+    // Token links should land on the reset-password screen (forces password set/change)
+    return `${portalUrl}/reset-password/${token}`;
   }
 
   /**
@@ -210,6 +199,9 @@ class EmailTemplateService {
     // Reset token link
     if (passwordlessToken && agency) {
       parameters.RESET_TOKEN_LINK = this.buildResetTokenLink(agency, passwordlessToken);
+      // Backward compatible: many templates use PORTAL_LOGIN_LINK as "the link to click".
+      // When a token is available, make PORTAL_LOGIN_LINK point to the token link.
+      parameters.PORTAL_LOGIN_LINK = parameters.RESET_TOKEN_LINK;
     }
 
     // Deadlines

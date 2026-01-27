@@ -243,8 +243,8 @@ export const previewTemplate = async (req, res, next) => {
       TERMINOLOGY_SETTINGS: 'People Operations',
       PEOPLE_OPS_EMAIL: 'onboarding@example.com',
       PORTAL_URL: 'example.app.plottwistco.com',
-      PORTAL_LOGIN_LINK: 'https://example.app.plottwistco.com/login',
-      RESET_TOKEN_LINK: 'https://example.app.plottwistco.com/passwordless-login/sample-token',
+      PORTAL_LOGIN_LINK: 'https://example.app.plottwistco.com/example-org/login',
+      RESET_TOKEN_LINK: 'https://example.app.plottwistco.com/example-org/reset-password/sample-token',
       DOCUMENT_DEADLINE: 'January 15, 2024',
       TRAINING_DEADLINE: 'January 20, 2024',
       SENDER_NAME: 'Admin User'
