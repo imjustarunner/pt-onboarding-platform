@@ -53,6 +53,18 @@
           Mark All as Resolved ({{ filteredNotifications.length }})
         </button>
       </div>
+
+      <div class="bulk-actions">
+        <button
+          v-if="canPurgeNotifications"
+          @click="purgeAllNotifications"
+          class="btn btn-danger btn-sm"
+          :disabled="purging"
+          title="Permanently deletes notifications (and SMS logs by default)"
+        >
+          {{ purging ? 'Purging...' : purgeButtonLabel }}
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="loading">Loading notifications...</div>
@@ -174,6 +186,21 @@ const filters = ref({
 const groupBy = ref('type');
 const agencies = ref([]);
 const users = ref([]);
+const purging = ref(false);
+
+const canPurgeNotifications = computed(() => {
+  const role = authStore.user?.role;
+  if (!role) return false;
+  if (role === 'super_admin') return true;
+  // Non-super_admin can only purge when an agency is selected (not "All Agencies")
+  return (role === 'admin' || role === 'support') && !!selectedAgencyId.value;
+});
+
+const purgeButtonLabel = computed(() => {
+  if (authStore.user?.role === 'super_admin' && !selectedAgencyId.value) return 'Purge ALL Notifications';
+  if (selectedAgencyId.value) return 'Purge Notifications (Agency)';
+  return 'Purge Notifications';
+});
 
 const filteredNotifications = computed(() => {
   let notifications = notificationStore.notificationsByAgency;
@@ -356,6 +383,44 @@ const resolveNotification = async (notificationId) => {
     await notificationStore.fetchCounts(); // Update counts
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to delete notification';
+  }
+};
+
+const purgeAllNotifications = async () => {
+  const isSuperAdmin = authStore.user?.role === 'super_admin';
+  const scopeText = selectedAgencyId.value
+    ? `agency "${getAgencyName(selectedAgencyId.value)}"`
+    : 'ALL agencies';
+
+  if (!selectedAgencyId.value && !isSuperAdmin) {
+    error.value = 'Select an agency to purge notifications (only super admins can purge globally).';
+    return;
+  }
+
+  const confirmed = confirm(
+    `DANGER: This will permanently delete notifications for ${scopeText}.\n\n` +
+    `This is intended for cleanup (ex: bulk imports).\n\n` +
+    `Type PURGE to confirm.`
+  );
+  if (!confirmed) return;
+
+  const typed = prompt('Type PURGE to confirm:');
+  if (typed !== 'PURGE') return;
+
+  try {
+    purging.value = true;
+    error.value = '';
+    const params = {};
+    if (selectedAgencyId.value) params.agencyId = selectedAgencyId.value;
+    params.includeSmsLogs = true;
+
+    await api.delete('/notifications/purge', { params });
+    await loadNotifications();
+    await notificationStore.fetchCounts();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to purge notifications';
+  } finally {
+    purging.value = false;
   }
 };
 

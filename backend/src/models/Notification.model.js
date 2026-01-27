@@ -201,6 +201,16 @@ class Notification {
     return result.affectedRows > 0;
   }
 
+  static async purgeByAgency(agencyId) {
+    const [result] = await pool.execute('DELETE FROM notifications WHERE agency_id = ?', [agencyId]);
+    return result.affectedRows || 0;
+  }
+
+  static async purgeAll() {
+    const [result] = await pool.execute('DELETE FROM notifications');
+    return result.affectedRows || 0;
+  }
+
   static async markAllAsReadForAgency(agencyId, userId) {
     // Mute all notifications for 48 hours
     const [result] = await pool.execute(

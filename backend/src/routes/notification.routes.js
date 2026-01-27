@@ -8,10 +8,11 @@ import {
   markAllAsResolved,
   getSupervisorNotifications,
   syncNotifications,
-  deleteNotification
+  deleteNotification,
+  purgeNotifications
 } from '../controllers/notification.controller.js';
 import { getMySmsLogs, getSmsLogs } from '../controllers/notificationSmsLog.controller.js';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -33,6 +34,9 @@ router.get('/supervisor', getSupervisorNotifications);
 
 // Sync/generate notifications (admin/super_admin only)
 router.post('/sync', syncNotifications);
+
+// Purge notifications (DANGEROUS): backoffice admins only; non-super_admin must scope to agencyId
+router.delete('/purge', requireBackofficeAdmin, purgeNotifications);
 
 // Mark notification as read
 router.put('/:id/read', markAsRead);

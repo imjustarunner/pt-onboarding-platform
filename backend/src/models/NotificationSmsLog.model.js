@@ -68,6 +68,16 @@ class NotificationSmsLog {
     );
     return rows;
   }
+
+  static async purgeByAgency(agencyId) {
+    const [result] = await pool.execute('DELETE FROM notification_sms_logs WHERE agency_id = ?', [agencyId]);
+    return result.affectedRows || 0;
+  }
+
+  static async purgeAll() {
+    const [result] = await pool.execute('DELETE FROM notification_sms_logs');
+    return result.affectedRows || 0;
+  }
 }
 
 export default NotificationSmsLog;

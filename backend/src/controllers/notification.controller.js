@@ -1,6 +1,8 @@
 import Notification from '../models/Notification.model.js';
 import NotificationService from '../services/notification.service.js';
 import User from '../models/User.model.js';
+import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
+import pool from '../config/database.js';
 
 function parseJsonMaybe(v) {
   if (!v) return null;
@@ -393,6 +395,61 @@ export const deleteNotification = async (req, res, next) => {
     await Notification.delete(id);
     res.json({ message: 'Notification deleted' });
   } catch (error) {
+    next(error);
+  }
+};
+
+export const purgeNotifications = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const agencyIdFromQuery = req.query.agencyId ? parseInt(req.query.agencyId) : null;
+    const agencyIdFromBody = req.body?.agencyId ? parseInt(req.body.agencyId) : null;
+    const agencyId = agencyIdFromQuery || agencyIdFromBody || null;
+    const includeSmsLogs = req.query.includeSmsLogs !== undefined
+      ? String(req.query.includeSmsLogs) !== 'false'
+      : (req.body?.includeSmsLogs !== undefined ? !!req.body.includeSmsLogs : true);
+
+    if (userRole !== 'super_admin') {
+      if (!agencyId) {
+        return res.status(400).json({
+          error: { message: 'agencyId is required (only super_admin can purge globally)' }
+        });
+      }
+      const userAgencies = await User.getAgencies(userId);
+      const userAgencyIds = userAgencies.map(a => a.id);
+      if (!userAgencyIds.includes(agencyId)) {
+        return res.status(403).json({ error: { message: 'Access denied to this agency' } });
+      }
+    }
+
+    // Transaction: delete sms logs first, then notifications
+    await pool.execute('START TRANSACTION');
+    let deletedSmsLogs = 0;
+    let deletedNotifications = 0;
+
+    if (agencyId) {
+      if (includeSmsLogs) deletedSmsLogs = await NotificationSmsLog.purgeByAgency(agencyId);
+      deletedNotifications = await Notification.purgeByAgency(agencyId);
+    } else {
+      if (includeSmsLogs) deletedSmsLogs = await NotificationSmsLog.purgeAll();
+      deletedNotifications = await Notification.purgeAll();
+    }
+
+    await pool.execute('COMMIT');
+
+    res.json({
+      scope: agencyId ? 'agency' : 'all',
+      agencyId: agencyId || null,
+      includeSmsLogs,
+      deleted: {
+        notifications: deletedNotifications,
+        smsLogs: deletedSmsLogs
+      }
+    });
+  } catch (error) {
+    try { await pool.execute('ROLLBACK'); } catch { /* ignore */ }
     next(error);
   }
 };
