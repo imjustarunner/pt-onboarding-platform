@@ -2846,6 +2846,51 @@ export const getAccountInfo = async (req, res, next) => {
       onboardingTimePromise,
       supervisorsPromise
     ]);
+
+    // Has the user ever logged in?
+    // Used to gate first-login credential options (temp password + reset link).
+    let loginCount = 0;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT COUNT(*) AS count
+         FROM user_activity_log
+         WHERE user_id = ? AND action_type = 'login'`,
+        [userIdInt]
+      );
+      loginCount = parseInt(rows?.[0]?.count || 0, 10);
+    } catch {
+      loginCount = 0; // best-effort
+    }
+
+    // Best-effort: detect whether org requires Google SSO for this user role.
+    // When required, we disable password reset / temp password actions.
+    let ssoRequired = false;
+    let ssoEnabled = false;
+    try {
+      const userAgencies = await User.getAgencies(user.id);
+      const primaryOrgId = userAgencies?.[0]?.id || null;
+      if (primaryOrgId) {
+        const Agency = (await import('../models/Agency.model.js')).default;
+        const org = await Agency.findById(primaryOrgId);
+        const rawFlags = org?.feature_flags ?? null;
+        const featureFlags =
+          rawFlags && typeof rawFlags === 'string'
+            ? (() => { try { return JSON.parse(rawFlags); } catch { return {}; } })()
+            : (rawFlags && typeof rawFlags === 'object' ? rawFlags : {});
+
+        ssoEnabled = featureFlags?.googleSsoEnabled === true;
+        const requiredRoles = Array.isArray(featureFlags?.googleSsoRequiredRoles)
+          ? featureFlags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
+          : [];
+        const userRole = String(user.role || '').toLowerCase();
+        const excludedRoles = new Set(['school_staff', 'client_guardian', 'client', 'guardian']);
+        ssoRequired = ssoEnabled && requiredRoles.includes(userRole) && !excludedRoles.has(userRole);
+      }
+    } catch {
+      // best-effort
+      ssoRequired = false;
+      ssoEnabled = false;
+    }
     
     const accountInfo = {
       loginEmail: user.email || user.work_email || 'Not provided',
@@ -2874,6 +2919,10 @@ export const getAccountInfo = async (req, res, next) => {
       },
       accounts: accounts,
       status: user.status,
+      hasLoggedIn: loginCount > 0,
+      neverLoggedIn: loginCount === 0,
+      ssoEnabled,
+      ssoRequired,
       supervisors: supervisors,
       hasSupervisorPrivileges: (user.role === 'admin' || user.role === 'super_admin' || user.role === 'clinical_practice_assistant') 
         ? (user.has_supervisor_privileges || false) 

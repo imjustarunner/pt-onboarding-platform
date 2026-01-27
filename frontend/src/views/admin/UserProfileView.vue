@@ -610,19 +610,40 @@
             </div>
             
             <div class="password-status-layout">
-              <!-- Temporary Password Section -->
-              <div class="reset-password-section">
-                <h4>Temporary Password</h4>
-                <p>Generate an expiring temporary password. Send the username + temporary password to the user. After login, they will be prompted to set a new password.</p>
-                <button
-                  @click="generateTemporaryPasswordForUser"
-                  type="button"
-                  class="btn btn-primary btn-sm"
-                  :disabled="generatingTempPassword"
-                >
-                  {{ generatingTempPassword ? 'Generating...' : 'Generate Temporary Password' }}
-                </button>
+              <div v-if="!canUsePasswordResetActions" class="reset-password-section">
+                <h4>Password Access</h4>
+                <p>This user’s organization requires Google sign-in. Password reset links and temporary passwords are disabled for this user.</p>
               </div>
+
+              <template v-else>
+                <!-- Reset Password Link (expires) -->
+                <div class="reset-password-section">
+                  <h4>Password Reset Link</h4>
+                  <p>Generate a reset link (expires). The user will set a new password and continue.</p>
+                  <button
+                    @click="generateResetPasswordLink"
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    :disabled="generatingResetLink"
+                  >
+                    {{ generatingResetLink ? 'Generating...' : 'Send Reset Password Link' }}
+                  </button>
+                </div>
+
+                <!-- Temporary Password (first-login only) -->
+                <div v-if="canUseTempPassword" class="reset-password-section">
+                  <h4>Temporary Password</h4>
+                  <p>Generate an expiring temporary password. Send the username + temporary password to the user. After login, they will be prompted to set a new password.</p>
+                  <button
+                    @click="generateTemporaryPasswordForUser"
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    :disabled="generatingTempPassword"
+                  >
+                    {{ generatingTempPassword ? 'Generating...' : 'Generate Temporary Password' }}
+                  </button>
+                </div>
+              </template>
               
               <div class="status-management">
                 <h4>Status Management</h4>
@@ -1173,6 +1194,42 @@
             Copy Password
           </button>
           <button @click="closeTempPasswordModal" class="btn btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reset Password Link Modal -->
+    <div v-if="showResetPasswordLinkModal" class="modal-overlay" @click="closeResetPasswordLinkModal">
+      <div class="modal-content credentials-modal" @click.stop>
+        <h2>Reset Password Link</h2>
+        <p class="credentials-description">Copy this link to send to the user. It expires automatically.</p>
+
+        <div class="credentials-section">
+          <div class="credential-item">
+            <label>Reset Password Link:</label>
+            <div class="credential-value">
+              <input
+                type="text"
+                :value="resetPasswordLink"
+                readonly
+                class="credential-input"
+                ref="resetLinkInput"
+              />
+              <button @click="copyResetLink" class="btn-copy">Copy</button>
+            </div>
+            <small>This link expires (default: 48 hours).</small>
+          </div>
+        </div>
+
+        <div class="credentials-actions">
+          <button
+            @click="copyResetLink"
+            class="btn btn-primary"
+            :disabled="!resetPasswordLink"
+          >
+            Copy Link
+          </button>
+          <button @click="closeResetPasswordLinkModal" class="btn btn-secondary">Close</button>
         </div>
       </div>
     </div>
@@ -1984,7 +2041,24 @@ const selectedAgencyOption = computed(() => {
 });
 const selectedAgencyAllowsAlias = computed(() => isAgencyOrg(selectedAgencyOption.value));
 
-const accountInfo = ref({ loginEmail: '', personalEmail: '', phoneNumber: '', personalPhone: '', workPhone: '', workPhoneExtension: '', supervisors: [], status: null, passwordlessLoginLink: null, passwordlessTokenExpiresAt: null, passwordlessTokenExpiresInHours: null, passwordlessTokenIsExpired: false });
+const accountInfo = ref({
+  loginEmail: '',
+  personalEmail: '',
+  phoneNumber: '',
+  personalPhone: '',
+  workPhone: '',
+  workPhoneExtension: '',
+  supervisors: [],
+  status: null,
+  passwordlessLoginLink: null,
+  passwordlessTokenExpiresAt: null,
+  passwordlessTokenExpiresInHours: null,
+  passwordlessTokenIsExpired: false,
+  hasLoggedIn: false,
+  neverLoggedIn: true,
+  ssoEnabled: false,
+  ssoRequired: false
+});
 const accountInfoLoading = ref(false);
 const accountInfoError = ref('');
 const downloadingPackage = ref(false);
@@ -2654,6 +2728,60 @@ const closeTempPasswordModal = () => {
   temporaryPassword.value = '';
   temporaryPasswordExpiresAt.value = '';
 };
+
+// Reset password link (token-based) — shown for non-SSO users; expires (48h)
+const showResetPasswordLinkModal = ref(false);
+const generatingResetLink = ref(false);
+const resetPasswordLink = ref('');
+const resetLinkInput = ref(null);
+
+const generateResetPasswordLink = async () => {
+  try {
+    generatingResetLink.value = true;
+    const response = await api.post(`/users/${userId.value}/send-reset-password-link`);
+    resetPasswordLink.value = response.data.tokenLink || '';
+    showResetPasswordLinkModal.value = true;
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to generate reset password link';
+    alert(error.value);
+  } finally {
+    generatingResetLink.value = false;
+  }
+};
+
+const copyResetLink = async () => {
+  if (resetLinkInput.value) {
+    resetLinkInput.value.select();
+  }
+  try {
+    await navigator.clipboard.writeText(String(resetPasswordLink.value || ''));
+  } catch (err) {
+    console.error('Failed to copy:', err);
+  }
+};
+
+const closeResetPasswordLinkModal = () => {
+  showResetPasswordLinkModal.value = false;
+  resetPasswordLink.value = '';
+};
+
+const isTargetActive = computed(() => {
+  const status = String(user.value?.status || '').toUpperCase();
+  const isActiveStatus = status === 'ACTIVE_EMPLOYEE' || status === 'ACTIVE';
+  const isActiveFlag = user.value?.is_active === undefined || user.value?.is_active === null
+    ? true
+    : (user.value?.is_active === true || user.value?.is_active === 1 || user.value?.is_active === '1');
+  return isActiveStatus && isActiveFlag;
+});
+
+const ssoRequiredForTarget = computed(() => accountInfo.value?.ssoRequired === true);
+const targetHasLoggedIn = computed(() => accountInfo.value?.hasLoggedIn === true);
+
+// Your requested rule:
+// - Active user + never logged in => show BOTH reset link + temp password
+// - If Google SSO is required for this user => turn this area off
+const canUsePasswordResetActions = computed(() => !ssoRequiredForTarget.value);
+const canUseTempPassword = computed(() => isTargetActive.value && !targetHasLoggedIn.value && !ssoRequiredForTarget.value);
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
