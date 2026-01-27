@@ -140,6 +140,12 @@ class Task {
     `;
     const params = [userId, userId, userId, userId];
 
+    // Safety: hiring tasks are intended for the hiring UI and should not appear in the general task list
+    // unless explicitly requested.
+    if (!filters.taskType) {
+      query += ` AND t.task_type != 'hiring'`;
+    }
+
     if (filters.taskType) {
       query += ' AND t.task_type = ?';
       params.push(filters.taskType);

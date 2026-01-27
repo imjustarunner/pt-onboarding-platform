@@ -3,6 +3,7 @@ import { createPinia } from 'pinia';
 import App from './App.vue';
 import router from './router';
 import './style.css';
+import 'driver.js/dist/driver.css';
 
 import { useAgencyStore } from './store/agency';
 import { useBrandingStore } from './store/branding';

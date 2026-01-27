@@ -1,7 +1,9 @@
 <template>
   <div class="container">
-    <h1>My Tasks</h1>
-    <TaskList />
+    <h1 data-tour="tasks-title">My Tasks</h1>
+    <div data-tour="tasks-list">
+      <TaskList />
+    </div>
   </div>
 </template>
 

@@ -49,6 +49,9 @@
               <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu">
                 {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
               </router-link>
+              <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/hiring')" @click="closeMobileMenu">
+                Applicants
+              </router-link>
 
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
               <template v-if="canSeePortalNav">
@@ -112,6 +115,15 @@
                   <strong>Reminder:</strong> Please ensure your schedule is open in the EHR system for the times you are available via “Extra availability”.
                 </div>
               </div>
+              <button
+                type="button"
+                class="btn btn-secondary tutorial-toggle"
+                :class="{ active: tutorialStore.enabled }"
+                :aria-pressed="tutorialStore.enabled ? 'true' : 'false'"
+                @click="tutorialStore.setEnabled(!tutorialStore.enabled)"
+              >
+                Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
+              </button>
               <button @click="handleLogout" class="btn btn-secondary">Logout</button>
               </div>
             </div>
@@ -142,6 +154,12 @@
             <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu" class="mobile-nav-link">
               {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
             </router-link>
+            <router-link
+              v-if="hasCapability('canManageHiring')"
+              :to="orgTo('/admin/hiring')"
+              @click="closeMobileMenu"
+              class="mobile-nav-link"
+            >Applicants</router-link>
             <router-link
               v-if="hasCapability('canJoinProgramEvents')"
               :to="orgTo('/office')"
@@ -185,6 +203,15 @@
 
               <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Settings</router-link>
             </template>
+            <button
+              type="button"
+              class="btn btn-secondary tutorial-toggle mobile-tutorial-toggle"
+              :class="{ active: tutorialStore.enabled }"
+              :aria-pressed="tutorialStore.enabled ? 'true' : 'false'"
+              @click="tutorialStore.setEnabled(!tutorialStore.enabled)"
+            >
+              Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
+            </button>
           </div>
           <div class="mobile-sidebar-footer">
             <button @click="handleLogout" class="btn btn-secondary mobile-logout">Logout</button>
@@ -198,6 +225,7 @@
         <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin" />
         <router-view />
       </main>
+      <TourManager v-if="isAuthenticated" />
       <PlatformChatDrawer />
       <PoweredByFooter v-if="isAuthenticated" />
       </div>
@@ -211,6 +239,7 @@ import { useAuthStore } from './store/auth';
 import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';
 import { useOrganizationStore } from './store/organization';
+import { useTutorialStore } from './store/tutorial';
 import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
@@ -220,11 +249,13 @@ import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
 import BrandingProvider from './components/BrandingProvider.vue';
 import BrandingLogo from './components/BrandingLogo.vue';
 import PoweredByFooter from './components/PoweredByFooter.vue';
+import TourManager from './components/TourManager.vue';
 
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const organizationStore = useOrganizationStore();
+const tutorialStore = useTutorialStore();
 const router = useRouter();
 const route = useRoute();
 const mobileMenuOpen = ref(false);
@@ -1173,6 +1204,15 @@ onUnmounted(() => {
 
 .mobile-logout {
   width: 100%;
+}
+
+.tutorial-toggle.active {
+  background-color: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.mobile-tutorial-toggle {
+  margin: 10px 20px 0;
 }
 
 .mobile-overlay {

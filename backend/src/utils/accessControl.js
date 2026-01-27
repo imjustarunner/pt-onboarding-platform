@@ -93,6 +93,15 @@ export function checkAccess(user) {
   let canAccessAdmin = false;
 
   switch (status) {
+    case 'PROSPECTIVE':
+      // Internal-only applicant stage: candidate should not have platform access.
+      canAccessOnDemand = false;
+      canAccessDashboard = false;
+      canAccessTraining = false;
+      canAccessDocuments = false;
+      canAccessAdmin = false;
+      break;
+
     case 'PENDING_SETUP':
       // No access until password is set
       canAccessOnDemand = false;
@@ -193,6 +202,11 @@ export function canLogin(user) {
 
   // ARCHIVED users cannot login
   if (status === 'ARCHIVED') {
+    return false;
+  }
+
+  // PROSPECTIVE users are internal-only candidates; do not allow login yet.
+  if (status === 'PROSPECTIVE') {
     return false;
   }
 

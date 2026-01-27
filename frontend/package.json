@@ -18,6 +18,7 @@
     "@tiptap/starter-kit": "^3.15.0",
     "@tiptap/vue-3": "^3.15.0",
     "axios": "^1.6.5",
+    "driver.js": "^1.4.0",
     "express": "^4.22.1",
     "pdfjs-dist": "^5.4.530",
     "pinia": "^2.1.7",

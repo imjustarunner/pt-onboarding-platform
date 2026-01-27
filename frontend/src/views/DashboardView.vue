@@ -5,12 +5,12 @@
       <div class="header-content">
         <BrandingLogo v-if="previewAgencyLogoUrl" size="large" class="dashboard-logo" :logo-url="previewAgencyLogoUrl" />
         <div>
-          <h1>{{ isPending ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
+          <h1 data-tour="dash-header-title">{{ isPending ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
         </div>
       </div>
     </div>
     <div v-else class="dashboard-header-user">
-      <h1>{{ isPending ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
+      <h1 data-tour="dash-header-title">{{ isPending ? 'Pre-Hire Checklist' : 'My Dashboard' }}</h1>
       <span class="badge badge-user">Personal</span>
       <span v-if="tierBadgeText" class="badge badge-tier" :class="tierBadgeKind">{{ tierBadgeText }}</span>
     </div>
@@ -104,12 +104,13 @@
 
     <!-- Dashboard Shell: left rail + right detail -->
     <div class="dashboard-shell" :class="{ 'schedule-focus': activeTab === 'my_schedule' }">
-      <div class="dashboard-rail" :class="{ disabled: previewMode }" role="navigation" aria-label="Dashboard sections">
+      <div data-tour="dash-rail" class="dashboard-rail" :class="{ disabled: previewMode }" role="navigation" aria-label="Dashboard sections">
         <button
           v-for="card in railCards"
           :key="card.id"
           type="button"
           class="rail-card"
+          :data-tour="`dash-rail-card-${String(card.id)}`"
           :class="{
             active: (card.kind === 'content' && activeTab === card.id),
             'rail-card-submit': card.id === 'submit'

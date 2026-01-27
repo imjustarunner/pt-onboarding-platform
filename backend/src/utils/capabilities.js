@@ -17,7 +17,8 @@ export function getUserCapabilities(user) {
     canViewTraining: false,
     canSignDocuments: false,
     canJoinProgramEvents: false,
-    canUseChat: false
+    canUseChat: false,
+    canManageHiring: false
   };
 
   if (!user) return base;
@@ -59,13 +60,20 @@ export function getUserCapabilities(user) {
   // Chat feature (placeholder; currently mainly used by privileged roles).
   const canUseChat = canAccessPlatform;
 
+  // Hiring/candidate collaboration tools.
+  // Defaults: backoffice roles can manage hiring. Optionally allow any user explicitly flagged.
+  const roleNorm = String(role || '').toLowerCase();
+  const hasHiringFlag = user?.has_hiring_access === true || user?.has_hiring_access === 1 || user?.has_hiring_access === '1';
+  const canManageHiring = ['admin', 'super_admin', 'support', 'staff'].includes(roleNorm) || hasHiringFlag;
+
   return {
     ...base,
     canAccessPlatform,
     canViewTraining,
     canSignDocuments,
     canJoinProgramEvents,
-    canUseChat
+    canUseChat,
+    canManageHiring
   };
 }
 

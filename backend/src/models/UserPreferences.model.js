@@ -46,14 +46,21 @@ class UserPreferences {
           'work_modality', 'scheduling_preferences',
           'show_read_receipts', 'allow_staff_step_in', 'staff_step_in_after_minutes',
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
-          'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page'
+          'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page',
+          'tutorial_progress'
         ];
 
         for (const field of allowedFields) {
           if (field in preferences) {
             fields.push(`${field} = ?`);
             // Handle JSON fields
-            if (field === 'quiet_hours_allowed_days' || field === 'notification_categories' || field === 'scheduling_preferences' || field === 'dashboard_notification_org_types') {
+            if (
+              field === 'quiet_hours_allowed_days' ||
+              field === 'notification_categories' ||
+              field === 'scheduling_preferences' ||
+              field === 'dashboard_notification_org_types' ||
+              field === 'tutorial_progress'
+            ) {
               values.push(JSON.stringify(preferences[field]));
             } else {
               values.push(preferences[field]);
@@ -89,7 +96,8 @@ class UserPreferences {
           'work_modality', 'scheduling_preferences',
           'show_read_receipts', 'allow_staff_step_in', 'staff_step_in_after_minutes',
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
-          'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page'
+          'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page',
+          'tutorial_progress'
         ];
 
         for (const field of allowedFields) {
@@ -97,7 +105,13 @@ class UserPreferences {
             fields.push(field);
             placeholders.push('?');
             // Handle JSON fields
-            if (field === 'quiet_hours_allowed_days' || field === 'notification_categories' || field === 'scheduling_preferences' || field === 'dashboard_notification_org_types') {
+            if (
+              field === 'quiet_hours_allowed_days' ||
+              field === 'notification_categories' ||
+              field === 'scheduling_preferences' ||
+              field === 'dashboard_notification_org_types' ||
+              field === 'tutorial_progress'
+            ) {
               values.push(JSON.stringify(preferences[field]));
             } else {
               values.push(preferences[field]);

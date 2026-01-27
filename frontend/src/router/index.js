@@ -372,6 +372,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/hiring',
+    name: 'OrganizationHiringCandidates',
+    component: () => import('../views/admin/HiringCandidatesView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/notifications',
     name: 'OrganizationSupervisorNotifications',
     component: () => import('../views/NotificationsHubView.vue'),
@@ -649,6 +655,12 @@ const routes = [
     name: 'AgencyCredentialing',
     component: () => import('../views/admin/AgencyCredentialingView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'] }
+  },
+  {
+    path: '/admin/hiring',
+    name: 'HiringCandidates',
+    component: () => import('../views/admin/HiringCandidatesView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManageHiring' }
   },
   {
     path: '/notifications',
