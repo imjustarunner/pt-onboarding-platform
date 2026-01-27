@@ -138,8 +138,11 @@
                     <option :value="''">—</option>
                     <option v-for="s in paperworkStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
                   </select>
-                  <div class="hint" style="margin-top: 6px;">
-                    If you’re using the checklist below, you can edit this more precisely in the Documentation tab.
+                  <div v-if="selectedOverviewPaperworkStatusKey === 'completed'" class="hint" style="margin-top: 6px;">
+                    Selecting <strong>Completed</strong> will mark all checklist items as <strong>Received</strong> in the Documentation tab.
+                  </div>
+                  <div v-else-if="overviewForm.paperwork_status_id" class="hint" style="margin-top: 6px;">
+                    Please go to the <strong>Documentation</strong> tab to mark individual items as needed/received.
                   </div>
                 </template>
                 <template v-else>
@@ -832,7 +835,13 @@
                     :checked="!!it.is_needed"
                     @change="onToggleDocNeeded(it, $event)"
                   />
-                  <input v-else type="checkbox" disabled :checked="!!it.is_completed" />
+                  <input
+                    v-else
+                    type="checkbox"
+                    :disabled="!canEditPaperwork || docChecklistSaving"
+                    :checked="!!it.is_completed"
+                    @change="onToggleDocCompleted($event)"
+                  />
                   <span class="check-label">{{ it.label }}</span>
                 </label>
                 <div class="check-right">
@@ -1121,6 +1130,44 @@ const fetchDocChecklist = async () => {
   }
 };
 
+const markAllDocsCompleted = async () => {
+  if (!canEditPaperwork.value) return null;
+  try {
+    docChecklistSaving.value = true;
+    docChecklistError.value = '';
+    if (!docChecklistItems.value.length) {
+      await fetchDocChecklist();
+    }
+    const items = (docChecklistItems.value || [])
+      .filter((x) => String(x?.status_key || '').toLowerCase() !== 'completed')
+      .filter((x) => Number(x?.paperwork_status_id) > 0);
+    const updates = items.map((x) => ({
+      paperwork_status_id: Number(x.paperwork_status_id),
+      is_needed: false
+    }));
+    if (!updates.length) return null;
+
+    const r = await api.put(`/clients/${props.client.id}/document-status`, { updates });
+    await fetchDocChecklist();
+    const updatedClient = r.data?.client || null;
+    emit('updated', { keepOpen: true, client: updatedClient || undefined });
+    return updatedClient;
+  } catch (e) {
+    docChecklistError.value = e?.response?.data?.error?.message || 'Failed to mark completed';
+    return null;
+  } finally {
+    docChecklistSaving.value = false;
+  }
+};
+
+const onToggleDocCompleted = async (event) => {
+  if (!canEditPaperwork.value) return;
+  const checked = !!event?.target?.checked;
+  // "Completed" is derived from other items; allow only the "check" action which marks all received.
+  if (!checked) return;
+  await markAllDocsCompleted();
+};
+
 const onToggleDocNeeded = async (item, event) => {
   if (!canEditPaperwork.value) return;
   if (!item?.paperwork_status_id) return;
@@ -1212,6 +1259,13 @@ const canEditPaperwork = computed(() => {
 
 const selectedPaperworkStatusKey = computed(() => {
   const id = paperworkForm.value.paperworkStatusId ? Number(paperworkForm.value.paperworkStatusId) : null;
+  if (!id) return '';
+  const row = (paperworkStatuses.value || []).find((s) => Number(s?.id) === id) || null;
+  return String(row?.status_key || row?.statusKey || '').toLowerCase();
+});
+
+const selectedOverviewPaperworkStatusKey = computed(() => {
+  const id = overviewForm.value.paperwork_status_id ? Number(overviewForm.value.paperwork_status_id) : null;
   if (!id) return '';
   const row = (paperworkStatuses.value || []).find((s) => Number(s?.id) === id) || null;
   return String(row?.status_key || row?.statusKey || '').toLowerCase();
@@ -1389,6 +1443,7 @@ const saveOverview = async () => {
   if (!canEditAccount.value) return;
   try {
     savingOverview.value = true;
+    const completedSelected = selectedOverviewPaperworkStatusKey.value === 'completed';
     const payload = {
       initials: String(overviewForm.value.initials || '').trim() || null,
       organization_id: overviewForm.value.organization_id ? Number(overviewForm.value.organization_id) : null,
@@ -1407,7 +1462,20 @@ const saveOverview = async () => {
       document_status: String(overviewForm.value.document_status || 'NONE'),
       source: String(overviewForm.value.source || '').trim() || null
     };
+    // If "Completed" is selected, we finalize via the checklist endpoint so it auto-clears all needed items.
+    if (completedSelected) {
+      delete payload.paperwork_status_id;
+    }
     await api.put(`/clients/${props.client.id}`, payload);
+    if (completedSelected) {
+      const updated = await markAllDocsCompleted();
+      if (!updated) {
+        const refreshed = (await api.get(`/clients/${props.client.id}`)).data || null;
+        emit('updated', { keepOpen: true, client: refreshed });
+      }
+      editingOverview.value = false;
+      return;
+    }
     const refreshed = (await api.get(`/clients/${props.client.id}`)).data || null;
     emit('updated', { keepOpen: true, client: refreshed });
     editingOverview.value = false;

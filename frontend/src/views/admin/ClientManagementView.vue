@@ -35,19 +35,21 @@
         >
           {{ rolloverWorking ? 'Working…' : 'Reset Documentation…' }}
         </button>
-        <button @click="showCreateModal = true" class="btn btn-primary">Create Client</button>
+        <button @click="openCreateClientModal" class="btn btn-primary">Create Client</button>
       </div>
     </div>
 
     <!-- Filters and Search -->
-    <div class="table-controls" v-if="!loading && clients.length > 0">
+    <!-- Keep mounted during loading so inputs don't lose focus -->
+    <div class="table-controls" v-show="clients.length > 0">
       <div class="filter-group">
         <input
           v-model="searchQuery"
           type="text"
           placeholder="Search by client code..."
           class="search-input"
-          @input="applyFilters"
+          @input="onSearchInput"
+          @keydown.enter.prevent="applyFilters"
         />
         <select v-model="clientStatusFilter" @change="applyFilters" class="filter-select">
           <option value="">All Client Statuses</option>
@@ -357,6 +359,17 @@
         <h3>Create New Client</h3>
         <form @submit.prevent="createClient">
           <div class="form-group">
+            <label>Agency</label>
+            <select v-if="canChooseCreateAgency" v-model="createAgencyId">
+              <option value="" disabled>Select agency...</option>
+              <option v-for="a in agenciesForCreate" :key="a.id" :value="String(a.id)">
+                {{ a.name }}
+              </option>
+            </select>
+            <input v-else :value="createAgencyName" disabled />
+            <small v-if="!createAgencyEffectiveId">Unable to determine agency for this account.</small>
+          </div>
+          <div class="form-group">
             <label>Organization (School / Program / Learning) *</label>
             <select v-model="newClient.organization_id" required>
               <option value="">Select organization...</option>
@@ -364,6 +377,8 @@
                 {{ org.name }}
               </option>
             </select>
+            <small v-if="loadingOrganizations">Loading organizations…</small>
+            <small v-else-if="!availableOrganizations.length">No affiliated organizations found for this agency.</small>
           </div>
           <div class="form-group">
             <label>Initials *</label>
@@ -739,11 +754,28 @@ const skillsOnly = ref(false);
 const sortBy = ref('submission_date-desc');
 const selectedClient = ref(null);
 const showCreateModal = ref(false);
+const openCreateClientModal = async () => {
+  showCreateModal.value = true;
+  // Ensure agency is set so org dropdown can populate immediately.
+  if (!createAgencyId.value && activeAgencyId.value) {
+    createAgencyId.value = String(activeAgencyId.value);
+  }
+  await fetchLinkedOrganizations();
+};
 const showBulkImportModal = ref(false);
 const creating = ref(false);
 const linkedOrganizations = ref([]);
 const loadingOrganizations = ref(false);
 const clientStatuses = ref([]);
+
+// Search debounce (prevents fetch + focus loss while typing)
+let searchDebounceTimer = null;
+const onSearchInput = () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    fetchClients();
+  }, 250);
+};
 
 const currentPage = ref(1);
 const pageSize = ref(50);
@@ -793,6 +825,28 @@ const activeAgencyId = computed(() => {
   return firstAgency?.id || null;
 });
 
+// Create-client modal: allow selecting agency when user has multiple agencies
+const createAgencyId = ref('');
+const agenciesForCreate = computed(() => {
+  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  return list
+    .filter((o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency')
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+});
+const canChooseCreateAgency = computed(() => {
+  return (agenciesForCreate.value || []).length > 1 && authStore.user?.role !== 'school_staff';
+});
+const createAgencyEffectiveId = computed(() => {
+  const chosen = createAgencyId.value ? parseInt(String(createAgencyId.value), 10) : null;
+  return chosen || activeAgencyId.value || null;
+});
+const createAgencyName = computed(() => {
+  const id = createAgencyEffectiveId.value;
+  if (!id) return '';
+  const row = (agenciesForCreate.value || []).find((a) => Number(a?.id) === Number(id)) || null;
+  return row?.name || String(id);
+});
+
 const fetchLinkedOrganizations = async () => {
   try {
     loadingOrganizations.value = true;
@@ -814,23 +868,41 @@ const fetchLinkedOrganizations = async () => {
       return;
     }
 
-    const agencyId = activeAgencyId.value;
+    const agencyId = createAgencyEffectiveId.value;
     if (!agencyId) {
       linkedOrganizations.value = [];
       return;
     }
 
-    // Agency admins: only show orgs linked to the active agency.
-    const response = await api.get(`/agencies/${agencyId}/schools`);
-    const rows = response.data || [];
-    linkedOrganizations.value = rows.map((r) => ({
-      id: r.school_organization_id,
-      name: r.school_name,
-      slug: r.school_slug,
-      organization_type: r.school_organization_type,
-      is_active: r.school_is_active,
-      district_name: r.district_name || null
-    }));
+    // Agency-side: prefer affiliation-based list (schools/programs/learning). Fallback to legacy agency↔school links if needed.
+    try {
+      const resp = await api.get(`/agencies/${agencyId}/affiliated-organizations`);
+      const rows = Array.isArray(resp.data) ? resp.data : [];
+      linkedOrganizations.value = rows
+        .filter((o) => String(o?.organization_type || '').toLowerCase() !== 'agency')
+        .map((o) => ({
+          id: o.id,
+          name: o.name,
+          slug: o.slug || o.portal_url || null,
+          organization_type: o.organization_type,
+          is_active: o.is_active !== false,
+          district_name: o.district_name || null,
+          affiliated_agency_id: Number(agencyId)
+        }));
+    } catch (e) {
+      // Legacy fallback (schools only)
+      const response = await api.get(`/agencies/${agencyId}/schools`);
+      const rows = response.data || [];
+      linkedOrganizations.value = rows.map((r) => ({
+        id: r.school_organization_id,
+        name: r.school_name,
+        slug: r.school_slug,
+        organization_type: r.school_organization_type,
+        is_active: r.school_is_active,
+        district_name: r.district_name || null,
+        affiliated_agency_id: Number(agencyId)
+      }));
+    }
   } catch (err) {
     console.error('Failed to fetch linked organizations:', err);
     linkedOrganizations.value = [];
@@ -1503,7 +1575,7 @@ const createClient = async () => {
     // to the selected organization's affiliation (super admin / platform-wide org picker).
     const orgId = Number(newClient.value?.organization_id) || null;
     const org = orgId ? (linkedOrganizations.value || []).find((o) => Number(o?.id) === orgId) : null;
-    const agencyId = activeAgencyId.value || (org?.affiliated_agency_id ? Number(org.affiliated_agency_id) : null);
+    const agencyId = createAgencyEffectiveId.value || (org?.affiliated_agency_id ? Number(org.affiliated_agency_id) : null);
 
     if (!agencyId) {
       error.value = 'Unable to determine agency. Please ensure you are associated with an agency.';
@@ -1553,6 +1625,7 @@ const createClient = async () => {
 
 const closeCreateModal = () => {
   showCreateModal.value = false;
+  createAgencyId.value = '';
   newClient.value = {
     organization_id: null,
     initials: '',
@@ -1618,6 +1691,10 @@ const openClientFromQuery = async () => {
 onMounted(async () => {
   loadColumnPrefs();
   await agencyStore.fetchUserAgencies();
+  // Default the create modal agency to the resolved active agency.
+  if (!createAgencyId.value && activeAgencyId.value) {
+    createAgencyId.value = String(activeAgencyId.value);
+  }
   await fetchLinkedOrganizations();
   await fetchClientStatuses();
   await fetchProviders();
@@ -1629,6 +1706,20 @@ onMounted(async () => {
     newClient.value.school_year = currentSchoolYear.value;
   }
 });
+
+watch(
+  () => createAgencyEffectiveId.value,
+  async () => {
+    if (!showCreateModal.value) return;
+    // Changing agency in the create modal should refresh org/provider/status dropdowns.
+    newClient.value.organization_id = null;
+    newClient.value.provider_id = null;
+    newClient.value.service_day = '';
+    await fetchLinkedOrganizations();
+    await fetchClientStatuses();
+    await fetchProviders();
+  }
+);
 
 watch(
   () => newClient.value?.organization_id,
