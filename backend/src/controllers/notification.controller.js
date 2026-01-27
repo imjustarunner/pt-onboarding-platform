@@ -424,20 +424,55 @@ export const purgeNotifications = async (req, res, next) => {
       }
     }
 
-    // Transaction: delete sms logs first, then notifications
-    await pool.execute('START TRANSACTION');
+    // IMPORTANT: Use a single connection for the whole transaction.
+    const conn = await pool.getConnection();
     let deletedSmsLogs = 0;
     let deletedNotifications = 0;
+    let smsLogsSkipped = false;
+    let smsLogsSkipReason = null;
 
-    if (agencyId) {
-      if (includeSmsLogs) deletedSmsLogs = await NotificationSmsLog.purgeByAgency(agencyId);
-      deletedNotifications = await Notification.purgeByAgency(agencyId);
-    } else {
-      if (includeSmsLogs) deletedSmsLogs = await NotificationSmsLog.purgeAll();
-      deletedNotifications = await Notification.purgeAll();
+    try {
+      await conn.beginTransaction();
+
+      // Delete SMS logs first (FK notification_id -> notifications.id).
+      if (includeSmsLogs) {
+        try {
+          if (agencyId) {
+            const [r] = await conn.execute('DELETE FROM notification_sms_logs WHERE agency_id = ?', [agencyId]);
+            deletedSmsLogs = r.affectedRows || 0;
+          } else {
+            const [r] = await conn.execute('DELETE FROM notification_sms_logs');
+            deletedSmsLogs = r.affectedRows || 0;
+          }
+        } catch (e) {
+          // In some environments the table may not exist yet (migration not applied).
+          const errno = e?.errno;
+          const code = e?.code;
+          if (errno === 1146 || code === 'ER_NO_SUCH_TABLE') {
+            smsLogsSkipped = true;
+            smsLogsSkipReason = 'notification_sms_logs table not found (migration may not be applied)';
+          } else {
+            throw e;
+          }
+        }
+      }
+
+      // Delete notifications
+      if (agencyId) {
+        const [r] = await conn.execute('DELETE FROM notifications WHERE agency_id = ?', [agencyId]);
+        deletedNotifications = r.affectedRows || 0;
+      } else {
+        const [r] = await conn.execute('DELETE FROM notifications');
+        deletedNotifications = r.affectedRows || 0;
+      }
+
+      await conn.commit();
+    } catch (e) {
+      try { await conn.rollback(); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      conn.release();
     }
-
-    await pool.execute('COMMIT');
 
     res.json({
       scope: agencyId ? 'agency' : 'all',
@@ -446,10 +481,10 @@ export const purgeNotifications = async (req, res, next) => {
       deleted: {
         notifications: deletedNotifications,
         smsLogs: deletedSmsLogs
-      }
+      },
+      ...(smsLogsSkipped ? { smsLogsSkipped, smsLogsSkipReason } : {})
     });
   } catch (error) {
-    try { await pool.execute('ROLLBACK'); } catch { /* ignore */ }
     next(error);
   }
 };
