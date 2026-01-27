@@ -28,9 +28,14 @@ const normalizeClientCode = (value) => {
 const normalizeIdentifierCodeFromSheet = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  const alnum = raw.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-  // Only accept exactly 6 chars (DB column is typically VARCHAR(6)).
-  return alnum.length === 6 ? alnum : '';
+  // Accept user-provided identifier codes as the stable dedupe key.
+  // DB migration 186 expands this to VARCHAR(32). We normalize for consistency across uploads:
+  // - remove whitespace/punctuation
+  // - uppercase
+  // - truncate to 32 chars to match schema
+  const code = raw.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  if (!code) return '';
+  return code.slice(0, 32);
 };
 
 const IDENT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no O/0/I/1
