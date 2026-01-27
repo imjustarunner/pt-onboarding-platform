@@ -785,7 +785,7 @@
                     <label class="filters-label">Day</label>
                     <select v-model="addProviderDay" class="filters-select">
                       <option value="">Select…</option>
-                      <option v-for="d in weekdayOptions" :key="d" :value="d">{{ d }}</option>
+                      <option v-for="d in availableProviderDaysForSelectedOrg" :key="d" :value="d">{{ d }}</option>
                     </select>
                   </div>
                   <div class="actions" style="align-self: end;">
@@ -1785,20 +1785,75 @@ const removeAffiliation = async (orgId) => {
   }
 };
 
+const providerScheduleForSelectedOrg = ref([]);
+
 const fetchProviderOptions = async () => {
   if (!canEditAccount.value) return;
+  const agencyId = Number(props.client?.agency_id);
+  const orgId = selectedAssignmentOrgId.value ? Number(selectedAssignmentOrgId.value) : null;
+  if (!agencyId || !orgId) {
+    providerScheduleForSelectedOrg.value = [];
+    providerOptions.value = [];
+    return;
+  }
   try {
-    const agencyId = props.client?.agency_id;
-    if (!agencyId) {
-      providerOptions.value = [];
-      return;
+    // Pull provider_school_assignments for this org so we only show providers affiliated with it.
+    const r = await api.get('/provider-scheduling/assignments', {
+      params: { agencyId, schoolOrganizationId: orgId }
+    });
+    const rows = Array.isArray(r.data) ? r.data : [];
+    providerScheduleForSelectedOrg.value = rows;
+
+    const byProvider = new Map();
+    for (const row of rows) {
+      const pid = Number(row?.provider_user_id);
+      if (!pid) continue;
+      if (!byProvider.has(pid)) {
+        byProvider.set(pid, {
+          id: pid,
+          first_name: row?.provider_first_name || '',
+          last_name: row?.provider_last_name || ''
+        });
+      }
     }
-    const r = await api.get('/provider-scheduling/providers', { params: { agencyId } });
-    providerOptions.value = r.data || [];
+    providerOptions.value = Array.from(byProvider.values()).sort((a, b) =>
+      String(a?.last_name || '').localeCompare(String(b?.last_name || '')) ||
+      String(a?.first_name || '').localeCompare(String(b?.first_name || ''))
+    );
   } catch {
+    providerScheduleForSelectedOrg.value = [];
     providerOptions.value = [];
   }
 };
+
+const availableProviderDaysForSelectedOrg = computed(() => {
+  const providerId = addProviderUserId.value ? Number(addProviderUserId.value) : null;
+  const orgId = selectedAssignmentOrgId.value ? Number(selectedAssignmentOrgId.value) : null;
+  const out = [];
+  // Unknown is always allowed.
+  out.push('Unknown');
+  if (!providerId || !orgId) return out;
+  const rows = (providerScheduleForSelectedOrg.value || []).filter((r) => {
+    return (
+      Number(r?.provider_user_id) === providerId &&
+      Number(r?.school_organization_id) === orgId &&
+      (r?.is_active === 1 || r?.is_active === true)
+    );
+  });
+  const days = new Set();
+  for (const r of rows) {
+    const day = String(r?.day_of_week || '').trim();
+    const available = Number(r?.slots_available ?? 0);
+    if (!day) continue;
+    if (available <= 0) continue;
+    days.add(day);
+  }
+  // Keep weekday ordering
+  for (const d of weekdayOptions) {
+    if (days.has(d)) out.push(d);
+  }
+  return out;
+});
 
 const reloadProviderAssignments = async () => {
   if (!canEditAccount.value) return;
@@ -2105,7 +2160,18 @@ watch(
 watch(
   () => selectedAssignmentOrgId.value,
   async () => {
+    addProviderUserId.value = '';
+    addProviderDay.value = '';
     await reloadProviderAssignments();
+    await fetchProviderOptions();
+  }
+);
+
+watch(
+  () => addProviderUserId.value,
+  () => {
+    // Reset day when provider changes so only valid days can be selected.
+    addProviderDay.value = '';
   }
 );
 </script>

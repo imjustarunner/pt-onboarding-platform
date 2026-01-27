@@ -2515,9 +2515,9 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
     const orgId = parseInt(req.body?.organization_id, 10);
     const providerUserId = parseInt(req.body?.provider_user_id, 10);
     const serviceDay = req.body?.service_day ? String(req.body.service_day).trim() : null;
-    const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const allowedDays = ['Unknown', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
     if (!orgId || !providerUserId || !serviceDay || !allowedDays.includes(serviceDay)) {
-      return res.status(400).json({ error: { message: 'organization_id, provider_user_id, and valid service_day are required' } });
+      return res.status(400).json({ error: { message: 'organization_id, provider_user_id, and valid service_day are required (Unknown or weekday)' } });
     }
 
     const userId = req.user.id;
@@ -2568,14 +2568,16 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
 
       const oldDay = existing?.service_day ? String(existing.service_day) : null;
       const wasActive = existing ? (existing.is_active === 1 || existing.is_active === true) : false;
+      const oldConsumesSlot = wasActive && oldDay && oldDay !== 'Unknown';
+      const newConsumesSlot = serviceDay !== 'Unknown';
 
       // Refund old slot if active and day changed
-      if (wasActive && oldDay && oldDay !== serviceDay) {
+      if (oldConsumesSlot && oldDay !== serviceDay) {
         await adjustProviderSlots(connection, { providerUserId, schoolId: orgId, dayOfWeek: oldDay, delta: +1 });
       }
 
       // Take new slot if newly active or day changed
-      if (!wasActive || oldDay !== serviceDay) {
+      if (newConsumesSlot && (!wasActive || oldDay !== serviceDay || !oldConsumesSlot)) {
         const take = await adjustProviderSlots(connection, { providerUserId, schoolId: orgId, dayOfWeek: serviceDay, delta: -1 });
         if (!take.ok) {
           await connection.rollback();

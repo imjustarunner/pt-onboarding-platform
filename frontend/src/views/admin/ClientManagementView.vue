@@ -828,7 +828,11 @@ const activeAgencyId = computed(() => {
 // Create-client modal: allow selecting agency when user has multiple agencies
 const createAgencyId = ref('');
 const agenciesForCreate = computed(() => {
-  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  const base =
+    authStore.user?.role === 'super_admin'
+      ? (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [])
+      : (Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : []);
+  const list = base;
   return list
     .filter((o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency')
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
@@ -850,24 +854,6 @@ const createAgencyName = computed(() => {
 const fetchLinkedOrganizations = async () => {
   try {
     loadingOrganizations.value = true;
-    // Super admins: show all schools platform-wide so the filter always has options.
-    if (authStore.user?.role === 'super_admin') {
-      // This endpoint returns school/program/learning orgs (non-agency) and can include district metadata.
-      const response = await api.get('/agencies/schools');
-      const rows = Array.isArray(response.data) ? response.data : [];
-      linkedOrganizations.value = rows
-        .map((r) => ({
-          id: r.id,
-          name: r.name,
-          slug: r.slug || r.portal_url || null,
-          organization_type: r.organization_type,
-          is_active: r.is_active,
-          district_name: r.district_name || null,
-          affiliated_agency_id: r.affiliated_agency_id || null
-        }));
-      return;
-    }
-
     const agencyId = createAgencyEffectiveId.value;
     if (!agencyId) {
       linkedOrganizations.value = [];
@@ -1690,6 +1676,10 @@ const openClientFromQuery = async () => {
 
 onMounted(async () => {
   loadColumnPrefs();
+  // Super admins need the full agency list for the Create Client agency dropdown.
+  if (authStore.user?.role === 'super_admin') {
+    await agencyStore.fetchAgencies();
+  }
   await agencyStore.fetchUserAgencies();
   // Default the create modal agency to the resolved active agency.
   if (!createAgencyId.value && activeAgencyId.value) {
