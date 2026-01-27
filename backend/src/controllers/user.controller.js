@@ -3215,7 +3215,7 @@ export const createCurrentEmployee = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Admin access required' } });
     }
 
-    const { firstName, lastName, workEmail, agencyId, role, billingAcknowledged } = req.body;
+    const { firstName, lastName, workEmail, agencyId, role, billingAcknowledged, organizationIds } = req.body;
 
     // Validate required fields
     if (!firstName || !lastName || !workEmail || !agencyId) {
@@ -3282,6 +3282,45 @@ export const createCurrentEmployee = async (req, res, next) => {
 
     // Assign to agency
     await User.assignToAgency(user.id, parseInt(agencyId));
+
+    // Optional: assign to affiliated orgs (schools/programs/learning) under the same agency.
+    try {
+      const orgIds = Array.isArray(organizationIds)
+        ? organizationIds.map((v) => parseInt(String(v), 10)).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+      if (orgIds.length) {
+        const AgencySchool = (await import('../models/AgencySchool.model.js')).default;
+        const OrganizationAffiliation = (await import('../models/OrganizationAffiliation.model.js')).default;
+        const targetAgencyId = parseInt(agencyId, 10);
+
+        for (const orgId of orgIds) {
+          let parent = null;
+          try {
+            parent = await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId);
+          } catch {
+            parent = null;
+          }
+          if (!parent) {
+            try {
+              parent = await AgencySchool.getActiveAgencyIdForSchool(orgId);
+            } catch {
+              parent = null;
+            }
+          }
+          if (parent && Number(parent) !== Number(targetAgencyId)) {
+            // Skip orgs that belong to a different agency to prevent accidental cross-assignment.
+            continue;
+          }
+          try {
+            await User.assignToAgency(user.id, orgId);
+          } catch {
+            // ignore duplicates or failures; agency assignment is the primary requirement
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
 
     // Generate passwordless token for password setup (48 hours expiration)
     const passwordlessTokenResult = await User.generatePasswordlessToken(user.id, 48);

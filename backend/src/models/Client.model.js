@@ -149,6 +149,19 @@ class Client {
   static async findById(id, options = {}) {
     const { includeSensitive = true } = options;
 
+    // Best-effort: if per-client checklist exists, include a needed-count for UI summary.
+    let hasChecklist = false;
+    try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      const [t] = await pool.execute(
+        "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'client_paperwork_items' LIMIT 1",
+        [dbName]
+      );
+      hasChecklist = (t || []).length > 0;
+    } catch {
+      hasChecklist = false;
+    }
+
     let query = `
       SELECT 
         c.*,
@@ -166,6 +179,13 @@ class Client {
         pdm.method_key as paperwork_delivery_method_key,
         creator.first_name as created_by_first_name,
         creator.last_name as created_by_last_name
+        ${hasChecklist ? `,
+        (
+          SELECT COUNT(*)
+          FROM client_paperwork_items cpi
+          WHERE cpi.client_id = c.id
+            AND cpi.is_needed = 1
+        ) AS paperwork_needed_count` : ''}
       FROM clients c
       LEFT JOIN agencies org ON c.organization_id = org.id
       LEFT JOIN users provider ON c.provider_id = provider.id
@@ -227,6 +247,19 @@ class Client {
     const values = [];
     const useOrgAssignments = !!organization_id;
 
+    // Best-effort: if per-client checklist exists, include a needed-count for UI summary.
+    let hasChecklist = false;
+    try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      const [t] = await pool.execute(
+        "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'client_paperwork_items' LIMIT 1",
+        [dbName]
+      );
+      hasChecklist = (t || []).length > 0;
+    } catch {
+      hasChecklist = false;
+    }
+
     let query = `
       SELECT 
         c.*,
@@ -242,6 +275,13 @@ class Client {
         it.insurance_key as insurance_type_key,
         pdm.label as paperwork_delivery_method_label,
         pdm.method_key as paperwork_delivery_method_key
+        ${hasChecklist ? `,
+        (
+          SELECT COUNT(*)
+          FROM client_paperwork_items cpi
+          WHERE cpi.client_id = c.id
+            AND cpi.is_needed = 1
+        ) AS paperwork_needed_count` : ''}
       FROM clients c
     `;
 

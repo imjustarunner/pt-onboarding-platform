@@ -38,15 +38,44 @@
           <div class="info-grid">
             <div class="info-item">
               <label>Initials</label>
-              <div class="info-value">{{ client.initials }}</div>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <input v-model="overviewForm.initials" class="inline-input" placeholder="MesJuv" />
+                </template>
+                <template v-else>
+                  {{ client.initials }}
+                </template>
+              </div>
             </div>
             <div class="info-item">
               <label>School</label>
-              <div class="info-value">{{ client.organization_name || '-' }}</div>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <select v-model="overviewForm.organization_id" class="inline-select">
+                    <option :value="''">—</option>
+                    <option v-for="o in overviewOrganizations" :key="o.id" :value="String(o.id)">
+                      {{ o.name }}
+                    </option>
+                  </select>
+                </template>
+                <template v-else>
+                  {{ client.organization_name || '-' }}
+                </template>
+              </div>
             </div>
             <div class="info-item">
               <label>Client Status</label>
-              <div class="info-value">{{ client.client_status_label || '-' }}</div>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <select v-model="overviewForm.client_status_id" class="inline-select">
+                    <option :value="''">—</option>
+                    <option v-for="s in overviewClientStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
+                  </select>
+                </template>
+                <template v-else>
+                  {{ client.client_status_label || '-' }}
+                </template>
+              </div>
             </div>
             <div class="info-item">
               <label>Archived</label>
@@ -58,6 +87,16 @@
               <label>Provider</label>
               <div class="info-value">
                 <template v-if="canEditAccount">
+                  <select
+                    v-if="editingOverview"
+                    v-model="overviewForm.provider_id"
+                    class="inline-select"
+                  >
+                    <option :value="''">Not assigned</option>
+                    <option v-for="p in availableProviders" :key="p.id" :value="String(p.id)">
+                      {{ p.first_name }} {{ p.last_name }}
+                    </option>
+                  </select>
                   <select
                     v-if="editingProvider"
                     v-model="providerValue"
@@ -82,19 +121,57 @@
             </div>
             <div class="info-item">
               <label>Submission Date</label>
-              <div class="info-value">{{ formatDate(client.submission_date) }}</div>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <input v-model="overviewForm.submission_date" type="date" class="inline-input" />
+                </template>
+                <template v-else>
+                  {{ formatDate(client.submission_date) }}
+                </template>
+              </div>
             </div>
             <div class="info-item">
-              <label>Paperwork Status</label>
-              <div class="info-value">{{ client.paperwork_status_label || '-' }}</div>
+              <label>Document Status</label>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <select v-model="overviewForm.paperwork_status_id" class="inline-select">
+                    <option :value="''">—</option>
+                    <option v-for="s in paperworkStatuses" :key="s.id" :value="String(s.id)">{{ s.label }}</option>
+                  </select>
+                  <div class="hint" style="margin-top: 6px;">
+                    If you’re using the checklist below, you can edit this more precisely in the Documentation tab.
+                  </div>
+                </template>
+                <template v-else>
+                  <span v-if="documentStatusSummaryText" class="doc-status-pill">{{ documentStatusSummaryText }}</span>
+                  <span v-else>{{ client.paperwork_status_label || '-' }}</span>
+                </template>
+              </div>
             </div>
             <div class="info-item">
               <label>Insurance</label>
-              <div class="info-value">{{ client.insurance_type_label || '-' }}</div>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <select v-model="overviewForm.insurance_type_id" class="inline-select">
+                    <option :value="''">—</option>
+                    <option v-for="i in overviewInsuranceTypes" :key="i.id" :value="String(i.id)">{{ i.label }}</option>
+                  </select>
+                </template>
+                <template v-else>
+                  {{ client.insurance_type_label || '-' }}
+                </template>
+              </div>
             </div>
             <div class="info-item">
               <label>Doc Date</label>
-              <div class="info-value">{{ formatDate(client.doc_date) }}</div>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <input v-model="overviewForm.doc_date" type="date" class="inline-input" />
+                </template>
+                <template v-else>
+                  {{ formatDate(client.doc_date) }}
+                </template>
+              </div>
             </div>
             <div class="info-item">
               <label>School Year</label>
@@ -121,10 +198,10 @@
             <div class="info-item">
               <label>Skills client</label>
               <div class="info-value">
-                <template v-if="canEditAccount">
+                <template v-if="editingOverview">
                   <label style="display:flex; align-items:center; gap: 8px;">
-                    <input type="checkbox" v-model="skillsValue" @change="saveSkills" />
-                    <span>{{ skillsValue ? 'Yes' : 'No' }}</span>
+                    <input type="checkbox" v-model="overviewForm.skills" />
+                    <span>{{ overviewForm.skills ? 'Yes' : 'No' }}</span>
                   </label>
                 </template>
                 <template v-else>
@@ -134,7 +211,14 @@
             </div>
             <div class="info-item">
               <label>Referral Date</label>
-              <div class="info-value">{{ formatDate(client.referral_date) }}</div>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <input v-model="overviewForm.referral_date" type="date" class="inline-input" />
+                </template>
+                <template v-else>
+                  {{ formatDate(client.referral_date) }}
+                </template>
+              </div>
             </div>
             <div class="info-item">
               <label>Client primary language</label>
@@ -161,14 +245,35 @@
             <div class="info-item">
               <label>Document Status (legacy)</label>
               <div class="info-value">
-                <span :class="['doc-status-badge', `doc-${client.document_status?.toLowerCase()}`]">
-                  {{ formatDocumentStatus(client.document_status) }}
-                </span>
+                <template v-if="editingOverview">
+                  <select v-model="overviewForm.document_status" class="inline-select">
+                    <option value="NONE">None</option>
+                    <option value="UPLOADED">Uploaded</option>
+                    <option value="APPROVED">Approved</option>
+                    <option value="REJECTED">Rejected</option>
+                  </select>
+                </template>
+                <template v-else>
+                  <span class="muted">{{ formatDocumentStatus(client.document_status) }}</span>
+                </template>
               </div>
             </div>
             <div class="info-item">
               <label>Source</label>
-              <div class="info-value">{{ formatSource(client.source) }}</div>
+              <div class="info-value">
+                <template v-if="editingOverview">
+                  <select v-model="overviewForm.source" class="inline-select">
+                    <option value="">—</option>
+                    <option value="BULK_IMPORT">Bulk Import</option>
+                    <option value="SCHOOL_UPLOAD">School Upload</option>
+                    <option value="DIGITAL_FORM">Digital Form</option>
+                    <option value="ADMIN_CREATED">Admin Created</option>
+                  </select>
+                </template>
+                <template v-else>
+                  {{ formatSource(client.source) }}
+                </template>
+              </div>
             </div>
             <div class="info-item">
               <label>Last Activity</label>
@@ -176,7 +281,7 @@
             </div>
           </div>
 
-          <div v-if="canEditAccount" class="quick-actions">
+          <div v-if="canEditAccount && editingOverview" class="quick-actions">
             <h3>Quick Actions</h3>
             <div class="actions-grid">
               <button
@@ -705,6 +810,46 @@
             </div>
           </div>
 
+          <div class="panel" style="padding: 14px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 14px;">
+            <div style="display:flex; align-items:center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+              <div>
+                <h4 style="margin:0;">Document Status checklist</h4>
+                <div class="hint" style="margin-top: 4px;">
+                  Checked = <strong>Needed</strong>. Unchecked = <strong>Received</strong>. When all are received, status becomes <strong>Completed</strong>.
+                </div>
+              </div>
+              <div class="hint" v-if="docChecklistLoading">Loading…</div>
+              <div class="error" v-else-if="docChecklistError" style="margin:0;">{{ docChecklistError }}</div>
+            </div>
+
+            <div v-if="docChecklistItems.length" style="margin-top: 10px;">
+              <div v-for="it in docChecklistItems" :key="String(it.status_key || it.paperwork_status_id)" class="check-row">
+                <label class="check-left">
+                  <input
+                    v-if="it.status_key !== 'completed'"
+                    type="checkbox"
+                    :disabled="!canEditPaperwork || docChecklistSaving"
+                    :checked="!!it.is_needed"
+                    @change="onToggleDocNeeded(it, $event)"
+                  />
+                  <input v-else type="checkbox" disabled :checked="!!it.is_completed" />
+                  <span class="check-label">{{ it.label }}</span>
+                </label>
+                <div class="check-right">
+                  <span v-if="it.status_key === 'completed'" class="badge badge-success">Auto</span>
+                  <span v-else-if="it.is_needed" class="badge badge-warning">Needed</span>
+                  <span v-else class="badge badge-secondary">Received</span>
+                  <span v-if="it.received_at && !it.is_needed" class="hint" style="margin-left: 10px;">
+                    {{ formatDateTime(it.received_at) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div v-else-if="!docChecklistLoading" class="muted" style="margin-top: 10px;">
+              Checklist not available yet (missing migration) or no statuses configured.
+            </div>
+          </div>
+
           <div class="info-grid" style="margin-bottom: 14px;">
             <div class="info-item">
               <label>Current status</label>
@@ -863,11 +1008,48 @@ const skillsValue = ref(false);
 const editingOverview = ref(false);
 const savingOverview = ref(false);
 const overviewForm = ref({
+  initials: '',
+  organization_id: '',
+  client_status_id: '',
+  provider_id: '',
+  submission_date: '',
+  paperwork_status_id: '',
+  insurance_type_id: '',
+  doc_date: '',
   school_year: '',
   grade: '',
+  skills: false,
+  referral_date: '',
   primary_client_language: '',
-  primary_parent_language: ''
+  primary_parent_language: '',
+  document_status: 'NONE',
+  source: ''
 });
+
+// Overview edit dropdowns
+const overviewOrganizations = ref([]);
+const overviewClientStatuses = ref([]);
+const overviewInsuranceTypes = ref([]);
+
+const loadOverviewOptions = async () => {
+  if (!canEditAccount.value) return;
+  const agencyId = Number(props.client?.agency_id);
+  if (!agencyId) return;
+  try {
+    const [orgResp, statusResp, insResp] = await Promise.all([
+      api.get(`/agencies/${agencyId}/affiliated-organizations`),
+      api.get('/client-settings/client-statuses', { params: { agencyId } }),
+      api.get('/client-settings/insurance-types', { params: { agencyId } })
+    ]);
+    overviewOrganizations.value = (orgResp.data || [])
+      .filter((o) => ['school', 'program', 'learning'].includes(String(o?.organization_type || '').toLowerCase()))
+      .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+    overviewClientStatuses.value = (statusResp.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
+    overviewInsuranceTypes.value = (insResp.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
+  } catch {
+    // best-effort; keep existing lists
+  }
+};
 
 // History tab state
 const history = ref([]);
@@ -905,6 +1087,65 @@ const paperworkForm = ref({
   roiExpiresAt: '',
   note: ''
 });
+
+// Document Status checklist (Needed/Received)
+const docChecklistItems = ref([]);
+const docChecklistLoading = ref(false);
+const docChecklistSaving = ref(false);
+const docChecklistError = ref('');
+
+const documentStatusSummaryText = computed(() => {
+  const count = props.client?.paperwork_needed_count;
+  if (count === undefined || count === null) return '';
+  const n = Number(count);
+  if (!Number.isFinite(n)) return '';
+  if (n <= 0) return 'Completed';
+  if (n > 1) return 'Multiple Needed';
+  const base = props.client?.paperwork_status_label || props.client?.paperwork_status_key || 'Needed';
+  // If label is already something like 'New Docs', display 'New Docs Needed'
+  const lbl = String(base || 'Needed').trim();
+  return lbl ? `${lbl} Needed` : 'Needed';
+});
+
+const fetchDocChecklist = async () => {
+  try {
+    docChecklistLoading.value = true;
+    docChecklistError.value = '';
+    const r = await api.get(`/clients/${props.client.id}/document-status`);
+    docChecklistItems.value = Array.isArray(r.data?.items) ? r.data.items : [];
+  } catch (e) {
+    docChecklistItems.value = [];
+    docChecklistError.value = e?.response?.data?.error?.message || 'Failed to load document checklist';
+  } finally {
+    docChecklistLoading.value = false;
+  }
+};
+
+const onToggleDocNeeded = async (item, event) => {
+  if (!canEditPaperwork.value) return;
+  if (!item?.paperwork_status_id) return;
+  if (String(item.status_key || '').toLowerCase() === 'completed') return;
+  const checked = !!event?.target?.checked; // checked = Needed
+  try {
+    docChecklistSaving.value = true;
+    docChecklistError.value = '';
+    const r = await api.put(`/clients/${props.client.id}/document-status`, {
+      paperwork_status_id: item.paperwork_status_id,
+      is_needed: checked
+    });
+    // Refresh checklist and update the client summary in parent UI.
+    await fetchDocChecklist();
+    if (r.data?.client) {
+      emit('updated', { client: r.data.client, keepOpen: true });
+    } else {
+      emit('updated', { keepOpen: true });
+    }
+  } catch (e) {
+    docChecklistError.value = e?.response?.data?.error?.message || 'Failed to update document status';
+  } finally {
+    docChecklistSaving.value = false;
+  }
+};
 
 // Multi-org + multi-provider assignments (backoffice only)
 const affiliations = ref([]);
@@ -1114,15 +1355,29 @@ const saveSkills = async () => {
 };
 
 const hydrateOverviewForm = () => {
+  overviewForm.value.initials = String(props.client?.initials || '');
+  overviewForm.value.organization_id = props.client?.organization_id ? String(props.client.organization_id) : '';
+  overviewForm.value.client_status_id = props.client?.client_status_id ? String(props.client.client_status_id) : '';
+  overviewForm.value.provider_id = props.client?.provider_id ? String(props.client.provider_id) : '';
+  overviewForm.value.submission_date = props.client?.submission_date ? String(props.client.submission_date).slice(0, 10) : '';
+  overviewForm.value.paperwork_status_id = props.client?.paperwork_status_id ? String(props.client.paperwork_status_id) : '';
+  overviewForm.value.insurance_type_id = props.client?.insurance_type_id ? String(props.client.insurance_type_id) : '';
+  overviewForm.value.doc_date = props.client?.doc_date ? String(props.client.doc_date).slice(0, 10) : '';
   overviewForm.value.school_year = String(props.client?.school_year || '');
   overviewForm.value.grade = String(props.client?.grade || '');
   overviewForm.value.primary_client_language = String(props.client?.primary_client_language || '');
   overviewForm.value.primary_parent_language = String(props.client?.primary_parent_language || '');
+  overviewForm.value.skills = !!props.client?.skills;
+  overviewForm.value.referral_date = props.client?.referral_date ? String(props.client.referral_date).slice(0, 10) : '';
+  overviewForm.value.document_status = String(props.client?.document_status || 'NONE');
+  overviewForm.value.source = String(props.client?.source || '');
 };
 
 const startEditOverview = () => {
   editingOverview.value = true;
   hydrateOverviewForm();
+  loadOverviewOptions();
+  fetchPaperworkStatuses();
 };
 
 const cancelEditOverview = () => {
@@ -1135,10 +1390,22 @@ const saveOverview = async () => {
   try {
     savingOverview.value = true;
     const payload = {
+      initials: String(overviewForm.value.initials || '').trim() || null,
+      organization_id: overviewForm.value.organization_id ? Number(overviewForm.value.organization_id) : null,
+      client_status_id: overviewForm.value.client_status_id ? Number(overviewForm.value.client_status_id) : null,
+      provider_id: overviewForm.value.provider_id ? Number(overviewForm.value.provider_id) : null,
+      submission_date: overviewForm.value.submission_date ? String(overviewForm.value.submission_date) : null,
+      paperwork_status_id: overviewForm.value.paperwork_status_id ? Number(overviewForm.value.paperwork_status_id) : null,
+      insurance_type_id: overviewForm.value.insurance_type_id ? Number(overviewForm.value.insurance_type_id) : null,
+      doc_date: overviewForm.value.doc_date ? String(overviewForm.value.doc_date) : null,
       school_year: String(overviewForm.value.school_year || '').trim() || null,
       grade: String(overviewForm.value.grade || '').trim() || null,
       primary_client_language: String(overviewForm.value.primary_client_language || '').trim() || null,
-      primary_parent_language: String(overviewForm.value.primary_parent_language || '').trim() || null
+      primary_parent_language: String(overviewForm.value.primary_parent_language || '').trim() || null,
+      skills: !!overviewForm.value.skills,
+      referral_date: overviewForm.value.referral_date ? String(overviewForm.value.referral_date) : null,
+      document_status: String(overviewForm.value.document_status || 'NONE'),
+      source: String(overviewForm.value.source || '').trim() || null
     };
     await api.put(`/clients/${props.client.id}`, payload);
     const refreshed = (await api.get(`/clients/${props.client.id}`)).data || null;
@@ -1644,6 +1911,7 @@ watch(() => activeTab.value, (newTab) => {
     fetchProviderOptions();
     reloadProviderAssignments();
   } else if (newTab === 'phi') {
+    fetchDocChecklist();
     fetchPaperworkStatuses();
     fetchDeliveryMethods();
     fetchPaperworkHistory();
@@ -1658,6 +1926,8 @@ watch(() => props.client, () => {
   if (!editingOverview.value) {
     hydrateOverviewForm();
   }
+  loadOverviewOptions();
+  fetchDocChecklist();
 }, { deep: true, immediate: true });
 
 const hydrateChecklist = async () => {
@@ -2205,6 +2475,65 @@ watch(
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
+}
+
+.doc-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--primary);
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.check-row:last-child {
+  border-bottom: none;
+}
+.check-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 240px;
+}
+.check-label {
+  font-weight: 600;
+}
+.check-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid rgba(0,0,0,0.08);
+}
+.badge-success {
+  background: rgba(22, 163, 74, 0.12);
+  color: #166534;
+}
+.badge-warning {
+  background: rgba(245, 158, 11, 0.14);
+  color: #92400e;
+}
+.badge-secondary {
+  background: rgba(100, 116, 139, 0.12);
+  color: #334155;
 }
 
 .message-content {

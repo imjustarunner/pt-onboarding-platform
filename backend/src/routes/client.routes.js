@@ -14,6 +14,8 @@ import {
   getClientHistory,
   getClientPaperworkHistory,
   createClientPaperworkHistory,
+  getClientDocumentStatus,
+  updateClientDocumentStatus,
   getClientNotes,
   createClientNote,
   markClientNotesRead,
@@ -71,6 +73,10 @@ router.get('/:id/paperwork-history', getClientPaperworkHistory);
 
 // Create paperwork/document history entry (agency-only)
 router.post('/:id/paperwork-history', createClientPaperworkHistory);
+
+// Document status checklist (Needed/Received)
+router.get('/:id/document-status', getClientDocumentStatus);
+router.put('/:id/document-status', updateClientDocumentStatus);
 
 // Access log (admin/support)
 router.get('/:id/access-log', getClientAccessLog);

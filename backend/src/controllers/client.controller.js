@@ -3,6 +3,8 @@ import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import AgencySchool from '../models/AgencySchool.model.js';
 import pool from '../config/database.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { notifyClientBecameCurrent, notifyPaperworkReceived } from '../services/clientNotifications.service.js';
@@ -204,17 +206,30 @@ export const createClient = async (req, res, next) => {
     }
 
     // Validate required fields
-    if (!organization_id || !agency_id || !initials || !submission_date) {
+    if (!organization_id || !initials || !submission_date) {
       return res.status(400).json({ 
-        error: { message: 'Missing required fields: organization_id, agency_id, initials, submission_date' } 
+        error: { message: 'Missing required fields: organization_id, initials, submission_date' } 
       });
     }
 
-    const parsedAgencyId = parseInt(agency_id, 10);
     const parsedOrganizationId = parseInt(organization_id, 10);
-    if (!parsedAgencyId || !parsedOrganizationId) {
+    if (!parsedOrganizationId) {
+      return res.status(400).json({ error: { message: 'organization_id must be a valid integer' } });
+    }
+
+    // Resolve agency_id (must be an agency org). Prefer explicit agency_id, but fall back to the org affiliation.
+    let parsedAgencyId = agency_id ? parseInt(agency_id, 10) : null;
+    if (!parsedAgencyId) {
+      // Try org->agency affiliation
+      parsedAgencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(parsedOrganizationId);
+      // Legacy fallback for school links (if org affiliations are not yet migrated)
+      if (!parsedAgencyId) {
+        parsedAgencyId = await AgencySchool.getActiveAgencyIdForSchool(parsedOrganizationId);
+      }
+    }
+    if (!parsedAgencyId) {
       return res.status(400).json({
-        error: { message: 'agency_id and organization_id must be valid integers' }
+        error: { message: 'Unable to resolve agency_id for organization_id. Please select an organization that is affiliated with an agency.' }
       });
     }
 
@@ -384,6 +399,41 @@ export const createClient = async (req, res, next) => {
       skills: skills === undefined || skills === null ? undefined : !!skills
     });
 
+    // Seed per-client document status checklist (best-effort; migration may not be applied yet).
+    try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      const [t] = await pool.execute(
+        "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'client_paperwork_items' LIMIT 1",
+        [dbName]
+      );
+      const hasChecklistTable = (t || []).length > 0;
+      if (hasChecklistTable) {
+        // For this agency, seed all paperwork statuses except 'completed' as needed.
+        const [statusRows] = await pool.execute(
+          `SELECT id, status_key, label
+           FROM paperwork_statuses
+           WHERE agency_id = ?
+           ORDER BY label ASC`,
+          [parsedAgencyId]
+        );
+        const toSeed = (statusRows || []).filter((s) => String(s.status_key || '').toLowerCase() !== 'completed');
+        for (const s of toSeed) {
+          try {
+            await pool.execute(
+              `INSERT INTO client_paperwork_items (client_id, paperwork_status_id, is_needed, received_at, received_by_user_id)
+               VALUES (?, ?, 1, NULL, NULL)
+               ON DUPLICATE KEY UPDATE client_id = client_id`,
+              [client.id, s.id]
+            );
+          } catch {
+            // ignore individual failures
+          }
+        }
+      }
+    } catch {
+      // ignore (older DBs)
+    }
+
     // Log initial creation to history
     await ClientStatusHistory.create({
       client_id: client.id,
@@ -398,6 +448,269 @@ export const createClient = async (req, res, next) => {
   } catch (error) {
     console.error('Create client error:', error);
     next(error);
+  }
+};
+
+/**
+ * Get per-client Document Status checklist (Needed/Received).
+ * GET /api/clients/:id/document-status
+ */
+export const getClientDocumentStatus = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    // Only agency-side access (admin/staff/support/provider via agency); no school-only access.
+    if (userRole !== 'super_admin') {
+      const userOrgs = await User.getAgencies(userId);
+      const ids = (userOrgs || []).map((o) => o.id);
+      const hasAgencyAccess = ids.includes(client.agency_id);
+      if (!hasAgencyAccess) {
+        return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+      }
+    }
+
+    // Best-effort: table may not exist yet.
+    const dbName = process.env.DB_NAME || 'onboarding_stage';
+    const [t] = await pool.execute(
+      "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'client_paperwork_items' LIMIT 1",
+      [dbName]
+    );
+    const hasChecklistTable = (t || []).length > 0;
+    if (!hasChecklistTable) {
+      return res.json({ clientId, agencyId: client.agency_id, items: [], summary: { neededCount: null, statusLabel: client.paperwork_status_label || '—' } });
+    }
+
+    // Load agency paperwork statuses (fixed set defined by BULK_CLIENT_UPLOAD.md).
+    const keys = ['completed', 're_auth', 'new_insurance', 'insurance_payment_auth', 'emailed_packet', 'roi', 'renewal', 'new_docs', 'disclosure_consent', 'balance'];
+    const placeholders = keys.map(() => '?').join(',');
+    const [statusRows] = await pool.execute(
+      `SELECT id, status_key, label
+       FROM paperwork_statuses
+       WHERE agency_id = ?
+         AND LOWER(status_key) IN (${placeholders})`,
+      [client.agency_id, ...keys]
+    );
+    const statusByKey = new Map((statusRows || []).map((s) => [String(s.status_key || '').toLowerCase(), s]));
+
+    // Seed rows if missing (all non-completed items default to needed).
+    for (const k of keys) {
+      const row = statusByKey.get(k);
+      if (!row) continue;
+      if (k === 'completed') continue;
+      await pool.execute(
+        `INSERT INTO client_paperwork_items (client_id, paperwork_status_id, is_needed, received_at, received_by_user_id)
+         VALUES (?, ?, 1, NULL, NULL)
+         ON DUPLICATE KEY UPDATE client_id = client_id`,
+        [clientId, row.id]
+      );
+    }
+
+    const [itemRows] = await pool.execute(
+      `SELECT cpi.paperwork_status_id, cpi.is_needed, cpi.received_at, cpi.received_by_user_id,
+              ps.status_key, ps.label
+       FROM client_paperwork_items cpi
+       INNER JOIN paperwork_statuses ps ON ps.id = cpi.paperwork_status_id
+       WHERE cpi.client_id = ?
+         AND ps.agency_id = ?
+         AND LOWER(ps.status_key) IN (${placeholders})
+       ORDER BY ps.label ASC`,
+      [clientId, client.agency_id, ...keys]
+    );
+
+    const items = (itemRows || []).map((r) => ({
+      paperwork_status_id: r.paperwork_status_id,
+      status_key: r.status_key,
+      label: r.label,
+      is_needed: !!r.is_needed,
+      received_at: r.received_at || null,
+      received_by_user_id: r.received_by_user_id || null
+    }));
+
+    const neededCount = items.filter((x) => x.status_key !== 'completed' && x.is_needed).length;
+    res.json({
+      clientId,
+      agencyId: client.agency_id,
+      items: [
+        {
+          paperwork_status_id: statusByKey.get('completed')?.id || null,
+          status_key: 'completed',
+          label: statusByKey.get('completed')?.label || 'Completed',
+          is_needed: false,
+          received_at: null,
+          received_by_user_id: null,
+          is_completed: neededCount === 0
+        },
+        ...items.filter((x) => x.status_key !== 'completed')
+      ],
+      summary: {
+        neededCount,
+        statusLabel: neededCount === 0 ? (statusByKey.get('completed')?.label || 'Completed') : (neededCount > 1 ? 'Multiple Needed' : `${items.find((x) => x.status_key !== 'completed' && x.is_needed)?.label || 'Needed'} Needed`)
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Update Document Status checklist items (Needed/Received).
+ * PUT /api/clients/:id/document-status
+ * body: { updates: [{ paperwork_status_id, is_needed }] } OR { paperwork_status_id, is_needed }
+ */
+export const updateClientDocumentStatus = async (req, res, next) => {
+  let connection;
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user.id;
+    const roleNorm = String(req.user.role || '').toLowerCase();
+    const canEdit = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
+    if (!canEdit) return res.status(403).json({ error: { message: 'You do not have permission to update document status' } });
+
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    // Agency access check (non-super-admin)
+    if (roleNorm !== 'super_admin') {
+      const userOrgs = await User.getAgencies(userId);
+      const ids = (userOrgs || []).map((o) => o.id);
+      const hasAgencyAccess = ids.includes(client.agency_id);
+      if (!hasAgencyAccess) {
+        return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+      }
+    }
+
+    const dbName = process.env.DB_NAME || 'onboarding_stage';
+    const [t] = await pool.execute(
+      "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'client_paperwork_items' LIMIT 1",
+      [dbName]
+    );
+    const hasChecklistTable = (t || []).length > 0;
+    if (!hasChecklistTable) {
+      return res.status(400).json({ error: { message: 'Document status checklist is not available yet (missing migration).' } });
+    }
+
+    const rawUpdates = Array.isArray(req.body?.updates) ? req.body.updates : [req.body];
+    const updates = (rawUpdates || [])
+      .map((u) => ({
+        paperworkStatusId: u?.paperwork_status_id ? parseInt(String(u.paperwork_status_id), 10) : null,
+        isNeeded: u?.is_needed === undefined ? null : !!u.is_needed
+      }))
+      .filter((u) => u.paperworkStatusId && u.isNeeded !== null);
+    if (!updates.length) return res.status(400).json({ error: { message: 'No updates provided' } });
+
+    connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    // Validate statuses belong to agency and are not 'completed' (completed is computed).
+    for (const u of updates) {
+      const [rows] = await connection.execute(
+        `SELECT id, status_key, label
+         FROM paperwork_statuses
+         WHERE id = ? AND agency_id = ?
+         LIMIT 1`,
+        [u.paperworkStatusId, client.agency_id]
+      );
+      const s = rows?.[0] || null;
+      if (!s) {
+        await connection.rollback();
+        return res.status(400).json({ error: { message: 'Invalid paperwork_status_id for this agency' } });
+      }
+      if (String(s.status_key || '').toLowerCase() === 'completed') {
+        // Ignore attempts to toggle completed directly.
+        continue;
+      }
+
+      await connection.execute(
+        `INSERT INTO client_paperwork_items (client_id, paperwork_status_id, is_needed, received_at, received_by_user_id)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           is_needed = VALUES(is_needed),
+           received_at = VALUES(received_at),
+           received_by_user_id = VALUES(received_by_user_id)`,
+        [
+          clientId,
+          u.paperworkStatusId,
+          u.isNeeded ? 1 : 0,
+          u.isNeeded ? null : new Date(),
+          u.isNeeded ? null : userId
+        ]
+      );
+
+      // Audit trail: record a dated entry when something is marked received (needed -> received).
+      if (!u.isNeeded) {
+        const effectiveDate = new Date().toISOString().split('T')[0];
+        await connection.execute(
+          `INSERT INTO client_paperwork_history
+            (client_id, paperwork_status_id, paperwork_delivery_method_id, effective_date, roi_expires_at, note, changed_by_user_id)
+           VALUES (?, ?, NULL, ?, NULL, ?, ?)`,
+          [clientId, u.paperworkStatusId, effectiveDate, 'Marked received via Document Status checklist', userId]
+        );
+      }
+    }
+
+    // Recompute summary + update clients.paperwork_status_id for reporting/search.
+    const [neededRows] = await connection.execute(
+      `SELECT COUNT(*) AS cnt,
+              MIN(paperwork_status_id) AS single_id
+       FROM client_paperwork_items
+       WHERE client_id = ?
+         AND is_needed = 1`,
+      [clientId]
+    );
+    const neededCount = parseInt(String(neededRows?.[0]?.cnt ?? 0), 10) || 0;
+    const singleId = neededRows?.[0]?.single_id ? parseInt(String(neededRows[0].single_id), 10) : null;
+
+    let nextPaperworkStatusId = null;
+    let markReceivedAt = null;
+    if (neededCount === 0) {
+      const [completedRows] = await connection.execute(
+        `SELECT id FROM paperwork_statuses WHERE agency_id = ? AND LOWER(status_key) = 'completed' LIMIT 1`,
+        [client.agency_id]
+      );
+      nextPaperworkStatusId = completedRows?.[0]?.id ? parseInt(String(completedRows[0].id), 10) : null;
+      markReceivedAt = new Date();
+    } else if (neededCount === 1 && singleId) {
+      nextPaperworkStatusId = singleId;
+    } else {
+      nextPaperworkStatusId = null;
+    }
+
+    await connection.execute(
+      `UPDATE clients
+       SET paperwork_status_id = ?,
+           paperwork_received_at = CASE WHEN ? IS NULL THEN paperwork_received_at ELSE COALESCE(paperwork_received_at, ?) END,
+           updated_by_user_id = ?,
+           last_activity_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [nextPaperworkStatusId, markReceivedAt, markReceivedAt, userId, clientId]
+    );
+
+    await connection.commit();
+
+    const updatedClient = await Client.findById(clientId, { includeSensitive: true });
+    res.json({ ok: true, client: updatedClient, summary: { neededCount } });
+  } catch (e) {
+    try {
+      if (connection) await connection.rollback();
+    } catch {
+      // ignore
+    }
+    next(e);
+  } finally {
+    try {
+      if (connection) connection.release();
+    } catch {
+      // ignore
+    }
   }
 };
 

@@ -3,11 +3,51 @@ import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 
+function safeInt(v) {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function isMissingSchemaError(e) {
+  const code = e?.code || '';
+  if (code === 'ER_NO_SUCH_TABLE' || code === 'ER_BAD_FIELD_ERROR') return true;
+  const msg = String(e?.message || '');
+  return msg.includes("doesn't exist") || msg.includes('Unknown column');
+}
+
+function makeInClausePlaceholders(count) {
+  return Array.from({ length: count }, () => '?').join(',');
+}
+
 export const listAgencySchools = async (req, res, next) => {
   try {
     const { agencyId } = req.params;
     const includeInactive = req.query.includeInactive === 'true';
     const rows = await AgencySchool.listBillingSchoolsByAgency(agencyId, { includeInactive });
+
+    // Best-effort: attach district_name from school_profiles (used for sorting/filtering in admin UIs).
+    try {
+      const schoolIds = (rows || []).map((r) => safeInt(r?.school_organization_id)).filter(Boolean);
+      if (schoolIds.length) {
+        // Lazy import to avoid touching pool for callers that don't need it.
+        const { default: pool } = await import('../config/database.js');
+        const placeholders = makeInClausePlaceholders(schoolIds.length);
+        const [spRows] = await pool.execute(
+          `SELECT school_organization_id, district_name
+           FROM school_profiles
+           WHERE school_organization_id IN (${placeholders})`,
+          schoolIds
+        );
+        const byId = new Map((spRows || []).map((r) => [safeInt(r.school_organization_id), r.district_name]));
+        for (const r of rows || []) {
+          const sid = safeInt(r?.school_organization_id);
+          r.district_name = sid ? (byId.get(sid) || null) : null;
+        }
+      }
+    } catch (e) {
+      if (!isMissingSchemaError(e)) throw e;
+    }
+
     res.json(rows);
   } catch (error) {
     next(error);
@@ -92,6 +132,65 @@ export const listSchoolOrganizations = async (req, res, next) => {
     const filtered = search
       ? all.filter(s => String(s.name || '').toLowerCase().includes(search) || String(s.slug || '').toLowerCase().includes(search))
       : all;
+
+    // Best-effort: attach district_name for school orgs (used for sorting/filtering in admin UIs).
+    try {
+      const schoolIds = (filtered || [])
+        .filter((o) => String(o?.organization_type || '').toLowerCase() === 'school')
+        .map((o) => safeInt(o?.id))
+        .filter(Boolean);
+      if (schoolIds.length) {
+        const { default: pool } = await import('../config/database.js');
+        const placeholders = makeInClausePlaceholders(schoolIds.length);
+        const [spRows] = await pool.execute(
+          `SELECT school_organization_id, district_name
+           FROM school_profiles
+           WHERE school_organization_id IN (${placeholders})`,
+          schoolIds
+        );
+        const byId = new Map((spRows || []).map((r) => [safeInt(r.school_organization_id), r.district_name]));
+        for (const o of filtered || []) {
+          if (String(o?.organization_type || '').toLowerCase() !== 'school') continue;
+          const sid = safeInt(o?.id);
+          o.district_name = sid ? (byId.get(sid) || null) : null;
+        }
+      }
+    } catch (e) {
+      if (!isMissingSchemaError(e)) throw e;
+    }
+
+    // Best-effort: attach affiliated agency id (so super_admin UIs can resolve owning agency).
+    // This is critical for client creation, which requires agency_id to be the parent agency org.
+    try {
+      const orgIds = (filtered || []).map((o) => safeInt(o?.id)).filter(Boolean);
+      if (orgIds.length) {
+        const { default: pool } = await import('../config/database.js');
+        const placeholders = makeInClausePlaceholders(orgIds.length);
+        // Pick the most recently-updated active affiliation per org.
+        const [oaRows] = await pool.execute(
+          `SELECT oa.organization_id, oa.agency_id
+           FROM organization_affiliations oa
+           INNER JOIN (
+             SELECT organization_id, MAX(updated_at) AS max_updated
+             FROM organization_affiliations
+             WHERE is_active = TRUE AND organization_id IN (${placeholders})
+             GROUP BY organization_id
+           ) pick
+             ON pick.organization_id = oa.organization_id
+            AND pick.max_updated = oa.updated_at
+           WHERE oa.is_active = TRUE`,
+          orgIds
+        );
+        const byOrg = new Map((oaRows || []).map((r) => [safeInt(r.organization_id), safeInt(r.agency_id)]));
+        for (const o of filtered || []) {
+          const id = safeInt(o?.id);
+          o.affiliated_agency_id = id ? (byOrg.get(id) || null) : null;
+        }
+      }
+    } catch (e) {
+      if (!isMissingSchemaError(e)) throw e;
+      // ignore (older DBs may not have org affiliations yet)
+    }
 
     res.json(filtered);
   } catch (error) {

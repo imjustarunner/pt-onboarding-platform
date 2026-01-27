@@ -55,6 +55,9 @@ export const getSchoolOverview = async (req, res, next) => {
         school_slug: s?.slug || s?.portal_url || null,
         organization_type: s?.organization_type || null,
         is_active: s?.is_active !== false,
+        // Directory metadata (optional; may be missing on older DBs or when not populated)
+        district_name: null,
+        school_state: s?.state || null,
         clients_current: 0,
         clients_assigned: 0,
         providers_count: 0,
@@ -78,6 +81,24 @@ export const getSchoolOverview = async (req, res, next) => {
         apply(target, r?.[valueField], r);
       }
     };
+
+    // School district metadata (school_profiles) - best effort.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT school_organization_id AS school_id, district_name
+         FROM school_profiles
+         WHERE school_organization_id IN (${placeholders})`,
+        schoolIds
+      );
+      for (const r of rows || []) {
+        const sid = safeInt(r?.school_id);
+        const target = bySchoolId.get(sid);
+        if (!target) continue;
+        target.district_name = r?.district_name ? String(r.district_name) : null;
+      }
+    } catch (e) {
+      if (!isMissingSchemaError(e)) throw e;
+    }
 
     // Provider/day + slots totals
     try {

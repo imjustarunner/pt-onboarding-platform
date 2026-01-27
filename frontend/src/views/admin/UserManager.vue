@@ -417,6 +417,55 @@
           <div v-if="currentStep === 1" class="step-content">
             <form @submit.prevent="nextStep">
               <div class="form-group">
+                <label>Agency *</label>
+                <select
+                  v-if="shouldPickAgencyForUserCreate"
+                  v-model="userForm.primaryAgencyId"
+                  class="form-select"
+                  required
+                >
+                  <option value="" disabled>Select an agency</option>
+                  <option v-for="agency in parentAgenciesForUserCreate" :key="agency.id" :value="String(agency.id)">
+                    {{ agency.name }}
+                  </option>
+                </select>
+                <div v-else class="muted" style="padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;">
+                  {{ parentAgenciesForUserCreate[0]?.name || 'Agency' }}
+                </div>
+                <small class="form-help">
+                  {{ shouldPickAgencyForUserCreate ? 'Select the agency first. Next you can optionally assign schools/programs for this user.' : 'This user will be created under your agency.' }}
+                </small>
+              </div>
+
+              <div class="form-group" style="margin-top: 10px;">
+                <label>Optional: Assign to Schools / Programs</label>
+                <div v-if="!userForm.primaryAgencyId" class="muted">Select an agency above to view its organizations.</div>
+                <div v-else>
+                  <div v-if="affiliatedOrgsLoading" class="muted">Loading organizations…</div>
+                  <div v-else-if="affiliatedOrgsError" class="muted" style="color:#dc3545;">{{ affiliatedOrgsError }}</div>
+                  <div v-else-if="(affiliatedOrgsForUserCreate || []).length === 0" class="muted">No schools/programs found for this agency.</div>
+                  <div v-else class="agency-selector" style="max-height: 180px; overflow:auto; border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
+                    <div v-for="org in affiliatedOrgsForUserCreate" :key="org.id" class="agency-checkbox" style="margin-bottom: 6px;">
+                      <label style="display:flex; gap:10px; align-items:center;">
+                        <input
+                          type="checkbox"
+                          :value="String(org.id)"
+                          v-model="userForm.organizationIds"
+                        />
+                        <span style="flex:1;">
+                          {{ org.name }}
+                          <span v-if="org.organization_type" style="color: var(--text-secondary); font-size: 12px; margin-left: 6px;">
+                            ({{ org.organization_type }})
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                  <small class="form-help">Optional: assign schools/programs now. You can add/remove assignments later from the user profile.</small>
+                </div>
+              </div>
+
+              <div class="form-group">
                 <label class="toggle-label">
                   <span>Create as Current Employee (Active User)</span>
                   <div class="toggle-switch">
@@ -527,14 +576,10 @@
           <div v-if="currentStep === 2" class="step-content">
             <form @submit.prevent="saveUser">
               <div class="form-group">
-                <label>Affiliated Agency *</label>
-                <select v-model="userForm.primaryAgencyId" class="form-select" required>
-                  <option value="" disabled>Select an agency</option>
-                  <option v-for="agency in parentAgenciesForUserCreate" :key="agency.id" :value="String(agency.id)">
-                    {{ agency.name }}
-                  </option>
-                </select>
-                <small v-if="!userForm.primaryAgencyId" class="form-help">Select one agency now. You can add schools/programs later from the user profile.</small>
+                <label>Agency</label>
+                <div class="muted" style="padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;">
+                  {{ getAgencyName(parseInt(userForm.primaryAgencyId || '0', 10)) }}
+                </div>
               </div>
               
               <div class="form-group">
@@ -1340,6 +1385,7 @@ const userForm = ref({
   hasSupervisorPrivileges: false,
   agencyIds: [],
   primaryAgencyId: '',
+  organizationIds: [],
   onboardingPackageId: '',
   createAsCurrentEmployee: false
 });
@@ -1349,6 +1395,41 @@ const parentAgenciesForUserCreate = computed(() => {
   return list
     .filter((o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency')
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+});
+
+const shouldPickAgencyForUserCreate = computed(() => {
+  return parentAgenciesForUserCreate.value.length > 1;
+});
+
+const affiliatedOrgsForUserCreate = ref([]);
+const affiliatedOrgsLoading = ref(false);
+const affiliatedOrgsError = ref('');
+
+const loadAffiliatedOrgsForUserCreate = async () => {
+  const agencyId = userForm.value.primaryAgencyId ? parseInt(String(userForm.value.primaryAgencyId), 10) : null;
+  affiliatedOrgsError.value = '';
+  affiliatedOrgsForUserCreate.value = [];
+  if (!agencyId) return;
+
+  try {
+    affiliatedOrgsLoading.value = true;
+    const r = await api.get(`/agencies/${agencyId}/affiliated-organizations`);
+    const rows = Array.isArray(r.data) ? r.data : [];
+    affiliatedOrgsForUserCreate.value = rows
+      .filter((o) => ['school', 'program', 'learning'].includes(String(o?.organization_type || '').toLowerCase()))
+      .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+  } catch (e) {
+    affiliatedOrgsError.value = e?.response?.data?.error?.message || 'Failed to load affiliated organizations';
+    affiliatedOrgsForUserCreate.value = [];
+  } finally {
+    affiliatedOrgsLoading.value = false;
+  }
+};
+
+watch(() => userForm.value.primaryAgencyId, async () => {
+  // Reset optional org selections when agency changes.
+  userForm.value.organizationIds = [];
+  await loadAffiliatedOrgsForUserCreate();
 });
 
 const showCredentialsModal = ref(false);
@@ -1428,6 +1509,15 @@ const getAgencyName = (agencyId) => {
 
 const nextStep = () => {
   if (currentStep.value === 1) {
+    // If user only has access to one agency, preselect it.
+    if (!userForm.value.primaryAgencyId && parentAgenciesForUserCreate.value.length === 1) {
+      userForm.value.primaryAgencyId = String(parentAgenciesForUserCreate.value[0].id);
+    }
+    if (!userForm.value.primaryAgencyId && shouldPickAgencyForUserCreate.value) {
+      error.value = 'Please select an agency';
+      alert('Please select an agency');
+      return;
+    }
     // Validate step 1 - lastName is required, email is optional
     if (!userForm.value.lastName || !userForm.value.role) {
       error.value = 'Please fill in all required fields (Last Name and Role)';
@@ -1443,10 +1533,6 @@ const nextStep = () => {
     currentStep.value = 2;
     // Fetch packages when moving to step 2
     fetchPackages();
-    // If user only has access to one agency, preselect it.
-    if (!userForm.value.primaryAgencyId && parentAgenciesForUserCreate.value.length === 1) {
-      userForm.value.primaryAgencyId = String(parentAgenciesForUserCreate.value[0].id);
-    }
   }
 };
 
@@ -1626,6 +1712,13 @@ const saveUser = async () => {
           agencyId: parseInt(userForm.value.primaryAgencyId, 10),
           role: userForm.value.role || 'provider'
         };
+
+        const orgIds = (userForm.value.organizationIds || [])
+          .map((v) => parseInt(String(v), 10))
+          .filter((n) => Number.isFinite(n) && n > 0);
+        if (orgIds.length) {
+          currentEmployeeData.organizationIds = orgIds;
+        }
         
         console.log('Creating current employee with data:', currentEmployeeData);
         let response;
@@ -1666,6 +1759,14 @@ const saveUser = async () => {
           role: userForm.value.role || 'provider',
           agencyIds: !isNaN(primaryAgencyId) ? [primaryAgencyId] : []
         };
+
+        const orgIds2 = (userForm.value.organizationIds || [])
+          .map((v) => parseInt(String(v), 10))
+          .filter((n) => Number.isFinite(n) && n > 0);
+        // Only send organizationIds if non-empty; backend prefers organizationIds over agencyIds.
+        if (orgIds2.length) {
+          createData.organizationIds = orgIds2;
+        }
 
         // Include provider-selectable capability for admin/support/staff if enabled
         if (['admin','support','staff'].includes(createData.role) && userForm.value.hasProviderAccess === true) {
@@ -2057,6 +2158,7 @@ const closeModal = () => {
     role: 'provider',
     agencyIds: [],
     primaryAgencyId: '',
+    organizationIds: [],
     onboardingPackageId: '',
     createAsCurrentEmployee: false
   };

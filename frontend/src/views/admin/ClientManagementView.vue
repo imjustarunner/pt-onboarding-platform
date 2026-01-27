@@ -111,6 +111,8 @@
           <option value="initials-desc">Sort: Initials (Z-A)</option>
           <option value="organization_name-asc">Sort: Organization (A-Z)</option>
           <option value="organization_name-desc">Sort: Organization (Z-A)</option>
+          <option value="district_name-asc">Sort: District (A-Z)</option>
+          <option value="district_name-desc">Sort: District (Z-A)</option>
           <option value="provider_name-asc">Sort: Provider (A-Z)</option>
           <option value="provider_name-desc">Sort: Provider (Z-A)</option>
           <option value="client_status_label-asc">Sort: Client Status (A-Z)</option>
@@ -270,7 +272,7 @@
             <th v-if="columnPrefs.clientStatus">Client Status</th>
             <th v-if="columnPrefs.provider">Provider</th>
             <th v-if="columnPrefs.submissionDate">Submission Date</th>
-            <th v-if="columnPrefs.paperwork">Paperwork</th>
+            <th v-if="columnPrefs.paperwork">Document Status</th>
             <th v-if="columnPrefs.insurance">Insurance</th>
             <th v-if="columnPrefs.lastActivity">Last Activity</th>
             <th>Actions</th>
@@ -321,7 +323,7 @@
             </td>
             <td v-if="columnPrefs.submissionDate">{{ formatDate(client.submission_date) }}</td>
             <td v-if="columnPrefs.paperwork">
-              {{ client.paperwork_status_label || '-' }}
+              {{ formatDocumentStatusSummary(client) }}
             </td>
             <td v-if="columnPrefs.insurance">{{ client.insurance_type_label || '-' }}</td>
             <td v-if="columnPrefs.lastActivity">{{ formatDate(client.last_activity_at) || '-' }}</td>
@@ -796,17 +798,18 @@ const fetchLinkedOrganizations = async () => {
     loadingOrganizations.value = true;
     // Super admins: show all schools platform-wide so the filter always has options.
     if (authStore.user?.role === 'super_admin') {
-      const response = await api.get('/agencies');
+      // This endpoint returns school/program/learning orgs (non-agency) and can include district metadata.
+      const response = await api.get('/agencies/schools');
       const rows = Array.isArray(response.data) ? response.data : [];
       linkedOrganizations.value = rows
-        // Affiliations: any non-agency org type (school/program/learning)
-        .filter((r) => String(r?.organization_type || '').toLowerCase() !== 'agency')
         .map((r) => ({
           id: r.id,
           name: r.name,
           slug: r.slug || r.portal_url || null,
           organization_type: r.organization_type,
-          is_active: r.is_active
+          is_active: r.is_active,
+          district_name: r.district_name || null,
+          affiliated_agency_id: r.affiliated_agency_id || null
         }));
       return;
     }
@@ -825,7 +828,8 @@ const fetchLinkedOrganizations = async () => {
       name: r.school_name,
       slug: r.school_slug,
       organization_type: r.school_organization_type,
-      is_active: r.school_is_active
+      is_active: r.school_is_active,
+      district_name: r.district_name || null
     }));
   } catch (err) {
     console.error('Failed to fetch linked organizations:', err);
@@ -979,7 +983,17 @@ const fetchClients = async () => {
     if (skillsOnly.value) params.append('skills', 'true');
 
     const response = await api.get(`/clients?${params.toString()}`);
-    clients.value = response.data || [];
+    const raw = response.data || [];
+    const orgById = new Map((linkedOrganizations.value || []).map((o) => [Number(o?.id), o]));
+    clients.value = (Array.isArray(raw) ? raw : []).map((c) => {
+      const orgId = Number(c?.organization_id);
+      const org = orgById.get(orgId) || null;
+      return {
+        ...c,
+        // Used by client-table sort option "District"
+        district_name: org?.district_name || ''
+      };
+    });
     currentPage.value = 1;
   } catch (err) {
     console.error('Failed to fetch clients:', err);
@@ -1398,6 +1412,22 @@ const formatDate = (dateString) => {
   return date.toLocaleDateString();
 };
 
+const formatDocumentStatusSummary = (client) => {
+  if (!client) return '-';
+  const cnt = client.paperwork_needed_count;
+  if (cnt !== undefined && cnt !== null && cnt !== '') {
+    const n = Number(cnt);
+    if (Number.isFinite(n)) {
+      if (n <= 0) return 'Completed';
+      if (n > 1) return 'Multiple Needed';
+      const lbl = String(client.paperwork_status_label || '').trim();
+      return lbl ? `${lbl} Needed` : 'Needed';
+    }
+  }
+  // Fallback to legacy single status label (if checklist not available).
+  return client.paperwork_status_label || '-';
+};
+
 const formatDocumentStatus = (status) => {
   const statusMap = {
     'NONE': 'None',
@@ -1469,8 +1499,11 @@ const createClient = async () => {
     creating.value = true;
     error.value = '';
 
-    // The agency_id should be the agency organization that owns/manages the selected org
-    const agencyId = activeAgencyId.value;
+    // The agency_id must be the parent agency org. Prefer active agency context, but fall back
+    // to the selected organization's affiliation (super admin / platform-wide org picker).
+    const orgId = Number(newClient.value?.organization_id) || null;
+    const org = orgId ? (linkedOrganizations.value || []).find((o) => Number(o?.id) === orgId) : null;
+    const agencyId = activeAgencyId.value || (org?.affiliated_agency_id ? Number(org.affiliated_agency_id) : null);
 
     if (!agencyId) {
       error.value = 'Unable to determine agency. Please ensure you are associated with an agency.';

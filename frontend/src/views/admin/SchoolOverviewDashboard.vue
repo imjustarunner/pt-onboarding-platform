@@ -27,6 +27,16 @@
         <label class="control-label">Search schools</label>
         <input v-model="searchQuery" class="control-input" type="text" placeholder="Search by school name…" />
       </div>
+
+      <div class="control">
+        <label class="control-label">Sort</label>
+        <select v-model="sortBy" class="control-select">
+          <option value="school_name-asc">Name (A–Z)</option>
+          <option value="school_name-desc">Name (Z–A)</option>
+          <option value="district_name-asc">District (A–Z)</option>
+          <option value="district_name-desc">District (Z–A)</option>
+        </select>
+      </div>
     </div>
 
     <div v-if="error" class="error">{{ error }}</div>
@@ -51,6 +61,7 @@
               <div class="school-name">{{ s.school_name }}</div>
               <div class="school-meta">
                 <span class="pill">{{ formatOrgType(s.organization_type) }}</span>
+                <span v-if="s.district_name" class="pill pill-muted">{{ s.district_name }}</span>
                 <span v-if="!s.is_active" class="pill pill-warn">Inactive</span>
                 <span v-if="s.skills_group_occurring_now" class="pill pill-accent">Skills Group Live</span>
               </div>
@@ -111,6 +122,7 @@ const loading = ref(false);
 const error = ref('');
 const schools = ref([]);
 const searchQuery = ref('');
+const sortBy = ref('school_name-asc');
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
@@ -165,8 +177,26 @@ const refresh = async () => {
 
 const filteredSchools = computed(() => {
   const q = String(searchQuery.value || '').trim().toLowerCase();
-  if (!q) return schools.value || [];
-  return (schools.value || []).filter((s) => String(s?.school_name || '').toLowerCase().includes(q));
+  const base = q
+    ? (schools.value || []).filter((s) => String(s?.school_name || '').toLowerCase().includes(q))
+    : (schools.value || []);
+
+  const [field, dirRaw] = String(sortBy.value || 'school_name-asc').split('-');
+  const dir = dirRaw === 'desc' ? -1 : 1;
+  const norm = (v) => String(v || '').trim().toLowerCase();
+  const getVal = (s) => {
+    if (field === 'district_name') return norm(s?.district_name || '');
+    if (field === 'school_name') return norm(s?.school_name || '');
+    return norm(s?.[field]);
+  };
+
+  return base.slice().sort((a, b) => {
+    const av = getVal(a);
+    const bv = getVal(b);
+    const cmp = av.localeCompare(bv);
+    if (cmp !== 0) return cmp * dir;
+    return Number(a?.school_id || 0) - Number(b?.school_id || 0);
+  });
 });
 
 const formatOrgType = (t) => {
