@@ -2497,14 +2497,14 @@ export const listClientProviderAssignments = async (req, res, next) => {
     const access = await ensureAgencyAccessToClient({ userId, role, clientId });
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    try {
-      const where = ['cpa.client_id = ?', 'cpa.is_active = TRUE'];
-      const vals = [clientId];
-      if (orgId) {
-        where.push('cpa.organization_id = ?');
-        vals.push(orgId);
-      }
+    const where = ['cpa.client_id = ?', 'cpa.is_active = TRUE'];
+    const vals = [clientId];
+    if (orgId) {
+      where.push('cpa.organization_id = ?');
+      vals.push(orgId);
+    }
 
+    try {
       const [rows] = await pool.execute(
         `SELECT cpa.id,
                 cpa.client_id,
@@ -2526,12 +2526,36 @@ export const listClientProviderAssignments = async (req, res, next) => {
          ORDER BY org.name ASC, u.last_name ASC, u.first_name ASC`,
         vals
       );
-      res.json(rows || []);
+      return res.json(rows || []);
     } catch (e) {
       const msg = String(e?.message || '');
-      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
-      if (!missing) throw e;
-      res.json([]);
+      const missingTable = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (missingTable) return res.json([]);
+      const missingIsPrimary = msg.includes('Unknown column') && msg.includes('cpa.is_primary');
+      if (!missingIsPrimary) throw e;
+
+      // Backward-compatible DB: no cpa.is_primary column yet.
+      const [rows] = await pool.execute(
+        `SELECT cpa.id,
+                cpa.client_id,
+                cpa.organization_id,
+                org.name AS organization_name,
+                org.slug AS organization_slug,
+                org.organization_type,
+                cpa.provider_user_id,
+                u.first_name AS provider_first_name,
+                u.last_name AS provider_last_name,
+                cpa.service_day,
+                cpa.created_at,
+                cpa.updated_at
+         FROM client_provider_assignments cpa
+         JOIN agencies org ON org.id = cpa.organization_id
+         JOIN users u ON u.id = cpa.provider_user_id
+         WHERE ${where.join(' AND ')}
+         ORDER BY org.name ASC, u.last_name ASC, u.first_name ASC`,
+        vals
+      );
+      return res.json((rows || []).map((r) => ({ ...r, is_primary: false })));
     }
   } catch (e) {
     next(e);
@@ -2725,6 +2749,45 @@ export const removeClientProviderAssignment = async (req, res, next) => {
          WHERE id = ?`,
         [userId, assignmentId]
       );
+
+      // Keep legacy single-provider fields in sync (snap back to Not assigned when none remain).
+      // Prefer explicit primary if column exists, otherwise pick most recent active assignment.
+      let next = null;
+      try {
+        const [nextRows] = await connection.execute(
+          `SELECT provider_user_id, service_day
+           FROM client_provider_assignments
+           WHERE client_id = ? AND is_active = TRUE
+           ORDER BY (CASE WHEN is_primary = TRUE THEN 1 ELSE 0 END) DESC, updated_at DESC
+           LIMIT 1`,
+          [clientId]
+        );
+        next = nextRows?.[0] || null;
+      } catch (e) {
+        const msg = String(e?.message || '');
+        const missingIsPrimary = msg.includes('Unknown column') && msg.includes('is_primary');
+        if (!missingIsPrimary) throw e;
+        const [nextRows] = await connection.execute(
+          `SELECT provider_user_id, service_day
+           FROM client_provider_assignments
+           WHERE client_id = ? AND is_active = TRUE
+           ORDER BY updated_at DESC
+           LIMIT 1`,
+          [clientId]
+        );
+        next = nextRows?.[0] || null;
+      }
+
+      try {
+        await connection.execute(
+          `UPDATE clients
+           SET provider_id = ?, service_day = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [next?.provider_user_id || null, next?.service_day || null, userId, clientId]
+        );
+      } catch {
+        // best-effort
+      }
 
       await connection.commit();
       res.json({ ok: true });

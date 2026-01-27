@@ -242,10 +242,10 @@ export const useBrandingStore = defineStore('branding', () => {
       return portalAgency.value.colorPalette.primary;
     }
     // Always use platform branding if user is not authenticated (e.g., on login page)
-    if (!authStore.isAuthenticated || isSuperAdmin.value) {
+    if (!authStore.isAuthenticated) {
       return platformBranding.value?.primary_color || '#C69A2B'; // Auric Gold
     }
-    // Only use agency colors if user is authenticated and not super admin
+    // Use agency colors when an agency context is selected (including super_admin).
     if (agencyStore.currentAgency?.color_palette) {
       const palette = typeof agencyStore.currentAgency.color_palette === 'string' 
         ? JSON.parse(agencyStore.currentAgency.color_palette)
@@ -262,10 +262,10 @@ export const useBrandingStore = defineStore('branding', () => {
       return portalAgency.value.colorPalette.secondary;
     }
     // Always use platform branding if user is not authenticated (e.g., on login page)
-    if (!authStore.isAuthenticated || isSuperAdmin.value) {
+    if (!authStore.isAuthenticated) {
       return platformBranding.value?.secondary_color || '#1D2633'; // Deep Ink
     }
-    // Only use agency colors if user is authenticated and not super admin
+    // Use agency colors when an agency context is selected (including super_admin).
     if (agencyStore.currentAgency?.color_palette) {
       const palette = typeof agencyStore.currentAgency.color_palette === 'string' 
         ? JSON.parse(agencyStore.currentAgency.color_palette)
@@ -282,10 +282,10 @@ export const useBrandingStore = defineStore('branding', () => {
       return portalAgency.value.colorPalette.accent;
     }
     // Always use platform branding if user is not authenticated (e.g., on login page)
-    if (!authStore.isAuthenticated || isSuperAdmin.value) {
+    if (!authStore.isAuthenticated) {
       return platformBranding.value?.accent_color || '#3A4C6B'; // Slate Blue
     }
-    // Only use agency colors if user is authenticated and not super admin
+    // Use agency colors when an agency context is selected (including super_admin).
     if (agencyStore.currentAgency?.color_palette) {
       const palette = typeof agencyStore.currentAgency.color_palette === 'string' 
         ? JSON.parse(agencyStore.currentAgency.color_palette)

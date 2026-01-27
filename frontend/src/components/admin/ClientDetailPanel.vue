@@ -94,6 +94,9 @@
                       <div>
                         <strong>{{ p.provider_last_name }}, {{ p.provider_first_name }}</strong>
                         <span v-if="p.is_primary" class="badge badge-success" style="margin-left: 8px;">Primary</span>
+                        <div v-if="p.organization_name" class="muted" style="margin-top: 2px;">
+                          {{ p.organization_name }}
+                        </div>
                       </div>
                       <div class="muted" style="white-space: nowrap;">
                         {{ p.service_day || 'Unknown' }}
@@ -1269,34 +1272,32 @@ const savingProviderAssignment = ref(false);
 
 const weekdayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
-// Overview: show all (primary + secondary) providers for the primary affiliation.
+// Overview: show all (primary + secondary) providers across affiliations.
 const overviewProviders = ref([]);
 const overviewProvidersLoading = ref(false);
 
-const primaryOrgIdForOverview = computed(() => {
-  const primary = (affiliations.value || []).find((a) => a?.is_primary) || null;
-  return Number(primary?.organization_id) || Number(props.client?.organization_id) || null;
-});
-
 const refreshOverviewProviders = async () => {
-  if (!canEditAccount.value) {
+  // Endpoint is backoffice-only; if the viewer can't access it, fall back to legacy single provider label.
+  if (!isBackofficeRole.value || !hasAgencyAccess.value) {
     overviewProviders.value = [];
     overviewProvidersLoading.value = false;
     return;
   }
   const clientId = Number(props.client?.id);
-  const orgId = primaryOrgIdForOverview.value;
-  if (!clientId || !orgId) {
+  if (!clientId) {
     overviewProviders.value = [];
     overviewProvidersLoading.value = false;
     return;
   }
   try {
     overviewProvidersLoading.value = true;
-    const r = await api.get(`/clients/${clientId}/provider-assignments`, { params: { organizationId: orgId } });
+    // No org filter: show all assigned providers (including secondary) across affiliations.
+    const r = await api.get(`/clients/${clientId}/provider-assignments`);
     const rows = Array.isArray(r.data) ? r.data : [];
-    // Sort primary first, then by last/first, then day.
+    // Sort by org, primary first, then provider name, then day.
     overviewProviders.value = rows.sort((a, b) => {
+      const org = String(a?.organization_name || '').localeCompare(String(b?.organization_name || ''));
+      if (org !== 0) return org;
       const ap = a?.is_primary ? 1 : 0;
       const bp = b?.is_primary ? 1 : 0;
       if (ap !== bp) return bp - ap;
@@ -1821,7 +1822,7 @@ const setPrimaryAffiliation = async (orgId) => {
     assignmentsError.value = '';
     await api.post(`/clients/${props.client.id}/affiliations`, { organization_id: id, is_primary: true });
     await fetchClientAffiliations();
-    emit('updated');
+    emit('updated', { keepOpen: true });
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to set primary';
   } finally {
@@ -1840,7 +1841,7 @@ const removeAffiliation = async (orgId) => {
     await api.delete(`/clients/${props.client.id}/affiliations/${id}`);
     if (String(selectedAssignmentOrgId.value) === String(id)) selectedAssignmentOrgId.value = '';
     await fetchClientAffiliations();
-    emit('updated');
+    emit('updated', { keepOpen: true });
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to remove affiliation';
   } finally {
@@ -1945,10 +1946,8 @@ const reloadProviderAssignments = async () => {
     assignmentsError.value = '';
     const r = await api.get(`/clients/${props.client.id}/provider-assignments`, { params: { organizationId: orgId } });
     providerAssignments.value = r.data || [];
-    // If this is the primary org, also refresh the Overview provider list.
-    if (Number(orgId) === Number(primaryOrgIdForOverview.value)) {
-      overviewProviders.value = providerAssignments.value.slice().sort((a, b) => (b?.is_primary ? 1 : 0) - (a?.is_primary ? 1 : 0));
-    }
+    // Keep the Overview provider list in sync (across affiliations).
+    await refreshOverviewProviders();
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to load provider assignments';
     providerAssignments.value = [];
@@ -1977,7 +1976,7 @@ const addProviderAssignment = async () => {
     addProviderMakePrimary.value = true;
     await reloadProviderAssignments();
     await refreshOverviewProviders();
-    emit('updated');
+    emit('updated', { keepOpen: true });
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to assign provider';
   } finally {
@@ -1996,7 +1995,7 @@ const removeProviderAssignment = async (pa) => {
     await api.delete(`/clients/${props.client.id}/provider-assignments/${id}`);
     await reloadProviderAssignments();
     await refreshOverviewProviders();
-    emit('updated');
+    emit('updated', { keepOpen: true });
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to remove assignment';
   } finally {
@@ -2021,7 +2020,7 @@ const makePrimaryProvider = async (pa) => {
     });
     await reloadProviderAssignments();
     await refreshOverviewProviders();
-    emit('updated');
+    emit('updated', { keepOpen: true });
   } catch (e) {
     assignmentsError.value = e.response?.data?.error?.message || 'Failed to set primary provider';
   } finally {
@@ -2152,7 +2151,7 @@ watch(() => activeTab.value, (newTab) => {
   }
 });
 
-watch(() => props.client, () => {
+watch(() => props.client, async () => {
   // Reset editing states when client changes
   editingStatus.value = false;
   editingProvider.value = false;
@@ -2162,6 +2161,8 @@ watch(() => props.client, () => {
   }
   loadOverviewOptions();
   fetchDocChecklist();
+  await fetchAccess();
+  await refreshOverviewProviders();
 }, { deep: true, immediate: true });
 
 const hydrateChecklist = async () => {
@@ -2234,6 +2235,7 @@ onMounted(async () => {
     await fetchProviders();
   }
   await fetchAccess();
+  await refreshOverviewProviders();
   if (activeTab.value === 'history') {
     await fetchHistory();
   } else if (activeTab.value === 'access') {

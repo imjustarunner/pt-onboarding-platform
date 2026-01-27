@@ -77,6 +77,10 @@
               <p>Select an agency to continue.</p>
             </div>
 
+            <div v-else-if="selectedItemAgencyOnly && !selectedAgencyIsAgencyOrg" class="empty-state" style="margin-top: 12px;">
+              <p>Payroll settings are only available for agency organizations (not schools/programs).</p>
+            </div>
+
             <component v-else :is="selectedComponent" v-bind="componentProps" />
           </div>
           <div v-else class="empty-state">
@@ -245,6 +249,7 @@ const allCategories = [
         label: 'Payroll',
         icon: '💰',
         component: 'PayrollScheduleSettings',
+        agencyOnly: true,
         requiresAgency: true,
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
@@ -477,9 +482,15 @@ const selectedComponent = computed(() => {
 
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 
+const isAgencyOrg = (o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency';
+
 const selectableAgencies = computed(() => {
   const list = isSuperAdmin.value ? (agencyStore.agencies || []) : (agencyStore.userAgencies || agencyStore.agencies || []);
-  return [...list].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+  const activeCategory = selectedCategory.value;
+  const activeItem = selectedItem.value;
+  const activeIsPayroll = activeCategory === 'workflow' && activeItem === 'payroll-schedule';
+  const filtered = activeIsPayroll ? (list || []).filter(isAgencyOrg) : (list || []);
+  return [...filtered].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
 
 const selectedItemRequiresAgency = computed(() => {
@@ -501,6 +512,18 @@ const componentProps = computed(() => {
   if (!item) return {};
   
   return item.props || {};
+});
+
+const selectedItemAgencyOnly = computed(() => {
+  if (!selectedCategory.value || !selectedItem.value) return false;
+  const category = allCategories.find(c => c.id === selectedCategory.value);
+  const item = category?.items?.find(i => i.id === selectedItem.value);
+  return !!item?.agencyOnly;
+});
+
+const selectedAgencyIsAgencyOrg = computed(() => {
+  const cur = agencyStore.currentAgency;
+  return isAgencyOrg(cur);
 });
 
 const handleAgencySelection = () => {

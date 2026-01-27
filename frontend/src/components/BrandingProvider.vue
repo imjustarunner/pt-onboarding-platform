@@ -66,7 +66,6 @@ watch(() => brandingStore.platformBranding, async (newBranding) => {
 // Watch for agency switches and apply the agency theme settings (especially fonts).
 watch(() => agencyStore.currentAgency, async (newAgency) => {
   if (!authStore.isAuthenticated) return;
-  if (authStore.user?.role === 'super_admin') return;
   if (!newAgency) return;
   try {
     const colorPalette = typeof newAgency.color_palette === 'string'

@@ -7,25 +7,363 @@
       </div>
     </div>
 
-    <div class="card" style="margin-bottom: 12px;">
-      <h2 class="card-title">Organization</h2>
-      <div class="hint">Pick the organization you want to run payroll for.</div>
-      <div class="field-row" style="margin-top: 8px; grid-template-columns: 280px 1fr; align-items: flex-end;">
-        <div class="field">
-          <label>Organization</label>
-          <select v-model="selectedOrgId" :key="`org-${(filteredAgencies || []).length}`">
+    <div class="org-bar">
+      <div class="org-bar-left">
+        <div class="org-bar-label">Organization</div>
+        <div v-if="!showOrgPicker" class="org-bar-value">
+          <strong>{{ agencyStore.currentAgency?.name || '—' }}</strong>
+        </div>
+        <div v-else class="org-bar-controls">
+          <select v-model="selectedOrgId" :key="`org-bar-${(filteredAgencies || []).length}`">
             <option :value="null" disabled>Select an organization…</option>
             <option v-for="a in filteredAgencies" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
+          <input v-model="orgSearch" type="text" placeholder="Search…" />
         </div>
-        <div class="field">
-          <label>Search</label>
-          <input v-model="orgSearch" type="text" placeholder="Type to filter organizations…" />
+      </div>
+    </div>
+
+    <div class="card wizard-hero" style="margin-bottom: 12px;">
+      <div class="wizard-hero-head">
+        <div>
+          <h2 class="card-title" style="margin-bottom: 4px;">Payroll Wizard</h2>
+          <div class="hint">
+            Step-by-step guide for submitting payroll. Select a pay period here; it will drive the whole page.
+          </div>
+        </div>
+      </div>
+
+      <div class="wizard-hero-controls">
+        <div class="field wizard-period">
+          <label>Pay period</label>
+          <select v-model="selectedPeriodId" :disabled="!agencyId || !(periods || []).length">
+            <option :value="null" disabled>Select a pay period…</option>
+            <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+          </select>
+          <div class="hint" v-if="selectedPeriodForUi" style="margin-top: 6px;">
+            Current: <strong>{{ periodRangeLabel(selectedPeriodForUi) }}</strong>
+          </div>
+        </div>
+
+        <div class="wizard-cta">
+          <button class="btn btn-primary wizard-btn" type="button" @click="openPayrollWizard" :disabled="!selectedPeriodId">
+            Open Payroll Wizard
+          </button>
+          <div class="hint" style="margin-top: 8px;">
+            Saves progress as you go. Uses explicit “Save & exit” / “Don’t save & exit”.
+          </div>
         </div>
       </div>
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
+
+    <!-- Global modals (must not be nested under Payroll Stage) -->
+    <teleport to="body">
+      <div v-if="showTodoModal" class="modal-backdrop">
+        <div class="modal" style="width: min(920px, 100%);">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Payroll To‑Dos</div>
+              <div class="hint">These block running payroll until marked Done.</div>
+            </div>
+            <div class="actions" style="margin: 0;">
+              <button class="btn btn-secondary btn-sm" type="button" @click="showTodoModal = false">Close</button>
+            </div>
+          </div>
+
+          <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+            <button class="btn btn-secondary btn-sm" type="button" @click="todoTab = 'period'">This pay period</button>
+            <button class="btn btn-secondary btn-sm" type="button" @click="todoTab = 'templates'">Recurring templates</button>
+          </div>
+
+          <div v-if="todoTab === 'period'">
+            <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Add a To‑Do (single)</h3>
+              <div class="field-row" style="grid-template-columns: 180px 1fr; margin-top: 10px;">
+                <div class="field">
+                  <label>Scope</label>
+                  <select v-model="newTodoDraft.scope">
+                    <option value="agency">Agency-wide</option>
+                    <option value="provider">Per-provider</option>
+                  </select>
+                </div>
+                <div v-if="newTodoDraft.scope === 'provider'" class="field">
+                  <label>Provider</label>
+                  <select v-model="newTodoDraft.targetUserId">
+                    <option :value="null">Select provider…</option>
+                    <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field" style="margin-top: 10px;">
+                <label>Title</label>
+                <input v-model="newTodoDraft.title" type="text" placeholder="e.g., Verify X before running payroll" />
+              </div>
+              <div class="field" style="margin-top: 10px;">
+                <label>Description (optional)</label>
+                <textarea v-model="newTodoDraft.description" rows="3" placeholder="Optional details…" />
+              </div>
+              <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+                <button class="btn btn-primary" type="button" @click="createTodoForPeriod" :disabled="!String(newTodoDraft.title||'').trim()">
+                  Add To‑Do
+                </button>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">To‑Dos for this pay period</h3>
+              <div v-if="payrollTodosError" class="warn-box" style="margin-top: 8px;">{{ payrollTodosError }}</div>
+              <div v-if="payrollTodosLoading" class="muted" style="margin-top: 8px;">Loading…</div>
+              <div v-else-if="!(payrollTodos||[]).length" class="muted" style="margin-top: 8px;">No To‑Dos yet.</div>
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th style="width: 90px;">Done</th>
+                      <th>To‑Do</th>
+                      <th style="width: 220px;">Scope</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="t in payrollTodos" :key="t.id">
+                      <td>
+                        <input
+                          type="checkbox"
+                          :checked="String(t.status || '').toLowerCase() === 'done'"
+                          :disabled="updatingPayrollTodoId === t.id"
+                          @change="togglePayrollTodoDone(t, $event.target.checked)"
+                        />
+                      </td>
+                      <td>
+                        <div><strong>{{ t.title }}</strong></div>
+                        <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
+                      </td>
+                      <td class="muted">
+                        <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
+                        <span v-else>Agency-wide</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div v-else>
+            <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Create recurring template</h3>
+              <div v-if="todoTemplatesError" class="warn-box" style="margin-top: 8px;">{{ todoTemplatesError }}</div>
+              <div class="field-row" style="grid-template-columns: 180px 1fr; margin-top: 10px;">
+                <div class="field">
+                  <label>Scope</label>
+                  <select v-model="templateDraft.scope">
+                    <option value="agency">Agency-wide</option>
+                    <option value="provider">Per-provider</option>
+                  </select>
+                </div>
+                <div v-if="templateDraft.scope === 'provider'" class="field">
+                  <label>Provider</label>
+                  <select v-model="templateDraft.targetUserId">
+                    <option :value="null">Select provider…</option>
+                    <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+                <div class="field">
+                  <label>Start at pay period</label>
+                  <select v-model="templateDraft.startPayrollPeriodId">
+                    <option :value="null">Start immediately</option>
+                    <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Active</label>
+                  <select v-model="templateDraft.isActive">
+                    <option :value="true">Active</option>
+                    <option :value="false">Inactive</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field" style="margin-top: 10px;">
+                <label>Title</label>
+                <input v-model="templateDraft.title" type="text" placeholder="e.g., Confirm XYZ is correct" />
+              </div>
+              <div class="field" style="margin-top: 10px;">
+                <label>Description (optional)</label>
+                <textarea v-model="templateDraft.description" rows="3" placeholder="Optional details…" />
+              </div>
+              <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+                <button class="btn btn-primary" type="button" @click="createTodoTemplate" :disabled="savingTodoTemplate || !String(templateDraft.title||'').trim()">
+                  {{ savingTodoTemplate ? 'Saving…' : 'Create template' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Templates</h3>
+              <div v-if="todoTemplatesLoading" class="muted" style="margin-top: 8px;">Loading templates…</div>
+              <div v-else-if="!(todoTemplates||[]).length" class="muted" style="margin-top: 8px;">No templates yet.</div>
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th style="width: 90px;">Active</th>
+                      <th>Template</th>
+                      <th style="width: 240px;">Starts</th>
+                      <th style="width: 120px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="t in todoTemplates" :key="t.id">
+                      <td>
+                        <input
+                          type="checkbox"
+                          :checked="Number(t.is_active) === 1"
+                          :disabled="deletingTodoTemplateId === t.id"
+                          @change="toggleTodoTemplateActive(t, $event.target.checked)"
+                        />
+                      </td>
+                      <td>
+                        <div><strong>{{ t.title }}</strong></div>
+                        <div class="muted" style="margin-top: 4px;">
+                          <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
+                          <span v-else>Agency-wide</span>
+                        </div>
+                        <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
+                      </td>
+                      <td class="muted">
+                        <span v-if="Number(t.start_payroll_period_id||0) > 0">From period #{{ t.start_payroll_period_id }}</span>
+                        <span v-else>Immediately</span>
+                      </td>
+                      <td class="right">
+                        <button class="btn btn-danger btn-sm" type="button" :disabled="deletingTodoTemplateId === t.id" @click="deleteTodoTemplate(t)">
+                          {{ deletingTodoTemplateId === t.id ? 'Deleting…' : 'Delete' }}
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
+    <teleport to="body">
+      <div v-if="showPayrollWizardModal" class="modal-backdrop">
+        <div class="modal" style="width: min(980px, 100%);">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Payroll Wizard</div>
+              <div class="hint">Step-by-step guide. Save anytime; no click-out close.</div>
+            </div>
+            <div class="actions" style="margin: 0;">
+              <button class="btn btn-secondary btn-sm" type="button" @click="wizardSaveAndExit" :disabled="wizardSaving">Save edits & exit</button>
+              <button class="btn btn-danger btn-sm" type="button" @click="wizardDiscardAndExit" :disabled="wizardSaving" style="margin-left: 8px;">Don’t save & exit</button>
+            </div>
+          </div>
+
+          <div v-if="wizardError" class="warn-box" style="margin-top: 10px;">{{ wizardError }}</div>
+          <div v-if="wizardLoading" class="muted" style="margin-top: 10px;">Loading wizard…</div>
+          <div v-else style="margin-top: 10px;">
+            <div class="card">
+              <div class="hint" style="font-weight: 700;">Step {{ wizardStepIdx + 1 }} of {{ wizardSteps.length }} — {{ wizardStep?.title }}</div>
+              <div class="hint" style="margin-top: 6px;">You can use Back/Next; the wizard saves progress as you move.</div>
+            </div>
+
+            <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Current step actions</h3>
+
+              <div v-if="wizardStep?.key === 'prior'" class="hint">
+                Submit/complete the prior payroll cycle before continuing (skipped automatically on first payroll).
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-secondary" type="button" @click="openPreviewPostModalV2" :disabled="!selectedPeriodId">Open Preview Post</button>
+                </div>
+              </div>
+
+              <div v-else-if="wizardStep?.key === 'review'" class="hint">
+                Review changes between runs (No-note/Draft Unpaid workflow).
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-secondary" type="button" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">Open No-note/Draft Unpaid</button>
+                </div>
+              </div>
+
+              <div v-else-if="wizardStep?.key === 'apply'" class="hint">
+                Apply changes (carryover) into the current pay period, then continue.
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-secondary" type="button" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">Open carryover tool</button>
+                  <button class="btn btn-secondary" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId" style="margin-left: 8px;">Open Payroll Stage</button>
+                </div>
+              </div>
+
+              <div v-else-if="wizardStep?.key === 'drafts'" class="hint">
+                Edit draft-payable decisions in Raw Import (Draft Audit).
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('draft_audit')" :disabled="!selectedPeriodId">Open Raw Import (Draft Audit)</button>
+                </div>
+              </div>
+
+              <div v-else-if="wizardStep?.key === 'h0031'" class="hint">
+                Process H0031 minutes + mark Done.
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('process_h0031')" :disabled="!selectedPeriodId">Open Raw Import (H0031)</button>
+                </div>
+              </div>
+
+              <div v-else-if="wizardStep?.key === 'h0032'" class="hint">
+                Process H0032 minutes + mark Done.
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-secondary" type="button" @click="wizardOpenRawMode('process_h0032')" :disabled="!selectedPeriodId">Open Raw Import (H0032)</button>
+                </div>
+              </div>
+
+              <div v-else-if="wizardStep?.key === 'stage'" class="hint">
+                Review Payroll Stage workspace edits, claims, To‑Dos, and adjustments.
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-secondary" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId">Open Payroll Stage</button>
+                  <button class="btn btn-secondary" type="button" @click="openTodoModal" :disabled="!selectedPeriodId" style="margin-left: 8px;">Manage To‑Dos</button>
+                </div>
+              </div>
+
+              <div v-else-if="wizardStep?.key === 'run'" class="hint">
+                Run payroll to compute totals (blocked if To‑Dos or submissions are pending).
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-primary" type="button" @click="runPayroll" :disabled="runningPayroll || isPeriodPosted || !selectedPeriodId">
+                    {{ runningPayroll ? 'Running…' : 'Run Payroll' }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-else-if="wizardStep?.key === 'preview'" class="hint">
+                Preview provider view + post-time notifications.
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-secondary" type="button" @click="openPreviewPostModalV2" :disabled="!selectedPeriodId || !canSeeRunResults">Open Preview Post</button>
+                </div>
+              </div>
+
+              <div v-else-if="wizardStep?.key === 'post'" class="hint">
+                Post payroll to make it visible to providers.
+                <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
+                  <button class="btn btn-primary" type="button" @click="postPayroll" :disabled="postingPayroll || isPeriodPosted || selectedPeriodStatus !== 'ran'">
+                    {{ postingPayroll ? 'Posting…' : 'Post Payroll' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="actions" style="margin-top: 12px; justify-content: space-between;">
+              <button class="btn btn-secondary" type="button" @click="wizardBack" :disabled="wizardStepIdx <= 0 || wizardSaving">Back</button>
+              <button class="btn btn-primary" type="button" @click="wizardNext" :disabled="wizardStepIdx >= wizardSteps.length - 1 || wizardSaving">
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </teleport>
 
     <!-- V2 modals: isolated from page state -->
     <teleport to="body">
@@ -528,17 +866,14 @@
       </div>
 
       <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
-          <div class="field">
+        <div class="field">
           <label>Present pay period (destination)</label>
-          <select v-model="processTargetPeriodId">
-            <option :value="-1" v-if="suggestedCurrentPeriodRange">
-              Present pay period ({{ suggestedCurrentPeriodRange.label }}){{ suggestedCurrentPeriodId ? '' : ' — will create' }}
-            </option>
-            <option :value="null" disabled>Select present pay period…</option>
-            <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
-          </select>
-          <div class="hint" v-if="creatingCurrentPeriod">Creating present pay period…</div>
+          <div class="hint">
+            This will add differences into your currently selected pay period:
+            <strong>{{ selectedPeriodForUi ? periodRangeLabel(selectedPeriodForUi) : '—' }}</strong>
           </div>
+          <div class="hint muted">To change the destination, select a different pay period at the top of this page.</div>
+        </div>
           <div class="field">
           <label>Upload updated prior pay period report</label>
           <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onProcessFilePick" />
@@ -548,17 +883,17 @@
           <label>Next</label>
           <div class="actions" style="margin: 0;">
             <button class="btn btn-secondary" @click="processAutoImport" :disabled="processingChanges || !processImportFile || !agencyId">
-              {{ processingChanges ? 'Detecting...' : 'Detect prior period (choose) & import' }}
+              {{ processingChanges ? 'Detecting...' : 'Detect prior period (choose)' }}
             </button>
-            <button class="btn btn-primary" @click="processRunAndCompare" :disabled="processingChanges || !processSourcePeriodId || !processTargetEffectiveId">
+            <button class="btn btn-primary" @click="processRunAndCompare" :disabled="processingChanges || !processSourcePeriodId || !selectedPeriodId">
               {{ processingChanges ? 'Working...' : 'Run & compare (then → now)' }}
             </button>
           </div>
           <div class="hint" v-if="processSourcePeriodLabel">
             Prior period detected: {{ processSourcePeriodLabel }}
           </div>
-          <div class="hint" v-if="processTargetEffectiveLabel">
-            Will add differences into: {{ processTargetEffectiveLabel }}
+          <div class="hint" v-if="selectedPeriodForUi">
+            Will add differences into: {{ periodRangeLabel(selectedPeriodForUi) }}
           </div>
           <div class="warn-box" v-if="processError">{{ processError }}</div>
           </div>
@@ -586,7 +921,6 @@
               <select v-model="processChoiceMode">
                 <option value="detected" v-if="processDetectResult?.detected">Use detected period</option>
                 <option value="existing">Choose an existing period</option>
-                <option value="custom">Enter custom dates</option>
               </select>
             </div>
             <div class="field" v-if="processChoiceMode === 'existing'">
@@ -600,26 +934,15 @@
               <label>Detected prior period</label>
               <div class="hint">
                 {{ processDetectResult?.detected?.periodStart }} → {{ processDetectResult?.detected?.periodEnd }}
-                <span v-if="processExistingPeriodId" class="muted"> • will import into existing period #{{ processExistingPeriodId }}</span>
-                <span v-else class="muted"> • will create this period then import</span>
+                <span v-if="processExistingPeriodId" class="muted"> • matched existing period #{{ processExistingPeriodId }}</span>
+                <span v-else class="muted"> • no matching period found — choose an existing prior period</span>
               </div>
-            </div>
-          </div>
-
-          <div v-if="processChoiceMode === 'custom'" class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
-            <div class="field">
-              <label>Period start</label>
-              <input v-model="processCustomStart" type="date" />
-            </div>
-            <div class="field">
-              <label>Period end</label>
-              <input v-model="processCustomEnd" type="date" />
             </div>
           </div>
 
           <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
             <button class="btn btn-primary" @click="confirmProcessImport" :disabled="processingChanges || !processImportFile || !agencyId">
-              {{ processingChanges ? 'Importing...' : 'Confirm & Import prior period' }}
+              {{ processingChanges ? 'Working...' : 'Confirm prior period' }}
             </button>
           </div>
         </div>
@@ -633,7 +956,7 @@
         Import the current billing report, stage edits, run payroll, and post payroll. Providers will see posted payroll and any “prior notes included”.
       </div>
 
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 1fr 1fr;">
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr 2fr;">
         <div class="field">
           <label>Pay period</label>
           <select v-model="selectedPeriodId" :key="`period-top-${agencyId || 'none'}-${(periods || []).length}`">
@@ -642,29 +965,34 @@
           </select>
         </div>
         <div class="field">
-          <label>Provider filter</label>
-          <div style="display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;">
-            <select v-model="selectedUserId">
-              <option :value="null" disabled>Select a provider…</option>
-              <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
-            </select>
-            <button class="btn btn-secondary btn-sm" @click="clearSelectedProvider" :disabled="!selectedUserId">
-              Clear
-            </button>
-          </div>
-        </div>
-        <div class="field">
           <label>Import billing report</label>
-          <input type="file" accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="onFilePick" />
-          <div class="hint" v-if="detectedPeriodHint">{{ detectedPeriodHint }}</div>
-          <div class="actions" style="margin-top: 8px;">
-            <button class="btn btn-secondary" @click="autoImport" :disabled="autoImporting || !importFile || !agencyId">
-              {{ autoDetecting ? 'Detecting...' : 'Auto-detect Pay Period' }}
+          <input
+            ref="currentPayrollFileInput"
+            type="file"
+            accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            @change="onFilePick"
+            style="display: none;"
+          />
+          <div class="actions" style="margin-top: 8px; justify-content: flex-start;">
+            <button
+              :class="importFile ? 'btn btn-secondary' : 'btn btn-primary'"
+              type="button"
+              @click="triggerCurrentPayrollUpload"
+              :disabled="!agencyId || importing"
+            >
+              Upload Current Pay Period
             </button>
-            <button class="btn btn-primary" @click="openImportConfirmModal" :disabled="importing || !importFile">
-              {{ importing ? 'Importing...' : 'Import (choose pay period)' }}
+            <button class="btn btn-secondary" type="button" @click="clearImportFile" :disabled="importing || !importFile">
+              Remove file
+            </button>
+            <button class="btn btn-primary" type="button" @click="openImportConfirmModal" :disabled="importing || !importFile || !selectedPeriodId">
+              {{ importing ? 'Importing...' : 'Import' }}
             </button>
           </div>
+          <div class="hint" v-if="importFile">
+            Selected file: <strong>{{ importFile.name }}</strong>
+          </div>
+          <div class="hint" v-if="detectedPeriodHint">{{ detectedPeriodHint }}</div>
         </div>
       </div>
 
@@ -674,7 +1002,7 @@
           <div class="modal-header">
             <div>
               <div class="modal-title">Confirm Pay Period</div>
-              <div class="hint">Verify the pay period before importing.</div>
+              <div class="hint">Verify which existing pay period to import into.</div>
             </div>
             <button class="btn btn-secondary btn-sm" @click="confirmAutoImportOpen = false">Close</button>
           </div>
@@ -690,7 +1018,6 @@
               <select v-model="autoImportChoiceMode">
                 <option value="detected" v-if="autoDetectResult?.detected">Use detected period</option>
                 <option value="existing">Choose an existing period</option>
-                <option value="custom">Enter custom dates</option>
               </select>
             </div>
             <div class="field" v-if="autoImportChoiceMode === 'existing'">
@@ -705,19 +1032,8 @@
               <div class="hint">
                 {{ autoDetectResult?.detected?.periodStart }} → {{ autoDetectResult?.detected?.periodEnd }}
                 <span v-if="autoImportExistingPeriodId" class="muted"> • will import into existing period #{{ autoImportExistingPeriodId }}</span>
-                <span v-else class="muted"> • will create this period then import</span>
+                <span v-else class="muted"> • no matching period found — choose an existing period</span>
               </div>
-            </div>
-          </div>
-
-          <div v-if="autoImportChoiceMode === 'custom'" class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
-            <div class="field">
-              <label>Period start</label>
-              <input v-model="autoImportCustomStart" type="date" />
-            </div>
-            <div class="field">
-              <label>Period end</label>
-              <input v-model="autoImportCustomEnd" type="date" />
             </div>
           </div>
 
@@ -741,9 +1057,6 @@
         </button>
         <button class="btn btn-secondary" type="button" @click="openTodoModal" :disabled="!selectedPeriodId">
           Add Single/Recurring Note or To Do
-        </button>
-        <button class="btn btn-primary" type="button" @click="openPayrollWizard" :disabled="!selectedPeriodId">
-          Payroll Wizard
         </button>
         <button class="btn btn-secondary" @click="showStageModal = true" :disabled="!selectedPeriodId">
           Payroll Stage
@@ -805,6 +1118,16 @@
       <div class="card">
         <h2 class="card-title">Pay Periods (History)</h2>
         <div class="hint">Pay periods are created automatically when you import a report.</div>
+
+        <div class="field" style="margin-top: 10px;">
+          <label style="display: inline-flex; gap: 8px; align-items: center; font-weight: 600;">
+            <input type="checkbox" v-model="showOffSchedulePeriods" @change="loadPeriods" />
+            Show off-schedule periods
+          </label>
+          <div class="hint" style="margin-top: 4px;">
+            Off-schedule periods are legacy/incorrect date ranges (e.g., 01/10→01/23) that don’t match this agency’s configured cadence.
+          </div>
+        </div>
 
         <div class="field" style="margin-top: 10px;">
           <input
@@ -962,7 +1285,7 @@
         </div>
 
         <!-- Payroll Stage modal -->
-        <div v-if="showStageModal" class="modal-backdrop" @click.self="showStageModal = false">
+        <div v-show="showStageModal" class="modal-backdrop" @click.self="showStageModal = false">
           <div class="modal">
             <div class="modal-header">
               <div>
@@ -3158,7 +3481,7 @@
 
       <!-- Payroll To-Dos modal -->
       <teleport to="body">
-        <div v-if="showTodoModal" class="modal-backdrop">
+        <div v-if="false && showTodoModal" class="modal-backdrop">
           <div class="modal" style="width: min(920px, 100%);">
             <div class="modal-header">
               <div>
@@ -3352,7 +3675,7 @@
 
       <!-- Payroll Wizard modal (no click-out close) -->
       <teleport to="body">
-        <div v-if="showPayrollWizardModal" class="modal-backdrop">
+        <div v-if="false && showPayrollWizardModal" class="modal-backdrop">
           <div class="modal" style="width: min(980px, 100%);">
             <div class="modal-header">
               <div>
@@ -3473,15 +3796,20 @@
 
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useOrganizationStore } from '../../store/organization';
 import { useAuthStore } from '../../store/auth';
+import { useBrandingStore } from '../../store/branding';
 import AdminPayrollSubmitOverride from '../../components/admin/AdminPayrollSubmitOverride.vue';
 
+const router = useRouter();
+const route = useRoute();
 const agencyStore = useAgencyStore();
 const organizationStore = useOrganizationStore();
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
@@ -3519,13 +3847,31 @@ const unmatchedProviders = ref([]);
 const createdUsers = ref([]);
 const autoImporting = ref(false);
 const detectedPeriodHint = ref('');
+const currentPayrollFileInput = ref(null);
 const confirmAutoImportOpen = ref(false);
 const autoDetecting = ref(false);
 const autoDetectResult = ref(null); // { detected, existingPeriodId }
-const autoImportChoiceMode = ref('detected'); // 'detected' | 'existing' | 'custom'
+const autoImportChoiceMode = ref('detected'); // 'detected' | 'existing'
 const autoImportExistingPeriodId = ref(null);
-const autoImportCustomStart = ref('');
-const autoImportCustomEnd = ref('');
+
+const triggerCurrentPayrollUpload = () => {
+  try {
+    if (currentPayrollFileInput.value) currentPayrollFileInput.value.click();
+  } catch {
+    // ignore
+  }
+};
+
+const clearImportFile = () => {
+  importFile.value = null;
+  detectedPeriodHint.value = '';
+  autoDetectResult.value = null;
+  try {
+    if (currentPayrollFileInput.value) currentPayrollFileInput.value.value = '';
+  } catch {
+    // ignore
+  }
+};
 
 // rate sheet import removed
 
@@ -3877,26 +4223,20 @@ const serviceCodeRulesLoading = ref(false);
 const serviceCodeRulesError = ref('');
 
 // Process Changes workflow (late notes carryover)
-const processTargetPeriodId = ref(null); // number | null | -1 (auto-create suggested)
 const processImportFile = ref(null);
 const processingChanges = ref(false);
 const processError = ref('');
 const processDetectedHint = ref('');
 const processSourcePeriodId = ref(null);
 const processSourcePeriodLabel = ref('');
-const processTargetEffectiveId = ref(null);
-const processTargetEffectiveLabel = ref('');
 
 const processConfirmOpen = ref(false);
 const processDetectResult = ref(null); // { detected, existingPeriodId }
-const processChoiceMode = ref('detected'); // 'detected' | 'existing' | 'custom'
+const processChoiceMode = ref('detected'); // 'detected' | 'existing'
 const processExistingPeriodId = ref(null);
-const processCustomStart = ref('');
-const processCustomEnd = ref('');
 
 // Legacy (removed from UI)
 const applyToCurrentPeriodId = ref(null); // keep to avoid breaking older helpers
-const creatingCurrentPeriod = ref(false);
 const lastImportedPeriodId = ref(null);
 
 const carryoverPriorPeriodId = ref(null);
@@ -5290,6 +5630,13 @@ const filteredAgencies = computed(() => {
   return all.filter((a) => String(a?.name || '').toLowerCase().includes(q));
 });
 
+const showOrgPicker = computed(() => {
+  // Only show the organization selector if the user can actually switch payroll orgs.
+  // Super admins can always switch; others only if they have more than one payroll agency option.
+  if (isSuperAdmin.value) return true;
+  return (payrollAgencyOptions.value || []).length > 1;
+});
+
 const sortedPeriods = computed(() => {
   const all = (periods.value || []).slice();
   // Prefer sorting by period_end desc, then id desc
@@ -6650,13 +6997,17 @@ const suggestedCurrentPeriodRange = computed(() => {
 const LS_LAST_ORG_ID = 'payroll:lastOrgId';
 const lsLastPeriodKey = (agencyIdVal) => `payroll:lastPeriodId:${agencyIdVal}`;
 
+const showOffSchedulePeriods = ref(false);
+
 const loadPeriods = async () => {
   if (!agencyId.value) return;
   try {
     // Ensure upcoming pay periods exist so claims can be approved/targeted without waiting for a billing import.
     // Idempotent: creates only missing periods.
     await api.post('/payroll/periods/ensure-future', { months: 6, pastPeriods: 2 }, { params: { agencyId: agencyId.value } });
-  const resp = await api.get('/payroll/periods', { params: { agencyId: agencyId.value } });
+  const resp = await api.get('/payroll/periods', {
+    params: { agencyId: agencyId.value, alignedOnly: showOffSchedulePeriods.value ? 'false' : 'true' }
+  });
   periods.value = resp.data || [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load pay periods';
@@ -7429,6 +7780,8 @@ const exportPayrollCsv = async () => {
 
 const onFilePick = (evt) => {
   importFile.value = evt.target.files?.[0] || null;
+  detectedPeriodHint.value = '';
+  autoDetectResult.value = null;
 };
 
 const autoImport = async () => {
@@ -7456,8 +7809,6 @@ const autoImport = async () => {
     // Default confirmation choice
     autoImportChoiceMode.value = 'detected';
     autoImportExistingPeriodId.value = autoDetectResult.value?.existingPeriodId || null;
-    autoImportCustomStart.value = detected?.periodStart || '';
-    autoImportCustomEnd.value = detected?.periodEnd || '';
     confirmAutoImportOpen.value = true;
   } catch (e) {
     error.value = formatPayrollImportError(e, 'Failed to auto-import payroll report');
@@ -7482,39 +7833,16 @@ const confirmAutoImport = async () => {
         error.value = 'Select an existing pay period.';
         return;
       }
-    } else if (autoImportChoiceMode.value === 'custom') {
-      // Create (or find) by dates
-      const start = String(autoImportCustomStart.value || '').slice(0, 10);
-      const end = String(autoImportCustomEnd.value || '').slice(0, 10);
-      if (!start || !end) {
-        error.value = 'Enter a custom pay period start and end.';
-        return;
-      }
-      const resp = await api.post('/payroll/periods', {
-        agencyId: agencyId.value,
-        periodStart: start,
-        periodEnd: end,
-        label: `${start} to ${end}`
-      });
-      targetPeriodId = resp.data?.id || null;
     } else {
       // detected
       if (!autoDetectResult.value?.detected?.periodStart || !autoDetectResult.value?.detected?.periodEnd) {
-        error.value = 'No detected pay period available. Choose an existing period or enter custom dates.';
+        error.value = 'No detected pay period available. Choose an existing period.';
         return;
       }
       targetPeriodId = autoImportExistingPeriodId.value;
       if (!targetPeriodId) {
-        const detected = autoDetectResult.value?.detected;
-        const start = String(detected?.periodStart || '').slice(0, 10);
-        const end = String(detected?.periodEnd || '').slice(0, 10);
-        const resp = await api.post('/payroll/periods', {
-          agencyId: agencyId.value,
-          periodStart: start,
-          periodEnd: end,
-          label: `${start} to ${end}`
-        });
-        targetPeriodId = resp.data?.id || null;
+        error.value = 'No existing pay period matched the detected period. Choose an existing pay period (or sync future drafts / show off-schedule periods).';
+        return;
       }
     }
     if (!targetPeriodId) {
@@ -7554,14 +7882,40 @@ const uploadCsv = async () => {
 
 // Manual import should use the SAME confirmation modal as auto-detect.
 // This lets admins override dates or choose a different pay period before importing.
-const openImportConfirmModal = () => {
+const openImportConfirmModal = async () => {
   if (!importFile.value) return;
-  // Default to existing period selection if one is already picked.
+  if (!agencyId.value) return;
+
+  // Detect in the background so we can pre-select the "right" existing pay period,
+  // but never create a pay period from this flow.
+  error.value = '';
+  autoDetecting.value = true;
+  detectedPeriodHint.value = '';
   autoDetectResult.value = null;
-  autoImportChoiceMode.value = 'existing';
-  autoImportExistingPeriodId.value = selectedPeriodId.value || null;
-  autoImportCustomStart.value = '';
-  autoImportCustomEnd.value = '';
+
+  try {
+    const fd = new FormData();
+    fd.append('file', importFile.value);
+    fd.append('agencyId', String(agencyId.value));
+    const resp = await api.post('/payroll/periods/auto/detect', fd);
+    autoDetectResult.value = resp.data || null;
+
+    const detected = autoDetectResult.value?.detected;
+    if (detected?.periodStart && detected?.periodEnd) {
+      detectedPeriodHint.value = `Detected pay period: ${detected.periodStart} → ${detected.periodEnd} (Sat→Fri, 14 days). Please confirm.`;
+    }
+  } catch (e) {
+    // If detect fails, still allow manual selection via existing periods.
+    autoDetectResult.value = null;
+  } finally {
+    autoDetecting.value = false;
+  }
+
+  // Default selection:
+  // - Prefer the detected match (existingPeriodId)
+  // - Otherwise fall back to the currently selected pay period
+  autoImportExistingPeriodId.value = autoDetectResult.value?.existingPeriodId || selectedPeriodId.value || null;
+  autoImportChoiceMode.value = autoDetectResult.value?.detected ? 'detected' : 'existing';
   confirmAutoImportOpen.value = true;
 };
 
@@ -7973,6 +8327,38 @@ watch(selectedOrgId, async (id) => {
   if (found) {
     agencyStore.setCurrentAgency(found);
     organizationStore.setCurrentOrganization(found);
+
+    // Ensure we have the full agency record (theme settings, parsed palettes).
+    const hydrated = await agencyStore.hydrateAgencyById(found.id);
+    const org = hydrated || found;
+
+    // Apply theme immediately (so the user sees the branding switch right away).
+    try {
+      const paletteRaw = org?.color_palette ?? org?.colorPalette ?? null;
+      const themeRaw = org?.theme_settings ?? org?.themeSettings ?? null;
+      const colorPalette = typeof paletteRaw === 'string' ? JSON.parse(paletteRaw) : (paletteRaw || {});
+      const themeSettings = typeof themeRaw === 'string' ? JSON.parse(themeRaw) : (themeRaw || {});
+      brandingStore.applyTheme({
+        brandingAgencyId: org?.id,
+        agencyId: org?.id,
+        colorPalette,
+        themeSettings
+      });
+    } catch {
+      // ignore
+    }
+
+    // Update the URL to the org-scoped payroll route for a clean context switch.
+    const slug = String(org?.slug || org?.portal_url || '').trim();
+    const curSlug = String(route.params?.organizationSlug || '').trim();
+    if (slug && slug !== curSlug) {
+      try {
+        await router.push(`/${slug}/admin/payroll`);
+      } catch {
+        // As a fallback, do a hard navigation (ensures full re-init).
+        try { window.location.assign(`/${slug}/admin/payroll`); } catch { /* ignore */ }
+      }
+    }
   }
 });
 
@@ -8107,49 +8493,6 @@ onMounted(async () => {
   await loadAgencyUsers();
   await loadPeriods();
   await restoreSelectionFromStorage();
-  // Do NOT auto-create a "present" period on page load.
-  // Only create it if the admin explicitly uses the Process Changes workflow.
-  if (!processTargetPeriodId.value) processTargetPeriodId.value = suggestedCurrentPeriodId.value || null;
-});
-
-const ensureSuggestedCurrentPeriodExists = async () => {
-  if (!agencyId.value) return null;
-  const range = suggestedCurrentPeriodRange.value;
-  if (!range) return null;
-  // If it already exists, use it.
-  if (suggestedCurrentPeriodId.value) return suggestedCurrentPeriodId.value;
-
-  try {
-    creatingCurrentPeriod.value = true;
-    const resp = await api.post('/payroll/periods', {
-      agencyId: agencyId.value,
-      periodStart: range.start,
-      periodEnd: range.end,
-      label: `${range.start} to ${range.end}`
-    });
-    await loadPeriods();
-    return resp.data?.id || suggestedCurrentPeriodId.value || null;
-  } finally {
-    creatingCurrentPeriod.value = false;
-  }
-};
-
-watch(processTargetPeriodId, async (v) => {
-  // If user picked the sentinel "present pay period (auto)", ensure it exists then replace selection with actual id.
-  if (v !== -1) {
-    processTargetEffectiveId.value = v || null;
-    const p = (periods.value || []).find((x) => x.id === v) || null;
-    processTargetEffectiveLabel.value = p ? periodRangeLabel(p) : '';
-    return;
-  }
-  if (creatingCurrentPeriod.value) return;
-  const id = await ensureSuggestedCurrentPeriodExists();
-  if (id) {
-    processTargetPeriodId.value = id;
-    processTargetEffectiveId.value = id;
-    const p = (periods.value || []).find((x) => x.id === id) || null;
-    processTargetEffectiveLabel.value = p ? periodRangeLabel(p) : (suggestedCurrentPeriodLabel.value || '');
-  }
 });
 
 const onProcessFilePick = (evt) => {
@@ -8177,8 +8520,6 @@ const processAutoImport = async () => {
     }
     processChoiceMode.value = 'detected';
     processExistingPeriodId.value = processDetectResult.value?.existingPeriodId || null;
-    processCustomStart.value = detected?.periodStart || '';
-    processCustomEnd.value = detected?.periodEnd || '';
     processConfirmOpen.value = true;
   } catch (e) {
     processError.value = e.response?.data?.error?.message || e.message || 'Failed to auto-detect/import prior pay period';
@@ -8201,37 +8542,16 @@ const confirmProcessImport = async () => {
         processError.value = 'Select an existing prior pay period.';
         return;
       }
-    } else if (processChoiceMode.value === 'custom') {
-      const start = String(processCustomStart.value || '').slice(0, 10);
-      const end = String(processCustomEnd.value || '').slice(0, 10);
-      if (!start || !end) {
-        processError.value = 'Enter a custom pay period start and end.';
-        return;
-      }
-      const resp = await api.post('/payroll/periods', {
-        agencyId: agencyId.value,
-        periodStart: start,
-        periodEnd: end,
-        label: `${start} to ${end}`
-      });
-      sourcePeriodId = resp.data?.id || null;
     } else {
       const detected = processDetectResult.value?.detected;
       if (!detected?.periodStart || !detected?.periodEnd) {
-        processError.value = 'No detected prior pay period available. Choose an existing period or enter custom dates.';
+        processError.value = 'No detected prior pay period available. Choose an existing period.';
         return;
       }
       sourcePeriodId = processExistingPeriodId.value;
       if (!sourcePeriodId) {
-        const start = String(detected.periodStart || '').slice(0, 10);
-        const end = String(detected.periodEnd || '').slice(0, 10);
-        const resp = await api.post('/payroll/periods', {
-          agencyId: agencyId.value,
-          periodStart: start,
-          periodEnd: end,
-          label: `${start} to ${end}`
-        });
-        sourcePeriodId = resp.data?.id || null;
+        processError.value = 'No existing pay period matched the detected prior period. Choose an existing prior pay period (or enable off-schedule periods / sync drafts).';
+        return;
       }
     }
     if (!sourcePeriodId) {
@@ -8255,7 +8575,7 @@ const confirmProcessImport = async () => {
 const processRunAndCompare = async () => {
   try {
     if (!processSourcePeriodId.value) return;
-    if (!processTargetEffectiveId.value) return;
+    if (!selectedPeriodId.value) return;
     processingChanges.value = true;
     processError.value = '';
 
@@ -8269,7 +8589,7 @@ const processRunAndCompare = async () => {
     await api.post(`/payroll/periods/${processSourcePeriodId.value}/runs/snapshot-from-file`, fd);
 
     // Switch UI context to the present pay period (destination) and open compare modal.
-    await selectPeriod(processTargetEffectiveId.value);
+    await selectPeriod(selectedPeriodId.value);
     showCarryoverModal.value = true;
     carryoverPriorPeriodId.value = processSourcePeriodId.value;
     await loadCarryoverRuns();
@@ -8438,6 +8758,85 @@ input[type='number'] {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px;
+}
+
+.wizard-hero {
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.10), rgba(99, 102, 241, 0.06));
+}
+.org-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 10px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+.org-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.org-bar-label {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+.org-bar-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.org-bar select,
+.org-bar input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 14px;
+}
+.org-bar input {
+  min-width: 200px;
+}
+.org-bar-value {
+  color: var(--text-primary);
+}
+.wizard-hero-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wizard-hero-controls {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 14px;
+  margin-top: 12px;
+  align-items: end;
+}
+.wizard-btn {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(59, 130, 246, 0.25);
+}
+.wizard-btn:disabled {
+  box-shadow: none;
+}
+@media (max-width: 900px) {
+  .wizard-hero-controls {
+    grid-template-columns: 1fr;
+  }
+  .org-bar input {
+    min-width: 160px;
+    width: 100%;
+  }
 }
 .modal .table th,
 .modal .table td {

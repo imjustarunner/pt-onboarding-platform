@@ -322,6 +322,7 @@
     <!-- Client Detail Panel -->
     <ClientDetailPanel
       v-if="selectedClient"
+      :key="String(selectedClient?.id || '')"
       :client="selectedClient"
       :initial-tab="String(route.query?.tab || '')"
       @close="closeClientDetail"
@@ -1664,7 +1665,9 @@ const cancelEdit = () => {
 // Workflow editing removed; "status" is now treated as an internal archive flag.
 
 const openClientDetail = (client) => {
-  selectedClient.value = client;
+  // Pass a fresh object so the modal remount/update path is stable (helps avoid rare
+  // Vue update issues during HMR or when switching clients quickly).
+  selectedClient.value = client ? { ...client } : null;
 };
 
 const closeClientDetail = () => {
@@ -1825,11 +1828,11 @@ const openClientFromQuery = async () => {
     // Prefer already-loaded list, fallback to single fetch.
     const fromList = (clients.value || []).find((c) => Number(c.id) === id) || null;
     if (fromList) {
-      selectedClient.value = fromList;
+      selectedClient.value = { ...fromList };
       return;
     }
     const r = await api.get(`/clients/${id}`);
-    selectedClient.value = r.data || null;
+    selectedClient.value = r.data ? { ...(r.data || {}) } : null;
   } catch (e) {
     // Best-effort; don't block page load.
     console.warn('Failed to open client from URL:', e?.response?.data?.error?.message || e.message);
