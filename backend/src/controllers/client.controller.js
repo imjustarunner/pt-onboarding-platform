@@ -186,6 +186,7 @@ export const createClient = async (req, res, next) => {
       document_status = 'NONE',
       source = 'ADMIN_CREATED',
       referral_date,
+      insurance_type_id,
       paperwork_delivery_method_id,
       primary_client_language,
       primary_parent_language,
@@ -396,6 +397,7 @@ export const createClient = async (req, res, next) => {
       source,
       created_by_user_id: userId,
       client_status_id: client_status_id ? parseInt(client_status_id, 10) : null,
+      insurance_type_id: insurance_type_id ? parseInt(insurance_type_id, 10) : null,
       school_year: school_year ? String(school_year).trim() : null,
       grade: grade ? String(grade).trim() : null,
 
@@ -406,6 +408,27 @@ export const createClient = async (req, res, next) => {
       primary_parent_language: primary_parent_language ? String(primary_parent_language).trim() : null,
       skills: skills === undefined || skills === null ? undefined : !!skills
     });
+
+    // Seed multi-org affiliation table so the primary org appears in the Affiliations UI immediately.
+    // Best-effort only: table may not exist in older environments.
+    try {
+      const dbName2 = process.env.DB_NAME || 'onboarding_stage';
+      const [t2] = await pool.execute(
+        "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'client_organization_assignments' LIMIT 1",
+        [dbName2]
+      );
+      const hasAffiliationsTable = (t2 || []).length > 0;
+      if (hasAffiliationsTable) {
+        await pool.execute(
+          `INSERT INTO client_organization_assignments (client_id, organization_id, is_primary, is_active)
+           VALUES (?, ?, TRUE, TRUE)
+           ON DUPLICATE KEY UPDATE is_primary = TRUE, is_active = TRUE`,
+          [client.id, parsedOrganizationId]
+        );
+      }
+    } catch {
+      // ignore (older DBs)
+    }
 
     // Seed per-client document status checklist (best-effort; migration may not be applied yet).
     try {
@@ -520,6 +543,7 @@ export const getClientDocumentStatus = async (req, res, next) => {
       );
     }
 
+    const orderBy = keys.map(() => '?').join(',');
     const [itemRows] = await pool.execute(
       `SELECT cpi.paperwork_status_id, cpi.is_needed, cpi.received_at, cpi.received_by_user_id,
               ps.status_key, ps.label
@@ -528,8 +552,8 @@ export const getClientDocumentStatus = async (req, res, next) => {
        WHERE cpi.client_id = ?
          AND ps.agency_id = ?
          AND LOWER(ps.status_key) IN (${placeholders})
-       ORDER BY ps.label ASC`,
-      [clientId, client.agency_id, ...keys]
+       ORDER BY FIELD(LOWER(ps.status_key), ${orderBy})`,
+      [clientId, client.agency_id, ...keys, ...keys]
     );
 
     const items = (itemRows || []).map((r) => ({

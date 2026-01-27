@@ -1652,7 +1652,12 @@ const fetchPaperworkStatuses = async () => {
     return;
   }
   try {
-    const r = await api.get('/client-settings/paperwork-statuses');
+    const agencyId = props.client?.agency_id ? Number(props.client.agency_id) : null;
+    if (!agencyId) {
+      paperworkStatuses.value = [];
+      return;
+    }
+    const r = await api.get('/client-settings/paperwork-statuses', { params: { agencyId } });
     paperworkStatuses.value = (r.data || []).filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
   } catch {
     paperworkStatuses.value = [];

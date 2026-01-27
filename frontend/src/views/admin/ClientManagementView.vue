@@ -381,6 +381,13 @@
             </small>
           </div>
           <div class="form-group" v-if="newClient.provider_id">
+            <label class="checkbox-label" style="display:flex; align-items:center; gap: 8px;">
+              <input type="checkbox" v-model="newClient.provider_make_primary" />
+              <span>Make provider primary</span>
+            </label>
+            <small>Primary provider is what shows on the client list and in the client modal.</small>
+          </div>
+          <div class="form-group" v-if="newClient.provider_id">
             <label>Provider available day *</label>
             <select v-model="newClient.service_day" required>
               <option value="">Select day…</option>
@@ -400,6 +407,15 @@
               <option :value="null">—</option>
               <option v-for="s in clientStatuses" :key="s.id" :value="s.id">{{ s.label }}</option>
             </select>
+          </div>
+          <div class="form-group">
+            <label>Insurance *</label>
+            <select v-model="newClient.insurance_type_id" :disabled="createInsuranceLoading" required>
+              <option :value="null" disabled>Select insurance…</option>
+              <option v-for="it in createInsuranceTypes" :key="it.id" :value="it.id">{{ it.label }}</option>
+            </select>
+            <small v-if="createInsuranceLoading">Loading insurance types…</small>
+            <small v-else-if="createInsuranceError">{{ createInsuranceError }}</small>
           </div>
           <div class="form-group">
             <label>Referral Date</label>
@@ -495,7 +511,7 @@
             <button
               type="submit"
               class="btn btn-primary"
-              :disabled="creating || (newClient.provider_id && !newClient.service_day)"
+              :disabled="creating || !newClient.insurance_type_id || (newClient.provider_id && !newClient.service_day)"
             >
               {{ creating ? 'Creating...' : 'Create Client' }}
             </button>
@@ -775,12 +791,41 @@ const openCreateClientModal = async () => {
   }
   await fetchLinkedOrganizations();
   await fetchCreatePaperworkStatuses();
+  await fetchCreateInsuranceTypes();
 };
 const showBulkImportModal = ref(false);
 const creating = ref(false);
 const linkedOrganizations = ref([]);
 const loadingOrganizations = ref(false);
 const clientStatuses = ref([]);
+
+// Create-client: Insurance (required)
+const createInsuranceTypes = ref([]);
+const createInsuranceLoading = ref(false);
+const createInsuranceError = ref('');
+
+const fetchCreateInsuranceTypes = async () => {
+  try {
+    createInsuranceLoading.value = true;
+    createInsuranceError.value = '';
+    const agencyId = createAgencyEffectiveId.value ? Number(createAgencyEffectiveId.value) : null;
+    if (!agencyId) {
+      createInsuranceTypes.value = [];
+      createInsuranceError.value = 'Unable to determine agency for insurance types.';
+      return;
+    }
+    const r = await api.get('/client-settings/insurance-types', { params: { agencyId } });
+    const rows = Array.isArray(r.data) ? r.data : [];
+    createInsuranceTypes.value = rows
+      .filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true))
+      .sort((a, b) => String(a?.label || '').localeCompare(String(b?.label || '')));
+  } catch (e) {
+    createInsuranceTypes.value = [];
+    createInsuranceError.value = e.response?.data?.error?.message || 'Failed to load insurance types';
+  } finally {
+    createInsuranceLoading.value = false;
+  }
+};
 
 // Create-client: Document Status (Needed/Received) selection
 const createPaperworkStatuses = ref([]);
@@ -789,19 +834,49 @@ const createPaperworkStatusesError = ref('');
 const createDocsNeededIds = ref([]);
 const createDocsIsCompleted = computed(() => (createDocsNeededIds.value || []).length === 0);
 
+const DOCUMENT_STATUS_KEYS_ORDER = [
+  'completed',
+  're_auth',
+  'new_insurance',
+  'insurance_payment_auth',
+  'emailed_packet',
+  'roi',
+  'renewal',
+  'new_docs',
+  'disclosure_consent',
+  'balance'
+];
+
 const fetchCreatePaperworkStatuses = async () => {
   try {
     createPaperworkStatusesLoading.value = true;
     createPaperworkStatusesError.value = '';
-    const r = await api.get('/client-settings/paperwork-statuses');
+    const agencyId = createAgencyEffectiveId.value ? Number(createAgencyEffectiveId.value) : null;
+    if (!agencyId) {
+      createPaperworkStatuses.value = [];
+      createDocsNeededIds.value = [];
+      createPaperworkStatusesError.value = 'Unable to determine agency for document statuses.';
+      return;
+    }
+    const r = await api.get('/client-settings/paperwork-statuses', { params: { agencyId } });
     const rows = Array.isArray(r.data) ? r.data : [];
-    // Exclude "completed" from selectable-needed list (completed is computed/derived).
-    const filtered = rows
-      .filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true))
-      .filter((s) => String(s.status_key || s.statusKey || '').toLowerCase() !== 'completed');
-    createPaperworkStatuses.value = filtered;
+    const active = rows.filter((s) => s && (s.is_active === undefined || s.is_active === 1 || s.is_active === true));
+    // Exclude "completed" from selectable-needed list (completed is computed/derived),
+    // but keep a deterministic order based on the fixed key list.
+    const byKey = new Map(active.map((s) => [String(s.status_key || s.statusKey || '').toLowerCase(), s]));
+    const ordered = DOCUMENT_STATUS_KEYS_ORDER
+      .filter((k) => k !== 'completed')
+      .map((k) => byKey.get(k))
+      .filter(Boolean);
+    // Fallback: append any unknown active statuses (stable sort by label).
+    const known = new Set(ordered.map((s) => Number(s.id)));
+    const extras = active
+      .filter((s) => String(s.status_key || s.statusKey || '').toLowerCase() !== 'completed')
+      .filter((s) => !known.has(Number(s.id)))
+      .sort((a, b) => String(a?.label || '').localeCompare(String(b?.label || '')));
+    createPaperworkStatuses.value = [...ordered, ...extras];
     // Default: everything is Needed (matches seed behavior).
-    createDocsNeededIds.value = filtered.map((s) => Number(s.id)).filter((n) => Number.isFinite(n));
+    createDocsNeededIds.value = createPaperworkStatuses.value.map((s) => Number(s.id)).filter((n) => Number.isFinite(n));
   } catch (e) {
     createPaperworkStatuses.value = [];
     createDocsNeededIds.value = [];
@@ -849,8 +924,10 @@ const newClient = ref({
   organization_id: null,
   initials: '',
   provider_id: null,
+  provider_make_primary: true,
   service_day: '',
   client_status_id: null,
+  insurance_type_id: null,
   school_year: '',
   grade: '',
   skills: false,
@@ -1599,6 +1676,7 @@ const createClient = async () => {
       ...newClient.value,
       school_year: normalizeSchoolYearLabel(newClient.value.school_year) || null,
       grade: String(newClient.value.grade || '').trim() || null,
+      insurance_type_id: newClient.value.insurance_type_id ? Number(newClient.value.insurance_type_id) : null,
       // Assign provider/day in a second call so slot adjustments are enforced centrally.
       provider_id: null,
       service_day: null,
@@ -1609,7 +1687,7 @@ const createClient = async () => {
     const resp = await api.post('/clients', payload);
     const created = resp.data || null;
 
-    // Slot-aware assignment (optional): assign as PRIMARY via affiliations system
+    // Slot-aware assignment (optional): assign via affiliations system (optionally primary)
     const providerId = newClient.value?.provider_id ? Number(newClient.value.provider_id) : null;
     const serviceDay = String(newClient.value?.service_day || '').trim() || null;
     if (created?.id && providerId && serviceDay) {
@@ -1618,10 +1696,13 @@ const createClient = async () => {
           organization_id: Number(newClient.value.organization_id),
           provider_user_id: providerId,
           service_day: serviceDay,
-          is_primary: true
+          is_primary: newClient.value?.provider_make_primary !== false
         });
-      } catch {
-        // ignore (migration missing / permissions)
+      } catch (e) {
+        const msg = e?.response?.data?.error?.message || 'Provider/day could not be saved';
+        error.value = `Client was created, but provider/day could not be saved: ${msg}. Please set the primary provider in the client’s Affiliations tab.`;
+        await fetchClients();
+        return;
       }
     }
 
@@ -1633,8 +1714,11 @@ const createClient = async () => {
           is_needed: (createDocsNeededIds.value || []).includes(Number(s.id))
         }));
         await api.put(`/clients/${created.id}/document-status`, { updates });
-      } catch {
-        // ignore (migration missing / permissions)
+      } catch (e) {
+        const msg = e?.response?.data?.error?.message || 'Document Status could not be saved';
+        error.value = `Client was created, but Document Status could not be saved: ${msg}. Please open the client and set Document Status again.`;
+        await fetchClients();
+        return;
       }
     }
 
@@ -1663,8 +1747,10 @@ const closeCreateModal = () => {
     organization_id: null,
     initials: '',
     provider_id: null,
+    provider_make_primary: true,
     service_day: '',
     client_status_id: null,
+    insurance_type_id: null,
     school_year: '',
     grade: '',
     submission_date: new Date().toISOString().split('T')[0],
@@ -1752,10 +1838,12 @@ watch(
     newClient.value.organization_id = null;
     newClient.value.provider_id = null;
     newClient.value.service_day = '';
+    newClient.value.insurance_type_id = null;
     await fetchLinkedOrganizations();
     await fetchClientStatuses();
     await fetchProviders();
     await fetchCreatePaperworkStatuses();
+    await fetchCreateInsuranceTypes();
   }
 );
 
