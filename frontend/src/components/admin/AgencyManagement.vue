@@ -2889,7 +2889,7 @@ const ICON_TEMPLATE_FIELDS = [
   'passwordChangedIconId'
 ];
 
-const agencyForm = ref({
+const defaultAgencyForm = () => ({
   organizationType: userRole.value === 'super_admin' ? 'agency' : 'school',
   affiliatedAgencyId: '',
   name: '',
@@ -2899,6 +2899,7 @@ const agencyForm = ref({
   officeSvgUrl: '',
   officeAdditionalAgencyIds: [],
   logoUrl: '',
+  logoPath: '',
   primaryColor: '#0f172a',
   secondaryColor: '#1e40af',
   accentColor: '#f97316',
@@ -2992,6 +2993,8 @@ const agencyForm = ref({
   firstLoginPendingIconId: null,
   passwordChangedIconId: null
 });
+
+const agencyForm = ref(defaultAgencyForm());
 
 const availableFontFamilies = ref([]);
 const loadingFontFamilies = ref(false);
@@ -4618,74 +4621,7 @@ const closeModal = () => {
   } catch {
     // ignore
   }
-  agencyForm.value = {
-    organizationType: userRole.value === 'super_admin' ? 'agency' : 'school',
-    affiliatedAgencyId: '',
-    name: '',
-    slug: '',
-    officeTimezone: 'America/New_York',
-    officeSvgUrl: '',
-    officeAdditionalAgencyIds: [],
-    logoUrl: '',
-    logoPath: '',
-    primaryColor: '#0f172a',
-    secondaryColor: '#1e40af',
-    accentColor: '#f97316',
-    iconId: null,
-    chatIconId: null,
-    isActive: true,
-    trainingFocusDefaultIconId: null,
-    moduleDefaultIconId: null,
-    userDefaultIconId: null,
-    documentDefaultIconId: null,
-    manageAgenciesIconId: null,
-    dashboardNotificationsIconId: null,
-    dashboardCommunicationsIconId: null,
-    dashboardChatsIconId: null,
-    progressDashboardIconId: null,
-    viewAllProgressIconId: null,
-    manageClientsIconId: null,
-    schoolOverviewIconId: null,
-    dashboardPayrollIconId: null,
-    dashboardBillingIconId: null,
-    manageModulesIconId: null,
-    manageDocumentsIconId: null,
-    manageUsersIconId: null,
-    platformSettingsIconId: null,
-    settingsIconId: null,
-    myDashboardChecklistIconId: null,
-    myDashboardTrainingIconId: null,
-    myDashboardDocumentsIconId: null,
-    myDashboardSubmitIconId: null,
-    myDashboardPayrollIconId: null,
-    myDashboardMyAccountIconId: null,
-    myDashboardMyScheduleIconId: null,
-    myDashboardOnDemandTrainingIconId: null,
-    onboardingTeamEmail: '',
-    phoneNumber: '',
-    phoneExtension: '',
-    portalUrl: '',
-    themeSettings: {
-      fontFamily: '',
-      loginBackground: ''
-    },
-    terminologySettings: {
-      peopleOpsTerm: '',
-      trainingModulesTerm: '',
-      trainingFocusTerm: '',
-      onboardingTerm: '',
-      ongoingDevTerm: ''
-    },
-    // Notification icon fields
-    statusExpiredIconId: null,
-    tempPasswordExpiredIconId: null,
-    taskOverdueIconId: null,
-    onboardingCompletedIconId: null,
-    invitationExpiredIconId: null,
-    firstLoginIconId: null,
-    firstLoginPendingIconId: null,
-    passwordChangedIconId: null
-  };
+  agencyForm.value = defaultAgencyForm();
 };
 
 watch(showCreateModal, (isOpen) => {
