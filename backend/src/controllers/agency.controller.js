@@ -366,6 +366,7 @@ export const updateAgency = async (req, res, next) => {
       schoolPortalRosterIconId,
       schoolPortalSkillsGroupsIconId,
       schoolPortalContactAdminIconId,
+      schoolPortalSchoolStaffIconId,
       certificateTemplateUrl: certificateTemplateUrl || null,
       onboardingTeamEmail,
       phoneNumber,

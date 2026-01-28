@@ -113,7 +113,10 @@ export const updatePlatformBranding = async (req, res, next) => {
       schoolPortalRosterIconId,
       schoolPortalSkillsGroupsIconId,
       schoolPortalContactAdminIconId,
-      schoolPortalSchoolStaffIconId
+      schoolPortalSchoolStaffIconId,
+      schoolPortalParentQrIconId,
+      schoolPortalParentSignIconId,
+      schoolPortalUploadPacketIconId
     } = req.body;
 
     const branding = await PlatformBranding.update({
@@ -188,7 +191,10 @@ export const updatePlatformBranding = async (req, res, next) => {
       schoolPortalRosterIconId: schoolPortalRosterIconId !== undefined ? (schoolPortalRosterIconId === null || schoolPortalRosterIconId === '' ? null : parseInt(schoolPortalRosterIconId)) : undefined,
       schoolPortalSkillsGroupsIconId: schoolPortalSkillsGroupsIconId !== undefined ? (schoolPortalSkillsGroupsIconId === null || schoolPortalSkillsGroupsIconId === '' ? null : parseInt(schoolPortalSkillsGroupsIconId)) : undefined,
       schoolPortalContactAdminIconId: schoolPortalContactAdminIconId !== undefined ? (schoolPortalContactAdminIconId === null || schoolPortalContactAdminIconId === '' ? null : parseInt(schoolPortalContactAdminIconId)) : undefined,
-      schoolPortalSchoolStaffIconId: schoolPortalSchoolStaffIconId !== undefined ? (schoolPortalSchoolStaffIconId === null || schoolPortalSchoolStaffIconId === '' ? null : parseInt(schoolPortalSchoolStaffIconId)) : undefined
+      schoolPortalSchoolStaffIconId: schoolPortalSchoolStaffIconId !== undefined ? (schoolPortalSchoolStaffIconId === null || schoolPortalSchoolStaffIconId === '' ? null : parseInt(schoolPortalSchoolStaffIconId)) : undefined,
+      schoolPortalParentQrIconId: schoolPortalParentQrIconId !== undefined ? (schoolPortalParentQrIconId === null || schoolPortalParentQrIconId === '' ? null : parseInt(schoolPortalParentQrIconId)) : undefined,
+      schoolPortalParentSignIconId: schoolPortalParentSignIconId !== undefined ? (schoolPortalParentSignIconId === null || schoolPortalParentSignIconId === '' ? null : parseInt(schoolPortalParentSignIconId)) : undefined,
+      schoolPortalUploadPacketIconId: schoolPortalUploadPacketIconId !== undefined ? (schoolPortalUploadPacketIconId === null || schoolPortalUploadPacketIconId === '' ? null : parseInt(schoolPortalUploadPacketIconId)) : undefined
     }, req.user.id);
 
     res.json(branding);

@@ -30,6 +30,23 @@
         </div>
       </div>
 
+      <div v-if="providers.length > 0" class="schedule-disclaimer schedule-disclaimer-left">
+        <div class="schedule-disclaimer-title">Schedule Disclaimer</div>
+        <div class="schedule-disclaimer-text">
+          The schedules shown on this page are intended as a soft schedule for planning and communication purposes only. They do not update,
+          override, or form part of the provider’s official health record system.
+        </div>
+        <div class="schedule-disclaimer-text">
+          This page is intended for school staff responsible for scheduling, if such scheduling is required. Schools may use this space to
+          document a provider’s expected schedule and include relevant notes (e.g., pick-up details or special instructions) to support clarity
+          and coordination.
+        </div>
+        <div class="schedule-disclaimer-text">
+          Providers are not required to set or maintain a schedule here unless requested by the school. If a school chooses to set a provider
+          schedule, it should be done on this page for shared visibility and communication.
+        </div>
+      </div>
+
       <div v-if="showAddProvider" class="modal-overlay" @click.self="showAddProvider = false">
         <div class="modal" @click.stop>
           <div class="modal-header">
@@ -58,34 +75,47 @@
     </div>
 
     <div class="right-pane">
-      <div v-if="loadingProviders" class="loading">Loading day…</div>
+      <div v-if="loadingProviders" class="loading loading-centered">
+        <div class="spinner" aria-hidden="true"></div>
+        <div>
+          <div class="loading-title">Loading schedules…</div>
+          <div class="loading-sub">Pulling caseload + soft schedules for this day.</div>
+        </div>
+      </div>
       <div v-else-if="providersError" class="error">{{ providersError }}</div>
       <div v-else-if="providers.length === 0" class="empty-right">
         Select “Add Day” to start scheduling this day.
       </div>
-      <div v-else class="provider-panels">
-        <ProviderPanel
-          v-for="p in providers"
-          :key="`panel-${p.provider_user_id}`"
-          :provider="p"
-          :client-label-mode="clientLabelMode"
-          :caseload-clients="panelFor(p.provider_user_id)?.caseloadClients || []"
-          :slots="panelFor(p.provider_user_id)?.slots || []"
-          :loading="panelFor(p.provider_user_id)?.loading || false"
-          :saving="panelFor(p.provider_user_id)?.saving || false"
-          :error="panelFor(p.provider_user_id)?.error || ''"
-          @open-client="$emit('open-client', $event)"
-          @save-slots="(slots) => $emit('save-slots', { providerUserId: p.provider_user_id, slots })"
-          @move-slot="(evt) => $emit('move-slot', { providerUserId: p.provider_user_id, ...evt })"
-          @open-provider="$emit('open-provider', $event)"
-        />
+      <div v-else>
+        <div v-if="anyPanelLoading" class="inline-loading">
+          <div class="spinner sm" aria-hidden="true"></div>
+          <div class="inline-loading-text">Loading provider schedules…</div>
+        </div>
+
+        <div class="provider-panels">
+          <ProviderPanel
+            v-for="p in providers"
+            :key="`panel-${p.provider_user_id}`"
+            :provider="p"
+            :client-label-mode="clientLabelMode"
+            :caseload-clients="panelFor(p.provider_user_id)?.caseloadClients || []"
+            :slots="panelFor(p.provider_user_id)?.slots || []"
+            :loading="panelFor(p.provider_user_id)?.loading || false"
+            :saving="panelFor(p.provider_user_id)?.saving || false"
+            :error="panelFor(p.provider_user_id)?.error || ''"
+            @open-client="$emit('open-client', $event)"
+            @save-slots="(slots) => $emit('save-slots', { providerUserId: p.provider_user_id, slots })"
+            @move-slot="(evt) => $emit('move-slot', { providerUserId: p.provider_user_id, ...evt })"
+            @open-provider="$emit('open-provider', $event)"
+          />
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import ProviderPanel from './ProviderPanel.vue';
 
 const props = defineProps({
@@ -110,6 +140,15 @@ const emit = defineEmits([
 const showAddProvider = ref(false);
 const selectedProviderUserId = ref('');
 const addProviderError = ref('');
+
+const anyPanelLoading = computed(() => {
+  const list = Array.isArray(props.providers) ? props.providers : [];
+  for (const p of list) {
+    const st = props.panelFor?.(p?.provider_user_id);
+    if (st?.loading) return true;
+  }
+  return false;
+});
 
 const confirmAddProvider = async () => {
   try {
@@ -182,8 +221,83 @@ const confirmAddProvider = async () => {
   display: grid;
   gap: 10px;
 }
+.inline-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-weight: 800;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.inline-loading-text {
+  white-space: nowrap;
+}
+.spinner {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  border: 2px solid rgba(0,0,0,0.12);
+  border-top-color: rgba(79, 70, 229, 0.85);
+  animation: spin 0.85s linear infinite;
+  flex: 0 0 auto;
+}
+.spinner.sm {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+.loading-centered {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+}
+.loading-title {
+  font-weight: 950;
+  color: var(--text-primary);
+}
+.loading-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.schedule-disclaimer {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+  padding: 12px 12px;
+}
+.schedule-disclaimer-left {
+  margin-top: 10px;
+}
+.schedule-disclaimer-title {
+  font-weight: 950;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.schedule-disclaimer-text {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+  margin-top: 6px;
+}
+.schedule-disclaimer-text:first-of-type {
+  margin-top: 0;
+}
+.schedule-disclaimer-title + .schedule-disclaimer-text {
+  margin-top: 0;
+}
+.schedule-disclaimer {
+  margin-bottom: 0;
+}
 .error {
   color: #c33;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .modal-overlay {

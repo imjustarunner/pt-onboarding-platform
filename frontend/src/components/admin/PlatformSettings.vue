@@ -163,6 +163,18 @@
           <label>School staff</label>
           <IconSelector v-model="schoolPortalIcons.schoolStaffIconId" />
         </div>
+        <div class="icon-setting-item">
+          <label>Parent QR code</label>
+          <IconSelector v-model="schoolPortalIcons.parentQrIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Parent fill + sign</label>
+          <IconSelector v-model="schoolPortalIcons.parentSignIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Upload packet</label>
+          <IconSelector v-model="schoolPortalIcons.uploadPacketIconId" />
+        </div>
       </div>
 
       <div class="form-actions">
@@ -240,7 +252,10 @@ const schoolPortalIcons = ref({
   rosterIconId: null,
   skillsGroupsIconId: null,
   contactAdminIconId: null,
-  schoolStaffIconId: null
+  schoolStaffIconId: null,
+  parentQrIconId: null,
+  parentSignIconId: null,
+  uploadPacketIconId: null
 });
 
 // Platform name - use platform branding or fallback
@@ -278,7 +293,10 @@ const fetchSettings = async () => {
         rosterIconId: pb.school_portal_roster_icon_id ?? null,
         skillsGroupsIconId: pb.school_portal_skills_groups_icon_id ?? null,
         contactAdminIconId: pb.school_portal_contact_admin_icon_id ?? null,
-        schoolStaffIconId: pb.school_portal_school_staff_icon_id ?? null
+        schoolStaffIconId: pb.school_portal_school_staff_icon_id ?? null,
+        parentQrIconId: pb.school_portal_parent_qr_icon_id ?? null,
+        parentSignIconId: pb.school_portal_parent_sign_icon_id ?? null,
+        uploadPacketIconId: pb.school_portal_upload_packet_icon_id ?? null
       };
     }
   } catch (err) {
@@ -322,13 +340,17 @@ const saveSchoolPortalIcons = async () => {
       schoolPortalRosterIconId: schoolPortalIcons.value.rosterIconId,
       schoolPortalSkillsGroupsIconId: schoolPortalIcons.value.skillsGroupsIconId,
       schoolPortalContactAdminIconId: schoolPortalIcons.value.contactAdminIconId,
-      schoolPortalSchoolStaffIconId: schoolPortalIcons.value.schoolStaffIconId
+      schoolPortalSchoolStaffIconId: schoolPortalIcons.value.schoolStaffIconId,
+      schoolPortalParentQrIconId: schoolPortalIcons.value.parentQrIconId,
+      schoolPortalParentSignIconId: schoolPortalIcons.value.parentSignIconId,
+      schoolPortalUploadPacketIconId: schoolPortalIcons.value.uploadPacketIconId
     });
     await brandingStore.fetchPlatformBranding();
     alert('School Portal icons saved successfully!');
   } catch (err) {
     console.error('Failed to save School Portal icons:', err);
-    alert('Failed to save School Portal icons');
+    const msg = err?.response?.data?.error?.message || err?.response?.data?.message || err?.message || 'Failed to save School Portal icons';
+    alert(msg);
   } finally {
     savingSchoolPortalIcons.value = false;
   }

@@ -1533,6 +1533,21 @@
                 <IconSelector v-model="agencyForm.schoolPortalSchoolStaffIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "School staff" card in school portals</small>
               </div>
+              <div class="dashboard-icon-item">
+                <label>Parent QR code Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalParentQrIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Parent QR code" card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Parent fill + sign Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalParentSignIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Parent fill + sign" card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Upload packet Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalUploadPacketIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Upload packet" card in school portals</small>
+              </div>
             </div>
             
             <div class="settings-section-divider">
@@ -2954,6 +2969,9 @@ const ICON_TEMPLATE_FIELDS = [
   'schoolPortalSkillsGroupsIconId',
   'schoolPortalContactAdminIconId',
   'schoolPortalSchoolStaffIconId',
+  'schoolPortalParentQrIconId',
+  'schoolPortalParentSignIconId',
+  'schoolPortalUploadPacketIconId',
   'statusExpiredIconId',
   'tempPasswordExpiredIconId',
   'taskOverdueIconId',
@@ -3019,6 +3037,9 @@ const defaultAgencyForm = () => ({
   schoolPortalSkillsGroupsIconId: null,
   schoolPortalContactAdminIconId: null,
   schoolPortalSchoolStaffIconId: null,
+  schoolPortalParentQrIconId: null,
+  schoolPortalParentSignIconId: null,
+  schoolPortalUploadPacketIconId: null,
   onboardingTeamEmail: '',
   phoneNumber: '',
   phoneExtension: '',
@@ -3897,6 +3918,9 @@ const editAgency = async (agency) => {
     schoolPortalSkillsGroupsIconId: agency.school_portal_skills_groups_icon_id ?? null,
     schoolPortalContactAdminIconId: agency.school_portal_contact_admin_icon_id ?? null,
     schoolPortalSchoolStaffIconId: agency.school_portal_school_staff_icon_id ?? null,
+    schoolPortalParentQrIconId: agency.school_portal_parent_qr_icon_id ?? null,
+    schoolPortalParentSignIconId: agency.school_portal_parent_sign_icon_id ?? null,
+    schoolPortalUploadPacketIconId: agency.school_portal_upload_packet_icon_id ?? null,
     onboardingTeamEmail: agency.onboarding_team_email || '',
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
@@ -4457,6 +4481,9 @@ const saveAgency = async () => {
       schoolPortalSkillsGroupsIconId: agencyForm.value.schoolPortalSkillsGroupsIconId ?? null,
       schoolPortalContactAdminIconId: agencyForm.value.schoolPortalContactAdminIconId ?? null,
       schoolPortalSchoolStaffIconId: agencyForm.value.schoolPortalSchoolStaffIconId ?? null,
+      schoolPortalParentQrIconId: agencyForm.value.schoolPortalParentQrIconId ?? null,
+      schoolPortalParentSignIconId: agencyForm.value.schoolPortalParentSignIconId ?? null,
+      schoolPortalUploadPacketIconId: agencyForm.value.schoolPortalUploadPacketIconId ?? null,
       onboardingTeamEmail: agencyForm.value.onboardingTeamEmail?.trim() || null,
       phoneNumber: agencyForm.value.phoneNumber?.trim() || null,
       // Schools don't use extensions (per directory requirements)

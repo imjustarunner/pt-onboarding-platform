@@ -2,14 +2,24 @@
   <div class="panel">
     <div class="panel-header">
       <div class="left">
-        <div class="name">{{ provider.last_name }}, {{ provider.first_name }}</div>
-        <div class="meta">
-          <span v-if="provider.slots_total != null" class="badge badge-secondary">
-            {{ (provider.slots_used ?? 0) }} / {{ provider.slots_total }} assigned
-          </span>
-          <span v-if="provider.start_time || provider.end_time" class="badge badge-secondary">
-            {{ (provider.start_time || '—').toString().slice(0, 5) }}–{{ (provider.end_time || '—').toString().slice(0, 5) }}
-          </span>
+        <div class="header-line">
+          <div class="avatar" aria-hidden="true">
+            <img v-if="provider.profile_photo_url" :src="provider.profile_photo_url" alt="" class="avatar-img" />
+            <span v-else class="avatar-fallback">{{ initialsFor(provider) }}</span>
+          </div>
+
+          <div class="header-main">
+            <div class="name">{{ provider.first_name }} {{ provider.last_name }}</div>
+          </div>
+
+          <div class="header-metrics">
+            <span v-if="provider.slots_used != null" class="metric">
+              {{ Number(provider.slots_used || 0) }} assigned
+            </span>
+            <span v-if="provider.start_time || provider.end_time" class="metric">
+              {{ (provider.start_time || '—').toString().slice(0, 5) }}–{{ (provider.end_time || '—').toString().slice(0, 5) }}
+            </span>
+          </div>
         </div>
       </div>
       <div class="right">
@@ -54,7 +64,6 @@
         :saving="saving"
         :error="error"
         @save="$emit('save-slots', $event)"
-        @move="$emit('move-slot', $event)"
       />
     </div>
   </div>
@@ -75,10 +84,18 @@ defineProps({
   clientLabelMode: { type: String, default: 'codes' }
 });
 
-defineEmits(['open-client', 'save-slots', 'move-slot', 'open-provider']);
+defineEmits(['open-client', 'save-slots', 'open-provider']);
 
 const selectedSection = ref('all');
 const collapsed = ref(false);
+
+const initialsFor = (p) => {
+  const f = String(p?.first_name || '').trim();
+  const l = String(p?.last_name || '').trim();
+  const a = f ? f[0] : '';
+  const b = l ? l[0] : '';
+  return `${a}${b}`.toUpperCase() || 'P';
+};
 </script>
 
 <style scoped>
@@ -92,8 +109,61 @@ const collapsed = ref(false);
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  align-items: flex-start;
+  align-items: center;
   margin-bottom: 10px;
+}
+.header-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.avatar-fallback {
+  font-weight: 900;
+  color: var(--text-secondary);
+}
+.header-main {
+  min-width: 0;
+}
+.header-metrics {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-weight: 800;
+  font-size: 12px;
+}
+.metric {
+  white-space: nowrap;
+}
+.metric + .metric {
+  position: relative;
+  padding-left: 10px;
+}
+.metric + .metric:before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--text-secondary);
 }
 .right {
   display: flex;
@@ -119,12 +189,10 @@ const collapsed = ref(false);
   font-weight: 900;
   color: var(--text-primary);
   font-size: 16px;
-}
-.meta {
-  margin-top: 6px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .content {
   display: flex;
@@ -136,11 +204,18 @@ const collapsed = ref(false);
   border-radius: 12px;
   background: var(--bg);
   padding: 10px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
 }
 .section-title {
   font-weight: 900;
   color: var(--text-primary);
-  margin-bottom: 8px;
+  margin-bottom: 0;
+  flex: 0 0 auto;
+  width: 90px;
+  line-height: 1.1;
+  padding-top: 2px;
 }
 .loading {
   color: var(--text-secondary);
@@ -160,6 +235,16 @@ const collapsed = ref(false);
 @media (max-width: 1050px) {
   .content {
     flex-direction: column;
+  }
+  .panel-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .right {
+    justify-content: flex-end;
+  }
+  .header-metrics {
+    flex-wrap: wrap;
   }
 }
 </style>

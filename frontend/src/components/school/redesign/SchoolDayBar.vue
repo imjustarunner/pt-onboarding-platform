@@ -48,11 +48,12 @@ const shortLabel = (weekday) => {
   border: 1px solid var(--border);
   background: white;
   border-radius: 12px;
-  padding: 12px 10px;
+  padding: 14px 10px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-primary);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 .day.lit {
   border-color: rgba(16, 185, 129, 0.5);
@@ -71,8 +72,10 @@ const shortLabel = (weekday) => {
   background: rgba(239, 68, 68, 0.10);
 }
 .day.selected {
-  border-color: rgba(79, 70, 229, 0.55);
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+  border-color: rgba(79, 70, 229, 0.75);
+  background: rgba(79, 70, 229, 0.12);
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.16);
+  transform: translateY(-1px) scale(1.03);
 }
 .day.disabled,
 .day:disabled {

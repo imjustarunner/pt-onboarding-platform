@@ -62,27 +62,18 @@ describe('SoftScheduleEditor', () => {
   });
 
   it('emits move for persisted slots', async () => {
+    // Up/down controls were intentionally removed from the UI.
     const wrapper = mount(SoftScheduleEditor, {
       props: {
         saving: false,
         error: '',
         caseloadClients: [],
-        slots: [
-          { id: 99, client_id: null, start_time: null, end_time: null, note: null },
-          { id: 100, client_id: null, start_time: null, end_time: null, note: null }
-        ]
+        slots: [{ id: 99, client_id: null, start_time: null, end_time: null, note: null }]
       }
     });
 
-    const upButtons = wrapper.findAll('button').filter((b) => b.text() === '↑');
-    expect(upButtons.length).toBeGreaterThan(0);
-
-    // Move second slot up (it has id, should emit move)
-    const downButtons = wrapper.findAll('button').filter((b) => b.text() === '↓');
-    await downButtons[0].trigger('click');
-    const moveEmitted = wrapper.emitted('move');
-    expect(moveEmitted).toBeTruthy();
-    expect(moveEmitted[0][0]).toMatchObject({ slotId: 99, direction: 'down' });
+    const arrowButtons = wrapper.findAll('button').filter((b) => b.text() === '↑' || b.text() === '↓');
+    expect(arrowButtons.length).toBe(0);
   });
 });
 

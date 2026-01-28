@@ -41,15 +41,27 @@
           >
             Back to show all schools
           </router-link>
-          <button
-            v-if="true"
-            class="btn btn-secondary btn-sm"
-            type="button"
-            @click="toggleClientLabelMode"
-            :title="clientLabelMode === 'codes' ? 'Shows client codes; hover to reveal initials' : 'Shows client initials'"
-          >
-            {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
-          </button>
+          <div class="codes-toggle">
+            <button
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="toggleClientLabelMode"
+              :title="codesPrivacyHelp"
+            >
+              {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
+            </button>
+            <button
+              class="btn btn-secondary btn-sm codes-info"
+              type="button"
+              :title="codesPrivacyHelp"
+              @click="showCodesHelp = !showCodesHelp"
+            >
+              i
+            </button>
+            <div v-if="showCodesHelp" class="codes-help" role="note">
+              {{ codesPrivacyHelp }}
+            </div>
+          </div>
           <button class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact admin</button>
         </div>
       </div>
@@ -77,7 +89,7 @@
             <div class="nav-label">Providers</div>
           </button>
 
-          <button class="nav-item" type="button" @click="portalMode = 'days'" :class="{ active: portalMode === 'days' }">
+          <button class="nav-item" type="button" @click="openDaysPanel" :class="{ active: portalMode === 'days' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
@@ -199,7 +211,7 @@
             </div>
           </button>
 
-          <button class="dash-card" type="button" @click="portalMode = 'days'">
+          <button class="dash-card" type="button" @click="openDaysPanel">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
@@ -284,6 +296,57 @@
             <div class="dash-card-desc">Send a message to agency staff.</div>
             <div class="dash-card-meta">
               <span class="dash-card-cta">Open</span>
+            </div>
+          </button>
+
+          <button class="dash-card dash-card-coming-soon" type="button" @click="openComingSoon('parent_qr')">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
+                alt="Parent QR code icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">QR</div>
+            </div>
+            <div class="dash-card-title">Parent QR code</div>
+            <div class="dash-card-desc">Share a QR code for parent intake / forms.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Coming soon</span>
+            </div>
+          </button>
+
+          <button class="dash-card dash-card-coming-soon" type="button" @click="openComingSoon('parent_sign')">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('parent_sign', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('parent_sign', cardIconOrg)"
+                alt="Parent fill and sign icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">SGN</div>
+            </div>
+            <div class="dash-card-title">Parent fill + sign</div>
+            <div class="dash-card-desc">Have a parent complete and sign required packets.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Coming soon</span>
+            </div>
+          </button>
+
+          <button class="dash-card dash-card-coming-soon" type="button" @click="openComingSoon('packet_upload')">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('upload_packet', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('upload_packet', cardIconOrg)"
+                alt="Upload packet icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">UP</div>
+            </div>
+            <div class="dash-card-title">Upload packet</div>
+            <div class="dash-card-desc">Upload a referral packet (no PHI exposed on portal).</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Coming soon</span>
             </div>
           </button>
         </div>
@@ -395,6 +458,23 @@
       @close="showHelpDesk = false"
     />
 
+    <div v-if="comingSoonKey" class="modal-overlay" @click.self="comingSoonKey = ''">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <strong>{{ comingSoonTitle }}</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="comingSoonKey = ''">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="muted" style="margin-bottom: 10px;">
+            Coming soon.
+          </div>
+          <div class="muted">
+            This feature isn’t available yet, but it’s planned for the School Portal. For now, please use your existing intake / packet workflows.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Providers are now shown in-page via ProvidersDirectoryPanel -->
   </div>
 </template>
@@ -426,6 +506,19 @@ const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
 const showHelpDesk = ref(false);
+const comingSoonKey = ref(''); // 'parent_qr' | 'parent_sign' | 'packet_upload'
+
+const openComingSoon = (key) => {
+  comingSoonKey.value = String(key || '');
+};
+
+const comingSoonTitle = computed(() => {
+  const k = String(comingSoonKey.value || '');
+  if (k === 'parent_qr') return 'Parent QR code (Coming soon)';
+  if (k === 'parent_sign') return 'Parent fill + sign (Coming soon)';
+  if (k === 'packet_upload') return 'Upload packet (Coming soon)';
+  return 'Coming soon';
+});
 const selectedClient = ref(null);
 const portalMode = ref('home'); // home | providers | days | roster | skills | school_staff
 const adminSelectedClient = ref(null);
@@ -449,8 +542,12 @@ const isProvider = computed(() => roleNorm.value === 'provider');
 const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff'].includes(roleNorm.value));
 
 const clientLabelMode = ref('codes'); // 'codes' | 'initials'
+const showCodesHelp = ref(false);
+const codesPrivacyHelp =
+  'To further protect the anonymity of the students, you can turn codes on and then hover over their codes to display their initials.';
 const toggleClientLabelMode = () => {
   clientLabelMode.value = clientLabelMode.value === 'codes' ? 'initials' : 'codes';
+  showCodesHelp.value = false;
   try {
     window.localStorage.setItem('schoolPortalClientLabelMode', clientLabelMode.value);
   } catch {
@@ -462,6 +559,22 @@ const openProvidersPanel = async () => {
   portalMode.value = 'providers';
   if (!Array.isArray(store.eligibleProviders) || store.eligibleProviders.length === 0) {
     await store.fetchEligibleProviders();
+  }
+};
+
+const openDaysPanel = async () => {
+  portalMode.value = 'days';
+  if (!organizationId.value) return;
+  try {
+    await store.fetchDays();
+  } catch {
+    // ignore
+  }
+  if (!store.selectedWeekday) {
+    const days = Array.isArray(store.days) ? store.days : [];
+    const firstWithProviders = days.find((d) => d?.has_providers)?.weekday || null;
+    const fallback = days?.[0]?.weekday || null;
+    store.selectedWeekday = firstWithProviders || fallback || null;
   }
 };
 
@@ -752,6 +865,36 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .top-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+
+.codes-toggle {
+  position: relative;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.codes-info {
+  width: 30px;
+  padding-left: 0;
+  padding-right: 0;
+  font-weight: 900;
+}
+.codes-help {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(420px, 92vw);
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+  z-index: 50;
 }
 
 .main-layout {
@@ -895,59 +1038,106 @@ watch(() => store.selectedWeekday, async (weekday) => {
   text-align: left;
   background: white;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
+  border-radius: 16px;
+  padding: 18px 18px;
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  grid-template-rows: auto auto 1fr;
+  gap: 8px 16px;
+  align-items: start;
 }
 .dash-card:hover {
   border-color: var(--primary);
   box-shadow: var(--shadow);
 }
 .dash-card-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 92px;
+  height: 92px;
+  border-radius: 22px;
   border: 1px solid var(--border);
   background: var(--bg-alt);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 10px;
+  grid-row: 1 / span 3;
+  grid-column: 1;
 }
 .dash-card-icon-img {
-  width: 22px;
-  height: 22px;
+  width: 64px;
+  height: 64px;
   object-fit: contain;
 }
 .dash-card-icon-fallback {
-  width: 22px;
-  height: 22px;
+  width: 64px;
+  height: 64px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-weight: 900;
-  font-size: 12px;
+  font-size: 18px;
   color: var(--text-secondary);
 }
 .dash-card-title {
   font-weight: 800;
   color: var(--text-primary);
   margin-bottom: 6px;
+  grid-column: 2;
 }
 .dash-card-desc {
   color: var(--text-secondary);
   font-size: 13px;
   margin-bottom: 10px;
+  grid-column: 2;
 }
 .dash-card-meta {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  grid-column: 2;
 }
 .dash-card-cta {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.dash-card-coming-soon {
+  opacity: 0.92;
+}
+.dash-card-coming-soon:hover {
+  border-color: rgba(245, 158, 11, 0.55);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.12);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+.modal {
+  width: 560px;
+  max-width: 95vw;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-body {
+  padding: 14px 16px;
 }
 
 .roster {

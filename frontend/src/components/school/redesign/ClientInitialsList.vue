@@ -7,6 +7,7 @@
       type="button"
       @click="$emit('select', c)"
       :title="chipTitle(c)"
+      :data-initials="String(clientLabelMode || 'codes') === 'codes' ? String(c?.initials || '').trim() : ''"
     >
       {{ displayId(c) }}
       <span v-if="Number(c.unread_notes_count || 0) > 0" class="dot" aria-hidden="true" />
@@ -58,6 +59,26 @@ const chipTitle = (c) => {
   font-weight: 800;
   letter-spacing: 0.05em;
   font-size: 12px;
+}
+.chip[data-initials]:hover::after {
+  content: attr(data-initials);
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(100% + 8px);
+  background: rgba(17, 24, 39, 0.95);
+  color: white;
+  padding: 6px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 50;
+}
+.chip[data-initials=""]:hover::after {
+  content: '';
 }
 .dot {
   display: inline-block;

@@ -455,6 +455,9 @@ class PlatformBranding {
       schoolPortalSkillsGroupsIconId,
       schoolPortalContactAdminIconId,
       schoolPortalSchoolStaffIconId,
+      schoolPortalParentQrIconId,
+      schoolPortalParentSignIconId,
+      schoolPortalUploadPacketIconId,
       defaultBrandingTemplateId,
       currentBrandingTemplateId
     } = brandingData;
@@ -768,15 +771,49 @@ class PlatformBranding {
         schoolPortalRosterIconId !== undefined ||
         schoolPortalSkillsGroupsIconId !== undefined ||
         schoolPortalContactAdminIconId !== undefined ||
-        schoolPortalSchoolStaffIconId !== undefined
+        schoolPortalSchoolStaffIconId !== undefined ||
+        schoolPortalParentQrIconId !== undefined ||
+        schoolPortalParentSignIconId !== undefined ||
+        schoolPortalUploadPacketIconId !== undefined
       ) {
         try {
           const [cols] = await pool.execute(
-            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id')"
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id')"
           );
           const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
           const hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
           const hasSchoolPortalStaffIcon = names.has('school_portal_school_staff_icon_id');
+          const hasParentQr = names.has('school_portal_parent_qr_icon_id');
+          const hasParentSign = names.has('school_portal_parent_sign_icon_id');
+          const hasUploadPacket = names.has('school_portal_upload_packet_icon_id');
+          if (schoolPortalSchoolStaffIconId !== undefined && !hasSchoolPortalStaffIcon) {
+            const err = new Error(
+              'Cannot save School staff icon: database missing platform_branding.school_portal_school_staff_icon_id. Run database/migrations/291_school_portal_school_staff_card_icon.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
+          if (schoolPortalParentQrIconId !== undefined && !hasParentQr) {
+            const err = new Error(
+              'Cannot save Parent QR code icon: database missing platform_branding.school_portal_parent_qr_icon_id. Run database/migrations/293_school_portal_parent_packet_cards_icons.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
+          if (schoolPortalParentSignIconId !== undefined && !hasParentSign) {
+            const err = new Error(
+              'Cannot save Parent fill + sign icon: database missing platform_branding.school_portal_parent_sign_icon_id. Run database/migrations/293_school_portal_parent_packet_cards_icons.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
+          if (schoolPortalUploadPacketIconId !== undefined && !hasUploadPacket) {
+            const err = new Error(
+              'Cannot save Upload packet icon: database missing platform_branding.school_portal_upload_packet_icon_id. Run database/migrations/293_school_portal_parent_packet_cards_icons.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
           if (hasSchoolPortalIcons) {
             if (schoolPortalProvidersIconId !== undefined) {
               updates.push('school_portal_providers_icon_id = ?');
@@ -802,8 +839,22 @@ class PlatformBranding {
               updates.push('school_portal_school_staff_icon_id = ?');
               values.push(schoolPortalSchoolStaffIconId ?? null);
             }
+            if (hasParentQr && schoolPortalParentQrIconId !== undefined) {
+              updates.push('school_portal_parent_qr_icon_id = ?');
+              values.push(schoolPortalParentQrIconId ?? null);
+            }
+            if (hasParentSign && schoolPortalParentSignIconId !== undefined) {
+              updates.push('school_portal_parent_sign_icon_id = ?');
+              values.push(schoolPortalParentSignIconId ?? null);
+            }
+            if (hasUploadPacket && schoolPortalUploadPacketIconId !== undefined) {
+              updates.push('school_portal_upload_packet_icon_id = ?');
+              values.push(schoolPortalUploadPacketIconId ?? null);
+            }
           }
         } catch (e) {
+          // If a specific migration is required, surface it to the caller.
+          if (e?.status) throw e;
           console.warn('PlatformBranding.update: Error checking for school portal icon columns:', e.message);
         }
       }
@@ -1041,15 +1092,49 @@ class PlatformBranding {
         schoolPortalRosterIconId !== undefined ||
         schoolPortalSkillsGroupsIconId !== undefined ||
         schoolPortalContactAdminIconId !== undefined ||
-        schoolPortalSchoolStaffIconId !== undefined
+        schoolPortalSchoolStaffIconId !== undefined ||
+        schoolPortalParentQrIconId !== undefined ||
+        schoolPortalParentSignIconId !== undefined ||
+        schoolPortalUploadPacketIconId !== undefined
       ) {
         try {
           const [cols] = await pool.execute(
-            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id')"
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id')"
           );
           const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
           const hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
           const hasSchoolPortalStaffIcon = names.has('school_portal_school_staff_icon_id');
+          const hasParentQr = names.has('school_portal_parent_qr_icon_id');
+          const hasParentSign = names.has('school_portal_parent_sign_icon_id');
+          const hasUploadPacket = names.has('school_portal_upload_packet_icon_id');
+          if (schoolPortalSchoolStaffIconId !== undefined && !hasSchoolPortalStaffIcon) {
+            const err = new Error(
+              'Cannot save School staff icon: database missing platform_branding.school_portal_school_staff_icon_id. Run database/migrations/291_school_portal_school_staff_card_icon.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
+          if (schoolPortalParentQrIconId !== undefined && !hasParentQr) {
+            const err = new Error(
+              'Cannot save Parent QR code icon: database missing platform_branding.school_portal_parent_qr_icon_id. Run database/migrations/293_school_portal_parent_packet_cards_icons.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
+          if (schoolPortalParentSignIconId !== undefined && !hasParentSign) {
+            const err = new Error(
+              'Cannot save Parent fill + sign icon: database missing platform_branding.school_portal_parent_sign_icon_id. Run database/migrations/293_school_portal_parent_packet_cards_icons.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
+          if (schoolPortalUploadPacketIconId !== undefined && !hasUploadPacket) {
+            const err = new Error(
+              'Cannot save Upload packet icon: database missing platform_branding.school_portal_upload_packet_icon_id. Run database/migrations/293_school_portal_parent_packet_cards_icons.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
           if (hasSchoolPortalIcons) {
             insertFields.push(
               'school_portal_providers_icon_id',
@@ -1057,7 +1142,10 @@ class PlatformBranding {
               'school_portal_roster_icon_id',
               'school_portal_skills_groups_icon_id',
               'school_portal_contact_admin_icon_id',
-              ...(hasSchoolPortalStaffIcon ? ['school_portal_school_staff_icon_id'] : [])
+              ...(hasSchoolPortalStaffIcon ? ['school_portal_school_staff_icon_id'] : []),
+              ...(hasParentQr ? ['school_portal_parent_qr_icon_id'] : []),
+              ...(hasParentSign ? ['school_portal_parent_sign_icon_id'] : []),
+              ...(hasUploadPacket ? ['school_portal_upload_packet_icon_id'] : [])
             );
             insertValues.push(
               schoolPortalProvidersIconId ?? null,
@@ -1065,10 +1153,14 @@ class PlatformBranding {
               schoolPortalRosterIconId ?? null,
               schoolPortalSkillsGroupsIconId ?? null,
               schoolPortalContactAdminIconId ?? null,
-              ...(hasSchoolPortalStaffIcon ? [schoolPortalSchoolStaffIconId ?? null] : [])
+              ...(hasSchoolPortalStaffIcon ? [schoolPortalSchoolStaffIconId ?? null] : []),
+              ...(hasParentQr ? [schoolPortalParentQrIconId ?? null] : []),
+              ...(hasParentSign ? [schoolPortalParentSignIconId ?? null] : []),
+              ...(hasUploadPacket ? [schoolPortalUploadPacketIconId ?? null] : [])
             );
           }
-        } catch {
+        } catch (e) {
+          if (e?.status) throw e;
           // ignore
         }
       }

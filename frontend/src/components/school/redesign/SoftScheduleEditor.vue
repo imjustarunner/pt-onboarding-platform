@@ -14,15 +14,10 @@
 
     <div class="rows">
       <div v-for="(s, idx) in draftSlots" :key="slotKey(s, idx)" class="row">
-        <div class="order">
-          <button class="btn btn-secondary btn-sm" type="button" @click="move(idx, 'up')" :disabled="idx === 0 || saving">↑</button>
-          <button class="btn btn-secondary btn-sm" type="button" @click="move(idx, 'down')" :disabled="idx === draftSlots.length - 1 || saving">↓</button>
-        </div>
-
         <div class="client">
-          <label>
-            Client
-            <select v-model="s.client_id" class="input">
+          <label class="label-inline" :for="`slot-client-${idx}`">
+            <span class="k">Client</span>
+            <select :id="`slot-client-${idx}`" v-model="s.client_id" class="input">
               <option :value="null">Open slot</option>
               <option v-for="c in caseloadClients" :key="c.id" :value="Number(c.id)">
                 {{ displayClient(c) }}
@@ -32,27 +27,28 @@
         </div>
 
         <div class="time">
-          <label>
-            Start
-            <input v-model="s.start_time" type="time" class="input" />
+          <label class="label-inline" :for="`slot-start-${idx}`">
+            <span class="k">Start</span>
+            <input :id="`slot-start-${idx}`" v-model="s.start_time" type="time" class="input" />
           </label>
         </div>
 
         <div class="time">
-          <label>
-            End
-            <input v-model="s.end_time" type="time" class="input" />
+          <label class="label-inline" :for="`slot-end-${idx}`">
+            <span class="k">End</span>
+            <input :id="`slot-end-${idx}`" v-model="s.end_time" type="time" class="input" />
           </label>
         </div>
 
         <div class="note">
-          <label>
-            Note
+          <label class="label-inline" :for="`slot-note-${idx}`">
+            <span class="k">Note</span>
             <input
+              :id="`slot-note-${idx}`"
               v-model="s.note"
               type="text"
               class="input"
-              placeholder="Ms. Campbell Room 3 | 3rd grade hall"
+              placeholder="Room / pickup note"
             />
           </label>
         </div>
@@ -72,7 +68,7 @@ const props = defineProps({
   // 'codes' | 'initials'
   clientLabelMode: { type: String, default: 'codes' }
 });
-const emit = defineEmits(['save', 'move']);
+const emit = defineEmits(['save']);
 
 const draftSlots = ref([]);
 
@@ -113,22 +109,6 @@ const save = () => {
   }));
   emit('save', out);
 };
-
-const move = (idx, direction) => {
-  const slot = draftSlots.value[idx];
-  if (slot?.id) {
-    emit('move', { slotId: slot.id, direction });
-    return;
-  }
-  const nextIdx = direction === 'up' ? idx - 1 : idx + 1;
-  if (nextIdx < 0 || nextIdx >= draftSlots.value.length) return;
-  const copy = draftSlots.value.slice();
-  const tmp = copy[idx];
-  copy[idx] = copy[nextIdx];
-  copy[nextIdx] = tmp;
-  draftSlots.value = copy;
-  save();
-};
 </script>
 
 <style scoped>
@@ -156,21 +136,15 @@ const move = (idx, direction) => {
 }
 .rows {
   display: grid;
-  gap: 8px;
+  gap: 4px;
 }
 .row {
   display: grid;
-  grid-template-columns: 70px 1.2fr 120px 120px 1.8fr;
-  gap: 8px;
-  align-items: end;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg);
-}
-.order {
-  display: flex;
-  gap: 6px;
+  grid-template-columns: minmax(170px, 210px) 180px 180px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
 }
 label {
   display: block;
@@ -178,14 +152,36 @@ label {
   font-weight: 800;
   color: var(--text-secondary);
 }
+.label-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  min-width: 0;
+}
+.label-inline .k {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--text-secondary);
+  flex: 0 0 auto;
+}
 .input {
   width: 100%;
-  margin-top: 6px;
-  padding: 8px 10px;
+  margin-top: 0;
+  min-width: 0;
+  padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: white;
   color: var(--text-primary);
+}
+.client,
+.time,
+.note {
+  min-width: 0;
+}
+.note .input {
+  max-width: 720px;
 }
 .error {
   color: #c33;
@@ -193,7 +189,13 @@ label {
 }
 @media (max-width: 1050px) {
   .row {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+  }
+  .client,
+  .time,
+  .note {
+    grid-column: 1;
   }
 }
 </style>

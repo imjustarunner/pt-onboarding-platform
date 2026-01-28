@@ -3,6 +3,7 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 const allowedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -280,9 +281,34 @@ export const listDayProviders = async (req, res, next) => {
       return {
         ...r,
         slots_used: used,
-        slots_available_calculated: availCalc
+        slots_available_calculated: availCalc,
+        profile_photo_url: null
       };
     });
+
+    // Best-effort: attach provider profile photo URLs if column exists.
+    try {
+      const providerIds = (out || []).map((r) => parseInt(r.provider_user_id, 10)).filter(Boolean);
+      if (providerIds.length > 0) {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_photo_path' LIMIT 1",
+          [dbName]
+        );
+        const hasCol = (cols || []).length > 0;
+        if (hasCol) {
+          const placeholders = providerIds.map(() => '?').join(',');
+          const [pRows] = await pool.execute(`SELECT id, profile_photo_path FROM users WHERE id IN (${placeholders})`, providerIds);
+          const byId = new Map((pRows || []).map((x) => [Number(x.id), x.profile_photo_path]));
+          for (const obj of out) {
+            const stored = byId.get(Number(obj.provider_user_id)) || null;
+            obj.profile_photo_url = publicUploadsUrlFromStoredPath(stored);
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
 
     res.json(out);
   } catch (e) {

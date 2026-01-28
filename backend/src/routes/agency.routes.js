@@ -65,6 +65,9 @@ const validateCreateAgency = [
   validateIconId('schoolPortalSkillsGroupsIconId'),
   validateIconId('schoolPortalContactAdminIconId'),
   validateIconId('schoolPortalSchoolStaffIconId'),
+  validateIconId('schoolPortalParentQrIconId'),
+  validateIconId('schoolPortalParentSignIconId'),
+  validateIconId('schoolPortalUploadPacketIconId'),
   body('certificateTemplateUrl').optional().isURL().withMessage('Certificate template URL must be a valid URL'),
   body('onboardingTeamEmail').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (!value || value === null || value === '' || value === undefined) return true;
@@ -174,6 +177,9 @@ const validateUpdateAgency = [
   validateIconId('schoolPortalSkillsGroupsIconId'),
   validateIconId('schoolPortalContactAdminIconId'),
   validateIconId('schoolPortalSchoolStaffIconId'),
+  validateIconId('schoolPortalParentQrIconId'),
+  validateIconId('schoolPortalParentSignIconId'),
+  validateIconId('schoolPortalUploadPacketIconId'),
   body('certificateTemplateUrl').optional().custom((value) => {
     // Allow null, undefined, or empty string
     if (!value || value === null || value === '' || value === undefined) return true;

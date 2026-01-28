@@ -271,7 +271,7 @@ export const listAssignedClientsForProviderDay = async (req, res, next) => {
 
     // Return restricted fields only (school portal).
     const [rows] = await pool.execute(
-      `SELECT id, initials, status, document_status, provider_id, service_day
+      `SELECT id, initials, identifier_code, status, document_status, provider_id, service_day
        FROM clients
        WHERE organization_id = ?
          AND provider_id = ?
