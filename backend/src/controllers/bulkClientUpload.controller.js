@@ -37,6 +37,7 @@ export const bulkClientUpload = [
       const result = await processBulkClientUpload({
         agencyId,
         userId: req.user.id,
+        userRole: req.user.role,
         fileName: req.file.originalname,
         rows
       });

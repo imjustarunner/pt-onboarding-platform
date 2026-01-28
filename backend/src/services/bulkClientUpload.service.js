@@ -551,7 +551,50 @@ async function ensureProviderAvailability(connection, { providerUserId, schoolId
 }
 
 
-export async function processBulkClientUpload({ agencyId, userId, fileName, rows }) {
+async function upsertImportedAdminNote({ clientId, message, userId, userRole }) {
+  const msg = String(message || '').trim();
+  if (!clientId || !msg) return;
+  const roleNorm = String(userRole || '').toLowerCase();
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id
+       FROM client_notes
+       WHERE client_id = ?
+         AND is_internal_only = TRUE
+         AND LOWER(category) = 'administrative'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [clientId]
+    );
+    const existingId = rows?.[0]?.id || null;
+    if (existingId) {
+      // Update existing admin note (admins/super_admin/support/staff only)
+      await ClientNotes.update(existingId, { message: msg, is_internal_only: true }, userId, roleNorm);
+      return;
+    }
+  } catch {
+    // Best-effort; fall back to create.
+  }
+
+  try {
+    await ClientNotes.create(
+      {
+        client_id: clientId,
+        author_id: userId,
+        category: 'administrative',
+        urgency: 'low',
+        message: msg,
+        is_internal_only: true
+      },
+      { hasAgencyAccess: true, canViewInternalNotes: true }
+    );
+  } catch {
+    // ignore
+  }
+}
+
+export async function processBulkClientUpload({ agencyId, userId, userRole, fileName, rows }) {
   const connection = await pool.getConnection();
   let jobId = null;
   try {
@@ -587,13 +630,29 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
     for (const row of rows) {
       await connection.beginTransaction();
       try {
-        const schoolId = await findOrCreateSchool(connection, {
-          agencyId,
-          schoolName: row.school,
-          districtName: row.district
-        });
-        const providerProvided = String(row.provider || '').trim() !== '';
-        const providerUserId = await findProviderIdByName({ providerIndex, providerName: row.provider });
+        const identifierFromSheet = normalizeIdentifierCodeFromSheet(row.identifierCode);
+        const identifierCode = identifierFromSheet || (await generateUniqueIdentifierCode(connection, { agencyId }));
+
+        const [existingRows] = await connection.execute(
+          `SELECT id, referral_date, provider_id, organization_id, service_day, paperwork_received_at, status, client_status_id
+           FROM clients
+           WHERE agency_id = ? AND identifier_code = ?
+           LIMIT 1`,
+          [agencyId, identifierCode]
+        );
+        const existing = existingRows[0] || null;
+
+        // Allow "notes-only" updates by identifier_code (no school/initials required if client exists).
+        const schoolProvided = row.school !== undefined && String(row.school || '').trim() !== '';
+        const schoolId = schoolProvided
+          ? await findOrCreateSchool(connection, { agencyId, schoolName: row.school, districtName: row.district })
+          : (existing?.organization_id || null);
+        if (!schoolId) {
+          throw new Error('School is required (or provide an existing identifier_code to update an existing client).');
+        }
+
+        const providerProvided = row.provider !== undefined && String(row.provider || '').trim() !== '';
+        const providerUserId = providerProvided ? await findProviderIdByName({ providerIndex, providerName: row.provider }) : null;
         const normalizedDay = normalizeWeekday(row.day);
 
         const warnings = [];
@@ -627,52 +686,53 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
 
         const defaults = await ensureDefaultCatalogIds(connection, agencyId, schoolId);
 
-        const initials = normalizeClientCode(row.clientName);
-        if (!initials) throw new Error('Initials is required');
-
-        const identifierFromSheet = normalizeIdentifierCodeFromSheet(row.identifierCode);
-        const identifierCode = identifierFromSheet || (await generateUniqueIdentifierCode(connection, { agencyId }));
-
-        const existingClientQuery =
-          `SELECT id, referral_date, provider_id, organization_id, service_day, paperwork_received_at, status, client_status_id
-           FROM clients
-           WHERE agency_id = ? AND identifier_code = ?
-           LIMIT 1`;
-        const [existingRows] = await connection.execute(existingClientQuery, [agencyId, identifierCode]);
-        const existing = existingRows[0] || null;
+        const initialsProvided = row.clientName !== undefined && String(row.clientName || '').trim() !== '';
+        const initials = initialsProvided ? normalizeClientCode(row.clientName) : '';
+        if (!existing && !initials) throw new Error('Initials is required to create a new client');
         const existingWasArchived = String(existing?.status || '').toUpperCase() === 'ARCHIVED';
 
-        const clientStatusKey = normalizeClientStatusKey(row.status);
-        const shouldArchive = isTerminalClientStatus(row.status);
-        const paperworkStatusKey = normalizePaperworkStatusKey(row.paperworkStatus);
-        const insuranceKey = normalizeInsuranceKey(row.insurance);
-        const deliveryKey = normalizeDeliveryMethodKey(row.paperworkDelivery);
+        const statusProvided = row.status !== undefined && String(row.status || '').trim() !== '';
+        const clientStatusKey = statusProvided ? normalizeClientStatusKey(row.status) : '';
+        const shouldArchive = statusProvided ? isTerminalClientStatus(row.status) : false;
+        const paperworkProvided = row.paperworkStatus !== undefined && String(row.paperworkStatus || '').trim() !== '';
+        const paperworkStatusKey = paperworkProvided ? normalizePaperworkStatusKey(row.paperworkStatus) : '';
+        const insuranceProvided = row.insurance !== undefined && String(row.insurance || '').trim() !== '';
+        const insuranceKey = insuranceProvided ? normalizeInsuranceKey(row.insurance) : '';
+        const deliveryProvided = row.paperworkDelivery !== undefined && String(row.paperworkDelivery || '').trim() !== '';
+        const deliveryKey = deliveryProvided ? normalizeDeliveryMethodKey(row.paperworkDelivery) : '';
 
         // Client status catalog:
         // - Terminal sheet statuses (dead/terminated) are normalized to a single 'archived' catalog entry.
         // - Otherwise, best-effort match by key/label; fall back to default.
-        let clientStatusId = null;
-        if (shouldArchive) {
-          clientStatusId = archivedCatalogStatusId || defaults.clientStatusId;
-        } else {
-          clientStatusId =
-            (await getCatalogId(connection, { table: 'client_statuses', agencyId, label: clientStatusKey || row.status, keyColumn: 'status_key', labelColumn: 'label' })) ||
-            defaults.clientStatusId;
-        }
-        const paperworkStatusId =
-          (await getCatalogId(connection, { table: 'paperwork_statuses', agencyId, label: paperworkStatusKey || row.paperworkStatus, keyColumn: 'status_key', labelColumn: 'label' })) ||
-          defaults.paperworkStatusId;
-        const insuranceTypeId =
-          (await getCatalogId(connection, { table: 'insurance_types', agencyId, label: insuranceKey || row.insurance, keyColumn: 'insurance_key', labelColumn: 'label' })) ||
-          defaults.insuranceTypeId;
-        const deliveryMethodId =
-          (await getDeliveryMethodId(connection, { schoolId, label: deliveryKey || row.paperworkDelivery })) || defaults.deliveryMethodId;
+        const clientStatusId =
+          statusProvided
+            ? (shouldArchive
+                ? (archivedCatalogStatusId || defaults.clientStatusId)
+                : ((await getCatalogId(connection, { table: 'client_statuses', agencyId, label: clientStatusKey || row.status, keyColumn: 'status_key', labelColumn: 'label' })) || defaults.clientStatusId))
+            : (existing?.client_status_id || defaults.clientStatusId);
 
-        // Provider/day: only store day if provider is assigned and the day is provided.
-        const wantsAssignProvider = providerUserId && normalizedDay;
+        const paperworkStatusId =
+          paperworkProvided
+            ? ((await getCatalogId(connection, { table: 'paperwork_statuses', agencyId, label: paperworkStatusKey || row.paperworkStatus, keyColumn: 'status_key', labelColumn: 'label' })) ||
+              defaults.paperworkStatusId)
+            : (existing?.paperwork_status_id || defaults.paperworkStatusId);
+
+        const insuranceTypeId =
+          insuranceProvided
+            ? ((await getCatalogId(connection, { table: 'insurance_types', agencyId, label: insuranceKey || row.insurance, keyColumn: 'insurance_key', labelColumn: 'label' })) ||
+              defaults.insuranceTypeId)
+            : (existing?.insurance_type_id || defaults.insuranceTypeId);
+
+        const deliveryMethodId =
+          deliveryProvided
+            ? ((await getDeliveryMethodId(connection, { schoolId, label: deliveryKey || row.paperworkDelivery })) || defaults.deliveryMethodId)
+            : (existing?.paperwork_delivery_method_id || defaults.deliveryMethodId);
+
+        // Provider/day: only store day if provider is explicitly provided and matched and the day is valid.
+        const wantsAssignProvider = providerProvided && providerUserId && normalizedDay;
         const newProviderId = wantsAssignProvider ? providerUserId : (existing?.provider_id || null);
         const newDay = wantsAssignProvider ? (normalizedDay || null) : (existing?.service_day || null);
-        const newSchoolId = schoolId;
+        const newSchoolId = schoolProvided ? schoolId : (existing?.organization_id || schoolId);
 
         // Slot consumption only applies to CURRENT client status.
         const newIsCurrentStatus = currentStatusId
@@ -760,8 +820,8 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
               newSchoolId,
               agencyId,
               newProviderId,
-              initials,
-              initials,
+              initials || identifierCode,
+              initials || identifierCode,
               statusToSet,
               submissionDate,
               'NONE',
@@ -794,26 +854,28 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
             values.push(val);
           };
 
-          set('organization_id', newSchoolId);
+          if (schoolProvided) set('organization_id', newSchoolId);
           // Provider/day: only update if a provider was explicitly provided AND successfully matched.
           // If the sheet contains a provider name that we can't match, do NOT clear the existing assignment.
           if (providerProvided && providerUserId && normalizedDay) {
             set('provider_id', newProviderId);
             set('service_day', newDay);
           }
-          set('full_name', initials);
-          set('initials', initials);
-          set('client_status_id', clientStatusId);
-          set('paperwork_status_id', paperworkStatusId);
-          set('insurance_type_id', insuranceTypeId);
-          set('paperwork_delivery_method_id', deliveryMethodId);
-          set('doc_date', row.docDate || null);
-          set('grade', row.grade || null);
-          set('school_year', row.schoolYear || null);
-          set('gender', row.gender || null);
-          set('primary_client_language', row.primaryClientLanguage || null);
-          set('primary_parent_language', row.primaryParentLanguage || null);
-          set('skills', row.skills ? 1 : 0);
+          if (initialsProvided) {
+            set('full_name', initials);
+            set('initials', initials);
+          }
+          if (statusProvided) set('client_status_id', clientStatusId);
+          if (paperworkProvided) set('paperwork_status_id', paperworkStatusId);
+          if (insuranceProvided) set('insurance_type_id', insuranceTypeId);
+          if (deliveryProvided) set('paperwork_delivery_method_id', deliveryMethodId);
+          if (row.docDate !== undefined && row.docDate) set('doc_date', row.docDate);
+          if (row.grade !== undefined && String(row.grade || '').trim()) set('grade', row.grade);
+          if (row.schoolYear !== undefined && String(row.schoolYear || '').trim()) set('school_year', row.schoolYear);
+          if (row.gender !== undefined && String(row.gender || '').trim()) set('gender', row.gender);
+          if (row.primaryClientLanguage !== undefined && String(row.primaryClientLanguage || '').trim()) set('primary_client_language', row.primaryClientLanguage);
+          if (row.primaryParentLanguage !== undefined && String(row.primaryParentLanguage || '').trim()) set('primary_parent_language', row.primaryParentLanguage);
+          if (row.skills !== undefined) set('skills', row.skills ? 1 : 0);
           // Imported notes are stored as internal client notes (not on the client row).
           set('internal_notes', null);
           if (willMarkPaperworkReceived) {
@@ -875,19 +937,9 @@ export async function processBulkClientUpload({ agencyId, userId, fileName, rows
         await connection.commit();
         successRows += 1;
 
-        // Imported notes -> internal client note (backoffice-only). Best-effort; after commit.
-        if (clientId && noteMsg) {
-          ClientNotes.create(
-            {
-              client_id: clientId,
-              author_id: userId,
-              category: 'administrative',
-              urgency: 'low',
-              message: noteMsg,
-              is_internal_only: true
-            },
-            { hasAgencyAccess: true, canViewInternalNotes: true }
-          ).catch(() => {});
+        // Imported notes -> single backoffice admin note (upsert). Best-effort; after commit.
+        if (clientId && row.notes !== undefined && noteMsg) {
+          upsertImportedAdminNote({ clientId, message: noteMsg, userId, userRole }).catch(() => {});
         }
 
         // Notifications (best-effort, outside the transaction)

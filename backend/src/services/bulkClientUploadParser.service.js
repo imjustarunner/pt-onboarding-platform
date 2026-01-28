@@ -187,64 +187,90 @@ export default class BulkClientUploadParserService {
         normalized['client status workflow'] ||
         '';
 
+      const has = (k) => Object.prototype.hasOwnProperty.call(normalized, k);
+
       const out = {
         rowNumber: i + 2, // header row is 1
         clientName: String(clientName || '').trim(),
-        status: String(normalized['status'] || '').trim(),
-        workflow: normalizeWorkflow(workflowRaw),
-        referralDate: toDateString(normalized['referral date']),
+        // For partial re-uploads (e.g., identifier_code + notes only), keep absent columns as undefined
+        // so the processor can avoid overwriting existing fields.
+        status: has('status') ? String(normalized['status'] || '').trim() : undefined,
+        workflow: workflowRaw ? normalizeWorkflow(workflowRaw) : undefined,
+        referralDate: has('referral date') ? toDateString(normalized['referral date']) : undefined,
         // Accept common header variants: "Skills", "Skills Client", etc.
-        skills: toBool(
-          normalized['skills'] ??
-          normalized['skills client'] ??
-          normalized['skills eligible'] ??
-          normalized['skill client'] ??
-          normalized['skill eligible'] ??
-          normalized['skill builder'] ??
-          normalized['skill builders']
-        ),
-        insurance: String(normalized['insurance'] || '').trim(),
-        school: String(
-          normalized['school'] ||
-            normalized['school name'] ||
-            normalized['organization'] ||
-            normalized['organization name'] ||
-            ''
-        ).trim(),
-        provider: String(
-          normalized['provider'] ||
-            normalized['provider name'] ||
-            normalized['assigned provider'] ||
-            normalized['clinician'] ||
-            normalized['therapist'] ||
-            ''
-        ).trim(),
-        backgroundCheckDate: toDateString(normalized['background check date']),
-        providerRiskFlags: String(normalized['provider risk flags'] || '').trim(),
-        providerAvailability: normalized['provider availability'],
-        day: normalizeDay(normalized['day']),
-        paperworkDelivery: String(normalized['paperwork delivery'] || normalized['delivery'] || '').trim(),
-        docDate: toDateString(normalized['doc date']),
-        paperworkStatus: String(
-          normalized['paperwork status'] ||
-            normalized['document status'] ||
-            normalized['doc status'] ||
-            ''
-        ).trim(),
-        notes: String(normalized['notes'] || '').trim(),
-        grade: String(normalized['grade'] || '').trim(),
-        schoolYear: String(
-          normalized['school year'] ||
-            normalized['school_year'] ||
-            normalized['schoolyear'] ||
-            normalized['year'] ||
-            ''
-        ).trim(),
-        gender: String(normalized['gender'] || '').trim(),
-        identifierCode: String(normalized['identifier code'] || normalized['identifier'] || '').trim(),
-        district: String(normalized['district'] || '').trim(),
-        primaryClientLanguage: String(normalized['primary client language'] || '').trim(),
-        primaryParentLanguage: String(normalized['primary parent language'] || '').trim(),
+        skills:
+          has('skills') ||
+          has('skills client') ||
+          has('skills eligible') ||
+          has('skill client') ||
+          has('skill eligible') ||
+          has('skill builder') ||
+          has('skill builders')
+            ? toBool(
+                normalized['skills'] ??
+                normalized['skills client'] ??
+                normalized['skills eligible'] ??
+                normalized['skill client'] ??
+                normalized['skill eligible'] ??
+                normalized['skill builder'] ??
+                normalized['skill builders']
+              )
+            : undefined,
+        insurance: has('insurance') ? String(normalized['insurance'] || '').trim() : undefined,
+        school:
+          has('school') || has('school name') || has('organization') || has('organization name')
+            ? String(
+                normalized['school'] ||
+                  normalized['school name'] ||
+                  normalized['organization'] ||
+                  normalized['organization name'] ||
+                  ''
+              ).trim()
+            : undefined,
+        provider:
+          has('provider') || has('provider name') || has('assigned provider') || has('clinician') || has('therapist')
+            ? String(
+                normalized['provider'] ||
+                  normalized['provider name'] ||
+                  normalized['assigned provider'] ||
+                  normalized['clinician'] ||
+                  normalized['therapist'] ||
+                  ''
+              ).trim()
+            : undefined,
+        backgroundCheckDate: has('background check date') ? toDateString(normalized['background check date']) : undefined,
+        providerRiskFlags: has('provider risk flags') ? String(normalized['provider risk flags'] || '').trim() : undefined,
+        providerAvailability: has('provider availability') ? normalized['provider availability'] : undefined,
+        day: has('day') ? normalizeDay(normalized['day']) : undefined,
+        paperworkDelivery: has('paperwork delivery') || has('delivery')
+          ? String(normalized['paperwork delivery'] || normalized['delivery'] || '').trim()
+          : undefined,
+        docDate: has('doc date') ? toDateString(normalized['doc date']) : undefined,
+        paperworkStatus: has('paperwork status') || has('document status') || has('doc status')
+          ? String(
+              normalized['paperwork status'] ||
+                normalized['document status'] ||
+                normalized['doc status'] ||
+                ''
+            ).trim()
+          : undefined,
+        notes: has('notes') ? String(normalized['notes'] || '').trim() : undefined,
+        grade: has('grade') ? String(normalized['grade'] || '').trim() : undefined,
+        schoolYear:
+          has('school year') || has('school_year') || has('schoolyear') || has('year')
+            ? String(
+                normalized['school year'] ||
+                  normalized['school_year'] ||
+                  normalized['schoolyear'] ||
+                  normalized['year'] ||
+                  ''
+              ).trim()
+            : undefined,
+        gender: has('gender') ? String(normalized['gender'] || '').trim() : undefined,
+        identifierCode: has('identifier code') || has('identifier') ? String(normalized['identifier code'] || normalized['identifier'] || '').trim() : undefined,
+        district: has('district') ? String(normalized['district'] || '').trim() : undefined,
+        primaryClientLanguage: has('primary client language') ? String(normalized['primary client language'] || '').trim() : undefined,
+        primaryParentLanguage: has('primary parent language') ? String(normalized['primary parent language'] || '').trim() : undefined,
         raw: raw
       };
 
