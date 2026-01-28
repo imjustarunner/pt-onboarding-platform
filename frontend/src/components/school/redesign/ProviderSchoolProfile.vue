@@ -202,11 +202,35 @@ const clientTitle = (c) => {
 const weekdayList = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 const dayBarDays = ref(weekdayList.map((d) => ({ weekday: d, has_providers: false })));
 const recomputeDayBar = () => {
-  const map = new Map();
+  const byDay = new Map();
   (caseload.value?.assignments || []).forEach((a) => {
-    map.set(String(a.day_of_week), !!a.is_active);
+    if (!a) return;
+    const day = String(a.day_of_week || '');
+    byDay.set(day, a);
   });
-  dayBarDays.value = weekdayList.map((d) => ({ weekday: d, has_providers: map.get(d) === true }));
+
+  const availabilityStatusFor = (a) => {
+    if (!a?.is_active) return null;
+    const total = Number(a?.slots_total ?? 0);
+    const used = Number(a?.slots_used ?? 0);
+    const totalOk = Number.isFinite(total) && total > 0;
+    const usedOk = Number.isFinite(used) && used >= 0;
+    const available = totalOk && usedOk ? (total - used) : null;
+    if (available === null) return 'green'; // best-effort default for active days
+    if (available <= 0) return 'red';
+    if (available === 1) return 'yellow';
+    return 'green';
+  };
+
+  dayBarDays.value = weekdayList.map((d) => {
+    const a = byDay.get(d) || null;
+    const has = !!a?.is_active;
+    return {
+      weekday: d,
+      has_providers: has,
+      availability_status: has ? availabilityStatusFor(a) : null
+    };
+  });
 };
 
 const selectedDayClients = ref([]);
@@ -414,16 +438,16 @@ watch(selectedWeekday, async () => {
 .profile-hero {
   display: flex;
   gap: 14px;
-  align-items: center;
+  align-items: flex-start;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: white;
   padding: 16px;
 }
 .avatar-lg {
-  width: 86px;
-  height: 86px;
-  border-radius: 22px;
+  width: 140px;
+  height: 140px;
+  border-radius: 28px;
   border: 1px solid var(--border);
   background: var(--bg);
   display: grid;
@@ -431,7 +455,7 @@ watch(selectedWeekday, async () => {
   overflow: hidden;
   font-weight: 900;
   flex: 0 0 auto;
-  font-size: 22px;
+  font-size: 32px;
 }
 .avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .name { font-weight: 900; color: var(--text-primary); }
@@ -448,6 +472,8 @@ watch(selectedWeekday, async () => {
   margin-top: 6px;
   color: var(--text-secondary);
   white-space: pre-wrap;
+  max-height: 220px;
+  overflow: auto;
 }
 label {
   display: block;

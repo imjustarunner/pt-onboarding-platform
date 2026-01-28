@@ -448,6 +448,13 @@ class PlatformBranding {
       communicationsIconId,
       integrationsIconId,
       archiveIconId,
+      // School Portal dashboard card icons (optional columns)
+      schoolPortalProvidersIconId,
+      schoolPortalDaysIconId,
+      schoolPortalRosterIconId,
+      schoolPortalSkillsGroupsIconId,
+      schoolPortalContactAdminIconId,
+      schoolPortalSchoolStaffIconId,
       defaultBrandingTemplateId,
       currentBrandingTemplateId
     } = brandingData;
@@ -753,6 +760,53 @@ class PlatformBranding {
           console.warn('PlatformBranding.update: Error checking for My Dashboard icon columns:', e.message);
         }
       }
+
+      // School Portal dashboard card icons (optional)
+      if (
+        schoolPortalProvidersIconId !== undefined ||
+        schoolPortalDaysIconId !== undefined ||
+        schoolPortalRosterIconId !== undefined ||
+        schoolPortalSkillsGroupsIconId !== undefined ||
+        schoolPortalContactAdminIconId !== undefined ||
+        schoolPortalSchoolStaffIconId !== undefined
+      ) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id')"
+          );
+          const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+          const hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
+          const hasSchoolPortalStaffIcon = names.has('school_portal_school_staff_icon_id');
+          if (hasSchoolPortalIcons) {
+            if (schoolPortalProvidersIconId !== undefined) {
+              updates.push('school_portal_providers_icon_id = ?');
+              values.push(schoolPortalProvidersIconId ?? null);
+            }
+            if (schoolPortalDaysIconId !== undefined) {
+              updates.push('school_portal_days_icon_id = ?');
+              values.push(schoolPortalDaysIconId ?? null);
+            }
+            if (schoolPortalRosterIconId !== undefined) {
+              updates.push('school_portal_roster_icon_id = ?');
+              values.push(schoolPortalRosterIconId ?? null);
+            }
+            if (schoolPortalSkillsGroupsIconId !== undefined) {
+              updates.push('school_portal_skills_groups_icon_id = ?');
+              values.push(schoolPortalSkillsGroupsIconId ?? null);
+            }
+            if (schoolPortalContactAdminIconId !== undefined) {
+              updates.push('school_portal_contact_admin_icon_id = ?');
+              values.push(schoolPortalContactAdminIconId ?? null);
+            }
+            if (hasSchoolPortalStaffIcon && schoolPortalSchoolStaffIconId !== undefined) {
+              updates.push('school_portal_school_staff_icon_id = ?');
+              values.push(schoolPortalSchoolStaffIconId ?? null);
+            }
+          }
+        } catch (e) {
+          console.warn('PlatformBranding.update: Error checking for school portal icon columns:', e.message);
+        }
+      }
       
       // External Calendar Audit quick-action icon (optional)
       if (externalCalendarAuditIconId !== undefined) {
@@ -977,6 +1031,45 @@ class PlatformBranding {
           }
         } catch (e) {
           // Column doesn't exist, skip
+        }
+      }
+
+      // School Portal dashboard card icons (optional) - for INSERT
+      if (
+        schoolPortalProvidersIconId !== undefined ||
+        schoolPortalDaysIconId !== undefined ||
+        schoolPortalRosterIconId !== undefined ||
+        schoolPortalSkillsGroupsIconId !== undefined ||
+        schoolPortalContactAdminIconId !== undefined ||
+        schoolPortalSchoolStaffIconId !== undefined
+      ) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id')"
+          );
+          const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+          const hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
+          const hasSchoolPortalStaffIcon = names.has('school_portal_school_staff_icon_id');
+          if (hasSchoolPortalIcons) {
+            insertFields.push(
+              'school_portal_providers_icon_id',
+              'school_portal_days_icon_id',
+              'school_portal_roster_icon_id',
+              'school_portal_skills_groups_icon_id',
+              'school_portal_contact_admin_icon_id',
+              ...(hasSchoolPortalStaffIcon ? ['school_portal_school_staff_icon_id'] : [])
+            );
+            insertValues.push(
+              schoolPortalProvidersIconId ?? null,
+              schoolPortalDaysIconId ?? null,
+              schoolPortalRosterIconId ?? null,
+              schoolPortalSkillsGroupsIconId ?? null,
+              schoolPortalContactAdminIconId ?? null,
+              ...(hasSchoolPortalStaffIcon ? [schoolPortalSchoolStaffIconId ?? null] : [])
+            );
+          }
+        } catch {
+          // ignore
         }
       }
 

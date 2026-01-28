@@ -574,6 +574,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
+    path: '/admin/support-tickets',
+    name: 'SupportTicketsQueue',
+    component: () => import('../views/admin/SupportTicketsQueueView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+  },
+  {
     path: '/admin/communications',
     name: 'CommunicationsFeed',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),

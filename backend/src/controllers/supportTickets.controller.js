@@ -21,8 +21,17 @@ async function ensureOrgAccess(req, schoolOrganizationId) {
 
   if (req.user?.role !== 'super_admin') {
     const orgs = await User.getAgencies(req.user.id);
-    const ok = (orgs || []).some((o) => parseInt(o.id, 10) === sid);
-    if (!ok) return { ok: false, status: 403, message: 'Access denied' };
+    const hasDirect = (orgs || []).some((o) => parseInt(o.id, 10) === sid);
+    if (!hasDirect) {
+      const role = String(req.user?.role || '').toLowerCase();
+      const canUseAgencyAffiliation = role === 'admin' || role === 'support' || role === 'staff';
+      if (!canUseAgencyAffiliation) return { ok: false, status: 403, message: 'Access denied' };
+      const activeAgencyId = await resolveActiveAgencyIdForOrg(sid);
+      const hasAgency = activeAgencyId
+        ? (orgs || []).some((o) => parseInt(o.id, 10) === parseInt(activeAgencyId, 10))
+        : false;
+      if (!hasAgency) return { ok: false, status: 403, message: 'Access denied' };
+    }
   }
 
   return { ok: true, org, schoolOrganizationId: sid };
@@ -30,7 +39,7 @@ async function ensureOrgAccess(req, schoolOrganizationId) {
 
 const isAgencyAdminUser = (req) => {
   const r = String(req.user?.role || '').toLowerCase();
-  return r === 'admin' || r === 'super_admin' || r === 'support';
+  return r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff';
 };
 
 export const listMySupportTickets = async (req, res, next) => {

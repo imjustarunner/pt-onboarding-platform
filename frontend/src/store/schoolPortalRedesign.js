@@ -12,6 +12,11 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
   const days = ref(weekDays.map((d) => ({ weekday: d, is_active: false, has_providers: false })));
   const selectedWeekday = ref(null); // set by UI; do not auto-select
 
+  // Home stats (At a glance)
+  const portalStats = ref(null); // { assigned_weekdays_count, clients_total, clients_assigned, slots_total, slots_used, slots_available, school_staff_count }
+  const portalStatsLoading = ref(false);
+  const portalStatsError = ref('');
+
   const dayProviders = ref([]); // providers added to selected weekday (from school_day_provider_assignments)
   const dayProvidersLoading = ref(false);
   const dayProvidersError = ref('');
@@ -29,12 +34,30 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
   const reset = () => {
     days.value = weekDays.map((d) => ({ weekday: d, is_active: false, has_providers: false }));
     selectedWeekday.value = null;
+    portalStats.value = null;
+    portalStatsLoading.value = false;
+    portalStatsError.value = '';
     dayProviders.value = [];
     dayProvidersLoading.value = false;
     dayProvidersError.value = '';
     eligibleProviders.value = [];
     eligibleProvidersLoading.value = false;
     providerPanels.value = {};
+  };
+
+  const fetchPortalStats = async () => {
+    if (!schoolId.value) return;
+    portalStatsLoading.value = true;
+    portalStatsError.value = '';
+    try {
+      const r = await api.get(`/school-portal/${schoolId.value}/stats`);
+      portalStats.value = r.data || null;
+    } catch (e) {
+      portalStatsError.value = e.response?.data?.error?.message || 'Failed to load portal stats';
+      portalStats.value = null;
+    } finally {
+      portalStatsLoading.value = false;
+    }
   };
 
   const fetchDays = async () => {
@@ -180,6 +203,9 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     days,
     selectedWeekday,
     selectedDayMeta,
+    portalStats,
+    portalStatsLoading,
+    portalStatsError,
     dayProviders,
     dayProvidersLoading,
     dayProvidersError,
@@ -189,6 +215,7 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     providerPanels,
     setSchoolId,
     reset,
+    fetchPortalStats,
     fetchDays,
     addDay,
     fetchEligibleProviders,

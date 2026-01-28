@@ -107,7 +107,13 @@ export const updatePlatformBranding = async (req, res, next) => {
       assetsIconId,
       communicationsIconId,
       integrationsIconId,
-      archiveIconId
+      archiveIconId,
+      schoolPortalProvidersIconId,
+      schoolPortalDaysIconId,
+      schoolPortalRosterIconId,
+      schoolPortalSkillsGroupsIconId,
+      schoolPortalContactAdminIconId,
+      schoolPortalSchoolStaffIconId
     } = req.body;
 
     const branding = await PlatformBranding.update({
@@ -176,7 +182,13 @@ export const updatePlatformBranding = async (req, res, next) => {
       assetsIconId: assetsIconId !== undefined ? (assetsIconId === null || assetsIconId === '' ? null : parseInt(assetsIconId)) : undefined,
       communicationsIconId: communicationsIconId !== undefined ? (communicationsIconId === null || communicationsIconId === '' ? null : parseInt(communicationsIconId)) : undefined,
       integrationsIconId: integrationsIconId !== undefined ? (integrationsIconId === null || integrationsIconId === '' ? null : parseInt(integrationsIconId)) : undefined,
-      archiveIconId: archiveIconId !== undefined ? (archiveIconId === null || archiveIconId === '' ? null : parseInt(archiveIconId)) : undefined
+      archiveIconId: archiveIconId !== undefined ? (archiveIconId === null || archiveIconId === '' ? null : parseInt(archiveIconId)) : undefined,
+      schoolPortalProvidersIconId: schoolPortalProvidersIconId !== undefined ? (schoolPortalProvidersIconId === null || schoolPortalProvidersIconId === '' ? null : parseInt(schoolPortalProvidersIconId)) : undefined,
+      schoolPortalDaysIconId: schoolPortalDaysIconId !== undefined ? (schoolPortalDaysIconId === null || schoolPortalDaysIconId === '' ? null : parseInt(schoolPortalDaysIconId)) : undefined,
+      schoolPortalRosterIconId: schoolPortalRosterIconId !== undefined ? (schoolPortalRosterIconId === null || schoolPortalRosterIconId === '' ? null : parseInt(schoolPortalRosterIconId)) : undefined,
+      schoolPortalSkillsGroupsIconId: schoolPortalSkillsGroupsIconId !== undefined ? (schoolPortalSkillsGroupsIconId === null || schoolPortalSkillsGroupsIconId === '' ? null : parseInt(schoolPortalSkillsGroupsIconId)) : undefined,
+      schoolPortalContactAdminIconId: schoolPortalContactAdminIconId !== undefined ? (schoolPortalContactAdminIconId === null || schoolPortalContactAdminIconId === '' ? null : parseInt(schoolPortalContactAdminIconId)) : undefined,
+      schoolPortalSchoolStaffIconId: schoolPortalSchoolStaffIconId !== undefined ? (schoolPortalSchoolStaffIconId === null || schoolPortalSchoolStaffIconId === '' ? null : parseInt(schoolPortalSchoolStaffIconId)) : undefined
     }, req.user.id);
 
     res.json(branding);

@@ -409,6 +409,18 @@ class Agency {
       hasMyDashboardIcons = false;
     }
 
+    // Best-effort: include affiliated agency id for child orgs (school/program/learning)
+    // via organization_affiliations (if migrated).
+    let hasOrgAffiliations = false;
+    try {
+      const [tables] = await pool.execute(
+        "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_affiliations'"
+      );
+      hasOrgAffiliations = Number(tables?.[0]?.cnt || 0) > 0;
+    } catch (e) {
+      hasOrgAffiliations = false;
+    }
+
     if (hasMyDashboardIcons) {
       const [rows] = await pool.execute(
         `SELECT a.*,
@@ -423,7 +435,9 @@ class Agency {
           mdcom_i.file_path as my_dashboard_communications_icon_path, mdcom_i.name as my_dashboard_communications_icon_name,
           mdchat_i.file_path as my_dashboard_chats_icon_path, mdchat_i.name as my_dashboard_chats_icon_name,
           mdn_i.file_path as my_dashboard_notifications_icon_path, mdn_i.name as my_dashboard_notifications_icon_name
+          ${hasOrgAffiliations ? ', oa.agency_id AS affiliated_agency_id' : ''}
          FROM agencies a
+         ${hasOrgAffiliations ? '\n         LEFT JOIN organization_affiliations oa ON oa.organization_id = a.id AND oa.is_active = TRUE' : ''}
          LEFT JOIN icons mdc_i ON a.my_dashboard_checklist_icon_id = mdc_i.id
          LEFT JOIN icons mdt_i ON a.my_dashboard_training_icon_id = mdt_i.id
          LEFT JOIN icons mdd_i ON a.my_dashboard_documents_icon_id = mdd_i.id
@@ -435,6 +449,19 @@ class Agency {
          LEFT JOIN icons mdcom_i ON a.my_dashboard_communications_icon_id = mdcom_i.id
          LEFT JOIN icons mdchat_i ON a.my_dashboard_chats_icon_id = mdchat_i.id
          LEFT JOIN icons mdn_i ON a.my_dashboard_notifications_icon_id = mdn_i.id
+         WHERE a.slug = ? AND a.is_active = TRUE`,
+        [slug]
+      );
+      return rows[0] || null;
+    }
+
+    if (hasOrgAffiliations) {
+      const [rows] = await pool.execute(
+        `SELECT a.*, oa.agency_id AS affiliated_agency_id
+         FROM agencies a
+         LEFT JOIN organization_affiliations oa
+           ON oa.organization_id = a.id
+          AND oa.is_active = TRUE
          WHERE a.slug = ? AND a.is_active = TRUE`,
         [slug]
       );
@@ -508,6 +535,7 @@ class Agency {
     const {
       name,
       slug,
+      officialName,
       logoUrl,
       logoPath,
       colorPalette,
@@ -550,6 +578,14 @@ class Agency {
       myDashboardCommunicationsIconId,
       myDashboardChatsIconId,
       myDashboardNotificationsIconId,
+
+      // School Portal dashboard card icon overrides (agency-level; optional columns)
+      schoolPortalProvidersIconId,
+      schoolPortalDaysIconId,
+      schoolPortalRosterIconId,
+      schoolPortalSkillsGroupsIconId,
+      schoolPortalContactAdminIconId,
+      schoolPortalSchoolStaffIconId,
 
       // Tier system (agency-specific; optional columns)
       tierSystemEnabled,
@@ -630,9 +666,25 @@ class Agency {
     } catch (e) {
       hasLogoPath = false;
     }
+
+    // Check if official_name column exists (optional)
+    let hasOfficialName = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'official_name'"
+      );
+      hasOfficialName = (cols || []).length > 0;
+    } catch {
+      hasOfficialName = false;
+    }
     
     const insertFields = ['name', 'slug', 'logo_url', 'color_palette', 'terminology_settings', 'is_active'];
     const insertValues = [name, slug, logoUrl || null, colorPalette ? JSON.stringify(colorPalette) : null, terminologySettings ? JSON.stringify(terminologySettings) : null, isActive !== undefined ? isActive : true];
+
+    if (hasOfficialName) {
+      insertFields.push('official_name');
+      insertValues.push(officialName || null);
+    }
     
     if (hasLogoPath) {
       insertFields.push('logo_path');
@@ -728,6 +780,39 @@ class Agency {
         myDashboardNotificationsIconId || null
       );
     }
+
+    // School Portal dashboard card icons (optional)
+    let hasSchoolPortalIcons = false;
+    let hasSchoolPortalStaffIcon = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id')"
+      );
+      const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+      hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
+      hasSchoolPortalStaffIcon = names.has('school_portal_school_staff_icon_id');
+    } catch (e) {
+      hasSchoolPortalIcons = false;
+      hasSchoolPortalStaffIcon = false;
+    }
+    if (hasSchoolPortalIcons) {
+      insertFields.push(
+        'school_portal_providers_icon_id',
+        'school_portal_days_icon_id',
+        'school_portal_roster_icon_id',
+        'school_portal_skills_groups_icon_id',
+        'school_portal_contact_admin_icon_id',
+        ...(hasSchoolPortalStaffIcon ? ['school_portal_school_staff_icon_id'] : [])
+      );
+      insertValues.push(
+        schoolPortalProvidersIconId || null,
+        schoolPortalDaysIconId || null,
+        schoolPortalRosterIconId || null,
+        schoolPortalSkillsGroupsIconId || null,
+        schoolPortalContactAdminIconId || null,
+        ...(hasSchoolPortalStaffIcon ? [schoolPortalSchoolStaffIconId || null] : [])
+      );
+    }
     
     const placeholders = insertFields.map(() => '?').join(', ');
     const [result] = await pool.execute(
@@ -738,7 +823,8 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+      schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalSchoolStaffIconId,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
     } = agencyData;
     
@@ -797,6 +883,21 @@ class Agency {
     if (name !== undefined) {
       updates.push('name = ?');
       values.push(name);
+    }
+
+    // Check if official_name column exists (optional)
+    let hasOfficialName = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'official_name'"
+      );
+      hasOfficialName = (cols || []).length > 0;
+    } catch {
+      hasOfficialName = false;
+    }
+    if (hasOfficialName && officialName !== undefined) {
+      updates.push('official_name = ?');
+      values.push(officialName || null);
     }
     if (hasTemplateState) {
       if (agencyData.defaultBrandingTemplateId !== undefined) {
@@ -1212,6 +1313,47 @@ class Agency {
         if (myDashboardNotificationsIconId !== undefined) {
           updates.push('my_dashboard_notifications_icon_id = ?');
           values.push(myDashboardNotificationsIconId || null);
+        }
+      }
+
+      // School Portal dashboard card icons (optional)
+      let hasSchoolPortalIcons = false;
+      let hasSchoolPortalStaffIcon = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id')"
+        );
+        const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+        hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
+        hasSchoolPortalStaffIcon = names.has('school_portal_school_staff_icon_id');
+      } catch (e) {
+        hasSchoolPortalIcons = false;
+        hasSchoolPortalStaffIcon = false;
+      }
+      if (hasSchoolPortalIcons) {
+        if (schoolPortalProvidersIconId !== undefined) {
+          updates.push('school_portal_providers_icon_id = ?');
+          values.push(schoolPortalProvidersIconId || null);
+        }
+        if (schoolPortalDaysIconId !== undefined) {
+          updates.push('school_portal_days_icon_id = ?');
+          values.push(schoolPortalDaysIconId || null);
+        }
+        if (schoolPortalRosterIconId !== undefined) {
+          updates.push('school_portal_roster_icon_id = ?');
+          values.push(schoolPortalRosterIconId || null);
+        }
+        if (schoolPortalSkillsGroupsIconId !== undefined) {
+          updates.push('school_portal_skills_groups_icon_id = ?');
+          values.push(schoolPortalSkillsGroupsIconId || null);
+        }
+        if (schoolPortalContactAdminIconId !== undefined) {
+          updates.push('school_portal_contact_admin_icon_id = ?');
+          values.push(schoolPortalContactAdminIconId || null);
+        }
+        if (hasSchoolPortalStaffIcon && schoolPortalSchoolStaffIconId !== undefined) {
+          updates.push('school_portal_school_staff_icon_id = ?');
+          values.push(schoolPortalSchoolStaffIconId || null);
         }
       }
     }

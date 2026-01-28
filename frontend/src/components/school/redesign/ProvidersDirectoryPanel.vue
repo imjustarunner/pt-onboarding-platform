@@ -28,6 +28,7 @@
           <div class="meta">
             <div class="name">{{ p.first_name }} {{ p.last_name }}</div>
             <div v-if="p.email" class="line">{{ p.email }}</div>
+            <div v-if="p.school_info_blurb" class="blurb">{{ p.school_info_blurb }}</div>
             <div class="badges">
               <span v-if="p.accepting_new_clients === false" class="badge badge-secondary">Not accepting</span>
               <span v-else class="badge badge-secondary">Accepting</span>
@@ -126,27 +127,27 @@ const filtered = computed(() => {
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 16px;
 }
 .card {
   text-align: left;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 18px;
   background: white;
-  padding: 14px;
+  padding: 18px;
   display: flex;
-  gap: 12px;
-  align-items: center;
+  gap: 18px;
+  align-items: flex-start;
 }
 .card:hover {
   border-color: rgba(79, 70, 229, 0.35);
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.10);
 }
 .avatar {
-  width: 64px;
-  height: 64px;
-  border-radius: 18px;
+  width: 160px;
+  height: 160px;
+  border-radius: 28px;
   border: 1px solid var(--border);
   background: var(--bg);
   display: grid;
@@ -154,6 +155,7 @@ const filtered = computed(() => {
   overflow: hidden;
   font-weight: 900;
   flex: 0 0 auto;
+  font-size: 34px;
 }
 .avatar-img {
   width: 100%;
@@ -162,13 +164,28 @@ const filtered = computed(() => {
   display: block;
 }
 .meta { min-width: 0; }
-.name { font-weight: 900; color: var(--text-primary); }
+.name {
+  font-weight: 950;
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1.15;
+}
 .line {
   margin-top: 4px;
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.blurb {
+  margin-top: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .badges {
   margin-top: 8px;
@@ -186,6 +203,12 @@ const filtered = computed(() => {
 @media (max-width: 900px) {
   .grid { grid-template-columns: 1fr; }
   .search { width: 180px; }
+  .avatar {
+    width: 120px;
+    height: 120px;
+    border-radius: 24px;
+    font-size: 28px;
+  }
 }
 </style>
 

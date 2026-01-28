@@ -636,6 +636,36 @@ export const useBrandingStore = defineStore('branding', () => {
     return null;
   };
 
+  // Get icon URL for a specific School Portal home card
+  // Priority: agency override > platform default > null
+  // organization param follows the same tri-state convention as getDashboardCardIconUrl
+  const getSchoolPortalCardIconUrl = (cardId, organization = undefined) => {
+    const iconFieldMap = {
+      providers: 'school_portal_providers_icon_path',
+      days: 'school_portal_days_icon_path',
+      roster: 'school_portal_roster_icon_path',
+      skills_groups: 'school_portal_skills_groups_icon_path',
+      contact_admin: 'school_portal_contact_admin_icon_path',
+      school_staff: 'school_portal_school_staff_icon_path'
+    };
+    const field = iconFieldMap[cardId];
+    if (!field) return null;
+    const idField = field.replace(/_icon_path$/, '_icon_id');
+
+    const org = organization === undefined ? agencyStore.currentAgency : organization;
+    if (org?.[field]) return toUploadsUrl(org[field]);
+    if (org?.[idField]) {
+      const fp = iconFilePathById(org[idField]);
+      if (fp) return toUploadsUrl(fp);
+    }
+    if (platformBranding.value?.[field]) return toUploadsUrl(platformBranding.value[field]);
+    if (platformBranding.value?.[idField]) {
+      const fp = iconFilePathById(platformBranding.value[idField]);
+      if (fp) return toUploadsUrl(fp);
+    }
+    return null;
+  };
+
   // Admin dashboard quick-actions
   const getAdminQuickActionIconUrl = (actionKey, agencyOverride = null) => {
     const iconFieldMap = {
@@ -707,6 +737,7 @@ export const useBrandingStore = defineStore('branding', () => {
     clearPortalTheme,
     getNotificationIconUrl,
     getDashboardCardIconUrl,
+    getSchoolPortalCardIconUrl,
     getAdminQuickActionIconUrl
   };
 });

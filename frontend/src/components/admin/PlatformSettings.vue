@@ -131,6 +131,46 @@
         </button>
       </div>
     </div>
+
+    <div class="settings-section">
+      <h3>School Portal Card Icons</h3>
+      <p class="section-description">
+        Set platform default icons for the School Portal home cards. Agencies can override these in Company Profile → Customize Icons (these apply to affiliated schools/programs).
+      </p>
+
+      <div class="settings-icons-grid">
+        <div class="icon-setting-item">
+          <label>Providers</label>
+          <IconSelector v-model="schoolPortalIcons.providersIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Days</label>
+          <IconSelector v-model="schoolPortalIcons.daysIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Roster</label>
+          <IconSelector v-model="schoolPortalIcons.rosterIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Skills Groups</label>
+          <IconSelector v-model="schoolPortalIcons.skillsGroupsIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Contact Admin</label>
+          <IconSelector v-model="schoolPortalIcons.contactAdminIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>School staff</label>
+          <IconSelector v-model="schoolPortalIcons.schoolStaffIconId" />
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" @click="saveSchoolPortalIcons" :disabled="savingSchoolPortalIcons">
+          {{ savingSchoolPortalIcons ? 'Saving...' : 'Save School Portal Icons' }}
+        </button>
+      </div>
+    </div>
     
     <div class="settings-section">
       <h3>Platform Information</h3>
@@ -174,6 +214,7 @@ const settings = ref({
 const saving = ref(false);
 // (settings navigation icons are configured in Branding Configuration)
 const savingMyDashboardIcons = ref(false);
+const savingSchoolPortalIcons = ref(false);
 const superAdminCount = ref(0);
 const totalAgencies = ref(0);
 
@@ -191,6 +232,15 @@ const myDashboardIcons = ref({
   communicationsIconId: null,
   chatsIconId: null,
   notificationsIconId: null
+});
+
+const schoolPortalIcons = ref({
+  providersIconId: null,
+  daysIconId: null,
+  rosterIconId: null,
+  skillsGroupsIconId: null,
+  contactAdminIconId: null,
+  schoolStaffIconId: null
 });
 
 // Platform name - use platform branding or fallback
@@ -222,6 +272,14 @@ const fetchSettings = async () => {
         chatsIconId: pb.my_dashboard_chats_icon_id ?? null,
         notificationsIconId: pb.my_dashboard_notifications_icon_id ?? null
       };
+      schoolPortalIcons.value = {
+        providersIconId: pb.school_portal_providers_icon_id ?? null,
+        daysIconId: pb.school_portal_days_icon_id ?? null,
+        rosterIconId: pb.school_portal_roster_icon_id ?? null,
+        skillsGroupsIconId: pb.school_portal_skills_groups_icon_id ?? null,
+        contactAdminIconId: pb.school_portal_contact_admin_icon_id ?? null,
+        schoolStaffIconId: pb.school_portal_school_staff_icon_id ?? null
+      };
     }
   } catch (err) {
     console.error('Failed to load settings:', err);
@@ -252,6 +310,27 @@ const saveMyDashboardIcons = async () => {
     alert('Failed to save My Dashboard icons');
   } finally {
     savingMyDashboardIcons.value = false;
+  }
+};
+
+const saveSchoolPortalIcons = async () => {
+  try {
+    savingSchoolPortalIcons.value = true;
+    await api.put('/platform-branding', {
+      schoolPortalProvidersIconId: schoolPortalIcons.value.providersIconId,
+      schoolPortalDaysIconId: schoolPortalIcons.value.daysIconId,
+      schoolPortalRosterIconId: schoolPortalIcons.value.rosterIconId,
+      schoolPortalSkillsGroupsIconId: schoolPortalIcons.value.skillsGroupsIconId,
+      schoolPortalContactAdminIconId: schoolPortalIcons.value.contactAdminIconId,
+      schoolPortalSchoolStaffIconId: schoolPortalIcons.value.schoolStaffIconId
+    });
+    await brandingStore.fetchPlatformBranding();
+    alert('School Portal icons saved successfully!');
+  } catch (err) {
+    console.error('Failed to save School Portal icons:', err);
+    alert('Failed to save School Portal icons');
+  } finally {
+    savingSchoolPortalIcons.value = false;
   }
 };
 

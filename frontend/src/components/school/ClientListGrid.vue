@@ -13,6 +13,14 @@
     </div>
 
     <div v-else class="clients-table">
+      <div v-if="showSearch" class="table-toolbar">
+        <input
+          v-model="searchQuery"
+          class="table-search"
+          type="search"
+          :placeholder="searchPlaceholder"
+        />
+      </div>
       <table>
         <thead>
           <tr>
@@ -120,6 +128,14 @@ const props = defineProps({
   editMode: {
     type: String,
     default: 'navigate' // 'navigate' | 'inline'
+  },
+  showSearch: {
+    type: Boolean,
+    default: true
+  },
+  searchPlaceholder: {
+    type: String,
+    default: 'Search roster…'
   }
 });
 
@@ -129,6 +145,7 @@ const clients = ref([]);
 const loading = ref(false);
 const error = ref('');
 const selectedClient = ref(null);
+const searchQuery = ref('');
 const router = useRouter();
 const authStore = useAuthStore();
 
@@ -216,8 +233,28 @@ const sortValue = (client, key) => {
   return String(client[key] || '').toLowerCase();
 };
 
+const normalize = (v) => String(v || '').trim().toLowerCase();
+
+const filteredClients = computed(() => {
+  const q = normalize(searchQuery.value);
+  const list = Array.isArray(clients.value) ? clients.value : [];
+  if (!q) return list;
+  return list.filter((client) => {
+    const hay = [
+      formatRosterLabel(client),
+      client?.client_status_label,
+      client?.provider_name,
+      client?.service_day,
+      formatDocSummary(client)
+    ]
+      .filter(Boolean)
+      .join(' ');
+    return normalize(hay).includes(q);
+  });
+});
+
 const sortedClients = computed(() => {
-  const list = Array.isArray(clients.value) ? clients.value.slice() : [];
+  const list = Array.isArray(filteredClients.value) ? filteredClients.value.slice() : [];
   const key = sortKey.value;
   const dir = sortDir.value === 'asc' ? 1 : -1;
   return list.sort((a, b) => {
@@ -330,6 +367,20 @@ onMounted(() => {
 
 .clients-table {
   overflow-x: auto;
+}
+
+.table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+.table-search {
+  width: 320px;
+  max-width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
 }
 
 table {

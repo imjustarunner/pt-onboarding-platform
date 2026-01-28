@@ -1,19 +1,23 @@
 <template>
   <div class="school-portal">
     <div class="portal-header">
-      <h1>{{ organizationName }} Portal</h1>
-      <p class="portal-subtitle">Schedule + roster (no PHI)</p>
+      <div class="portal-header-row">
+        <div class="portal-header-left">
+          <div v-if="schoolLogoUrl" class="school-logo">
+            <img :src="schoolLogoUrl" alt="" />
+          </div>
+          <div>
+            <h1>{{ organizationDisplayName }} Portal</h1>
+            <p class="portal-subtitle">Schedule + roster (no PHI)</p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="portal-content">
       <div class="top-row">
         <div class="top-left">
-          <SchoolDayBar
-            v-if="portalMode === 'days'"
-            v-model="store.selectedWeekday"
-            :days="store.days"
-          />
-          <div v-else class="muted-small">
+          <div class="muted-small">
             {{
               portalMode === 'home'
                 ? 'Choose a section'
@@ -23,7 +27,9 @@
                     ? 'Roster'
                     : portalMode === 'skills'
                       ? 'Skills Groups'
-                      : 'School portal'
+                      : portalMode === 'school_staff'
+                        ? 'School staff'
+                        : 'School portal'
             }}
           </div>
         </div>
@@ -35,14 +41,6 @@
           >
             Back to show all schools
           </router-link>
-          <button
-            v-if="portalMode !== 'home'"
-            class="btn btn-secondary btn-sm"
-            type="button"
-            @click="portalMode = 'home'"
-          >
-            Back
-          </button>
           <button
             v-if="true"
             class="btn btn-secondary btn-sm"
@@ -56,34 +54,262 @@
         </div>
       </div>
 
-      <div v-if="portalMode === 'home'" class="home">
-        <div class="card-grid">
-          <button class="nav-card" type="button" @click="openProvidersPanel">
-            <div class="nav-title">Providers</div>
-            <div class="nav-sub">View provider cards and profiles.</div>
+      <div class="main-layout" :class="{ 'with-rail': portalMode !== 'home' }">
+        <nav v-if="portalMode !== 'home'" class="nav-rail" aria-label="School portal navigation">
+          <button class="nav-item" type="button" @click="portalMode = 'home'" :class="{ active: portalMode === 'home' }">
+            <div class="nav-icon">
+              <img v-if="homeIconUrl" :src="homeIconUrl" alt="" class="nav-icon-img" />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">⌂</div>
+            </div>
+            <div class="nav-label">Home</div>
           </button>
-          <button class="nav-card" type="button" @click="portalMode = 'days'">
-            <div class="nav-title">Days</div>
-            <div class="nav-sub">Choose a weekday and view schedules.</div>
+
+          <button class="nav-item" type="button" @click="openProvidersPanel" :class="{ active: portalMode === 'providers' }">
+            <div class="nav-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">PR</div>
+            </div>
+            <div class="nav-label">Providers</div>
           </button>
-          <button class="nav-card" type="button" @click="portalMode = 'roster'">
-            <div class="nav-title">Roster</div>
-            <div class="nav-sub">View and sort the client roster.</div>
+
+          <button class="nav-item" type="button" @click="portalMode = 'days'" :class="{ active: portalMode === 'days' }">
+            <div class="nav-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">DY</div>
+            </div>
+            <div class="nav-label">Days</div>
           </button>
-          <button class="nav-card" type="button" @click="portalMode = 'skills'">
-            <div class="nav-title">Skills Groups</div>
-            <div class="nav-sub">Groups, meetings, providers, and participants.</div>
+
+          <button class="nav-item" type="button" @click="portalMode = 'roster'" :class="{ active: portalMode === 'roster' }">
+            <div class="nav-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">RS</div>
+            </div>
+            <div class="nav-label">Roster</div>
           </button>
-          <button class="nav-card" type="button" @click="showHelpDesk = true">
-            <div class="nav-title">Contact admin</div>
-            <div class="nav-sub">Send a message to agency staff.</div>
+
+          <button class="nav-item" type="button" @click="portalMode = 'skills'" :class="{ active: portalMode === 'skills' }">
+            <div class="nav-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">SG</div>
+            </div>
+            <div class="nav-label">Skills</div>
+          </button>
+
+          <button class="nav-item" type="button" @click="portalMode = 'school_staff'" :class="{ active: portalMode === 'school_staff' }">
+            <div class="nav-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">SS</div>
+            </div>
+            <div class="nav-label">Staff</div>
+          </button>
+
+          <button class="nav-item" type="button" @click="showHelpDesk = true">
+            <div class="nav-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">CA</div>
+            </div>
+            <div class="nav-label">Help</div>
+          </button>
+        </nav>
+
+        <div class="main-content">
+          <div v-if="portalMode === 'days'" class="days-daybar-center">
+            <SchoolDayBar
+              v-model="store.selectedWeekday"
+              :days="store.days"
+            />
+          </div>
+          <div v-if="portalMode === 'home'" class="home">
+        <div class="home-snapshot">
+          <div class="home-snapshot-title">At a glance</div>
+          <div class="home-snapshot-grid">
+            <div class="home-pill">
+              <div class="home-pill-k">{{ atGlance.days }}</div>
+              <div class="home-pill-v">Days supported</div>
+            </div>
+            <div class="home-pill">
+              <div class="home-pill-k">{{ atGlance.clients }}</div>
+              <div class="home-pill-v">Clients being seen</div>
+            </div>
+            <div class="home-pill">
+              <div class="home-pill-k">{{ atGlance.slots }}</div>
+              <div class="home-pill-v">Slots available</div>
+            </div>
+            <div class="home-pill">
+              <div class="home-pill-k">{{ atGlance.pending }}</div>
+              <div class="home-pill-v">Pending clients</div>
+            </div>
+            <div class="home-pill">
+              <div class="home-pill-k">{{ atGlance.waitlist }}</div>
+              <div class="home-pill-v">Waitlist clients</div>
+            </div>
+            <div class="home-pill">
+              <div class="home-pill-k">{{ atGlance.staff }}</div>
+              <div class="home-pill-v">School staff users</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-card-grid">
+          <button class="dash-card" type="button" @click="openProvidersPanel">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
+                alt="Providers icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">PR</div>
+            </div>
+            <div class="dash-card-title">Providers</div>
+            <div class="dash-card-desc">View provider cards, profiles, and messages.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+            </div>
+          </button>
+
+          <button class="dash-card" type="button" @click="portalMode = 'days'">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
+                alt="Days icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">DY</div>
+            </div>
+            <div class="dash-card-title">Days</div>
+            <div class="dash-card-desc">Choose a weekday and view schedules.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+            </div>
+          </button>
+
+          <button class="dash-card dash-card-default-roster" type="button" @click="scrollToHomeRoster">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
+                alt="Roster icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">RS</div>
+            </div>
+            <div class="dash-card-title">Roster</div>
+            <div class="dash-card-desc">View and sort the client roster.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+            </div>
+          </button>
+
+          <button class="dash-card" type="button" @click="portalMode = 'skills'">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
+                alt="Skills groups icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">SG</div>
+            </div>
+            <div class="dash-card-title">Skills Groups</div>
+            <div class="dash-card-desc">Groups, meetings, providers, and participants.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+            </div>
+          </button>
+
+          <button class="dash-card" type="button" @click="portalMode = 'school_staff'">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
+                alt="School staff icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">SS</div>
+            </div>
+            <div class="dash-card-title">School staff</div>
+            <div class="dash-card-desc">Manage linked school staff accounts and requests.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+              <span v-if="Number(store.portalStats?.school_staff_count) >= 0" class="dash-card-badge">
+                {{ Number(store.portalStats?.school_staff_count || 0) }}
+              </span>
+            </div>
+          </button>
+
+          <button class="dash-card" type="button" @click="showHelpDesk = true">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
+                alt="Contact admin icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">CA</div>
+            </div>
+            <div class="dash-card-title">Contact admin</div>
+            <div class="dash-card-desc">Send a message to agency staff.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+            </div>
           </button>
         </div>
-      </div>
 
-      <div v-else-if="portalMode === 'days'">
-        <div v-if="!store.selectedWeekday" class="empty-state">
-          Select a weekday above to view schedules.
+        <div ref="homeRosterEl" class="home-roster">
+          <div class="roster-header">
+            <h2 style="margin: 0;">School roster</h2>
+            <div class="muted">Assigned + unassigned (restricted fields)</div>
+          </div>
+          <ClientListGrid
+            v-if="organizationId"
+            :organization-slug="organizationSlug"
+            :organization-id="organizationId"
+            :client-label-mode="clientLabelMode"
+            edit-mode="inline"
+            :show-search="true"
+            search-placeholder="Search roster…"
+            @edit-client="openAdminClientEditor"
+          />
+          <div v-else class="empty-state">Organization not loaded.</div>
+        </div>
+          </div>
+
+          <div v-else-if="portalMode === 'days'">
+        <div v-if="!store.selectedWeekday" class="empty-state center">
+          Select a weekday to view schedules.
         </div>
         <DayPanel
           v-else-if="organizationId"
@@ -102,16 +328,16 @@
           @open-provider="goToProviderSchoolProfile"
         />
         <div v-else class="empty-state">Organization not loaded.</div>
-      </div>
+          </div>
 
-      <div v-else-if="portalMode === 'providers'">
+          <div v-else-if="portalMode === 'providers'">
         <ProvidersDirectoryPanel
           v-if="organizationId"
           :providers="store.eligibleProviders"
           :loading="store.eligibleProvidersLoading"
           @open-provider="goToProviderSchoolProfile"
         />
-      </div>
+          </div>
 
       <SkillsGroupsPanel
         v-else-if="portalMode === 'skills' && organizationId"
@@ -119,7 +345,16 @@
         :client-label-mode="clientLabelMode"
       />
 
-      <div v-else-if="portalMode === 'roster'" class="roster">
+          <div v-else-if="portalMode === 'school_staff'">
+        <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
+        <SchoolStaffPanel
+          v-else
+          :school-organization-id="organizationId"
+          :school-name="organizationName"
+        />
+          </div>
+
+          <div v-else-if="portalMode === 'roster'" class="roster">
         <div class="roster-header">
           <h2 style="margin: 0;">School roster</h2>
           <div class="muted">Assigned + unassigned (restricted fields)</div>
@@ -133,9 +368,11 @@
           @edit-client="openAdminClientEditor"
         />
         <div v-else class="empty-state">Organization not loaded.</div>
-      </div>
+          </div>
 
-      <div v-else class="empty-state">Organization not loaded.</div>
+          <div v-else class="empty-state">Organization not loaded.</div>
+        </div>
+      </div>
     </div>
 
     <ClientModal
@@ -166,6 +403,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useOrganizationStore } from '../../store/organization';
+import { useBrandingStore } from '../../store/branding';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
 import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
@@ -173,22 +411,38 @@ import DayPanel from '../../components/school/redesign/DayPanel.vue';
 import ClientModal from '../../components/school/redesign/ClientModal.vue';
 import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPanel.vue';
 import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersDirectoryPanel.vue';
+import SchoolStaffPanel from '../../components/school/redesign/SchoolStaffPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const route = useRoute();
 const router = useRouter();
 const organizationStore = useOrganizationStore();
 const store = useSchoolPortalRedesignStore();
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
 
 const showHelpDesk = ref(false);
 const selectedClient = ref(null);
-const portalMode = ref('home'); // home | providers | days | roster | skills
+const portalMode = ref('home'); // home | providers | days | roster | skills | school_staff
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
+const cardIconOrg = ref(null); // affiliated agency record (for School Portal card icon overrides)
+
+const atGlance = computed(() => {
+  if (store.portalStatsLoading) return { days: '—', clients: '—', slots: '—', pending: '—', waitlist: '—', staff: '—' };
+  const s = store.portalStats || {};
+  const days = Number.isFinite(Number(s.assigned_weekdays_count)) ? String(Number(s.assigned_weekdays_count)) : '0';
+  const clients = Number.isFinite(Number(s.clients_assigned)) ? String(Number(s.clients_assigned)) : '0';
+  const slots = Number.isFinite(Number(s.slots_available)) ? String(Number(s.slots_available)) : '0';
+  const pending = Number.isFinite(Number(s.clients_pending)) ? String(Number(s.clients_pending)) : '0';
+  const waitlist = Number.isFinite(Number(s.clients_waitlist)) ? String(Number(s.clients_waitlist)) : '0';
+  const staff = Number.isFinite(Number(s.school_staff_count)) ? String(Number(s.school_staff_count)) : '0';
+  return { days, clients, slots, pending, waitlist, staff };
+});
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isProvider = computed(() => roleNorm.value === 'provider');
@@ -211,12 +465,39 @@ const openProvidersPanel = async () => {
   }
 };
 
+const homeRosterEl = ref(null);
+const scrollToHomeRoster = () => {
+  try {
+    homeRosterEl.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch {
+    // ignore
+  }
+};
+
 const organizationSlug = computed(() => route.params.organizationSlug);
 
 const organizationName = computed(() => {
   return organizationStore.organizationContext?.name || 
          organizationStore.currentOrganization?.name || 
          'School';
+});
+
+const organizationDisplayName = computed(() => {
+  const org = organizationStore.currentOrganization;
+  const official = String(org?.official_name || '').trim();
+  return official || organizationName.value;
+});
+
+const schoolLogoUrl = computed(() => {
+  const org = organizationStore.currentOrganization;
+  const raw = org?.logo_path || org?.logo_url || null;
+  return toUploadsUrl(raw);
+});
+
+const homeIconUrl = computed(() => {
+  const a = cardIconOrg.value || null;
+  const raw = a?.icon_file_path || a?.icon_path || null;
+  return toUploadsUrl(raw);
 });
 
 const organizationId = computed(() => {
@@ -235,6 +516,7 @@ const loadForDay = async (weekday) => {
   if (portalMode.value !== 'days') return;
   if (!weekday) return;
   await store.fetchDays();
+  await store.fetchPortalStats();
   await store.fetchEligibleProviders();
   await store.fetchDayProviders(weekday);
   const list = Array.isArray(store.dayProviders) ? store.dayProviders : [];
@@ -311,7 +593,21 @@ onMounted(async () => {
     // Provider default: show skills groups.
     if (isProvider.value) portalMode.value = 'skills';
     await store.fetchDays();
+    await store.fetchPortalStats();
+    // Preload provider list so home has useful info immediately.
+    await store.fetchEligibleProviders();
     if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
+  }
+
+  // Best-effort: load affiliated agency record for icon overrides.
+  try {
+    const affId = organizationStore.currentOrganization?.affiliated_agency_id;
+    if (affId) {
+      const r = await api.get(`/agencies/${affId}`);
+      cardIconOrg.value = r.data || null;
+    }
+  } catch {
+    cardIconOrg.value = null;
   }
 });
 
@@ -321,7 +617,22 @@ watch(organizationId, async (id) => {
   store.setSchoolId(id);
   if (isProvider.value) portalMode.value = 'skills';
   await store.fetchDays();
+  await store.fetchPortalStats();
+  await store.fetchEligibleProviders();
   if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
+
+  // refresh icon override for this org
+  try {
+    const affId = organizationStore.currentOrganization?.affiliated_agency_id;
+    if (affId) {
+      const r = await api.get(`/agencies/${affId}`);
+      cardIconOrg.value = r.data || null;
+    } else {
+      cardIconOrg.value = null;
+    }
+  } catch {
+    cardIconOrg.value = null;
+  }
 });
 
 watch(() => store.selectedWeekday, async (weekday) => {
@@ -352,10 +663,65 @@ watch(() => store.selectedWeekday, async (weekday) => {
   margin: 0 0 8px 0;
 }
 
+.portal-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.portal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.school-logo {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  background: rgba(255, 255, 255, 0.10);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.school-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .portal-subtitle {
   font-size: 16px;
   color: var(--header-text-muted, rgba(255,255,255,0.85));
   margin: 0;
+}
+
+.dash-card-badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dash-card-default-roster {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.home-roster {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
 }
 
 .portal-content {
@@ -388,34 +754,200 @@ watch(() => store.selectedWeekday, async (weekday) => {
   justify-content: flex-end;
 }
 
+.main-layout {
+  display: block;
+}
+.main-layout.with-rail {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+.nav-rail {
+  position: sticky;
+  top: 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 4px 0;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+}
+.nav-item {
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  place-items: center;
+  cursor: pointer;
+}
+.nav-item:hover {
+  transform: translateY(-1px);
+}
+.nav-item.active {
+  transform: none;
+}
+.nav-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: white;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  font-weight: 900;
+  color: var(--text-primary);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+}
+.nav-item:hover .nav-icon {
+  border-color: rgba(79, 70, 229, 0.35);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.10);
+}
+.nav-item.active .nav-icon {
+  border-color: rgba(79, 70, 229, 0.55);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
+}
+.nav-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.nav-label {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+.main-content {
+  min-width: 0;
+}
+
+.days-daybar-center :deep(.day-bar) {
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.empty-state.center {
+  text-align: center;
+  padding: 24px 12px;
+}
+
 .home {
   padding: 6px 0;
 }
-.card-grid {
+
+.home-snapshot {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+.home-snapshot-title {
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+.home-snapshot-grid {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow: auto;
+  padding-bottom: 2px;
+}
+.home-pill {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.home-pill-k {
+  font-weight: 900;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.home-pill-v {
+  margin-top: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.dashboard-card-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
-.nav-card {
+.dash-card {
   text-align: left;
-  border: 1px solid var(--border);
-  border-radius: 14px;
   background: white;
-  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
-.nav-card:hover {
-  border-color: rgba(79, 70, 229, 0.35);
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.10);
+.dash-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
 }
-.nav-title {
+.dash-card-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+.dash-card-icon-img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+.dash-card-icon-fallback {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-weight: 900;
-  color: var(--text-primary);
-  font-size: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
-.nav-sub {
-  margin-top: 6px;
+.dash-card-title {
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.dash-card-desc {
   color: var(--text-secondary);
   font-size: 13px;
+  margin-bottom: 10px;
+}
+.dash-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.dash-card-cta {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .roster {
@@ -436,13 +968,28 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 
 @media (max-width: 1100px) {
-  .card-grid {
+  .dashboard-card-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .home-snapshot-grid { flex-wrap: wrap; }
 }
 @media (max-width: 760px) {
-  .card-grid {
+  .dashboard-card-grid {
     grid-template-columns: 1fr;
+  }
+  .home-snapshot-grid { flex-wrap: wrap; }
+  .main-layout.with-rail {
+    grid-template-columns: 1fr;
+  }
+  .nav-rail {
+    position: static;
+    padding: 0;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-auto-flow: column;
+    overflow: auto;
+  }
+  .nav-label {
+    display: none;
   }
 }
 </style>

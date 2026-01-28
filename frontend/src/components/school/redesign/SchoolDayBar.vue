@@ -4,7 +4,14 @@
       v-for="d in days"
       :key="d.weekday"
       class="day"
-      :class="{ selected: d.weekday === modelValue, lit: !!d.has_providers, disabled: !d.has_providers }"
+      :class="{
+        selected: d.weekday === modelValue,
+        lit: !!d.has_providers,
+        disabled: !d.has_providers,
+        green: !!d.has_providers && String(d.availability_status || '') === 'green',
+        yellow: !!d.has_providers && String(d.availability_status || '') === 'yellow',
+        red: !!d.has_providers && String(d.availability_status || '') === 'red'
+      }"
       type="button"
       role="tab"
       :aria-selected="d.weekday === modelValue"
@@ -50,6 +57,18 @@ const shortLabel = (weekday) => {
 .day.lit {
   border-color: rgba(16, 185, 129, 0.5);
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+}
+.day.green {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.06);
+}
+.day.yellow {
+  border-color: rgba(245, 158, 11, 0.65);
+  background: rgba(245, 158, 11, 0.10);
+}
+.day.red {
+  border-color: rgba(239, 68, 68, 0.65);
+  background: rgba(239, 68, 68, 0.10);
 }
 .day.selected {
   border-color: rgba(79, 70, 229, 0.55);

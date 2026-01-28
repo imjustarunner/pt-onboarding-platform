@@ -346,6 +346,11 @@
               <label>Name *</label>
               <input v-model="agencyForm.name" type="text" required />
             </div>
+            <div v-if="String(agencyForm.organizationType || '').toLowerCase() === 'school'" class="form-group">
+              <label>Official name (display)</label>
+              <input v-model="agencyForm.officialName" type="text" placeholder="e.g., Ashley Elementary" />
+              <small>This is what displays on the School Portal header.</small>
+            </div>
             <div class="form-group">
               <label>Slug *</label>
               <input v-model="agencyForm.slug" type="text" required pattern="[a-z0-9\\-]+" />
@@ -1487,6 +1492,46 @@
                 <label>Notifications Card Icon</label>
                 <IconSelector v-model="agencyForm.myDashboardNotificationsIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Notifications" card</small>
+              </div>
+            </div>
+
+            <div v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'agency'" class="settings-section-divider">
+              <h4>School Portal Card Icons</h4>
+              <p class="section-description">
+                Icons displayed on the School Portal home cards (Providers, Days, Roster, Skills Groups, Contact Admin) for affiliated schools/programs. These override platform defaults.
+              </p>
+            </div>
+
+            <div v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'agency'" class="dashboard-icons-grid">
+              <div class="dashboard-icon-item">
+                <label>Providers Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalProvidersIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Providers" card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Days Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalDaysIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Days" card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Roster Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalRosterIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Roster" card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Skills Groups Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalSkillsGroupsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Skills Groups" card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Contact Admin Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalContactAdminIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Contact admin" card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>School Staff Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalSchoolStaffIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "School staff" card in school portals</small>
               </div>
             </div>
             
@@ -2903,6 +2948,12 @@ const ICON_TEMPLATE_FIELDS = [
   'myDashboardCommunicationsIconId',
   'myDashboardChatsIconId',
   'myDashboardNotificationsIconId',
+  'schoolPortalProvidersIconId',
+  'schoolPortalDaysIconId',
+  'schoolPortalRosterIconId',
+  'schoolPortalSkillsGroupsIconId',
+  'schoolPortalContactAdminIconId',
+  'schoolPortalSchoolStaffIconId',
   'statusExpiredIconId',
   'tempPasswordExpiredIconId',
   'taskOverdueIconId',
@@ -2917,6 +2968,7 @@ const defaultAgencyForm = () => ({
   organizationType: userRole.value === 'super_admin' ? 'agency' : 'school',
   affiliatedAgencyId: '',
   name: '',
+  officialName: '',
   slug: '',
   // Office-only (when organizationType === 'office')
   officeTimezone: 'America/New_York',
@@ -2961,6 +3013,12 @@ const defaultAgencyForm = () => ({
   myDashboardCommunicationsIconId: null,
   myDashboardChatsIconId: null,
   myDashboardNotificationsIconId: null,
+  schoolPortalProvidersIconId: null,
+  schoolPortalDaysIconId: null,
+  schoolPortalRosterIconId: null,
+  schoolPortalSkillsGroupsIconId: null,
+  schoolPortalContactAdminIconId: null,
+  schoolPortalSchoolStaffIconId: null,
   onboardingTeamEmail: '',
   phoneNumber: '',
   phoneExtension: '',
@@ -3789,6 +3847,7 @@ const editAgency = async (agency) => {
     organizationType: agency.organization_type || 'agency',
     affiliatedAgencyId: '',
     name: agency.name,
+    officialName: agency.official_name || '',
     slug: agency.slug,
     officeTimezone: 'America/New_York',
     officeSvgUrl: '',
@@ -3832,6 +3891,12 @@ const editAgency = async (agency) => {
     myDashboardCommunicationsIconId: agency.my_dashboard_communications_icon_id ?? null,
     myDashboardChatsIconId: agency.my_dashboard_chats_icon_id ?? null,
     myDashboardNotificationsIconId: agency.my_dashboard_notifications_icon_id ?? null,
+    schoolPortalProvidersIconId: agency.school_portal_providers_icon_id ?? null,
+    schoolPortalDaysIconId: agency.school_portal_days_icon_id ?? null,
+    schoolPortalRosterIconId: agency.school_portal_roster_icon_id ?? null,
+    schoolPortalSkillsGroupsIconId: agency.school_portal_skills_groups_icon_id ?? null,
+    schoolPortalContactAdminIconId: agency.school_portal_contact_admin_icon_id ?? null,
+    schoolPortalSchoolStaffIconId: agency.school_portal_school_staff_icon_id ?? null,
     onboardingTeamEmail: agency.onboarding_team_email || '',
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
@@ -4345,6 +4410,7 @@ const saveAgency = async () => {
     const data = {
       organizationType: agencyForm.value.organizationType || 'agency',
       name: agencyForm.value.name.trim(),
+      officialName: agencyForm.value.officialName?.trim() || null,
       slug: slug,
       // Clear one when using the other (like platform branding)
       logoUrl: logoInputMethod.value === 'url' ? (agencyForm.value.logoUrl?.trim() || null) : null,
@@ -4385,6 +4451,12 @@ const saveAgency = async () => {
       myDashboardCommunicationsIconId: agencyForm.value.myDashboardCommunicationsIconId ?? null,
       myDashboardChatsIconId: agencyForm.value.myDashboardChatsIconId ?? null,
       myDashboardNotificationsIconId: agencyForm.value.myDashboardNotificationsIconId ?? null,
+      schoolPortalProvidersIconId: agencyForm.value.schoolPortalProvidersIconId ?? null,
+      schoolPortalDaysIconId: agencyForm.value.schoolPortalDaysIconId ?? null,
+      schoolPortalRosterIconId: agencyForm.value.schoolPortalRosterIconId ?? null,
+      schoolPortalSkillsGroupsIconId: agencyForm.value.schoolPortalSkillsGroupsIconId ?? null,
+      schoolPortalContactAdminIconId: agencyForm.value.schoolPortalContactAdminIconId ?? null,
+      schoolPortalSchoolStaffIconId: agencyForm.value.schoolPortalSchoolStaffIconId ?? null,
       onboardingTeamEmail: agencyForm.value.onboardingTeamEmail?.trim() || null,
       phoneNumber: agencyForm.value.phoneNumber?.trim() || null,
       // Schools don't use extensions (per directory requirements)

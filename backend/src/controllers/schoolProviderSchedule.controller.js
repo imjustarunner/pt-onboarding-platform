@@ -110,12 +110,16 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
                 psa.slots_available,
                 psa.start_time,
                 psa.end_time,
-                psa.is_active
+                psa.is_active,
+                psp.school_info_blurb
          FROM provider_school_assignments psa
          JOIN user_agencies ua
            ON ua.user_id = psa.provider_user_id
           AND ua.agency_id = psa.school_organization_id
          JOIN users u ON u.id = psa.provider_user_id
+         LEFT JOIN provider_school_profiles psp
+           ON psp.school_organization_id = psa.school_organization_id
+          AND psp.provider_user_id = psa.provider_user_id
          WHERE psa.school_organization_id = ?
          ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
         [parseInt(schoolId, 10)]
@@ -124,8 +128,45 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
     } catch (e) {
       // Older DB: fall back without the optional columns.
       const msg = String(e?.message || '');
-      if (msg.includes('Unknown column')) {
-        const [r] = await pool.execute(
+      const canFallback = msg.includes('Unknown column') || msg.includes('ER_BAD_FIELD_ERROR') || msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (!canFallback) throw e;
+
+      try {
+        const [r2] = await pool.execute(
+          `SELECT psa.provider_user_id,
+                  u.first_name,
+                  u.last_name,
+                  u.email,
+                  psa.day_of_week,
+                  psa.slots_total,
+                  psa.slots_available,
+                  psa.start_time,
+                  psa.end_time,
+                  psa.is_active,
+                  psp.school_info_blurb
+           FROM provider_school_assignments psa
+           JOIN user_agencies ua
+             ON ua.user_id = psa.provider_user_id
+            AND ua.agency_id = psa.school_organization_id
+           JOIN users u ON u.id = psa.provider_user_id
+           LEFT JOIN provider_school_profiles psp
+             ON psp.school_organization_id = psa.school_organization_id
+            AND psp.provider_user_id = psa.provider_user_id
+           WHERE psa.school_organization_id = ?
+           ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
+          [parseInt(schoolId, 10)]
+        );
+        rows = (r2 || []).map((x) => ({
+          ...x,
+          accepting_new_clients_effective: true,
+          provider_accepting_new_clients: true,
+          accepting_new_clients_override: null
+        }));
+      } catch (e2) {
+        const msg2 = String(e2?.message || '');
+        const missingProfiles = msg2.includes("doesn't exist") || msg2.includes('ER_NO_SUCH_TABLE');
+        if (!missingProfiles) throw e2;
+        const [r3] = await pool.execute(
           `SELECT psa.provider_user_id,
                   u.first_name,
                   u.last_name,
@@ -145,14 +186,13 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
            ORDER BY u.last_name ASC, u.first_name ASC, psa.day_of_week ASC`,
           [parseInt(schoolId, 10)]
         );
-        rows = (r || []).map((x) => ({
+        rows = (r3 || []).map((x) => ({
           ...x,
+          school_info_blurb: null,
           accepting_new_clients_effective: true,
           provider_accepting_new_clients: true,
           accepting_new_clients_override: null
         }));
-      } else {
-        throw e;
       }
     }
 
@@ -169,6 +209,7 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
           accepting_new_clients: r.accepting_new_clients_effective !== undefined ? !!r.accepting_new_clients_effective : true,
           provider_accepting_new_clients: r.provider_accepting_new_clients !== undefined ? !!r.provider_accepting_new_clients : true,
           profile_photo_url: null,
+          school_info_blurb: r.school_info_blurb || null,
           assignments: []
         });
       }

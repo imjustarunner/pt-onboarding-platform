@@ -17,6 +17,7 @@ const validateIconId = (fieldName) => body(fieldName).optional().custom((value) 
 // Validation for creating agencies (name and slug required)
 const validateCreateAgency = [
   body('name').trim().notEmpty().withMessage('Name is required'),
+  body('officialName').optional().isLength({ max: 255 }).withMessage('officialName must be 255 characters or less'),
   body('slug').trim().notEmpty().withMessage('Slug is required').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
   body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning']).withMessage('organizationType must be one of: agency, school, program, learning'),
   body('affiliatedAgencyId').optional().isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
@@ -58,6 +59,12 @@ const validateCreateAgency = [
   validateIconId('myDashboardDocumentsIconId'),
   validateIconId('myDashboardMyAccountIconId'),
   validateIconId('myDashboardOnDemandTrainingIconId'),
+  validateIconId('schoolPortalProvidersIconId'),
+  validateIconId('schoolPortalDaysIconId'),
+  validateIconId('schoolPortalRosterIconId'),
+  validateIconId('schoolPortalSkillsGroupsIconId'),
+  validateIconId('schoolPortalContactAdminIconId'),
+  validateIconId('schoolPortalSchoolStaffIconId'),
   body('certificateTemplateUrl').optional().isURL().withMessage('Certificate template URL must be a valid URL'),
   body('onboardingTeamEmail').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (!value || value === null || value === '' || value === undefined) return true;
@@ -117,6 +124,7 @@ const validateCreateAgency = [
 // Validation for updating agencies (name and slug optional, can update just branding)
 const validateUpdateAgency = [
   body('name').optional().trim().notEmpty().withMessage('Name cannot be empty'),
+  body('officialName').optional().isLength({ max: 255 }).withMessage('officialName must be 255 characters or less'),
   body('slug').optional().trim().notEmpty().withMessage('Slug cannot be empty').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
   body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning']).withMessage('organizationType must be one of: agency, school, program, learning'),
   body('affiliatedAgencyId').optional().isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
@@ -160,6 +168,12 @@ const validateUpdateAgency = [
   validateIconId('myDashboardDocumentsIconId'),
   validateIconId('myDashboardMyAccountIconId'),
   validateIconId('myDashboardOnDemandTrainingIconId'),
+  validateIconId('schoolPortalProvidersIconId'),
+  validateIconId('schoolPortalDaysIconId'),
+  validateIconId('schoolPortalRosterIconId'),
+  validateIconId('schoolPortalSkillsGroupsIconId'),
+  validateIconId('schoolPortalContactAdminIconId'),
+  validateIconId('schoolPortalSchoolStaffIconId'),
   body('certificateTemplateUrl').optional().custom((value) => {
     // Allow null, undefined, or empty string
     if (!value || value === null || value === '' || value === undefined) return true;
