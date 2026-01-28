@@ -2551,7 +2551,6 @@ watch(() => activeTab.value, (newTab) => {
 watch(() => props.client, async () => {
   // Reset editing states when client changes
   editingStatus.value = false;
-  editingProvider.value = false;
   skillsValue.value = !!props.client?.skills;
   if (!editingOverview.value) {
     hydrateOverviewForm();
