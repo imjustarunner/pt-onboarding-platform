@@ -76,6 +76,7 @@ class ClientGuardian {
          c.agency_id,
          c.guardian_portal_enabled,
          o.name AS organization_name,
+         o.organization_type AS organization_type,
          o.slug AS organization_slug,
          a.name AS agency_name,
          a.slug AS agency_slug,

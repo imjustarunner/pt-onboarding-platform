@@ -18,7 +18,7 @@ function makeInClausePlaceholders(count) {
 }
 
 /**
- * GET /api/dashboard/school-overview?agencyId=123
+ * GET /api/dashboard/school-overview?agencyId=123&orgType=school|program|learning
  *
  * Returns per-school operational stats for the agency's affiliated orgs.
  */
@@ -30,9 +30,16 @@ export const getSchoolOverview = async (req, res, next) => {
     }
 
     const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
+    const requestedType = String(req.query.orgType || '').trim().toLowerCase();
+    const allowedTypes = new Set(['school', 'program', 'learning']);
+    const orgTypeFilter = allowedTypes.has(requestedType) ? requestedType : null;
+
     const schools = (affiliated || []).filter((o) => {
       const t = String(o?.organization_type || 'agency').toLowerCase();
-      return t === 'school' || t === 'program' || t === 'learning';
+      if (!(t === 'school' || t === 'program' || t === 'learning')) return false;
+      // Program Overview should include learning orgs (but not schools).
+      if (orgTypeFilter === 'program') return t === 'program' || t === 'learning';
+      return orgTypeFilter ? t === orgTypeFilter : true;
     });
 
     const schoolIds = schools.map((s) => safeInt(s?.id)).filter(Boolean);

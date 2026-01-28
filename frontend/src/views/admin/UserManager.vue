@@ -7,171 +7,246 @@
         <button v-if="!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'" @click="showCreateModal = true" class="btn btn-primary">Create New User</button>
         <button v-if="user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support'" @click="showSupervisorsModal = true" class="btn btn-secondary">Supervisors</button>
       </div>
-      <div v-if="showAdditionalFilters" class="additional-filters">
-        <div class="sort-controls">
-          <label for="roleSort">Filter by Role:</label>
-          <select id="roleSort" v-model="roleSort" @change="applySorting">
-            <option value="">All Roles</option>
-            <option value="provider">Provider</option>
-            <option value="school_staff">School Staff</option>
-            <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
-            <option value="staff">Staff</option>
-            <option value="support">Staff (Admin Tools)</option>
-            <option value="admin">Admin</option>
-            <option value="super_admin">Super Admin</option>
-          </select>
-        </div>
-        <div class="sort-controls">
-          <label for="userSearch">Search:</label>
-          <input
-            id="userSearch"
-            v-model="userSearch"
-            type="text"
-            placeholder="Name, email, agency, role, status, credential…"
-            style="padding: 8px 12px; border: 1px solid var(--border, #dee2e6); border-radius: 6px; font-size: 14px; min-width: 220px;"
-          />
-        </div>
-      </div>
     </div>
     
     <div v-if="loading" class="loading">Loading users...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     
     <div v-else>
-      <div class="ai-query-card">
-        <div class="ai-query-banner">
-          <img :src="aiBannerSrc" alt="AI status" class="ai-query-banner-img" />
-        </div>
-
-        <div class="ai-query-body">
-          <div class="ai-query-header">
-            <div class="ai-query-title">
-              <img :src="aiIconSrc" alt="AI" class="ai-query-icon" />
-              <div>
-                <div class="ai-query-title-text">AI Search (Gemini-ready)</div>
-                <div class="ai-query-subtitle">Ask questions across all user info fields and get a copyable email list.</div>
-              </div>
-            </div>
-
-            <div class="ai-query-actions">
-              <button class="btn btn-secondary btn-sm" type="button" @click="clearAiQuery" :disabled="aiState === 'thinking'">
-                Clear
-              </button>
-              <button class="btn btn-primary btn-sm" type="button" @click="runAiQuery" :disabled="aiState === 'thinking' || !String(aiQueryText || '').trim()">
-                {{ aiState === 'thinking' ? 'Searching…' : 'Search' }}
-              </button>
-            </div>
-          </div>
-
-          <div class="ai-query-input-row">
+      <div class="users-layout">
+        <aside class="filters-sidebar">
+          <div class="filter-section">
+            <label for="userSearch" class="filter-label">Search</label>
             <input
-              v-model="aiQueryText"
+              id="userSearch"
+              v-model="userSearch"
               type="text"
-              class="ai-query-input"
-              placeholder="Type your query here… e.g. list all the people who mentioned that they are interested in hiking"
-              @keydown.enter.prevent="runAiQuery"
+              class="filter-input"
+              placeholder="Name, email, agency, role, status, credential…"
+              autocomplete="off"
             />
           </div>
 
-          <div class="ai-query-toggles">
-            <label class="ai-query-toggle">
-              <input type="checkbox" v-model="aiActiveOnly" :disabled="aiState === 'thinking'" />
-              <span>Active only</span>
-            </label>
-            <label class="ai-query-toggle">
-              <input type="checkbox" v-model="aiProvidersOnly" :disabled="aiState === 'thinking'" />
-              <span>Providers only</span>
-            </label>
+          <div class="filter-section">
+            <label for="agencySort" class="filter-label">Agency</label>
+            <select id="agencySort" v-model="agencySort" class="filter-select">
+              <option value="">All agencies</option>
+              <option v-for="a in agencyOptions" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+            </select>
           </div>
 
-          <div v-if="aiState === 'thinking'" class="ai-query-status muted">Thinking… searching user info fields.</div>
-          <div v-else-if="aiState === 'error'" class="ai-query-status error">{{ aiError || 'No results found.' }}</div>
-          <div v-else-if="aiState === 'success'" class="ai-query-status success">
-            Found {{ aiResults.length }} user{{ aiResults.length === 1 ? '' : 's' }}.
+          <div class="filter-section">
+            <label for="organizationSort" class="filter-label">Organization</label>
+            <input
+              v-model="organizationSearch"
+              type="text"
+              class="filter-input"
+              placeholder="Search organizations…"
+              autocomplete="off"
+              style="margin-bottom: 8px;"
+            />
+            <select
+              id="organizationSort"
+              v-model="organizationSort"
+              class="filter-select"
+              :disabled="organizationOptions.length === 0"
+            >
+              <option value="">All organizations</option>
+              <option v-for="o in organizationOptions" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
+            </select>
+            <div class="filter-help muted">Organizations are scoped by the selected agency.</div>
           </div>
 
-          <div v-if="aiState === 'success' && aiResults.length" class="ai-query-results">
-            <div class="ai-query-results-header">
-              <div class="ai-query-results-title">Results</div>
-              <div class="ai-query-results-meta muted">Showing up to 50 here. Use copy for the full list.</div>
+          <div class="filter-section">
+            <label for="statusSort" class="filter-label">Status</label>
+            <select id="statusSort" v-model="statusSort" class="filter-select">
+              <option value="">All</option>
+              <option value="PENDING_SETUP">Pending Setup</option>
+              <option value="PREHIRE_OPEN">Pre-Hire</option>
+              <option value="PREHIRE_REVIEW">Ready for Review</option>
+              <option value="ONBOARDING">Onboarding</option>
+              <option value="ACTIVE_EMPLOYEE">Active</option>
+              <option value="TERMINATED_PENDING">Terminated (Grace Period)</option>
+            </select>
+          </div>
+
+          <div class="filter-section">
+            <div class="filter-label">Quick user type</div>
+            <div class="type-filter-row">
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm type-filter-btn"
+                :class="{ active: userTypeFilter === 'guardians' }"
+                @click="toggleUserType('guardians')"
+              >
+                Show guardians
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm type-filter-btn"
+                :class="{ active: userTypeFilter === 'supervisors' }"
+                @click="toggleUserType('supervisors')"
+              >
+                Show supervisors
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm type-filter-btn"
+                :class="{ active: userTypeFilter === 'staff' }"
+                @click="toggleUserType('staff')"
+              >
+                Show staff
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm type-filter-btn"
+                :class="{ active: userTypeFilter === 'providers' }"
+                @click="toggleUserType('providers')"
+              >
+                Show providers
+              </button>
+              <button
+                v-if="isSuperAdmin"
+                type="button"
+                class="btn btn-secondary btn-sm type-filter-btn"
+                :class="{ active: userTypeFilter === 'super_admins' }"
+                @click="toggleUserType('super_admins')"
+              >
+                Show super admins
+              </button>
+            </div>
+          </div>
+
+          <div class="filter-section advanced-filters">
+            <div class="filter-label">More filters</div>
+            <div class="filter-subsection">
+              <label for="roleSort" class="filter-label">Role</label>
+              <select id="roleSort" v-model="roleSort" class="filter-select">
+                <option value="">All roles</option>
+                <option value="provider">Provider</option>
+                <option value="school_staff">School Staff</option>
+                <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
+                <option value="client_guardian">Guardian</option>
+                <option value="staff">Staff</option>
+                <option value="support">Staff (Admin Tools)</option>
+                <option value="admin">Admin</option>
+                <option value="super_admin">Super Admin</option>
+              </select>
+            </div>
+          </div>
+        </aside>
+
+        <div class="users-main">
+          <div class="ai-query-card">
+            <div class="ai-query-banner">
+              <img :src="aiBannerSrc" alt="AI status" class="ai-query-banner-img" />
             </div>
 
-            <ul class="ai-query-results-list">
-              <li v-for="u in aiResults.slice(0, 50)" :key="u.id">
-                <router-link :to="`/admin/users/${u.id}`">
-                  {{ u.first_name }} {{ u.last_name }}
-                </router-link>
-                <span class="muted"> — {{ u.email }}</span>
-              </li>
-            </ul>
+            <div class="ai-query-body">
+              <div class="ai-query-header">
+                <div class="ai-query-title">
+                  <img :src="aiIconSrc" alt="AI" class="ai-query-icon" />
+                  <div>
+                    <div class="ai-query-title-text">AI Search (Gemini-ready)</div>
+                    <div class="ai-query-subtitle">Ask questions across all user info fields and get a copyable email list.</div>
+                  </div>
+                </div>
 
-            <div class="ai-query-copy">
-              <label class="ai-query-copy-label">Semicolon-separated</label>
-              <textarea class="ai-query-copy-text" readonly :value="aiEmailsSemicolon" rows="3"></textarea>
-              <div class="ai-query-copy-actions">
-                <button class="btn btn-secondary btn-sm" type="button" @click="copyAiEmails" :disabled="!aiEmailsSemicolon">
-                  Copy
-                </button>
+                <div class="ai-query-actions">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="clearAiQuery" :disabled="aiState === 'thinking'">
+                    Clear
+                  </button>
+                  <button class="btn btn-primary btn-sm" type="button" @click="runAiQuery" :disabled="aiState === 'thinking' || !String(aiQueryText || '').trim()">
+                    {{ aiState === 'thinking' ? 'Searching…' : 'Search' }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="ai-query-input-row">
+                <input
+                  v-model="aiQueryText"
+                  type="text"
+                  class="ai-query-input"
+                  placeholder="Type your query here… e.g. list all the people who mentioned that they are interested in hiking"
+                  @keydown.enter.prevent="runAiQuery"
+                />
+              </div>
+
+              <div class="ai-query-toggles">
+                <label class="ai-query-toggle">
+                  <input type="checkbox" v-model="aiActiveOnly" :disabled="aiState === 'thinking'" />
+                  <span>Active only</span>
+                </label>
+                <label class="ai-query-toggle">
+                  <input type="checkbox" v-model="aiProvidersOnly" :disabled="aiState === 'thinking'" />
+                  <span>Providers only</span>
+                </label>
+              </div>
+
+              <div v-if="aiState === 'thinking'" class="ai-query-status muted">Thinking… searching user info fields.</div>
+              <div v-else-if="aiState === 'error'" class="ai-query-status error">{{ aiError || 'No results found.' }}</div>
+              <div v-else-if="aiState === 'success'" class="ai-query-status success">
+                Found {{ aiResults.length }} user{{ aiResults.length === 1 ? '' : 's' }}.
+              </div>
+
+              <div v-if="aiState === 'success' && aiResults.length" class="ai-query-results">
+                <div class="ai-query-results-header">
+                  <div class="ai-query-results-title">Results</div>
+                  <div class="ai-query-results-meta muted">Showing up to 50 here. Use copy for the full list.</div>
+                </div>
+
+                <ul class="ai-query-results-list">
+                  <li v-for="u in aiResults.slice(0, 50)" :key="u.id">
+                    <router-link :to="`/admin/users/${u.id}`">
+                      {{ u.first_name }} {{ u.last_name }}
+                    </router-link>
+                    <span class="muted"> — {{ u.email }}</span>
+                  </li>
+                </ul>
+
+                <div class="ai-query-copy">
+                  <label class="ai-query-copy-label">Semicolon-separated</label>
+                  <textarea class="ai-query-copy-text" readonly :value="aiEmailsSemicolon" rows="3"></textarea>
+                  <div class="ai-query-copy-actions">
+                    <button class="btn btn-secondary btn-sm" type="button" @click="copyAiEmails" :disabled="!aiEmailsSemicolon">
+                      Copy
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div class="table-controls">
-        <div class="sort-controls">
-          <label for="agencySort">Filter by Agency:</label>
-          <select id="agencySort" v-model="agencySort" @change="applySorting">
-            <option value="">All Agencies</option>
-            <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
-              {{ agency.name }}
-            </option>
-          </select>
-        </div>
-        <div class="sort-controls">
-          <label for="statusSort">Filter by Status:</label>
-          <select id="statusSort" v-model="statusSort" @change="applySorting">
-            <option value="">All</option>
-            <option value="PENDING_SETUP">Pending Setup</option>
-            <option value="PREHIRE_OPEN">Pre-Hire</option>
-            <option value="PREHIRE_REVIEW">Ready for Review</option>
-            <option value="ONBOARDING">Onboarding</option>
-            <option value="ACTIVE_EMPLOYEE">Active</option>
-            <option value="TERMINATED_PENDING">Terminated (Grace Period)</option>
-          </select>
-        </div>
-        <div class="sort-controls">
-          <label for="userSort">Sort:</label>
-          <select id="userSort" v-model="userSort" @change="applySorting">
-            <option value="name_az">A–Z</option>
-            <option value="name_za">Z–A</option>
-            <option value="first_last">First name, last name</option>
-            <option value="last_first">Last name, first name</option>
-            <option value="credential">Credential</option>
-          </select>
-        </div>
-        <div class="sort-controls">
-          <button type="button" class="btn btn-secondary btn-sm" @click="showAdditionalFilters = !showAdditionalFilters">
-            {{ showAdditionalFilters ? 'Hide' : 'Show' }} Additional Filters
-          </button>
-        </div>
-      </div>
-      <div class="users-table">
-        <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Agency</th>
-            <th>Role</th>
-            <th>Credential</th>
-            <th>Status</th>
-            <th>Created</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="user in sortedUsers" :key="user.id">
+          <div class="users-table">
+            <table>
+              <thead>
+                <tr>
+                  <th class="sortable" @click="toggleTableSort('name')">
+                    Name <span class="sort-indicator">{{ sortIndicator('name') }}</span>
+                  </th>
+                  <th class="sortable" @click="toggleTableSort('email')">
+                    Email <span class="sort-indicator">{{ sortIndicator('email') }}</span>
+                  </th>
+                  <th class="sortable" @click="toggleTableSort('agency')">
+                    Agency <span class="sort-indicator">{{ sortIndicator('agency') }}</span>
+                  </th>
+                  <th class="sortable" @click="toggleTableSort('role')">
+                    Role <span class="sort-indicator">{{ sortIndicator('role') }}</span>
+                  </th>
+                  <th class="sortable" @click="toggleTableSort('credential')">
+                    Credential <span class="sort-indicator">{{ sortIndicator('credential') }}</span>
+                  </th>
+                  <th class="sortable" @click="toggleTableSort('status')">
+                    Status <span class="sort-indicator">{{ sortIndicator('status') }}</span>
+                  </th>
+                  <th class="sortable" @click="toggleTableSort('created')">
+                    Created <span class="sort-indicator">{{ sortIndicator('created') }}</span>
+                  </th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="user in sortedUsers" :key="user.id">
             <td>
               <router-link :to="`/admin/users/${user.id}`" class="user-name-link">
                 {{ user.first_name }} {{ user.last_name }}
@@ -253,8 +328,10 @@
               </div>
             </td>
           </tr>
-        </tbody>
-        </table>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
     
@@ -278,7 +355,7 @@
           <label style="display: block; margin-bottom: 8px; font-weight: 500;">Filter by Agency:</label>
           <select v-model="supervisorsAgencyFilter" @change="fetchSupervisorsList" style="padding: 8px; border: 1px solid var(--border); border-radius: 6px; min-width: 200px;">
             <option value="">All Agencies</option>
-            <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
+            <option v-for="agency in agencyOptions" :key="agency.id" :value="agency.id">
               {{ agency.name }}
             </option>
           </select>
@@ -405,17 +482,40 @@
           <div class="step-indicator">
             <div :class="['step', currentStep === 1 ? 'active' : currentStep > 1 ? 'completed' : '']">
               <span class="step-number">1</span>
-              <span class="step-label">User Information</span>
+              <span class="step-label">{{ step1Label }}</span>
             </div>
             <div :class="['step', currentStep === 2 ? 'active' : currentStep > 2 ? 'completed' : '']">
               <span class="step-number">2</span>
-              <span class="step-label">Agency & Package</span>
+              <span class="step-label">{{ step2Label }}</span>
             </div>
           </div>
           
           <!-- Step 1: User Information -->
           <div v-if="currentStep === 1" class="step-content">
             <form @submit.prevent="nextStep">
+              <div class="form-group">
+                <label>Role *</label>
+                <select v-model="userForm.role" required>
+                  <option v-if="user?.role === 'super_admin'" value="super_admin">Super Admin</option>
+                  <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="admin">Admin</option>
+                  <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff (Admin Tools)</option>
+                  <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
+                  <option value="staff">Staff</option>
+                  <option value="provider">Provider</option>
+                  <option value="school_staff">School Staff</option>
+                  <option value="client_guardian">Guardian</option>
+                </select>
+                <small v-if="userForm.role === 'client_guardian'" class="form-help">
+                  Guardians are portal users (non-employee). They don't receive onboarding packages.
+                </small>
+                <small v-else-if="userForm.role === 'school_staff'" class="form-help">
+                  School staff should be assigned to at least one school organization.
+                </small>
+                <small v-else-if="userForm.role === 'super_admin' && user?.role !== 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
+                <small v-else-if="userForm.role === 'admin' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
+                <small v-else-if="userForm.role === 'support' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the staff role</small>
+              </div>
+
               <div class="form-group">
                 <label>Agency *</label>
                 <select
@@ -433,19 +533,19 @@
                   {{ parentAgenciesForUserCreate[0]?.name || 'Agency' }}
                 </div>
                 <small class="form-help">
-                  {{ shouldPickAgencyForUserCreate ? 'Select the agency first. Next you can optionally assign schools/programs for this user.' : 'This user will be created under your agency.' }}
+                  {{ shouldPickAgencyForUserCreate ? agencyHelpText : 'This user will be created under your agency.' }}
                 </small>
               </div>
 
               <div class="form-group" style="margin-top: 10px;">
-                <label>Optional: Assign to Schools / Programs</label>
+                <label>{{ orgAssignmentLabel }}</label>
                 <div v-if="!userForm.primaryAgencyId" class="muted">Select an agency above to view its organizations.</div>
                 <div v-else>
                   <div v-if="affiliatedOrgsLoading" class="muted">Loading organizations…</div>
                   <div v-else-if="affiliatedOrgsError" class="muted" style="color:#dc3545;">{{ affiliatedOrgsError }}</div>
-                  <div v-else-if="(affiliatedOrgsForUserCreate || []).length === 0" class="muted">No schools/programs found for this agency.</div>
+                  <div v-else-if="(affiliatedOrgsForCreateDisplay || []).length === 0" class="muted">{{ orgEmptyMessage }}</div>
                   <div v-else class="agency-selector" style="max-height: 180px; overflow:auto; border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
-                    <div v-for="org in affiliatedOrgsForUserCreate" :key="org.id" class="agency-checkbox" style="margin-bottom: 6px;">
+                    <div v-for="org in affiliatedOrgsForCreateDisplay" :key="org.id" class="agency-checkbox" style="margin-bottom: 6px;">
                       <label style="display:flex; gap:10px; align-items:center;">
                         <input
                           type="checkbox"
@@ -461,11 +561,14 @@
                       </label>
                     </div>
                   </div>
-                  <small class="form-help">Optional: assign schools/programs now. You can add/remove assignments later from the user profile.</small>
+                  <small v-if="orgAssignmentRequired" class="form-help">
+                    Required for this role.
+                  </small>
+                  <small v-else class="form-help">Optional: assign schools/programs now. You can add/remove assignments later from the user profile.</small>
                 </div>
               </div>
 
-              <div class="form-group">
+              <div v-if="supportsEmployeeWorkflow" class="form-group">
                 <label class="toggle-label">
                   <span>Create as Current Employee (Active User)</span>
                   <div class="toggle-switch">
@@ -482,7 +585,7 @@
                 </small>
               </div>
 
-              <div v-if="userForm.createAsCurrentEmployee" class="form-group">
+              <div v-if="supportsEmployeeWorkflow && userForm.createAsCurrentEmployee" class="form-group">
                 <label>Work Email *</label>
                 <input
                   v-model="userForm.workEmail"
@@ -494,14 +597,15 @@
               </div>
 
               <div class="form-group">
-                <label>Email (Optional)</label>
+                <label>{{ isGuardianRole ? 'Email *' : 'Email (Optional)' }}</label>
                 <input
                   v-model="userForm.email"
                   type="email"
-                  :disabled="userForm.createAsCurrentEmployee"
+                  :required="isGuardianRole"
+                  :disabled="supportsEmployeeWorkflow && userForm.createAsCurrentEmployee"
                 />
                 <small class="form-help">
-                  Optional for onboarding users. If creating a current employee, this field is ignored (use Work Email).
+                  {{ isGuardianRole ? 'Required for guardian login.' : 'Optional for onboarding users. If creating a current employee, this field is ignored (use Work Email).' }}
                 </small>
               </div>
               <div class="form-group">
@@ -509,7 +613,7 @@
                 <input
                   v-model="userForm.personalEmail"
                   type="email"
-                  :disabled="userForm.createAsCurrentEmployee"
+                  :disabled="supportsEmployeeWorkflow && userForm.createAsCurrentEmployee"
                 />
                 <small class="form-help">For communications, not used for login</small>
               </div>
@@ -533,21 +637,6 @@
                 <label>Work Phone Extension</label>
                 <input v-model="userForm.workPhoneExtension" type="text" placeholder="1234" />
               </div>
-              <div class="form-group">
-                <label>Role *</label>
-                <select v-model="userForm.role" required>
-                  <option v-if="user?.role === 'super_admin'" value="super_admin">Super Admin</option>
-                  <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="admin">Admin</option>
-                  <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff (Admin Tools)</option>
-                  <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
-                  <option value="staff">Staff</option>
-                  <option value="provider">Provider</option>
-                  <option value="school_staff">School Staff</option>
-                </select>
-                <small v-if="userForm.role === 'super_admin' && user?.role !== 'super_admin'" class="form-help">Only super admins can assign the super admin role</small>
-                <small v-else-if="userForm.role === 'admin' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the admin role</small>
-                <small v-else-if="userForm.role === 'support' && user?.role !== 'super_admin' && user?.role !== 'admin'" class="form-help">Only super admins and admins can assign the staff role</small>
-              </div>
 
               <div v-if="['admin','support','staff'].includes(userForm.role)" class="form-group">
                 <label class="toggle-label">
@@ -566,7 +655,7 @@
               <div class="modal-actions">
                 <button type="button" @click="closeModal" class="btn btn-secondary">Cancel</button>
                 <button type="submit" class="btn btn-primary">
-                  Next: Agency & Package
+                  Next: {{ step2Label }}
                 </button>
               </div>
             </form>
@@ -576,13 +665,19 @@
           <div v-if="currentStep === 2" class="step-content">
             <form @submit.prevent="saveUser">
               <div class="form-group">
+                <label>Role</label>
+                <div class="muted" style="padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;">
+                  {{ formatRole(userForm.role) }}
+                </div>
+              </div>
+              <div class="form-group">
                 <label>Agency</label>
                 <div class="muted" style="padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;">
                   {{ getAgencyName(parseInt(userForm.primaryAgencyId || '0', 10)) }}
                 </div>
               </div>
               
-              <div class="form-group">
+              <div v-if="supportsEmployeeWorkflow" class="form-group">
                 <label class="toggle-label">
                   <span>Create as Current Employee (Active User)</span>
                   <div class="toggle-switch">
@@ -597,7 +692,7 @@
                 <small class="form-help">Creates user directly as ACTIVE, bypassing pre-hire and onboarding.</small>
               </div>
               
-              <div v-if="userForm.createAsCurrentEmployee" class="form-group">
+              <div v-if="supportsEmployeeWorkflow && userForm.createAsCurrentEmployee" class="form-group">
                 <label>Work Email *</label>
                 <input
                   v-model="userForm.workEmail"
@@ -608,7 +703,7 @@
                 <small class="form-help">Required for current employees. This will be their username and login email.</small>
               </div>
               
-              <div v-if="!userForm.createAsCurrentEmployee" class="form-group">
+              <div v-if="supportsEmployeeWorkflow && !userForm.createAsCurrentEmployee" class="form-group">
                 <label>Assign Onboarding Package (Optional)</label>
                 <select v-model="userForm.onboardingPackageId" class="form-select">
                   <option value="">No package (assign later)</option>
@@ -619,7 +714,7 @@
                 <small class="form-help">Select an onboarding package to automatically assign training focuses, modules, and documents</small>
               </div>
               
-              <div v-if="userForm.onboardingPackageId && selectedPackage && !userForm.createAsCurrentEmployee" class="package-preview">
+              <div v-if="supportsEmployeeWorkflow && userForm.onboardingPackageId && selectedPackage && !userForm.createAsCurrentEmployee" class="package-preview">
                 <h4>Package Preview:</h4>
                 <p><strong>{{ selectedPackage.name }}</strong></p>
                 <p v-if="selectedPackage.description">{{ selectedPackage.description }}</p>
@@ -634,6 +729,10 @@
                     <strong>Documents:</strong> {{ selectedPackage.documents.length }}
                   </p>
                 </div>
+              </div>
+
+              <div v-if="!supportsEmployeeWorkflow" class="muted" style="margin-top: 10px;">
+                Guardians do not use onboarding packages. This will create a portal account under the selected agency/org context.
               </div>
               
               <div class="modal-actions">
@@ -717,6 +816,7 @@
               <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="admin">Admin</option>
               <option v-if="user?.role === 'super_admin' || user?.role === 'admin'" value="support">Staff (Admin Tools)</option>
               <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
+              <option value="client_guardian">Guardian</option>
               <option value="staff">Staff</option>
               <option value="provider">Provider</option>
               <option value="school_staff">School Staff</option>
@@ -958,7 +1058,7 @@
           <label>Agency *</label>
           <select v-model="agencySort">
             <option value="">Select an agency…</option>
-            <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
+            <option v-for="agency in agencyOptions" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
           </select>
           <small class="form-help">Pick the agency context for the import.</small>
         </div>
@@ -1010,7 +1110,7 @@
           <label>Agency *</label>
           <select v-model="agencySort">
             <option value="">Select an agency…</option>
-            <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
+            <option v-for="agency in agencyOptions" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
           </select>
         </div>
 
@@ -1076,7 +1176,7 @@
           <label>Agency *</label>
           <select v-model="agencySort">
             <option value="">Select an agency…</option>
-            <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
+            <option v-for="agency in agencyOptions" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
           </select>
         </div>
 
@@ -1140,7 +1240,7 @@
           <label>Agency *</label>
           <select v-model="employeeInfoAgencyId">
             <option value="">Select an agency…</option>
-            <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
+            <option v-for="agency in agencyOptions" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
           </select>
         </div>
 
@@ -1191,6 +1291,7 @@ import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 import { isSupervisor } from '../../utils/helpers.js';
 import { getStatusLabel, getStatusBadgeClass } from '../../utils/statusUtils.js';
 import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumentAssignmentDialog.vue';
@@ -1202,6 +1303,7 @@ import aiErrorAsset from '../../assets/ai/error.svg';
 
 const router = useRouter();
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const user = computed(() => authStore.user);
 const isSuperAdmin = computed(() => user.value?.role === 'super_admin');
 const canArchiveDelete = computed(() => {
@@ -1232,6 +1334,8 @@ const newSuperviseeAssignment = ref({
 
 const users = ref([]);
 const agencies = ref([]);
+// Map orgId -> parent agencyId (best-effort; populated from /affiliated-organizations).
+const orgAffiliationById = ref({});
 const loading = ref(true);
 const error = ref('');
 const showCreateModal = ref(false);
@@ -1241,10 +1345,35 @@ const saving = ref(false);
 // Default to Active Employee per admin workflow.
 const statusSort = ref('ACTIVE_EMPLOYEE');
 const agencySort = ref('');
-const userSort = ref('name_az');
-const showAdditionalFilters = ref(false);
+const organizationSort = ref('');
 const roleSort = ref('');
 const userSearch = ref('');
+const userTypeFilter = ref('');
+const organizationSearch = ref('');
+
+const tableSortKey = ref('name');
+const tableSortDir = ref('asc'); // 'asc' | 'desc'
+
+const agencyOptions = computed(() => {
+  const list = Array.isArray(agencies.value) ? agencies.value : [];
+  return list
+    .filter((o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency')
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+});
+
+const organizationOptions = computed(() => {
+  const list = Array.isArray(agencies.value) ? agencies.value : [];
+  const isChildType = (o) => ['school', 'program', 'learning'].includes(String(o?.organization_type || '').toLowerCase());
+  const scoped = list.filter(isChildType);
+  const q = String(organizationSearch.value || '').trim().toLowerCase();
+  const applySearch = (rows) => (q ? rows.filter((o) => String(o?.name || '').toLowerCase().includes(q)) : rows);
+  if (!agencySort.value) return applySearch(scoped).sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+  const aid = parseInt(String(agencySort.value), 10);
+  if (!aid) return [];
+  return applySearch(scoped)
+    .filter((o) => parseInt(String(o?.__affiliatedAgencyId || orgAffiliationById.value?.[String(o?.id)] || ''), 10) === aid)
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+});
 
 // AI Search (Gemini-ready)
 const aiQueryText = ref('');
@@ -1390,6 +1519,50 @@ const userForm = ref({
   createAsCurrentEmployee: false
 });
 
+const isGuardianRole = computed(() => String(userForm.value?.role || '').toLowerCase() === 'client_guardian');
+const isSchoolStaffRole = computed(() => String(userForm.value?.role || '').toLowerCase() === 'school_staff');
+const supportsEmployeeWorkflow = computed(() => !isGuardianRole.value);
+const orgAssignmentRequired = computed(() => isGuardianRole.value || isSchoolStaffRole.value);
+const orgAssignmentLabel = computed(() => {
+  if (isSchoolStaffRole.value) return 'Assign to School(s) *';
+  if (isGuardianRole.value) return 'Portal Organization(s) *';
+  return 'Optional: Assign to Schools / Programs';
+});
+const affiliatedOrgsForCreateDisplay = computed(() => {
+  const rows = Array.isArray(affiliatedOrgsForUserCreate.value) ? affiliatedOrgsForUserCreate.value : [];
+  const type = (o) => String(o?.organization_type || '').toLowerCase();
+  if (isSchoolStaffRole.value) return rows.filter((o) => type(o) === 'school');
+  if (isGuardianRole.value) return rows.filter((o) => ['school', 'program', 'learning'].includes(type(o)));
+  return rows;
+});
+const orgEmptyMessage = computed(() => {
+  if (isSchoolStaffRole.value) return 'No schools found for this agency.';
+  if (isGuardianRole.value) return 'No portal organizations found for this agency.';
+  return 'No schools/programs found for this agency.';
+});
+const agencyHelpText = computed(() => {
+  if (orgAssignmentRequired.value) return 'Select the agency first. Next you will assign organizations for this role.';
+  return 'Select the agency first. Next you can optionally assign schools/programs for this user.';
+});
+const step1Label = computed(() => 'Role & Details');
+const step2Label = computed(() => (isGuardianRole.value ? 'Confirm' : 'Agency & Package'));
+
+watch(
+  () => userForm.value.role,
+  (newRole) => {
+    const r = String(newRole || '').toLowerCase();
+    if (r === 'client_guardian') {
+      // Guardians are non-employee portal users; avoid employee-only fields.
+      userForm.value.createAsCurrentEmployee = false;
+      userForm.value.workEmail = '';
+      userForm.value.onboardingPackageId = '';
+      userForm.value.hasProviderAccess = false;
+      userForm.value.hasStaffAccess = false;
+      userForm.value.hasSupervisorPrivileges = false;
+    }
+  }
+);
+
 const parentAgenciesForUserCreate = computed(() => {
   const list = Array.isArray(agencies.value) ? agencies.value : [];
   return list
@@ -1473,7 +1646,9 @@ const fetchAgencies = async () => {
       parents.map(async (a) => {
         try {
           const r = await api.get(`/agencies/${a.id}/affiliated-organizations`);
-          return r.data || [];
+          const rows = Array.isArray(r.data) ? r.data : [];
+          // Annotate each returned org with its parent agency.
+          return rows.map((o) => ({ ...(o || {}), __affiliatedAgencyId: a.id }));
         } catch (e) {
           return [];
         }
@@ -1482,14 +1657,87 @@ const fetchAgencies = async () => {
 
     const merged = [...base, ...affLists.flat()];
     const byId = new Map();
+    const affiliation = {};
     for (const org of merged) {
       if (!org?.id) continue;
-      if (!byId.has(org.id)) byId.set(org.id, org);
+      // best-effort: keep/merge affiliation hints
+      const orgId = String(org.id);
+      const type = String(org.organization_type || 'agency').toLowerCase();
+      if (type === 'agency') {
+        affiliation[orgId] = parseInt(orgId, 10);
+      } else if (org.__affiliatedAgencyId) {
+        affiliation[orgId] = parseInt(String(org.__affiliatedAgencyId), 10);
+      } else if (orgAffiliationById.value?.[orgId]) {
+        affiliation[orgId] = parseInt(String(orgAffiliationById.value[orgId]), 10);
+      }
+
+      if (!byId.has(org.id)) {
+        byId.set(org.id, org);
+      } else {
+        const prev = byId.get(org.id) || {};
+        byId.set(org.id, { ...prev, ...org });
+      }
     }
+    orgAffiliationById.value = affiliation;
     agencies.value = Array.from(byId.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
   } catch (err) {
     console.error('Failed to load agencies:', err);
   }
+};
+
+const resolveDefaultAgencyAndOrg = () => {
+  // Prefer the currently-selected brand/agency (stored in agencyStore.currentAgency) when present.
+  if (agencySort.value) return;
+  const cur = agencyStore.currentAgency?.value || null;
+  if (!cur?.id) return;
+  const curId = parseInt(String(cur.id), 10);
+  if (!curId) return;
+  const curType = String(cur.organization_type || 'agency').toLowerCase();
+  if (curType === 'agency') {
+    agencySort.value = String(curId);
+    return;
+  }
+  // Child org selected: set agency to its affiliated parent (best-effort), and org to the selected org.
+  const parentId = parseInt(String(orgAffiliationById.value?.[String(curId)] || ''), 10);
+  if (parentId) {
+    agencySort.value = String(parentId);
+    organizationSort.value = String(curId);
+  }
+};
+
+watch(
+  () => agencySort.value,
+  () => {
+    // Keep organization selection consistent with agency selection.
+    if (!organizationSort.value) return;
+    const orgId = parseInt(String(organizationSort.value), 10);
+    const agencyId = parseInt(String(agencySort.value), 10);
+    if (!orgId || !agencyId) return;
+    const parentId = parseInt(String(orgAffiliationById.value?.[String(orgId)] || ''), 10);
+    if (parentId && parentId !== agencyId) {
+      organizationSort.value = '';
+    }
+  }
+);
+
+const toggleUserType = (type) => {
+  userTypeFilter.value = userTypeFilter.value === type ? '' : type;
+};
+
+const toggleTableSort = (key) => {
+  const k = String(key || '').trim();
+  if (!k) return;
+  if (tableSortKey.value === k) {
+    tableSortDir.value = tableSortDir.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    tableSortKey.value = k;
+    tableSortDir.value = 'asc';
+  }
+};
+
+const sortIndicator = (key) => {
+  if (tableSortKey.value !== key) return '';
+  return tableSortDir.value === 'asc' ? '▲' : '▼';
 };
 
 const fetchPackages = async () => {
@@ -1513,6 +1761,11 @@ const nextStep = () => {
     if (!userForm.value.primaryAgencyId && parentAgenciesForUserCreate.value.length === 1) {
       userForm.value.primaryAgencyId = String(parentAgenciesForUserCreate.value[0].id);
     }
+    if (!userForm.value.role) {
+      error.value = 'Please select a role';
+      alert('Please select a role');
+      return;
+    }
     if (!userForm.value.primaryAgencyId && shouldPickAgencyForUserCreate.value) {
       error.value = 'Please select an agency';
       alert('Please select an agency');
@@ -1522,6 +1775,21 @@ const nextStep = () => {
     if (!userForm.value.lastName || !userForm.value.role) {
       error.value = 'Please fill in all required fields (Last Name and Role)';
       return;
+    }
+    if (isGuardianRole.value) {
+      if (!userForm.value.email || !String(userForm.value.email).trim()) {
+        error.value = 'Email is required for guardians';
+        alert('Please enter an email');
+        return;
+      }
+    }
+    if (orgAssignmentRequired.value) {
+      const ids = Array.isArray(userForm.value.organizationIds) ? userForm.value.organizationIds : [];
+      if (ids.length === 0) {
+        error.value = 'Please select at least one organization';
+        alert('Please select at least one organization');
+        return;
+      }
     }
     if (userForm.value.createAsCurrentEmployee) {
       if (!userForm.value.workEmail || !String(userForm.value.workEmail).trim()) {
@@ -1634,6 +1902,23 @@ const saveUser = async () => {
         alert('Please select an agency');
         return;
       }
+      if (isGuardianRole.value) {
+        if (!userForm.value.email || !String(userForm.value.email).trim()) {
+          error.value = 'Email is required for guardians';
+          saving.value = false;
+          alert('Please enter an email');
+          return;
+        }
+      }
+      if (orgAssignmentRequired.value) {
+        const ids = Array.isArray(userForm.value.organizationIds) ? userForm.value.organizationIds : [];
+        if (ids.length === 0) {
+          error.value = 'Please select at least one organization';
+          saving.value = false;
+          alert('Please select at least one organization');
+          return;
+        }
+      }
     }
     
     saving.value = true;
@@ -1688,6 +1973,13 @@ const saveUser = async () => {
       closeModal();
       fetchUsers();
     } else {
+      // Guardians are non-employee portal users: ensure employee-only fields aren't used.
+      if (isGuardianRole.value) {
+        userForm.value.createAsCurrentEmployee = false;
+        userForm.value.workEmail = '';
+        userForm.value.onboardingPackageId = '';
+      }
+
       // Check if creating as current employee
       if (userForm.value.createAsCurrentEmployee) {
         // Validate required fields for current employee
@@ -2381,7 +2673,9 @@ const openAddSuperviseeModal = async (supervisor) => {
   try {
     // Get supervisor's agencies
     const agenciesResponse = await api.get(`/users/${supervisor.id}/agencies`);
-    availableAgenciesForAssignment.value = agenciesResponse.data || [];
+    availableAgenciesForAssignment.value = (agenciesResponse.data || []).filter(
+      (a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency'
+    );
     
     // Get all users that could be supervisees (providers/staff)
     const usersResponse = await api.get('/users');
@@ -2473,15 +2767,53 @@ const getStatusBadgeClassWrapper = (status, isActive = true) => {
 const sortedUsers = computed(() => {
   let filtered = users.value;
   const hasSearch = !!(userSearch.value && String(userSearch.value).trim());
+
+  const parseOrgIds = (u) => {
+    const raw = u?.agency_ids;
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.map((x) => parseInt(String(x), 10)).filter((n) => Number.isFinite(n));
+    return String(raw)
+      .split(',')
+      .map((s) => parseInt(String(s).trim(), 10))
+      .filter((n) => Number.isFinite(n));
+  };
+  const isActiveUser = (u) => {
+    const st = String(u?.status || '').toUpperCase();
+    if (st === 'ACTIVE_EMPLOYEE' || st === 'ACTIVE') return true;
+    if (u?.is_active === true || u?.is_active === 1) return true;
+    return false;
+  };
+  const belongsToAgency = (u, agencyId) => {
+    const ids = parseOrgIds(u);
+    if (ids.includes(agencyId)) return true;
+    // If user is only assigned to child orgs, treat them as belonging to the parent agency (best-effort).
+    return ids.some((orgId) => parseInt(String(orgAffiliationById.value?.[String(orgId)] || ''), 10) === agencyId);
+  };
+
+  // Super admins should be hidden unless a super admin explicitly toggles them on.
+  // Also prevents non-super-admins from searching/finding super admins.
+  const viewerIsSuperAdmin = String(authStore.user?.role || '').toLowerCase() === 'super_admin';
+  const showSuperAdmins = viewerIsSuperAdmin && userTypeFilter.value === 'super_admins';
+  if (!showSuperAdmins) {
+    filtered = filtered.filter((u) => String(u?.role || '').toLowerCase() !== 'super_admin');
+  }
   
   // Filter by agency
   if (agencySort.value) {
+    const aid = parseInt(String(agencySort.value), 10);
+    if (aid) {
     filtered = filtered.filter(user => {
-      if (!user.agency_ids) return false;
-      // Check if any of the user's agency IDs match the selected agency
-      const userAgencyIds = user.agency_ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
-      return userAgencyIds.includes(parseInt(agencySort.value));
+        return belongsToAgency(user, aid);
     });
+    }
+  }
+
+  // Filter by organization (school/program/learning)
+  if (organizationSort.value) {
+    const oid = parseInt(String(organizationSort.value), 10);
+    if (oid) {
+      filtered = filtered.filter((u) => parseOrgIds(u).includes(oid));
+    }
   }
   
   // Filter by status
@@ -2509,6 +2841,20 @@ const sortedUsers = computed(() => {
       if (!r) return false;
       if (roleSort.value === 'provider') return r === 'provider';
       return r === roleSort.value;
+    });
+  }
+
+  // Quick user-type buttons
+  if (userTypeFilter.value) {
+    const t = String(userTypeFilter.value);
+    filtered = filtered.filter((u) => {
+      const r = String(u?.role || '').toLowerCase();
+      if (t === 'guardians') return r === 'client_guardian';
+      if (t === 'super_admins') return r === 'super_admin';
+      if (t === 'providers') return r === 'provider';
+      if (t === 'staff') return r === 'staff' || r === 'support';
+      if (t === 'supervisors') return isSupervisor(u);
+      return true;
     });
   }
 
@@ -2540,35 +2886,42 @@ const sortedUsers = computed(() => {
   const nameFirstLast = (u) => `${get(u, 'first_name')}\u0000${get(u, 'last_name')}`;
 
   const sorted = [...filtered];
-  switch (userSort.value) {
-    case 'name_za':
-      sorted.sort((a, b) => nameLastFirst(b).localeCompare(nameLastFirst(a)));
-      break;
-    case 'first_last':
-      sorted.sort((a, b) => nameFirstLast(a).localeCompare(nameFirstLast(b)));
-      break;
-    case 'last_first':
-      sorted.sort((a, b) => nameLastFirst(a).localeCompare(nameLastFirst(b)));
-      break;
-    case 'credential':
-      sorted.sort((a, b) => {
-        const ac = get(a, 'provider_credential');
-        const bc = get(b, 'provider_credential');
-        if (ac && bc) {
-          const c = ac.localeCompare(bc);
-          if (c !== 0) return c;
-          return nameLastFirst(a).localeCompare(nameLastFirst(b));
-        }
-        if (ac && !bc) return -1;
-        if (!ac && bc) return 1;
-        return nameLastFirst(a).localeCompare(nameLastFirst(b));
-      });
-      break;
-    case 'name_az':
-    default:
-      sorted.sort((a, b) => nameLastFirst(a).localeCompare(nameLastFirst(b)));
-      break;
-  }
+  const dir = tableSortDir.value === 'desc' ? -1 : 1;
+  const cmpStr = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' });
+  const cmpNum = (a, b) => (a === b ? 0 : a > b ? 1 : -1);
+
+  sorted.sort((a, b) => {
+    // Always show active users first (within whatever filters are applied).
+    const aActive = isActiveUser(a) ? 1 : 0;
+    const bActive = isActiveUser(b) ? 1 : 0;
+    if (aActive !== bActive) return bActive - aActive;
+
+    const key = tableSortKey.value;
+    if (key === 'name') return dir * nameLastFirst(a).localeCompare(nameLastFirst(b));
+    if (key === 'email') return dir * cmpStr(get(a, 'email'), get(b, 'email'));
+    if (key === 'agency') return dir * cmpStr(String(a?.agencies || ''), String(b?.agencies || ''));
+    if (key === 'role') return dir * cmpStr(String(a?.role || ''), String(b?.role || ''));
+    if (key === 'credential') {
+      const c = cmpStr(get(a, 'provider_credential'), get(b, 'provider_credential'));
+      if (c !== 0) return dir * c;
+      return dir * nameLastFirst(a).localeCompare(nameLastFirst(b));
+    }
+    if (key === 'status') {
+      const la = String(getStatusLabelWrapper(a?.status, a?.is_active) || '');
+      const lb = String(getStatusLabelWrapper(b?.status, b?.is_active) || '');
+      const c = cmpStr(la, lb);
+      if (c !== 0) return dir * c;
+      return dir * nameLastFirst(a).localeCompare(nameLastFirst(b));
+    }
+    if (key === 'created') {
+      const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+      const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+      const c = cmpNum(ta, tb);
+      if (c !== 0) return dir * c;
+      return dir * nameLastFirst(a).localeCompare(nameLastFirst(b));
+    }
+    return dir * nameLastFirst(a).localeCompare(nameLastFirst(b));
+  });
 
   return sorted;
 });
@@ -2784,10 +3137,19 @@ const cancelCreation = () => {
   pendingUserData.value = null;
 };
 
-onMounted(() => {
-  fetchUsers();
-  fetchAgencies();
-  fetchPackages();
+onMounted(async () => {
+  // Ensure the current brand/agency selection is hydrated (used for default filters).
+  try {
+    const role = String(authStore.user?.role || '').toLowerCase();
+    // For super admins, don't overwrite the brand/agency preview selection.
+    if (role && role !== 'super_admin') {
+      await agencyStore.fetchUserAgencies();
+    }
+  } catch {
+    // ignore (best effort)
+  }
+  await Promise.all([fetchUsers(), fetchAgencies(), fetchPackages()]);
+  resolveDefaultAgencyAndOrg();
 });
 </script>
 
@@ -2818,11 +3180,91 @@ onMounted(() => {
   color: #2c3e50;
 }
 
-.table-controls {
+.users-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.filters-sidebar {
+  position: sticky;
+  top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
+}
+
+.filter-section {
+  margin-bottom: 14px;
+}
+
+.filter-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+
+.filter-input,
+.filter-select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 10px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.filter-help {
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.type-filter-row {
   display: flex;
-  gap: 20px;
-  margin-bottom: 20px;
   flex-wrap: wrap;
+  gap: 8px;
+}
+
+.type-filter-btn {
+  width: auto;
+  padding: 6px 10px;
+  line-height: 1.2;
+}
+
+.type-filter-btn.active {
+  border-color: var(--primary, #C69A2B);
+  color: var(--primary, #C69A2B);
+  background: rgba(198, 154, 43, 0.08);
+}
+
+.advanced-filters {
+  border-top: 1px solid var(--border, #dee2e6);
+  padding-top: 12px;
+}
+
+.users-main {
+  min-width: 0;
+}
+
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.sort-indicator {
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  color: var(--text-secondary, #6b7280);
+  font-size: 11px;
 }
 
 .ai-query-card {

@@ -1,6 +1,7 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { listMyGuardianClients } from '../controllers/clientGuardian.controller.js';
+import { getGuardianPortalOverview } from '../controllers/guardianPortal.controller.js';
 
 const router = express.Router();
 
@@ -16,6 +17,7 @@ router.use((req, res, next) => {
 });
 
 router.get('/clients', listMyGuardianClients);
+router.get('/overview', getGuardianPortalOverview);
 
 export default router;
 

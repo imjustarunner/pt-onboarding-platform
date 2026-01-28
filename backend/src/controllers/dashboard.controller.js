@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Notification from '../models/Notification.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 
 function isMissingSchemaError(e) {
   const code = e?.code || '';
@@ -129,6 +130,40 @@ export const getAgencySpecs = async (req, res, next) => {
     }
 
     res.json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/dashboard/org-overview-summary?agencyId=123
+ *
+ * Lightweight org affiliation counts used to drive admin dashboard quick actions.
+ */
+export const getOrgOverviewSummary = async (req, res, next) => {
+  try {
+    const agencyId = safeInt(req.query.agencyId);
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
+    const counts = { school: 0, program: 0, learning: 0, other: 0 };
+
+    for (const o of affiliated || []) {
+      const t = String(o?.organization_type || '').trim().toLowerCase();
+      if (t === 'school') counts.school += 1;
+      else if (t === 'program') counts.program += 1;
+      else if (t === 'learning') counts.learning += 1;
+      else counts.other += 1;
+    }
+
+    res.json({
+      agencyId,
+      refreshedAt: new Date().toISOString(),
+      counts,
+      totalAffiliatedOrganizations: (affiliated || []).length
+    });
   } catch (error) {
     next(error);
   }

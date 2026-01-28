@@ -2,7 +2,7 @@
   <div class="container">
     <div class="page-header">
       <div class="header-left">
-        <h1>School Overview</h1>
+        <h1>{{ pageTitle }}</h1>
         <span class="badge badge-info">Admin</span>
       </div>
       <div class="header-actions">
@@ -24,8 +24,8 @@
       </div>
 
       <div class="control" style="flex: 1;">
-        <label class="control-label">Search schools</label>
-        <input v-model="searchQuery" class="control-input" type="text" placeholder="Search by school name…" />
+        <label class="control-label">Search</label>
+        <input v-model="searchQuery" class="control-input" type="text" :placeholder="searchPlaceholder" />
       </div>
 
       <div class="control">
@@ -44,7 +44,7 @@
 
     <div v-else class="cards-wrap">
       <div v-if="filteredSchools.length === 0" class="empty-state">
-        No affiliated schools found for this agency.
+        {{ emptyStateText }}
       </div>
 
       <div v-else class="cards-grid">
@@ -111,12 +111,14 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const route = useRoute();
 
 const loading = ref(false);
 const error = ref('');
@@ -125,6 +127,30 @@ const searchQuery = ref('');
 const sortBy = ref('school_name-asc');
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+
+const orgType = computed(() => {
+  const t = String(route.query?.orgType || '').trim().toLowerCase();
+  if (t === 'school' || t === 'program' || t === 'learning') return t;
+  return null;
+});
+
+const pageTitle = computed(() => {
+  if (orgType.value === 'program') return 'Program Overview';
+  if (orgType.value === 'learning') return 'Learning Overview';
+  return 'School Overview';
+});
+
+const searchPlaceholder = computed(() => {
+  if (orgType.value === 'program') return 'Search by program name…';
+  if (orgType.value === 'learning') return 'Search by learning org name…';
+  return 'Search by school name…';
+});
+
+const emptyStateText = computed(() => {
+  if (orgType.value === 'program') return 'No affiliated programs or learning orgs found for this agency.';
+  if (orgType.value === 'learning') return 'No affiliated learning orgs found for this agency.';
+  return 'No affiliated schools found for this agency.';
+});
 
 const agencyOptions = ref([]);
 const selectedAgencyId = ref('');
@@ -161,7 +187,7 @@ const fetchOverview = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const res = await api.get('/dashboard/school-overview', { params: { agencyId } });
+    const res = await api.get('/dashboard/school-overview', { params: { agencyId, orgType: orgType.value || undefined } });
     schools.value = res.data?.schools || [];
   } catch (e) {
     schools.value = [];

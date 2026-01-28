@@ -84,6 +84,7 @@ const stats = ref({
 });
 const agencies = ref([]);
 const selectedOrgId = ref(null);
+const orgOverviewSummary = ref({ counts: { school: 0, program: 0, learning: 0, other: 0 } });
 
 // Use branding from store instead of local ref
 const branding = computed(() => brandingStore.platformBranding);
@@ -147,13 +148,34 @@ const fetchStats = async () => {
   }
 };
 
+const fetchOrgOverviewSummary = async () => {
+  const agencyId = selectedOrgId.value ? Number(selectedOrgId.value) : null;
+  if (!agencyId) {
+    orgOverviewSummary.value = { counts: { school: 0, program: 0, learning: 0, other: 0 } };
+    return;
+  }
+  try {
+    const res = await api.get('/dashboard/org-overview-summary', { params: { agencyId } });
+    orgOverviewSummary.value = res.data || { counts: { school: 0, program: 0, learning: 0, other: 0 } };
+  } catch {
+    orgOverviewSummary.value = { counts: { school: 0, program: 0, learning: 0, other: 0 } };
+  }
+};
+
+const hasAffiliatedSchools = computed(() => Number(orgOverviewSummary.value?.counts?.school || 0) > 0);
+// Program Overview includes learning orgs (but not schools).
+const hasAffiliatedPrograms = computed(() =>
+  Number(orgOverviewSummary.value?.counts?.program || 0) + Number(orgOverviewSummary.value?.counts?.learning || 0) > 0
+);
+
 const getActionIcon = (actionKey) => {
   // Use centralized branding logic.
   // For super_admin, allow previewing a selected agency's overrides via currentAgency.
   return brandingStore.getAdminQuickActionIconUrl(actionKey, currentAgency.value || null);
 };
 
-const quickActions = computed(() => ([
+const quickActions = computed(() => {
+  const base = [
   {
     id: 'manage_organizations',
     title: 'Manage Organizations',
@@ -190,9 +212,20 @@ const quickActions = computed(() => ([
     id: 'school_overview',
     title: 'School Overview',
     description: 'View affiliated schools and key staffing/slot stats',
-    to: '/admin/schools/overview',
+    to: '/admin/schools/overview?orgType=school',
     emoji: '🏫',
     iconKey: 'school_overview',
+    category: 'Management',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'program_overview',
+    title: 'Program Overview',
+    description: 'View affiliated programs and learning orgs (staffing/slots/docs)',
+    to: '/admin/schools/overview?orgType=program',
+    emoji: '🧩',
+    iconKey: 'program_overview',
     category: 'Management',
     roles: ['admin', 'support', 'super_admin', 'staff'],
     capabilities: ['canAccessPlatform']
@@ -329,12 +362,20 @@ const quickActions = computed(() => ([
     roles: ['admin', 'super_admin'],
     capabilities: ['canAccessPlatform']
   }
-]));
+  ];
+
+  return base.filter((a) => {
+    if (String(a?.id) === 'school_overview') return hasAffiliatedSchools.value;
+    if (String(a?.id) === 'program_overview') return hasAffiliatedPrograms.value;
+    return true;
+  });
+});
 
 const defaultQuickActionIds = computed(() => ([
   'manage_organizations',
   'manage_clients',
-  'school_overview',
+  ...(hasAffiliatedSchools.value ? ['school_overview'] : []),
+  ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
   'manage_modules',
   'manage_documents',
   'manage_users',
@@ -360,12 +401,20 @@ watch(() => brandingStore.platformBranding, (newBranding) => {
   }
 }, { deep: true });
 
+watch(
+  () => selectedOrgId.value,
+  async () => {
+    await fetchOrgOverviewSummary();
+  }
+);
+
 onMounted(async () => {
   // Ensure branding is loaded before fetching stats
   if (!brandingStore.platformBranding) {
     await brandingStore.fetchPlatformBranding();
   }
   await fetchStats();
+  await fetchOrgOverviewSummary();
 });
 </script>
 
