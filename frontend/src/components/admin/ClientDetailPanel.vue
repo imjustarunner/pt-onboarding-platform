@@ -1796,6 +1796,9 @@ const saveAdminNote = async () => {
     adminNoteSaving.value = true;
     await api.put(`/clients/${props.client.id}/admin-note`, { message: msg });
     adminNoteMessage.value = msg;
+    // After a successful save, close any open admin-note UI.
+    adminNotePopoverOpen.value = false;
+    showAdminNoteModal.value = false;
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to save admin note');
   } finally {
