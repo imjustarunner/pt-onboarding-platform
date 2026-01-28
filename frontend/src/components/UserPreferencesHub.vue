@@ -213,6 +213,50 @@
       <div class="section-content">
         <div class="prefs-grid">
           <div class="card">
+            <h3 class="card-title">Schedule Appearance</h3>
+            <div class="field-help" style="margin-bottom: 10px;">
+              Customize the colors used in schedule blocks (applies everywhere you view schedules).
+            </div>
+
+            <div class="color-grid">
+              <div class="field">
+                <label>Pending request</label>
+                <input v-model="scheduleColors.request" type="color" :disabled="viewOnly" />
+              </div>
+              <div class="field">
+                <label>School assigned</label>
+                <input v-model="scheduleColors.school" type="color" :disabled="viewOnly" />
+              </div>
+              <div class="field">
+                <label>Office assigned</label>
+                <input v-model="scheduleColors.office_assigned" type="color" :disabled="viewOnly" />
+              </div>
+              <div class="field">
+                <label>Office temporary</label>
+                <input v-model="scheduleColors.office_temporary" type="color" :disabled="viewOnly" />
+              </div>
+              <div class="field">
+                <label>Office booked</label>
+                <input v-model="scheduleColors.office_booked" type="color" :disabled="viewOnly" />
+              </div>
+              <div class="field">
+                <label>Google busy</label>
+                <input v-model="scheduleColors.google_busy" type="color" :disabled="viewOnly" />
+              </div>
+              <div class="field">
+                <label>EHR busy</label>
+                <input v-model="scheduleColors.ehr_busy" type="color" :disabled="viewOnly" />
+              </div>
+            </div>
+
+            <div style="display:flex; gap: 10px; margin-top: 10px;">
+              <button class="btn btn-secondary" type="button" @click="resetScheduleColors" :disabled="viewOnly">
+                Reset colors
+              </button>
+            </div>
+          </div>
+
+          <div class="card">
             <h3 class="card-title">Work Modality</h3>
             <div class="field">
               <label>Work modality</label>
@@ -463,6 +507,7 @@ const prefs = ref({
   // Sections 2–5 fields (from user_preferences)
   work_modality: null,
   scheduling_preferences: null,
+  schedule_color_overrides: null,
   show_read_receipts: false,
   allow_staff_step_in: true,
   staff_step_in_after_minutes: 15,
@@ -474,6 +519,20 @@ const prefs = ref({
   larger_text: false,
   default_landing_page: 'dashboard'
 });
+
+const defaultScheduleColors = () => ({
+  request: '#F2C94C',
+  school: '#2D9CDB',
+  office_assigned: '#27AE60',
+  office_temporary: '#9B51E0',
+  office_booked: '#EB5757',
+  google_busy: '#111827',
+  ehr_busy: '#F2994A'
+});
+const scheduleColors = ref(defaultScheduleColors());
+const resetScheduleColors = () => {
+  scheduleColors.value = defaultScheduleColors();
+};
 
 const schedulingPrefs = ref({
   preferred_location_ids: [],
@@ -568,6 +627,7 @@ const load = async () => {
       : (parseJsonMaybe(data.quiet_hours_allowed_days) || []);
 
     const sched = parseJsonMaybe(data.scheduling_preferences);
+    const colors = parseJsonMaybe(data.schedule_color_overrides);
 
     prefs.value = {
       ...prefs.value,
@@ -587,6 +647,8 @@ const load = async () => {
       ...schedulingPrefs.value,
       ...(sched || {})
     };
+
+    scheduleColors.value = { ...defaultScheduleColors(), ...(colors || {}) };
 
     quietStart.value = normalizeTimeForInput(prefs.value.quiet_hours_start_time);
     quietEnd.value = normalizeTimeForInput(prefs.value.quiet_hours_end_time);
@@ -621,6 +683,7 @@ const save = async () => {
       auto_reply_enabled: prefs.value.sms_enabled ? !!prefs.value.auto_reply_enabled : false,
       auto_reply_message: prefs.value.sms_enabled && prefs.value.auto_reply_enabled ? (prefs.value.auto_reply_message || '') : null,
       notification_categories: categories,
+      schedule_color_overrides: scheduleColors.value || null,
 
       // Sections 2–5
       show_read_receipts: !!prefs.value.show_read_receipts,
@@ -680,6 +743,12 @@ onMounted(load);
   padding: 32px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   border: 1px solid var(--border);
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
 }
 
 .section-header {

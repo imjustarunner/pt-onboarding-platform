@@ -1017,6 +1017,39 @@
 
               <div class="card" style="margin-top: 12px;">
                 <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                  <h3 style="margin:0;">Provider School Info blurb</h3>
+                  <button
+                    class="btn btn-primary btn-sm"
+                    type="button"
+                    @click="saveProviderSchoolBlurb"
+                    :disabled="!canEditUser || providerSchoolBlurbSaving || !selectedSchoolIsSchool"
+                    :title="selectedSchoolIsSchool ? '' : 'This blurb is currently supported only for school organizations.'"
+                  >
+                    {{ providerSchoolBlurbSaving ? 'Saving…' : 'Save' }}
+                  </button>
+                </div>
+                <div v-if="!selectedSchoolIsSchool" class="hint" style="margin-top: 8px;">
+                  This blurb is currently supported only for <strong>school</strong> affiliations.
+                </div>
+                <div v-else-if="providerSchoolBlurbLoading" class="loading">Loading provider school info…</div>
+                <div v-else-if="providerSchoolBlurbError" class="error">{{ providerSchoolBlurbError }}</div>
+                <div v-else class="form-group form-group-full" style="margin-top: 10px;">
+                  <label>Provider School Info blurb</label>
+                  <textarea
+                    v-model="providerSchoolBlurb"
+                    rows="4"
+                    placeholder="Short blurb shown in the school portal provider profile."
+                    :disabled="!canEditUser || providerSchoolBlurbSaving"
+                    style="width: 100%;"
+                  />
+                  <small class="form-help">
+                    Shown in the school portal under “Provider info”. Keep this non-PHI.
+                  </small>
+                </div>
+              </div>
+
+              <div class="card" style="margin-top: 12px;">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
                   <h3 style="margin:0;">Days & slots</h3>
                   <button class="btn btn-primary btn-sm" @click="saveSchoolAffiliation" :disabled="!canEditUser || savingSchoolAffiliation">
                     {{ savingSchoolAffiliation ? 'Saving…' : 'Save' }}
@@ -1081,9 +1114,46 @@
 
           <ScheduleAvailabilityGrid
             :user-id="Number(userId)"
-            :agency-id="Number(agencyStore.currentAgency?.id || 0)"
+            :agency-ids="selectedScheduleAgencyIds"
+            :agency-label-by-id="scheduleAgencyLabelById"
             mode="admin"
           />
+
+          <details
+            v-if="affiliatedAgencies.length"
+            class="card"
+            style="margin-top: 10px; padding: 10px 12px;"
+          >
+            <summary style="cursor: pointer; list-style: none; display:flex; align-items:center; justify-content: space-between; gap: 10px;">
+              <div style="font-size: 13px; font-weight: 800; color: var(--text-secondary);">
+                Affiliated agencies
+                <span style="font-weight: 700;">
+                  ({{ selectedScheduleAgencyIds.length || 0 }}/{{ affiliatedAgencies.length }})
+                </span>
+              </div>
+              <div class="muted" style="font-size: 12px;">Filter</div>
+            </summary>
+
+            <div style="display:flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap;">
+              <button class="btn btn-secondary btn-sm" type="button" @click="selectAllScheduleAgencies">All</button>
+              <button class="btn btn-secondary btn-sm" type="button" @click="clearScheduleAgencies">None</button>
+              <div class="muted" style="font-size: 12px;">
+                Overlaps are expected when the user works across multiple companies.
+              </div>
+            </div>
+
+            <div style="display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+              <label
+                v-for="a in affiliatedAgencies"
+                :key="`sched-agency-${a.id}`"
+                class="sched-toggle"
+                style="display:flex; align-items:center; gap: 6px; font-size: 13px;"
+              >
+                <input type="checkbox" v-model="selectedScheduleAgencyIds" :value="Number(a.id)" />
+                <span>{{ a.name }}</span>
+              </label>
+            </div>
+          </details>
         </div>
 
         <UserTrainingTab
@@ -1496,6 +1566,18 @@ const canViewProviderInfo = computed(() => {
   return true;
 });
 
+const canViewSchoolAffiliation = computed(() => {
+  const u = user.value;
+  if (!u) return false;
+  const role = String(u.role || '').toLowerCase();
+  const hasProviderAccess =
+    u.has_provider_access === true ||
+    u.has_provider_access === 1 ||
+    u.has_provider_access === '1' ||
+    u.hasProviderAccess === true;
+  return role === 'provider' || role === 'admin' || role === 'super_admin' || role === 'clinical_practice_assistant' || hasProviderAccess;
+});
+
 const supervisees = ref([]);
 const supervisors = ref([]);
 const superviseesLoading = ref(false);
@@ -1506,7 +1588,7 @@ const tabs = computed(() => {
     { id: 'account', label: 'Account' },
     { id: 'additional', label: 'Additional' },
     ...(canViewProviderInfo.value ? [{ id: 'provider_info', label: 'Provider Info' }] : []),
-    ...(canViewProviderInfo.value ? [{ id: 'school_affiliation', label: 'School Affiliation' }] : []),
+    ...(canViewSchoolAffiliation.value ? [{ id: 'school_affiliation', label: 'School Affiliation' }] : []),
     ...(canViewProviderInfo.value ? [{ id: 'schedule_availability', label: 'Schedule & Availability' }] : []),
     { id: 'training', label: 'Training' },
     { id: 'documents', label: 'Documents' },
@@ -1560,9 +1642,25 @@ const schoolAffiliationsError = ref('');
 const schoolAffiliations = ref([]);
 const selectedSchoolAffiliationId = ref('');
 
+const selectedSchoolAffiliation = computed(() => {
+  const id = Number(selectedSchoolAffiliationId.value || 0);
+  const list = Array.isArray(schoolAffiliations.value) ? schoolAffiliations.value : [];
+  return list.find((o) => Number(o?.id) === id) || null;
+});
+const selectedSchoolIsSchool = computed(() => {
+  const t = String(selectedSchoolAffiliation.value?.organization_type || '').toLowerCase();
+  return t === 'school';
+});
+
 const providerAcceptingNewClients = ref(true);
 const updatingGlobalAvailability = ref(false);
 const showGlobalAvailabilityHint = ref(false);
+
+// Provider school info blurb (per provider per school org)
+const providerSchoolBlurb = ref('');
+const providerSchoolBlurbLoading = ref(false);
+const providerSchoolBlurbSaving = ref(false);
+const providerSchoolBlurbError = ref('');
 
 const showGlobalAvailabilityInHeader = computed(() => {
   const r = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
@@ -1916,6 +2014,43 @@ const loadSchoolAssignments = async () => {
   }
 };
 
+const loadProviderSchoolBlurb = async () => {
+  if (!selectedSchoolAffiliationId.value) return;
+  if (!selectedSchoolIsSchool.value) {
+    providerSchoolBlurb.value = '';
+    providerSchoolBlurbError.value = '';
+    return;
+  }
+  try {
+    providerSchoolBlurbLoading.value = true;
+    providerSchoolBlurbError.value = '';
+    const r = await api.get(`/school-portal/${selectedSchoolAffiliationId.value}/providers/${userId.value}/profile`);
+    providerSchoolBlurb.value = String(r.data?.school_info_blurb || '');
+  } catch (e) {
+    providerSchoolBlurbError.value = e.response?.data?.error?.message || 'Failed to load provider school info';
+    providerSchoolBlurb.value = '';
+  } finally {
+    providerSchoolBlurbLoading.value = false;
+  }
+};
+
+const saveProviderSchoolBlurb = async () => {
+  if (!selectedSchoolAffiliationId.value) return;
+  if (!selectedSchoolIsSchool.value) return;
+  try {
+    providerSchoolBlurbSaving.value = true;
+    providerSchoolBlurbError.value = '';
+    await api.put(`/school-portal/${selectedSchoolAffiliationId.value}/providers/${userId.value}/profile`, {
+      school_info_blurb: providerSchoolBlurb.value
+    });
+    await loadProviderSchoolBlurb();
+  } catch (e) {
+    providerSchoolBlurbError.value = e.response?.data?.error?.message || 'Failed to save provider school info';
+  } finally {
+    providerSchoolBlurbSaving.value = false;
+  }
+};
+
 const saveSchoolAffiliation = async () => {
   if (!selectedSchoolAffiliationId.value) return;
   try {
@@ -1991,7 +2126,9 @@ watch(() => accountForm.value.role, (newRole) => {
     accountForm.value.hasSupervisorPrivileges = false;
   }
   // Reset permission attributes when role changes
-  if (newRole !== 'staff' && newRole !== 'support') {
+  // Allow "admin but also provider" via hasProviderAccess.
+  const providerAccessEligibleRoles = ['staff', 'support', 'admin', 'super_admin', 'clinical_practice_assistant', 'provider'];
+  if (!providerAccessEligibleRoles.includes(newRole)) {
     accountForm.value.hasProviderAccess = false;
   }
   if (newRole !== 'provider') {
@@ -2001,16 +2138,16 @@ watch(() => accountForm.value.role, (newRole) => {
 
 watch(activeTab, async (t) => {
   if (t === 'school_affiliation') {
+    if (!canViewSchoolAffiliation.value) return;
     await loadSchoolAffiliations();
     await loadSchoolAssignments();
-  }
-  if (t === 'schedule_availability') {
-    await loadScheduleSummary();
+    await loadProviderSchoolBlurb();
   }
 });
 
 watch(selectedSchoolAffiliationId, async () => {
   await loadSchoolAssignments();
+  await loadProviderSchoolBlurb();
 });
 
 const showTempPasswordModal = ref(false);
@@ -2028,6 +2165,45 @@ const assigningAgency = ref(false);
 const orgTypeFor = (org) => String(org?.organization_type || 'agency').toLowerCase();
 const isAgencyOrg = (org) => orgTypeFor(org) === 'agency';
 const isSchoolOrProgramOrg = (org) => !isAgencyOrg(org);
+
+// Schedule view requires an agency context.
+// In admin settings flows, `agencyStore.currentAgency` may be unset; fall back to:
+// - explicit route query agencyId
+// - the first agency-type org the target user belongs to
+const scheduleAgencyId = computed(() => {
+  const fromRoute = parseInt(String(route.query?.agencyId || ''), 10);
+  if (Number.isFinite(fromRoute) && fromRoute > 0) return fromRoute;
+
+  const current = Number(agencyStore.currentAgency?.id || 0);
+  if (Number.isFinite(current) && current > 0) return current;
+
+  const firstAgency = (userAgencies.value || []).find((a) => isAgencyOrg(a));
+  const fallback = Number(firstAgency?.id || 0);
+  if (Number.isFinite(fallback) && fallback > 0) return fallback;
+
+  return 0;
+});
+
+// Schedule & Availability: allow filtering by affiliated agencies (agency-type orgs).
+const affiliatedAgencies = computed(() => (userAgencies.value || []).filter((a) => isAgencyOrg(a)));
+const scheduleAgencyLabelById = computed(() => {
+  const out = {};
+  for (const a of affiliatedAgencies.value || []) {
+    const id = Number(a?.id || 0);
+    if (!id) continue;
+    out[id] = a?.name || `Agency ${id}`;
+  }
+  return out;
+});
+const selectedScheduleAgencyIds = ref([]);
+const selectAllScheduleAgencies = () => {
+  selectedScheduleAgencyIds.value = (affiliatedAgencies.value || [])
+    .map((a) => Number(a.id))
+    .filter((n) => Number.isFinite(n) && n > 0);
+};
+const clearScheduleAgencies = () => {
+  selectedScheduleAgencyIds.value = [];
+};
 
 // Per-organization login email alias (stored in user_login_emails)
 const newAgencyLoginEmail = ref('');
@@ -2373,6 +2549,20 @@ const fetchUserAgencies = async () => {
     const response = await api.get(`/users/${userId.value}/agencies`);
     userAgencies.value = response.data || [];
 
+    // Default schedule filter to all affiliated agencies (best-effort).
+    // If this user has no agency orgs, fall back to scheduleAgencyId when available.
+    if (!selectedScheduleAgencyIds.value || selectedScheduleAgencyIds.value.length === 0) {
+      const ids = (userAgencies.value || [])
+        .filter((a) => isAgencyOrg(a))
+        .map((a) => Number(a.id))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      if (ids.length) {
+        selectedScheduleAgencyIds.value = ids;
+      } else if (scheduleAgencyId.value) {
+        selectedScheduleAgencyIds.value = [Number(scheduleAgencyId.value)];
+      }
+    }
+
     // Best-effort: load alias list (includes agency_id)
     try {
       const r = await api.get(`/users/${userId.value}/login-email-aliases`);
@@ -2630,7 +2820,8 @@ const saveAccount = async () => {
     }
     
     // Include permission attributes for cross-role capabilities
-    if (accountForm.value.role === 'staff' || accountForm.value.role === 'support') {
+    const providerAccessEligibleRoles = ['staff', 'support', 'admin', 'super_admin', 'clinical_practice_assistant'];
+    if (providerAccessEligibleRoles.includes(accountForm.value.role)) {
       updateData.hasProviderAccess = Boolean(accountForm.value.hasProviderAccess);
     }
     if (accountForm.value.role === 'provider') {

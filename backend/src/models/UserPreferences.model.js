@@ -44,6 +44,7 @@ class UserPreferences {
           'notification_categories',
           'dashboard_notification_org_types',
           'work_modality', 'scheduling_preferences',
+          'schedule_color_overrides',
           'show_read_receipts', 'allow_staff_step_in', 'staff_step_in_after_minutes',
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
           'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page',
@@ -58,6 +59,7 @@ class UserPreferences {
               field === 'quiet_hours_allowed_days' ||
               field === 'notification_categories' ||
               field === 'scheduling_preferences' ||
+              field === 'schedule_color_overrides' ||
               field === 'dashboard_notification_org_types' ||
               field === 'tutorial_progress'
             ) {
@@ -94,6 +96,7 @@ class UserPreferences {
           'notification_categories',
           'dashboard_notification_org_types',
           'work_modality', 'scheduling_preferences',
+          'schedule_color_overrides',
           'show_read_receipts', 'allow_staff_step_in', 'staff_step_in_after_minutes',
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
           'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page',
@@ -109,6 +112,7 @@ class UserPreferences {
               field === 'quiet_hours_allowed_days' ||
               field === 'notification_categories' ||
               field === 'scheduling_preferences' ||
+              field === 'schedule_color_overrides' ||
               field === 'dashboard_notification_org_types' ||
               field === 'tutorial_progress'
             ) {

@@ -20,7 +20,8 @@ import {
 } from '../controllers/schoolSoftSchedule.controller.js';
 import {
   getProviderSchoolProfile,
-  getProviderSchoolCaseloadSlots
+  getProviderSchoolCaseloadSlots,
+  upsertProviderSchoolProfile
 } from '../controllers/schoolProviderProfile.controller.js';
 import {
   listSkillsGroups,
@@ -43,6 +44,7 @@ router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 
 // Provider page within a school (profile + slot-based caseload)
 router.get('/:schoolId/providers/:providerId/profile', authenticate, getProviderSchoolProfile);
+router.put('/:schoolId/providers/:providerId/profile', authenticate, upsertProviderSchoolProfile);
 router.get('/:schoolId/providers/:providerId/caseload-slots', authenticate, getProviderSchoolCaseloadSlots);
 
 // School Portal redesign: days + soft schedule slots (Mon–Fri)

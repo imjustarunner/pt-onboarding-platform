@@ -39,13 +39,18 @@
     <div v-else class="content">
       <div class="caseload">
         <div class="section-title">Caseload</div>
-        <ClientInitialsList :clients="caseloadClients" @select="$emit('open-client', $event)" />
+        <ClientInitialsList
+          :clients="caseloadClients"
+          :client-label-mode="clientLabelMode"
+          @select="$emit('open-client', $event)"
+        />
       </div>
 
       <SoftScheduleEditor
         class="schedule"
         :slots="slots"
         :caseload-clients="caseloadClients"
+        :client-label-mode="clientLabelMode"
         :saving="saving"
         :error="error"
         @save="$emit('save-slots', $event)"
@@ -66,7 +71,8 @@ defineProps({
   slots: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   saving: { type: Boolean, default: false },
-  error: { type: String, default: '' }
+  error: { type: String, default: '' },
+  clientLabelMode: { type: String, default: 'codes' }
 });
 
 defineEmits(['open-client', 'save-slots', 'move-slot', 'open-provider']);

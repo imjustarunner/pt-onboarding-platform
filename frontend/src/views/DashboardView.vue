@@ -212,6 +212,14 @@
                   </div>
                 </button>
 
+                <button type="button" class="dash-card dash-card-submit" @click="openVirtualWorkingHours">
+                  <div class="dash-card-title">Virtual Working Hours</div>
+                  <div class="dash-card-desc">Set weekly virtual hours (not tied to a room/office).</div>
+                  <div class="dash-card-meta">
+                    <span class="dash-card-cta">Open</span>
+                  </div>
+                </button>
+
                 <button type="button" class="dash-card" @click="goToSubmission('mileage')">
                   <div class="dash-card-title">Mileage</div>
                   <div class="dash-card-desc">Submit other mileage.</div>
@@ -326,6 +334,11 @@
               <div class="hint" style="margin-top: 6px;">Additional Availability</div>
               <AdditionalAvailabilitySubmit v-if="currentAgencyId" :agency-id="Number(currentAgencyId)" />
             </div>
+
+            <div v-else-if="submitPanelView === 'virtual_hours'">
+              <div class="hint" style="margin-top: 6px;">Virtual Working Hours</div>
+              <VirtualWorkingHoursEditor v-if="currentAgencyId" :agency-id="Number(currentAgencyId)" />
+            </div>
           </div>
 
           <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'payroll'" class="my-panel">
@@ -437,6 +450,7 @@ import PendingCompletionButton from '../components/PendingCompletionButton.vue';
 import BrandingLogo from '../components/BrandingLogo.vue';
 import UserPreferencesHub from '../components/UserPreferencesHub.vue';
 import AdditionalAvailabilitySubmit from '../components/AdditionalAvailabilitySubmit.vue';
+import VirtualWorkingHoursEditor from '../components/availability/VirtualWorkingHoursEditor.vue';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
 import CredentialsView from './CredentialsView.vue';
 import AccountInfoView from './AccountInfoView.vue';
@@ -763,7 +777,7 @@ const syncFromQuery = () => {
   }
 };
 
-const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability'
+const submitPanelView = ref('root'); // 'root' | 'in_school' | 'time' | 'availability' | 'virtual_hours'
 
 const openTimeClaims = () => {
   submitPanelView.value = 'time';
@@ -775,6 +789,14 @@ const openAdditionalAvailability = () => {
     return;
   }
   submitPanelView.value = 'availability';
+};
+
+const openVirtualWorkingHours = () => {
+  if (!currentAgencyId.value) {
+    window.alert('Select an organization first.');
+    return;
+  }
+  submitPanelView.value = 'virtual_hours';
 };
 
 const parseFeatureFlags = (raw) => {

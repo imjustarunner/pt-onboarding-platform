@@ -68,6 +68,7 @@
           v-for="p in providers"
           :key="`panel-${p.provider_user_id}`"
           :provider="p"
+          :client-label-mode="clientLabelMode"
           :caseload-clients="panelFor(p.provider_user_id)?.caseloadClients || []"
           :slots="panelFor(p.provider_user_id)?.slots || []"
           :loading="panelFor(p.provider_user_id)?.loading || false"
@@ -93,7 +94,8 @@ const props = defineProps({
   eligibleProviders: { type: Array, default: () => [] },
   loadingProviders: { type: Boolean, default: false },
   providersError: { type: String, default: '' },
-  panelFor: { type: Function, required: true }
+  panelFor: { type: Function, required: true },
+  clientLabelMode: { type: String, default: 'codes' }
 });
 
 const emit = defineEmits([

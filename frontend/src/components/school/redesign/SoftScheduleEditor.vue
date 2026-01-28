@@ -68,7 +68,9 @@ const props = defineProps({
   slots: { type: Array, default: () => [] },
   caseloadClients: { type: Array, default: () => [] },
   saving: { type: Boolean, default: false },
-  error: { type: String, default: '' }
+  error: { type: String, default: '' },
+  // 'codes' | 'initials'
+  clientLabelMode: { type: String, default: 'codes' }
 });
 const emit = defineEmits(['save', 'move']);
 
@@ -93,7 +95,9 @@ watch(
 const slotKey = (s, idx) => String(s?.id || `draft-${idx}`);
 
 const displayClient = (c) => {
-  const raw = String(c?.identifier_code || c?.initials || '').replace(/\s+/g, '').toUpperCase();
+  const mode = String(props.clientLabelMode || 'codes');
+  const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
+  const raw = String(src || '').replace(/\s+/g, '').toUpperCase();
   if (!raw) return `Client ${c?.id || ''}`.trim();
   if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
   return raw;

@@ -83,6 +83,11 @@
             <div class="label">SMS Cost: Notification SMS ($/msg)</div>
             <input v-model.number="platformDraft.smsNotificationDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
+
+          <div class="form-group">
+            <div class="label">Add-on: Public Availability ($/month)</div>
+            <input v-model.number="platformDraft.publicAvailabilityAddonMonthlyDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
         </div>
 
         <div style="display:flex; gap: 10px; margin-top: 12px;">
@@ -168,6 +173,14 @@
           <div class="form-group">
             <div class="label">SMS Cost: Notification SMS ($/msg)</div>
             <input v-model.number="agencyDraft.smsNotificationDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+
+          <div class="form-group">
+            <div class="label">Add-on: Public Availability</div>
+            <select v-model="agencyDraft.publicAvailabilityAddonEnabled" class="select" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving">
+              <option :value="false">Disabled</option>
+              <option :value="true">Enabled (billed monthly)</option>
+            </select>
           </div>
         </div>
 
@@ -452,7 +465,8 @@ const platformDraft = ref({
   unitAdminDollars: 0,
   unitOnboardeeDollars: 0,
   smsOutboundClientDollars: 0,
-  smsNotificationDollars: 0
+  smsNotificationDollars: 0,
+  publicAvailabilityAddonMonthlyDollars: 0
 });
 
 const agencyOverrideEnabled = ref(false);
@@ -467,7 +481,8 @@ const agencyDraft = ref({
   unitAdminDollars: 0,
   unitOnboardeeDollars: 0,
   smsOutboundClientDollars: 0,
-  smsNotificationDollars: 0
+  smsNotificationDollars: 0,
+  publicAvailabilityAddonEnabled: false
 });
 
 const linkedSchools = ref([]);
@@ -503,7 +518,9 @@ const setDraftFromPricing = (draftRef, pricing) => {
     unitAdminDollars: Number(p.unitCents?.admin || 0) / 100,
     unitOnboardeeDollars: Number(p.unitCents?.onboardee || 0) / 100,
     smsOutboundClientDollars: Number(p.smsUnitCents?.outboundClient || 0) / 100,
-    smsNotificationDollars: Number(p.smsUnitCents?.notification || 0) / 100
+    smsNotificationDollars: Number(p.smsUnitCents?.notification || 0) / 100,
+    publicAvailabilityAddonMonthlyDollars: Number(p.addonsUnitCents?.publicAvailability || 0) / 100,
+    publicAvailabilityAddonEnabled: Boolean(p.addonsEnabled?.publicAvailability)
   };
 };
 
@@ -526,6 +543,12 @@ const buildPricingPayloadFromDraft = (draft) => {
     smsUnitCents: {
       outboundClient: dollarsToCents(d.smsOutboundClientDollars),
       notification: dollarsToCents(d.smsNotificationDollars)
+    },
+    addonsUnitCents: {
+      publicAvailability: dollarsToCents(d.publicAvailabilityAddonMonthlyDollars)
+    },
+    addonsEnabled: {
+      publicAvailability: Boolean(d.publicAvailabilityAddonEnabled)
     }
   };
 };
@@ -610,6 +633,10 @@ const saveAgencyPricingOverride = async () => {
   if (!currentAgencyId.value) return;
   pricingSaving.value = true;
   try {
+    // If the add-on is being enabled, we must persist an override payload (billing gate).
+    if (agencyDraft.value?.publicAvailabilityAddonEnabled && !agencyOverrideEnabled.value) {
+      agencyOverrideEnabled.value = true;
+    }
     const payload = agencyOverrideEnabled.value ? buildPricingPayloadFromDraft(agencyDraft.value) : null;
     await api.put(`/billing/${currentAgencyId.value}/pricing`, { pricing: payload });
     await Promise.all([loadAgencyPricing(), loadEstimate()]);

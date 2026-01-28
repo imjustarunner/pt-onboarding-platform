@@ -68,6 +68,28 @@ export const getProviderSchoolProfile = async (req, res, next) => {
     const u = await User.findById(providerUserId);
     if (!u) return res.status(404).json({ error: { message: 'Provider not found' } });
 
+    // Optional: school-specific provider blurb (admin-editable)
+    let schoolInfoBlurb = null;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT school_info_blurb
+         FROM provider_school_profiles
+         WHERE provider_user_id = ? AND school_organization_id = ?
+         LIMIT 1`,
+        [providerUserId, parseInt(schoolId, 10)]
+      );
+      schoolInfoBlurb = rows?.[0]?.school_info_blurb ?? null;
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing =
+        msg.includes("doesn't exist") ||
+        msg.includes('ER_NO_SUCH_TABLE') ||
+        msg.includes('Unknown column') ||
+        msg.includes('ER_BAD_FIELD_ERROR');
+      if (!missing) throw e;
+      schoolInfoBlurb = null;
+    }
+
     res.json({
       provider_user_id: u.id,
       first_name: u.first_name || null,
@@ -75,8 +97,43 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       email: u.email || null,
       title: u.title || null,
       service_focus: u.service_focus || null,
-      profile_photo_url: publicUploadsUrlFromStoredPath(u.profile_photo_path || null)
+      profile_photo_url: publicUploadsUrlFromStoredPath(u.profile_photo_path || null),
+      school_info_blurb: schoolInfoBlurb
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const upsertProviderSchoolProfile = async (req, res, next) => {
+  try {
+    const { schoolId, providerId } = req.params;
+    const access = await ensureSchoolAccess(req, schoolId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const canEdit = role === 'super_admin' || role === 'admin' || role === 'staff' || role === 'support';
+    if (!canEdit) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const providerUserId = parseInt(providerId, 10);
+    if (!providerUserId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
+
+    const aff = await ensureProviderAffiliated(providerUserId, schoolId);
+    if (!aff.ok) return res.status(404).json({ error: { message: 'Provider is not affiliated with this school' } });
+
+    const blurb = req.body?.school_info_blurb;
+    const schoolInfoBlurb = blurb === null || blurb === undefined ? null : String(blurb).trim();
+
+    await pool.execute(
+      `INSERT INTO provider_school_profiles (provider_user_id, school_organization_id, school_info_blurb)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         school_info_blurb = VALUES(school_info_blurb),
+         updated_at = CURRENT_TIMESTAMP`,
+      [providerUserId, parseInt(schoolId, 10), schoolInfoBlurb || null]
+    );
+
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

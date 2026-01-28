@@ -9,11 +9,23 @@
       <div class="top-row">
         <div class="top-left">
           <SchoolDayBar
-            v-if="showSchedule"
+            v-if="portalMode === 'days'"
             v-model="store.selectedWeekday"
             :days="store.days"
           />
-          <div v-else class="muted-small">{{ viewMode === 'roster' ? 'Roster view' : 'Skills Groups view' }}</div>
+          <div v-else class="muted-small">
+            {{
+              portalMode === 'home'
+                ? 'Choose a section'
+                : portalMode === 'providers'
+                  ? 'Providers'
+                  : portalMode === 'roster'
+                    ? 'Roster'
+                    : portalMode === 'skills'
+                      ? 'Skills Groups'
+                      : 'School portal'
+            }}
+          </div>
         </div>
         <div class="top-actions">
           <router-link
@@ -24,7 +36,15 @@
             Back to show all schools
           </router-link>
           <button
-            v-if="!isProvider && showRoster"
+            v-if="portalMode !== 'home'"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="portalMode = 'home'"
+          >
+            Back
+          </button>
+          <button
+            v-if="true"
             class="btn btn-secondary btn-sm"
             type="button"
             @click="toggleClientLabelMode"
@@ -32,69 +52,90 @@
           >
             {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
           </button>
-          <button
-            v-if="!isProvider"
-            class="btn btn-secondary btn-sm"
-            type="button"
-            @click="openProvidersDirectory"
-          >
-            Providers
-          </button>
-          <button
-            class="btn btn-secondary btn-sm"
-            type="button"
-            @click="viewMode = viewMode === 'skills' ? 'schedule' : 'skills'"
-            v-if="canToggleSkills"
-          >
-            {{ viewMode === 'skills' ? 'Back to schedule' : 'Skills Groups' }}
-          </button>
-          <button
-            v-if="canToggleRoster"
-            class="btn btn-secondary btn-sm"
-            type="button"
-            @click="viewMode = viewMode === 'schedule' ? 'roster' : 'schedule'"
-          >
-            {{ viewMode === 'schedule' ? 'Roster only' : 'Show schedule' }}
-          </button>
-          <button class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact Admin</button>
+          <button class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact admin</button>
         </div>
       </div>
 
-      <DayPanel
-        v-if="organizationId && showSchedule"
-        :weekday="store.selectedWeekday"
-        :providers="store.dayProviders"
-        :eligible-providers="store.eligibleProvidersForSelectedDay"
-        :loading-providers="store.dayProvidersLoading"
-        :providers-error="store.dayProvidersError"
-        :panel-for="panelFor"
-        @add-day="handleAddDay"
-        @add-provider="handleAddProvider"
-        @open-client="openClient"
-        @save-slots="handleSaveSlots"
-        @move-slot="handleMoveSlot"
-        @open-provider="goToProviderSchoolProfile"
-      />
+      <div v-if="portalMode === 'home'" class="home">
+        <div class="card-grid">
+          <button class="nav-card" type="button" @click="openProvidersPanel">
+            <div class="nav-title">Providers</div>
+            <div class="nav-sub">View provider cards and profiles.</div>
+          </button>
+          <button class="nav-card" type="button" @click="portalMode = 'days'">
+            <div class="nav-title">Days</div>
+            <div class="nav-sub">Choose a weekday and view schedules.</div>
+          </button>
+          <button class="nav-card" type="button" @click="portalMode = 'roster'">
+            <div class="nav-title">Roster</div>
+            <div class="nav-sub">View and sort the client roster.</div>
+          </button>
+          <button class="nav-card" type="button" @click="portalMode = 'skills'">
+            <div class="nav-title">Skills Groups</div>
+            <div class="nav-sub">Groups, meetings, providers, and participants.</div>
+          </button>
+          <button class="nav-card" type="button" @click="showHelpDesk = true">
+            <div class="nav-title">Contact admin</div>
+            <div class="nav-sub">Send a message to agency staff.</div>
+          </button>
+        </div>
+      </div>
+
+      <div v-else-if="portalMode === 'days'">
+        <div v-if="!store.selectedWeekday" class="empty-state">
+          Select a weekday above to view schedules.
+        </div>
+        <DayPanel
+          v-else-if="organizationId"
+          :weekday="store.selectedWeekday"
+          :providers="store.dayProviders"
+          :eligible-providers="store.eligibleProvidersForSelectedDay"
+          :loading-providers="store.dayProvidersLoading"
+          :providers-error="store.dayProvidersError"
+          :panel-for="panelFor"
+          :client-label-mode="clientLabelMode"
+          @add-day="handleAddDay"
+          @add-provider="handleAddProvider"
+          @open-client="openClient"
+          @save-slots="handleSaveSlots"
+          @move-slot="handleMoveSlot"
+          @open-provider="goToProviderSchoolProfile"
+        />
+        <div v-else class="empty-state">Organization not loaded.</div>
+      </div>
+
+      <div v-else-if="portalMode === 'providers'">
+        <ProvidersDirectoryPanel
+          v-if="organizationId"
+          :providers="store.eligibleProviders"
+          :loading="store.eligibleProvidersLoading"
+          @open-provider="goToProviderSchoolProfile"
+        />
+      </div>
+
       <SkillsGroupsPanel
-        v-else-if="organizationId && viewMode === 'skills'"
+        v-else-if="portalMode === 'skills' && organizationId"
         :organization-id="organizationId"
         :client-label-mode="clientLabelMode"
       />
-      <div v-else class="empty-state">Organization not loaded.</div>
 
-      <div class="roster" v-if="showRoster">
+      <div v-else-if="portalMode === 'roster'" class="roster">
         <div class="roster-header">
           <h2 style="margin: 0;">School roster</h2>
           <div class="muted">Assigned + unassigned (restricted fields)</div>
         </div>
         <ClientListGrid
+          v-if="organizationId"
           :organization-slug="organizationSlug"
           :organization-id="organizationId"
           :client-label-mode="clientLabelMode"
           edit-mode="inline"
           @edit-client="openAdminClientEditor"
         />
+        <div v-else class="empty-state">Organization not loaded.</div>
       </div>
+
+      <div v-else class="empty-state">Organization not loaded.</div>
     </div>
 
     <ClientModal
@@ -117,13 +158,7 @@
       @close="showHelpDesk = false"
     />
 
-    <ProvidersDirectoryModal
-      v-if="showProvidersDirectory && organizationId && !isProvider"
-      :providers="store.eligibleProviders"
-      :loading="store.eligibleProvidersLoading"
-      @close="showProvidersDirectory = false"
-      @open-provider="goToProviderSchoolProfile"
-    />
+    <!-- Providers are now shown in-page via ProvidersDirectoryPanel -->
   </div>
 </template>
 
@@ -137,7 +172,7 @@ import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
 import DayPanel from '../../components/school/redesign/DayPanel.vue';
 import ClientModal from '../../components/school/redesign/ClientModal.vue';
 import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPanel.vue';
-import ProvidersDirectoryModal from '../../components/school/redesign/ProvidersDirectoryModal.vue';
+import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersDirectoryPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
@@ -150,9 +185,8 @@ const store = useSchoolPortalRedesignStore();
 const authStore = useAuthStore();
 
 const showHelpDesk = ref(false);
-const showProvidersDirectory = ref(false);
 const selectedClient = ref(null);
-const viewMode = ref('schedule');
+const portalMode = ref('home'); // home | providers | days | roster | skills
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
 
@@ -170,11 +204,12 @@ const toggleClientLabelMode = () => {
   }
 };
 
-// Provider privacy: providers should not see other providers’ schedules/caseload or the roster by default.
-const showSchedule = computed(() => !isProvider.value && viewMode.value === 'schedule');
-const showRoster = computed(() => !isProvider.value && (viewMode.value === 'schedule' || viewMode.value === 'roster'));
-const canToggleSkills = computed(() => !isProvider.value);
-const canToggleRoster = computed(() => !isProvider.value && viewMode.value !== 'skills');
+const openProvidersPanel = async () => {
+  portalMode.value = 'providers';
+  if (!Array.isArray(store.eligibleProviders) || store.eligibleProviders.length === 0) {
+    await store.fetchEligibleProviders();
+  }
+};
 
 const organizationSlug = computed(() => route.params.organizationSlug);
 
@@ -197,7 +232,8 @@ const panelFor = (providerUserId) => {
 
 const loadForDay = async (weekday) => {
   if (!organizationId.value) return;
-  if (!showSchedule.value) return;
+  if (portalMode.value !== 'days') return;
+  if (!weekday) return;
   await store.fetchDays();
   await store.fetchEligibleProviders();
   await store.fetchDayProviders(weekday);
@@ -258,14 +294,6 @@ const goToProviderSchoolProfile = (providerUserId) => {
   router.push(`/${slug}/providers/${providerUserId}`);
 };
 
-const openProvidersDirectory = async () => {
-  showProvidersDirectory.value = true;
-  // Ensure we have the latest list even if schedule UI is hidden (roster-only mode).
-  if (!Array.isArray(store.eligibleProviders) || store.eligibleProviders.length === 0) {
-    await store.fetchEligibleProviders();
-  }
-};
-
 onMounted(async () => {
   try {
     const saved = window.localStorage.getItem('schoolPortalClientLabelMode');
@@ -280,9 +308,10 @@ onMounted(async () => {
   if (organizationId.value) {
     store.reset();
     store.setSchoolId(organizationId.value);
-    // Provider default: show skills groups only.
-    if (isProvider.value) viewMode.value = 'skills';
-    await loadForDay(store.selectedWeekday);
+    // Provider default: show skills groups.
+    if (isProvider.value) portalMode.value = 'skills';
+    await store.fetchDays();
+    if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
   }
 });
 
@@ -290,8 +319,9 @@ watch(organizationId, async (id) => {
   if (!id) return;
   store.reset();
   store.setSchoolId(id);
-  if (isProvider.value) viewMode.value = 'skills';
-  await loadForDay(store.selectedWeekday);
+  if (isProvider.value) portalMode.value = 'skills';
+  await store.fetchDays();
+  if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
 });
 
 watch(() => store.selectedWeekday, async (weekday) => {
@@ -358,6 +388,36 @@ watch(() => store.selectedWeekday, async (weekday) => {
   justify-content: flex-end;
 }
 
+.home {
+  padding: 6px 0;
+}
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.nav-card {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: white;
+  padding: 16px;
+}
+.nav-card:hover {
+  border-color: rgba(79, 70, 229, 0.35);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.10);
+}
+.nav-title {
+  font-weight: 900;
+  color: var(--text-primary);
+  font-size: 16px;
+}
+.nav-sub {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .roster {
   margin-top: 16px;
   border-top: 1px solid var(--border);
@@ -373,5 +433,16 @@ watch(() => store.selectedWeekday, async (weekday) => {
 .muted {
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+@media (max-width: 1100px) {
+  .card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

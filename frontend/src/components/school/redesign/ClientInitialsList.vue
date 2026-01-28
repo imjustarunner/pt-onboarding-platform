@@ -17,12 +17,16 @@
 
 <script setup>
 const props = defineProps({
-  clients: { type: Array, default: () => [] }
+  clients: { type: Array, default: () => [] },
+  // 'codes' | 'initials' (codes are default with initials on hover)
+  clientLabelMode: { type: String, default: 'codes' }
 });
 defineEmits(['select']);
 
 const displayId = (c) => {
-  const raw = String(c?.identifier_code || c?.initials || '').replace(/\s+/g, '').toUpperCase();
+  const mode = String(props.clientLabelMode || 'codes');
+  const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
+  const raw = String(src || '').replace(/\s+/g, '').toUpperCase();
   if (!raw) return '—';
   if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
   return raw;
@@ -31,7 +35,10 @@ const displayId = (c) => {
 const chipTitle = (c) => {
   const status = c?.status ? String(c.status) : '';
   const doc = c?.document_status ? String(c.document_status) : '';
-  const bits = [status && `Status: ${status}`, doc && `Docs: ${doc}`].filter(Boolean);
+  const initials = String(c?.initials || '').trim();
+  const mode = String(props.clientLabelMode || 'codes');
+  const hover = mode === 'codes' && initials ? `Initials: ${initials}` : '';
+  const bits = [hover, status && `Status: ${status}`, doc && `Docs: ${doc}`].filter(Boolean);
   return bits.join(' • ') || 'Open client';
 };
 </script>

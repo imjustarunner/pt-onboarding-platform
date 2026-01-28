@@ -8,74 +8,136 @@
     <div v-if="loading" class="loading">Loading provider…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else>
-      <div class="profile-card">
-        <div class="avatar" aria-hidden="true">
-          <img v-if="profile?.profile_photo_url" :src="profile.profile_photo_url" alt="" class="avatar-img" />
-          <span v-else>{{ initialsFor(profile) }}</span>
-        </div>
-        <div class="meta">
-          <div class="name">{{ profile?.first_name }} {{ profile?.last_name }}</div>
-          <div v-if="profile?.title" class="sub">{{ profile.title }}</div>
-          <div v-if="profile?.service_focus" class="sub">{{ profile.service_focus }}</div>
-          <button class="btn btn-secondary btn-sm" type="button" :disabled="chatWorking" @click="openChat">
-            {{ chatWorking ? 'Opening…' : 'Message provider' }}
-          </button>
-        </div>
-      </div>
-
-      <div class="slots">
-        <div class="slots-header">
-          <h2 style="margin:0;">Slot-based caseload</h2>
-          <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">Refresh</button>
-        </div>
-
-        <div v-for="a in caseload?.assignments || []" :key="a.day_of_week" class="day">
-          <div class="day-top">
-            <div>
-              <strong>{{ a.day_of_week }}</strong>
-              <span v-if="a.is_active" class="badge badge-secondary" style="margin-left: 8px;">
-                {{ a.slots_available ?? '—' }} / {{ a.slots_total ?? '—' }} slots
-              </span>
-              <span v-else class="badge badge-secondary" style="margin-left: 8px;">Inactive</span>
+      <div class="grid">
+        <div class="left">
+          <div class="profile-hero">
+            <div class="avatar-lg" aria-hidden="true">
+              <img v-if="profile?.profile_photo_url" :src="profile.profile_photo_url" alt="" class="avatar-img" />
+              <span v-else>{{ initialsFor(profile) }}</span>
             </div>
-            <div class="muted" v-if="a.start_time || a.end_time">
-              Hours: {{ (a.start_time || '—').toString().slice(0, 5) }}–{{ (a.end_time || '—').toString().slice(0, 5) }}
+            <div class="meta">
+              <div class="name">{{ profile?.first_name }} {{ profile?.last_name }}</div>
+              <div v-if="profile?.title" class="sub">{{ profile.title }}</div>
+              <div v-if="profile?.service_focus" class="sub">{{ profile.service_focus }}</div>
+              <div v-if="profile?.school_info_blurb" class="blurb">
+                <strong>Provider info</strong>
+                <div class="blurb-text">{{ profile.school_info_blurb }}</div>
+              </div>
+              <div class="hero-actions">
+                <button class="btn btn-secondary btn-sm" type="button" :disabled="chatWorking" @click="openChat">
+                  {{ chatWorking ? 'Opening…' : 'Message provider' }}
+                </button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">Refresh</button>
+              </div>
             </div>
           </div>
 
-          <div class="clients">
-            <button
-              v-for="c in a.clients || []"
-              :key="c.id"
-              class="chip"
-              type="button"
-              @click="$emit('open-client', c)"
-            >
-              {{ clientShort(c) }}
-              <span v-if="Number(c.unread_notes_count || 0) > 0" class="dot" aria-hidden="true" />
-            </button>
-            <div v-if="(a.clients || []).length === 0" class="muted">No assigned clients.</div>
+          <div class="panel">
+            <div class="panel-title">Day</div>
+            <SchoolDayBar v-model="selectedWeekday" :days="dayBarDays" />
+            <div v-if="!selectedWeekday" class="muted">Select a day to open the soft schedule.</div>
           </div>
-        </div>
-      </div>
-    </div>
 
-    <div v-if="chatModalOpen" class="modal-overlay" @click.self="closeChatModal">
-      <div class="modal-content" @click.stop style="max-width: 720px;">
-        <div class="modal-header" style="padding: 16px 18px;">
-          <h3 style="margin:0;">Message {{ profile?.first_name }} {{ profile?.last_name }}</h3>
-          <button class="btn-close" @click="closeChatModal">×</button>
-        </div>
-        <div style="padding: 18px;">
-          <div class="hint" style="margin-bottom: 10px;">This sends an in-app message (no PHI).</div>
-          <textarea v-model="chatDraft" rows="5" style="width:100%;" placeholder="Type a message…" />
-          <div style="display:flex; justify-content:flex-end; gap: 10px; margin-top: 12px;">
-            <button class="btn btn-secondary" type="button" :disabled="chatWorking" @click="closeChatModal">Cancel</button>
-            <button class="btn btn-primary" type="button" :disabled="chatWorking || !chatDraft.trim()" @click="sendChat">
-              {{ chatWorking ? 'Sending…' : 'Send' }}
-            </button>
+          <div v-if="selectedWeekday" class="panel">
+            <div class="panel-title">Soft schedule ({{ selectedWeekday }})</div>
+            <div v-if="messagesOpen" class="muted">
+              Soft schedule is collapsed while messaging is open.
+            </div>
+            <SoftScheduleEditor
+              v-else
+              :slots="softSlots"
+              :caseload-clients="selectedDayClients"
+              :client-label-mode="clientLabelMode"
+              :saving="softSaving"
+              :error="softError"
+              @save="saveSoftSlots"
+              @move="moveSoftSlot"
+            />
           </div>
-          <div v-if="chatError" class="error" style="margin-top: 10px;">{{ chatError }}</div>
+
+          <div class="panel compact">
+            <div class="panel-title">Slot-based caseload (summary)</div>
+            <div class="summary-grid">
+              <div
+                v-for="a in (caseload?.assignments || [])"
+                :key="a.day_of_week"
+                class="summary-row"
+                :class="{ inactive: !a.is_active }"
+              >
+                <div class="day-name">{{ a.day_of_week }}</div>
+                <div class="badges">
+                  <span class="badge badge-secondary">
+                    {{ a.slots_available ?? '—' }} / {{ a.slots_total ?? '—' }}
+                  </span>
+                  <span v-if="a.start_time || a.end_time" class="badge badge-secondary">
+                    {{ (a.start_time || '—').toString().slice(0, 5) }}–{{ (a.end_time || '—').toString().slice(0, 5) }}
+                  </span>
+                </div>
+                <div class="chips-mini">
+                  <button
+                    v-for="c in (a.clients || []).slice(0, 10)"
+                    :key="c.id"
+                    class="chip-mini"
+                    type="button"
+                    @click="$emit('open-client', c)"
+                    :title="clientTitle(c)"
+                  >
+                    {{ clientShort(c) }}
+                  </button>
+                  <span v-if="(a.clients || []).length > 10" class="muted-small">+{{ (a.clients || []).length - 10 }}</span>
+                  <span v-if="(a.clients || []).length === 0" class="muted-small">—</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="right">
+          <div class="panel">
+            <div class="panel-title messages-title">
+              <span>Messages</span>
+              <button
+                v-if="messagesOpen"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="closeMessages"
+              >
+                Close
+              </button>
+            </div>
+
+            <div v-if="!messagesOpen" class="muted">
+              Click “Message provider” to open the thread.
+            </div>
+
+            <div v-else class="messages">
+              <div v-if="messagesError" class="error">{{ messagesError }}</div>
+              <div v-else-if="messagesLoading" class="muted">Loading messages…</div>
+              <div v-else class="message-list">
+                <div v-for="m in messages" :key="m.id" class="bubble" :class="{ mine: Number(m.sender_user_id) === Number(meUserId) }">
+                  <div class="bubble-meta">
+                    <span class="muted-small">
+                      {{ Number(m.sender_user_id) === Number(meUserId) ? 'Me' : 'Them' }}
+                    </span>
+                    <span class="muted-small">{{ formatTime(m.created_at) }}</span>
+                  </div>
+                  <div class="bubble-body">{{ m.body }}</div>
+                </div>
+              </div>
+
+              <div class="composer">
+                <textarea v-model="messageDraft" rows="4" style="width: 100%;" placeholder="Type a message (no PHI)…" />
+                <div class="composer-actions">
+                  <button class="btn btn-secondary" type="button" :disabled="sendingMessage" @click="refreshMessages">
+                    Refresh
+                  </button>
+                  <button class="btn btn-primary" type="button" :disabled="sendingMessage || !messageDraft.trim()" @click="sendMessage">
+                    {{ sendingMessage ? 'Sending…' : 'Send' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -83,8 +145,11 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
+import SchoolDayBar from './SchoolDayBar.vue';
+import SoftScheduleEditor from './SoftScheduleEditor.vue';
+import { useAuthStore } from '../../../store/auth';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
@@ -92,22 +157,63 @@ const props = defineProps({
 });
 defineEmits(['open-client']);
 
+const authStore = useAuthStore();
+const meUserId = computed(() => authStore.user?.id || null);
+
 const profile = ref(null);
 const caseload = ref(null);
 const loading = ref(false);
 const error = ref('');
 
+const selectedWeekday = ref(null);
+
+const softSlots = ref([]);
+const softLoading = ref(false);
+const softSaving = ref(false);
+const softError = ref('');
+
 const chatWorking = ref(false);
 const chatError = ref('');
-const chatModalOpen = ref(false);
-const chatDraft = ref('');
 const chatThreadId = ref(null);
 
+const messagesOpen = ref(false);
+const messagesLoading = ref(false);
+const messagesError = ref('');
+const messages = ref([]);
+const messageDraft = ref('');
+const sendingMessage = ref(false);
+
+const clientLabelMode = ref('codes'); // shared portal setting
 const clientShort = (c) => {
-  const raw = String(c?.identifier_code || c?.initials || '').replace(/\s+/g, '').toUpperCase();
+  const mode = String(clientLabelMode.value || 'codes');
+  const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
+  const raw = String(src || '').replace(/\s+/g, '').toUpperCase();
   if (!raw) return '—';
   if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
   return raw;
+};
+
+const clientTitle = (c) => {
+  const mode = String(clientLabelMode.value || 'codes');
+  if (mode === 'codes' && c?.initials) return `Initials: ${c.initials}`;
+  return 'Open client';
+};
+
+const weekdayList = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const dayBarDays = ref(weekdayList.map((d) => ({ weekday: d, has_providers: false })));
+const recomputeDayBar = () => {
+  const map = new Map();
+  (caseload.value?.assignments || []).forEach((a) => {
+    map.set(String(a.day_of_week), !!a.is_active);
+  });
+  dayBarDays.value = weekdayList.map((d) => ({ weekday: d, has_providers: map.get(d) === true }));
+};
+
+const selectedDayClients = ref([]);
+const recomputeSelectedDayClients = () => {
+  const day = String(selectedWeekday.value || '');
+  const a = (caseload.value?.assignments || []).find((x) => String(x.day_of_week) === day) || null;
+  selectedDayClients.value = Array.isArray(a?.clients) ? a.clients : [];
 };
 
 const initialsFor = (p) => {
@@ -129,11 +235,92 @@ const load = async () => {
     ]);
     profile.value = p.data || null;
     caseload.value = c.data || null;
+    recomputeDayBar();
+    recomputeSelectedDayClients();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load provider profile';
   } finally {
     loading.value = false;
   }
+};
+
+const fetchSoftSlots = async () => {
+  if (!selectedWeekday.value) return;
+  try {
+    softLoading.value = true;
+    softError.value = '';
+    const r = await api.get(
+      `/school-portal/${props.schoolOrganizationId}/days/${encodeURIComponent(String(selectedWeekday.value))}/providers/${props.providerUserId}/soft-slots`
+    );
+    softSlots.value = Array.isArray(r.data?.slots) ? r.data.slots : [];
+  } catch (e) {
+    softError.value = e.response?.data?.error?.message || 'Failed to load soft schedule';
+    softSlots.value = [];
+  } finally {
+    softLoading.value = false;
+  }
+};
+
+const saveSoftSlots = async (slots) => {
+  if (!selectedWeekday.value) return;
+  try {
+    softSaving.value = true;
+    softError.value = '';
+    await api.put(
+      `/school-portal/${props.schoolOrganizationId}/days/${encodeURIComponent(String(selectedWeekday.value))}/providers/${props.providerUserId}/soft-slots`,
+      { slots }
+    );
+    await fetchSoftSlots();
+  } catch (e) {
+    softError.value = e.response?.data?.error?.message || 'Failed to save soft schedule';
+  } finally {
+    softSaving.value = false;
+  }
+};
+
+const moveSoftSlot = async ({ slotId, direction }) => {
+  if (!selectedWeekday.value || !slotId) return;
+  try {
+    softSaving.value = true;
+    softError.value = '';
+    await api.post(
+      `/school-portal/${props.schoolOrganizationId}/days/${encodeURIComponent(String(selectedWeekday.value))}/providers/${props.providerUserId}/soft-slots/${slotId}/move`,
+      { direction }
+    );
+    await fetchSoftSlots();
+  } catch (e) {
+    softError.value = e.response?.data?.error?.message || 'Failed to move slot';
+  } finally {
+    softSaving.value = false;
+  }
+};
+
+const formatTime = (d) => {
+  try {
+    return new Date(d).toLocaleString();
+  } catch {
+    return '';
+  }
+};
+
+const refreshMessages = async () => {
+  if (!chatThreadId.value) return;
+  try {
+    messagesLoading.value = true;
+    messagesError.value = '';
+    const r = await api.get(`/chat/threads/${chatThreadId.value}/messages`, { params: { limit: 120 } });
+    messages.value = Array.isArray(r.data) ? r.data : [];
+  } catch (e) {
+    messagesError.value = e.response?.data?.error?.message || 'Failed to load messages';
+    messages.value = [];
+  } finally {
+    messagesLoading.value = false;
+  }
+};
+
+const closeMessages = () => {
+  messagesOpen.value = false;
+  messageDraft.value = '';
 };
 
 const openChat = async () => {
@@ -157,8 +344,9 @@ const openChat = async () => {
       chatError.value = 'Unable to open chat thread.';
       return;
     }
-    chatDraft.value = '';
-    chatModalOpen.value = true;
+    messagesOpen.value = true;
+    messageDraft.value = '';
+    await refreshMessages();
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || e.message || 'Failed to open chat';
   } finally {
@@ -166,29 +354,40 @@ const openChat = async () => {
   }
 };
 
-const closeChatModal = () => {
-  chatModalOpen.value = false;
-  chatDraft.value = '';
-};
-
-const sendChat = async () => {
+const sendMessage = async () => {
   if (!chatThreadId.value) return;
-  const body = String(chatDraft.value || '').trim();
+  const body = String(messageDraft.value || '').trim();
   if (!body) return;
   try {
-    chatWorking.value = true;
-    chatError.value = '';
+    sendingMessage.value = true;
+    messagesError.value = '';
     await api.post(`/chat/threads/${chatThreadId.value}/messages`, { body });
-    closeChatModal();
+    messageDraft.value = '';
+    await refreshMessages();
   } catch (e) {
-    chatError.value = e.response?.data?.error?.message || e.message || 'Failed to send message';
+    messagesError.value = e.response?.data?.error?.message || e.message || 'Failed to send message';
   } finally {
-    chatWorking.value = false;
+    sendingMessage.value = false;
   }
 };
 
 onMounted(load);
 watch(() => [props.schoolOrganizationId, props.providerUserId], load);
+
+onMounted(() => {
+  try {
+    const saved = window.localStorage.getItem('schoolPortalClientLabelMode');
+    if (saved === 'codes' || saved === 'initials') clientLabelMode.value = saved;
+  } catch {
+    // ignore
+  }
+});
+
+
+watch(selectedWeekday, async () => {
+  recomputeSelectedDayClients();
+  await fetchSoftSlots();
+});
 </script>
 
 <style scoped>
@@ -205,30 +404,51 @@ watch(() => [props.schoolOrganizationId, props.providerUserId], load);
 .loading, .error { padding: 10px 0; }
 .error { color: #c33; }
 
-.profile-card {
-  display: flex;
+.grid {
+  display: grid;
+  grid-template-columns: 1.45fr 0.95fr;
   gap: 12px;
+  align-items: start;
+}
+.left, .right { display: grid; gap: 12px; }
+.profile-hero {
+  display: flex;
+  gap: 14px;
   align-items: center;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: white;
-  padding: 14px;
+  padding: 16px;
 }
-.avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
+.avatar-lg {
+  width: 86px;
+  height: 86px;
+  border-radius: 22px;
   border: 1px solid var(--border);
   background: var(--bg);
   display: grid;
   place-items: center;
   overflow: hidden;
   font-weight: 900;
+  flex: 0 0 auto;
+  font-size: 22px;
 }
 .avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .name { font-weight: 900; color: var(--text-primary); }
 .sub { color: var(--text-secondary); margin-top: 2px; }
-.link { display: inline-block; margin-top: 6px; font-weight: 800; }
+ .hero-actions { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.blurb {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  padding: 10px;
+}
+.blurb-text {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
 label {
   display: block;
   font-size: 12px;
@@ -244,47 +464,83 @@ label {
   background: var(--bg);
 }
 
-.slots {
+.panel {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: white;
   padding: 14px;
 }
-.slots-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+.panel.compact { padding: 12px; }
+.panel-title {
+  font-weight: 900;
+  color: var(--text-primary);
   margin-bottom: 10px;
 }
-.day {
+.messages-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.messages {
+  display: grid;
+  gap: 10px;
+}
+.message-list {
+  max-height: 56vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+}
+.bubble {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--bg);
+}
+.bubble.mine {
+  margin-left: auto;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+.bubble-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.bubble-body {
+  white-space: pre-wrap;
+}
+.composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+.summary-grid { display: grid; gap: 8px; }
+.summary-row {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg);
-  padding: 12px;
-  margin-bottom: 10px;
-}
-.day-top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-.clients {
-  display: flex;
-  flex-wrap: wrap;
+  padding: 10px;
+  display: grid;
   gap: 8px;
 }
-.chip {
-  position: relative;
+.summary-row.inactive { opacity: 0.7; }
+.day-name { font-weight: 900; }
+.badges { display: flex; gap: 8px; flex-wrap: wrap; }
+.chips-mini { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip-mini {
   border: 1px solid var(--border);
   background: white;
   border-radius: 999px;
-  padding: 8px 10px;
+  padding: 6px 8px;
   font-weight: 900;
   letter-spacing: 0.05em;
-  font-size: 12px;
+  font-size: 11px;
 }
 .dot {
   display: inline-block;
@@ -296,5 +552,10 @@ label {
   vertical-align: middle;
 }
 .muted { color: var(--text-secondary); font-size: 13px; }
+.muted-small { color: var(--text-secondary); font-size: 12px; }
+
+@media (max-width: 1100px) {
+  .grid { grid-template-columns: 1fr; }
+}
 </style>
 

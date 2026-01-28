@@ -2,6 +2,8 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
+import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
+import PublicAppointmentRequest from '../models/PublicAppointmentRequest.model.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -285,6 +287,57 @@ export const getMyAvailabilityPending = async (req, res, next) => {
         confirmedAt: confirmation?.confirmed_at || null
       }
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getMyVirtualWorkingHours = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    const providerId = Number(req.user?.id || 0);
+    if (!providerId) return res.status(400).json({ error: { message: 'Invalid user' } });
+
+    const rows = await ProviderVirtualWorkingHours.listForProvider({ agencyId, providerId });
+    res.json({ ok: true, agencyId, providerId, rows });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putMyVirtualWorkingHours = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    const providerId = Number(req.user?.id || 0);
+    if (!providerId) return res.status(400).json({ error: { message: 'Invalid user' } });
+
+    const rows = Array.isArray(req.body?.rows)
+      ? req.body.rows
+      : (Array.isArray(req.body?.virtualWorkingHours) ? req.body.virtualWorkingHours : []);
+    if (!Array.isArray(rows)) return res.status(400).json({ error: { message: 'rows must be an array' } });
+    if (rows.length > 100) return res.status(400).json({ error: { message: 'Too many rows' } });
+
+    const normalized = ProviderVirtualWorkingHours.normalizeRows(rows);
+
+    // Validate overlaps within each day
+    const byDay = new Map();
+    for (const r of normalized) {
+      if (!byDay.has(r.dayOfWeek)) byDay.set(r.dayOfWeek, []);
+      byDay.get(r.dayOfWeek).push(r);
+    }
+    for (const [day, list] of byDay.entries()) {
+      list.sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)));
+      for (let i = 1; i < list.length; i++) {
+        if (String(list[i].startTime) < String(list[i - 1].endTime)) {
+          return res.status(400).json({ error: { message: `Overlapping virtual working hours on ${day}` } });
+        }
+      }
+    }
+
+    const saved = await ProviderVirtualWorkingHours.replaceForProvider({ agencyId, providerId, rows: normalized });
+    res.json({ ok: true, agencyId, providerId, rows: saved });
   } catch (e) {
     next(e);
   }
@@ -1460,6 +1513,86 @@ export const searchAvailability = async (req, res, next) => {
       supervisedAvailability: Array.from(supervisedByProvider.values()),
       inOfficeAvailability: inOffice
     });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listPublicAppointmentRequests = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    let rows = [];
+    try {
+      rows = await PublicAppointmentRequest.listPending({ agencyId, limit: 300 });
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true, agencyId, requests: [] });
+      throw e;
+    }
+
+    const ids = Array.from(new Set((rows || []).map((r) => Number(r.provider_id)).filter((n) => Number.isInteger(n) && n > 0)));
+    const providerNames = new Map();
+    if (ids.length) {
+      const placeholders = ids.map(() => '?').join(',');
+      const [urows] = await pool.execute(
+        `SELECT id, first_name, last_name
+         FROM users
+         WHERE id IN (${placeholders})`,
+        ids
+      );
+      for (const u of urows || []) {
+        providerNames.set(Number(u.id), `${u.first_name || ''} ${u.last_name || ''}`.trim());
+      }
+    }
+
+    res.json({
+      ok: true,
+      agencyId,
+      requests: (rows || []).map((r) => ({
+        id: r.id,
+        providerId: r.provider_id,
+        providerName: providerNames.get(Number(r.provider_id)) || `#${r.provider_id}`,
+        modality: r.modality,
+        requestedStartAt: r.requested_start_at,
+        requestedEndAt: r.requested_end_at,
+        clientName: r.client_name,
+        clientEmail: r.client_email,
+        clientPhone: r.client_phone,
+        notes: r.notes || '',
+        status: r.status,
+        createdAt: r.created_at
+      }))
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const setPublicAppointmentRequestStatus = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const requestId = parseIntSafe(req.params.id);
+    if (!requestId) return res.status(400).json({ error: { message: 'Invalid request id' } });
+
+    const status = String(req.body?.status || '').trim().toUpperCase();
+    if (!['APPROVED', 'DECLINED', 'CANCELLED'].includes(status)) {
+      return res.status(400).json({ error: { message: 'status must be APPROVED, DECLINED, or CANCELLED' } });
+    }
+
+    try {
+      const ok = await PublicAppointmentRequest.setStatus({ agencyId, requestId, status });
+      if (!ok) return res.status(404).json({ error: { message: 'Request not found' } });
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') return res.status(409).json({ error: { message: 'Migrations not applied yet' } });
+      throw e;
+    }
+
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

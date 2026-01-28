@@ -10,7 +10,7 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
   const schoolId = ref(null);
 
   const days = ref(weekDays.map((d) => ({ weekday: d, is_active: false, has_providers: false })));
-  const selectedWeekday = ref('Monday');
+  const selectedWeekday = ref(null); // set by UI; do not auto-select
 
   const dayProviders = ref([]); // providers added to selected weekday (from school_day_provider_assignments)
   const dayProvidersLoading = ref(false);
@@ -28,7 +28,7 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
 
   const reset = () => {
     days.value = weekDays.map((d) => ({ weekday: d, is_active: false, has_providers: false }));
-    selectedWeekday.value = 'Monday';
+    selectedWeekday.value = null;
     dayProviders.value = [];
     dayProvidersLoading.value = false;
     dayProvidersError.value = '';
@@ -41,15 +41,6 @@ export const useSchoolPortalRedesignStore = defineStore('schoolPortalRedesign', 
     if (!schoolId.value) return;
     const r = await api.get(`/school-portal/${schoolId.value}/days`);
     days.value = Array.isArray(r.data) && r.data.length ? r.data : days.value;
-
-    // UX: default to a day that has providers assigned.
-    const selected = (days.value || []).find((d) => d.weekday === selectedWeekday.value) || null;
-    if (!selected?.has_providers) {
-      const firstWithProviders = (days.value || []).find((d) => !!d?.has_providers) || null;
-      if (firstWithProviders?.weekday) {
-        selectedWeekday.value = String(firstWithProviders.weekday);
-      }
-    }
   };
 
   const addDay = async (weekday) => {

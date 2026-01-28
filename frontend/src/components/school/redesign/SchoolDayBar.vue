@@ -20,7 +20,7 @@
 <script setup>
 const props = defineProps({
   days: { type: Array, default: () => [] },
-  modelValue: { type: String, default: 'Monday' }
+  modelValue: { type: String, default: '' }
 });
 defineEmits(['update:modelValue']);
 

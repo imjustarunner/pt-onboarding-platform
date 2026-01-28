@@ -13,6 +13,7 @@
       <div class="tabs">
         <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'">Office Requests</button>
         <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'">School Requests</button>
+        <button class="tab" :class="{ active: tab === 'appointments' }" @click="tab = 'appointments'">Appointments</button>
         <button class="tab" :class="{ active: tab === 'search' }" @click="tab = 'search'">Search</button>
         <button class="tab" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">Skills</button>
         <button class="btn btn-secondary btn-sm" style="margin-left:auto;" @click="reload" :disabled="loading">Refresh</button>
@@ -95,6 +96,30 @@
                 </select>
                 <input class="input" type="number" min="0" v-model.number="schoolAssign[r.id].slotsTotal" />
                 <button class="btn btn-primary btn-sm" @click="assignSchool(r)" :disabled="saving">Assign</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Public appointment requests -->
+        <div v-else-if="tab === 'appointments'">
+          <div v-if="publicRequests.length === 0" class="muted">No pending appointment requests.</div>
+          <div v-else class="list">
+            <div v-for="r in publicRequests" :key="r.id" class="row">
+              <div class="main">
+                <div class="title">{{ r.providerName }} <span class="pill">{{ r.modality }}</span></div>
+                <div class="meta">Requested: {{ fmtDateTime(r.requestedStartAt) }} – {{ fmtDateTime(r.requestedEndAt) }}</div>
+                <div class="meta">Client: {{ r.clientName }} ({{ r.clientEmail }})</div>
+                <div class="meta" v-if="r.clientPhone">Phone: {{ r.clientPhone }}</div>
+                <div class="meta" v-if="r.notes">Notes: {{ r.notes }}</div>
+                <div class="meta">Submitted: {{ fmtDateTime(r.createdAt) }}</div>
+              </div>
+              <div class="assign">
+                <div class="lbl">Decision</div>
+                <div class="row-inline">
+                  <button class="btn btn-primary btn-sm" @click="setPublicStatus(r, 'APPROVED')" :disabled="saving">Approve</button>
+                  <button class="btn btn-secondary btn-sm" @click="setPublicStatus(r, 'DECLINED')" :disabled="saving">Decline</button>
+                </div>
               </div>
             </div>
           </div>
@@ -240,6 +265,7 @@ const offices = ref([]);
 const schools = ref([]);
 const officeRequests = ref([]);
 const schoolRequests = ref([]);
+const publicRequests = ref([]);
 const skills = ref([]);
 const providers = ref([]);
 
@@ -266,6 +292,13 @@ const hourLabel = (h) => {
   const d = new Date();
   d.setHours(Number(h), 0, 0, 0);
   return d.toLocaleTimeString([], { hour: 'numeric' });
+};
+
+const fmtDateTime = (v) => {
+  if (!v) return '';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return String(v);
+  return d.toLocaleString();
 };
 
 const officeName = (id) => offices.value.find((o) => Number(o.id) === Number(id))?.name || `#${id}`;
@@ -324,11 +357,12 @@ const reload = async () => {
     error.value = '';
     searchResult.value = null;
 
-    const [officesResp, schoolsResp, officeReqResp, schoolReqResp, skillsResp, providersResp] = await Promise.all([
+    const [officesResp, schoolsResp, officeReqResp, schoolReqResp, publicReqResp, skillsResp, providersResp] = await Promise.all([
       api.get('/offices'),
       api.get(`/agencies/${agencyId.value}/affiliated-organizations`),
       api.get('/availability/admin/office-requests', { params: { agencyId: agencyId.value, status: 'PENDING' } }),
       api.get('/availability/admin/school-requests', { params: { agencyId: agencyId.value, status: 'PENDING' } }),
+      api.get('/availability/admin/public-appointment-requests', { params: { agencyId: agencyId.value } }).catch(() => ({ data: { requests: [] } })),
       api.get('/availability/admin/skills', { params: { agencyId: agencyId.value } }),
       api.get('/availability/admin/providers', { params: { agencyId: agencyId.value } })
     ]);
@@ -337,6 +371,7 @@ const reload = async () => {
     schools.value = (schoolsResp.data || []).filter((o) => String(o.organization_type || 'agency').toLowerCase() !== 'agency');
     officeRequests.value = officeReqResp.data || [];
     schoolRequests.value = schoolReqResp.data || [];
+    publicRequests.value = publicReqResp.data?.requests || [];
     skills.value = skillsResp.data || [];
     providers.value = providersResp.data || [];
 
@@ -351,6 +386,22 @@ const reload = async () => {
     error.value = e.response?.data?.error?.message || 'Failed to load availability intake';
   } finally {
     loading.value = false;
+  }
+};
+
+const setPublicStatus = async (r, status) => {
+  try {
+    saving.value = true;
+    error.value = '';
+    await api.post(`/availability/admin/public-appointment-requests/${r.id}/status`, {
+      agencyId: agencyId.value,
+      status
+    });
+    await reload();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to update appointment request';
+  } finally {
+    saving.value = false;
   }
 };
 

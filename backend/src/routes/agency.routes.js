@@ -224,6 +224,11 @@ const validateUpdateAgency = [
     }
     return false;
   }).withMessage('Feature flags must be a valid JSON object')
+  ,
+  body('publicAvailabilityEnabled')
+    .optional()
+    .isBoolean()
+    .withMessage('publicAvailabilityEnabled must be a boolean')
 ];
 
 // Public routes (no auth required) - must come before /:id route

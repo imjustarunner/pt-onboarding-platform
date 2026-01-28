@@ -26,6 +26,39 @@ const migrationsDir = path.join(__dirname, '../../../database/migrations');
 // Check for --collect-errors flag
 const collectErrors = process.argv.includes('--collect-errors');
 
+function parseOnlyArg(argv) {
+  // Supports:
+  //   --only 289
+  //   --only 289_user_preferences_schedule_color_overrides.sql
+  //   --only=289
+  //   --only=289_user_preferences_schedule_color_overrides.sql
+  const idx = argv.findIndex((a) => a === '--only');
+  if (idx >= 0) {
+    const v = argv[idx + 1];
+    return v ? String(v).trim() : null;
+  }
+  const eq = argv.find((a) => String(a || '').startsWith('--only='));
+  if (eq) return String(eq).slice('--only='.length).trim() || null;
+  return null;
+}
+
+function parseFromArg(argv) {
+  // Supports:
+  //   --from 289
+  //   --from=289
+  const idx = argv.findIndex((a) => a === '--from');
+  if (idx >= 0) {
+    const v = argv[idx + 1];
+    return v ? String(v).trim() : null;
+  }
+  const eq = argv.find((a) => String(a || '').startsWith('--from='));
+  if (eq) return String(eq).slice('--from='.length).trim() || null;
+  return null;
+}
+
+const only = parseOnlyArg(process.argv);
+const from = parseFromArg(process.argv);
+
 async function runMigrations() {
   // Test connection before running migrations
   try {
@@ -52,9 +85,44 @@ async function runMigrations() {
 
   try {
     // Get all migration files sorted
-    const files = fs.readdirSync(migrationsDir)
+    let files = fs.readdirSync(migrationsDir)
       .filter(file => file.endsWith('.sql'))
       .sort();
+
+    if (only) {
+      const needle = String(only).trim();
+      const isNum = /^\d+$/.test(needle);
+      files = files.filter((f) => {
+        if (isNum) return f.startsWith(needle);
+        if (needle.endsWith('.sql')) return f === needle;
+        return f.includes(needle);
+      });
+      if (files.length === 0) {
+        console.error(`❌ No migrations matched --only ${JSON.stringify(only)}`);
+        console.error(`   Migrations dir: ${migrationsDir}`);
+        process.exit(1);
+      }
+      console.log(`🔎 --only enabled: running ${files.length} migration(s): ${files.join(', ')}`);
+    }
+
+    if (!only && from) {
+      const start = parseInt(String(from).trim(), 10);
+      if (!Number.isFinite(start) || start <= 0) {
+        console.error(`❌ Invalid --from value: ${JSON.stringify(from)}`);
+        process.exit(1);
+      }
+      files = files.filter((f) => {
+        const m = String(f).match(/^(\d+)/);
+        if (!m) return false;
+        const n = parseInt(m[1], 10);
+        return Number.isFinite(n) && n >= start;
+      });
+      if (files.length === 0) {
+        console.error(`❌ No migrations found with numeric prefix >= ${start}`);
+        process.exit(1);
+      }
+      console.log(`🔎 --from enabled: running ${files.length} migration(s) starting at ${start}`);
+    }
 
     console.log(`Found ${files.length} migration files`);
     if (collectErrors) {

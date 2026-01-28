@@ -25,6 +25,14 @@ const FALLBACK_PRICING = {
   smsUnitCents: {
     outboundClient: 0,
     notification: 0
+  },
+  // Paid add-ons (flat monthly fees), gated per agency.
+  // NOTE: keep default at 0/off so existing agencies are unaffected.
+  addonsUnitCents: {
+    publicAvailability: 0
+  },
+  addonsEnabled: {
+    publicAvailability: false
   }
 };
 
@@ -66,6 +74,14 @@ function mergePricing(base, override) {
     smsUnitCents: {
       ...(b.smsUnitCents || {}),
       ...(o.smsUnitCents || {})
+    },
+    addonsUnitCents: {
+      ...(b.addonsUnitCents || {}),
+      ...(o.addonsUnitCents || {})
+    },
+    addonsEnabled: {
+      ...(b.addonsEnabled || {}),
+      ...(o.addonsEnabled || {})
     }
   };
 }
@@ -108,6 +124,11 @@ export function buildEstimate(usage, pricingConfig = null) {
   const extraSmsOutboundCents = outboundSmsUsed * smsOutboundUnitCents;
   const extraSmsNotificationCents = notificationSmsUsed * smsNotificationUnitCents;
 
+  const publicAvailabilityAddonEnabled = Boolean(PRICING?.addonsEnabled?.publicAvailability);
+  const publicAvailabilityAddonCents = publicAvailabilityAddonEnabled
+    ? Math.max(0, Number(PRICING?.addonsUnitCents?.publicAvailability || 0))
+    : 0;
+
   const totalCents =
     PRICING.baseFeeCents +
     extraSchoolsCents +
@@ -115,7 +136,8 @@ export function buildEstimate(usage, pricingConfig = null) {
     extraAdminsCents +
     extraOnboardeesCents +
     extraSmsOutboundCents +
-    extraSmsNotificationCents;
+    extraSmsNotificationCents +
+    publicAvailabilityAddonCents;
 
   const lineItems = [
     {
@@ -171,6 +193,15 @@ export function buildEstimate(usage, pricingConfig = null) {
       overage: notificationSmsUsed,
       unitCostCents: smsNotificationUnitCents,
       extraCents: extraSmsNotificationCents
+    },
+    {
+      key: 'addon_public_availability',
+      label: 'Add-on: Public Availability',
+      included: 0,
+      used: publicAvailabilityAddonEnabled ? 1 : 0,
+      overage: publicAvailabilityAddonEnabled ? 1 : 0,
+      unitCostCents: publicAvailabilityAddonCents,
+      extraCents: publicAvailabilityAddonCents
     }
   ];
 
@@ -192,6 +223,7 @@ export function buildEstimate(usage, pricingConfig = null) {
       extraOnboardeesCents,
       extraSmsOutboundCents,
       extraSmsNotificationCents,
+      publicAvailabilityAddonCents,
       totalCents
     },
     lineItems

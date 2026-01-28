@@ -3,6 +3,26 @@ import { mount } from '@vue/test-utils';
 import SoftScheduleEditor from '../SoftScheduleEditor.vue';
 
 describe('SoftScheduleEditor', () => {
+  it('renders client labels based on clientLabelMode', async () => {
+    const wrapper = mount(SoftScheduleEditor, {
+      props: {
+        saving: false,
+        error: '',
+        clientLabelMode: 'codes',
+        caseloadClients: [{ id: 1, initials: 'ABCDEF', identifier_code: 'CODE123' }],
+        slots: [{ id: 10, client_id: null, start_time: null, end_time: null, note: null }]
+      }
+    });
+
+    // Option label should be code mode by default
+    const optionText = wrapper.findAll('option').map((o) => o.text()).join(' | ');
+    expect(optionText).toContain('COD123');
+
+    await wrapper.setProps({ clientLabelMode: 'initials' });
+    const optionText2 = wrapper.findAll('option').map((o) => o.text()).join(' | ');
+    expect(optionText2).toContain('ABCDEF');
+  });
+
   it('renders slots and emits save payload', async () => {
     const wrapper = mount(SoftScheduleEditor, {
       props: {

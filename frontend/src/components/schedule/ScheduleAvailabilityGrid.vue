@@ -1,5 +1,5 @@
 <template>
-  <div class="sched-wrap">
+  <div class="sched-wrap" :style="scheduleColorVars">
     <div class="sched-toolbar">
       <div class="sched-toolbar-top">
         <h2 class="sched-week-title">Week of {{ weekStart }}</h2>
@@ -146,13 +146,127 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   userId: { type: Number, required: true },
   agencyId: { type: [Number, String], default: null },
+  // Optional: multi-agency mode (admin viewing a user's schedule across multiple agencies).
+  // When provided (non-empty), the grid loads and merges schedule summaries for each agency.
+  agencyIds: { type: Array, default: null },
+  // Optional: map of agencyId -> label for tooltips (helps explain overlaps).
+  agencyLabelById: { type: Object, default: null },
   mode: { type: String, default: 'self' }, // 'self' | 'admin'
   // Optional: parent-controlled weekStart (any date; normalized to Monday).
   weekStartYmd: { type: String, default: null }
+});
+
+const authStore = useAuthStore();
+
+const defaultScheduleColors = () => ({
+  request: '#F2C94C',
+  school: '#2D9CDB',
+  office_assigned: '#27AE60',
+  office_temporary: '#9B51E0',
+  office_booked: '#EB5757',
+  google_busy: '#111827',
+  ehr_busy: '#F2994A'
+});
+
+const scheduleColors = ref(defaultScheduleColors());
+
+const parseJsonMaybe = (v) => {
+  if (!v) return null;
+  if (typeof v === 'object') return v;
+  if (typeof v !== 'string') return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+};
+
+const loadMyScheduleColors = async () => {
+  try {
+    const myId = Number(authStore.user?.id || 0);
+    if (!myId) return;
+    const resp = await api.get(`/users/${myId}/preferences`);
+    const colors = parseJsonMaybe(resp.data?.schedule_color_overrides);
+    scheduleColors.value = { ...defaultScheduleColors(), ...(colors || {}) };
+  } catch {
+    // best effort; fall back to defaults
+    scheduleColors.value = defaultScheduleColors();
+  }
+};
+
+const clampHex = (hex) => {
+  const s = String(hex || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toUpperCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+    const r = s[1], g = s[2], b = s[3];
+    return (`#${r}${r}${g}${g}${b}${b}`).toUpperCase();
+  }
+  return null;
+};
+
+const hexToRgb = (hex) => {
+  const h = clampHex(hex);
+  if (!h) return null;
+  const x = h.slice(1);
+  const r = parseInt(x.slice(0, 2), 16);
+  const g = parseInt(x.slice(2, 4), 16);
+  const b = parseInt(x.slice(4, 6), 16);
+  if (![r, g, b].every((n) => Number.isFinite(n))) return null;
+  return { r, g, b };
+};
+
+const rgba = (hex, a) => {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return null;
+  const alpha = Math.max(0, Math.min(1, Number(a)));
+  return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+};
+
+const scheduleColorVars = computed(() => {
+  const c = scheduleColors.value || {};
+  const req = c.request;
+  const school = c.school;
+  const oa = c.office_assigned;
+  const ot = c.office_temporary;
+  const ob = c.office_booked;
+  const gb = c.google_busy;
+  const eb = c.ehr_busy;
+
+  const v = {};
+  const set = (k, bgA, borderA) => {
+    const bg = rgba(k, bgA);
+    const br = rgba(k, borderA);
+    return { bg, br };
+  };
+
+  const reqv = set(req, 0.35, 0.65);
+  const schv = set(school, 0.28, 0.60);
+  const oav = set(oa, 0.22, 0.55);
+  const otv = set(ot, 0.24, 0.58);
+  const obv = set(ob, 0.22, 0.58);
+  const gbv = set(gb, 0.14, 0.42);
+  const ebv = set(eb, 0.16, 0.45);
+
+  if (reqv.bg) v['--sched-request-bg'] = reqv.bg;
+  if (reqv.br) v['--sched-request-border'] = reqv.br;
+  if (schv.bg) v['--sched-school-bg'] = schv.bg;
+  if (schv.br) v['--sched-school-border'] = schv.br;
+  if (oav.bg) v['--sched-oa-bg'] = oav.bg;
+  if (oav.br) v['--sched-oa-border'] = oav.br;
+  if (otv.bg) v['--sched-ot-bg'] = otv.bg;
+  if (otv.br) v['--sched-ot-border'] = otv.br;
+  if (obv.bg) v['--sched-ob-bg'] = obv.bg;
+  if (obv.br) v['--sched-ob-border'] = obv.br;
+  if (gbv.bg) v['--sched-gbusy-bg'] = gbv.bg;
+  if (gbv.br) v['--sched-gbusy-border'] = gbv.br;
+  if (ebv.bg) v['--sched-ebusy-bg'] = ebv.bg;
+  if (ebv.br) v['--sched-ebusy-border'] = ebv.br;
+  return v;
 });
 
 const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -243,11 +357,35 @@ const effectiveAgencyId = computed(() => {
   return Number.isFinite(n) && n > 0 ? n : null;
 });
 
+const effectiveAgencyIds = computed(() => {
+  const fromList = Array.isArray(props.agencyIds) ? props.agencyIds : null;
+  const ids = (fromList && fromList.length ? fromList : (effectiveAgencyId.value ? [effectiveAgencyId.value] : []))
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  // De-dupe while preserving order
+  const seen = new Set();
+  const out = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+});
+
+const agencyLabel = (agencyId) => {
+  const id = Number(agencyId || 0);
+  if (!id) return '';
+  const map = props.agencyLabelById && typeof props.agencyLabelById === 'object' ? props.agencyLabelById : null;
+  const label = map ? map[String(id)] || map[id] : '';
+  return String(label || '').trim();
+};
+
 const canCreateRequests = computed(() => props.mode === 'self');
 
 const load = async () => {
   if (!props.userId) return;
-  if (!effectiveAgencyId.value) {
+  if (!effectiveAgencyIds.value.length) {
     summary.value = null;
     error.value = 'Select an organization first.';
     return;
@@ -257,17 +395,91 @@ const load = async () => {
     loading.value = true;
     error.value = '';
 
-    const resp = await api.get(`/users/${props.userId}/schedule-summary`, {
-      params: {
-        weekStart: weekStart.value,
-        agencyId: effectiveAgencyId.value,
-        includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
-        ...(selectedExternalCalendarIds.value.length
-          ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
-          : {})
+    const ids = effectiveAgencyIds.value;
+    if (ids.length === 1) {
+      const resp = await api.get(`/users/${props.userId}/schedule-summary`, {
+        params: {
+          weekStart: weekStart.value,
+          agencyId: ids[0],
+          includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
+          ...(selectedExternalCalendarIds.value.length
+            ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
+            : {})
+        }
+      });
+      summary.value = resp.data || null;
+    } else {
+      const results = await Promise.all(
+        ids.map((agencyId) =>
+          api
+            .get(`/users/${props.userId}/schedule-summary`, {
+              params: {
+                weekStart: weekStart.value,
+                agencyId,
+                includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
+                ...(selectedExternalCalendarIds.value.length
+                  ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
+                  : {})
+              }
+            })
+            .then((r) => ({ ok: true, agencyId, data: r.data }))
+            .catch((e) => ({
+              ok: false,
+              agencyId,
+              error: e?.response?.data?.error?.message || e?.message || 'Failed to load schedule'
+            }))
+        )
+      );
+
+      const okOnes = results.filter((r) => r.ok && r.data);
+      const first = okOnes[0]?.data || null;
+      if (!first) {
+        summary.value = null;
+        const msgs = results
+          .filter((r) => !r.ok)
+          .map((r) => `${agencyLabel(r.agencyId) || `Agency ${r.agencyId}`}: ${r.error}`);
+        error.value = msgs.length ? msgs.join(' • ') : 'Failed to load schedule';
+        return;
       }
-    });
-    summary.value = resp.data || null;
+
+      const tag = (row, agencyId) => ({ ...row, _agencyId: agencyId });
+      const merged = {
+        ...first,
+        // Preserve one “current” agencyId for legacy consumers, but include the full list too.
+        agencyId: first.agencyId || ids[0],
+        agencyIds: [...ids],
+        officeRequests: [],
+        schoolRequests: [],
+        schoolAssignments: [],
+        officeEvents: []
+      };
+
+      // Union calendars available (per-user, but keep stable)
+      const calMap = new Map();
+      for (const r of okOnes) {
+        for (const c of r.data?.externalCalendarsAvailable || []) {
+          const id = Number(c?.id || 0);
+          if (!id) continue;
+          if (!calMap.has(id)) calMap.set(id, { id, label: c?.label || '' });
+        }
+      }
+      merged.externalCalendarsAvailable = Array.from(calMap.values());
+
+      for (const r of okOnes) {
+        const aId = r.agencyId;
+        merged.officeRequests.push(...(r.data?.officeRequests || []).map((x) => tag(x, aId)));
+        merged.schoolRequests.push(...(r.data?.schoolRequests || []).map((x) => tag(x, aId)));
+        merged.schoolAssignments.push(...(r.data?.schoolAssignments || []).map((x) => tag(x, aId)));
+        merged.officeEvents.push(...(r.data?.officeEvents || []).map((x) => tag(x, aId)));
+      }
+
+      // Prefer overlay info from the first successful result (per-user; not agency-scoped).
+      merged.googleBusy = first.googleBusy || [];
+      merged.googleBusyError = first.googleBusyError || null;
+      merged.externalCalendars = first.externalCalendars || [];
+
+      summary.value = merged;
+    }
   } catch (e) {
     summary.value = null;
     error.value = e.response?.data?.error?.message || 'Failed to load schedule';
@@ -276,8 +488,16 @@ const load = async () => {
   }
 };
 
-watch([() => props.userId, effectiveAgencyId], () => load(), { immediate: true });
+watch([() => props.userId, effectiveAgencyIds], () => load(), { immediate: true });
 watch([showGoogleBusy, selectedExternalCalendarIds], () => load(), { deep: true });
+
+watch(
+  () => authStore.user?.id,
+  () => {
+    void loadMyScheduleColors();
+  },
+  { immediate: true }
+);
 
 watch(
   () => props.weekStartYmd,
@@ -363,6 +583,26 @@ const hasSchool = (dayName, hour) => {
   return false;
 };
 
+const schoolNamesInCell = (dayName, hour) => {
+  const s = summary.value;
+  if (!s) return [];
+  const names = new Set();
+  for (const a of s.schoolAssignments || []) {
+    if (String(a.dayOfWeek) !== dayName) continue;
+    if (!overlapsHour(a.startTime, a.endTime, hour)) continue;
+    const nm = String(a.schoolName || '').trim();
+    if (nm) names.add(nm);
+  }
+  return Array.from(names.values()).sort((a, b) => a.localeCompare(b));
+};
+
+const schoolShortLabel = (dayName, hour) => {
+  const names = schoolNamesInCell(dayName, hour);
+  if (!names.length) return 'School';
+  if (names.length === 1) return names[0];
+  return `${names[0]}+${names.length - 1}`;
+};
+
 const stateRank = (st) => {
   const v = String(st || '').toUpperCase();
   if (v === 'ASSIGNED_BOOKED') return 3;
@@ -436,8 +676,79 @@ const hasExternalBusy = (dayName, hour) => {
   return false;
 };
 
-const requestTitle = (dayName, hour) => `Pending request — ${dayName} ${hourLabel(hour)}`;
-const schoolTitle = (dayName, hour) => `School assigned — ${dayName} ${hourLabel(hour)}`;
+const agenciesInCell = (kind, dayName, hour) => {
+  const s = summary.value;
+  if (!s) return [];
+  const ws = s.weekStart || weekStart.value;
+  const ids = new Set();
+
+  if (kind === 'request') {
+    for (const r of s.officeRequests || []) {
+      for (const slot of r.slots || []) {
+        const dn = ALL_DAYS[((Number(slot.weekday) + 6) % 7)] || null;
+        if (dn !== dayName) continue;
+        if (Number(hour) >= Number(slot.startHour) && Number(hour) < Number(slot.endHour)) {
+          if (r?._agencyId) ids.add(Number(r._agencyId));
+        }
+      }
+    }
+    for (const r of s.schoolRequests || []) {
+      for (const b of r.blocks || []) {
+        if (String(b.dayOfWeek) !== dayName) continue;
+        if (overlapsHour(b.startTime, b.endTime, hour)) {
+          if (r?._agencyId) ids.add(Number(r._agencyId));
+        }
+      }
+    }
+  }
+
+  if (kind === 'school') {
+    for (const a of s.schoolAssignments || []) {
+      if (String(a.dayOfWeek) !== dayName) continue;
+      if (overlapsHour(a.startTime, a.endTime, hour)) {
+        if (a?._agencyId) ids.add(Number(a._agencyId));
+      }
+    }
+  }
+
+  if (kind === 'office') {
+    for (const e of s.officeEvents || []) {
+      const startRaw = String(e.startAt || '').trim();
+      if (!startRaw) continue;
+      const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
+      if (Number.isNaN(startLocal.getTime())) continue;
+      const idx = dayIndexForDateLocal(localYmd(startLocal), ws);
+      const dn = ALL_DAYS[idx] || null;
+      if (dn !== dayName) continue;
+      if (startLocal.getHours() !== Number(hour)) continue;
+      if (e?._agencyId) ids.add(Number(e._agencyId));
+    }
+  }
+
+  const out = Array.from(ids.values()).filter((n) => Number.isFinite(n) && n > 0);
+  out.sort((a, b) => a - b);
+  return out;
+};
+
+const agencySuffix = (ids) => {
+  const list = (ids || [])
+    .map((id) => agencyLabel(id) || `Agency ${id}`)
+    .filter(Boolean);
+  if (!list.length) return '';
+  if (list.length === 1) return ` (${list[0]})`;
+  return ` (${list.slice(0, 2).join(', ')}${list.length > 2 ? ` +${list.length - 2}` : ''})`;
+};
+
+const requestTitle = (dayName, hour) => {
+  const ids = agenciesInCell('request', dayName, hour);
+  return `Pending request${agencySuffix(ids)} — ${dayName} ${hourLabel(hour)}`;
+};
+const schoolTitle = (dayName, hour) => {
+  const ids = agenciesInCell('school', dayName, hour);
+  const names = schoolNamesInCell(dayName, hour);
+  const nameSuffix = names.length ? ` (${names.join(', ')})` : '';
+  return `School assigned${agencySuffix(ids)}${nameSuffix} — ${dayName} ${hourLabel(hour)}`;
+};
 const officeTitle = (dayName, hour) => {
   const s = summary.value;
   const hits = (s?.officeEvents || []).filter((e) => {
@@ -455,7 +766,8 @@ const officeTitle = (dayName, hour) => {
   const bld = top.buildingName || 'Building';
   const st = String(top.slotState || '').toUpperCase();
   const label = st === 'ASSIGNED_BOOKED' ? 'Booked' : st === 'ASSIGNED_TEMPORARY' ? 'Temporary' : 'Assigned';
-  return `${label} — ${bld} • ${room} — ${dayName} ${hourLabel(hour)}`;
+  const ids = agenciesInCell('office', dayName, hour);
+  return `${label}${agencySuffix(ids)} — ${bld} • ${room} — ${dayName} ${hourLabel(hour)}`;
 };
 const googleBusyTitle = (dayName, hour) => `Google busy — ${dayName} ${hourLabel(hour)}`;
 const externalBusyLabels = (dayName, hour) => {
@@ -498,7 +810,7 @@ const cellBlocks = (dayName, hour) => {
 
   // Assigned school
   if (hasSchool(dayName, hour)) {
-    blocks.push({ key: 'school-assigned', kind: 'school', shortLabel: 'School', title: schoolTitle(dayName, hour) });
+    blocks.push({ key: 'school-assigned', kind: 'school', shortLabel: schoolShortLabel(dayName, hour), title: schoolTitle(dayName, hour) });
   }
 
   // Pending request
@@ -724,13 +1036,13 @@ watch(modalHour, () => {
   border: 1px solid rgba(0,0,0,0.12);
   display: inline-block;
 }
-.swatch-request { background: rgba(242, 201, 76, 0.35); border-color: rgba(242, 201, 76, 0.65); }
-.swatch-school { background: rgba(45, 156, 219, 0.28); border-color: rgba(45, 156, 219, 0.60); }
-.swatch-oa { background: rgba(39, 174, 96, 0.22); border-color: rgba(39, 174, 96, 0.55); }
-.swatch-ot { background: rgba(242, 153, 74, 0.24); border-color: rgba(242, 153, 74, 0.58); }
-.swatch-ob { background: rgba(235, 87, 87, 0.22); border-color: rgba(235, 87, 87, 0.58); }
-.swatch-gbusy { background: rgba(17, 24, 39, 0.18); border-color: rgba(17, 24, 39, 0.45); }
-.swatch-ebusy { background: rgba(107, 114, 128, 0.18); border-color: rgba(107, 114, 128, 0.45); }
+.swatch-request { background: var(--sched-request-bg, rgba(242, 201, 76, 0.35)); border-color: var(--sched-request-border, rgba(242, 201, 76, 0.65)); }
+.swatch-school { background: var(--sched-school-bg, rgba(45, 156, 219, 0.28)); border-color: var(--sched-school-border, rgba(45, 156, 219, 0.60)); }
+.swatch-oa { background: var(--sched-oa-bg, rgba(39, 174, 96, 0.22)); border-color: var(--sched-oa-border, rgba(39, 174, 96, 0.55)); }
+.swatch-ot { background: var(--sched-ot-bg, rgba(242, 153, 74, 0.24)); border-color: var(--sched-ot-border, rgba(242, 153, 74, 0.58)); }
+.swatch-ob { background: var(--sched-ob-bg, rgba(235, 87, 87, 0.22)); border-color: var(--sched-ob-border, rgba(235, 87, 87, 0.58)); }
+.swatch-gbusy { background: var(--sched-gbusy-bg, rgba(17, 24, 39, 0.18)); border-color: var(--sched-gbusy-border, rgba(17, 24, 39, 0.45)); }
+.swatch-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.18)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); }
 .sched-grid {
   display: grid;
   border: 1px solid var(--border);
@@ -815,13 +1127,13 @@ watch(modalHour, () => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cell-block-request { background: rgba(242, 201, 76, 0.35); border-color: rgba(242, 201, 76, 0.65); }
-.cell-block-school { background: rgba(45, 156, 219, 0.28); border-color: rgba(45, 156, 219, 0.60); }
-.cell-block-oa { background: rgba(39, 174, 96, 0.22); border-color: rgba(39, 174, 96, 0.55); }
-.cell-block-ot { background: rgba(242, 153, 74, 0.24); border-color: rgba(242, 153, 74, 0.58); }
-.cell-block-ob { background: rgba(235, 87, 87, 0.22); border-color: rgba(235, 87, 87, 0.58); }
-.cell-block-gbusy { background: rgba(17, 24, 39, 0.14); border-color: rgba(17, 24, 39, 0.42); color: rgba(17, 24, 39, 0.9); }
-.cell-block-ebusy { background: rgba(107, 114, 128, 0.16); border-color: rgba(107, 114, 128, 0.45); color: rgba(17, 24, 39, 0.9); }
+.cell-block-request { background: var(--sched-request-bg, rgba(242, 201, 76, 0.35)); border-color: var(--sched-request-border, rgba(242, 201, 76, 0.65)); }
+.cell-block-school { background: var(--sched-school-bg, rgba(45, 156, 219, 0.28)); border-color: var(--sched-school-border, rgba(45, 156, 219, 0.60)); }
+.cell-block-oa { background: var(--sched-oa-bg, rgba(39, 174, 96, 0.22)); border-color: var(--sched-oa-border, rgba(39, 174, 96, 0.55)); }
+.cell-block-ot { background: var(--sched-ot-bg, rgba(242, 153, 74, 0.24)); border-color: var(--sched-ot-border, rgba(242, 153, 74, 0.58)); }
+.cell-block-ob { background: var(--sched-ob-bg, rgba(235, 87, 87, 0.22)); border-color: var(--sched-ob-border, rgba(235, 87, 87, 0.58)); }
+.cell-block-gbusy { background: var(--sched-gbusy-bg, rgba(17, 24, 39, 0.14)); border-color: var(--sched-gbusy-border, rgba(17, 24, 39, 0.42)); color: rgba(17, 24, 39, 0.9); }
+.cell-block-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.16)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); color: rgba(17, 24, 39, 0.9); }
 .cell-block-more { background: rgba(148, 163, 184, 0.18); border-color: rgba(148, 163, 184, 0.45); color: rgba(51, 65, 85, 0.92); }
 
 .modal-backdrop {

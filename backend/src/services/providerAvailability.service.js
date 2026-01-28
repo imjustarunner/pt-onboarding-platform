@@ -1,0 +1,381 @@
+import pool from '../config/database.js';
+import User from '../models/User.model.js';
+import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
+import ExternalBusyCalendarService from './externalBusyCalendar.service.js';
+import GoogleCalendarService from './googleCalendar.service.js';
+import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
+import { mergeIntervals, subtractInterval, slotizeIntervals } from '../utils/intervals.js';
+
+const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+function isValidYmd(s) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '').slice(0, 10));
+}
+
+function startOfWeekMondayYmd(dateStr) {
+  const d = new Date(`${String(dateStr || '').slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const diff = (day === 0 ? -6 : 1) - day; // shift to Monday
+  d.setDate(d.getDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function addDaysYmd(ymd, days) {
+  const d = new Date(`${String(ymd).slice(0, 10)}T00:00:00`);
+  d.setDate(d.getDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+function dayIndex(dayOfWeek) {
+  return DAY_ORDER.indexOf(String(dayOfWeek || '').trim());
+}
+
+function parseMySqlDateTime(s) {
+  // "YYYY-MM-DD HH:MM:SS"
+  const m = String(s || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  return {
+    year: parseInt(m[1], 10),
+    month: parseInt(m[2], 10),
+    day: parseInt(m[3], 10),
+    hour: parseInt(m[4], 10),
+    minute: parseInt(m[5], 10),
+    second: parseInt(m[6] || '0', 10)
+  };
+}
+
+function parseTimeHHMM(s) {
+  const m = String(s || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  return { hour: parseInt(m[1], 10), minute: parseInt(m[2], 10), second: 0 };
+}
+
+function tzPartsToUtcDate(parts) {
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second || 0));
+}
+
+function getTimeZoneOffsetMs(date, timeZone) {
+  // Returns offset such that: utcMs = localWallClockMs + offset
+  // We derive the offset by formatting the date in the target tz, then interpreting those parts as UTC.
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  const parts = dtf.formatToParts(date);
+  const map = {};
+  for (const p of parts) {
+    if (p.type !== 'literal') map[p.type] = p.value;
+  }
+  const asUtc = new Date(Date.UTC(
+    parseInt(map.year, 10),
+    parseInt(map.month, 10) - 1,
+    parseInt(map.day, 10),
+    parseInt(map.hour, 10),
+    parseInt(map.minute, 10),
+    parseInt(map.second, 10)
+  ));
+  return date.getTime() - asUtc.getTime();
+}
+
+function zonedWallTimeToUtc({ year, month, day, hour, minute, second = 0, timeZone }) {
+  // Iterative conversion to handle DST transitions.
+  const tz = String(timeZone || '').trim() || 'America/New_York';
+  let guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  for (let i = 0; i < 2; i++) {
+    const offset = getTimeZoneOffsetMs(guess, tz);
+    guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second) + offset);
+  }
+  return guess;
+}
+
+function ymdDayTimeToUtc({ ymd, dayOfWeek, hhmm, timeZone }) {
+  const idx = dayIndex(dayOfWeek);
+  if (idx < 0) return null;
+  const dateYmd = addDaysYmd(ymd, idx);
+  const dp = parseMySqlDateTime(`${dateYmd} 00:00:00`);
+  const tp = parseTimeHHMM(hhmm);
+  if (!dp || !tp) return null;
+  return zonedWallTimeToUtc({
+    year: dp.year,
+    month: dp.month,
+    day: dp.day,
+    hour: tp.hour,
+    minute: tp.minute,
+    second: 0,
+    timeZone
+  });
+}
+
+export class ProviderAvailabilityService {
+  static async resolveAgencyTimeZone({ agencyId }) {
+    // Best-effort: pick the first active office location timezone for this agency.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT ol.timezone
+         FROM office_locations ol
+         JOIN office_location_agencies ola ON ola.office_location_id = ol.id
+         WHERE ola.agency_id = ?
+           AND ol.is_active = TRUE
+         ORDER BY ol.id ASC
+         LIMIT 1`,
+        [Number(agencyId)]
+      );
+      const tz = String(rows?.[0]?.timezone || '').trim();
+      if (tz) return tz;
+    } catch {
+      // ignore
+    }
+    return 'America/New_York';
+  }
+
+  static async computeWeekAvailability({
+    agencyId,
+    providerId,
+    weekStartYmd,
+    includeGoogleBusy = true,
+    externalCalendarIds = [],
+    slotMinutes = 60
+  }) {
+    const aid = Number(agencyId || 0);
+    const pid = Number(providerId || 0);
+    const wsRaw = String(weekStartYmd || '').slice(0, 10);
+    if (!aid || !pid) throw new Error('Invalid agencyId/providerId');
+    if (!isValidYmd(wsRaw)) throw new Error('weekStartYmd must be YYYY-MM-DD');
+
+    const weekStart = startOfWeekMondayYmd(wsRaw);
+    if (!weekStart) throw new Error('weekStartYmd must be YYYY-MM-DD');
+    const weekEnd = addDaysYmd(weekStart, 7);
+
+    const tz = await this.resolveAgencyTimeZone({ agencyId: aid });
+
+    // Window for external busy (absolute instants)
+    const timeMinIso = `${weekStart}T00:00:00Z`;
+    const timeMaxIso = `${weekEnd}T00:00:00Z`;
+
+    const provider = await User.findById(pid);
+    if (!provider) throw new Error('Provider not found');
+
+    // 1) Virtual base from weekly template
+    const virtualRows = await ProviderVirtualWorkingHours.listForProvider({ agencyId: aid, providerId: pid });
+    const virtualBase = [];
+    for (const r of virtualRows || []) {
+      const s = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: tz });
+      const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: tz });
+      if (s && e && e > s) virtualBase.push({ start: s, end: e });
+    }
+
+    // 2) School scheduled hours block both modalities
+    let schoolAssignments = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT psa.day_of_week, psa.start_time, psa.end_time
+         FROM provider_school_assignments psa
+         JOIN organization_affiliations oa ON oa.organization_id = psa.school_organization_id AND oa.agency_id = ? AND oa.is_active = TRUE
+         WHERE psa.provider_user_id = ?
+           AND psa.is_active = TRUE`,
+        [aid, pid]
+      );
+      schoolAssignments = (rows || []).map((r) => ({
+        dayOfWeek: r.day_of_week,
+        startTime: String(r.start_time || '').slice(0, 5),
+        endTime: String(r.end_time || '').slice(0, 5)
+      }));
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      schoolAssignments = [];
+    }
+    const schoolBusy = [];
+    for (const r of schoolAssignments || []) {
+      const s = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: tz });
+      const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: tz });
+      if (s && e && e > s) schoolBusy.push({ start: s, end: e });
+    }
+
+    // 3) Office events: base availability for in-person + reserved blocks to prevent virtual overlap
+    const officeBase = [];
+    const officeReservedBusy = [];
+    const officeBookedBusy = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           e.id,
+           e.start_at,
+           e.end_at,
+           e.status,
+           e.slot_state,
+           ol.timezone AS building_timezone,
+           ol.name AS building_name,
+           e.office_location_id,
+           e.room_id,
+           r.room_number,
+           r.label AS room_label,
+           r.name AS room_name
+         FROM office_events e
+         JOIN office_rooms r ON r.id = e.room_id
+         JOIN office_locations ol ON ol.id = e.office_location_id
+         JOIN office_location_agencies ola ON ola.office_location_id = ol.id AND ola.agency_id = ?
+         WHERE (e.assigned_provider_id = ? OR e.booked_provider_id = ?)
+           AND e.start_at < ?
+           AND e.end_at > ?
+         ORDER BY e.start_at ASC`,
+        [aid, pid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+      );
+      for (const r of rows || []) {
+        const st = parseMySqlDateTime(r.start_at);
+        const en = parseMySqlDateTime(r.end_at);
+        const tzEvent = String(r.building_timezone || '').trim() || tz;
+        if (!st || !en) continue;
+        const s = zonedWallTimeToUtc({ ...st, timeZone: tzEvent });
+        const e = zonedWallTimeToUtc({ ...en, timeZone: tzEvent });
+        if (!(e > s)) continue;
+
+        const slotState = String(r.slot_state || '').toUpperCase();
+        const status = String(r.status || '').toUpperCase();
+        const meta = {
+          officeEventId: Number(r.id),
+          buildingId: Number(r.office_location_id),
+          buildingName: String(r.building_name || '').trim() || null,
+          roomId: Number(r.room_id),
+          roomLabel: String(r.room_label || r.room_name || r.room_number || '').trim() || null,
+          slotState: slotState || null,
+          status: status || null,
+          timeZone: tzEvent
+        };
+
+        // Any office reservation means provider is not virtually available during that time.
+        officeReservedBusy.push({ start: s, end: e });
+
+        if (slotState === 'ASSIGNED_AVAILABLE' || slotState === 'ASSIGNED_TEMPORARY') {
+          officeBase.push({ start: s, end: e, meta });
+        }
+        if (slotState === 'ASSIGNED_BOOKED' || status === 'BOOKED') {
+          officeBookedBusy.push({ start: s, end: e });
+        }
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    // 4) External EHR busy (ICS) blocks both modalities
+    let externalBusy = [];
+    try {
+      let feeds = [];
+      const ids = Array.isArray(externalCalendarIds)
+        ? externalCalendarIds.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0)
+        : [];
+      if (ids.length > 0) {
+        feeds = await UserExternalCalendar.listFeedsForCalendars({ userId: pid, calendarIds: ids, activeOnly: true });
+      } else {
+        const calendars = await UserExternalCalendar.listForUser({ userId: pid, includeFeeds: true, activeOnly: true });
+        for (const c of calendars || []) {
+          for (const f of c.feeds || []) {
+            if (f?.isActive) feeds.push({ icsUrl: f.icsUrl });
+          }
+        }
+      }
+      // Legacy fallback
+      if (feeds.length === 0) {
+        const legacy = provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || null;
+        if (legacy) feeds = [{ icsUrl: legacy }];
+      }
+      const r = await ExternalBusyCalendarService.getBusyForFeeds({
+        userId: pid,
+        weekStart,
+        feeds: feeds.map((f, idx) => ({ id: idx + 1, url: f.icsUrl || f.url || f.icsUrl })),
+        timeMinIso,
+        timeMaxIso
+      });
+      if (r?.ok) externalBusy = r.busy || [];
+    } catch {
+      externalBusy = [];
+    }
+    const externalBusyIntervals = (externalBusy || [])
+      .map((b) => ({ start: new Date(b.startAt), end: new Date(b.endAt) }))
+      .filter((i) => i.start instanceof Date && i.end instanceof Date && i.end > i.start && !Number.isNaN(i.start.getTime()) && !Number.isNaN(i.end.getTime()));
+
+    // 5) Google busy blocks both modalities (optional)
+    let googleBusyIntervals = [];
+    if (includeGoogleBusy) {
+      try {
+        const providerEmail = String(provider?.email || '').trim().toLowerCase();
+        const r = await GoogleCalendarService.freeBusy({
+          subjectEmail: providerEmail,
+          timeMin: timeMinIso,
+          timeMax: timeMaxIso,
+          calendarId: 'primary'
+        });
+        const busy = r?.ok ? (r.busy || []) : [];
+        googleBusyIntervals = (busy || [])
+          .map((b) => ({ start: new Date(b.startAt), end: new Date(b.endAt) }))
+          .filter((i) => i.start instanceof Date && i.end instanceof Date && i.end > i.start && !Number.isNaN(i.start.getTime()) && !Number.isNaN(i.end.getTime()));
+      } catch {
+        googleBusyIntervals = [];
+      }
+    }
+
+    // Busy unions
+    const busyAll = mergeIntervals([
+      ...schoolBusy,
+      ...externalBusyIntervals,
+      ...googleBusyIntervals
+    ]);
+    const busyVirtual = mergeIntervals([
+      ...busyAll,
+      ...officeReservedBusy
+    ]);
+    const busyInPerson = mergeIntervals([
+      ...busyAll,
+      ...officeBookedBusy
+    ]);
+
+    // Virtual availability
+    const virtualAvail = [];
+    for (const base of virtualBase) {
+      const segs = subtractInterval(base, busyVirtual);
+      for (const s of segs) virtualAvail.push(s);
+    }
+    const virtualSlots = slotizeIntervals(virtualAvail, slotMinutes).map((s) => ({
+      startAt: s.start.toISOString(),
+      endAt: s.end.toISOString()
+    }));
+
+    // In-person availability (preserve office metadata)
+    const inPersonSlots = [];
+    for (const base of officeBase) {
+      const segs = subtractInterval(base, busyInPerson);
+      const slots = slotizeIntervals(segs, slotMinutes);
+      for (const sl of slots) {
+        inPersonSlots.push({
+          startAt: sl.start.toISOString(),
+          endAt: sl.end.toISOString(),
+          buildingId: base.meta?.buildingId ?? null,
+          buildingName: base.meta?.buildingName ?? null,
+          roomId: base.meta?.roomId ?? null,
+          roomLabel: base.meta?.roomLabel ?? null
+        });
+      }
+    }
+
+    return {
+      ok: true,
+      agencyId: aid,
+      providerId: pid,
+      weekStart,
+      weekEnd,
+      timeZone: tz,
+      slotMinutes,
+      virtualSlots,
+      inPersonSlots
+    };
+  }
+}
+
+export default ProviderAvailabilityService;
+
