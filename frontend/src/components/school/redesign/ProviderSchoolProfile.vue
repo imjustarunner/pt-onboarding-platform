@@ -1,7 +1,7 @@
 <template>
   <div class="provider-school-profile">
     <div class="header">
-      <button class="btn btn-secondary btn-sm" type="button" @click="$router.back()">← Back</button>
+      <button class="btn btn-secondary btn-sm" type="button" @click="backToProviders">← Back</button>
       <div class="spacer" />
     </div>
 
@@ -29,6 +29,20 @@
                     {{ b.label }}
                   </span>
                 </div>
+              </div>
+              <div v-if="availabilityBadges.length" class="avail-legend" aria-label="Availability legend">
+                <span class="legend-item">
+                  <span class="day-pill green" aria-hidden="true"> </span>
+                  <span class="legend-text">2+ slots left</span>
+                </span>
+                <span class="legend-item">
+                  <span class="day-pill yellow" aria-hidden="true"> </span>
+                  <span class="legend-text">1 slot left</span>
+                </span>
+                <span class="legend-item">
+                  <span class="day-pill red" aria-hidden="true"> </span>
+                  <span class="legend-text">Full</span>
+                </span>
               </div>
               <div v-if="profile?.title" class="sub">{{ profile.title }}</div>
               <div v-if="profile?.credential" class="sub">{{ profile.credential }}</div>
@@ -82,7 +96,10 @@
                 <div class="day-name">{{ a.day_of_week }}</div>
                 <div class="badges">
                   <span class="badge badge-secondary">
-                    {{ a.slots_available ?? '—' }} / {{ a.slots_total ?? '—' }}
+                    {{ a.slots_used ?? '—' }} / {{ a.slots_total ?? '—' }} assigned
+                  </span>
+                  <span v-if="slotsLeftText(a)" class="badge badge-secondary">
+                    {{ slotsLeftText(a) }} left
                   </span>
                   <span v-if="a.start_time || a.end_time" class="badge badge-secondary">
                     {{ (a.start_time || '—').toString().slice(0, 5) }}–{{ (a.end_time || '—').toString().slice(0, 5) }}
@@ -161,7 +178,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../../services/api';
 import SchoolDayBar from './SchoolDayBar.vue';
 import SoftScheduleEditor from './SoftScheduleEditor.vue';
@@ -175,7 +192,17 @@ defineEmits(['open-client']);
 
 const authStore = useAuthStore();
 const route = useRoute();
+const router = useRouter();
 const meUserId = computed(() => authStore.user?.id || null);
+
+const backToProviders = () => {
+  const slug = String(route.params.organizationSlug || '').trim();
+  if (!slug) {
+    router.back();
+    return;
+  }
+  router.push({ path: `/${slug}/dashboard`, query: { sp: 'providers' } });
+};
 
 const profile = ref(null);
 const caseload = ref(null);
@@ -283,6 +310,17 @@ const availabilityBadges = computed(() => {
   }
   return out;
 });
+
+const slotsLeftText = (a) => {
+  const total = Number(a?.slots_total);
+  const used = Number(a?.slots_used);
+  if (Number.isFinite(total) && total >= 0 && Number.isFinite(used) && used >= 0) {
+    return String(Math.max(0, total - used));
+  }
+  const avail = Number(a?.slots_available);
+  if (Number.isFinite(avail) && avail >= 0) return String(avail);
+  return '';
+};
 
 const selectedDayClients = ref([]);
 const recomputeSelectedDayClients = () => {
@@ -541,6 +579,28 @@ watch(
   flex-wrap: wrap;
   justify-content: flex-end;
   flex: 0 0 auto;
+}
+.avail-legend {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-text { line-height: 1; }
+.avail-legend .day-pill {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 999px;
 }
 .day-pill {
   display: inline-flex;

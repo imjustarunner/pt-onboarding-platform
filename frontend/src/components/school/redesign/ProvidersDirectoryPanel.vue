@@ -11,6 +11,20 @@
     </div>
 
     <div class="body">
+      <div class="legend" aria-label="Availability legend">
+        <span class="legend-item">
+          <span class="day-pill green" aria-hidden="true"> </span>
+          <span class="legend-text">2+ slots left</span>
+        </span>
+        <span class="legend-item">
+          <span class="day-pill yellow" aria-hidden="true"> </span>
+          <span class="legend-text">1 slot left</span>
+        </span>
+        <span class="legend-item">
+          <span class="day-pill red" aria-hidden="true"> </span>
+          <span class="legend-text">Full</span>
+        </span>
+      </div>
       <div v-if="loading" class="muted">Loading providers…</div>
       <div v-else-if="filtered.length === 0" class="muted">No providers found.</div>
       <div v-else class="grid">
@@ -170,6 +184,28 @@ const filtered = computed(() => {
 }
 .body {
   padding: 14px 16px;
+}
+.legend {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-text { line-height: 1; }
+.legend .day-pill {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 999px;
 }
 .grid {
   display: grid;

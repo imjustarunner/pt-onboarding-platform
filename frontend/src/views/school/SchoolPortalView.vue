@@ -526,6 +526,31 @@ const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
 const cardIconOrg = ref(null); // affiliated agency record (for School Portal card icon overrides)
 
+const requestedPortalMode = computed(() => String(route.query?.sp || '').trim().toLowerCase());
+
+const applyRequestedPortalMode = async (mode) => {
+  const m = String(mode || '').trim().toLowerCase();
+  if (!m) return;
+  if (m === portalMode.value) return;
+
+  if (m === 'providers') {
+    await openProvidersPanel();
+    return;
+  }
+  if (m === 'days') {
+    await openDaysPanel();
+    return;
+  }
+  if (m === 'home') {
+    portalMode.value = 'home';
+    return;
+  }
+  // fall back to direct set for other known modes
+  if (['roster', 'skills', 'school_staff'].includes(m)) {
+    portalMode.value = m;
+  }
+};
+
 const atGlance = computed(() => {
   if (store.portalStatsLoading) return { days: '—', clients: '—', slots: '—', pending: '—', waitlist: '—', staff: '—' };
   const s = store.portalStats || {};
@@ -710,8 +735,12 @@ onMounted(async () => {
   if (organizationId.value) {
     store.reset();
     store.setSchoolId(organizationId.value);
-    // Provider default: show skills groups.
-    if (isProvider.value) portalMode.value = 'skills';
+    // Default portal mode (query param overrides provider default).
+    if (requestedPortalMode.value) {
+      await applyRequestedPortalMode(requestedPortalMode.value);
+    } else if (isProvider.value) {
+      portalMode.value = 'skills';
+    }
     await store.fetchDays();
     await store.fetchPortalStats();
     // Preload provider list so home has useful info immediately.
@@ -735,7 +764,11 @@ watch(organizationId, async (id) => {
   if (!id) return;
   store.reset();
   store.setSchoolId(id);
-  if (isProvider.value) portalMode.value = 'skills';
+  if (requestedPortalMode.value) {
+    await applyRequestedPortalMode(requestedPortalMode.value);
+  } else if (isProvider.value) {
+    portalMode.value = 'skills';
+  }
   await store.fetchDays();
   await store.fetchPortalStats();
   await store.fetchEligibleProviders();
@@ -754,6 +787,14 @@ watch(organizationId, async (id) => {
     cardIconOrg.value = null;
   }
 });
+
+watch(
+  () => requestedPortalMode.value,
+  async (mode) => {
+    if (!mode) return;
+    await applyRequestedPortalMode(mode);
+  }
+);
 
 watch(() => store.selectedWeekday, async (weekday) => {
   if (!organizationId.value) return;
