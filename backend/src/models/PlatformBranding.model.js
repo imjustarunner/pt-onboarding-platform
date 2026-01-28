@@ -116,7 +116,7 @@ class PlatformBranding {
         let orgJoins = '';
         if (hasOrgFields) {
           orgSelects = `,
-          org_i.file_path as organization_logo_path, org_i.name as organization_logo_name`;
+          org_i.file_path as organization_logo_icon_path, org_i.name as organization_logo_icon_name`;
           orgJoins = `
           LEFT JOIN icons org_i ON pb.organization_logo_icon_id = org_i.id`;
         }
@@ -1103,6 +1103,11 @@ class PlatformBranding {
           // Try again without dashboard icon columns
           if (updateError.message.includes('Unknown column') || updateError.code === 'ER_BAD_FIELD_ERROR') {
             console.warn('PlatformBranding.update: Some columns may not exist, retrying without dashboard icon columns');
+            // IMPORTANT: `values` includes one extra trailing element for the WHERE id = ? clause.
+            // If we filter `updates`, we must filter the corresponding *setter values* only (not the id).
+            const existingId = values[values.length - 1];
+            const valuesForUpdates = values.slice(0, updates.length);
+
             // Filter out dashboard icon updates and try again
             const filteredUpdates = [];
             const filteredValues = [];
@@ -1124,13 +1129,13 @@ class PlatformBranding {
                   !update.includes('my_dashboard_payroll_icon_id') &&
                   !update.includes('my_dashboard_submit_icon_id')) {
                 filteredUpdates.push(update);
-                filteredValues.push(values[index]);
+                filteredValues.push(valuesForUpdates[index]);
               }
             });
             // Add updated_by_user_id back
             filteredUpdates.push('updated_by_user_id = ?');
             filteredValues.push(userId);
-            filteredValues.push(existing.id);
+            filteredValues.push(existingId ?? existing.id);
             
             if (filteredUpdates.length > 1) {
               await pool.execute(
