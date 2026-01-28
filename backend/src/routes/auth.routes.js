@@ -103,7 +103,7 @@ const validateRegister = [
     }),
   body('role')
     .optional()
-    .isIn(['super_admin', 'admin', 'support', 'supervisor', 'clinical_practice_assistant', 'staff', 'provider', 'school_staff', 'facilitator', 'intern']),
+    .isIn(['super_admin', 'admin', 'support', 'supervisor', 'clinical_practice_assistant', 'staff', 'provider', 'school_staff', 'client_guardian', 'facilitator', 'intern']),
   body('agencyIds').optional().isArray().withMessage('Agency IDs must be an array'),
   body('agencyIds.*').optional().isInt().withMessage('Each agency ID must be an integer'),
   body('bypassDuplicateCheck').optional().isBoolean().withMessage('bypassDuplicateCheck must be a boolean')
