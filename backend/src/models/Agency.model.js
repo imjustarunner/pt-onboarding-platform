@@ -244,6 +244,42 @@ class Agency {
         LEFT JOIN icons eca_i ON a.external_calendar_audit_icon_id = eca_i.id`
         : '';
 
+      // School Portal home card icons (optional; needed for School Portal users who cannot call /icons)
+      let schoolPortalSelects = '';
+      let schoolPortalJoins = '';
+      try {
+        const want = [
+          { col: 'school_portal_providers_icon_id', alias: 'sp_prov_i', path: 'school_portal_providers_icon_path', name: 'school_portal_providers_icon_name' },
+          { col: 'school_portal_days_icon_id', alias: 'sp_days_i', path: 'school_portal_days_icon_path', name: 'school_portal_days_icon_name' },
+          { col: 'school_portal_roster_icon_id', alias: 'sp_roster_i', path: 'school_portal_roster_icon_path', name: 'school_portal_roster_icon_name' },
+          { col: 'school_portal_skills_groups_icon_id', alias: 'sp_sk_i', path: 'school_portal_skills_groups_icon_path', name: 'school_portal_skills_groups_icon_name' },
+          { col: 'school_portal_contact_admin_icon_id', alias: 'sp_ca_i', path: 'school_portal_contact_admin_icon_path', name: 'school_portal_contact_admin_icon_name' },
+          { col: 'school_portal_school_staff_icon_id', alias: 'sp_staff_i', path: 'school_portal_school_staff_icon_path', name: 'school_portal_school_staff_icon_name' },
+          { col: 'school_portal_parent_qr_icon_id', alias: 'sp_pqr_i', path: 'school_portal_parent_qr_icon_path', name: 'school_portal_parent_qr_icon_name' },
+          { col: 'school_portal_parent_sign_icon_id', alias: 'sp_psign_i', path: 'school_portal_parent_sign_icon_path', name: 'school_portal_parent_sign_icon_name' },
+          { col: 'school_portal_upload_packet_icon_id', alias: 'sp_up_i', path: 'school_portal_upload_packet_icon_path', name: 'school_portal_upload_packet_icon_name' }
+        ];
+        const ph = want.map(() => '?').join(',');
+        const [cols] = await pool.execute(
+          `SELECT COLUMN_NAME
+           FROM information_schema.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE()
+             AND TABLE_NAME = 'agencies'
+             AND COLUMN_NAME IN (${ph})`,
+          want.map((x) => x.col)
+        );
+        const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+        const present = want.filter((x) => names.has(x.col));
+        if (present.length) {
+          schoolPortalSelects = `,
+        ${present.map((x) => `${x.alias}.file_path as ${x.path}, ${x.alias}.name as ${x.name}`).join(',\n        ')}`;
+          schoolPortalJoins = `
+        ${present.map((x) => `LEFT JOIN icons ${x.alias} ON a.${x.col} = ${x.alias}.id`).join('\n        ')}`;
+        }
+      } catch {
+        // ignore
+      }
+
       const skillBuildersSelects = hasSkillBuildersAvailabilityIcon
         ? `,
         sba_i.file_path as skill_builders_availability_icon_path, sba_i.name as skill_builders_availability_icon_name`
@@ -295,7 +331,7 @@ class Agency {
         ps_i.file_path as platform_settings_icon_path, ps_i.name as platform_settings_icon_name,
         vap_i.file_path as view_all_progress_icon_path, vap_i.name as view_all_progress_icon_name,
         pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
-        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${extCalSelects}${schoolOverviewSelects}${skillBuildersSelects}${myDashSelects}
+        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${extCalSelects}${schoolOverviewSelects}${skillBuildersSelects}${myDashSelects}${schoolPortalSelects}
         FROM agencies a
         ${hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : ''}
         ${hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : ''}
@@ -307,7 +343,7 @@ class Agency {
         LEFT JOIN icons ps_i ON a.platform_settings_icon_id = ps_i.id
         LEFT JOIN icons vap_i ON a.view_all_progress_icon_id = vap_i.id
         LEFT JOIN icons pd_i ON a.progress_dashboard_icon_id = pd_i.id
-        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${extCalJoins}${schoolOverviewJoins}${skillBuildersJoins}${myDashJoins}
+        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${extCalJoins}${schoolOverviewJoins}${skillBuildersJoins}${myDashJoins}${schoolPortalJoins}
         WHERE a.id = ?`;
     } else {
       // Even without dashboard icons, join for master icon if column exists

@@ -39,6 +39,7 @@ export const useBrandingStore = defineStore('branding', () => {
   // Platform branding (fetched from API)
   const platformBranding = ref(null);
   const brandingVersion = ref(Date.now()); // Version for cache-busting logos
+  const platformBrandingFetchSeq = ref(0);
 
   // Icon file-path cache for resolving *_icon_id when *_icon_path is missing.
   // IMPORTANT: Do NOT fetch the full /icons index (it can be huge and slow).
@@ -105,10 +106,13 @@ export const useBrandingStore = defineStore('branding', () => {
   
   // Fetch platform branding
   const fetchPlatformBranding = async (forceRefresh = false) => {
+    const seq = ++platformBrandingFetchSeq.value;
     try {
       // Add cache-busting parameter if force refresh is requested
       const params = forceRefresh ? { _t: Date.now() } : {};
       const response = await (await import('../services/api')).default.get('/platform-branding', { params });
+      // Prevent stale/slow responses from clobbering newer platformBranding (race condition).
+      if (seq !== platformBrandingFetchSeq.value) return;
       platformBranding.value = response.data;
       // Update branding version to force logo refresh
       brandingVersion.value = Date.now();
@@ -116,6 +120,17 @@ export const useBrandingStore = defineStore('branding', () => {
       // Best-effort: preload platform icons/logos so pages feel "fully populated" before the global loader disappears.
       try {
         const pb = platformBranding.value || {};
+        // Best-effort: prefetch icon IDs so *_icon_id fallbacks resolve immediately.
+        // (This matches how SettingsModal prefetches sidebar icons; we do it platform-wide here.)
+        try {
+          const ids = Object.entries(pb)
+            .filter(([k, v]) => k.endsWith('_icon_id') && v !== null && v !== undefined && v !== '')
+            .map(([, v]) => v);
+          trackPromise(prefetchIconIds(ids), 'Loading…');
+        } catch {
+          // ignore
+        }
+
         const paths = Object.entries(pb)
           .filter(([k, v]) => !!v && (k.endsWith('_icon_path') || k.endsWith('_logo_path') || k.endsWith('_icon_url') || k.endsWith('_logo_url')))
           .map(([, v]) => toUploadsUrl(String(v)))
@@ -126,17 +141,37 @@ export const useBrandingStore = defineStore('branding', () => {
       }
     } catch (err) {
       console.error('Failed to fetch platform branding:', err);
-      // Use defaults if fetch fails
-      platformBranding.value = {
-        primary_color: '#C69A2B',
-        secondary_color: '#1D2633',
-        accent_color: '#3A4C6B',
-        success_color: '#2F8F83',
-        background_color: '#F3F6FA',
-        error_color: '#CC3D3D',
-        warning_color: '#E6A700',
-        tagline: 'The gold standard for behavioral health workflows.'
-      };
+      // Don't let a failed/stale request wipe already-correct state.
+      if (seq !== platformBrandingFetchSeq.value) return;
+      if (!platformBranding.value) {
+        // Use defaults only if we have nothing at all.
+        platformBranding.value = {
+          primary_color: '#C69A2B',
+          secondary_color: '#1D2633',
+          accent_color: '#3A4C6B',
+          success_color: '#2F8F83',
+          background_color: '#F3F6FA',
+          error_color: '#CC3D3D',
+          warning_color: '#E6A700',
+          tagline: 'The gold standard for behavioral health workflows.'
+        };
+      }
+    }
+  };
+
+  const setPlatformBrandingFromResponse = async (pb) => {
+    // Treat direct-set as the newest state so older GETs can't overwrite it.
+    platformBrandingFetchSeq.value++;
+    platformBranding.value = pb || null;
+    brandingVersion.value = Date.now();
+    try {
+      const next = pb || {};
+      const ids = Object.entries(next)
+        .filter(([k, v]) => k.endsWith('_icon_id') && v !== null && v !== undefined && v !== '')
+        .map(([, v]) => v);
+      await prefetchIconIds(ids);
+    } catch {
+      // ignore
     }
   };
   
@@ -371,11 +406,21 @@ export const useBrandingStore = defineStore('branding', () => {
         }
         return logoUrl;
       }
+      // Priority 3: Platform organization_logo_icon_path / organization_logo_icon_id (icon-based logo selection)
+      if (platformBranding.value?.organization_logo_icon_path) {
+        return toUploadsUrl(String(platformBranding.value.organization_logo_icon_path));
+      }
+      if (platformBranding.value?.organization_logo_icon_id) {
+        const url = iconUrlById(platformBranding.value.organization_logo_icon_id);
+        if (url) return url;
+      }
       // No fallback - return null if no platform logo is set
       if (import.meta.env.DEV) {
         console.warn('[Branding] No platform logo available for logoUrl:', {
           hasOrgLogoUrl: !!platformBranding.value?.organization_logo_url,
-          hasOrgLogoPath: !!platformBranding.value?.organization_logo_path
+          hasOrgLogoPath: !!platformBranding.value?.organization_logo_path,
+          hasOrgLogoIconPath: !!platformBranding.value?.organization_logo_icon_path,
+          hasOrgLogoIconId: !!platformBranding.value?.organization_logo_icon_id
         });
       }
       return null;
@@ -456,11 +501,21 @@ export const useBrandingStore = defineStore('branding', () => {
         }
         return addCacheBuster(logoUrl);
       }
+      // Priority 3: Platform organization_logo_icon_path / organization_logo_icon_id (icon-based logo selection)
+      if (platformBranding.value?.organization_logo_icon_path) {
+        return addCacheBuster(toUploadsUrl(String(platformBranding.value.organization_logo_icon_path)));
+      }
+      if (platformBranding.value?.organization_logo_icon_id) {
+        const url = iconUrlById(platformBranding.value.organization_logo_icon_id);
+        if (url) return addCacheBuster(url);
+      }
       // No fallback - return null if no platform logo is set (don't show PlotTwistCo logo)
       if (import.meta.env.DEV) {
         console.warn('[Branding] No platform logo available for displayLogoUrl:', {
           hasOrgLogoUrl: !!platformBranding.value?.organization_logo_url,
-          hasOrgLogoPath: !!platformBranding.value?.organization_logo_path
+          hasOrgLogoPath: !!platformBranding.value?.organization_logo_path,
+          hasOrgLogoIconPath: !!platformBranding.value?.organization_logo_icon_path,
+          hasOrgLogoIconId: !!platformBranding.value?.organization_logo_icon_id
         });
       }
       return null;
@@ -762,7 +817,8 @@ export const useBrandingStore = defineStore('branding', () => {
     // Icon-id resolution helpers (admin/support/super_admin only)
     prefetchIconIds,
     iconUrlById,
-    iconFilePathById
+    iconFilePathById,
+    setPlatformBrandingFromResponse
   };
 });
 

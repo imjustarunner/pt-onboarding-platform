@@ -86,6 +86,28 @@ class PlatformBranding {
         hasExternalCalendarAuditIcon = false;
         hasSkillBuildersAvailabilityIcon = false;
       }
+
+      // Check if school overview quick-action icon exists (optional)
+      let hasSchoolOverviewIcon = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'school_overview_icon_id'"
+        );
+        hasSchoolOverviewIcon = (cols || []).length > 0;
+      } catch (e) {
+        hasSchoolOverviewIcon = false;
+      }
+
+      // Check if School Portal dashboard card icon columns exist (optional)
+      let hasSchoolPortalIcons = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'school_portal_providers_icon_id'"
+        );
+        hasSchoolPortalIcons = (cols || []).length > 0;
+      } catch (e) {
+        hasSchoolPortalIcons = false;
+      }
       // Check if organization fields exist
       let hasOrgFields = false;
       try {
@@ -121,41 +143,42 @@ class PlatformBranding {
           LEFT JOIN icons org_i ON pb.organization_logo_icon_id = org_i.id`;
         }
         
-        // Check if settings icon columns exist and add joins
+        // Settings navigation icons (optional; handle partial schemas safely)
         let settingsIconSelects = '';
         let settingsIconJoins = '';
         try {
-          const [settingsIconColumns] = await pool.execute(
-            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'company_profile_icon_id'"
+          const want = [
+            { col: 'company_profile_icon_id', alias: 'cp_i', path: 'company_profile_icon_path', name: 'company_profile_icon_name' },
+            { col: 'team_roles_icon_id', alias: 'tr_i', path: 'team_roles_icon_path', name: 'team_roles_icon_name' },
+            { col: 'billing_icon_id', alias: 'b_i', path: 'billing_icon_path', name: 'billing_icon_name' },
+            { col: 'packages_icon_id', alias: 'pkg_i', path: 'packages_icon_path', name: 'packages_icon_name' },
+            { col: 'checklist_items_icon_id', alias: 'ci_i', path: 'checklist_items_icon_path', name: 'checklist_items_icon_name' },
+            { col: 'field_definitions_icon_id', alias: 'fd_i', path: 'field_definitions_icon_path', name: 'field_definitions_icon_name' },
+            { col: 'branding_templates_icon_id', alias: 'bt_i', path: 'branding_templates_icon_path', name: 'branding_templates_icon_name' },
+            { col: 'assets_icon_id', alias: 'a_i', path: 'assets_icon_path', name: 'assets_icon_name' },
+            { col: 'communications_icon_id', alias: 'comm_i', path: 'communications_icon_path', name: 'communications_icon_name' },
+            { col: 'integrations_icon_id', alias: 'int_i', path: 'integrations_icon_path', name: 'integrations_icon_name' },
+            { col: 'archive_icon_id', alias: 'arch_i', path: 'archive_icon_path', name: 'archive_icon_name' }
+          ];
+          const ph = want.map(() => '?').join(',');
+          const [cols] = await pool.execute(
+            `SELECT COLUMN_NAME
+             FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'platform_branding'
+               AND COLUMN_NAME IN (${ph})`,
+            want.map((x) => x.col)
           );
-          if (settingsIconColumns.length > 0) {
+          const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+          const present = want.filter((x) => names.has(x.col));
+          if (present.length) {
             settingsIconSelects = `,
-          cp_i.file_path as company_profile_icon_path, cp_i.name as company_profile_icon_name,
-          tr_i.file_path as team_roles_icon_path, tr_i.name as team_roles_icon_name,
-          b_i.file_path as billing_icon_path, b_i.name as billing_icon_name,
-          pkg_i.file_path as packages_icon_path, pkg_i.name as packages_icon_name,
-          ci_i.file_path as checklist_items_icon_path, ci_i.name as checklist_items_icon_name,
-          fd_i.file_path as field_definitions_icon_path, fd_i.name as field_definitions_icon_name,
-          bt_i.file_path as branding_templates_icon_path, bt_i.name as branding_templates_icon_name,
-          a_i.file_path as assets_icon_path, a_i.name as assets_icon_name,
-          comm_i.file_path as communications_icon_path, comm_i.name as communications_icon_name,
-          int_i.file_path as integrations_icon_path, int_i.name as integrations_icon_name,
-          arch_i.file_path as archive_icon_path, arch_i.name as archive_icon_name`;
+          ${present.map((x) => `${x.alias}.file_path as ${x.path}, ${x.alias}.name as ${x.name}`).join(',\n          ')}`;
             settingsIconJoins = `
-          LEFT JOIN icons cp_i ON pb.company_profile_icon_id = cp_i.id
-          LEFT JOIN icons tr_i ON pb.team_roles_icon_id = tr_i.id
-          LEFT JOIN icons b_i ON pb.billing_icon_id = b_i.id
-          LEFT JOIN icons pkg_i ON pb.packages_icon_id = pkg_i.id
-          LEFT JOIN icons ci_i ON pb.checklist_items_icon_id = ci_i.id
-          LEFT JOIN icons fd_i ON pb.field_definitions_icon_id = fd_i.id
-          LEFT JOIN icons bt_i ON pb.branding_templates_icon_id = bt_i.id
-          LEFT JOIN icons a_i ON pb.assets_icon_id = a_i.id
-          LEFT JOIN icons comm_i ON pb.communications_icon_id = comm_i.id
-          LEFT JOIN icons int_i ON pb.integrations_icon_id = int_i.id
-          LEFT JOIN icons arch_i ON pb.archive_icon_id = arch_i.id`;
+          ${present.map((x) => `LEFT JOIN icons ${x.alias} ON pb.${x.col} = ${x.alias}.id`).join('\n          ')}`;
           }
-        } catch (e) {
-          // Settings icon columns don't exist yet, skip
+        } catch {
+          // ignore
         }
 
         // Check if "My Dashboard" card icon columns exist and add joins
@@ -227,6 +250,54 @@ class PlatformBranding {
           LEFT JOIN icons sba_i ON pb.skill_builders_availability_icon_id = sba_i.id`
           : '';
 
+        const schoolOverviewSelects = hasSchoolOverviewIcon
+          ? `,
+          so_i.file_path as school_overview_icon_path, so_i.name as school_overview_icon_name`
+          : '';
+
+        const schoolOverviewJoins = hasSchoolOverviewIcon
+          ? `
+          LEFT JOIN icons so_i ON pb.school_overview_icon_id = so_i.id`
+          : '';
+
+        // School Portal home card icons (optional; handle partial schemas safely)
+        let schoolPortalSelects = '';
+        let schoolPortalJoins = '';
+        if (hasSchoolPortalIcons) {
+          try {
+            const want = [
+              { col: 'school_portal_providers_icon_id', alias: 'sp_prov_i', path: 'school_portal_providers_icon_path', name: 'school_portal_providers_icon_name' },
+              { col: 'school_portal_days_icon_id', alias: 'sp_days_i', path: 'school_portal_days_icon_path', name: 'school_portal_days_icon_name' },
+              { col: 'school_portal_roster_icon_id', alias: 'sp_roster_i', path: 'school_portal_roster_icon_path', name: 'school_portal_roster_icon_name' },
+              { col: 'school_portal_skills_groups_icon_id', alias: 'sp_sk_i', path: 'school_portal_skills_groups_icon_path', name: 'school_portal_skills_groups_icon_name' },
+              { col: 'school_portal_contact_admin_icon_id', alias: 'sp_ca_i', path: 'school_portal_contact_admin_icon_path', name: 'school_portal_contact_admin_icon_name' },
+              { col: 'school_portal_school_staff_icon_id', alias: 'sp_staff_i', path: 'school_portal_school_staff_icon_path', name: 'school_portal_school_staff_icon_name' },
+              { col: 'school_portal_parent_qr_icon_id', alias: 'sp_pqr_i', path: 'school_portal_parent_qr_icon_path', name: 'school_portal_parent_qr_icon_name' },
+              { col: 'school_portal_parent_sign_icon_id', alias: 'sp_psign_i', path: 'school_portal_parent_sign_icon_path', name: 'school_portal_parent_sign_icon_name' },
+              { col: 'school_portal_upload_packet_icon_id', alias: 'sp_up_i', path: 'school_portal_upload_packet_icon_path', name: 'school_portal_upload_packet_icon_name' }
+            ];
+            const ph = want.map(() => '?').join(',');
+            const [cols] = await pool.execute(
+              `SELECT COLUMN_NAME
+               FROM information_schema.COLUMNS
+               WHERE TABLE_SCHEMA = DATABASE()
+                 AND TABLE_NAME = 'platform_branding'
+                 AND COLUMN_NAME IN (${ph})`,
+              want.map((x) => x.col)
+            );
+            const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+            const present = want.filter((x) => names.has(x.col));
+            if (present.length) {
+              schoolPortalSelects = `,
+          ${present.map((x) => `${x.alias}.file_path as ${x.path}, ${x.alias}.name as ${x.name}`).join(',\n          ')}`;
+              schoolPortalJoins = `
+          ${present.map((x) => `LEFT JOIN icons ${x.alias} ON pb.${x.col} = ${x.alias}.id`).join('\n          ')}`;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
         query = `SELECT pb.*,
           ${hasManageClientsIcon ? 'mc_i.file_path as manage_clients_icon_path, mc_i.name as manage_clients_icon_name,' : ''}
           ma_i.file_path as manage_agencies_icon_path, ma_i.name as manage_agencies_icon_name,
@@ -238,7 +309,7 @@ class PlatformBranding {
           pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
           s_i.file_path as settings_icon_path, s_i.name as settings_icon_name,
           mb_i.file_path as master_brand_icon_path, mb_i.name as master_brand_icon_name,
-          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${extraDashSelects}${extCalSelects}${skillBuildersSelects}${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
+          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${extraDashSelects}${extCalSelects}${skillBuildersSelects}${schoolOverviewSelects}${schoolPortalSelects}${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
           FROM platform_branding pb
           ${hasManageClientsIcon ? 'LEFT JOIN icons mc_i ON pb.manage_clients_icon_id = mc_i.id' : ''}
           LEFT JOIN icons ma_i ON pb.manage_agencies_icon_id = ma_i.id
@@ -250,7 +321,7 @@ class PlatformBranding {
           LEFT JOIN icons pd_i ON pb.progress_dashboard_icon_id = pd_i.id
           LEFT JOIN icons s_i ON pb.settings_icon_id = s_i.id
           LEFT JOIN icons mb_i ON pb.master_brand_icon_id = mb_i.id
-          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${extraDashJoins}${extCalJoins}${skillBuildersJoins}${orgJoins}${fontJoins}${settingsIconJoins}${myDashboardIconJoins}
+          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${extraDashJoins}${extCalJoins}${skillBuildersJoins}${schoolOverviewJoins}${schoolPortalJoins}${orgJoins}${fontJoins}${settingsIconJoins}${myDashboardIconJoins}
           ORDER BY pb.id DESC LIMIT 1`;
       } else {
         // Even if dashboard icons don't exist, try to include master brand icon if column exists

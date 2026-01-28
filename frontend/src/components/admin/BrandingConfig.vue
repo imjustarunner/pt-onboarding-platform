@@ -3108,7 +3108,10 @@ const savePlatformBranding = async () => {
     };
     
     const response = await api.put('/platform-branding', brandingData);
-    await brandingStore.fetchPlatformBranding();
+    // Immediately update local store from the server response, then force-refresh with cache-busting.
+    // This avoids stale platformBranding state and ensures icon prefetch runs for *_icon_id fallbacks.
+    await brandingStore.setPlatformBrandingFromResponse(response.data);
+    await brandingStore.fetchPlatformBranding(true);
     
     // If a template is currently applied, update it with the new branding values
     if (currentlyAppliedTemplate.value && selectedBrandingScope.value === 'platform') {
