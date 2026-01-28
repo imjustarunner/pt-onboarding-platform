@@ -60,6 +60,11 @@ export async function loadFont(font) {
     if (normalizedPath.startsWith('uploads/')) {
       normalizedPath = normalizedPath.substring('uploads/'.length);
     }
+    // Seeded/system fonts may have placeholder paths like "fonts/comfortaa-bold.woff2" that
+    // aren't actually uploaded to storage. Skip requesting these and fall back to the family name.
+    if (normalizedPath.startsWith('fonts/') && !normalizedPath.includes('font-')) {
+      return family_name || name;
+    }
     const fontUrl = toUploadsUrl(normalizedPath);
     
     // Create style element for @font-face
