@@ -105,7 +105,7 @@
               </div>
             </div>
             <div v-if="canViewAdminNote" class="info-item admin-note-item">
-              <label>Admin Note(s)</label>
+              <label>Admin Note</label>
               <div
                 class="info-value admin-note-trigger"
                 @mouseenter="openAdminNotePopover"
@@ -113,8 +113,8 @@
               >
                 <span v-if="adminNoteLoading" class="muted">Loading…</span>
                 <span v-else-if="adminNoteMessage">
-                  Hover to view
-                  <span class="muted" style="margin-left: 6px;">({{ adminNotePreview }})</span>
+                  <span class="admin-note-indicator" title="Admin note available">✓</span>
+                  <span class="muted" style="margin-left: 8px;">Hover to view/edit</span>
                 </span>
                 <span v-else class="muted">Hover to add</span>
 
@@ -1746,12 +1746,6 @@ const adminNoteMessage = ref('');
 const adminNoteDraft = ref('');
 const adminNotePopoverOpen = ref(false);
 let adminNoteCloseTimer = null;
-
-const adminNotePreview = computed(() => {
-  const s = String(adminNoteMessage.value || '').trim();
-  if (!s) return '';
-  return s.length > 40 ? `${s.slice(0, 40)}…` : s;
-});
 
 const fetchAdminNote = async () => {
   if (!canViewAdminNote.value || !props.client?.id) return;
