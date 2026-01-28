@@ -5,6 +5,9 @@ import { useAuthStore } from './auth';
 import { getPortalUrl } from '../utils/subdomain';
 import api from '../services/api';
 import { loadFont } from '../utils/fontLoader';
+import { toUploadsUrl } from '../utils/uploadsUrl';
+import { trackPromise } from '../utils/pageLoader';
+import { preloadImages } from '../utils/preloadImages';
 
 export const useBrandingStore = defineStore('branding', () => {
   const agencyStore = useAgencyStore();
@@ -37,39 +40,61 @@ export const useBrandingStore = defineStore('branding', () => {
   const platformBranding = ref(null);
   const brandingVersion = ref(Date.now()); // Version for cache-busting logos
 
-  // Icons index (id -> icon row). Used to resolve *_icon_id overrides when *_icon_path isn't present.
-  const iconsById = ref(null);
-  const iconsLoading = ref(false);
-  const ensureIconsIndex = () => {
-    if (iconsById.value || iconsLoading.value) return;
-    iconsLoading.value = true;
-    // Important: non-super-admin users do NOT get platform icons unless includePlatform=true.
-    // Many override icon_ids may point to platform icons, so we must include them.
-    api.get('/icons?includePlatform=true')
-      .then((res) => {
-        const rows = Array.isArray(res.data) ? res.data : [];
-        const map = {};
-        for (const i of rows) {
-          if (i && i.id != null) map[String(i.id)] = i;
-        }
-        iconsById.value = map;
-      })
-      .catch(() => {
-        iconsById.value = {};
-      })
-      .finally(() => {
-        iconsLoading.value = false;
-      });
-  };
+  // Icon file-path cache for resolving *_icon_id when *_icon_path is missing.
+  // IMPORTANT: Do NOT fetch the full /icons index (it can be huge and slow).
+  const iconFilePathCache = ref({}); // { [id]: file_path }
+  const iconFetchInFlight = new Map(); // id -> Promise<string|null>
+
+  const canFetchIconsApi = computed(() => {
+    const r = String(authStore.user?.role || '').toLowerCase();
+    return r === 'admin' || r === 'super_admin' || r === 'support';
+  });
 
   const iconFilePathById = (id) => {
     const key = String(id ?? '').trim();
     if (!key) return null;
-    if (!iconsById.value) {
-      ensureIconsIndex();
-      return null;
+    return iconFilePathCache.value?.[key] || null;
+  };
+
+  const iconUrlById = (id) => {
+    const fp = iconFilePathById(id);
+    if (!fp) return null;
+    return toUploadsUrl(fp);
+  };
+
+  const prefetchIconIds = async (ids) => {
+    try {
+      if (!canFetchIconsApi.value) return;
+      const list = Array.from(new Set((ids || []).map((x) => String(x ?? '').trim()).filter(Boolean)));
+      if (list.length === 0) return;
+
+      const tasks = list.map((key) => {
+        if (iconFilePathCache.value?.[key]) return Promise.resolve(iconFilePathCache.value[key]);
+        if (iconFetchInFlight.has(key)) return iconFetchInFlight.get(key);
+
+        const p = api
+          .get(`/icons/${encodeURIComponent(key)}`)
+          .then((res) => {
+            const fp = res?.data?.file_path || null;
+            iconFilePathCache.value = { ...iconFilePathCache.value, [key]: fp };
+            return fp;
+          })
+          .catch(() => {
+            iconFilePathCache.value = { ...iconFilePathCache.value, [key]: null };
+            return null;
+          })
+          .finally(() => {
+            iconFetchInFlight.delete(key);
+          });
+
+        iconFetchInFlight.set(key, p);
+        return p;
+      });
+
+      await Promise.all(tasks);
+    } catch {
+      // ignore
     }
-    return iconsById.value?.[key]?.file_path || null;
   };
 
   // Portal agency (detected from subdomain)
@@ -87,6 +112,18 @@ export const useBrandingStore = defineStore('branding', () => {
       platformBranding.value = response.data;
       // Update branding version to force logo refresh
       brandingVersion.value = Date.now();
+
+      // Best-effort: preload platform icons/logos so pages feel "fully populated" before the global loader disappears.
+      try {
+        const pb = platformBranding.value || {};
+        const paths = Object.entries(pb)
+          .filter(([k, v]) => !!v && (k.endsWith('_icon_path') || k.endsWith('_logo_path') || k.endsWith('_icon_url') || k.endsWith('_logo_url')))
+          .map(([, v]) => toUploadsUrl(String(v)))
+          .filter(Boolean);
+        trackPromise(preloadImages(paths, { concurrency: 6, timeoutMs: 8000 }), 'Loading…');
+      } catch {
+        // ignore
+      }
     } catch (err) {
       console.error('Failed to fetch platform branding:', err);
       // Use defaults if fetch fails
@@ -549,26 +586,6 @@ export const useBrandingStore = defineStore('branding', () => {
 
   // Get notification icon URL for a specific notification type
   // Priority: Agency-level icon > Platform-level icon > null (fallback to emoji)
-  const toUploadsUrl = (filePath) => {
-    if (!filePath) return null;
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-
-    let clean = String(filePath);
-    if (clean.startsWith('/uploads/')) clean = clean.substring('/uploads/'.length);
-    else if (clean.startsWith('uploads/')) clean = clean.substring('uploads/'.length);
-    else if (clean.startsWith('/')) clean = clean.substring(1);
-
-    // Normalize legacy "icons/..." paths into uploads.
-    if (clean.startsWith('icons/')) clean = `uploads/${clean}`;
-    else if (!clean.startsWith('uploads/')) clean = `uploads/${clean}`;
-
-    // Ensure we don't double-prefix.
-    if (clean.startsWith('uploads/uploads/')) clean = clean.replace(/^uploads\/uploads\//, 'uploads/');
-
-    return `${apiBase}/${clean}`;
-  };
-
   const getNotificationIconUrl = (notificationType, agencyId = null) => {
     const iconFieldMap = {
       status_expired: 'status_expired_icon_path',
@@ -625,13 +642,13 @@ export const useBrandingStore = defineStore('branding', () => {
     const org = organization === undefined ? agencyStore.currentAgency : organization;
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
-      const fp = iconFilePathById(org[idField]);
-      if (fp) return toUploadsUrl(fp);
+      const url = iconUrlById(org[idField]);
+      if (url) return url;
     }
     if (platformBranding.value?.[field]) return toUploadsUrl(platformBranding.value[field]);
     if (platformBranding.value?.[idField]) {
-      const fp = iconFilePathById(platformBranding.value[idField]);
-      if (fp) return toUploadsUrl(fp);
+      const url = iconUrlById(platformBranding.value[idField]);
+      if (url) return url;
     }
     return null;
   };
@@ -658,13 +675,13 @@ export const useBrandingStore = defineStore('branding', () => {
     const org = organization === undefined ? agencyStore.currentAgency : organization;
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
-      const fp = iconFilePathById(org[idField]);
-      if (fp) return toUploadsUrl(fp);
+      const url = iconUrlById(org[idField]);
+      if (url) return url;
     }
     if (platformBranding.value?.[field]) return toUploadsUrl(platformBranding.value[field]);
     if (platformBranding.value?.[idField]) {
-      const fp = iconFilePathById(platformBranding.value[idField]);
-      if (fp) return toUploadsUrl(fp);
+      const url = iconUrlById(platformBranding.value[idField]);
+      if (url) return url;
     }
     return null;
   };
@@ -697,13 +714,13 @@ export const useBrandingStore = defineStore('branding', () => {
     const org = agencyOverride || agencyStore.currentAgency;
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
-      const fp = iconFilePathById(org[idField]);
-      if (fp) return toUploadsUrl(fp);
+      const url = iconUrlById(org[idField]);
+      if (url) return url;
     }
     if (platformBranding.value?.[field]) return toUploadsUrl(platformBranding.value[field]);
     if (platformBranding.value?.[idField]) {
-      const fp = iconFilePathById(platformBranding.value[idField]);
-      if (fp) return toUploadsUrl(fp);
+      const url = iconUrlById(platformBranding.value[idField]);
+      if (url) return url;
     }
     return null;
   };
@@ -741,7 +758,11 @@ export const useBrandingStore = defineStore('branding', () => {
     getNotificationIconUrl,
     getDashboardCardIconUrl,
     getSchoolPortalCardIconUrl,
-    getAdminQuickActionIconUrl
+    getAdminQuickActionIconUrl,
+    // Icon-id resolution helpers (admin/support/super_admin only)
+    prefetchIconIds,
+    iconUrlById,
+    iconFilePathById
   };
 });
 

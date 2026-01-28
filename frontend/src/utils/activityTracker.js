@@ -119,7 +119,7 @@ async function sendPresenceHeartbeat() {
     await api.post('/presence/heartbeat', {
       agencyId,
       lastActivityAt: new Date(lastActivityTime).toISOString()
-    });
+    }, { skipGlobalLoading: true });
     // Success: treat heartbeat as activity so users with tab open stay logged in.
     // This fixes "logged out despite doing things" when tab is open but no DOM events (e.g. reading, background tab).
     if (isTracking) {

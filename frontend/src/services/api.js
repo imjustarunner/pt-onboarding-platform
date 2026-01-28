@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { begin as beginGlobalLoading, end as endGlobalLoading } from '../utils/pageLoader';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
@@ -11,6 +12,18 @@ const api = axios.create({
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
+    // Global loading overlay tracking (opt-out via config.skipGlobalLoading = true)
+    try {
+      if (!config?.skipGlobalLoading) {
+        // Avoid double-begin for retries
+        if (!config.__globalLoadingId) {
+          config.__globalLoadingId = beginGlobalLoading('Loading…');
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     // Token is now in HttpOnly cookie, so we don't need to set Authorization header
     // Cookies are sent automatically with withCredentials: true
     
@@ -28,8 +41,23 @@ api.interceptors.request.use(
 
 // Response interceptor
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    try {
+      const id = response?.config?.__globalLoadingId;
+      if (id) endGlobalLoading(id);
+    } catch {
+      // ignore
+    }
+    return response;
+  },
   async (error) => {
+    try {
+      const id = error?.config?.__globalLoadingId;
+      if (id) endGlobalLoading(id);
+    } catch {
+      // ignore
+    }
+
     // Don't redirect on 401 if we're already on the login page or setup pages
     // Also don't redirect immediately after login (give cookie time to be available)
     const isLoginPage = window.location.pathname.includes('/login');

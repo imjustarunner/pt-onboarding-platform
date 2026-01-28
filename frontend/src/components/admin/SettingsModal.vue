@@ -100,6 +100,9 @@ import { useBrandingStore } from '../../store/branding';
 import { useAgencyStore } from '../../store/agency';
 import { isSupervisor } from '../../utils/helpers.js';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { trackPromise } from '../../utils/pageLoader';
+import { preloadImages } from '../../utils/preloadImages';
 
 // Import all existing components
 import AgencyManagement from './AgencyManagement.vue';
@@ -560,7 +563,6 @@ const closeModal = () => {
 
 // Initialize from URL query parameters
 onMounted(async () => {
-  const iconsPromise = loadIconsIndex();
   const userRole = authStore.user?.role;
   
   // Redirect CPAs and supervisors away from settings
@@ -629,11 +631,14 @@ onMounted(async () => {
     }
   }
 
-  await iconsPromise;
+  // Ensure icon IDs referenced by agency/platform can be resolved and preloaded.
+  await trackPromise(prefetchSettingsSidebarIcons(), 'Loading…');
 });
 
-watch(() => agencyStore.currentAgency, (a) => {
+watch(() => agencyStore.currentAgency, async (a) => {
   selectedAgencyId.value = a?.id ? String(a.id) : '';
+  // When switching agencies, the sidebar icon overrides can change — keep the global loader up until icons are ready.
+  await trackPromise(prefetchSettingsSidebarIcons(), 'Loading…');
 });
 
 // Watch for route changes (for browser back/forward)
@@ -677,44 +682,6 @@ const settingsIconMap = {
   'archive': { idField: 'archive_icon_id', pathField: 'archive_icon_path' }
 };
 
-const iconsById = ref({});
-
-const getIconUrlFromFilePath = (filePath) => {
-  if (!filePath) return null;
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-
-  let cleanPath = String(filePath);
-  if (cleanPath.startsWith('/uploads/')) {
-    cleanPath = cleanPath.substring('/uploads/'.length);
-  } else if (cleanPath.startsWith('/')) {
-    cleanPath = cleanPath.substring(1);
-  }
-
-  if (!cleanPath.startsWith('uploads/') && !cleanPath.startsWith('icons/')) {
-    cleanPath = `uploads/${cleanPath}`;
-  } else if (cleanPath.startsWith('icons/')) {
-    cleanPath = `uploads/${cleanPath}`;
-  }
-
-  return `${apiBase}/${cleanPath}`;
-};
-
-const loadIconsIndex = async () => {
-  try {
-    const res = await api.get('/icons');
-    const rows = Array.isArray(res.data) ? res.data : [];
-    const map = {};
-    for (const i of rows) {
-      if (i && i.id != null) map[String(i.id)] = i;
-    }
-    iconsById.value = map;
-  } catch {
-    // best effort
-    iconsById.value = {};
-  }
-};
-
 // Get icon URL for a settings item
 const getSettingsIconUrl = (itemId) => {
   const meta = settingsIconMap[itemId];
@@ -723,8 +690,9 @@ const getSettingsIconUrl = (itemId) => {
   // 1) Agency override (if present)
   const agency = agencyStore.currentAgency;
   const agencyIconId = agency && meta.idField ? agency[meta.idField] : null;
-  if (agencyIconId && iconsById.value[String(agencyIconId)]?.file_path) {
-    return getIconUrlFromFilePath(iconsById.value[String(agencyIconId)].file_path);
+  if (agencyIconId) {
+    const url = brandingStore.iconUrlById(agencyIconId);
+    if (url) return url;
   }
 
   // 2) Platform default
@@ -732,14 +700,37 @@ const getSettingsIconUrl = (itemId) => {
   if (!platformBranding) return null;
 
   const platformPath = meta.pathField ? platformBranding[meta.pathField] : null;
-  if (platformPath) return getIconUrlFromFilePath(platformPath);
+  if (platformPath) return toUploadsUrl(String(platformPath));
 
   const platformIconId = meta.idField ? platformBranding[meta.idField] : null;
-  if (platformIconId && iconsById.value[String(platformIconId)]?.file_path) {
-    return getIconUrlFromFilePath(iconsById.value[String(platformIconId)].file_path);
+  if (platformIconId) {
+    const url = brandingStore.iconUrlById(platformIconId);
+    if (url) return url;
   }
 
   return null;
+};
+
+const prefetchSettingsSidebarIcons = async () => {
+  const pb = brandingStore.platformBranding || null;
+  const a = agencyStore.currentAgency || null;
+  const ids = [];
+  for (const meta of Object.values(settingsIconMap)) {
+    if (!meta?.idField) continue;
+    if (a?.[meta.idField]) ids.push(a[meta.idField]);
+    if (pb?.[meta.idField]) ids.push(pb[meta.idField]);
+  }
+  await brandingStore.prefetchIconIds(ids);
+
+  // Preload the images for the visible sidebar entries so the page feels "done" when the loader disappears.
+  const urls = [];
+  for (const cat of visibleCategories.value || []) {
+    for (const item of cat.items || []) {
+      const u = getSettingsIconUrl(item.id);
+      if (u) urls.push(u);
+    }
+  }
+  await preloadImages(urls, { concurrency: 6, timeoutMs: 8000 });
 };
 </script>
 

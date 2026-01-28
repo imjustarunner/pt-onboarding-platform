@@ -259,6 +259,7 @@ import BrandingLogo from './components/BrandingLogo.vue';
 import PoweredByFooter from './components/PoweredByFooter.vue';
 import TourManager from './components/TourManager.vue';
 import { toUploadsUrl } from './utils/uploadsUrl';
+import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
@@ -269,9 +270,9 @@ const router = useRouter();
 const route = useRoute();
 const mobileMenuOpen = ref(false);
 
-// Global loading overlay (simple route + boot spinner)
+// Global loading overlay (tracks API calls + navigation + icon preloads)
 const pageLoading = ref(true);
-const loadingText = ref('Loading…');
+const loadingText = getLoadingTextRef();
 let loadingStartedAt = 0;
 const LOADER_MIN_MS = 250;
 
@@ -301,18 +302,19 @@ const navBrandLogoUrl = computed(() => {
   return brandingStore.displayLogoUrl;
 });
 
-const startPageLoading = (text = 'Loading…') => {
-  loadingStartedAt = Date.now();
-  loadingText.value = text;
-  pageLoading.value = true;
-};
-const stopPageLoading = () => {
+watch(globalLoading, (isOn) => {
+  if (isOn) {
+    loadingStartedAt = Date.now();
+    pageLoading.value = true;
+    return;
+  }
   const elapsed = Date.now() - loadingStartedAt;
   const wait = Math.max(0, LOADER_MIN_MS - elapsed);
   window.setTimeout(() => {
-    pageLoading.value = false;
+    // Re-check in case loading restarted during the min-delay window.
+    if (!globalLoading.value) pageLoading.value = false;
   }, wait);
-};
+}, { immediate: true });
 
 // ---- Superadmin viewport preview (Desktop/Tablet/Mobile) ----
 const PREVIEW_STORAGE_KEY = 'superadminPreviewViewport';
@@ -635,7 +637,7 @@ const fetchBuildingsPendingCounts = async () => {
   if (!isAuthenticated.value) return;
   if (!showBuildingsPendingBadge.value) return;
   try {
-    const resp = await api.get('/availability/admin/pending-counts');
+    const resp = await api.get('/availability/admin/pending-counts', { skipGlobalLoading: true });
     buildingsPendingCount.value = Number(resp?.data?.total || 0);
   } catch {
     // ignore (badge is best-effort)
@@ -668,12 +670,13 @@ watch(() => route.params.organizationSlug, async (newSlug) => {
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick);
-  startPageLoading('Loading…');
+  const bootId = beginLoading('Loading…');
+  try {
 
-  // Initialize superadmin preview mode (if enabled locally).
-  if (isSuperAdminUser.value) {
-    loadPreviewViewport();
-  }
+    // Initialize superadmin preview mode (if enabled locally).
+    if (isSuperAdminUser.value) {
+      loadPreviewViewport();
+    }
 
   window.addEventListener('superadmin-preview-updated', onPreviewUpdated);
 
@@ -727,19 +730,33 @@ onMounted(async () => {
     // ignore
   }
 
-  stopPageLoading();
+  } finally {
+    endLoading(bootId);
+  }
 });
 
-// Show loader during route navigations (best-effort; does not wait for page-level API calls).
+// Show loader during route navigations.
+// The loader will remain visible until all API calls (and any tracked preloads) complete.
+let navLoadId = null;
 router.beforeEach((to, from, next) => {
   // Avoid flashing loader on hash-only changes / same route.
   if ((to.fullPath || '') !== (from.fullPath || '')) {
-    startPageLoading('Loading…');
+    try {
+      if (navLoadId) endLoading(navLoadId);
+    } catch {}
+    navLoadId = beginLoading('Loading…');
   }
   next();
 });
 router.afterEach(() => {
-  stopPageLoading();
+  if (navLoadId) {
+    const id = navLoadId;
+    navLoadId = null;
+    // Give the new route a tick to kick off its API calls (which will keep the loader up).
+    window.setTimeout(() => {
+      try { endLoading(id); } catch {}
+    }, 0);
+  }
 });
 
 onUnmounted(() => {

@@ -313,14 +313,14 @@ const loadPresence = async () => {
     loading.value = true;
     error.value = '';
     if (adminsAllMode.value) {
-      const resp = await api.get('/presence/admins');
+      const resp = await api.get('/presence/admins', { skipGlobalLoading: true });
       people.value = resp.data || [];
     } else {
       if (!agencyId.value) {
         people.value = [];
         return;
       }
-      const resp = await api.get(`/presence/agency/${agencyId.value}`);
+      const resp = await api.get(`/presence/agency/${agencyId.value}`, { skipGlobalLoading: true });
       people.value = resp.data || [];
     }
   } catch {
@@ -341,7 +341,7 @@ const loadThreads = async () => {
       }
       params.agencyId = agencyId.value;
     }
-    const resp = await api.get('/chat/threads', { params });
+    const resp = await api.get('/chat/threads', { params, skipGlobalLoading: true });
     threads.value = resp.data || [];
   } catch {
     // ignore
@@ -362,7 +362,7 @@ const openChat = async (u, agencyIdOverride = null) => {
       return;
     }
     activeThreadAgencyId.value = useAgencyId;
-    const resp = await api.post('/chat/threads/direct', { agencyId: useAgencyId, otherUserId: u.id });
+    const resp = await api.post('/chat/threads/direct', { agencyId: useAgencyId, otherUserId: u.id }, { skipGlobalLoading: true });
     activeThreadId.value = resp.data.threadId;
     await loadMessages();
   } catch (e) {
@@ -381,11 +381,18 @@ const loadMessages = async () => {
   if (!activeThreadId.value) return;
   try {
     chatLoading.value = true;
-    const resp = await api.get(`/chat/threads/${activeThreadId.value}/messages`, { params: { limit: 60 } });
+    const resp = await api.get(
+      `/chat/threads/${activeThreadId.value}/messages`,
+      { params: { limit: 60 }, skipGlobalLoading: true }
+    );
     chatMessages.value = resp.data || [];
     const last = chatMessages.value[chatMessages.value.length - 1];
     if (last?.id) {
-      await api.post(`/chat/threads/${activeThreadId.value}/read`, { lastReadMessageId: last.id }).catch(() => {});
+      await api.post(
+        `/chat/threads/${activeThreadId.value}/read`,
+        { lastReadMessageId: last.id },
+        { skipGlobalLoading: true }
+      ).catch(() => {});
       await loadThreads();
     }
   } finally {
@@ -399,7 +406,7 @@ const send = async () => {
     sending.value = true;
     const body = draft.value.trim();
     draft.value = '';
-    await api.post(`/chat/threads/${activeThreadId.value}/messages`, { body });
+    await api.post(`/chat/threads/${activeThreadId.value}/messages`, { body }, { skipGlobalLoading: true });
     await loadMessages();
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || 'Failed to send message';
@@ -419,7 +426,7 @@ const closeChat = () => {
 
 const fetchMyPresence = async () => {
   try {
-    const resp = await api.get('/presence/me');
+    const resp = await api.get('/presence/me', { skipGlobalLoading: true });
     myAvailability.value = resp.data?.availability_level || null;
   } catch {
     // ignore
@@ -428,7 +435,7 @@ const fetchMyPresence = async () => {
 
 const setMyAvailability = async (level) => {
   try {
-    await api.post('/presence/availability', { availabilityLevel: level });
+    await api.post('/presence/availability', { availabilityLevel: level }, { skipGlobalLoading: true });
     myAvailability.value = level;
     await Promise.all([loadPresence(), loadThreads()]);
   } catch {
