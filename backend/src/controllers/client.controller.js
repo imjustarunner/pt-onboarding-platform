@@ -2135,7 +2135,7 @@ export const getClientAdminNote = async (req, res, next) => {
 
     const userId = req.user?.id;
     const roleNorm = String(req.user?.role || '').toLowerCase();
-    const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
+    const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff', 'supervisor'].includes(roleNorm);
     if (!canViewInternalNotes) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
@@ -2179,7 +2179,7 @@ export const upsertClientAdminNote = async (req, res, next) => {
 
     const userId = req.user?.id;
     const roleNorm = String(req.user?.role || '').toLowerCase();
-    const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
+    const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff', 'supervisor'].includes(roleNorm);
     if (!canViewInternalNotes) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const currentClient = await Client.findById(clientId);
@@ -2200,15 +2200,10 @@ export const upsertClientAdminNote = async (req, res, next) => {
 
     let saved = null;
     if (existing?.id) {
-      // Update in-place (admins/super_admin can update any note; support/staff can update only if author).
       try {
         saved = await ClientNotes.update(existing.id, { message }, userId, roleNorm);
-      } catch {
-        // If we can't update (not author), fall back to creating a new admin note.
-        saved = await ClientNotes.create(
-          { client_id: clientId, author_id: userId, message, is_internal_only: true, category: 'administrative', urgency: 'low' },
-          { hasAgencyAccess: true, canViewInternalNotes: true }
-        );
+      } catch (e) {
+        return res.status(403).json({ error: { message: e?.message || 'Unable to update admin note' } });
       }
     } else {
       saved = await ClientNotes.create(

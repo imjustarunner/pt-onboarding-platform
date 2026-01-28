@@ -104,7 +104,7 @@
                 {{ isClientArchived ? 'Yes' : 'No' }}
               </div>
             </div>
-            <div v-if="isBackofficeRole" class="info-item admin-note-item">
+            <div v-if="canViewAdminNote" class="info-item admin-note-item">
               <label>Admin Note(s)</label>
               <div
                 class="info-value admin-note-trigger"
@@ -1208,6 +1208,7 @@ const authStore = useAuthStore();
 const activeTab = ref('overview');
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isBackofficeRole = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
+const canViewAdminNote = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
 
 const tabs = computed(() => {
@@ -1753,7 +1754,7 @@ const adminNotePreview = computed(() => {
 });
 
 const fetchAdminNote = async () => {
-  if (!isBackofficeRole.value || !props.client?.id) return;
+  if (!canViewAdminNote.value || !props.client?.id) return;
   try {
     adminNoteLoading.value = true;
     const r = await api.get(`/clients/${props.client.id}/admin-note`);
@@ -1768,7 +1769,7 @@ const fetchAdminNote = async () => {
 };
 
 const openAdminNotePopover = () => {
-  if (!isBackofficeRole.value) return;
+  if (!canViewAdminNote.value) return;
   if (adminNoteCloseTimer) clearTimeout(adminNoteCloseTimer);
   adminNotePopoverOpen.value = true;
   if (!adminNoteMessage.value && !adminNoteDraft.value) {
@@ -1794,7 +1795,7 @@ const closeAdminNotePopoverNow = () => {
 };
 
 const saveAdminNote = async () => {
-  if (!isBackofficeRole.value || !props.client?.id) return;
+  if (!canViewAdminNote.value || !props.client?.id) return;
   const msg = String(adminNoteDraft.value || '').trim();
   if (!msg) return;
   try {

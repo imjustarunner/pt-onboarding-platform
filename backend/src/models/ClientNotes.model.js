@@ -221,8 +221,18 @@ class ClientNotes {
       throw new Error('Note not found');
     }
 
-    // Permission check: Only author or admin can update
-    if (currentNote.author_id !== userId && !['super_admin', 'admin'].includes(userRole)) {
+    const roleNorm = String(userRole || '').toLowerCase();
+    const canBackofficeEditInternal = ['super_admin', 'admin', 'support', 'staff', 'supervisor'].includes(roleNorm);
+    const isInternal = !!currentNote.is_internal_only;
+
+    // Permission check:
+    // - Internal notes: any backoffice role (incl. supervisor) may update (single admin-note UX).
+    // - Shared notes: only author or admin/super_admin may update.
+    if (isInternal) {
+      if (!canBackofficeEditInternal) {
+        throw new Error('You do not have permission to update this note');
+      }
+    } else if (currentNote.author_id !== userId && !['super_admin', 'admin'].includes(roleNorm)) {
       throw new Error('You do not have permission to update this note');
     }
 
@@ -231,13 +241,38 @@ class ClientNotes {
     const values = [];
 
     if (message !== undefined) {
-      updates.push('message = ?');
-      values.push(message);
+      const scrubbed = scrubClientNamesToCode(message);
+
+      // If encryption columns exist, we should update ciphertext, not plaintext.
+      // Otherwise the UI will keep showing the old decrypted ciphertext.
+      const hadCipher =
+        !!currentNote.message_ciphertext && !!currentNote.message_iv && !!currentNote.message_auth_tag;
+
+      if (isChatEncryptionConfigured()) {
+        const enc = encryptChatText(scrubbed);
+        updates.push('message = NULL');
+        updates.push('message_ciphertext = ?');
+        updates.push('message_iv = ?');
+        updates.push('message_auth_tag = ?');
+        updates.push('encryption_key_id = ?');
+        values.push(enc.ciphertextB64, enc.ivB64, enc.authTagB64, enc.keyId);
+      } else if (hadCipher) {
+        // No key configured: clear ciphertext so hydrateDecryptedMessage doesn't overwrite message.
+        updates.push('message_ciphertext = NULL');
+        updates.push('message_iv = NULL');
+        updates.push('message_auth_tag = NULL');
+        updates.push('encryption_key_id = NULL');
+        updates.push('message = ?');
+        values.push(String(scrubbed || ''));
+      } else {
+        updates.push('message = ?');
+        values.push(String(scrubbed || ''));
+      }
     }
 
     // Validation: Only backoffice roles can set internal_only
     if (is_internal_only !== undefined) {
-      if (is_internal_only && !['super_admin', 'admin', 'support', 'staff'].includes(userRole)) {
+      if (is_internal_only && !['super_admin', 'admin', 'support', 'staff', 'supervisor'].includes(roleNorm)) {
         throw new Error('Only agency staff can create internal notes');
       }
       updates.push('is_internal_only = ?');
@@ -251,7 +286,29 @@ class ClientNotes {
     values.push(id);
 
     const query = `UPDATE client_notes SET ${updates.join(', ')} WHERE id = ?`;
-    await pool.execute(query, values);
+    try {
+      await pool.execute(query, values);
+    } catch (e) {
+      // If encryption columns aren't present yet, fall back to plaintext update.
+      const msg = String(e?.message || '');
+      const columnMissing = msg.includes('Unknown column') || msg.includes('ER_BAD_FIELD_ERROR');
+      if (!columnMissing) throw e;
+
+      const fallbackUpdates = [];
+      const fallbackValues = [];
+      if (message !== undefined) {
+        const scrubbed = scrubClientNamesToCode(message);
+        fallbackUpdates.push('message = ?');
+        fallbackValues.push(String(scrubbed || ''));
+      }
+      if (is_internal_only !== undefined) {
+        fallbackUpdates.push('is_internal_only = ?');
+        fallbackValues.push(is_internal_only);
+      }
+      if (fallbackUpdates.length === 0) return this.findById(id);
+      fallbackValues.push(id);
+      await pool.execute(`UPDATE client_notes SET ${fallbackUpdates.join(', ')} WHERE id = ?`, fallbackValues);
+    }
 
     return this.findById(id);
   }
