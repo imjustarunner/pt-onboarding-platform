@@ -104,6 +104,44 @@
                 {{ isClientArchived ? 'Yes' : 'No' }}
               </div>
             </div>
+            <div v-if="isBackofficeRole" class="info-item admin-note-item">
+              <label>Admin Note(s)</label>
+              <div
+                class="info-value admin-note-trigger"
+                @mouseenter="openAdminNotePopover"
+                @mouseleave="closeAdminNotePopoverSoon"
+              >
+                <span v-if="adminNoteLoading" class="muted">Loading…</span>
+                <span v-else-if="adminNoteMessage">
+                  Hover to view
+                  <span class="muted" style="margin-left: 6px;">({{ adminNotePreview }})</span>
+                </span>
+                <span v-else class="muted">Hover to add</span>
+
+                <div
+                  v-if="adminNotePopoverOpen"
+                  class="admin-note-popover"
+                  @mouseenter="cancelCloseAdminNotePopover"
+                  @mouseleave="closeAdminNotePopoverSoon"
+                >
+                  <div class="muted" style="font-size: 12px; margin-bottom: 6px; font-weight: 800;">Internal (admin only)</div>
+                  <textarea v-model="adminNoteDraft" class="admin-note-textarea" rows="5" placeholder="Add an internal admin note…" />
+                  <div style="display:flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+                    <button class="btn btn-secondary btn-sm" type="button" @click="closeAdminNotePopoverNow" :disabled="adminNoteSaving">
+                      Close
+                    </button>
+                    <button
+                      class="btn btn-primary btn-sm"
+                      type="button"
+                      @click="saveAdminNote"
+                      :disabled="adminNoteSaving || !String(adminNoteDraft || '').trim()"
+                    >
+                      {{ adminNoteSaving ? 'Saving…' : 'Save' }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="info-item">
               <label>Provider</label>
               <div class="info-value">
@@ -472,26 +510,35 @@
           </div>
         </div>
 
-        <!-- Messages Tab -->
+        <!-- Messages/Notes Tab -->
         <div v-if="activeTab === 'messages'" class="detail-section">
-          <div v-if="notesLoading" class="loading">Loading messages...</div>
+          <div v-if="notesLoading" class="loading">Loading messages…</div>
           <div v-else-if="notesError" class="error">{{ notesError }}</div>
           <div v-else class="messages-container">
             <div class="phi-warning">
               <strong>Reminder:</strong> Use initials only. Do not include PHI. This is not an EHR.
             </div>
-            <div class="messages-list">
+
+            <div class="messages-header-row">
+              <h3 style="margin:0;">Messages</h3>
+              <button class="btn btn-secondary btn-sm" type="button" @click="toggleMessagesCollapsed">
+                {{ messagesCollapsed ? 'Show' : 'Hide' }}
+              </button>
+            </div>
+
+            <div v-if="!messagesCollapsed" class="messages-list">
+              <div v-if="sharedMessages.length === 0" class="empty-state">
+                <p>No messages yet.</p>
+              </div>
               <div
-                v-for="note in notes"
+                v-for="note in sharedMessages"
                 :key="note.id"
                 class="message-item"
-                :class="{ 'internal-note': note.is_internal_only }"
               >
                 <div class="message-header">
                   <span class="message-author">{{ note.author_name || 'Unknown' }}</span>
                   <span class="message-date">{{ formatDateTime(note.created_at) }}</span>
                   <span v-if="note.category" class="category-badge">{{ formatCategory(note.category) }}</span>
-                  <span v-if="note.is_internal_only" class="internal-badge">Internal</span>
                 </div>
                 <div class="message-content">{{ note.message }}</div>
               </div>
@@ -507,7 +554,6 @@
                     <option value="status">Status update</option>
                     <option value="administrative">Administrative</option>
                     <option value="billing">Billing</option>
-                    <option value="clinical">Clinical question</option>
                   </select>
                 </label>
               </div>
@@ -517,21 +563,65 @@
                 rows="4"
                 class="message-input"
               ></textarea>
-              <div class="message-options">
-                <label v-if="canCreateInternalNotes" class="checkbox-label">
-                  <input
-                    v-model="newNoteIsInternal"
-                    type="checkbox"
-                  />
-                  Internal only (not visible to school)
-                </label>
-              </div>
               <button
                 @click="createNote"
                 class="btn btn-primary"
                 :disabled="!newNoteMessage.trim() || creatingNote"
               >
                 {{ creatingNote ? 'Sending...' : 'Send Message' }}
+              </button>
+            </div>
+
+            <div v-if="isBackofficeRole" class="internal-notes-panel">
+              <div class="messages-header-row" style="margin-top: 16px;">
+                <h3 style="margin:0;">Internal Notes (admin only)</h3>
+                <button class="btn btn-secondary btn-sm" type="button" @click="openAdminNoteModal">
+                  Admin Note
+                </button>
+              </div>
+              <div class="hint" style="margin-top: 6px;">
+                Internal notes are for backoffice staff only. They are not client-facing “messages”.
+              </div>
+
+              <div v-if="internalNotes.length === 0" class="empty-state" style="margin-top: 10px;">
+                <p>No internal notes yet.</p>
+              </div>
+              <div v-else class="messages-list" style="margin-top: 10px;">
+                <div v-for="note in internalNotes" :key="note.id" class="message-item internal-note">
+                  <div class="message-header">
+                    <span class="message-author">{{ note.author_name || 'Unknown' }}</span>
+                    <span class="message-date">{{ formatDateTime(note.created_at) }}</span>
+                    <span v-if="note.category" class="category-badge">{{ formatCategory(note.category) }}</span>
+                    <span class="internal-badge">Internal</span>
+                  </div>
+                  <div class="message-content">{{ note.message }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Admin Note Modal (internal-only) -->
+        <div v-if="showAdminNoteModal" class="modal-overlay" @click.self="closeAdminNoteModal">
+          <div class="modal-content" @click.stop style="max-width: 720px;">
+            <h3 style="margin-top:0;">Admin Note</h3>
+            <p class="hint" style="margin-top: 6px;">
+              Internal only (admin/support/staff). Not visible to school staff or providers.
+            </p>
+
+            <textarea v-model="adminNoteDraft" class="admin-note-textarea" rows="7" placeholder="Add an internal admin note…" />
+
+            <div class="modal-actions" style="margin-top: 12px;">
+              <button class="btn btn-secondary" type="button" @click="closeAdminNoteModal" :disabled="adminNoteSaving">
+                Close
+              </button>
+              <button
+                class="btn btn-primary"
+                type="button"
+                @click="saveAdminNote"
+                :disabled="adminNoteSaving || !String(adminNoteDraft || '').trim()"
+              >
+                {{ adminNoteSaving ? 'Saving…' : 'Save' }}
               </button>
             </div>
           </div>
@@ -1126,7 +1216,7 @@ const tabs = computed(() => {
     { id: 'checklist', label: 'Checklist' },
     { id: 'history', label: 'Status History' },
     { id: 'access', label: 'Access Log' },
-    { id: 'messages', label: 'Messages' },
+    { id: 'messages', label: 'Messages / Notes' },
     { id: 'guardians', label: 'Guardians' },
     { id: 'phi', label: 'Documentation' }
   ];
@@ -1201,9 +1291,42 @@ const notes = ref([]);
 const notesLoading = ref(false);
 const notesError = ref('');
 const newNoteMessage = ref('');
-const newNoteIsInternal = ref(false);
 const newNoteCategory = ref('general');
 const creatingNote = ref(false);
+
+// Split notes into "Messages" (shared) and "Internal Notes" (admin only)
+const sharedMessages = computed(() => (notes.value || []).filter((n) => !n?.is_internal_only));
+const internalNotes = computed(() => (notes.value || []).filter((n) => !!n?.is_internal_only));
+
+// Persisted collapse state for the messages list
+const messagesCollapsed = ref(false);
+const messagesCollapsedKey = computed(() => `client_messages_collapsed_v1_${authStore.user?.id || 'anon'}_${props.client?.id || '0'}`);
+const loadMessagesCollapsed = () => {
+  try {
+    const raw = localStorage.getItem(messagesCollapsedKey.value);
+    messagesCollapsed.value = raw === 'true';
+  } catch {
+    messagesCollapsed.value = false;
+  }
+};
+const toggleMessagesCollapsed = () => {
+  messagesCollapsed.value = !messagesCollapsed.value;
+  try {
+    localStorage.setItem(messagesCollapsedKey.value, String(messagesCollapsed.value));
+  } catch {
+    // ignore
+  }
+};
+
+const showAdminNoteModal = ref(false);
+const openAdminNoteModal = async () => {
+  if (!isBackofficeRole.value) return;
+  showAdminNoteModal.value = true;
+  await fetchAdminNote();
+};
+const closeAdminNoteModal = () => {
+  showAdminNoteModal.value = false;
+};
 
 const hasAgencyAccess = ref(false);
 const myAgencies = ref([]);
@@ -1614,6 +1737,76 @@ const formatFieldName = (field) => {
 };
 
 const isClientArchived = computed(() => String(props.client?.status || '').toUpperCase() === 'ARCHIVED');
+
+// Admin Note (single internal note shown on Overview)
+const adminNoteLoading = ref(false);
+const adminNoteSaving = ref(false);
+const adminNoteMessage = ref('');
+const adminNoteDraft = ref('');
+const adminNotePopoverOpen = ref(false);
+let adminNoteCloseTimer = null;
+
+const adminNotePreview = computed(() => {
+  const s = String(adminNoteMessage.value || '').trim();
+  if (!s) return '';
+  return s.length > 40 ? `${s.slice(0, 40)}…` : s;
+});
+
+const fetchAdminNote = async () => {
+  if (!isBackofficeRole.value || !props.client?.id) return;
+  try {
+    adminNoteLoading.value = true;
+    const r = await api.get(`/clients/${props.client.id}/admin-note`);
+    adminNoteMessage.value = String(r.data?.note?.message || '').trim();
+    adminNoteDraft.value = adminNoteMessage.value;
+  } catch {
+    adminNoteMessage.value = '';
+    adminNoteDraft.value = '';
+  } finally {
+    adminNoteLoading.value = false;
+  }
+};
+
+const openAdminNotePopover = () => {
+  if (!isBackofficeRole.value) return;
+  if (adminNoteCloseTimer) clearTimeout(adminNoteCloseTimer);
+  adminNotePopoverOpen.value = true;
+  if (!adminNoteMessage.value && !adminNoteDraft.value) {
+    // Ensure draft is initialized (best-effort).
+    adminNoteDraft.value = '';
+  }
+};
+
+const closeAdminNotePopoverSoon = () => {
+  if (adminNoteCloseTimer) clearTimeout(adminNoteCloseTimer);
+  adminNoteCloseTimer = setTimeout(() => {
+    adminNotePopoverOpen.value = false;
+  }, 250);
+};
+
+const cancelCloseAdminNotePopover = () => {
+  if (adminNoteCloseTimer) clearTimeout(adminNoteCloseTimer);
+};
+
+const closeAdminNotePopoverNow = () => {
+  if (adminNoteCloseTimer) clearTimeout(adminNoteCloseTimer);
+  adminNotePopoverOpen.value = false;
+};
+
+const saveAdminNote = async () => {
+  if (!isBackofficeRole.value || !props.client?.id) return;
+  const msg = String(adminNoteDraft.value || '').trim();
+  if (!msg) return;
+  try {
+    adminNoteSaving.value = true;
+    await api.put(`/clients/${props.client.id}/admin-note`, { message: msg });
+    adminNoteMessage.value = msg;
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to save admin note');
+  } finally {
+    adminNoteSaving.value = false;
+  }
+};
 
 const archiveClient = async () => {
   if (!canEditAccount.value) return;
@@ -2302,11 +2495,10 @@ const createNote = async () => {
     creatingNote.value = true;
     await api.post(`/clients/${props.client.id}/notes`, {
       message: newNoteMessage.value.trim(),
-      is_internal_only: newNoteIsInternal.value,
+      is_internal_only: false,
       category: newNoteCategory.value
     });
     newNoteMessage.value = '';
-    newNoteIsInternal.value = false;
     newNoteCategory.value = 'general';
     await fetchNotes();
   } catch (err) {
@@ -2369,6 +2561,8 @@ watch(() => props.client, async () => {
   await fetchClientAgencyAffiliations();
   await fetchAccess();
   await refreshOverviewProviders();
+  await fetchAdminNote();
+  loadMessagesCollapsed();
 }, { deep: true, immediate: true });
 
 const hydrateChecklist = async () => {
@@ -2442,6 +2636,7 @@ onMounted(async () => {
   }
   await fetchAccess();
   await refreshOverviewProviders();
+  await fetchAdminNote();
   if (activeTab.value === 'history') {
     await fetchHistory();
   } else if (activeTab.value === 'access') {
@@ -2518,6 +2713,40 @@ watch(
 .tab-button {
   display: inline-flex;
   flex: 0 0 auto;
+}
+
+.admin-note-item {
+  position: relative;
+}
+
+.admin-note-trigger {
+  position: relative;
+  display: inline-block;
+}
+
+.admin-note-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  width: min(520px, 70vw);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+}
+
+.admin-note-textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg);
+  resize: vertical;
 }
 .modal-overlay {
   position: fixed;

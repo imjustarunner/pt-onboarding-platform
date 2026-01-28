@@ -18,7 +18,9 @@ import {
   getClientDocumentStatus,
   updateClientDocumentStatus,
   getClientNotes,
+  getClientAdminNote,
   createClientNote,
+  upsertClientAdminNote,
   markClientNotesRead,
   updateClientComplianceChecklist,
   getClientAccessLog,
@@ -86,6 +88,10 @@ router.put('/:id/document-status', updateClientDocumentStatus);
 
 // Access log (admin/support)
 router.get('/:id/access-log', getClientAccessLog);
+
+// Single admin note (internal-only; shown on Overview)
+router.get('/:id/admin-note', getClientAdminNote);
+router.put('/:id/admin-note', upsertClientAdminNote);
 
 // Get notes
 router.get('/:id/notes', getClientNotes);

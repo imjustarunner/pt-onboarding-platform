@@ -2125,6 +2125,105 @@ export const getClientNotes = async (req, res, next) => {
 };
 
 /**
+ * Get client admin note (single internal note shown on Overview).
+ * GET /api/clients/:id/admin-note
+ */
+export const getClientAdminNote = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
+    if (!canViewInternalNotes) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const currentClient = await Client.findById(clientId);
+    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    // Agency access (super admin can always view)
+    let hasAgencyAccess = roleNorm === 'super_admin';
+    if (!hasAgencyAccess) {
+      const orgs = await User.getAgencies(userId);
+      const ids = (orgs || []).map((o) => o.id);
+      hasAgencyAccess = ids.includes(currentClient.agency_id);
+      if (!hasAgencyAccess) return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+    }
+
+    const notes = await ClientNotes.findByClientId(clientId, { hasAgencyAccess: true, canViewInternalNotes: true });
+    const adminNote =
+      (notes || []).find((n) => n && n.is_internal_only && String(n.category || '').toLowerCase() === 'administrative') ||
+      (notes || []).find((n) => n && n.is_internal_only) ||
+      null;
+
+    res.json({ note: adminNote ? { id: adminNote.id, message: adminNote.message, updated_at: adminNote.updated_at, created_at: adminNote.created_at } : null });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Upsert client admin note (single internal note shown on Overview).
+ * PUT /api/clients/:id/admin-note
+ * body: { message }
+ */
+export const upsertClientAdminNote = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
+    if (!canViewInternalNotes) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const currentClient = await Client.findById(clientId);
+    if (!currentClient) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    if (roleNorm !== 'super_admin') {
+      const orgs = await User.getAgencies(userId);
+      const ids = (orgs || []).map((o) => o.id);
+      const hasAgencyAccess = ids.includes(currentClient.agency_id);
+      if (!hasAgencyAccess) return res.status(403).json({ error: { message: 'You do not have access to this client' } });
+    }
+
+    const notes = await ClientNotes.findByClientId(clientId, { hasAgencyAccess: true, canViewInternalNotes: true });
+    const existing =
+      (notes || []).find((n) => n && n.is_internal_only && String(n.category || '').toLowerCase() === 'administrative') ||
+      (notes || []).find((n) => n && n.is_internal_only) ||
+      null;
+
+    let saved = null;
+    if (existing?.id) {
+      // Update in-place (admins/super_admin can update any note; support/staff can update only if author).
+      try {
+        saved = await ClientNotes.update(existing.id, { message }, userId, roleNorm);
+      } catch {
+        // If we can't update (not author), fall back to creating a new admin note.
+        saved = await ClientNotes.create(
+          { client_id: clientId, author_id: userId, message, is_internal_only: true, category: 'administrative', urgency: 'low' },
+          { hasAgencyAccess: true, canViewInternalNotes: true }
+        );
+      }
+    } else {
+      saved = await ClientNotes.create(
+        { client_id: clientId, author_id: userId, message, is_internal_only: true, category: 'administrative', urgency: 'low' },
+        { hasAgencyAccess: true, canViewInternalNotes: true }
+      );
+    }
+
+    res.status(201).json({ note: saved });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * Create client note
  * POST /api/clients/:id/notes
  */
