@@ -1746,6 +1746,9 @@ const adminNoteMessage = ref('');
 const adminNoteDraft = ref('');
 const adminNotePopoverOpen = ref(false);
 let adminNoteCloseTimer = null;
+// Prevent the hover popover from immediately re-opening right after a save
+// (common if the mouse is still positioned over the trigger element).
+const adminNoteSuppressOpenUntil = ref(0);
 
 const fetchAdminNote = async () => {
   if (!canViewAdminNote.value || !props.client?.id) return;
@@ -1764,6 +1767,7 @@ const fetchAdminNote = async () => {
 
 const openAdminNotePopover = () => {
   if (!canViewAdminNote.value) return;
+  if (Date.now() < Number(adminNoteSuppressOpenUntil.value || 0)) return;
   if (adminNoteCloseTimer) clearTimeout(adminNoteCloseTimer);
   adminNotePopoverOpen.value = true;
   if (!adminNoteMessage.value && !adminNoteDraft.value) {
@@ -1797,6 +1801,7 @@ const saveAdminNote = async () => {
     await api.put(`/clients/${props.client.id}/admin-note`, { message: msg });
     adminNoteMessage.value = msg;
     // After a successful save, close any open admin-note UI.
+    adminNoteSuppressOpenUntil.value = Date.now() + 800;
     adminNotePopoverOpen.value = false;
     showAdminNoteModal.value = false;
   } catch (err) {
