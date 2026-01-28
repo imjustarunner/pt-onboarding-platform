@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import path from 'path';
+import StorageService from '../services/storage.service.js';
 
 class PlatformBranding {
   static async get() {
@@ -405,6 +407,27 @@ class PlatformBranding {
       }
       
       const result = rows[0];
+
+      // Avoid noisy 404s for seeded fonts whose files were never uploaded.
+      // If a joined font record points to a missing file, clear the *_font_path so the frontend
+      // treats it as a system font (no @font-face request to /uploads/fonts/...).
+      try {
+        const fontPathFields = ['header_font_path', 'body_font_path', 'numeric_font_path', 'display_font_path'];
+        await Promise.all(
+          fontPathFields.map(async (field) => {
+            const fp = result?.[field] ? String(result[field]) : '';
+            if (!fp) return;
+            const filename = path.basename(fp);
+            if (!filename) return;
+            const exists = await StorageService.fontExists(filename);
+            if (!exists) {
+              result[field] = null;
+            }
+          })
+        );
+      } catch {
+        // best-effort only
+      }
       
       // Log what columns we got back (only in development)
       if (process.env.NODE_ENV === 'development') {
