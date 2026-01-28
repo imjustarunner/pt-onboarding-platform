@@ -360,8 +360,8 @@ const markAsRead = async (notificationId) => {
   }
 };
 
-const viewNotification = (notification) => {
-  const navigationPath = getNotificationNavigationPath(notification);
+const viewNotification = async (notification) => {
+  const navigationPath = await getNotificationNavigationPath(notification);
   if (navigationPath) {
     router.push(navigationPath);
   }
@@ -424,7 +424,7 @@ const purgeAllNotifications = async () => {
   }
 };
 
-const getNotificationNavigationPath = (notification) => {
+const getNotificationNavigationPath = async (notification) => {
   // Determine where to navigate based on notification type and related entity
   if (notification.type === 'task_overdue' && notification.related_entity_type === 'task' && notification.related_entity_id) {
     // For overdue tasks, navigate to user's documents tab with task ID
@@ -443,6 +443,19 @@ const getNotificationNavigationPath = (notification) => {
   } else if (notification.type === 'pending_completed' && notification.user_id) {
     // For pending completed, navigate to user's profile
     return `/admin/users/${notification.user_id}`;
+  } else if (notification.related_entity_type === 'chat_thread' && notification.related_entity_id) {
+    // Platform chat deeplink
+    try {
+      const meta = await api.get(`/chat/threads/${notification.related_entity_id}/meta`);
+      const slug = meta.data?.organization_slug || null;
+      const agencyId = meta.data?.agency_id || notification.agency_id || '';
+      const threadId = meta.data?.thread_id || notification.related_entity_id;
+      if (slug) return `/${slug}/admin/communications/chats?threadId=${encodeURIComponent(String(threadId))}&agencyId=${encodeURIComponent(String(agencyId))}`;
+      return `/admin/communications/chats?threadId=${encodeURIComponent(String(threadId))}&agencyId=${encodeURIComponent(String(agencyId))}`;
+    } catch {
+      const agencyId = notification.agency_id || '';
+      return `/admin/communications/chats?threadId=${encodeURIComponent(String(notification.related_entity_id))}&agencyId=${encodeURIComponent(String(agencyId))}`;
+    }
   } else if (notification.user_id) {
     // Default: navigate to user profile
     return `/admin/users/${notification.user_id}`;

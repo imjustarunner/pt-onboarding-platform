@@ -25,6 +25,9 @@ import {
   listClientAffiliations,
   upsertClientAffiliation,
   removeClientAffiliation,
+  listClientAgencyAffiliations,
+  upsertClientAgencyAffiliation,
+  removeClientAgencyAffiliation,
   listClientProviderAssignments,
   upsertClientProviderAssignment,
   removeClientProviderAssignment,
@@ -100,6 +103,11 @@ router.put('/:id/compliance-checklist', updateClientComplianceChecklist);
 router.get('/:id/affiliations', listClientAffiliations);
 router.post('/:id/affiliations', upsertClientAffiliation);
 router.delete('/:id/affiliations/:organizationId', removeClientAffiliation);
+
+// Multi-agency affiliations (admin/staff/support/super_admin)
+router.get('/:id/agency-affiliations', listClientAgencyAffiliations);
+router.post('/:id/agency-affiliations', upsertClientAgencyAffiliation);
+router.delete('/:id/agency-affiliations/:agencyId', removeClientAgencyAffiliation);
 
 // Multi-provider assignments (admin/staff/support/super_admin)
 router.get('/:id/provider-assignments', listClientProviderAssignments);

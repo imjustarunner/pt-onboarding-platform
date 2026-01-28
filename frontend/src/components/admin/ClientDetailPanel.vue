@@ -2,7 +2,28 @@
   <div class="modal-overlay" @click.self="handleClose">
     <div class="modal-content large" @click.stop>
       <div class="modal-header">
-        <h2>Client: {{ client.initials }}</h2>
+        <div style="display:flex; flex-direction: column; gap: 6px;">
+          <h2 style="margin:0;">Client: {{ client.initials }}</h2>
+          <div v-if="isBackofficeRole" style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap;">
+            <template v-if="switchableAgencies.length > 1">
+              <span class="muted" style="font-weight: 800;">Agency:</span>
+              <select
+                v-model="selectedAgencyId"
+                class="inline-select"
+                :disabled="switchingAgency"
+                @change="onSwitchAgency"
+              >
+                <option v-for="a in switchableAgencies" :key="a.id" :value="String(a.id)">
+                  {{ a.name }}
+                </option>
+              </select>
+              <span v-if="switchingAgency" class="muted">Switching…</span>
+            </template>
+            <template v-else-if="clientAgenciesNote">
+              <span class="muted">{{ clientAgenciesNote }}</span>
+            </template>
+          </div>
+        </div>
         <button @click="handleClose" class="btn-close">×</button>
       </div>
 
@@ -673,14 +694,84 @@
         <div v-if="activeTab === 'assignments'" class="detail-section">
           <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
             <h3 style="margin:0;">Client assignments</h3>
-            <div class="hint">Manage multi-org affiliations and org-scoped provider assignments.</div>
+            <div class="hint">Manage multi-agency affiliations, multi-org affiliations, and scoped provider assignments.</div>
           </div>
 
           <div v-if="assignmentsError" class="error" style="text-align:left;">{{ assignmentsError }}</div>
 
           <div class="grid" style="display:grid; grid-template-columns: 1fr; gap: 16px;">
             <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
-              <h4 style="margin:0 0 10px;">Affiliations (school/program)</h4>
+              <h4 style="margin:0 0 10px;">Manage multi-agency affiliations</h4>
+              <div class="hint" style="margin-bottom: 10px;">
+                If a user has access to multiple agencies for a client, you can switch the client’s primary agency from the header dropdown.
+              </div>
+              <div v-if="clientAgenciesNote" class="muted" style="margin-bottom: 10px;">{{ clientAgenciesNote }}</div>
+
+              <div v-if="(clientAgencyAffiliations || []).length === 0" class="hint">No agency affiliations found.</div>
+              <div v-else class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Agency</th>
+                      <th>Primary</th>
+                      <th class="right"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="a in clientAgencyAffiliations" :key="a.agency_id">
+                      <td>{{ a.agency_name || `Agency ${a.agency_id}` }}</td>
+                      <td>{{ a.is_primary ? 'Yes' : 'No' }}</td>
+                      <td class="right" style="white-space: nowrap;">
+                        <button
+                          v-if="!a.is_primary"
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          :disabled="switchingAgency"
+                          @click="selectedAgencyId = String(a.agency_id); onSwitchAgency()"
+                        >
+                          Set primary
+                        </button>
+                        <button
+                          v-if="!a.is_primary"
+                          type="button"
+                          class="btn btn-danger btn-sm"
+                          :disabled="switchingAgency"
+                          @click="removeAgencyAffiliation(a.agency_id)"
+                          style="margin-left: 8px;"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div style="display:flex; gap: 10px; align-items:end; margin-top: 12px; flex-wrap: wrap;">
+                <div style="min-width: 280px; flex: 1;">
+                  <label class="filters-label">Add agency affiliation</label>
+                  <select v-model="addAgencyAffiliationId" class="filters-select">
+                    <option value="">Select…</option>
+                    <option v-for="a in addableAgencyOptions" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+                  </select>
+                </div>
+                <label class="checkbox-label" style="min-width: 200px;">
+                  <input v-model="addAgencyMakePrimary" type="checkbox" />
+                  Set as primary
+                </label>
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  :disabled="switchingAgency || !addAgencyAffiliationId"
+                  @click="addAgencyAffiliation"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
+              <h4 style="margin:0 0 10px;">Multi manage multi-org affiliations (school/program)</h4>
               <div v-if="affiliationsLoading" class="loading">Loading…</div>
               <div v-else>
                 <div v-if="affiliations.length === 0" class="hint">No affiliations yet.</div>
@@ -752,7 +843,7 @@
             </div>
 
             <div class="card" style="border: 1px solid var(--border); border-radius: 12px; padding: 14px;">
-              <h4 style="margin:0 0 10px;">Providers (per affiliation)</h4>
+              <h4 style="margin:0 0 10px;">Scoped provider assignments (per affiliation)</h4>
               <div style="display:flex; gap: 10px; flex-wrap: wrap; align-items:end; margin-bottom: 12px;">
                 <div style="min-width: 280px; flex: 1;">
                   <label class="filters-label">Affiliation</label>
@@ -1115,6 +1206,89 @@ const newNoteCategory = ref('general');
 const creatingNote = ref(false);
 
 const hasAgencyAccess = ref(false);
+const myAgencies = ref([]);
+
+// Multi-agency (client may be affiliated with multiple agencies)
+const clientAgencyAffiliations = ref([]);
+const selectedAgencyId = ref('');
+const switchingAgency = ref(false);
+
+const switchableAgencies = computed(() => {
+  const mine = new Set((myAgencies.value || []).map((a) => Number(a?.id)).filter(Boolean));
+  const fromClient = (clientAgencyAffiliations.value || []).map((a) => ({
+    id: Number(a?.agency_id),
+    name: String(a?.agency_name || '').trim()
+  })).filter((a) => a.id && a.name);
+
+  // If the table isn't migrated yet, fall back to user's agencies for the client's current agency_id.
+  if (!fromClient.length && props.client?.agency_id) {
+    const match = (myAgencies.value || []).find((a) => Number(a?.id) === Number(props.client.agency_id)) || null;
+    if (match?.id) return [{ id: Number(match.id), name: String(match.name || `Agency ${match.id}`) }];
+  }
+
+  return fromClient.filter((a) => mine.has(a.id));
+});
+
+const clientAgenciesNote = computed(() => {
+  // If user isn't affiliated with the client’s agency (or the client is multi-agency),
+  // show a small note to indicate other agency affiliation may exist.
+  const rows = Array.isArray(clientAgencyAffiliations.value) ? clientAgencyAffiliations.value : [];
+  if (!rows.length) return '';
+  const mine = new Set((myAgencies.value || []).map((a) => Number(a?.id)).filter(Boolean));
+  const clientAgencyIds = rows.map((r) => Number(r?.agency_id)).filter(Boolean);
+  const mineCount = clientAgencyIds.filter((id) => mine.has(id)).length;
+  if (mineCount > 0) {
+    if (rows.length > mineCount) return 'Note: client is also affiliated with another agency.';
+    return '';
+  }
+  // User has no agency overlap; show which agency owns the client.
+  const names = rows.map((r) => String(r?.agency_name || '').trim()).filter(Boolean);
+  if (names.length) return `Note: client is affiliated with another agency (${names.join(', ')}).`;
+  return 'Note: client is affiliated with another agency.';
+});
+
+const addAgencyAffiliationId = ref('');
+const addAgencyMakePrimary = ref(false);
+const addableAgencyOptions = computed(() => {
+  const existing = new Set((clientAgencyAffiliations.value || []).map((a) => Number(a?.agency_id)).filter(Boolean));
+  return (myAgencies.value || []).filter((a) => a && !existing.has(Number(a.id)));
+});
+
+const addAgencyAffiliation = async () => {
+  const agencyId = addAgencyAffiliationId.value ? Number(addAgencyAffiliationId.value) : null;
+  if (!agencyId) return;
+  const makePrimary = !!addAgencyMakePrimary.value;
+  try {
+    switchingAgency.value = true;
+    await api.post(`/clients/${props.client.id}/agency-affiliations`, { agency_id: agencyId, is_primary: makePrimary });
+    addAgencyAffiliationId.value = '';
+    addAgencyMakePrimary.value = false;
+    await fetchClientAgencyAffiliations();
+    if (makePrimary) {
+      // If we made it primary, props.client will be refreshed by parent; keep local selection consistent.
+      selectedAgencyId.value = String(agencyId);
+    }
+  } catch (e) {
+    alert(e.response?.data?.error?.message || e.message || 'Failed to add agency affiliation');
+  } finally {
+    switchingAgency.value = false;
+  }
+};
+
+const removeAgencyAffiliation = async (agencyId) => {
+  const id = Number(agencyId);
+  if (!id) return;
+  if (!window.confirm('Remove this agency affiliation?')) return;
+  try {
+    switchingAgency.value = true;
+    await api.delete(`/clients/${props.client.id}/agency-affiliations/${id}`);
+    await fetchClientAgencyAffiliations();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || e.message || 'Failed to remove agency affiliation');
+  } finally {
+    switchingAgency.value = false;
+  }
+};
 
 // Paperwork/document status history (dated)
 const paperworkHistory = ref([]);
@@ -1689,9 +1863,40 @@ const fetchAccess = async () => {
   try {
     const response = await api.get('/users/me/agencies');
     const agencies = response.data || [];
-    hasAgencyAccess.value = agencies.some((a) => a.id === props.client.agency_id);
+    myAgencies.value = Array.isArray(agencies) ? agencies : [];
+    hasAgencyAccess.value = myAgencies.value.some((a) => Number(a.id) === Number(props.client.agency_id));
+    // Keep selected agency synced to client's primary agency.
+    selectedAgencyId.value = props.client?.agency_id ? String(props.client.agency_id) : '';
   } catch {
     hasAgencyAccess.value = false;
+    myAgencies.value = [];
+  }
+};
+
+const fetchClientAgencyAffiliations = async () => {
+  try {
+    const r = await api.get(`/clients/${props.client.id}/agency-affiliations`);
+    clientAgencyAffiliations.value = Array.isArray(r.data) ? r.data : [];
+  } catch {
+    clientAgencyAffiliations.value = [];
+  }
+};
+
+const onSwitchAgency = async () => {
+  const agencyId = selectedAgencyId.value ? Number(selectedAgencyId.value) : null;
+  if (!agencyId || agencyId === Number(props.client?.agency_id)) return;
+  try {
+    switchingAgency.value = true;
+    await api.post(`/clients/${props.client.id}/agency-affiliations`, { agency_id: agencyId, is_primary: true });
+    const refreshed = await api.get(`/clients/${props.client.id}`);
+    emit('updated', { keepOpen: true, client: refreshed.data });
+    await fetchAccess();
+    await fetchClientAgencyAffiliations();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || e.message || 'Failed to switch agency');
+    selectedAgencyId.value = props.client?.agency_id ? String(props.client.agency_id) : '';
+  } finally {
+    switchingAgency.value = false;
   }
 };
 
@@ -2161,6 +2366,7 @@ watch(() => props.client, async () => {
   }
   loadOverviewOptions();
   fetchDocChecklist();
+  await fetchClientAgencyAffiliations();
   await fetchAccess();
   await refreshOverviewProviders();
 }, { deep: true, immediate: true });

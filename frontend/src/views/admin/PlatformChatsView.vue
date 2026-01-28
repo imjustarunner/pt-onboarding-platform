@@ -74,11 +74,17 @@ import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import { useRoute } from 'vue-router';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const route = useRoute();
 
-const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const agencyId = computed(() => {
+  const q = route.query?.agencyId ? parseInt(String(route.query.agencyId), 10) : null;
+  if (Number.isFinite(q) && q > 0) return q;
+  return agencyStore.currentAgency?.id || null;
+});
 const meId = computed(() => authStore.user?.id);
 
 const loading = ref(false);
@@ -107,6 +113,16 @@ const loadThreads = async () => {
     error.value = '';
     const resp = await api.get('/chat/threads', { params: { agencyId: agencyId.value } });
     threads.value = resp.data || [];
+
+    // Auto-open thread when linked from notifications/communications feed.
+    const desired = route.query?.threadId ? parseInt(String(route.query.threadId), 10) : null;
+    if (desired && (threads.value || []).some((t) => Number(t.thread_id) === desired)) {
+      const t = (threads.value || []).find((x) => Number(x.thread_id) === desired) || null;
+      if (t) {
+        // eslint-disable-next-line no-await-in-loop
+        await selectThread(t);
+      }
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load chats';
   } finally {

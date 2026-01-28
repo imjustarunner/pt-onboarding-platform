@@ -2247,15 +2247,8 @@ export const getClientAccessLog = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    const client = await Client.findById(clientId, { includeSensitive: true });
-    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
-
-    if (userRole !== 'super_admin') {
-      const userOrgs = await User.getAgencies(req.user.id);
-      const ids = (userOrgs || []).map((o) => o.id);
-      const hasAgencyAccess = ids.includes(client.agency_id);
-      if (!hasAgencyAccess) return res.status(403).json({ error: { message: 'You do not have access to this client' } });
-    }
+    const access = await ensureAgencyAccessToClient({ userId: req.user.id, role: userRole, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
     const [rows] = await pool.execute(
       `SELECT l.*,
@@ -2332,7 +2325,31 @@ async function ensureAgencyAccessToClient({ userId, role, clientId }) {
   if (!client) return { ok: false, status: 404, message: 'Client not found', client: null };
   if (String(role || '').toLowerCase() === 'super_admin') return { ok: true, client };
   const orgs = await User.getAgencies(userId);
-  const hasAgencyAccess = (orgs || []).some((o) => parseInt(o.id, 10) === parseInt(client.agency_id, 10));
+  const userAgencyIds = (orgs || []).map((o) => parseInt(o.id, 10)).filter(Boolean);
+
+  // Prefer multi-agency client affiliations when available.
+  let hasAgencyAccess = false;
+  try {
+    const placeholders = userAgencyIds.length ? userAgencyIds.map(() => '?').join(',') : '';
+    if (placeholders) {
+      const [rows] = await pool.execute(
+        `SELECT 1
+         FROM client_agency_assignments
+         WHERE client_id = ?
+           AND is_active = TRUE
+           AND agency_id IN (${placeholders})
+         LIMIT 1`,
+        [parseInt(clientId, 10), ...userAgencyIds]
+      );
+      hasAgencyAccess = !!rows?.[0]?.['1'] || rows.length > 0;
+    }
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+    if (!missing) throw e;
+    // Fall back to legacy single-agency check.
+    hasAgencyAccess = userAgencyIds.some((id) => id === parseInt(client.agency_id, 10));
+  }
   if (!hasAgencyAccess) return { ok: false, status: 403, message: 'You do not have access to this client', client };
   return { ok: true, client };
 }
@@ -2417,6 +2434,192 @@ export const listClientAffiliations = async (req, res, next) => {
           : []
       );
     }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * List client agency affiliations (multi-agency)
+ * GET /api/clients/:id/agency-affiliations
+ */
+export const listClientAgencyAffiliations = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    // Best-effort: table may not exist yet.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT ca.agency_id,
+                ca.is_primary,
+                ca.is_active,
+                a.name AS agency_name
+         FROM client_agency_assignments ca
+         LEFT JOIN agencies a ON a.id = ca.agency_id
+         WHERE ca.client_id = ?
+           AND ca.is_active = TRUE
+         ORDER BY ca.is_primary DESC, a.name ASC`,
+        [clientId]
+      );
+      return res.json(rows || []);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (!missing) throw e;
+      const c = access.client;
+      return res.json(
+        c?.agency_id
+          ? [{ agency_id: c.agency_id, is_primary: true, is_active: true, agency_name: c.agency_name || null }]
+          : []
+      );
+    }
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Add/update a client agency affiliation (and optionally set primary)
+ * POST /api/clients/:id/agency-affiliations
+ * body: { agency_id, is_primary? }
+ */
+export const upsertClientAgencyAffiliation = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+    const agencyId = parseInt(req.body?.agency_id, 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agency_id is required' } });
+    const makePrimary = req.body?.is_primary === true || req.body?.is_primary === 'true' || req.body?.is_primary === 1 || req.body?.is_primary === '1';
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    // Ensure the user has access to the target agency unless super_admin.
+    if (String(role || '').toLowerCase() !== 'super_admin') {
+      const orgs = await User.getAgencies(userId);
+      const has = (orgs || []).some((o) => Number(o?.id) === Number(agencyId));
+      if (!has) return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // Best-effort: table may not exist yet. If missing, fall back to updating clients.agency_id only.
+      let tableExists = true;
+      try {
+        await connection.execute(`SELECT 1 FROM client_agency_assignments LIMIT 1`);
+      } catch (e) {
+        const msg = String(e?.message || '');
+        const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+        if (missing) tableExists = false;
+        else throw e;
+      }
+
+      if (tableExists) {
+        await connection.execute(
+          `INSERT INTO client_agency_assignments (client_id, agency_id, is_primary, is_active)
+           VALUES (?, ?, ?, TRUE)
+           ON DUPLICATE KEY UPDATE is_active = TRUE, is_primary = GREATEST(is_primary, VALUES(is_primary))`,
+          [clientId, agencyId, makePrimary ? 1 : 0]
+        );
+        if (makePrimary) {
+          await connection.execute(
+            `UPDATE client_agency_assignments
+             SET is_primary = CASE WHEN agency_id = ? THEN TRUE ELSE FALSE END
+             WHERE client_id = ?`,
+            [agencyId, clientId]
+          );
+        }
+      }
+
+      if (makePrimary) {
+        // Switching primary agency changes agency-scoped fields; reset to avoid cross-agency foreign keys.
+        await connection.execute(
+          `UPDATE clients
+           SET agency_id = ?,
+               client_status_id = NULL,
+               paperwork_status_id = NULL,
+               insurance_type_id = NULL,
+               updated_by_user_id = ?,
+               last_activity_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [agencyId, userId, clientId]
+        );
+      }
+
+      await connection.commit();
+    } catch (e) {
+      try { await connection.rollback(); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      connection.release();
+    }
+
+    const updated = await Client.findById(clientId, { includeSensitive: true });
+    res.json({ ok: true, client: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Remove (deactivate) a client agency affiliation
+ * DELETE /api/clients/:id/agency-affiliations/:agencyId
+ */
+export const removeClientAgencyAffiliation = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    const agencyId = parseInt(req.params.agencyId, 10);
+    if (!clientId || !agencyId) return res.status(400).json({ error: { message: 'Invalid ids' } });
+
+    const userId = req.user.id;
+    const role = req.user.role;
+    if (!isBackofficeRole(role)) return res.status(403).json({ error: { message: 'Admin access required' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    // Best-effort: table may not exist yet.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT agency_id, is_primary
+         FROM client_agency_assignments
+         WHERE client_id = ? AND agency_id = ?
+         LIMIT 1`,
+        [clientId, agencyId]
+      );
+      const row = rows?.[0] || null;
+      if (!row) return res.json({ ok: true });
+      if (row.is_primary === 1 || row.is_primary === true) {
+        return res.status(400).json({ error: { message: 'Cannot remove the primary agency. Set another primary first.' } });
+      }
+      await pool.execute(
+        `UPDATE client_agency_assignments
+         SET is_active = FALSE
+         WHERE client_id = ? AND agency_id = ?`,
+        [clientId, agencyId]
+      );
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (!missing) throw e;
+      // No-op if table missing.
+    }
+
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

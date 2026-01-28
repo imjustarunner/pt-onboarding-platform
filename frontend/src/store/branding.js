@@ -612,7 +612,10 @@ export const useBrandingStore = defineStore('branding', () => {
       my_schedule: 'my_dashboard_my_schedule_icon_path',
       on_demand_training: 'my_dashboard_on_demand_training_icon_path',
       payroll: 'my_dashboard_payroll_icon_path',
-      submit: 'my_dashboard_submit_icon_path'
+      submit: 'my_dashboard_submit_icon_path',
+      communications: 'my_dashboard_communications_icon_path',
+      chats: 'my_dashboard_chats_icon_path',
+      notifications: 'my_dashboard_notifications_icon_path'
     };
 
     const field = iconFieldMap[cardId];

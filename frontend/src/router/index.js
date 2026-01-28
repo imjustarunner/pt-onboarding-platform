@@ -298,13 +298,13 @@ const routes = [
     path: '/:organizationSlug/admin/communications',
     name: 'OrganizationCommunicationsFeed',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['schedule_manager', 'provider', 'staff', 'school_staff'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/communications/chats',
     name: 'OrganizationPlatformChats',
     component: () => import('../views/admin/PlatformChatsView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['schedule_manager', 'provider', 'staff', 'school_staff'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/communications/thread/:userId/:clientId',
@@ -351,7 +351,7 @@ const routes = [
     path: '/:organizationSlug/admin/notifications',
     name: 'OrganizationNotifications',
     component: () => import('../views/admin/NotificationsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'school_staff'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/payroll',
@@ -577,13 +577,13 @@ const routes = [
     path: '/admin/communications',
     name: 'CommunicationsFeed',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+    meta: { requiresAuth: true, requiresRole: ['schedule_manager', 'provider', 'staff', 'school_staff'] }
   },
   {
     path: '/admin/communications/chats',
     name: 'PlatformChats',
     component: () => import('../views/admin/PlatformChatsView.vue'),
-    meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+    meta: { requiresAuth: true, requiresRole: ['schedule_manager', 'provider', 'staff', 'school_staff'] }
   },
   {
     path: '/admin/communications/thread/:userId/:clientId',
@@ -636,7 +636,7 @@ const routes = [
     path: '/admin/notifications',
     name: 'Notifications',
     component: () => import('../views/admin/NotificationsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'school_staff'] }
   },
   {
     path: '/admin/payroll',

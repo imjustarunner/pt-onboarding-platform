@@ -429,6 +429,9 @@ class PlatformBranding {
         myDashboardOnDemandTrainingIconId,
         myDashboardPayrollIconId,
         myDashboardSubmitIconId,
+        myDashboardCommunicationsIconId,
+        myDashboardChatsIconId,
+        myDashboardNotificationsIconId,
       allAgenciesNotificationsIconId,
       organizationName,
       organizationLogoIconId,
@@ -689,7 +692,10 @@ class PlatformBranding {
         myDashboardMyScheduleIconId !== undefined ||
         myDashboardOnDemandTrainingIconId !== undefined ||
         myDashboardPayrollIconId !== undefined ||
-        myDashboardSubmitIconId !== undefined
+        myDashboardSubmitIconId !== undefined ||
+        myDashboardCommunicationsIconId !== undefined ||
+        myDashboardChatsIconId !== undefined ||
+        myDashboardNotificationsIconId !== undefined
       ) {
         try {
           const [myDashColumns] = await pool.execute(
@@ -727,6 +733,18 @@ class PlatformBranding {
             if (myDashboardSubmitIconId !== undefined) {
               updates.push('my_dashboard_submit_icon_id = ?');
               values.push(myDashboardSubmitIconId ?? null);
+            }
+            if (myDashboardCommunicationsIconId !== undefined) {
+              updates.push('my_dashboard_communications_icon_id = ?');
+              values.push(myDashboardCommunicationsIconId ?? null);
+            }
+            if (myDashboardChatsIconId !== undefined) {
+              updates.push('my_dashboard_chats_icon_id = ?');
+              values.push(myDashboardChatsIconId ?? null);
+            }
+            if (myDashboardNotificationsIconId !== undefined) {
+              updates.push('my_dashboard_notifications_icon_id = ?');
+              values.push(myDashboardNotificationsIconId ?? null);
             }
           } else {
             console.warn('PlatformBranding.update: My Dashboard icon columns do not exist. Migration 125 may not have run.');

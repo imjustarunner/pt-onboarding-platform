@@ -7,7 +7,9 @@ import {
   listPaperworkStatuses,
   upsertPaperworkStatus,
   listInsuranceTypes,
-  upsertInsuranceType
+  upsertInsuranceType,
+  listLanguageOptions,
+  createLanguageOption
 } from '../controllers/clientSettings.controller.js';
 
 const router = express.Router();
@@ -98,6 +100,15 @@ router.put(
     next();
   },
   upsertInsuranceType
+);
+
+// Languages (global catalog; used for client/guardian primary language dropdowns)
+router.get('/languages', authenticate, listLanguageOptions);
+router.post(
+  '/languages',
+  authenticate,
+  [body('label').isString().isLength({ min: 1, max: 128 })],
+  createLanguageOption
 );
 
 export default router;

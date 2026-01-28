@@ -16,6 +16,22 @@
           <div v-else class="muted-small">{{ viewMode === 'roster' ? 'Roster view' : 'Skills Groups view' }}</div>
         </div>
         <div class="top-actions">
+          <router-link
+            v-if="canBackToSchools"
+            to="/admin/schools/overview"
+            class="btn btn-secondary btn-sm"
+          >
+            Back to show all schools
+          </router-link>
+          <button
+            v-if="!isProvider && showRoster"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="toggleClientLabelMode"
+            :title="clientLabelMode === 'codes' ? 'Shows client codes; hover to reveal initials' : 'Shows client initials'"
+          >
+            {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
+          </button>
           <button
             v-if="!isProvider"
             class="btn btn-secondary btn-sm"
@@ -62,6 +78,7 @@
       <SkillsGroupsPanel
         v-else-if="organizationId && viewMode === 'skills'"
         :organization-id="organizationId"
+        :client-label-mode="clientLabelMode"
       />
       <div v-else class="empty-state">Organization not loaded.</div>
 
@@ -73,6 +90,7 @@
         <ClientListGrid
           :organization-slug="organizationSlug"
           :organization-id="organizationId"
+          :client-label-mode="clientLabelMode"
           edit-mode="inline"
           @edit-client="openAdminClientEditor"
         />
@@ -140,6 +158,17 @@ const adminClientLoading = ref(false);
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isProvider = computed(() => roleNorm.value === 'provider');
+const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff'].includes(roleNorm.value));
+
+const clientLabelMode = ref('codes'); // 'codes' | 'initials'
+const toggleClientLabelMode = () => {
+  clientLabelMode.value = clientLabelMode.value === 'codes' ? 'initials' : 'codes';
+  try {
+    window.localStorage.setItem('schoolPortalClientLabelMode', clientLabelMode.value);
+  } catch {
+    // ignore
+  }
+};
 
 // Provider privacy: providers should not see other providers’ schedules/caseload or the roster by default.
 const showSchedule = computed(() => !isProvider.value && viewMode.value === 'schedule');
@@ -238,6 +267,12 @@ const openProvidersDirectory = async () => {
 };
 
 onMounted(async () => {
+  try {
+    const saved = window.localStorage.getItem('schoolPortalClientLabelMode');
+    if (saved === 'codes' || saved === 'initials') clientLabelMode.value = saved;
+  } catch {
+    // ignore
+  }
   // Load organization context if not already loaded
   if (organizationSlug.value && !organizationStore.currentOrganization) {
     await organizationStore.fetchBySlug(organizationSlug.value);

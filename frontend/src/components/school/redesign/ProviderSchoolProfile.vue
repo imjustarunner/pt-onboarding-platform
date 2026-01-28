@@ -17,7 +17,9 @@
           <div class="name">{{ profile?.first_name }} {{ profile?.last_name }}</div>
           <div v-if="profile?.title" class="sub">{{ profile.title }}</div>
           <div v-if="profile?.service_focus" class="sub">{{ profile.service_focus }}</div>
-          <a v-if="profile?.email" class="link" :href="`mailto:${profile.email}`">Message provider</a>
+          <button class="btn btn-secondary btn-sm" type="button" :disabled="chatWorking" @click="openChat">
+            {{ chatWorking ? 'Opening…' : 'Message provider' }}
+          </button>
         </div>
       </div>
 
@@ -57,6 +59,26 @@
         </div>
       </div>
     </div>
+
+    <div v-if="chatModalOpen" class="modal-overlay" @click.self="closeChatModal">
+      <div class="modal-content" @click.stop style="max-width: 720px;">
+        <div class="modal-header" style="padding: 16px 18px;">
+          <h3 style="margin:0;">Message {{ profile?.first_name }} {{ profile?.last_name }}</h3>
+          <button class="btn-close" @click="closeChatModal">×</button>
+        </div>
+        <div style="padding: 18px;">
+          <div class="hint" style="margin-bottom: 10px;">This sends an in-app message (no PHI).</div>
+          <textarea v-model="chatDraft" rows="5" style="width:100%;" placeholder="Type a message…" />
+          <div style="display:flex; justify-content:flex-end; gap: 10px; margin-top: 12px;">
+            <button class="btn btn-secondary" type="button" :disabled="chatWorking" @click="closeChatModal">Cancel</button>
+            <button class="btn btn-primary" type="button" :disabled="chatWorking || !chatDraft.trim()" @click="sendChat">
+              {{ chatWorking ? 'Sending…' : 'Send' }}
+            </button>
+          </div>
+          <div v-if="chatError" class="error" style="margin-top: 10px;">{{ chatError }}</div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -74,6 +96,12 @@ const profile = ref(null);
 const caseload = ref(null);
 const loading = ref(false);
 const error = ref('');
+
+const chatWorking = ref(false);
+const chatError = ref('');
+const chatModalOpen = ref(false);
+const chatDraft = ref('');
+const chatThreadId = ref(null);
 
 const clientShort = (c) => {
   const raw = String(c?.identifier_code || c?.initials || '').replace(/\s+/g, '').toUpperCase();
@@ -105,6 +133,57 @@ const load = async () => {
     error.value = e.response?.data?.error?.message || 'Failed to load provider profile';
   } finally {
     loading.value = false;
+  }
+};
+
+const openChat = async () => {
+  try {
+    chatWorking.value = true;
+    chatError.value = '';
+    // Resolve active agency for this school/program org (used for chat threading + notifications).
+    const aff = await api.get(`/school-portal/${props.schoolOrganizationId}/affiliation`);
+    const agencyId = aff.data?.active_agency_id ? Number(aff.data.active_agency_id) : null;
+    if (!agencyId) {
+      chatError.value = 'No active agency affiliation found for this organization.';
+      return;
+    }
+    const r = await api.post('/chat/threads/direct', {
+      agencyId,
+      organizationId: Number(props.schoolOrganizationId),
+      otherUserId: Number(props.providerUserId)
+    });
+    chatThreadId.value = r.data?.threadId || null;
+    if (!chatThreadId.value) {
+      chatError.value = 'Unable to open chat thread.';
+      return;
+    }
+    chatDraft.value = '';
+    chatModalOpen.value = true;
+  } catch (e) {
+    chatError.value = e.response?.data?.error?.message || e.message || 'Failed to open chat';
+  } finally {
+    chatWorking.value = false;
+  }
+};
+
+const closeChatModal = () => {
+  chatModalOpen.value = false;
+  chatDraft.value = '';
+};
+
+const sendChat = async () => {
+  if (!chatThreadId.value) return;
+  const body = String(chatDraft.value || '').trim();
+  if (!body) return;
+  try {
+    chatWorking.value = true;
+    chatError.value = '';
+    await api.post(`/chat/threads/${chatThreadId.value}/messages`, { body });
+    closeChatModal();
+  } catch (e) {
+    chatError.value = e.response?.data?.error?.message || e.message || 'Failed to send message';
+  } finally {
+    chatWorking.value = false;
   }
 };
 

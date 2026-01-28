@@ -15,24 +15,40 @@
     <div v-else-if="loading" class="loading">Loading…</div>
 
     <div v-else class="card">
-      <div v-if="rows.length === 0" class="empty">No messages yet.</div>
+      <div v-if="rows.length === 0" class="empty">No communications yet.</div>
       <div v-else class="list">
-        <button v-for="m in rows" :key="m.id" class="row" @click="openThread(m)" :title="m.body">
+        <button
+          v-for="item in rows"
+          :key="itemKey(item)"
+          class="row"
+          @click="openItem(item)"
+          :title="item.preview"
+        >
           <div class="left">
             <div class="top">
-              <span class="badge" :class="m.direction === 'INBOUND' ? 'in' : 'out'">{{ m.direction }}</span>
-              <span class="client">
-                Client: {{ m.client_initials || '—' }}
+              <span class="badge" :class="item.kind === 'chat' ? 'chat' : (item.direction === 'INBOUND' ? 'in' : 'out')">
+                {{ item.kind === 'chat' ? 'CHAT' : item.direction }}
               </span>
-              <span class="owner">
-                Owner: {{ formatOwner(m) }}
+              <span v-if="item.kind === 'chat'" class="client">
+                {{ chatLabel(item) }}
+              </span>
+              <span v-else class="client">
+                Client: {{ item.client_initials || '—' }}
+              </span>
+              <span v-if="item.kind === 'chat' && item.last_sender_role" class="owner">
+                From: {{ formatRole(item.last_sender_role) }}
+              </span>
+              <span v-else-if="item.kind === 'sms'" class="owner">
+                Owner: {{ formatOwner(item) }}
               </span>
             </div>
-            <div class="body">{{ m.body }}</div>
+            <div class="body">{{ item.preview }}</div>
           </div>
           <div class="right">
-            <div class="time">{{ formatTime(m.created_at) }}</div>
-            <div class="numbers">{{ m.from_number }} → {{ m.to_number }}</div>
+            <div class="time">{{ formatTime(itemTime(item)) }}</div>
+            <div v-if="item.kind === 'chat' && Number(item.unread_count || 0) > 0" class="pill">
+              {{ Number(item.unread_count) }}
+            </div>
           </div>
         </button>
       </div>
@@ -77,8 +93,8 @@ const load = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get('/messages/recent', { params: { limit: 75 } });
-    rows.value = resp.data || [];
+    const resp = await api.get('/communications/feed', { params: { limit: 75 } });
+    rows.value = Array.isArray(resp.data) ? resp.data : [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load messages';
   } finally {
@@ -86,9 +102,37 @@ const load = async () => {
   }
 };
 
-const openThread = (m) => {
-  if (!m.user_id || !m.client_id) return;
-  router.push(`/admin/communications/thread/${m.user_id}/${m.client_id}`);
+const itemKey = (i) => (i.kind === 'chat' ? `chat-${i.thread_id}` : `sms-${i.id}`);
+
+const itemTime = (i) => (i.kind === 'chat' ? (i.last_message_at || i.updated_at) : i.created_at);
+
+const formatRole = (r) => {
+  const s = String(r || '').replace(/_/g, ' ').trim();
+  return s ? s[0].toUpperCase() + s.slice(1) : '—';
+};
+
+const chatLabel = (i) => {
+  const other = i.other_participant;
+  const who = other ? `${other.first_name || ''} ${other.last_name || ''}`.trim() : `Thread #${i.thread_id}`;
+  const org = i.organization_name ? ` · ${i.organization_name}` : '';
+  return `${who}${org}`;
+};
+
+const openItem = async (i) => {
+  if (i.kind === 'sms') {
+    if (!i.user_id || !i.client_id) return;
+    router.push(`/admin/communications/thread/${i.user_id}/${i.client_id}`);
+    return;
+  }
+  // Chat: go to chats UI and auto-open the thread.
+  const threadId = i.thread_id;
+  if (!threadId) return;
+  const slug = i.organization_slug || route.params.organizationSlug;
+  if (typeof slug === 'string' && slug) {
+    router.push({ path: `/${slug}/admin/communications/chats`, query: { threadId: String(threadId), agencyId: String(i.agency_id || '') } });
+  } else {
+    router.push({ path: '/admin/communications/chats', query: { threadId: String(threadId), agencyId: String(i.agency_id || '') } });
+  }
 };
 
 onMounted(async () => {

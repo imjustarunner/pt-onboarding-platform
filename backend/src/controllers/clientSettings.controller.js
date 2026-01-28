@@ -160,3 +160,66 @@ export const upsertInsuranceType = async (req, res, next) => {
   }
 };
 
+const isBackofficeRole = (role) => {
+  const r = String(role || '').toLowerCase();
+  return r === 'super_admin' || r === 'admin' || r === 'staff' || r === 'support';
+};
+
+const normalizeLanguageKey = (label) => {
+  const raw = String(label || '').trim().toLowerCase();
+  // Collapse internal whitespace and strip some punctuation for stable keys.
+  return raw.replace(/\s+/g, ' ').replace(/[().,]/g, '').trim();
+};
+
+export const listLanguageOptions = async (req, res, next) => {
+  try {
+    if (!isBackofficeRole(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const [rows] = await pool.execute(
+      `SELECT id, label, label_key, is_active, created_at
+       FROM language_options
+       WHERE is_active = TRUE
+       ORDER BY label ASC
+       LIMIT 500`
+    );
+    res.json(rows || []);
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+    if (missing) return res.json([]);
+    next(e);
+  }
+};
+
+export const createLanguageOption = async (req, res, next) => {
+  try {
+    if (!isBackofficeRole(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const label = String(req.body?.label || '').trim();
+    if (!label) return res.status(400).json({ error: { message: 'label is required' } });
+    if (label.length > 128) return res.status(400).json({ error: { message: 'label is too long (max 128)' } });
+    const key = normalizeLanguageKey(label);
+    if (!key) return res.status(400).json({ error: { message: 'Invalid label' } });
+
+    const userId = req.user?.id ? parseInt(req.user.id, 10) : null;
+    await pool.execute(
+      `INSERT INTO language_options (label, label_key, is_active, created_by_user_id)
+       VALUES (?, ?, TRUE, ?)
+       ON DUPLICATE KEY UPDATE is_active = TRUE, label = VALUES(label)`,
+      [label, key, userId]
+    );
+    const [rows] = await pool.execute(
+      `SELECT id, label, label_key, is_active, created_at
+       FROM language_options
+       WHERE label_key = ?
+       LIMIT 1`,
+      [key]
+    );
+    res.status(201).json(rows?.[0] || null);
+  } catch (e) {
+    next(e);
+  }
+};
+

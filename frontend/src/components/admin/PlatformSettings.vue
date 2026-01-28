@@ -111,6 +111,18 @@
           <label>On-Demand Training</label>
           <IconSelector v-model="myDashboardIcons.onDemandTrainingIconId" />
         </div>
+        <div class="icon-setting-item">
+          <label>Communications</label>
+          <IconSelector v-model="myDashboardIcons.communicationsIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Chats</label>
+          <IconSelector v-model="myDashboardIcons.chatsIconId" />
+        </div>
+        <div class="icon-setting-item">
+          <label>Notifications</label>
+          <IconSelector v-model="myDashboardIcons.notificationsIconId" />
+        </div>
       </div>
 
       <div class="form-actions">
@@ -175,7 +187,10 @@ const myDashboardIcons = ref({
   submitIconId: null,
   payrollIconId: null,
   myAccountIconId: null,
-  onDemandTrainingIconId: null
+  onDemandTrainingIconId: null,
+  communicationsIconId: null,
+  chatsIconId: null,
+  notificationsIconId: null
 });
 
 // Platform name - use platform branding or fallback
@@ -202,7 +217,10 @@ const fetchSettings = async () => {
         submitIconId: pb.my_dashboard_submit_icon_id ?? null,
         payrollIconId: pb.my_dashboard_payroll_icon_id ?? null,
         myAccountIconId: pb.my_dashboard_my_account_icon_id ?? null,
-        onDemandTrainingIconId: pb.my_dashboard_on_demand_training_icon_id ?? null
+        onDemandTrainingIconId: pb.my_dashboard_on_demand_training_icon_id ?? null,
+        communicationsIconId: pb.my_dashboard_communications_icon_id ?? null,
+        chatsIconId: pb.my_dashboard_chats_icon_id ?? null,
+        notificationsIconId: pb.my_dashboard_notifications_icon_id ?? null
       };
     }
   } catch (err) {
@@ -222,7 +240,10 @@ const saveMyDashboardIcons = async () => {
       myDashboardSubmitIconId: myDashboardIcons.value.submitIconId,
       myDashboardPayrollIconId: myDashboardIcons.value.payrollIconId,
       myDashboardMyAccountIconId: myDashboardIcons.value.myAccountIconId,
-      myDashboardOnDemandTrainingIconId: myDashboardIcons.value.onDemandTrainingIconId
+      myDashboardOnDemandTrainingIconId: myDashboardIcons.value.onDemandTrainingIconId,
+      myDashboardCommunicationsIconId: myDashboardIcons.value.communicationsIconId,
+      myDashboardChatsIconId: myDashboardIcons.value.chatsIconId,
+      myDashboardNotificationsIconId: myDashboardIcons.value.notificationsIconId
     });
     await brandingStore.fetchPlatformBranding();
     alert('My Dashboard icons saved successfully!');

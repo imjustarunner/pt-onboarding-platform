@@ -52,7 +52,7 @@
         <tbody>
           <tr v-for="client in sortedClients" :key="client.id" class="client-row">
             <td class="initials-cell">
-              <span class="initials">{{ formatRosterInitials(client) }}</span>
+              <span class="initials" :title="rosterLabelTitle(client)">{{ formatRosterLabel(client) }}</span>
             </td>
             <td>
               <span :class="['status-badge', `status-${String(client.client_status_key || 'unknown').toLowerCase().replace('_', '-')}`]">
@@ -112,6 +112,10 @@ const props = defineProps({
   organizationId: {
     type: Number,
     default: null
+  },
+  clientLabelMode: {
+    type: String,
+    default: 'codes' // 'codes' | 'initials'
   },
   editMode: {
     type: String,
@@ -208,7 +212,7 @@ const sortValue = (client, key) => {
     const t = client.submission_date ? new Date(client.submission_date).getTime() : 0;
     return Number.isFinite(t) ? t : 0;
   }
-  if (key === 'initials') return String(formatRosterInitials(client) || '').toLowerCase();
+  if (key === 'initials') return String(formatRosterLabel(client) || '').toLowerCase();
   return String(client[key] || '').toLowerCase();
 };
 
@@ -233,11 +237,17 @@ const formatDate = (dateString) => {
   return date.toLocaleDateString();
 };
 
-const formatRosterInitials = (client) => {
-  // School roster should show the client's normal initials everywhere.
-  const raw = String(client?.initials || client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
-  if (!raw) return '—';
-  return raw;
+const formatRosterLabel = (client) => {
+  const initials = String(client?.initials || '').replace(/\s+/g, '').toUpperCase();
+  const code = String(client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
+  if (props.clientLabelMode === 'initials') return initials || code || '—';
+  return code || initials || '—';
+};
+
+const rosterLabelTitle = (client) => {
+  if (props.clientLabelMode !== 'codes') return '';
+  const initials = String(client?.initials || '').replace(/\s+/g, '').toUpperCase();
+  return initials || '';
 };
 
 const formatDocSummary = (client) => {

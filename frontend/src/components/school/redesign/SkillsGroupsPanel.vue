@@ -82,7 +82,7 @@
             <div class="muted" v-if="(selected.clients||[]).length === 0">None.</div>
             <ul v-else class="simple">
               <li v-for="c in selected.clients" :key="c.client_id">
-                {{ c.identifier_code || c.initials || `ID ${c.client_id}` }}
+                <span :title="clientHoverTitle(c)">{{ clientLabel(c) }}</span>
               </li>
             </ul>
           </div>
@@ -182,9 +182,12 @@
             <select v-model="clientPick" class="filters-select">
               <option value="">Select…</option>
               <option v-for="c in eligibleClients" :key="c.id" :value="String(c.id)">
-                {{ c.identifier_code || c.initials || `ID ${c.id}` }}
+                {{ clientLabel(c) }}
               </option>
             </select>
+            <div v-if="clientLabelMode === 'codes'" class="muted" style="margin-top: 4px; font-size: 12px;">
+              Showing codes. Hover assigned chips/list items to reveal initials.
+            </div>
           </div>
           <div class="actions" style="align-self:end;">
             <button class="btn btn-primary btn-sm" type="button" @click="addClientToGroup" :disabled="!clientPick || saving">
@@ -194,7 +197,7 @@
         </div>
         <div class="chips" v-if="(form.clients||[]).length">
           <span v-for="c in form.clients" :key="c.client_id" class="chip">
-            {{ c.identifier_code || c.initials || `ID ${c.client_id}` }}
+            <span :title="clientHoverTitle(c)">{{ clientLabel(c) }}</span>
             <button type="button" class="chip-x" @click="removeClientFromGroup(c)">×</button>
           </span>
         </div>
@@ -216,7 +219,8 @@ import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
 
 const props = defineProps({
-  organizationId: { type: Number, required: true }
+  organizationId: { type: Number, required: true },
+  clientLabelMode: { type: String, default: 'codes' } // 'codes' | 'initials'
 });
 
 const authStore = useAuthStore();
@@ -239,6 +243,20 @@ const eligibleProviders = ref([]);
 const eligibleClients = ref([]);
 const providerPick = ref('');
 const clientPick = ref('');
+
+const clientLabel = (c) => {
+  const initials = String(c?.initials || '').replace(/\s+/g, '').toUpperCase();
+  const code = String(c?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
+  if (props.clientLabelMode === 'initials') return initials || code || `ID ${c?.id || c?.client_id || ''}`.trim();
+  return code || initials || `ID ${c?.id || c?.client_id || ''}`.trim();
+};
+
+const clientHoverTitle = (c) => {
+  // When showing codes, hovering reveals initials.
+  if (props.clientLabelMode !== 'codes') return '';
+  const initials = String(c?.initials || '').replace(/\s+/g, '').toUpperCase();
+  return initials || '';
+};
 
 const form = ref({
   name: '',

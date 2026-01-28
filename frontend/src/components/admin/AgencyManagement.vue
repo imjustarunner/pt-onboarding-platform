@@ -1473,6 +1473,21 @@
                 <IconSelector v-model="agencyForm.myDashboardOnDemandTrainingIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "On-Demand Training" card</small>
               </div>
+              <div class="dashboard-icon-item">
+                <label>Communications Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardCommunicationsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Communications" card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Chats Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardChatsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Chats" card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Notifications Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardNotificationsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Notifications" card</small>
+              </div>
             </div>
             
             <div class="settings-section-divider">
@@ -2885,6 +2900,9 @@ const ICON_TEMPLATE_FIELDS = [
   'myDashboardPayrollIconId',
   'myDashboardMyAccountIconId',
   'myDashboardOnDemandTrainingIconId',
+  'myDashboardCommunicationsIconId',
+  'myDashboardChatsIconId',
+  'myDashboardNotificationsIconId',
   'statusExpiredIconId',
   'tempPasswordExpiredIconId',
   'taskOverdueIconId',
@@ -2940,6 +2958,9 @@ const defaultAgencyForm = () => ({
   myDashboardMyAccountIconId: null,
   myDashboardMyScheduleIconId: null,
   myDashboardOnDemandTrainingIconId: null,
+  myDashboardCommunicationsIconId: null,
+  myDashboardChatsIconId: null,
+  myDashboardNotificationsIconId: null,
   onboardingTeamEmail: '',
   phoneNumber: '',
   phoneExtension: '',
@@ -3808,6 +3829,9 @@ const editAgency = async (agency) => {
     myDashboardOnDemandTrainingIconId: agency.my_dashboard_on_demand_training_icon_id ?? null,
     myDashboardPayrollIconId: agency.my_dashboard_payroll_icon_id ?? null,
     myDashboardSubmitIconId: agency.my_dashboard_submit_icon_id ?? null,
+    myDashboardCommunicationsIconId: agency.my_dashboard_communications_icon_id ?? null,
+    myDashboardChatsIconId: agency.my_dashboard_chats_icon_id ?? null,
+    myDashboardNotificationsIconId: agency.my_dashboard_notifications_icon_id ?? null,
     onboardingTeamEmail: agency.onboarding_team_email || '',
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
@@ -4358,6 +4382,9 @@ const saveAgency = async () => {
       myDashboardOnDemandTrainingIconId: agencyForm.value.myDashboardOnDemandTrainingIconId ?? null,
       myDashboardPayrollIconId: agencyForm.value.myDashboardPayrollIconId ?? null,
       myDashboardSubmitIconId: agencyForm.value.myDashboardSubmitIconId ?? null,
+      myDashboardCommunicationsIconId: agencyForm.value.myDashboardCommunicationsIconId ?? null,
+      myDashboardChatsIconId: agencyForm.value.myDashboardChatsIconId ?? null,
+      myDashboardNotificationsIconId: agencyForm.value.myDashboardNotificationsIconId ?? null,
       onboardingTeamEmail: agencyForm.value.onboardingTeamEmail?.trim() || null,
       phoneNumber: agencyForm.value.phoneNumber?.trim() || null,
       // Schools don't use extensions (per directory requirements)

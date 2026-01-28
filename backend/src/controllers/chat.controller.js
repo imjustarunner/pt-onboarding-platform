@@ -5,11 +5,13 @@ import Notification from '../models/Notification.model.js';
 const ONLINE_ACTIVITY_MS = 5 * 60 * 1000;
 const ONLINE_HEARTBEAT_MS = 2 * 60 * 1000;
 
-async function assertAgencyAccess(reqUser, agencyId) {
+async function assertAgencyOrOrgAccess(reqUser, agencyId, organizationId = null) {
   if (reqUser.role === 'super_admin') return true;
   const agencies = await User.getAgencies(reqUser.id);
-  const ok = (agencies || []).some((a) => a.id === agencyId);
-  if (!ok) {
+  const ids = (agencies || []).map((a) => Number(a?.id)).filter(Boolean);
+  const okAgency = ids.includes(Number(agencyId));
+  const okOrg = organizationId ? ids.includes(Number(organizationId)) : false;
+  if (!okAgency && !okOrg) {
     const err = new Error('Access denied to this agency');
     err.status = 403;
     throw err;
@@ -31,23 +33,26 @@ async function assertThreadAccess(reqUserId, threadId) {
   return true;
 }
 
-async function findOrCreateDirectThread(agencyId, userAId, userBId) {
+async function findOrCreateDirectThread(agencyId, organizationId, userAId, userBId) {
   // Find a direct thread in this agency that has exactly these 2 participants.
   const [rows] = await pool.execute(
     `SELECT tp.thread_id
      FROM chat_threads t
      JOIN chat_thread_participants tp ON tp.thread_id = t.id
-     WHERE t.agency_id = ? AND t.thread_type = 'direct' AND tp.user_id IN (?, ?)
+     WHERE t.agency_id = ?
+       AND (t.organization_id <=> ?)
+       AND t.thread_type = 'direct'
+       AND tp.user_id IN (?, ?)
      GROUP BY tp.thread_id
      HAVING COUNT(DISTINCT tp.user_id) = 2
      LIMIT 1`,
-    [agencyId, userAId, userBId]
+    [agencyId, organizationId || null, userAId, userBId]
   );
   if (rows.length) return rows[0].thread_id;
 
   const [ins] = await pool.execute(
-    'INSERT INTO chat_threads (agency_id, thread_type) VALUES (?, ?)',
-    [agencyId, 'direct']
+    'INSERT INTO chat_threads (agency_id, organization_id, thread_type) VALUES (?, ?, ?)',
+    [agencyId, organizationId || null, 'direct']
   );
   const threadId = ins.insertId;
   await pool.execute(
@@ -55,6 +60,35 @@ async function findOrCreateDirectThread(agencyId, userAId, userBId) {
     [threadId, userAId, threadId, userBId]
   );
   return threadId;
+}
+
+async function resolveActiveAgencyIdForOrg(orgId) {
+  // Prefer organization_affiliations; fall back to legacy agency_schools.
+  const [rows] = await pool.execute(
+    `SELECT agency_id
+     FROM organization_affiliations
+     WHERE organization_id = ? AND is_active = TRUE
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 1`,
+    [orgId]
+  );
+  if (rows?.[0]?.agency_id) return Number(rows[0].agency_id);
+  try {
+    const [legacy] = await pool.execute(
+      `SELECT agency_id
+       FROM agency_schools
+       WHERE school_organization_id = ? AND (is_active = TRUE OR is_active IS NULL)
+       ORDER BY updated_at DESC, id DESC
+       LIMIT 1`,
+      [orgId]
+    );
+    return legacy?.[0]?.agency_id ? Number(legacy[0].agency_id) : null;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+    if (missing) return null;
+    throw e;
+  }
 }
 
 async function isUserAwayForAgency(userId, agencyId) {
@@ -81,7 +115,7 @@ export const listMyThreads = async (req, res, next) => {
 
     let agencyIds = [];
     if (agencyId) {
-      await assertAgencyAccess(req.user, agencyId);
+      await assertAgencyOrOrgAccess(req.user, agencyId);
       agencyIds = [agencyId];
     } else {
       if (req.user.role === 'super_admin') {
@@ -103,6 +137,7 @@ export const listMyThreads = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT t.id AS thread_id,
               t.agency_id,
+              t.organization_id,
               t.updated_at,
               lm.id AS last_message_id,
               lm.body AS last_message_body,
@@ -152,6 +187,7 @@ export const listMyThreads = async (req, res, next) => {
       return {
         thread_id: r.thread_id,
         agency_id: r.agency_id,
+        organization_id: r.organization_id || null,
         updated_at: r.updated_at,
         unread_count: Number(r.unread_count || 0),
         last_message: r.last_message_id
@@ -184,10 +220,19 @@ export const createOrGetDirectThread = async (req, res, next) => {
   try {
     const agencyId = req.body.agencyId ? parseInt(req.body.agencyId, 10) : null;
     const otherUserId = req.body.otherUserId ? parseInt(req.body.otherUserId, 10) : null;
+    const organizationId = req.body.organizationId ? parseInt(req.body.organizationId, 10) : null;
     if (!agencyId || !otherUserId) {
       return res.status(400).json({ error: { message: 'agencyId and otherUserId are required' } });
     }
-    await assertAgencyAccess(req.user, agencyId);
+    // Allow org-scoped chat creation for school portal users who have org access
+    // (even if they are not directly in the agency), but require the org to be affiliated to the agency.
+    if (organizationId) {
+      const active = await resolveActiveAgencyIdForOrg(organizationId);
+      if (active && Number(active) !== Number(agencyId)) {
+        return res.status(400).json({ error: { message: 'organizationId is not affiliated to this agency' } });
+      }
+    }
+    await assertAgencyOrOrgAccess(req.user, agencyId, organizationId);
 
     const me = req.user.id;
     if (me === otherUserId) {
@@ -203,7 +248,7 @@ export const createOrGetDirectThread = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'User is not in the selected agency' } });
     }
 
-    const threadId = await findOrCreateDirectThread(agencyId, me, otherUserId);
+    const threadId = await findOrCreateDirectThread(agencyId, organizationId, me, otherUserId);
     res.status(201).json({ threadId });
   } catch (e) {
     next(e);
@@ -244,10 +289,10 @@ export const sendMessage = async (req, res, next) => {
     await assertThreadAccess(req.user.id, threadId);
 
     // Resolve agency + participants
-    const [[t]] = await pool.execute('SELECT id, agency_id FROM chat_threads WHERE id = ?', [threadId]);
+    const [[t]] = await pool.execute('SELECT id, agency_id, organization_id FROM chat_threads WHERE id = ?', [threadId]);
     if (!t) return res.status(404).json({ error: { message: 'Thread not found' } });
     const agencyId = t.agency_id;
-    await assertAgencyAccess(req.user, agencyId);
+    await assertAgencyOrOrgAccess(req.user, agencyId, t.organization_id || null);
 
     const [ins] = await pool.execute(
       'INSERT INTO chat_messages (thread_id, sender_user_id, body) VALUES (?, ?, ?)',
@@ -264,9 +309,6 @@ export const sendMessage = async (req, res, next) => {
     const snippet = body.length > 120 ? body.slice(0, 117) + '…' : body;
 
     for (const rid of recipients) {
-      const away = await isUserAwayForAgency(rid, agencyId);
-      if (!away) continue;
-
       // Avoid spamming: only notify if this message is newer than last_notified_message_id
       const messageId = ins.insertId;
       const [[readState]] = await pool.execute(
@@ -326,6 +368,39 @@ export const markRead = async (req, res, next) => {
       [threadId, req.user.id, lastReadMessageId]
     );
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getThreadMeta = async (req, res, next) => {
+  try {
+    const threadId = parseInt(req.params.threadId, 10);
+    if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
+    await assertThreadAccess(req.user.id, threadId);
+
+    const [[t]] = await pool.execute(
+      `SELECT t.id AS thread_id,
+              t.agency_id,
+              t.organization_id,
+              org.slug AS organization_slug,
+              org.name AS organization_name
+       FROM chat_threads t
+       LEFT JOIN agencies org ON org.id = t.organization_id
+       WHERE t.id = ?
+       LIMIT 1`,
+      [threadId]
+    );
+    if (!t) return res.status(404).json({ error: { message: 'Thread not found' } });
+    await assertAgencyOrOrgAccess(req.user, t.agency_id, t.organization_id || null);
+
+    res.json({
+      thread_id: t.thread_id,
+      agency_id: t.agency_id,
+      organization_id: t.organization_id || null,
+      organization_slug: t.organization_slug || null,
+      organization_name: t.organization_name || null
+    });
   } catch (e) {
     next(e);
   }

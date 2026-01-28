@@ -1,9 +1,27 @@
 import pool from '../config/database.js';
 
+function normalizeIp(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+
+  // If proxy included multiple values, caller should already have picked first,
+  // but defensively handle it here too.
+  const first = s.split(',')[0].trim();
+
+  // Strip IPv4-mapped IPv6 prefix.
+  const unmapped = first.startsWith('::ffff:') ? first.slice('::ffff:'.length) : first;
+
+  // Strip IPv4 ":port" suffix (common from some proxies).
+  const m = unmapped.match(/^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/);
+  if (m) return m[1];
+
+  return unmapped;
+}
+
 function bestEffortIp(req) {
   const xf = req.headers?.['x-forwarded-for'];
-  if (typeof xf === 'string' && xf.length > 0) return xf.split(',')[0].trim();
-  return req.ip || null;
+  if (typeof xf === 'string' && xf.length > 0) return normalizeIp(xf);
+  return normalizeIp(req.ip) || null;
 }
 
 export async function logClientAccess(req, clientId, action) {

@@ -438,11 +438,47 @@
           </div>
           <div class="form-group">
             <label>Client primary language</label>
-            <input v-model="newClient.primary_client_language" type="text" placeholder="e.g., English" />
+            <select
+              class="filter-select"
+              :value="newClient.primary_client_language || ''"
+              :disabled="languagesLoading"
+              @change="handleLanguageSelectChange('client', $event)"
+            >
+              <option value="">—</option>
+              <option v-for="l in languageOptions" :key="l.id" :value="l.label">{{ l.label }}</option>
+              <option value="__add__">Add language…</option>
+            </select>
+            <div v-if="addingLanguageFor === 'client'" style="margin-top: 8px; display: flex; gap: 8px; align-items: center;">
+              <input v-model="newLanguageLabel" type="text" placeholder="Enter language (e.g., Haitian Creole)" />
+              <button class="btn btn-primary btn-sm" type="button" :disabled="savingLanguage || !newLanguageLabel.trim()" @click="saveNewLanguage('client')">
+                {{ savingLanguage ? 'Saving…' : 'Save' }}
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" :disabled="savingLanguage" @click="cancelAddLanguage">
+                Cancel
+              </button>
+            </div>
           </div>
           <div class="form-group">
             <label>Guardian primary language</label>
-            <input v-model="newClient.primary_parent_language" type="text" placeholder="e.g., Spanish" />
+            <select
+              class="filter-select"
+              :value="newClient.primary_parent_language || ''"
+              :disabled="languagesLoading"
+              @change="handleLanguageSelectChange('guardian', $event)"
+            >
+              <option value="">—</option>
+              <option v-for="l in languageOptions" :key="l.id" :value="l.label">{{ l.label }}</option>
+              <option value="__add__">Add language…</option>
+            </select>
+            <div v-if="addingLanguageFor === 'guardian'" style="margin-top: 8px; display: flex; gap: 8px; align-items: center;">
+              <input v-model="newLanguageLabel" type="text" placeholder="Enter language (e.g., Haitian Creole)" />
+              <button class="btn btn-primary btn-sm" type="button" :disabled="savingLanguage || !newLanguageLabel.trim()" @click="saveNewLanguage('guardian')">
+                {{ savingLanguage ? 'Saving…' : 'Save' }}
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" :disabled="savingLanguage" @click="cancelAddLanguage">
+                Cancel
+              </button>
+            </div>
           </div>
           <div class="form-group">
             <label>School Year</label>
@@ -798,6 +834,7 @@ const openCreateClientModal = async () => {
   await fetchLinkedOrganizations();
   await fetchCreatePaperworkStatuses();
   await fetchCreateInsuranceTypes();
+  await fetchLanguageOptions();
 };
 const showBulkImportModal = ref(false);
 const creating = ref(false);
@@ -839,6 +876,66 @@ const createPaperworkStatusesLoading = ref(false);
 const createPaperworkStatusesError = ref('');
 const createDocsNeededIds = ref([]);
 const createDocsIsCompleted = computed(() => (createDocsNeededIds.value || []).length === 0);
+
+// Create-client: Language dropdowns (global catalog)
+const languageOptions = ref([]);
+const languagesLoading = ref(false);
+const languagesError = ref('');
+const addingLanguageFor = ref(''); // '' | 'client' | 'guardian'
+const newLanguageLabel = ref('');
+const savingLanguage = ref(false);
+
+const fetchLanguageOptions = async () => {
+  try {
+    languagesLoading.value = true;
+    languagesError.value = '';
+    const r = await api.get('/client-settings/languages');
+    const rows = Array.isArray(r.data) ? r.data : [];
+    languageOptions.value = rows
+      .filter((x) => x && (x.is_active === undefined || x.is_active === 1 || x.is_active === true))
+      .sort((a, b) => String(a?.label || '').localeCompare(String(b?.label || '')));
+  } catch (e) {
+    languageOptions.value = [];
+    languagesError.value = e.response?.data?.error?.message || 'Failed to load languages';
+  } finally {
+    languagesLoading.value = false;
+  }
+};
+
+const cancelAddLanguage = () => {
+  addingLanguageFor.value = '';
+  newLanguageLabel.value = '';
+};
+
+const handleLanguageSelectChange = (which, evt) => {
+  const v = String(evt?.target?.value || '');
+  if (v === '__add__') {
+    addingLanguageFor.value = which;
+    newLanguageLabel.value = '';
+    return;
+  }
+  if (which === 'client') newClient.value.primary_client_language = v;
+  else newClient.value.primary_parent_language = v;
+  cancelAddLanguage();
+};
+
+const saveNewLanguage = async (which) => {
+  const label = String(newLanguageLabel.value || '').trim();
+  if (!label) return;
+  try {
+    savingLanguage.value = true;
+    const r = await api.post('/client-settings/languages', { label });
+    await fetchLanguageOptions();
+    const savedLabel = String(r.data?.label || label).trim();
+    if (which === 'client') newClient.value.primary_client_language = savedLabel;
+    else newClient.value.primary_parent_language = savedLabel;
+    cancelAddLanguage();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || e.message || 'Failed to add language');
+  } finally {
+    savingLanguage.value = false;
+  }
+};
 
 const DOCUMENT_STATUS_KEYS_ORDER = [
   'completed',
@@ -1783,6 +1880,7 @@ const createClient = async () => {
 const closeCreateModal = () => {
   showCreateModal.value = false;
   createAgencyId.value = '';
+  cancelAddLanguage();
   newClient.value = {
     organization_id: null,
     initials: '',

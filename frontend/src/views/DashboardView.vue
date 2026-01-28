@@ -615,6 +615,35 @@ const dashboardCards = computed(() => {
       iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training', cardIconOrgOverride),
       description: 'Always available after onboarding is complete.'
     });
+
+    // Communications surfaces (separate pages)
+    cards.push({
+      id: 'communications',
+      label: 'Communications',
+      kind: 'link',
+      to: '/admin/communications',
+      badgeCount: 0,
+      iconUrl: brandingStore.getDashboardCardIconUrl('communications', cardIconOrgOverride),
+      description: 'Unified feed for texts + platform chats.'
+    });
+    cards.push({
+      id: 'chats',
+      label: 'Chats',
+      kind: 'link',
+      to: '/admin/communications/chats',
+      badgeCount: 0,
+      iconUrl: brandingStore.getDashboardCardIconUrl('chats', cardIconOrgOverride),
+      description: 'Direct messages in the platform.'
+    });
+    cards.push({
+      id: 'notifications',
+      label: 'Notifications',
+      kind: 'link',
+      to: '/admin/notifications',
+      badgeCount: 0,
+      iconUrl: brandingStore.getDashboardCardIconUrl('notifications', cardIconOrgOverride),
+      description: 'Your recent notifications.'
+    });
   }
 
   return cards;
@@ -638,7 +667,10 @@ const railCards = computed(() => {
         documents: 4,
         submit: 5,
         payroll: 6,
-        on_demand_training: 7
+        on_demand_training: 7,
+        communications: 8,
+        chats: 9,
+        notifications: 10
       })[k] ?? 999;
     }
     return ({
@@ -649,7 +681,10 @@ const railCards = computed(() => {
       submit: 4,
       payroll: 5,
       my: 6,
-      on_demand_training: 7
+      on_demand_training: 7,
+      communications: 8,
+      chats: 9,
+      notifications: 10
     })[k] ?? 999;
   };
 
@@ -682,6 +717,10 @@ const toggleTopCardCollapsed = () => {
 
 const handleCardClick = (card) => {
   if (props.previewMode) return;
+  if (card.kind === 'link' && card.to) {
+    router.push(String(card.to));
+    return;
+  }
   if (card.id === 'submit') {
     submitPanelView.value = 'root';
     activeTab.value = 'submit';
