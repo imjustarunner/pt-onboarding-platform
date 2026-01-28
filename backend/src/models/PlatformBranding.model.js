@@ -609,8 +609,15 @@ class PlatformBranding {
               updates.push('school_overview_icon_id = ?');
               values.push(schoolOverviewIconId ?? null);
               console.log('PlatformBranding.update: Setting school_overview_icon_id to:', schoolOverviewIconId ?? null);
+            } else {
+              const err = new Error(
+                'Cannot save School Overview icon: database missing platform_branding.school_overview_icon_id. Run database/migrations/262_school_overview_quick_action_icon.sql.'
+              );
+              err.status = 409;
+              throw err;
             }
           } catch (e) {
+            if (e?.status) throw e;
             console.warn('PlatformBranding.update: Error checking for school_overview_icon_id column:', e.message);
           }
         }
@@ -627,6 +634,20 @@ class PlatformBranding {
               "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('dashboard_notifications_icon_id','dashboard_communications_icon_id','dashboard_chats_icon_id','dashboard_payroll_icon_id','dashboard_billing_icon_id')"
             );
             const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+            const missing = [];
+            if (dashboardNotificationsIconId !== undefined && !names.has('dashboard_notifications_icon_id')) missing.push('dashboard_notifications_icon_id');
+            if (dashboardCommunicationsIconId !== undefined && !names.has('dashboard_communications_icon_id')) missing.push('dashboard_communications_icon_id');
+            if (dashboardChatsIconId !== undefined && !names.has('dashboard_chats_icon_id')) missing.push('dashboard_chats_icon_id');
+            if (dashboardPayrollIconId !== undefined && !names.has('dashboard_payroll_icon_id')) missing.push('dashboard_payroll_icon_id');
+            if (dashboardBillingIconId !== undefined && !names.has('dashboard_billing_icon_id')) missing.push('dashboard_billing_icon_id');
+            if (missing.length) {
+              const err = new Error(
+                `Cannot save dashboard quick-action icons: database missing platform_branding columns: ${missing.join(', ')}. Run database/migrations/237_agencies_platform_branding_add_more_quick_action_icons.sql.`
+              );
+              err.status = 409;
+              err.missingColumns = missing;
+              throw err;
+            }
             if (dashboardNotificationsIconId !== undefined && names.has('dashboard_notifications_icon_id')) {
               updates.push('dashboard_notifications_icon_id = ?');
               values.push(dashboardNotificationsIconId ?? null);
@@ -648,6 +669,7 @@ class PlatformBranding {
               values.push(dashboardBillingIconId ?? null);
             }
           } catch (e) {
+            if (e?.status) throw e;
             console.warn('PlatformBranding.update: Error checking for dashboard quick action icon columns:', e.message);
           }
         }
@@ -958,13 +980,111 @@ class PlatformBranding {
           const [logoUrlColumns] = await pool.execute(
             "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'organization_logo_url'"
           );
+          if (organizationLogoUrl !== undefined && logoUrlColumns.length === 0) {
+            const err = new Error(
+              'Cannot save platform organization logo URL: database missing platform_branding.organization_logo_url. Run database/migrations/093_add_organization_logo_url.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
           if (logoUrlColumns.length > 0 && organizationLogoUrl !== undefined) {
             updates.push('organization_logo_url = ?');
             values.push(organizationLogoUrl?.trim() || null);
             console.log('PlatformBranding.update: Setting organization_logo_url to:', organizationLogoUrl?.trim() || null);
           }
         } catch (e) {
+          if (e?.status) throw e;
           console.warn('PlatformBranding.update: Error checking for organization_logo_url column:', e.message);
+        }
+
+        // Check if organization_logo_path column exists (uploaded logo flow)
+        try {
+          const [logoPathColumns] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'organization_logo_path'"
+          );
+          if (organizationLogoPath !== undefined && logoPathColumns.length === 0) {
+            const err = new Error(
+              'Cannot save platform organization logo upload: database missing platform_branding.organization_logo_path. Run database/migrations/105_add_logo_path_fields.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
+          if (logoPathColumns.length > 0 && organizationLogoPath !== undefined) {
+            updates.push('organization_logo_path = ?');
+            values.push(organizationLogoPath || null);
+            console.log('PlatformBranding.update: Setting organization_logo_path to:', organizationLogoPath || null);
+          }
+        } catch (e) {
+          if (e?.status) throw e;
+          console.warn('PlatformBranding.update: Error checking for organization_logo_path column:', e.message);
+        }
+      } else if (
+        organizationName !== undefined ||
+        organizationLogoIconId !== undefined ||
+        organizationLogoUrl !== undefined ||
+        organizationLogoPath !== undefined
+      ) {
+        const err = new Error(
+          'Cannot save platform organization fields: database missing platform_branding.organization_name (and related columns). Run database/migrations/092_add_platform_org_fields.sql.'
+        );
+        err.status = 409;
+        throw err;
+      }
+
+      // Settings sidebar navigation icon defaults (platform-branding only; not part of dashboard quick-actions)
+      // NOTE: these columns are added by database/migrations/106_add_settings_icons.sql
+      if (
+        companyProfileIconId !== undefined ||
+        teamRolesIconId !== undefined ||
+        billingIconId !== undefined ||
+        packagesIconId !== undefined ||
+        checklistItemsIconId !== undefined ||
+        fieldDefinitionsIconId !== undefined ||
+        brandingTemplatesIconId !== undefined ||
+        assetsIconId !== undefined ||
+        communicationsIconId !== undefined ||
+        integrationsIconId !== undefined ||
+        archiveIconId !== undefined
+      ) {
+        const want = [
+          { col: 'company_profile_icon_id', val: companyProfileIconId },
+          { col: 'team_roles_icon_id', val: teamRolesIconId },
+          { col: 'billing_icon_id', val: billingIconId },
+          { col: 'packages_icon_id', val: packagesIconId },
+          { col: 'checklist_items_icon_id', val: checklistItemsIconId },
+          { col: 'field_definitions_icon_id', val: fieldDefinitionsIconId },
+          { col: 'branding_templates_icon_id', val: brandingTemplatesIconId },
+          { col: 'assets_icon_id', val: assetsIconId },
+          { col: 'communications_icon_id', val: communicationsIconId },
+          { col: 'integrations_icon_id', val: integrationsIconId },
+          { col: 'archive_icon_id', val: archiveIconId }
+        ];
+
+        const ph = want.map(() => '?').join(',');
+        const [cols] = await pool.execute(
+          `SELECT COLUMN_NAME
+           FROM information_schema.COLUMNS
+           WHERE TABLE_SCHEMA = DATABASE()
+             AND TABLE_NAME = 'platform_branding'
+             AND COLUMN_NAME IN (${ph})`,
+          want.map((x) => x.col)
+        );
+        const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+        const missing = want.filter((x) => x.val !== undefined && !names.has(x.col)).map((x) => x.col);
+        if (missing.length) {
+          const err = new Error(
+            `Cannot save Settings navigation icons: database missing platform_branding columns: ${missing.join(', ')}. Run database/migrations/106_add_settings_icons.sql.`
+          );
+          err.status = 409;
+          err.missingColumns = missing;
+          throw err;
+        }
+
+        for (const x of want) {
+          if (x.val === undefined) continue;
+          if (!names.has(x.col)) continue;
+          updates.push(`${x.col} = ?`);
+          values.push(x.val ?? null);
         }
       }
       
