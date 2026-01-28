@@ -1468,8 +1468,17 @@ export const register = async (req, res, next) => {
     }
 
     const { email, firstName, lastName, role, phoneNumber, agencyIds, organizationIds, personalEmail, billingAcknowledged, hasProviderAccess } = req.body;
+
+    // Historically, this endpoint used `personalEmail` as the login identifier.
+    // Frontend/user-manager often sends `email` instead. Support both.
+    const resolvedLoginEmail = (() => {
+      const v = personalEmail !== undefined && personalEmail !== null && String(personalEmail).trim()
+        ? String(personalEmail).trim()
+        : (email !== undefined && email !== null && String(email).trim() ? String(email).trim() : '');
+      return v ? v.toLowerCase() : '';
+    })();
     
-    console.log('Register request body:', { email, role, agencyIds, personalEmail });
+    console.log('Register request body:', { email, role, agencyIds, personalEmail, resolvedLoginEmail });
     
     // Last name is required
     if (!lastName || !lastName.trim()) {
@@ -1508,14 +1517,14 @@ export const register = async (req, res, next) => {
       }
     }
 
-    // Check if email provided and if user already exists
-    if (email) {
-      const existingUser = await User.findByEmail(email);
+    // Check if login email provided and if user already exists
+    if (resolvedLoginEmail) {
+      const existingUser = await User.findByEmail(resolvedLoginEmail);
       if (existingUser) {
         return res.status(400).json({ error: { message: 'User with this email already exists' } });
       }
       // Also check work_email
-      const existingWorkEmailUser = await User.findByWorkEmail(email);
+      const existingWorkEmailUser = await User.findByWorkEmail(resolvedLoginEmail);
       if (existingWorkEmailUser) {
         return res.status(400).json({ error: { message: 'This email is already registered as a work email for another user.' } });
       }
@@ -1525,7 +1534,7 @@ export const register = async (req, res, next) => {
       const pool = (await import('../config/database.js')).default;
       const [existingEmployees] = await pool.execute(
         'SELECT email, agency_id FROM approved_employee_emails WHERE email = ? LIMIT 1',
-        [email]
+        [resolvedLoginEmail]
       );
       if (existingEmployees.length > 0) {
         return res.status(400).json({ 
@@ -1538,9 +1547,14 @@ export const register = async (req, res, next) => {
 
     // CRITICAL: Protect superadmin email - always force super_admin role
     let finalRole = role || 'provider';
-    if (email === 'superadmin@plottwistco.com') {
+    if (resolvedLoginEmail === 'superadmin@plottwistco.com') {
       finalRole = 'super_admin';
       console.warn('⚠️  Attempted to create user with superadmin email - forcing super_admin role');
+    }
+
+    // Guardians must have a login email (portal account)
+    if (String(finalRole || '').toLowerCase() === 'client_guardian' && !resolvedLoginEmail) {
+      return res.status(400).json({ error: { message: 'Email is required for guardian accounts' } });
     }
 
     // Billing hard gate: adding an admin beyond included requires acknowledgement
@@ -1567,12 +1581,12 @@ export const register = async (req, res, next) => {
     const tempPasswordHash = await bcrypt.hash(tempPassword, 10);
 
     const user = await User.create({
-      email: personalEmail, // Set email to personalEmail initially (for login compatibility)
+      email: resolvedLoginEmail || null, // Set email to personalEmail/email (for login compatibility)
       passwordHash: tempPasswordHash,
       firstName,
       lastName,
       phoneNumber,
-      personalEmail: personalEmail, // Required - this is the personal email
+      personalEmail: resolvedLoginEmail || null,
       role: finalRole,
       status: 'PENDING_SETUP' // New users start in PENDING_SETUP status
     });
@@ -1711,7 +1725,7 @@ export const register = async (req, res, next) => {
           AGENCY_NAME: agencyName,
           PORTAL_LOGIN_LINK: portalLoginLink,
           PORTAL_URL: config.frontendUrl,
-          USERNAME: personalEmail || email || 'N/A (Work email will be set when moved to active)',
+          USERNAME: resolvedLoginEmail || 'N/A (Work email will be set when moved to active)',
           TEMP_PASSWORD: tempPassword,
           PEOPLE_OPS_EMAIL: peopleOpsEmail,
           SENDER_NAME: req.user?.firstName || 'Administrator'
@@ -1731,7 +1745,7 @@ export const register = async (req, res, next) => {
       generatedEmails.push({
         type: 'Pending Welcome',
         subject: 'Your Pre-Hire Access Link',
-        body: `Hello ${firstName || ''} ${lastName || ''},\n\nHere are your login credentials:\n\nUsername: ${personalEmail || email || ''}\nTemporary Password: ${tempPassword}\n\nLogin here: ${portalLoginLink}\n\nYou will be prompted to set a new password after logging in.\n\nPlease contact ${peopleOpsEmail} if you have any questions.`
+        body: `Hello ${firstName || ''} ${lastName || ''},\n\nHere are your login credentials:\n\nUsername: ${resolvedLoginEmail || ''}\nTemporary Password: ${tempPassword}\n\nLogin here: ${portalLoginLink}\n\nYou will be prompted to set a new password after logging in.\n\nPlease contact ${peopleOpsEmail} if you have any questions.`
       });
     }
     
