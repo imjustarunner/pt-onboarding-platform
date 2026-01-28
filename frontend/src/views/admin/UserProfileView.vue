@@ -510,7 +510,7 @@
                       </div>
 
                       <div
-                        v-if="canEditUser && isProviderLikeRole && isAgencyOrg(agency)"
+                        v-if="canEditUser && canShowH0032Mode && isAgencyOrg(agency)"
                         style="display:flex; align-items:center; gap: 6px;"
                         title="H0032 mode is per-organization. Cat1 Hour means H0032 rows require manual minutes entry and will appear in Payroll → Raw Import → Process H0032. Cat2 Flat means H0032 defaults to 30 minutes and will not appear in that queue."
                       >
@@ -2604,6 +2604,19 @@ const saveAliasForAgency = async (agencyId, email) => {
 const isProviderLikeRole = computed(() => {
   const r = String(user.value?.role || '').trim().toLowerCase();
   return r === 'provider' || r === 'intern' || r === 'facilitator';
+});
+
+const canShowH0032Mode = computed(() => {
+  const u = user.value;
+  if (!u) return false;
+  const r = String(u.role || '').trim().toLowerCase();
+  const hasProviderAccess =
+    u.has_provider_access === true ||
+    u.has_provider_access === 1 ||
+    u.has_provider_access === '1' ||
+    u.hasProviderAccess === true;
+  // Treat admins (and explicit provider-access users) the same as providers for H0032 pay mode selection.
+  return isProviderLikeRole.value || r === 'admin' || hasProviderAccess;
 });
 
 const canShowPrelicensedSupervision = computed(() => {
