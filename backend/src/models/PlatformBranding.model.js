@@ -417,6 +417,14 @@ class PlatformBranding {
           fontPathFields.map(async (field) => {
             const fp = result?.[field] ? String(result[field]) : '';
             if (!fp) return;
+            // Seeded font records use stable paths like "/fonts/comfortaa-bold.woff2" but the actual
+            // uploaded fonts use generated filenames like "fonts/font-<ts>-<rand>-Comfortaa-Bold.ttf".
+            // If we see a stable seeded path, clear it to prevent repeated 404s.
+            const normalized = fp.startsWith('/') ? fp.slice(1) : fp;
+            if (normalized.startsWith('fonts/') && !normalized.includes('font-')) {
+              result[field] = null;
+              return;
+            }
             const filename = path.basename(fp);
             if (!filename) return;
             const exists = await StorageService.fontExists(filename);
