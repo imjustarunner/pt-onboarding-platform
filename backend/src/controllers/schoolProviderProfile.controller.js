@@ -90,13 +90,43 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       schoolInfoBlurb = null;
     }
 
+    // Optional: provider credential (from profile fields, if present)
+    let credential = null;
+    try {
+      const [rows] = await pool.execute(
+        `SELECT uiv.value
+         FROM user_info_values uiv
+         JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+         WHERE uiv.user_id = ?
+           AND uifd.field_key = 'provider_credential'
+         ORDER BY uiv.updated_at DESC, uiv.id DESC
+         LIMIT 1`,
+        [providerUserId]
+      );
+      credential = rows?.[0]?.value ?? null;
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing =
+        msg.includes("doesn't exist") ||
+        msg.includes('ER_NO_SUCH_TABLE') ||
+        msg.includes('Unknown column') ||
+        msg.includes('ER_BAD_FIELD_ERROR');
+      if (!missing) throw e;
+      credential = null;
+    }
+
     res.json({
       provider_user_id: u.id,
       first_name: u.first_name || null,
       last_name: u.last_name || null,
       email: u.email || null,
       title: u.title || null,
+      credential: credential ? String(credential) : null,
       service_focus: u.service_focus || null,
+      phone_number: u.phone_number || null,
+      personal_phone: u.personal_phone || null,
+      work_phone: u.work_phone || null,
+      work_phone_extension: u.work_phone_extension || null,
       profile_photo_url: publicUploadsUrlFromStoredPath(u.profile_photo_path || null),
       school_info_blurb: schoolInfoBlurb
     });
@@ -172,10 +202,17 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
     const clientsByDay = new Map();
     for (const d of allowedDays) clientsByDay.set(d, []);
 
-    // Prefer multi-provider assignments; fall back to legacy clients columns.
+    // Provider caseload for availability/status:
+    // - Prefer `client_provider_assignments` when present
+    // - ALSO include legacy `clients.provider_id/service_day` assignments (bulk upload paths),
+    //   without double-counting clients that already have a matching cpa row.
     let clientRows = [];
     if (activeDays.length > 0) {
       const placeholders = activeDays.map(() => '?').join(',');
+      const orgId = parseInt(schoolId, 10);
+
+      let cpaRows = [];
+      let hasCpa = true;
       try {
         const [rows] = await pool.execute(
           `SELECT c.id, c.initials, c.identifier_code, c.status, c.document_status, cpa.service_day
@@ -186,13 +223,37 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
              AND cpa.is_active = TRUE
              AND cpa.service_day IN (${placeholders})
            ORDER BY cpa.service_day ASC, c.initials ASC`,
-          [parseInt(schoolId, 10), providerUserId, ...activeDays]
+          [orgId, providerUserId, ...activeDays]
         );
-        clientRows = rows || [];
+        cpaRows = rows || [];
       } catch (e) {
         const msg = String(e?.message || '');
         const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
         if (!missing) throw e;
+        hasCpa = false;
+        cpaRows = [];
+      }
+
+      let legacyRows = [];
+      if (hasCpa) {
+        const [rows] = await pool.execute(
+          `SELECT c.id, c.initials, c.identifier_code, c.status, c.document_status, c.service_day
+           FROM clients c
+           LEFT JOIN client_provider_assignments cpa
+             ON cpa.organization_id = c.organization_id
+            AND cpa.client_id = c.id
+            AND cpa.provider_user_id = c.provider_id
+            AND cpa.service_day = c.service_day
+            AND cpa.is_active = TRUE
+           WHERE c.organization_id = ?
+             AND c.provider_id = ?
+             AND c.service_day IN (${placeholders})
+             AND cpa.client_id IS NULL
+           ORDER BY c.service_day ASC, c.initials ASC`,
+          [orgId, providerUserId, ...activeDays]
+        );
+        legacyRows = rows || [];
+      } else {
         const [rows] = await pool.execute(
           `SELECT id, initials, identifier_code, status, document_status, service_day
            FROM clients
@@ -200,10 +261,12 @@ export const getProviderSchoolCaseloadSlots = async (req, res, next) => {
              AND provider_id = ?
              AND service_day IN (${placeholders})
            ORDER BY service_day ASC, initials ASC`,
-          [parseInt(schoolId, 10), providerUserId, ...activeDays]
+          [orgId, providerUserId, ...activeDays]
         );
-        clientRows = rows || [];
+        legacyRows = rows || [];
       }
+
+      clientRows = [...cpaRows, ...legacyRows];
 
       const userId = req.user?.id;
       const unreadCounts = new Map();

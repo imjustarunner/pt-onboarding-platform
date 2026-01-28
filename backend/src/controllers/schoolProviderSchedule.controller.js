@@ -227,6 +227,91 @@ export const listSchoolProvidersForScheduling = async (req, res, next) => {
       });
     }
 
+    // Best-effort: compute slots_used from actual assigned clients (for badge correctness),
+    // including legacy clients.provider_id assignments without double-counting clients that
+    // already have a matching client_provider_assignments row.
+    try {
+      const providerIds = Array.from(byProvider.keys()).map((v) => parseInt(v, 10)).filter(Boolean);
+      if (providerIds.length > 0) {
+        const orgId = parseInt(schoolId, 10);
+        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+        const p = providerIds.map(() => '?').join(',');
+        const d = days.map(() => '?').join(',');
+
+        const usedMap = new Map(); // "pid:day" -> used
+        const inc = (pid, day, delta) => {
+          const key = `${Number(pid)}:${String(day)}`;
+          usedMap.set(key, (usedMap.get(key) || 0) + Number(delta || 0));
+        };
+
+        try {
+          const [cpaCounts] = await pool.execute(
+            `SELECT cpa.provider_user_id, cpa.service_day, COUNT(*) AS cnt
+             FROM client_provider_assignments cpa
+             WHERE cpa.organization_id = ?
+               AND cpa.is_active = TRUE
+               AND cpa.provider_user_id IN (${p})
+               AND cpa.service_day IN (${d})
+             GROUP BY cpa.provider_user_id, cpa.service_day`,
+            [orgId, ...providerIds, ...days]
+          );
+          for (const r of cpaCounts || []) inc(r.provider_user_id, r.service_day, r.cnt);
+
+          const [legacyCounts] = await pool.execute(
+            `SELECT c.provider_id AS provider_user_id, c.service_day, COUNT(*) AS cnt
+             FROM clients c
+             LEFT JOIN client_provider_assignments cpa
+               ON cpa.organization_id = c.organization_id
+              AND cpa.client_id = c.id
+              AND cpa.provider_user_id = c.provider_id
+              AND cpa.service_day = c.service_day
+              AND cpa.is_active = TRUE
+             WHERE c.organization_id = ?
+               AND c.provider_id IN (${p})
+               AND c.service_day IN (${d})
+               AND cpa.client_id IS NULL
+             GROUP BY c.provider_id, c.service_day`,
+            [orgId, ...providerIds, ...days]
+          );
+          for (const r of legacyCounts || []) inc(r.provider_user_id, r.service_day, r.cnt);
+        } catch (e) {
+          const msg = String(e?.message || '');
+          const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+          if (!missing) throw e;
+
+          const [legacyCounts] = await pool.execute(
+            `SELECT c.provider_id AS provider_user_id, c.service_day, COUNT(*) AS cnt
+             FROM clients c
+             WHERE c.organization_id = ?
+               AND c.provider_id IN (${p})
+               AND c.service_day IN (${d})
+             GROUP BY c.provider_id, c.service_day`,
+            [orgId, ...providerIds, ...days]
+          );
+          for (const r of legacyCounts || []) inc(r.provider_user_id, r.service_day, r.cnt);
+        }
+
+        // Attach calculated used/available to each assignment row.
+        for (const obj of byProvider.values()) {
+          const pid = Number(obj.provider_user_id);
+          obj.assignments = (obj.assignments || []).map((a) => {
+            const day = String(a.day_of_week || '');
+            const used = usedMap.get(`${pid}:${day}`) || 0;
+            const total = Number(a.slots_total);
+            const totalOk = Number.isFinite(total) && total > 0;
+            const availCalc = totalOk ? Math.max(0, total - used) : null;
+            return {
+              ...a,
+              slots_used: used,
+              slots_available_calculated: availCalc
+            };
+          });
+        }
+      }
+    } catch {
+      // ignore (we still return the base assignments)
+    }
+
     // Best-effort: attach provider profile photo URLs if column exists.
     try {
       const providerIds = Array.from(byProvider.keys()).map((v) => parseInt(v, 10)).filter(Boolean);

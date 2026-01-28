@@ -399,6 +399,7 @@
           :providers="store.eligibleProviders"
           :loading="store.eligibleProvidersLoading"
           @open-provider="goToProviderSchoolProfile"
+          @message-provider="messageProvider"
         />
           </div>
 
@@ -687,6 +688,12 @@ const goToProviderSchoolProfile = (providerUserId) => {
   const slug = organizationSlug.value;
   if (!slug || !providerUserId) return;
   router.push(`/${slug}/providers/${providerUserId}`);
+};
+
+const messageProvider = (providerUserId) => {
+  const slug = organizationSlug.value;
+  if (!slug || !providerUserId) return;
+  router.push({ path: `/${slug}/providers/${providerUserId}`, query: { chat: '1' } });
 };
 
 onMounted(async () => {

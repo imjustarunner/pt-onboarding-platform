@@ -14,19 +14,37 @@
       <div v-if="loading" class="muted">Loading providers…</div>
       <div v-else-if="filtered.length === 0" class="muted">No providers found.</div>
       <div v-else class="grid">
-        <button
+        <div
           v-for="p in filtered"
           :key="p.provider_user_id"
-          type="button"
           class="card"
+          role="button"
+          tabindex="0"
           @click="$emit('open-provider', p.provider_user_id)"
+          @keydown.enter.prevent="$emit('open-provider', p.provider_user_id)"
+          @keydown.space.prevent="$emit('open-provider', p.provider_user_id)"
         >
           <div class="avatar" aria-hidden="true">
             <img v-if="p.profile_photo_url" :src="p.profile_photo_url" alt="" class="avatar-img" />
             <span v-else>{{ initialsFor(p) }}</span>
           </div>
           <div class="meta">
-            <div class="name">{{ p.first_name }} {{ p.last_name }}</div>
+            <div class="name-row">
+              <div class="name">{{ p.first_name }} {{ p.last_name }}</div>
+              <button class="btn btn-secondary btn-sm msg-btn" type="button" @click.stop="$emit('message-provider', p.provider_user_id)">
+                Message
+              </button>
+            </div>
+            <div v-if="dayBadgesFor(p).length" class="day-badges" aria-label="Availability by day">
+              <span
+                v-for="b in dayBadgesFor(p)"
+                :key="b.key"
+                class="day-pill"
+                :class="b.color"
+              >
+                {{ b.label }}
+              </span>
+            </div>
             <div v-if="p.email" class="line">{{ p.email }}</div>
             <div v-if="p.school_info_blurb" class="blurb">{{ p.school_info_blurb }}</div>
             <div class="badges">
@@ -38,7 +56,7 @@
             </div>
             <div class="hint">Click to open profile</div>
           </div>
-        </button>
+        </div>
       </div>
     </div>
   </div>
@@ -52,7 +70,7 @@ const props = defineProps({
   loading: { type: Boolean, default: false }
 });
 
-defineEmits(['open-provider']);
+defineEmits(['open-provider', 'message-provider']);
 
 const query = ref('');
 const normalize = (v) => String(v || '').trim().toLowerCase();
@@ -71,6 +89,34 @@ const initialsFor = (p) => {
   const a = f ? f[0] : '';
   const b = l ? l[0] : '';
   return `${a}${b}`.toUpperCase() || 'P';
+};
+
+const dayBadgesFor = (p) => {
+  const list = Array.isArray(p?.assignments) ? p.assignments : [];
+  const active = list.filter((a) => a && a.is_active);
+  const short = (d) => {
+    const s = String(d || '');
+    return s === 'Thursday' ? 'Thu' : s.slice(0, 3);
+  };
+  const badgeFor = (a) => {
+    const total = Number(a?.slots_total);
+    const usedRaw = a?.slots_used ?? a?.slots_used_calculated ?? null;
+    const used = Number(usedRaw);
+    const availRaw = a?.slots_available_calculated ?? a?.slots_available ?? null;
+    const avail = Number(availRaw);
+    const hasTotal = Number.isFinite(total) && total > 0;
+    const usedFromAvail = hasTotal && Number.isFinite(avail) ? Math.max(0, total - avail) : null;
+    const usedEffective = Number.isFinite(used) ? used : usedFromAvail;
+    const remaining = hasTotal && usedEffective !== null ? (total - usedEffective) : null;
+    let color = 'green';
+    if (remaining !== null) {
+      if (remaining <= 0) color = 'red'; // full (or overbooked)
+      else if (remaining === 1) color = 'yellow'; // 1 slot left
+      else color = 'green';
+    }
+    return { key: `${a.day_of_week}-${a.provider_user_id || ''}`, label: short(a.day_of_week), color };
+  };
+  return active.map(badgeFor);
 };
 
 const filtered = computed(() => {
@@ -139,6 +185,7 @@ const filtered = computed(() => {
   display: flex;
   gap: 18px;
   align-items: flex-start;
+  cursor: pointer;
 }
 .card:hover {
   border-color: rgba(79, 70, 229, 0.35);
@@ -164,11 +211,54 @@ const filtered = computed(() => {
   display: block;
 }
 .meta { min-width: 0; }
+.name-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.msg-btn {
+  flex: 0 0 auto;
+}
 .name {
   font-weight: 950;
   color: var(--text-primary);
   font-size: 18px;
   line-height: 1.15;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.day-badges {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.day-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-primary);
+}
+.day-pill.green {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.08);
+}
+.day-pill.yellow {
+  border-color: rgba(245, 158, 11, 0.65);
+  background: rgba(245, 158, 11, 0.10);
+}
+.day-pill.red {
+  border-color: rgba(239, 68, 68, 0.65);
+  background: rgba(239, 68, 68, 0.10);
 }
 .line {
   margin-top: 4px;

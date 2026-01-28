@@ -16,9 +16,24 @@
               <span v-else>{{ initialsFor(profile) }}</span>
             </div>
             <div class="meta">
-              <div class="name">{{ profile?.first_name }} {{ profile?.last_name }}</div>
+              <div class="name-row">
+                <div class="name">{{ profile?.first_name }} {{ profile?.last_name }}</div>
+                <div v-if="availabilityBadges.length" class="avail-badges" aria-label="Availability by day">
+                  <span
+                    v-for="b in availabilityBadges"
+                    :key="b.key"
+                    class="day-pill"
+                    :class="b.color"
+                    :title="`${b.label}: ${b.color === 'red' ? 'Full' : b.color === 'yellow' ? '1 left' : 'Open'}`"
+                  >
+                    {{ b.label }}
+                  </span>
+                </div>
+              </div>
               <div v-if="profile?.title" class="sub">{{ profile.title }}</div>
+              <div v-if="profile?.credential" class="sub">{{ profile.credential }}</div>
               <div v-if="profile?.service_focus" class="sub">{{ profile.service_focus }}</div>
+              <div v-if="providerContactLine" class="sub">{{ providerContactLine }}</div>
               <div v-if="profile?.school_info_blurb" class="blurb">
                 <strong>Provider info</strong>
                 <div class="blurb-text">{{ profile.school_info_blurb }}</div>
@@ -146,6 +161,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../../../services/api';
 import SchoolDayBar from './SchoolDayBar.vue';
 import SoftScheduleEditor from './SoftScheduleEditor.vue';
@@ -158,6 +174,7 @@ const props = defineProps({
 defineEmits(['open-client']);
 
 const authStore = useAuthStore();
+const route = useRoute();
 const meUserId = computed(() => authStore.user?.id || null);
 
 const profile = ref(null);
@@ -232,6 +249,40 @@ const recomputeDayBar = () => {
     };
   });
 };
+
+const providerContactLine = computed(() => {
+  const p = profile.value || {};
+  const phone = String(p.work_phone || p.personal_phone || p.phone_number || '').trim();
+  const ext = String(p.work_phone_extension || '').trim();
+  if (!phone) return '';
+  if (ext) return `${phone} ext ${ext}`;
+  return phone;
+});
+
+const availabilityBadges = computed(() => {
+  const list = Array.isArray(caseload.value?.assignments) ? caseload.value.assignments : [];
+  const short = (d) => {
+    const s = String(d || '');
+    return s === 'Thursday' ? 'Thu' : s.slice(0, 3);
+  };
+  const out = [];
+  for (const a of list) {
+    if (!a?.is_active) continue;
+    const total = Number(a?.slots_total ?? 0);
+    const used = Number(a?.slots_used ?? 0);
+    const totalOk = Number.isFinite(total) && total > 0;
+    const usedOk = Number.isFinite(used) && used >= 0;
+    const available = totalOk && usedOk ? (total - used) : null;
+    let color = 'green';
+    if (available !== null) {
+      if (available <= 0) color = 'red';
+      else if (available === 1) color = 'yellow';
+      else color = 'green';
+    }
+    out.push({ key: String(a.day_of_week), label: short(a.day_of_week), color });
+  }
+  return out;
+});
 
 const selectedDayClients = ref([]);
 const recomputeSelectedDayClients = () => {
@@ -412,6 +463,18 @@ watch(selectedWeekday, async () => {
   recomputeSelectedDayClients();
   await fetchSoftSlots();
 });
+
+// If routed from the Providers directory "Message" button, auto-open chat.
+watch(
+  () => [String(route.query?.chat || ''), profile.value?.provider_user_id],
+  async ([chat, pid]) => {
+    if (chat !== '1') return;
+    if (!pid) return;
+    if (messagesOpen.value) return;
+    await openChat();
+  },
+  { immediate: true }
+);
 </script>
 
 <style scoped>
@@ -445,9 +508,9 @@ watch(selectedWeekday, async () => {
   padding: 16px;
 }
 .avatar-lg {
-  width: 140px;
-  height: 140px;
-  border-radius: 28px;
+  width: 280px;
+  height: 280px;
+  border-radius: 44px;
   border: 1px solid var(--border);
   background: var(--bg);
   display: grid;
@@ -455,10 +518,54 @@ watch(selectedWeekday, async () => {
   overflow: hidden;
   font-weight: 900;
   flex: 0 0 auto;
-  font-size: 32px;
+  font-size: 56px;
 }
 .avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.name { font-weight: 900; color: var(--text-primary); }
+.name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.name {
+  font-weight: 900;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.avail-badges {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+.day-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-primary);
+}
+.day-pill.green {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.08);
+}
+.day-pill.yellow {
+  border-color: rgba(245, 158, 11, 0.65);
+  background: rgba(245, 158, 11, 0.10);
+}
+.day-pill.red {
+  border-color: rgba(239, 68, 68, 0.65);
+  background: rgba(239, 68, 68, 0.10);
+}
 .sub { color: var(--text-secondary); margin-top: 2px; }
  .hero-actions { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .blurb {
@@ -582,6 +689,12 @@ label {
 
 @media (max-width: 1100px) {
   .grid { grid-template-columns: 1fr; }
+  .avatar-lg {
+    width: 200px;
+    height: 200px;
+    border-radius: 34px;
+    font-size: 40px;
+  }
 }
 </style>
 
