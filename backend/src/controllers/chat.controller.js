@@ -150,16 +150,25 @@ export const listMyThreads = async (req, res, next) => {
                 WHERE m2.thread_id = t.id
                   AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
                   AND m2.sender_user_id <> ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM chat_message_deletes d2
+                    WHERE d2.user_id = ? AND d2.message_id = m2.id
+                  )
               ) AS unread_count
        FROM chat_threads t
        JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
        LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
        LEFT JOIN chat_messages lm ON lm.id = (
-         SELECT m.id FROM chat_messages m WHERE m.thread_id = t.id ORDER BY m.id DESC LIMIT 1
+         SELECT m.id
+         FROM chat_messages m
+         LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
+         WHERE m.thread_id = t.id AND d.message_id IS NULL
+         ORDER BY m.id DESC
+         LIMIT 1
        )
        WHERE t.agency_id IN (${placeholders})
        ORDER BY t.updated_at DESC`,
-      [userId, userId, userId, ...agencyIds]
+      [userId, userId, userId, userId, userId, ...agencyIds]
     );
 
     // Enrich with "other participant" for direct threads
@@ -298,10 +307,12 @@ export const listMessages = async (req, res, next) => {
               u.first_name AS sender_first_name, u.last_name AS sender_last_name
        FROM chat_messages m
        JOIN users u ON u.id = m.sender_user_id
+       LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
        WHERE m.thread_id = ?
+         AND d.message_id IS NULL
        ORDER BY m.id DESC
        LIMIT ${limit}`,
-      [threadId]
+      [req.user.id, threadId]
     );
     const ordered = (rows || []).reverse();
     const me = Number(req.user.id);
@@ -453,6 +464,64 @@ export const unsendMessage = async (req, res, next) => {
           [rid, threadId, notificationMessage]
         );
       }
+    } catch {
+      // ignore
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteForMe = async (req, res, next) => {
+  try {
+    const threadId = parseInt(req.params.threadId, 10);
+    const messageId = parseInt(req.params.messageId, 10);
+    if (!threadId || !messageId) {
+      return res.status(400).json({ error: { message: 'threadId and messageId are required' } });
+    }
+    await assertThreadAccess(req.user.id, threadId);
+
+    const [[msg]] = await pool.execute(
+      'SELECT id, thread_id, sender_user_id, body FROM chat_messages WHERE id = ? AND thread_id = ? LIMIT 1',
+      [messageId, threadId]
+    );
+    if (!msg) return res.status(404).json({ error: { message: 'Message not found' } });
+
+    await pool.execute(
+      `INSERT INTO chat_message_deletes (message_id, user_id)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE deleted_at = CURRENT_TIMESTAMP`,
+      [messageId, req.user.id]
+    );
+
+    // Ensure the hidden message doesn't stay counted as "unread" for this user.
+    await pool.execute(
+      `INSERT INTO chat_thread_reads (thread_id, user_id, last_read_message_id, last_read_at)
+       VALUES (?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE
+         last_read_message_id = GREATEST(COALESCE(last_read_message_id, 0), VALUES(last_read_message_id)),
+         last_read_at = NOW()`,
+      [threadId, req.user.id, messageId]
+    );
+
+    // Best-effort: remove the associated notification for THIS user (if present).
+    try {
+      const senderUser = await User.findById(msg.sender_user_id);
+      const senderName = `${senderUser?.first_name || ''} ${senderUser?.last_name || ''}`.trim() || 'Someone';
+      const b = String(msg.body || '');
+      const snippet = b.length > 120 ? b.slice(0, 117) + '…' : b;
+      const notificationMessage = `${senderName}: ${snippet}`;
+      await pool.execute(
+        `DELETE FROM notifications
+         WHERE user_id = ?
+           AND type = 'chat_message'
+           AND related_entity_type = 'chat_thread'
+           AND related_entity_id = ?
+           AND message = ?`,
+        [req.user.id, threadId, notificationMessage]
+      );
     } catch {
       // ignore
     }

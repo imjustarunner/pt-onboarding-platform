@@ -192,6 +192,15 @@
                       >
                         Unsend
                       </button>
+                      <button
+                        type="button"
+                        class="msg-action"
+                        @click="deleteForMe(m)"
+                        :disabled="sending"
+                        title="Delete for me"
+                      >
+                        Delete
+                      </button>
                     </span>
                   </div>
                   <div class="msg-body">{{ m.body }}</div>
@@ -458,6 +467,24 @@ const unsend = async (m) => {
     await loadThreads();
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || 'Failed to unsend message';
+  } finally {
+    sending.value = false;
+  }
+};
+
+const deleteForMe = async (m) => {
+  if (!activeThreadId.value || !m?.id) return;
+  try {
+    sending.value = true;
+    await api.post(
+      `/chat/threads/${activeThreadId.value}/messages/${m.id}/delete-for-me`,
+      {},
+      { skipGlobalLoading: true }
+    );
+    await loadMessages();
+    await loadThreads();
+  } catch (e) {
+    chatError.value = e.response?.data?.error?.message || 'Failed to delete message';
   } finally {
     sending.value = false;
   }

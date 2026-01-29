@@ -73,6 +73,15 @@
                   >
                     Unsend
                   </button>
+                  <button
+                    class="unsend"
+                    type="button"
+                    @click="deleteForMe(m)"
+                    :disabled="sending"
+                    title="Delete for me"
+                  >
+                    Delete
+                  </button>
                 </span>
               </div>
               <div class="text">{{ m.body }}</div>
@@ -258,6 +267,18 @@ const unsend = async (m) => {
   try {
     sending.value = true;
     await api.delete(`/chat/threads/${activeThreadId.value}/messages/${m.id}`);
+    await loadMessages();
+    await loadThreads();
+  } finally {
+    sending.value = false;
+  }
+};
+
+const deleteForMe = async (m) => {
+  if (!activeThreadId.value || !m?.id) return;
+  try {
+    sending.value = true;
+    await api.post(`/chat/threads/${activeThreadId.value}/messages/${m.id}/delete-for-me`, {});
     await loadMessages();
     await loadThreads();
   } finally {
