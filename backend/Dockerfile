@@ -76,6 +76,11 @@ RUN npm ci --only=production
 # Copy backend source code
 COPY backend/src ./src
 
+# Copy bundled uploads (icons/logos/user photos) for fallback serving.
+# Note: Cloud Run filesystem is ephemeral, but these baked-in assets are available
+# across instances and are helpful when GCS keys are missing/misconfigured.
+COPY backend/uploads ./uploads
+
 # Copy built frontend from builder stage to public directory
 COPY --from=frontend-builder /app/frontend/dist ./public
 

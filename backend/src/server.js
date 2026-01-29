@@ -179,7 +179,6 @@ app.use('/uploads', async (req, res, next) => {
     resolvedFilePath = filePath;
 
     const tryServeLocal = async (storageKey) => {
-      if (config.nodeEnv !== 'development') return false;
       try {
         const fs = (await import('fs/promises')).default;
         const ext = path.extname(storageKey).toLowerCase();
@@ -202,13 +201,19 @@ app.use('/uploads', async (req, res, next) => {
         // In local dev, files live under backend/uploads/* (no leading "uploads/" prefix).
         let rel = storageKey || '';
         if (rel.startsWith('uploads/')) rel = rel.substring('uploads/'.length);
-        const localPath = path.join(__dirname, '../uploads', rel);
+        // Safety: prevent directory traversal (e.g., /uploads/../../etc/passwd)
+        rel = String(rel || '').replace(/\\/g, '/');
+        const uploadsRoot = path.resolve(__dirname, '../uploads');
+        const candidate = path.resolve(uploadsRoot, rel);
+        if (!candidate.startsWith(uploadsRoot + path.sep)) return false;
+
+        const localPath = candidate;
         const buffer = await fs.readFile(localPath);
 
         res.setHeader('Content-Type', contentTypes[ext] || 'application/octet-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.send(buffer);
-        console.log(`[File Request] Served local file (dev): ${localPath}`);
+        console.log(`[File Request] Served local file fallback: ${localPath}`);
         return true;
       } catch (e) {
         return false;
