@@ -121,6 +121,10 @@ const props = defineProps({
     type: Number,
     default: null
   },
+  rosterScope: {
+    type: String,
+    default: 'school' // 'school' | 'provider'
+  },
   clientLabelMode: {
     type: String,
     default: 'codes' // 'codes' | 'initials'
@@ -169,7 +173,11 @@ const fetchClients = async () => {
   error.value = '';
 
   try {
-    const response = await api.get(`/school-portal/${props.organizationId}/clients`);
+    const endpoint =
+      props.rosterScope === 'provider'
+        ? `/school-portal/${props.organizationId}/my-roster`
+        : `/school-portal/${props.organizationId}/clients`;
+    const response = await api.get(endpoint);
     clients.value = response.data || [];
   } catch (err) {
     console.error('Failed to fetch clients:', err);
@@ -178,7 +186,7 @@ const fetchClients = async () => {
     } else if (err.response?.status === 403) {
       const r = String(authStore.user?.role || '').toLowerCase();
       error.value =
-        r === 'provider'
+        props.rosterScope === 'provider' || r === 'provider'
           ? 'Your roster is not available for this organization.'
           : 'You do not have access to this school\'s client list.';
     } else {

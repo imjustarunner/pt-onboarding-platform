@@ -271,6 +271,166 @@ export const getSchoolClients = async (req, res, next) => {
 };
 
 /**
+ * Provider-only roster view.
+ * GET /api/school-portal/:organizationId/my-roster
+ *
+ * This endpoint intentionally does NOT reuse the broader org-access gate.
+ * If the provider has no assigned clients for this org, it returns [] (200) instead of 403.
+ */
+export const getProviderMyRoster = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    const userId = req.user?.id;
+    const userRole = String(req.user?.role || '').toLowerCase();
+
+    if (userRole !== 'provider') {
+      return res.status(403).json({ error: { message: 'Provider access required' } });
+    }
+    const providerUserId = parseInt(userId, 10);
+    if (!providerUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    // Verify organization exists (school/program/learning)
+    const organization = await Agency.findById(organizationId);
+    if (!organization) {
+      return res.status(404).json({
+        error: { message: 'Organization not found' }
+      });
+    }
+
+    const orgType = String(organization.organization_type || 'agency').toLowerCase();
+    const allowedTypes = ['school', 'program', 'learning'];
+    if (!allowedTypes.includes(orgType)) {
+      return res.status(400).json({
+        error: { message: `This endpoint is only available for organizations of type: ${allowedTypes.join(', ')}` }
+      });
+    }
+
+    const skillsOnly = false;
+
+    // Use the same restricted roster query but force provider filtering.
+    let clients = [];
+    try {
+      const orgId = parseInt(organizationId, 10);
+      const [rows] = await pool.execute(
+        `SELECT
+           c.id,
+           c.initials,
+           c.identifier_code,
+           c.client_status_id,
+           cs.label AS client_status_label,
+           cs.status_key AS client_status_key,
+           c.grade,
+           c.school_year,
+           GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name) ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ', ') AS provider_name,
+           GROUP_CONCAT(DISTINCT cpa.provider_user_id ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ',') AS provider_ids,
+           GROUP_CONCAT(DISTINCT cpa.service_day ORDER BY FIELD(cpa.service_day,'Monday','Tuesday','Wednesday','Thursday','Friday') SEPARATOR ', ') AS service_day,
+           1 AS user_is_assigned_provider,
+           c.submission_date,
+           c.document_status,
+           c.paperwork_status_id,
+           ps.label AS paperwork_status_label,
+           ps.status_key AS paperwork_status_key,
+           c.paperwork_delivery_method_id,
+           pdm.label AS paperwork_delivery_method_label,
+           c.doc_date,
+           c.roi_expires_at,
+           c.skills,
+           c.status
+         FROM clients c
+         JOIN client_organization_assignments coa
+           ON coa.client_id = c.id
+          AND coa.organization_id = ?
+          AND coa.is_active = TRUE
+         JOIN client_provider_assignments cpa
+           ON cpa.client_id = c.id
+          AND cpa.organization_id = coa.organization_id
+          AND cpa.is_active = TRUE
+          AND cpa.provider_user_id = ?
+         LEFT JOIN users u ON u.id = cpa.provider_user_id
+         LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+         LEFT JOIN paperwork_statuses ps ON ps.id = c.paperwork_status_id
+         LEFT JOIN paperwork_delivery_methods pdm ON pdm.id = c.paperwork_delivery_method_id
+         WHERE UPPER(c.status) <> 'ARCHIVED'
+           AND (? = 0 OR c.skills = TRUE)
+         GROUP BY c.id
+         ORDER BY c.submission_date DESC, c.id DESC`,
+        [orgId, providerUserId, skillsOnly ? 1 : 0]
+      );
+      clients = rows || [];
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing =
+        msg.includes("doesn't exist") ||
+        msg.includes('ER_NO_SUCH_TABLE') ||
+        msg.includes('Unknown column') ||
+        msg.includes('ER_BAD_FIELD_ERROR');
+      if (!missing) throw e;
+
+      // Legacy fallback: clients.organization_id + clients.provider_id
+      const all = await Client.findByOrganizationId(parseInt(organizationId, 10), { provider_id: providerUserId });
+      clients = (all || []).filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+    }
+
+    // Unread note counts (per user) - best effort if table exists.
+    const unreadCountsByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      if (clientIds.length > 0 && userId) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT n.client_id, COUNT(*) AS unread_count
+           FROM client_notes n
+           LEFT JOIN client_note_reads r
+             ON r.client_id = n.client_id AND r.user_id = ?
+           WHERE n.client_id IN (${placeholders})
+             AND n.is_internal_only = FALSE
+             AND n.created_at > COALESCE(r.last_read_at, '1970-01-01')
+           GROUP BY n.client_id`,
+          [userId, ...clientIds]
+        );
+        for (const r of rows || []) {
+          unreadCountsByClientId.set(Number(r.client_id), Number(r.unread_count || 0));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    const restrictedClients = clients.map((client) => {
+      return {
+        id: client.id,
+        initials: client.initials,
+        identifier_code: client.identifier_code || null,
+        client_status_id: client.client_status_id || null,
+        client_status_label: client.client_status_label || null,
+        client_status_key: client.client_status_key || null,
+        grade: client.grade || null,
+        school_year: client.school_year || null,
+        provider_id: providerUserId,
+        provider_name: client.provider_name || null,
+        service_day: client.service_day || null,
+        user_is_assigned_provider: true,
+        submission_date: client.submission_date,
+        document_status: client.document_status,
+        paperwork_status_id: client.paperwork_status_id || null,
+        paperwork_status_label: client.paperwork_status_label || null,
+        paperwork_status_key: client.paperwork_status_key || null,
+        paperwork_delivery_method_id: client.paperwork_delivery_method_id || null,
+        paperwork_delivery_method_label: client.paperwork_delivery_method_label || null,
+        doc_date: client.doc_date || null,
+        roi_expires_at: client.roi_expires_at || null,
+        skills: client.skills === 1 || client.skills === true,
+        unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0
+      };
+    });
+
+    res.json(restrictedClients);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
  * Get school -> agency affiliation context for UI gating.
  * GET /api/school-portal/:schoolId/affiliation
  */
