@@ -101,7 +101,11 @@ watch(
     timer = setTimeout(async () => {
       try {
         loading.value = true;
-        const r = await api.get('/public/schools/search', { params: { q: v }, skipGlobalLoading: true });
+        const r = await api.get('/public/schools/search', {
+          params: { q: v },
+          skipGlobalLoading: true,
+          skipAuthRedirect: true
+        });
         results.value = Array.isArray(r.data) ? r.data : [];
       } catch (e) {
         results.value = [];

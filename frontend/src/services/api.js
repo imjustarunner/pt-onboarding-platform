@@ -64,8 +64,18 @@ api.interceptors.response.use(
     const isPasswordlessLogin = window.location.pathname.includes('/passwordless-login');
     const isInitialSetup = window.location.pathname.includes('/initial-setup');
     const justLoggedIn = sessionStorage.getItem('justLoggedIn') === 'true';
+    const skipAuthRedirect = !!error?.config?.skipAuthRedirect;
+    const reqUrl = String(error?.config?.url || '');
+    const isPublicApi = reqUrl.includes('/public/') || reqUrl.startsWith('/public/');
     
-    if (error.response?.status === 401 && !isLoginPage && !isPasswordlessLogin && !isInitialSetup) {
+    if (
+      error.response?.status === 401 &&
+      !isLoginPage &&
+      !isPasswordlessLogin &&
+      !isInitialSetup &&
+      !skipAuthRedirect &&
+      !isPublicApi
+    ) {
       // If we just logged in, this might be a cookie timing issue
       // Give it one retry before logging out
       if (justLoggedIn && !error.config._retry) {
