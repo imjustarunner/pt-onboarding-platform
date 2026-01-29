@@ -33,6 +33,20 @@ function audienceAllows(notification, userRole) {
   return v !== false;
 }
 
+// Message-related notification types must never be visible cross-user.
+const MESSAGE_PRIVATE_TYPES = new Set(['chat_message', 'inbound_client_message', 'support_safety_net_alert']);
+
+function filterNotificationsForViewer(notifications, viewerUserId, viewerRole) {
+  const uid = Number(viewerUserId);
+  return (notifications || [])
+    .filter((n) => audienceAllows(n, viewerRole))
+    .filter((n) => {
+      const t = String(n?.type || '');
+      if (!MESSAGE_PRIVATE_TYPES.has(t)) return true;
+      return Number(n?.user_id) === uid;
+    });
+}
+
 export const getNotifications = async (req, res, next) => {
   try {
     const { agencyId, type, isRead, isResolved } = req.query;
@@ -95,7 +109,7 @@ export const getNotifications = async (req, res, next) => {
 
       // Sort by created_at descending
       allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      return res.json(allNotifications.filter((n) => audienceAllows(n, userRole)));
+      return res.json(filterNotificationsForViewer(allNotifications, userId, userRole));
     } else if (userRole === 'clinical_practice_assistant') {
       // CPAs can see all notifications for all users in their agencies
       const userAgencies = await User.getAgencies(userId);
@@ -127,7 +141,7 @@ export const getNotifications = async (req, res, next) => {
 
       // Sort by created_at descending
       allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      return res.json(allNotifications.filter((n) => audienceAllows(n, userRole)));
+      return res.json(filterNotificationsForViewer(allNotifications, userId, userRole));
     } else {
       // Admin/support can only see their agencies
       const userAgencies = await User.getAgencies(userId);
@@ -161,7 +175,7 @@ export const getNotifications = async (req, res, next) => {
     // Sort by created_at descending
     allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-    res.json(allNotifications.filter((n) => audienceAllows(n, userRole)));
+    res.json(filterNotificationsForViewer(allNotifications, userId, userRole));
   } catch (error) {
     next(error);
   }
@@ -205,7 +219,7 @@ export const getNotificationCounts = async (req, res, next) => {
         const filteredNotifications = notifications.filter(n => 
           n.user_id && allSuperviseeIds.includes(n.user_id)
         );
-        filteredCounts[agencyId] = filteredNotifications.length;
+        filteredCounts[agencyId] = filterNotificationsForViewer(filteredNotifications, userId, userRole).length;
       }
       
       return res.json(filteredCounts);
@@ -223,7 +237,12 @@ export const getNotificationCounts = async (req, res, next) => {
       return res.json({});
     }
 
-    const counts = await Notification.getCountsByAgency(agencyIds);
+    // Compute counts for what the current viewer is actually allowed to see.
+    const counts = {};
+    for (const aid of agencyIds) {
+      const notifications = await Notification.findByAgency(aid, { isRead: false, isResolved: false });
+      counts[aid] = filterNotificationsForViewer(notifications, userId, userRole).length;
+    }
     res.json(counts);
   } catch (error) {
     next(error);
@@ -238,6 +257,9 @@ export const markAsRead = async (req, res, next) => {
     const notification = await Notification.findById(id);
     if (!notification) {
       return res.status(404).json({ error: { message: 'Notification not found' } });
+    }
+    if (MESSAGE_PRIVATE_TYPES.has(String(notification.type || '')) && Number(notification.user_id) !== Number(userId)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
     // Verify user has access to this notification's agency
@@ -265,6 +287,9 @@ export const markAsResolved = async (req, res, next) => {
     const notification = await Notification.findById(id);
     if (!notification) {
       return res.status(404).json({ error: { message: 'Notification not found' } });
+    }
+    if (MESSAGE_PRIVATE_TYPES.has(String(notification.type || '')) && Number(notification.user_id) !== Number(userId)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
     // Verify user has access to this notification's agency
@@ -380,6 +405,9 @@ export const deleteNotification = async (req, res, next) => {
     const notification = await Notification.findById(id);
     if (!notification) {
       return res.status(404).json({ error: { message: 'Notification not found' } });
+    }
+    if (MESSAGE_PRIVATE_TYPES.has(String(notification.type || '')) && Number(notification.user_id) !== Number(userId)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
     // Verify user has access to this notification's agency

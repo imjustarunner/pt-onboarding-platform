@@ -8,7 +8,12 @@
           Client: {{ thread?.client?.initials || '—' }}
         </p>
       </div>
-      <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
+      <div class="header-actions">
+        <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
+        <button class="btn btn-danger" @click="deleteConversation" :disabled="deleting || loading">
+          {{ deleting ? 'Deleting…' : 'Delete conversation' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
@@ -46,6 +51,7 @@
         </div>
         <div class="hint">
           Sends from the owner user’s system number to the client’s contact phone.
+          Deleting a conversation permanently removes it from this app, but it cannot recall an SMS already delivered to a phone carrier/device.
         </div>
       </div>
     </div>
@@ -63,6 +69,7 @@ const clientId = computed(() => parseInt(route.params.clientId));
 
 const loading = ref(true);
 const sending = ref(false);
+const deleting = ref(false);
 const error = ref('');
 const thread = ref(null);
 const draft = ref('');
@@ -98,7 +105,6 @@ const send = async () => {
     sending.value = true;
     error.value = '';
     await api.post('/messages/send', {
-      userId: userId.value,
       clientId: clientId.value,
       body: draft.value
     });
@@ -108,6 +114,20 @@ const send = async () => {
     error.value = e.response?.data?.error?.message || 'Failed to send message';
   } finally {
     sending.value = false;
+  }
+};
+
+const deleteConversation = async () => {
+  try {
+    deleting.value = true;
+    error.value = '';
+    await api.delete(`/messages/thread/${clientId.value}`);
+    // Clear local state; user can navigate back.
+    thread.value = { client: thread.value?.client || null, messages: [] };
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to delete conversation';
+  } finally {
+    deleting.value = false;
   }
 };
 
@@ -122,6 +142,7 @@ onMounted(load);
   align-items: flex-end;
   margin-bottom: 14px;
 }
+.header-actions { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .back { color: var(--text-secondary); text-decoration: none; }
 .subtitle { color: var(--text-secondary); margin: 6px 0 0 0; }
 .grid { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 14px; }

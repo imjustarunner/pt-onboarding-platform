@@ -3,8 +3,8 @@
     v-if="isAuthenticated"
     class="chat-drawer"
     :class="{ open: isOpen }"
-    @mouseenter="isOpen = true"
-    @mouseleave="isOpen = false"
+    @mouseenter="onEnter"
+    @mouseleave="onLeave"
   >
     <div class="rail" :title="needsAgency ? 'Select an agency to use chat' : 'Chat'">
       <div class="rail-badge rail-badge-top" :class="{ zero: totalUnread <= 0 }">
@@ -177,7 +177,22 @@
                 <div v-for="m in chatMessages" :key="m.id" class="msg" :class="{ mine: m.sender_user_id === meId }">
                   <div class="msg-meta">
                     <span class="msg-author">{{ m.sender_first_name }} {{ m.sender_last_name }}</span>
-                    <span class="msg-time">{{ formatTime(m.created_at) }}</span>
+                    <span class="msg-time">
+                      {{ formatTime(m.created_at) }}
+                      <span v-if="m.sender_user_id === meId" class="msg-receipt">
+                        {{ m.is_read_by_other ? '✓✓' : '✓' }}
+                      </span>
+                      <button
+                        v-if="m.sender_user_id === meId && !m.is_read_by_other"
+                        type="button"
+                        class="msg-action"
+                        @click="unsend(m)"
+                        :disabled="sending"
+                        title="Unsend (only before read)"
+                      >
+                        Unsend
+                      </button>
+                    </span>
                   </div>
                   <div class="msg-body">{{ m.body }}</div>
                 </div>
@@ -255,6 +270,23 @@ const loggedInNow = computed(() => {
   if (needsAgency.value) return 0;
   return (people.value || []).filter((u) => u.status === 'online' || u.status === 'idle').length;
 });
+
+let closeTimer = null;
+const onEnter = () => {
+  if (closeTimer) {
+    clearTimeout(closeTimer);
+    closeTimer = null;
+  }
+  isOpen.value = true;
+};
+const onLeave = () => {
+  if (closeTimer) clearTimeout(closeTimer);
+  // Debounce close to avoid flicker/quiver while interacting.
+  closeTimer = setTimeout(() => {
+    isOpen.value = false;
+    closeTimer = null;
+  }, 180);
+};
 
 const shouldLoadAllThreads = computed(() => {
   if (myRole.value === 'super_admin') return true;
@@ -415,6 +447,22 @@ const send = async () => {
   }
 };
 
+const unsend = async (m) => {
+  if (!activeThreadId.value || !m?.id) return;
+  if (m.sender_user_id !== meId.value) return;
+  if (m.is_read_by_other) return;
+  try {
+    sending.value = true;
+    await api.delete(`/chat/threads/${activeThreadId.value}/messages/${m.id}`, { skipGlobalLoading: true });
+    await loadMessages();
+    await loadThreads();
+  } catch (e) {
+    chatError.value = e.response?.data?.error?.message || 'Failed to unsend message';
+  } finally {
+    sending.value = false;
+  }
+};
+
 const closeChat = () => {
   activeChatUser.value = null;
   activeThreadId.value = null;
@@ -485,7 +533,13 @@ onMounted(async () => {
   startPolling();
 });
 
-onUnmounted(stopPolling);
+onUnmounted(() => {
+  stopPolling();
+  if (closeTimer) {
+    clearTimeout(closeTimer);
+    closeTimer = null;
+  }
+});
 </script>
 
 <style scoped>
@@ -575,7 +629,7 @@ onUnmounted(stopPolling);
   overflow: hidden;
   background: white;
   border-right: none;
-  transition: width 160ms ease, height 160ms ease, max-height 160ms ease;
+  transition: width 160ms ease, max-height 160ms ease;
 }
 
 .chat-drawer.open .panel {
@@ -630,6 +684,7 @@ onUnmounted(stopPolling);
 }
 
 .panel-body {
+  position: relative; /* contain the absolute chat-box (prevents “ghost window” on collapse) */
   padding: 12px 14px;
   height: calc(72vh - 56px); /* 72vh minus header-ish space */
   overflow: hidden;
@@ -685,6 +740,7 @@ onUnmounted(stopPolling);
   background: white;
   display: flex;
   flex-direction: column;
+  z-index: 1;
 }
 
 .chat-box-header {
@@ -713,6 +769,20 @@ onUnmounted(stopPolling);
 }
 .msg.mine { margin-left: auto; background: #ecfdf5; border-color: #a7f3d0; }
 .msg-meta { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+.msg-receipt { margin-left: 6px; font-weight: 900; color: rgba(15, 23, 42, 0.6); }
+.msg.mine .msg-receipt { color: rgba(16, 185, 129, 0.9); }
+.msg-action {
+  margin-left: 10px;
+  border: none;
+  background: transparent;
+  color: rgba(15, 23, 42, 0.55);
+  font-weight: 800;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+.msg-action:hover { color: rgba(15, 23, 42, 0.75); text-decoration: underline; }
+.msg-action:disabled { opacity: 0.6; cursor: not-allowed; }
 .msg-body { white-space: pre-wrap; font-size: 13px; color: var(--text-primary); }
 
 .chat-composer {
@@ -727,8 +797,16 @@ onUnmounted(stopPolling);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 8px 10px;
-  resize: none;
+  min-height: 56px;
+  max-height: 140px;
+  resize: vertical;
   font-size: 13px;
+}
+.chat-composer .btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 10px;
+  min-width: 56px;
 }
 
 .loading { color: var(--text-secondary); }

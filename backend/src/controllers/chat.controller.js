@@ -261,6 +261,34 @@ export const listMessages = async (req, res, next) => {
     if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
     await assertThreadAccess(req.user.id, threadId);
 
+    // Read receipts (direct threads): determine what the other participant has read.
+    // For now, we support "read by other" by using the max last_read_message_id among all other participants.
+    let otherLastReadMessageId = null;
+    try {
+      const [parts] = await pool.execute(
+        'SELECT user_id FROM chat_thread_participants WHERE thread_id = ? AND user_id <> ?',
+        [threadId, req.user.id]
+      );
+      const otherIds = (parts || []).map((p) => Number(p.user_id)).filter(Boolean);
+      if (otherIds.length) {
+        const placeholders = otherIds.map(() => '?').join(',');
+        const [reads] = await pool.execute(
+          `SELECT last_read_message_id
+           FROM chat_thread_reads
+           WHERE thread_id = ? AND user_id IN (${placeholders})`,
+          [threadId, ...otherIds]
+        );
+        for (const r of reads || []) {
+          const v = r?.last_read_message_id ? Number(r.last_read_message_id) : null;
+          if (!v) continue;
+          if (!otherLastReadMessageId || v > otherLastReadMessageId) otherLastReadMessageId = v;
+        }
+      }
+    } catch {
+      // Best-effort; do not fail message loading if receipts can't be computed.
+      otherLastReadMessageId = null;
+    }
+
     // NOTE: Some MySQL/CloudSQL setups reject prepared-statement params for LIMIT,
     // yielding "Incorrect arguments to mysqld_stmt_execute". We inline a validated integer.
     const parsed = req.query.limit ? parseInt(req.query.limit, 10) : null;
@@ -275,7 +303,15 @@ export const listMessages = async (req, res, next) => {
        LIMIT ${limit}`,
       [threadId]
     );
-    res.json((rows || []).reverse());
+    const ordered = (rows || []).reverse();
+    const me = Number(req.user.id);
+    const enriched = ordered.map((m) => {
+      const id = m?.id ? Number(m.id) : null;
+      const isMine = Number(m?.sender_user_id) === me;
+      const isReadByOther = !!(isMine && id && otherLastReadMessageId && id <= otherLastReadMessageId);
+      return { ...m, is_read_by_other: isReadByOther };
+    });
+    res.json(enriched);
   } catch (e) {
     next(e);
   }
@@ -347,6 +383,81 @@ export const sendMessage = async (req, res, next) => {
       [ins.insertId]
     );
     res.status(201).json(row[0]);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const unsendMessage = async (req, res, next) => {
+  try {
+    const threadId = parseInt(req.params.threadId, 10);
+    const messageId = parseInt(req.params.messageId, 10);
+    if (!threadId || !messageId) {
+      return res.status(400).json({ error: { message: 'threadId and messageId are required' } });
+    }
+    await assertThreadAccess(req.user.id, threadId);
+
+    const [[msg]] = await pool.execute(
+      'SELECT id, thread_id, sender_user_id, body, created_at FROM chat_messages WHERE id = ? AND thread_id = ? LIMIT 1',
+      [messageId, threadId]
+    );
+    if (!msg) return res.status(404).json({ error: { message: 'Message not found' } });
+    if (Number(msg.sender_user_id) !== Number(req.user.id)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    // Only allow unsend if the recipient has not read this message.
+    let otherLastReadMessageId = null;
+    const [parts] = await pool.execute(
+      'SELECT user_id FROM chat_thread_participants WHERE thread_id = ? AND user_id <> ?',
+      [threadId, req.user.id]
+    );
+    const recipientIds = (parts || []).map((p) => Number(p.user_id)).filter(Boolean);
+    if (recipientIds.length) {
+      const placeholders = recipientIds.map(() => '?').join(',');
+      const [reads] = await pool.execute(
+        `SELECT last_read_message_id
+         FROM chat_thread_reads
+         WHERE thread_id = ? AND user_id IN (${placeholders})`,
+        [threadId, ...recipientIds]
+      );
+      for (const r of reads || []) {
+        const v = r?.last_read_message_id ? Number(r.last_read_message_id) : null;
+        if (!v) continue;
+        if (!otherLastReadMessageId || v > otherLastReadMessageId) otherLastReadMessageId = v;
+      }
+    }
+    if (otherLastReadMessageId && Number(messageId) <= Number(otherLastReadMessageId)) {
+      return res.status(409).json({ error: { message: 'Cannot unsend: message was already read' } });
+    }
+
+    await pool.execute('DELETE FROM chat_messages WHERE id = ? AND thread_id = ?', [messageId, threadId]);
+    await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
+
+    // Best-effort: delete the notification that contains this message snippet (if it was created).
+    try {
+      const senderUser = await User.findById(req.user.id);
+      const senderName = `${senderUser?.first_name || ''} ${senderUser?.last_name || ''}`.trim() || 'Someone';
+      const b = String(msg.body || '');
+      const snippet = b.length > 120 ? b.slice(0, 117) + '…' : b;
+      const notificationMessage = `${senderName}: ${snippet}`;
+      for (const rid of recipientIds) {
+        // Delete the most specific match (thread + recipient + exact message text).
+        await pool.execute(
+          `DELETE FROM notifications
+           WHERE user_id = ?
+             AND type = 'chat_message'
+             AND related_entity_type = 'chat_thread'
+             AND related_entity_id = ?
+             AND message = ?`,
+          [rid, threadId, notificationMessage]
+        );
+      }
+    } catch {
+      // ignore
+    }
+
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

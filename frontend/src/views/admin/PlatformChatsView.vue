@@ -60,7 +60,20 @@
             <div v-for="m in messages" :key="m.id" class="bubble" :class="{ mine: m.sender_user_id === meId }">
               <div class="meta">
                 <span>{{ m.sender_first_name }} {{ m.sender_last_name }}</span>
-                <span>{{ formatTime(m.created_at) }}</span>
+                <span>
+                  {{ formatTime(m.created_at) }}
+                  <span v-if="m.sender_user_id === meId" class="receipt">{{ m.is_read_by_other ? '✓✓' : '✓' }}</span>
+                  <button
+                    v-if="m.sender_user_id === meId && !m.is_read_by_other"
+                    class="unsend"
+                    type="button"
+                    @click="unsend(m)"
+                    :disabled="sending"
+                    title="Unsend (only before read)"
+                  >
+                    Unsend
+                  </button>
+                </span>
               </div>
               <div class="text">{{ m.body }}</div>
             </div>
@@ -238,6 +251,20 @@ const send = async () => {
   }
 };
 
+const unsend = async (m) => {
+  if (!activeThreadId.value || !m?.id) return;
+  if (Number(m.sender_user_id) !== Number(meId.value)) return;
+  if (m.is_read_by_other) return;
+  try {
+    sending.value = true;
+    await api.delete(`/chat/threads/${activeThreadId.value}/messages/${m.id}`);
+    await loadMessages();
+    await loadThreads();
+  } finally {
+    sending.value = false;
+  }
+};
+
 const refresh = async () => {
   await loadThreads();
   if (activeThreadId.value) await loadMessages();
@@ -305,6 +332,19 @@ onMounted(async () => {
 .bubble { max-width: 90%; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: #f8fafc; }
 .bubble.mine { margin-left: auto; background: #ecfdf5; border-color: #a7f3d0; }
 .meta { display: flex; justify-content: space-between; gap: 10px; color: var(--text-secondary); font-size: 12px; margin-bottom: 4px; }
+.receipt { margin-left: 8px; font-weight: 900; color: rgba(16, 185, 129, 0.9); }
+.unsend {
+  margin-left: 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 800;
+  color: rgba(15, 23, 42, 0.55);
+}
+.unsend:hover { color: rgba(15, 23, 42, 0.75); text-decoration: underline; }
+.unsend:disabled { opacity: 0.6; cursor: not-allowed; }
 .text { white-space: pre-wrap; }
 .composer { border-top: 1px solid var(--border); padding-top: 10px; }
 textarea { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; resize: vertical; }
