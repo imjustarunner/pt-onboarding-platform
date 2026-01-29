@@ -866,7 +866,10 @@
       >
         <h3 class="card-title" style="margin: 0 0 6px 0;">Manual miles (temporary fallback)</h3>
         <div class="hint">
-          Auto-calculation is unavailable (missing Google Maps key). Enter the <strong>eligible miles</strong> you want reimbursed.
+          Auto-calculation is unavailable. Enter the <strong>eligible miles</strong> you want reimbursed.
+          <span v-if="schoolTravelManualMilesReason" class="muted" style="display:block; margin-top: 6px;">
+            Details: {{ schoolTravelManualMilesReason }}
+          </span>
         </div>
         <div class="field-row" style="margin-top: 10px; grid-template-columns: 1fr;">
           <div class="field">
@@ -1835,6 +1838,7 @@ const mileageOffices = ref([]);
 const savingHomeAddress = ref(false);
 const editingHomeAddress = ref(false);
 const schoolTravelManualMilesMode = ref(false);
+const schoolTravelManualMilesReason = ref('');
 const lastLoadedHomeAddress = ref({
   homeStreetAddress: '',
   homeCity: '',
@@ -2384,6 +2388,7 @@ const ytdTotals = computed(() => {
 const openMileageModal = (claimType = 'school_travel') => {
   submitMileageError.value = '';
   schoolTravelManualMilesMode.value = false;
+  schoolTravelManualMilesReason.value = '';
   const today = new Date();
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   mileageForm.value = {
@@ -2424,6 +2429,7 @@ const closeMileageModal = () => {
   showMileageModal.value = false;
   editingHomeAddress.value = false;
   schoolTravelManualMilesMode.value = false;
+  schoolTravelManualMilesReason.value = '';
 };
 
 const loadMileageClaims = async () => {
@@ -2559,7 +2565,7 @@ const submitMileage = async () => {
         }
       }
     }
-    await api.post('/payroll/me/mileage-claims', {
+    const resp = await api.post('/payroll/me/mileage-claims', {
       agencyId: agencyId.value,
       claimType: mileageForm.value.claimType || 'school_travel',
       driveDate: mileageForm.value.driveDate,
@@ -2578,14 +2584,36 @@ const submitMileage = async () => {
       attestation: !!mileageForm.value.attestation
     });
     showMileageModal.value = false;
-    submitSuccess.value = 'Mileage submission sent successfully. Payroll will review and approve it before it is added to a pay period.';
+    const warn = resp?.data?.submissionWarning ? String(resp.data.submissionWarning) : '';
+    submitSuccess.value = warn
+      ? `Mileage submission sent. Note: ${warn}`
+      : 'Mileage submission sent successfully. Payroll will review and approve it before it is added to a pay period.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
     await loadMileageClaims();
   } catch (e) {
-    const msg = e.response?.data?.error?.message || e.message || 'Failed to submit mileage';
+    let msg = e.response?.data?.error?.message;
+    // Some proxies mislabel error bodies, leaving axios with a raw string instead of JSON.
+    if (!msg && typeof e.response?.data === 'string') {
+      const raw = String(e.response.data || '').trim();
+      try {
+        msg = JSON.parse(raw)?.error?.message || null;
+      } catch {
+        msg = raw ? raw.slice(0, 400) : null;
+      }
+    }
+    msg = msg || e.message || 'Failed to submit mileage';
+    const s = String(msg || '');
     // If auto mileage isn't available, switch into manual miles mode without closing the modal.
-    if (String(msg).includes('GOOGLE_MAPS_API_KEY')) {
+    // Backend uses 409s for business-rule blocks like missing addresses or missing Maps key.
+    if (
+      s.includes('GOOGLE_MAPS_API_KEY') ||
+      s.includes('School address is not configured') ||
+      s.includes('Office address is not configured') ||
+      s.includes('Failed to compute distance') ||
+      s.includes('Distance lookup failed')
+    ) {
       schoolTravelManualMilesMode.value = true;
+      schoolTravelManualMilesReason.value = s;
       submitMileageError.value = 'Automatic mileage is unavailable right now. Enter eligible miles manually below and resubmit.';
       return;
     }

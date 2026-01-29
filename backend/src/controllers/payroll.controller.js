@@ -7364,10 +7364,11 @@ export const createMyMileageClaim = async (req, res, next) => {
       timeZone: resolveClaimTimeZone({ officeLocationTimeZone: officeTz }),
       hardStopPolicy: claimType === 'school_travel' ? 'in_school' : '60_days'
     });
-    if (!win.ok) {
-      return res.status(win.status || 409).json({ error: { message: win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE } });
-    }
-    const suggestedPayrollPeriodIdOverride = win.suggestedPayrollPeriodId;
+    // IMPORTANT (PeopleOps request): allow mileage submissions even if outside the in-app window.
+    // We still compute a suggested pay period when possible, but we don't hard-block submission.
+    // (Other claim types may still enforce windows elsewhere.)
+    const submissionWarning = !win.ok ? (win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE) : null;
+    const suggestedPayrollPeriodIdOverride = win?.suggestedPayrollPeriodId || null;
     if (claimType === 'school_travel') {
       if (!schoolOrganizationId) return res.status(400).json({ error: { message: 'schoolOrganizationId is required' } });
       if (!officeLocationId && !officeKey) return res.status(400).json({ error: { message: 'officeLocationId is required' } });
@@ -7487,7 +7488,7 @@ export const createMyMileageClaim = async (req, res, next) => {
       tierLevel,
       suggestedPayrollPeriodId: suggestedPayrollPeriodIdOverride
     });
-    res.json({ claim });
+    res.json({ claim, submissionWarning });
   } catch (e) {
     next(e);
   }

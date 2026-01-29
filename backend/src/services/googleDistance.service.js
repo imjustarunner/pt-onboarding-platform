@@ -78,6 +78,7 @@ export async function getDrivingDistanceMeters(originRaw, destinationRaw) {
   const data = resp?.data || {};
   const element = data?.rows?.[0]?.elements?.[0] || null;
   const status = String(element?.status || data?.status || 'UNKNOWN');
+  const apiErrorMessage = typeof data?.error_message === 'string' ? data.error_message.trim() : '';
   const distanceMeters = Number(element?.distance?.value || 0);
   const durationSeconds = Number(element?.duration?.value || 0);
 
@@ -91,7 +92,8 @@ export async function getDrivingDistanceMeters(originRaw, destinationRaw) {
   });
 
   if (status !== 'OK' || !Number.isFinite(distanceMeters) || distanceMeters <= 0) {
-    const err = new Error(`Distance lookup failed (${status})`);
+    const details = apiErrorMessage ? `: ${apiErrorMessage}` : '';
+    const err = new Error(`Distance lookup failed (${status})${details}`);
     err.code = 'MAPS_DISTANCE_FAILED';
     throw err;
   }
