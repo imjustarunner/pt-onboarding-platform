@@ -24,11 +24,59 @@ function roleCanUseAgencyAffiliation(role) {
   return r === 'admin' || r === 'support' || r === 'staff';
 }
 
+async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId }) {
+  const uid = parseInt(providerUserId, 10);
+  const orgId = parseInt(schoolOrganizationId, 10);
+  if (!uid || !orgId) return false;
+
+  // Prefer provider/day assignment table (future-proof), fall back to active client-provider assignments.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM provider_school_assignments psa
+       WHERE psa.school_organization_id = ?
+         AND psa.provider_user_id = ?
+         AND psa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, uid]
+    );
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE') || msg.includes('Unknown column') || msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_provider_assignments cpa
+       WHERE cpa.organization_id = ?
+         AND cpa.provider_user_id = ?
+         AND cpa.is_active = TRUE
+       LIMIT 1`,
+      [orgId, uid]
+    );
+    return !!rows?.[0];
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE') || msg.includes('Unknown column') || msg.includes('ER_BAD_FIELD_ERROR');
+    if (missing) return false;
+    throw e;
+  }
+}
+
 async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganizationId }) {
   if (!userId) return false;
   const userOrgs = await User.getAgencies(userId);
   const hasDirect = (userOrgs || []).some((org) => parseInt(org.id, 10) === parseInt(schoolOrganizationId, 10));
   if (hasDirect) return true;
+
+  // Providers should be allowed if they have active assignment(s) under this school.
+  // They still only receive their own assigned clients from the roster endpoint.
+  if (String(role || '').toLowerCase() === 'provider') {
+    return await providerHasSchoolAccess({ providerUserId: userId, schoolOrganizationId });
+  }
 
   if (!roleCanUseAgencyAffiliation(role)) return false;
   const activeAgencyId = await resolveActiveAgencyIdForOrg(schoolOrganizationId);
