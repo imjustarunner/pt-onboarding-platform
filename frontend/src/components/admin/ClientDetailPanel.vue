@@ -1796,9 +1796,8 @@ const generateClientCode = async () => {
   if (!canManageClientCode.value || !props.client?.id) return;
   try {
     clientCodeSaving.value = true;
-    const r = await api.post(`/clients/${props.client.id}/identifier-code/generate`);
-    const updated = r.data?.client || null;
-    if (updated) emit('updated', { keepOpen: true, client: updated });
+    await api.put(`/clients/${props.client.id}`, { generate_identifier_code: true });
+    await refreshClient();
     clientCodeDraft.value = '';
   } catch (e) {
     alert(e.response?.data?.error?.message || 'Failed to generate code');
@@ -1813,9 +1812,8 @@ const saveClientCode = async () => {
   if (!/^\d{6}$/.test(code)) return;
   try {
     clientCodeSaving.value = true;
-    const r = await api.put(`/clients/${props.client.id}/identifier-code`, { identifier_code: code });
-    const updated = r.data?.client || null;
-    if (updated) emit('updated', { keepOpen: true, client: updated });
+    await api.put(`/clients/${props.client.id}`, { identifier_code: code });
+    await refreshClient();
     clientCodeDraft.value = '';
   } catch (e) {
     alert(e.response?.data?.error?.message || 'Failed to save code');

@@ -1273,6 +1273,40 @@ export const updateClient = async (req, res, next) => {
       });
     }
 
+    // Client identifier code (6-digit, permanent):
+    // Use the existing update endpoint so the UI doesn't depend on a brand-new route.
+    // - If missing/invalid: allow setting to a provided 6-digit code, or generating a new one.
+    // - If already set: do not allow editing.
+    const wantsGenerateCode =
+      req.body?.generate_identifier_code === true ||
+      String(req.body?.generate_identifier_code || '').toLowerCase() === 'true';
+    const providedCode = normalizeSixDigitClientCode(req.body?.identifier_code);
+    const currentCode = String(currentClient.identifier_code || '').trim();
+    const currentCodeValid = /^\d{6}$/.test(currentCode);
+
+    if (!currentCodeValid && (wantsGenerateCode || providedCode)) {
+      const agencyId = parseInt(currentClient.agency_id, 10);
+      const codeToSet = providedCode || (await generateUniqueSixDigitClientCode({ agencyId }));
+
+      // Uniqueness within agency
+      const [dupes] = await pool.execute(
+        `SELECT id FROM clients WHERE agency_id = ? AND identifier_code = ? LIMIT 1`,
+        [agencyId, codeToSet]
+      );
+      if (dupes?.[0]?.id) {
+        return res.status(409).json({ error: { message: `Client code "${codeToSet}" already exists in this agency.` } });
+      }
+
+      // Set it in stone (only if still missing/invalid at write time)
+      await pool.execute(
+        `UPDATE clients
+         SET identifier_code = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND (identifier_code IS NULL OR identifier_code = '' OR identifier_code NOT REGEXP '^[0-9]{6}$')`,
+        [codeToSet, parseInt(id, 10)]
+      );
+    }
+
     // Update client
     let updatedClient = await Client.update(id, req.body, userId);
 
