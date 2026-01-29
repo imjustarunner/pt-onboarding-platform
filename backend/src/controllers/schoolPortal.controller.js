@@ -289,24 +289,21 @@ export const getProviderMyRoster = async (req, res, next) => {
     const providerUserId = parseInt(userId, 10);
     if (!providerUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
-    // Verify organization exists (school/program/learning).
-    // NOTE: Some callers may pass a slug instead of a numeric id; support both.
-    const orgIdParsed = parseInt(String(organizationId), 10);
-    const organization = Number.isFinite(orgIdParsed) && orgIdParsed > 0
-      ? await Agency.findById(orgIdParsed)
-      : await Agency.findBySlug(String(organizationId || '').trim().toLowerCase());
-    if (!organization) {
-      return res.status(404).json({
-        error: { message: 'Organization not found' }
-      });
+    // First principles: the provider roster is defined by assignments, not by org metadata.
+    // We intentionally avoid hard-failing (404) if the org record can’t be resolved.
+    // NOTE: Callers may pass a slug instead of numeric id.
+    let orgId = parseInt(String(organizationId), 10);
+    if (!Number.isFinite(orgId) || orgId < 1) {
+      try {
+        const org = await Agency.findBySlug(String(organizationId || '').trim().toLowerCase());
+        orgId = org?.id ? parseInt(String(org.id), 10) : NaN;
+      } catch {
+        orgId = NaN;
+      }
     }
-
-    const orgType = String(organization.organization_type || 'agency').toLowerCase();
-    const allowedTypes = ['school', 'program', 'learning'];
-    if (!allowedTypes.includes(orgType)) {
-      return res.status(400).json({
-        error: { message: `This endpoint is only available for organizations of type: ${allowedTypes.join(', ')}` }
-      });
+    if (!Number.isFinite(orgId) || orgId < 1) {
+      // No org key resolved → treat as empty roster rather than 404 (prevents broken UX).
+      return res.json([]);
     }
 
     const skillsOnly = false;
@@ -314,7 +311,6 @@ export const getProviderMyRoster = async (req, res, next) => {
     // Use the same restricted roster query but force provider filtering.
     let clients = [];
     try {
-      const orgId = parseInt(organization.id, 10);
       const [rows] = await pool.execute(
         `SELECT
            c.id,
@@ -371,7 +367,7 @@ export const getProviderMyRoster = async (req, res, next) => {
       if (!missing) throw e;
 
       // Legacy fallback: clients.organization_id + clients.provider_id
-      const all = await Client.findByOrganizationId(parseInt(organization.id, 10), { provider_id: providerUserId });
+      const all = await Client.findByOrganizationId(parseInt(orgId, 10), { provider_id: providerUserId });
       clients = (all || []).filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
     }
 

@@ -163,7 +163,9 @@ const sortKey = ref('submission_date');
 const sortDir = ref('desc');
 
 const fetchClients = async () => {
-  if (!props.organizationId) {
+  // School roster requires a numeric org id.
+  // Provider "My roster" can fall back to using the org slug (more robust across contexts).
+  if (!props.organizationId && props.rosterScope !== 'provider') {
     loading.value = false;
     error.value = 'Organization ID is required';
     return;
@@ -173,10 +175,21 @@ const fetchClients = async () => {
   error.value = '';
 
   try {
+    const orgKey =
+      props.rosterScope === 'provider'
+        ? (props.organizationId ? String(props.organizationId) : String(props.organizationSlug || '').trim())
+        : String(props.organizationId);
+
+    if (!orgKey) {
+      clients.value = [];
+      error.value = 'Organization not loaded.';
+      return;
+    }
+
     const endpoint =
       props.rosterScope === 'provider'
-        ? `/school-portal/${props.organizationId}/my-roster`
-        : `/school-portal/${props.organizationId}/clients`;
+        ? `/school-portal/${encodeURIComponent(orgKey)}/my-roster`
+        : `/school-portal/${encodeURIComponent(orgKey)}/clients`;
     const response = await api.get(endpoint);
     clients.value = response.data || [];
   } catch (err) {
