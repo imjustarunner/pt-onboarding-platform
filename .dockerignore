@@ -58,7 +58,9 @@ cloudbuild*.yaml
 database/
 
 # Uploads (will be in Cloud Storage)
-backend/uploads/
+# Keep a placeholder directory so backend Dockerfile can `COPY backend/uploads ...`
+backend/uploads/*
+!backend/uploads/.gitkeep
 frontend/uploads/
 
 secrets/
