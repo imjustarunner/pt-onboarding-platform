@@ -51,12 +51,16 @@
               <div class="agency-context-left">
                 <label class="agency-context-label">Agency</label>
 
-                <div v-if="!isSuperAdmin && selectableAgencies.length === 1" class="agency-context-single">
+                <div v-if="lockAgencyContext" class="agency-context-single">
+                  {{ lockedAgencyLabel }}
+                </div>
+
+                <div v-else-if="!isSuperAdmin && selectableAgencies.length === 1" class="agency-context-single">
                   {{ selectableAgencies[0].name }}
                 </div>
 
                 <select
-                  v-else
+                  v-else-if="!lockAgencyContext"
                   v-model="selectedAgencyId"
                   class="agency-context-select"
                   @change="handleAgencySelection"
@@ -67,7 +71,7 @@
                   </option>
                 </select>
 
-                <small v-if="isSuperAdmin" class="agency-context-help">
+                <small v-if="isSuperAdmin && !lockAgencyContext" class="agency-context-help">
                   Super Admin accounts must select which agency to manage for agency-scoped settings.
                 </small>
               </div>
@@ -131,7 +135,17 @@ import BillingManagement from './BillingManagement.vue';
 import IntegrationsManagement from './IntegrationsManagement.vue';
 
 const props = defineProps({
-  embedded: { type: Boolean, default: false }
+  embedded: { type: Boolean, default: false },
+  // Optional initial selection (useful for embedded/portal contexts).
+  initialCategoryId: { type: String, default: null },
+  initialItemId: { type: String, default: null },
+  // Optional initial agency selection and locked-agency context.
+  initialAgencyId: { type: [String, Number], default: null },
+  lockAgencyContext: { type: Boolean, default: false },
+  // Prevent route query syncing (important for embedded usage inside other pages).
+  disableRouteSync: { type: Boolean, default: false },
+  // Optional school id (used by School Settings to preselect a school).
+  initialSchoolId: { type: [String, Number], default: null }
 });
 
 const route = useRoute();
@@ -214,7 +228,7 @@ const allCategories = [
         icon: '🏫',
         component: 'SchoolCatalogManagement',
         requiresAgency: true,
-        roles: ['super_admin', 'admin'],
+        roles: ['super_admin', 'admin', 'staff'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
         excludeSupervisor: true
       },
@@ -514,7 +528,11 @@ const componentProps = computed(() => {
   const item = category.items.find(i => i.id === selectedItem.value);
   if (!item) return {};
   
-  return item.props || {};
+  const base = item.props || {};
+  if (selectedCategory.value === 'workflow' && selectedItem.value === 'school-settings' && props.initialSchoolId) {
+    return { ...base, initialSchoolId: props.initialSchoolId };
+  }
+  return base;
 });
 
 const selectedItemAgencyOnly = computed(() => {
@@ -547,18 +565,44 @@ const selectItem = (categoryId, itemId) => {
   // Auto-collapse to only the active category (still user-toggleable via header click).
   expandedCategoryIds.value = new Set([String(categoryId)]);
   
-  // Update URL for deep linking
-  router.replace({
-    query: {
-      ...route.query,
-      category: categoryId,
-      item: itemId
-    }
-  });
+  // Update URL for deep linking (skip for embedded/locked contexts).
+  if (!props.disableRouteSync && !props.embedded) {
+    router.replace({
+      query: {
+        ...route.query,
+        category: categoryId,
+        item: itemId
+      }
+    });
+  }
 };
 
 const closeModal = () => {
   router.push('/admin');
+};
+
+const lockedAgencyLabel = computed(() => {
+  const cur = agencyStore.currentAgency;
+  if (cur?.name) return cur.name;
+  return 'Locked';
+});
+
+const applyInitialAgencySelection = async () => {
+  const raw = props.initialAgencyId;
+  const id = raw !== null && raw !== undefined && raw !== '' ? parseInt(String(raw), 10) : NaN;
+  if (Number.isNaN(id)) return;
+
+  const inList = selectableAgencies.value.find((a) => Number(a?.id) === Number(id));
+  if (inList) {
+    agencyStore.setCurrentAgency(inList);
+    return;
+  }
+
+  // Super admins can hydrate agencies by id even if not in-memory yet.
+  if (isSuperAdmin.value) {
+    const hydrated = await agencyStore.hydrateAgencyById(id);
+    if (hydrated) agencyStore.setCurrentAgency(hydrated);
+  }
 };
 
 // Initialize from URL query parameters
@@ -590,44 +634,56 @@ onMounted(async () => {
   }
 
   // Optional deep-link agency selection (used by other pages/modals)
-  const agencyIdParam = route.query.agencyId;
-  if (agencyIdParam) {
-    const id = parseInt(String(agencyIdParam), 10);
-    if (!Number.isNaN(id)) {
-      const target = selectableAgencies.value.find((a) => Number(a?.id) === Number(id));
-      if (target) {
-        agencyStore.setCurrentAgency(target);
+  if (!props.disableRouteSync && !props.embedded) {
+    const agencyIdParam = route.query.agencyId;
+    if (agencyIdParam) {
+      const id = parseInt(String(agencyIdParam), 10);
+      if (!Number.isNaN(id)) {
+        const target = selectableAgencies.value.find((a) => Number(a?.id) === Number(id));
+        if (target) {
+          agencyStore.setCurrentAgency(target);
+        }
       }
     }
   }
 
+  // Optional initial agency selection (for embedded/portal contexts)
+  await applyInitialAgencySelection();
+
   selectedAgencyId.value = agencyStore.currentAgency?.id ? String(agencyStore.currentAgency.id) : '';
   
-  // Check for deep link parameters
-  const categoryParam = route.query.category;
-  const itemParam = route.query.item;
-  
-  if (categoryParam && itemParam) {
-    // Validate that the category and item are visible for this user
-    const category = visibleCategories.value.find(c => c.id === categoryParam);
-    if (category) {
-      const item = category.items.find(i => i.id === itemParam);
-      if (item) {
-        selectedCategory.value = categoryParam;
-        selectedItem.value = itemParam;
-        expandedCategoryIds.value = new Set([String(categoryParam)]);
-        return;
-      }
+  // Initial selection: props > route query (when route sync is enabled) > default
+  const trySetSelection = (categoryId, itemId) => {
+    if (!categoryId || !itemId) return false;
+    const category = visibleCategories.value.find((c) => c.id === categoryId);
+    if (!category) return false;
+    const item = category.items.find((i) => i.id === itemId);
+    if (!item) return false;
+    selectedCategory.value = categoryId;
+    selectedItem.value = itemId;
+    expandedCategoryIds.value = new Set([String(categoryId)]);
+    return true;
+  };
+
+  if (trySetSelection(props.initialCategoryId, props.initialItemId)) {
+    // selection set
+  } else if (!props.disableRouteSync && !props.embedded) {
+    const categoryParam = route.query.category;
+    const itemParam = route.query.item;
+    if (categoryParam && itemParam && trySetSelection(categoryParam, itemParam)) {
+      // selection set
     }
   }
   
-  // Default to first visible category and item
-  if (visibleCategories.value.length > 0) {
-    const firstCategory = visibleCategories.value[0];
-    if (firstCategory.items.length > 0) {
-      selectedCategory.value = firstCategory.id;
-      selectedItem.value = firstCategory.items[0].id;
-      expandedCategoryIds.value = new Set([String(firstCategory.id)]);
+  // Default to first visible category and item (only if no selection was established)
+  if (!selectedCategory.value || !selectedItem.value) {
+    if (visibleCategories.value.length > 0) {
+      const firstCategory = visibleCategories.value[0];
+      if (firstCategory.items.length > 0) {
+        selectedCategory.value = firstCategory.id;
+        selectedItem.value = firstCategory.items[0].id;
+        expandedCategoryIds.value = new Set([String(firstCategory.id)]);
+      }
     }
   }
 
@@ -643,6 +699,7 @@ watch(() => agencyStore.currentAgency, async (a) => {
 
 // Watch for route changes (for browser back/forward)
 watch(() => route.query, (newQuery) => {
+  if (props.disableRouteSync || props.embedded) return;
   if (newQuery.category && newQuery.item) {
     const category = visibleCategories.value.find(c => c.id === newQuery.category);
     if (category) {

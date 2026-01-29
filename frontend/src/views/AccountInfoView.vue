@@ -422,11 +422,21 @@ import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
+import { toUploadsUrl } from '../utils/uploadsUrl';
 
 const router = useRouter();
 const authStore = useAuthStore();
 const userId = computed(() => authStore.user?.id);
-const profilePhotoUrl = computed(() => authStore.user?.profilePhotoUrl || null);
+const profilePhotoUrl = computed(() => {
+  // `GET /users/me` returns `profile_photo_url` which is typically a backend-relative `/uploads/...` path.
+  // Always convert to absolute backend URL so it works in production where frontend and backend are on different origins.
+  const raw =
+    authStore.user?.profile_photo_url ||
+    authStore.user?.profile_photo_path ||
+    authStore.user?.profilePhotoUrl ||
+    null;
+  return toUploadsUrl(raw);
+});
 const canManageProfilePhoto = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return role === 'admin' || role === 'super_admin';

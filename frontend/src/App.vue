@@ -10,7 +10,7 @@
           <div class="agency-loading-text">{{ loadingText }}</div>
         </div>
       </div>
-      <nav v-if="isAuthenticated" class="navbar">
+      <nav v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" class="navbar">
         <div class="container">
           <div class="nav-content">
             <button class="mobile-menu-toggle" @click="mobileMenuOpen = !mobileMenuOpen" aria-label="Toggle menu">
@@ -198,7 +198,7 @@
         </div>
       </nav>
       <!-- Welcome tag (hangs under navbar) -->
-      <div v-if="isAuthenticated" class="welcome-hang-wrap">
+      <div v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" class="welcome-hang-wrap">
         <router-link
           class="welcome-hang-link"
           :to="orgTo('/dashboard')"
@@ -209,7 +209,12 @@
         </router-link>
       </div>
       <!-- Mobile Sidebar (available on all screen sizes) -->
-      <div v-if="isAuthenticated" class="mobile-sidebar" :class="{ open: mobileMenuOpen }" @click.self="mobileMenuOpen = false">
+      <div
+        v-if="isAuthenticated && !hideGlobalNavForSchoolStaff"
+        class="mobile-sidebar"
+        :class="{ open: mobileMenuOpen }"
+        @click.self="mobileMenuOpen = false"
+      >
         <div class="mobile-sidebar-content">
           <div class="mobile-sidebar-header">
             <BrandingLogo size="medium" class="mobile-logo" />
@@ -288,10 +293,14 @@
         </div>
       </div>
       <!-- Mobile Sidebar Overlay -->
-      <div v-if="isAuthenticated && mobileMenuOpen" class="mobile-overlay" @click="mobileMenuOpen = false"></div>
+      <div
+        v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && mobileMenuOpen"
+        class="mobile-overlay"
+        @click="mobileMenuOpen = false"
+      ></div>
       <main>
         <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher -->
-        <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin" />
+        <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
         <router-view />
       </main>
       <TourManager v-if="isAuthenticated" />
@@ -592,6 +601,15 @@ const navTitleText = computed(() => {
 
 const isAuthenticated = computed(() => authStore.isAuthenticated);
 const user = computed(() => authStore.user);
+
+const hideGlobalNavForSchoolStaff = computed(() => {
+  if (!isAuthenticated.value) return false;
+  const role = String(user.value?.role || '').toLowerCase();
+  if (role !== 'school_staff') return false;
+  const orgType = String(organizationStore.organizationContext?.organization_type || '').toLowerCase();
+  return orgType === 'school';
+});
+
 const capabilities = computed(() => user.value?.capabilities || null);
 const hasCapability = (key) => {
   const caps = capabilities.value;

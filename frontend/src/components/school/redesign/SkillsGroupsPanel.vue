@@ -185,9 +185,6 @@
                 {{ clientLabel(c) }}
               </option>
             </select>
-            <div v-if="clientLabelMode === 'codes'" class="muted" style="margin-top: 4px; font-size: 12px;">
-              Showing codes. Hover assigned chips/list items to reveal initials.
-            </div>
           </div>
           <div class="actions" style="align-self:end;">
             <button class="btn btn-primary btn-sm" type="button" @click="addClientToGroup" :disabled="!clientPick || saving">
@@ -245,17 +242,14 @@ const providerPick = ref('');
 const clientPick = ref('');
 
 const clientLabel = (c) => {
+  // Skills Groups creation/assignment is a back-office workflow; show initials by default (no need for anonymized codes here).
   const initials = String(c?.initials || '').replace(/\s+/g, '').toUpperCase();
   const code = String(c?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
-  if (props.clientLabelMode === 'initials') return initials || code || `ID ${c?.id || c?.client_id || ''}`.trim();
-  return code || initials || `ID ${c?.id || c?.client_id || ''}`.trim();
+  return initials || code || `ID ${c?.id || c?.client_id || ''}`.trim();
 };
 
 const clientHoverTitle = (c) => {
-  // When showing codes, hovering reveals initials.
-  if (props.clientLabelMode !== 'codes') return '';
-  const initials = String(c?.initials || '').replace(/\s+/g, '').toUpperCase();
-  return initials || '';
+  return '';
 };
 
 const form = ref({

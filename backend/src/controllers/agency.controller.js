@@ -526,6 +526,101 @@ export const restoreAgency = async (req, res, next) => {
   }
 };
 
+export const deleteAgencyHard = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const orgId = parseInt(String(id), 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
+
+    const agency = await Agency.findById(orgId);
+    if (!agency) return res.status(404).json({ error: { message: 'Agency not found' } });
+
+    const orgType = String(agency.organization_type || 'agency').toLowerCase();
+    if (orgType !== 'school') {
+      return res.status(400).json({ error: { message: 'Hard delete is only supported for school organizations.' } });
+    }
+
+    if (!agency.is_archived) {
+      return res.status(409).json({ error: { message: 'This school must be archived before it can be deleted.' } });
+    }
+
+    // Best-effort dependency checks across common tables (skip tables/columns that do not exist).
+    const listColumns = async (tableName) => {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME IN ('agency_id','organization_id','school_id','school_organization_id')",
+        [tableName]
+      );
+      return (cols || []).map((c) => c.COLUMN_NAME);
+    };
+
+    const countRefs = async (tableName) => {
+      let cols = [];
+      try {
+        cols = await listColumns(tableName);
+      } catch {
+        cols = [];
+      }
+      if (!cols || cols.length === 0) return 0;
+
+      const cond = cols.map((c) => `\`${c}\` = ?`).join(' OR ');
+      const params = cols.map(() => orgId);
+      try {
+        const [rows] = await pool.execute(`SELECT COUNT(*) AS c FROM \`${tableName}\` WHERE ${cond}`, params);
+        return Number(rows?.[0]?.c || 0);
+      } catch {
+        return 0;
+      }
+    };
+
+    const dependencyTables = [
+      'user_agencies',
+      'organization_affiliations',
+      'agency_schools',
+      'clients',
+      'client_organization_assignments',
+      'client_provider_assignments',
+      'provider_school_assignments',
+      'skills_groups',
+      'skills_group_clients',
+      'skills_group_providers',
+      'skills_group_meetings',
+      'school_profiles',
+      'school_soft_schedule_slots',
+      'school_soft_schedule_notes'
+    ];
+
+    const hits = [];
+    for (const t of dependencyTables) {
+      const c = await countRefs(t);
+      if (c > 0) hits.push({ table: t, count: c });
+    }
+
+    if (hits.length > 0) {
+      const msg = `Cannot delete this school because dependent records exist: ${hits
+        .slice(0, 8)
+        .map((h) => `${h.table} (${h.count})`)
+        .join(', ')}${hits.length > 8 ? ', …' : ''}.`;
+      return res.status(409).json({ error: { message: msg, dependencies: hits } });
+    }
+
+    try {
+      const [result] = await pool.execute('DELETE FROM agencies WHERE id = ?', [orgId]);
+      if (result.affectedRows < 1) {
+        return res.status(404).json({ error: { message: 'Agency not found' } });
+      }
+    } catch (e) {
+      // Foreign key blocks or other constraint errors
+      return res.status(409).json({
+        error: { message: e?.sqlMessage || e?.message || 'Cannot delete due to database constraints.' }
+      });
+    }
+
+    return res.json({ message: 'School deleted successfully', deletedId: orgId });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getArchivedAgencies = async (req, res, next) => {
   try {
     // Only super admins can view archived agencies

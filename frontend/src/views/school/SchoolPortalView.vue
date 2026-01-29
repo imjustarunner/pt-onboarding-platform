@@ -34,6 +34,17 @@
           </div>
         </div>
         <div class="top-actions">
+          <button
+            v-if="canShowSchoolSettingsButton"
+            class="btn btn-secondary btn-sm settings-icon-btn"
+            type="button"
+            @click="openSchoolSettings"
+            :title="'School settings'"
+            aria-label="School settings"
+          >
+            <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="btn-icon-img" />
+            <span v-else aria-hidden="true">⚙</span>
+          </button>
           <router-link
             v-if="canBackToSchools"
             to="/admin/schools/overview"
@@ -63,6 +74,14 @@
             </div>
           </div>
           <button class="btn btn-secondary btn-sm" type="button" @click="showHelpDesk = true">Contact admin</button>
+          <button
+            v-if="isSchoolStaff"
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="authStore.logout()"
+          >
+            Logout
+          </button>
         </div>
       </div>
 
@@ -476,6 +495,26 @@
       </div>
     </div>
 
+    <div v-if="showSchoolSettings" class="settings-drawer-overlay" @click.self="showSchoolSettings = false">
+      <div class="settings-drawer" @click.stop>
+        <div class="settings-drawer-header">
+          <strong>School settings</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="showSchoolSettings = false">Close</button>
+        </div>
+        <div class="settings-drawer-body">
+          <SettingsModal
+            embedded
+            :disable-route-sync="true"
+            :lock-agency-context="true"
+            :initial-agency-id="affiliatedAgencyId"
+            initial-category-id="workflow"
+            initial-item-id="school-settings"
+            :initial-school-id="organizationId"
+          />
+        </div>
+      </div>
+    </div>
+
     <!-- Providers are now shown in-page via ProvidersDirectoryPanel -->
   </div>
 </template>
@@ -485,6 +524,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useOrganizationStore } from '../../store/organization';
 import { useBrandingStore } from '../../store/branding';
+import { useAgencyStore } from '../../store/agency';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
 import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
@@ -494,6 +534,7 @@ import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPane
 import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersDirectoryPanel.vue';
 import SchoolStaffPanel from '../../components/school/redesign/SchoolStaffPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
+import SettingsModal from '../../components/admin/SettingsModal.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -505,9 +546,12 @@ const organizationStore = useOrganizationStore();
 const store = useSchoolPortalRedesignStore();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
+const agencyStore = useAgencyStore();
 
 const showHelpDesk = ref(false);
 const comingSoonKey = ref(''); // 'parent_qr' | 'parent_sign' | 'packet_upload'
+const showSchoolSettings = ref(false);
+const affiliatedAgencyId = ref(null);
 
 const openComingSoon = (key) => {
   comingSoonKey.value = String(key || '');
@@ -565,7 +609,59 @@ const atGlance = computed(() => {
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isProvider = computed(() => roleNorm.value === 'provider');
+const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
 const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff'].includes(roleNorm.value));
+
+const settingsIconUrl = computed(() => {
+  return brandingStore.getAdminQuickActionIconUrl('settings', cardIconOrg.value || null);
+});
+
+const canShowSchoolSettingsButton = computed(() => {
+  if (!['super_admin', 'admin', 'staff'].includes(roleNorm.value)) return false;
+  const affId = affiliatedAgencyId.value ? Number(affiliatedAgencyId.value) : null;
+  if (!affId) return false;
+  if (roleNorm.value === 'super_admin') return true;
+  const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
+  return list.some((a) => Number(a?.id) === Number(affId));
+});
+
+const ensureAffiliation = async () => {
+  if (!organizationId.value) return;
+  try {
+    const r = await api.get(`/school-portal/${organizationId.value}/affiliation`);
+    const active = r?.data?.active_agency_id ?? null;
+    affiliatedAgencyId.value = active ? Number(active) : null;
+
+    // Best-effort: load full affiliated agency record for icon overrides (cards + settings icon).
+    if (affiliatedAgencyId.value) {
+      const a = await api.get(`/agencies/${affiliatedAgencyId.value}`);
+      cardIconOrg.value = a.data || null;
+    } else {
+      cardIconOrg.value = null;
+    }
+  } catch {
+    affiliatedAgencyId.value = null;
+    cardIconOrg.value = null;
+  }
+};
+
+const openSchoolSettings = async () => {
+  // Ensure agency list exists so the role+affiliation gate behaves deterministically.
+  try {
+    if (roleNorm.value !== 'super_admin' && (!Array.isArray(agencyStore.userAgencies) || agencyStore.userAgencies.length === 0)) {
+      await agencyStore.fetchUserAgencies();
+    }
+  } catch {
+    // ignore
+  }
+
+  await ensureAffiliation();
+  if (!canShowSchoolSettingsButton.value) {
+    alert('You do not have access to this school’s affiliated agency settings.');
+    return;
+  }
+  showSchoolSettings.value = true;
+};
 
 const clientLabelMode = ref('codes'); // 'codes' | 'initials'
 const showCodesHelp = ref(false);
@@ -736,10 +832,10 @@ onMounted(async () => {
     store.reset();
     store.setSchoolId(organizationId.value);
     // Default portal mode (query param overrides provider default).
-    if (requestedPortalMode.value) {
+    if (isSchoolStaff.value) {
+      portalMode.value = 'home';
+    } else if (requestedPortalMode.value) {
       await applyRequestedPortalMode(requestedPortalMode.value);
-    } else if (isProvider.value) {
-      portalMode.value = 'skills';
     }
     await store.fetchDays();
     await store.fetchPortalStats();
@@ -748,50 +844,32 @@ onMounted(async () => {
     if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
   }
 
-  // Best-effort: load affiliated agency record for icon overrides.
-  try {
-    const affId = organizationStore.currentOrganization?.affiliated_agency_id;
-    if (affId) {
-      const r = await api.get(`/agencies/${affId}`);
-      cardIconOrg.value = r.data || null;
-    }
-  } catch {
-    cardIconOrg.value = null;
-  }
+  // Best-effort: resolve active affiliated agency for icon overrides + settings button.
+  await ensureAffiliation();
 });
 
 watch(organizationId, async (id) => {
   if (!id) return;
   store.reset();
   store.setSchoolId(id);
-  if (requestedPortalMode.value) {
+  if (isSchoolStaff.value) {
+    portalMode.value = 'home';
+  } else if (requestedPortalMode.value) {
     await applyRequestedPortalMode(requestedPortalMode.value);
-  } else if (isProvider.value) {
-    portalMode.value = 'skills';
   }
   await store.fetchDays();
   await store.fetchPortalStats();
   await store.fetchEligibleProviders();
   if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
 
-  // refresh icon override for this org
-  try {
-    const affId = organizationStore.currentOrganization?.affiliated_agency_id;
-    if (affId) {
-      const r = await api.get(`/agencies/${affId}`);
-      cardIconOrg.value = r.data || null;
-    } else {
-      cardIconOrg.value = null;
-    }
-  } catch {
-    cardIconOrg.value = null;
-  }
+  await ensureAffiliation();
 });
 
 watch(
   () => requestedPortalMode.value,
   async (mode) => {
     if (!mode) return;
+    if (isSchoolStaff.value) return;
     await applyRequestedPortalMode(mode);
   }
 );
@@ -915,6 +993,20 @@ watch(() => store.selectedWeekday, async (weekday) => {
   justify-content: flex-end;
   align-items: center;
   gap: 10px;
+}
+
+.settings-icon-btn {
+  width: 34px;
+  padding-left: 0;
+  padding-right: 0;
+  display: grid;
+  place-items: center;
+}
+.btn-icon-img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  display: block;
 }
 
 .codes-toggle {
@@ -1186,6 +1278,37 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 .modal-body {
   padding: 14px 16px;
+}
+
+.settings-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.55);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 2500;
+}
+.settings-drawer {
+  height: 100%;
+  width: min(1100px, 96vw);
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+}
+.settings-drawer-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.settings-drawer-body {
+  padding: 8px 10px 14px;
+  overflow: auto;
+  flex: 1;
 }
 
 .roster {

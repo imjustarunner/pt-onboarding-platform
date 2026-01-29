@@ -69,6 +69,10 @@ import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 
+const props = defineProps({
+  initialSchoolId: { type: [String, Number], default: null }
+});
+
 const agencyStore = useAgencyStore();
 
 const loading = ref(false);
@@ -85,6 +89,14 @@ const loadSchools = async () => {
   try {
     const resp = await api.get(`/agencies/${agencyId.value}/schools`);
     schools.value = resp.data || [];
+
+    // If embedded in a school context, preselect that school.
+    const initial = props.initialSchoolId;
+    const initialId = initial !== null && initial !== undefined && initial !== '' ? String(initial) : '';
+    if (initialId && !selectedSchoolId.value) {
+      const match = (schools.value || []).find((s) => String(s?.id) === initialId);
+      if (match) selectedSchoolId.value = initialId;
+    }
   } catch (e) {
     // Don't block the whole view; show a friendly message in the main error area.
     error.value = e.response?.data?.error?.message || 'Failed to load schools';

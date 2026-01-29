@@ -62,6 +62,8 @@ export const getSchoolOverview = async (req, res, next) => {
         school_slug: s?.slug || s?.portal_url || null,
         organization_type: s?.organization_type || null,
         is_active: s?.is_active !== false,
+        is_archived: !!s?.is_archived,
+        archived_at: s?.archived_at || null,
         // Directory metadata (optional; may be missing on older DBs or when not populated)
         district_name: null,
         school_state: s?.state || null,

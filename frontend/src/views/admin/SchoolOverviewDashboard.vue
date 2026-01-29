@@ -48,13 +48,16 @@
       </div>
 
       <div v-else class="cards-grid">
-        <button
+        <div
           v-for="s in filteredSchools"
           :key="s.school_id"
-          type="button"
           class="school-card"
+          role="button"
+          tabindex="0"
           :class="{ 'skills-active': s.skills_group_occurring_now }"
           @click="openSchool(s)"
+          @keydown.enter.prevent="openSchool(s)"
+          @keydown.space.prevent="openSchool(s)"
         >
           <div class="card-head">
             <div class="card-title">
@@ -63,8 +66,35 @@
                 <span class="pill">{{ formatOrgType(s.organization_type) }}</span>
                 <span v-if="s.district_name" class="pill pill-muted">{{ s.district_name }}</span>
                 <span v-if="!s.is_active" class="pill pill-warn">Inactive</span>
+                <span v-if="s.is_archived" class="pill pill-warn">Archived</span>
                 <span v-if="s.skills_group_occurring_now" class="pill pill-accent">Skills Group Live</span>
               </div>
+            </div>
+            <div class="card-actions" v-if="isSuperAdmin">
+              <button
+                v-if="!s.is_archived"
+                type="button"
+                class="btn btn-secondary btn-xs"
+                @click.stop="archiveSchool(s)"
+              >
+                Archive
+              </button>
+              <button
+                v-else
+                type="button"
+                class="btn btn-secondary btn-xs"
+                @click.stop="restoreSchool(s)"
+              >
+                Restore
+              </button>
+              <button
+                v-if="s.is_archived"
+                type="button"
+                class="btn btn-danger btn-xs"
+                @click.stop="deleteSchool(s)"
+              >
+                Delete
+              </button>
             </div>
             <div class="card-cta">Open</div>
           </div>
@@ -103,7 +133,7 @@
               <div class="stat-value">{{ s.school_staff_count }}</div>
             </div>
           </div>
-        </button>
+        </div>
       </div>
     </div>
   </div>
@@ -238,6 +268,50 @@ const openSchool = (school) => {
   const slug = String(school?.school_slug || '').trim();
   if (!slug) return;
   window.open(`/${slug}/dashboard`, '_blank', 'noopener');
+};
+
+const archiveSchool = async (school) => {
+  const id = parseInt(String(school?.school_id || ''), 10);
+  if (!id) return;
+  const name = String(school?.school_name || 'this school');
+  if (!window.confirm(`Archive ${name}?`)) return;
+  try {
+    await api.post(`/agencies/${id}/archive`);
+    await fetchOverview();
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to archive');
+  }
+};
+
+const restoreSchool = async (school) => {
+  const id = parseInt(String(school?.school_id || ''), 10);
+  if (!id) return;
+  const name = String(school?.school_name || 'this school');
+  if (!window.confirm(`Restore ${name}?`)) return;
+  try {
+    await api.post(`/agencies/${id}/restore`);
+    await fetchOverview();
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to restore');
+  }
+};
+
+const deleteSchool = async (school) => {
+  const id = parseInt(String(school?.school_id || ''), 10);
+  if (!id) return;
+  const slug = String(school?.school_slug || '').trim();
+  const name = String(school?.school_name || 'this school');
+  const typed = window.prompt(`Type the school slug to permanently delete "${name}":`, '');
+  if (!typed || String(typed).trim() !== slug) {
+    alert('Delete cancelled (slug did not match).');
+    return;
+  }
+  try {
+    await api.delete(`/agencies/${id}`);
+    await fetchOverview();
+  } catch (e) {
+    alert(e?.response?.data?.error?.message || 'Failed to delete');
+  }
 };
 
 watch(
@@ -381,6 +455,28 @@ onMounted(async () => {
   color: var(--text-secondary);
   white-space: nowrap;
   padding-top: 2px;
+}
+
+.card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-xs {
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+.btn-danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: white;
+}
+.btn-danger:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
 }
 
 .stats-grid {

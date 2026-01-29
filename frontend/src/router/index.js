@@ -912,6 +912,33 @@ router.beforeEach(async (to, from, next) => {
       return;
     }
   }
+
+  // School staff are locked to a single school-portal experience.
+  // They should not access platform admin sections or other org routes.
+  if (authStore.isAuthenticated && String(authStore.user?.role || '').toLowerCase() === 'school_staff') {
+    const targetSlug = getDefaultOrganizationSlug();
+    const toSlug = typeof to.params.organizationSlug === 'string' ? String(to.params.organizationSlug) : null;
+    const allowedRouteNames = new Set([
+      'OrganizationDashboard',
+      'OrganizationSchoolProviderProfile',
+      'OrganizationChangePassword',
+      'OrganizationSplash'
+    ]);
+
+    const allowed =
+      allowedRouteNames.has(String(to.name || '')) &&
+      !!to.meta.organizationSlug &&
+      (!targetSlug || !toSlug || String(toSlug) === String(targetSlug));
+
+    if (!allowed) {
+      if (targetSlug) {
+        next(`/${targetSlug}/dashboard`);
+      } else {
+        next('/login');
+      }
+      return;
+    }
+  }
   
   // Handle root path redirect based on user role
   if (to.path === '/' && authStore.isAuthenticated) {

@@ -59,10 +59,9 @@ export const getSchoolClients = async (req, res, next) => {
     const userRole = req.user?.role;
     const skillsOnly = String(req.query?.skillsOnly || '').toLowerCase() === 'true';
 
-    // Provider privacy: providers should not access the roster endpoint (they see Skills Groups instead).
-    if (String(userRole || '').toLowerCase() === 'provider') {
-      return res.status(403).json({ error: { message: 'Providers cannot access the roster.' } });
-    }
+    // Providers ARE allowed to view the roster, but only for clients assigned to them
+    // (restricted fields, no sensitive data).
+    const isProvider = String(userRole || '').toLowerCase() === 'provider';
 
     // Verify organization exists (school/program/learning)
     const organization = await Agency.findById(organizationId);
@@ -97,7 +96,7 @@ export const getSchoolClients = async (req, res, next) => {
     let clients = [];
     try {
       const orgId = parseInt(organizationId, 10);
-      const providerUserId = req.user?.role === 'provider' ? parseInt(req.user?.id || 0, 10) : null;
+      const providerUserId = isProvider ? parseInt(req.user?.id || 0, 10) : null;
       const [rows] = await pool.execute(
         `SELECT
            c.id,
@@ -138,9 +137,10 @@ export const getSchoolClients = async (req, res, next) => {
          LEFT JOIN users u ON u.id = cpa.provider_user_id
          WHERE UPPER(c.status) <> 'ARCHIVED'
            AND (? = 0 OR c.skills = TRUE)
+           AND (? IS NULL OR cpa.provider_user_id = ?)
          GROUP BY c.id
          ORDER BY c.submission_date DESC, c.id DESC`,
-        [providerUserId, providerUserId, orgId, skillsOnly ? 1 : 0]
+        [providerUserId, providerUserId, orgId, skillsOnly ? 1 : 0, providerUserId, providerUserId]
       );
       clients = rows || [];
     } catch (e) {
@@ -153,7 +153,7 @@ export const getSchoolClients = async (req, res, next) => {
       if (!missing) throw e;
 
       // Legacy fallback
-      const all = await Client.findByOrganizationId(parseInt(organizationId, 10));
+      const all = await Client.findByOrganizationId(parseInt(organizationId, 10), isProvider ? { provider_id: userId } : {});
       clients = (all || []).filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
       if (skillsOnly) clients = (clients || []).filter((c) => !!c?.skills);
     }

@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations } from '../controllers/agency.controller.js';
+import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, deleteAgencyHard, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations } from '../controllers/agency.controller.js';
 import { getAgencyAnnouncements, updateAgencyAnnouncements, getAgencyDashboardBanner } from '../controllers/agencyAnnouncements.controller.js';
 import { listAgencyNotificationTriggers, updateAgencyNotificationTrigger } from '../controllers/agencyNotificationTriggers.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
@@ -271,6 +271,7 @@ router.post('/', authenticate, requireBackofficeAdmin, validateCreateAgency, cre
 router.put('/:id', authenticate, requireBackofficeAdmin, validateUpdateAgency, updateAgency);
 router.post('/:id/archive', authenticate, requireSuperAdmin, archiveAgency);
 router.post('/:id/restore', authenticate, requireSuperAdmin, restoreAgency);
+router.delete('/:id', authenticate, requireSuperAdmin, deleteAgencyHard);
 
 export default router;
 
