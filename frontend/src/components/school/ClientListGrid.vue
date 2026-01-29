@@ -176,7 +176,11 @@ const fetchClients = async () => {
     if (err.response?.status === 404) {
       error.value = 'Organization not found.';
     } else if (err.response?.status === 403) {
-      error.value = 'You do not have access to this school\'s client list.';
+      const r = String(authStore.user?.role || '').toLowerCase();
+      error.value =
+        r === 'provider'
+          ? 'Your roster is not available for this organization.'
+          : 'You do not have access to this school\'s client list.';
     } else {
       error.value = 'Failed to load students. Please try again later.';
     }

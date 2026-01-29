@@ -131,7 +131,7 @@
               />
               <div v-else class="nav-icon-fallback" aria-hidden="true">RS</div>
             </div>
-            <div class="nav-label">Roster</div>
+            <div class="nav-label">{{ isProvider ? 'My roster' : 'Roster' }}</div>
           </button>
 
           <button class="nav-item" type="button" @click="portalMode = 'skills'" :class="{ active: portalMode === 'skills' }">
@@ -372,8 +372,8 @@
 
         <div ref="homeRosterEl" class="home-roster">
           <div class="roster-header">
-            <h2 style="margin: 0;">School roster</h2>
-            <div class="muted">Assigned + unassigned (restricted fields)</div>
+            <h2 style="margin: 0;">{{ isProvider ? 'My roster' : 'School roster' }}</h2>
+            <div class="muted">{{ isProvider ? 'My assigned clients (restricted fields)' : 'Assigned + unassigned (restricted fields)' }}</div>
           </div>
           <ClientListGrid
             v-if="organizationId"
@@ -439,8 +439,8 @@
 
           <div v-else-if="portalMode === 'roster'" class="roster">
         <div class="roster-header">
-          <h2 style="margin: 0;">School roster</h2>
-          <div class="muted">Assigned + unassigned (restricted fields)</div>
+          <h2 style="margin: 0;">{{ isProvider ? 'My roster' : 'School roster' }}</h2>
+          <div class="muted">{{ isProvider ? 'My assigned clients (restricted fields)' : 'Assigned + unassigned (restricted fields)' }}</div>
         </div>
         <ClientListGrid
           v-if="organizationId"
