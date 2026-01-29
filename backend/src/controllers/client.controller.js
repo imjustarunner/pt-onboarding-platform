@@ -9,6 +9,29 @@ import pool from '../config/database.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { notifyClientBecameCurrent, notifyPaperworkReceived } from '../services/clientNotifications.service.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
+import crypto from 'crypto';
+
+function normalizeSixDigitClientCode(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const digits = raw.replace(/[^\d]/g, '');
+  if (digits.length !== 6) return '';
+  return digits;
+}
+
+async function generateUniqueSixDigitClientCode({ agencyId }) {
+  // Best-effort uniqueness within an agency. Retry a few times to avoid collisions.
+  for (let i = 0; i < 25; i++) {
+    const n = crypto.randomInt(0, 1000000);
+    const code = String(n).padStart(6, '0');
+    const [rows] = await pool.execute(
+      `SELECT id FROM clients WHERE agency_id = ? AND identifier_code = ? LIMIT 1`,
+      [agencyId, code]
+    );
+    if (!rows?.[0]?.id) return code;
+  }
+  throw new Error('Unable to generate unique client code');
+}
 
 /**
  * Get all clients (agency view)
@@ -204,6 +227,7 @@ export const createClient = async (req, res, next) => {
       agency_id,
       provider_id,
       initials,
+      identifier_code,
       client_status_id,
       school_year,
       grade,
@@ -343,10 +367,9 @@ export const createClient = async (req, res, next) => {
       // ignore (best-effort)
     }
 
-    // Duplicate detection (entire DB) by identifier_code (client initials/code).
+    // Duplicate detection (entire DB) by initials (user-facing identifier).
     // This is a warning only (we still allow creating a new client).
-    const identifierCode = normalizedInitials;
-    if (identifierCode) {
+    if (normalizedInitials) {
       const [dupes] = await pool.execute(
         `SELECT
            c.id AS client_id,
@@ -366,10 +389,10 @@ export const createClient = async (req, res, next) => {
          LEFT JOIN agencies a ON c.agency_id = a.id
          LEFT JOIN users p ON c.provider_id = p.id
          LEFT JOIN client_statuses cs ON c.client_status_id = cs.id
-         WHERE UPPER(c.identifier_code) = ?
+         WHERE UPPER(c.initials) = ?
          ORDER BY c.id DESC
          LIMIT 10`,
-        [identifierCode]
+        [normalizedInitials]
       );
       const matches = (dupes || []).map((r) => ({
         clientId: Number(r.client_id),
@@ -389,9 +412,26 @@ export const createClient = async (req, res, next) => {
         const nonArchived = matches.find((m) => String(m.workflowStatus || '').toUpperCase() !== 'ARCHIVED');
         const archived = matches.find((m) => String(m.workflowStatus || '').toUpperCase() === 'ARCHIVED');
         warningMeta = { matches, canUnarchive: !!archived };
-        if (nonArchived) warnings.push(`A client with code "${identifierCode}" already exists (active). Please review duplicates.`);
-        if (archived) warnings.push(`A client with code "${identifierCode}" exists but is archived. You may want to restore it instead of creating a duplicate.`);
+        if (nonArchived) warnings.push(`A client with initials "${normalizedInitials}" already exists (active). Please review duplicates.`);
+        if (archived) warnings.push(`A client with initials "${normalizedInitials}" exists but is archived. You may want to restore it instead of creating a duplicate.`);
       }
+    }
+
+    // Identifier code: a stable 6-digit client code. Not editable once set.
+    const providedCode = normalizeSixDigitClientCode(identifier_code);
+    let clientIdentifierCode = providedCode;
+    if (clientIdentifierCode) {
+      const [dupes] = await pool.execute(
+        `SELECT id FROM clients WHERE agency_id = ? AND identifier_code = ? LIMIT 1`,
+        [parsedAgencyId, clientIdentifierCode]
+      );
+      if (dupes?.[0]?.id) {
+        return res.status(409).json({
+          error: { message: `Client code "${clientIdentifierCode}" already exists in this agency.` }
+        });
+      }
+    } else {
+      clientIdentifierCode = await generateUniqueSixDigitClientCode({ agencyId: parsedAgencyId });
     }
 
     // Create client
@@ -419,7 +459,7 @@ export const createClient = async (req, res, next) => {
       agency_id: parsedAgencyId,
       provider_id: provider_id || null,
       initials: initials.toUpperCase().trim(),
-      identifier_code: identifierCode || null,
+      identifier_code: clientIdentifierCode,
       // "status" is treated as internal workflow/archive flag; new clients are not archived.
       status: workflowStatus,
       submission_date,
@@ -510,6 +550,97 @@ export const createClient = async (req, res, next) => {
   } catch (error) {
     console.error('Create client error:', error);
     next(error);
+  }
+};
+
+/**
+ * Set a client identifier code (6-digit, permanent once set)
+ * PUT /api/clients/:id/identifier-code
+ * body: { identifier_code }
+ */
+export const setClientIdentifierCode = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    const canManage = ['super_admin', 'admin', 'support', 'staff', 'supervisor'].includes(roleNorm);
+    if (!canManage) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role: roleNorm, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const code = normalizeSixDigitClientCode(req.body?.identifier_code);
+    if (!code) return res.status(400).json({ error: { message: 'identifier_code must be a 6-digit number' } });
+
+    // Only allow setting when missing/invalid.
+    const current = String(access.client?.identifier_code || '').trim();
+    if (current && /^\d{6}$/.test(current)) {
+      return res.status(409).json({ error: { message: 'Client code is already set' } });
+    }
+
+    // Ensure uniqueness within agency.
+    const [dupes] = await pool.execute(
+      `SELECT id FROM clients WHERE agency_id = ? AND identifier_code = ? LIMIT 1`,
+      [parseInt(access.client.agency_id, 10), code]
+    );
+    if (dupes?.[0]?.id) {
+      return res.status(409).json({ error: { message: `Client code "${code}" already exists in this agency.` } });
+    }
+
+    await pool.execute(
+      `UPDATE clients
+       SET identifier_code = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND (identifier_code IS NULL OR identifier_code = '' OR identifier_code NOT REGEXP '^[0-9]{6}$')`,
+      [code, clientId]
+    );
+
+    const refreshed = await Client.findById(clientId, { includeSensitive: true });
+    return res.json({ client: refreshed });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Generate a client identifier code (6-digit, permanent once set)
+ * POST /api/clients/:id/identifier-code/generate
+ */
+export const generateClientIdentifierCode = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.id, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'Invalid client id' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    const canManage = ['super_admin', 'admin', 'support', 'staff', 'supervisor'].includes(roleNorm);
+    if (!canManage) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const access = await ensureAgencyAccessToClient({ userId, role: roleNorm, clientId });
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const current = String(access.client?.identifier_code || '').trim();
+    if (current && /^\d{6}$/.test(current)) {
+      const refreshed = await Client.findById(clientId, { includeSensitive: true });
+      return res.json({ client: refreshed });
+    }
+
+    const agencyId = parseInt(access.client.agency_id, 10);
+    const code = await generateUniqueSixDigitClientCode({ agencyId });
+    await pool.execute(
+      `UPDATE clients
+       SET identifier_code = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND (identifier_code IS NULL OR identifier_code = '' OR identifier_code NOT REGEXP '^[0-9]{6}$')`,
+      [code, clientId]
+    );
+
+    const refreshed = await Client.findById(clientId, { includeSensitive: true });
+    return res.json({ client: refreshed });
+  } catch (e) {
+    next(e);
   }
 };
 

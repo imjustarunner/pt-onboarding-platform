@@ -21,6 +21,8 @@ import {
   getClientAdminNote,
   createClientNote,
   upsertClientAdminNote,
+  setClientIdentifierCode,
+  generateClientIdentifierCode,
   markClientNotesRead,
   updateClientComplianceChecklist,
   getClientAccessLog,
@@ -92,6 +94,10 @@ router.get('/:id/access-log', getClientAccessLog);
 // Single admin note (internal-only; shown on Overview)
 router.get('/:id/admin-note', getClientAdminNote);
 router.put('/:id/admin-note', upsertClientAdminNote);
+
+// Client identifier code (6-digit, permanent)
+router.put('/:id/identifier-code', setClientIdentifierCode);
+router.post('/:id/identifier-code/generate', generateClientIdentifierCode);
 
 // Get notes
 router.get('/:id/notes', getClientNotes);

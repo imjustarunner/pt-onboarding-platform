@@ -69,6 +69,43 @@
               </div>
             </div>
             <div class="info-item">
+              <label>Client Code</label>
+              <div class="info-value">
+                <template v-if="clientCodeIsValid">
+                  <span class="mono">{{ client.identifier_code }}</span>
+                </template>
+                <template v-else>
+                  <span class="muted">Missing</span>
+                  <template v-if="canManageClientCode">
+                    <div style="display:flex; gap: 8px; align-items:center; margin-top: 6px; flex-wrap: wrap;">
+                      <input
+                        v-model="clientCodeDraft"
+                        class="inline-input"
+                        style="width: 140px;"
+                        inputmode="numeric"
+                        placeholder="6-digit code"
+                        maxlength="6"
+                      />
+                      <button class="btn btn-secondary btn-sm" type="button" @click="generateClientCode" :disabled="clientCodeSaving">
+                        Generate
+                      </button>
+                      <button
+                        class="btn btn-primary btn-sm"
+                        type="button"
+                        @click="saveClientCode"
+                        :disabled="clientCodeSaving || !clientCodeDraftValid"
+                      >
+                        {{ clientCodeSaving ? 'Saving…' : 'Save' }}
+                      </button>
+                    </div>
+                    <div class="hint" style="margin-top: 4px;">
+                      Once set, the code is permanent and cannot be edited.
+                    </div>
+                  </template>
+                </template>
+              </div>
+            </div>
+            <div class="info-item">
               <label>School</label>
               <div class="info-value">
                 <template v-if="editingOverview">
@@ -1209,6 +1246,7 @@ const activeTab = ref('overview');
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isBackofficeRole = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
 const canViewAdminNote = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
+const canManageClientCode = computed(() => isBackofficeRole.value || roleNorm.value === 'supervisor');
 const canEditAccount = computed(() => isBackofficeRole.value && hasAgencyAccess.value);
 
 const tabs = computed(() => {
@@ -1738,6 +1776,53 @@ const formatFieldName = (field) => {
 };
 
 const isClientArchived = computed(() => String(props.client?.status || '').toUpperCase() === 'ARCHIVED');
+
+// Client identifier code (6-digit, permanent)
+const clientCodeIsValid = computed(() => /^\d{6}$/.test(String(props.client?.identifier_code || '').trim()));
+const clientCodeDraft = ref('');
+const clientCodeSaving = ref(false);
+const clientCodeDraftValid = computed(() => /^\d{6}$/.test(String(clientCodeDraft.value || '').trim()));
+
+const refreshClient = async () => {
+  try {
+    const r = await api.get(`/clients/${props.client.id}`);
+    emit('updated', { keepOpen: true, client: r.data || null });
+  } catch {
+    // ignore
+  }
+};
+
+const generateClientCode = async () => {
+  if (!canManageClientCode.value || !props.client?.id) return;
+  try {
+    clientCodeSaving.value = true;
+    const r = await api.post(`/clients/${props.client.id}/identifier-code/generate`);
+    const updated = r.data?.client || null;
+    if (updated) emit('updated', { keepOpen: true, client: updated });
+    clientCodeDraft.value = '';
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to generate code');
+  } finally {
+    clientCodeSaving.value = false;
+  }
+};
+
+const saveClientCode = async () => {
+  if (!canManageClientCode.value || !props.client?.id) return;
+  const code = String(clientCodeDraft.value || '').trim();
+  if (!/^\d{6}$/.test(code)) return;
+  try {
+    clientCodeSaving.value = true;
+    const r = await api.put(`/clients/${props.client.id}/identifier-code`, { identifier_code: code });
+    const updated = r.data?.client || null;
+    if (updated) emit('updated', { keepOpen: true, client: updated });
+    clientCodeDraft.value = '';
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to save code');
+  } finally {
+    clientCodeSaving.value = false;
+  }
+};
 
 // Admin Note (single internal note shown on Overview)
 const adminNoteLoading = ref(false);
@@ -2555,6 +2640,7 @@ watch(() => props.client, async () => {
   // Reset editing states when client changes
   editingStatus.value = false;
   skillsValue.value = !!props.client?.skills;
+  clientCodeDraft.value = '';
   if (!editingOverview.value) {
     hydrateOverviewForm();
   }
@@ -2719,6 +2805,10 @@ watch(
 
 .admin-note-item {
   position: relative;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 .admin-note-trigger {
