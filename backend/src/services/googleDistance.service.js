@@ -63,6 +63,17 @@ export async function getDrivingDistanceMeters(originRaw, destinationRaw) {
     throw err;
   }
 
+  // Debug aid (opt-in): helps verify which key Cloud Run is actually using.
+  // Enable temporarily by setting DEBUG_GOOGLE_MAPS_KEY_PREFIX=true in the backend service env.
+  // NOTE: This intentionally prints only a small prefix, never the full key.
+  try {
+    if (String(process.env.DEBUG_GOOGLE_MAPS_KEY_PREFIX || '').toLowerCase() === 'true') {
+      console.warn('[googleDistance] using GOOGLE_MAPS_API_KEY prefix:', String(apiKey).slice(0, 5));
+    }
+  } catch {
+    // ignore
+  }
+
   const url = 'https://maps.googleapis.com/maps/api/distancematrix/json';
   const resp = await axios.get(url, {
     params: {
