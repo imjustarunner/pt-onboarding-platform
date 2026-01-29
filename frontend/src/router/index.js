@@ -29,6 +29,13 @@ const getDefaultOrganizationSlug = () => {
 };
 
 const routes = [
+  // Public school finder (no auth). Must be before "/:organizationSlug".
+  {
+    path: '/schools',
+    name: 'SchoolFinder',
+    component: () => import('../views/school/SchoolFinderView.vue'),
+    meta: { requiresGuest: false }
+  },
   // Organization-specific routes (supports Agency, School, Program, Learning)
   // School splash page (public, no auth required)
   {

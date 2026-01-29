@@ -415,6 +415,10 @@ app.get('/health', (req, res) => {
 // Health check routes (must be before authentication middleware)
 app.use('/api/health-check', healthCheckRoutes);
 
+// Public APIs (no auth). Mount early so they never get blocked by future auth gates.
+app.use('/api/public/provider-availability', publicProviderAvailabilityRoutes);
+app.use('/api/public/schools', publicSchoolsRoutes);
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -476,8 +480,6 @@ app.use('/api/offices', officeSettingsRoutes);
 app.use('/api/office-slots', officeSlotActionsRoutes);
 app.use('/api/office-review', officeReviewRoutes);
 app.use('/api/availability', availabilityRoutes);
-app.use('/api/public/provider-availability', publicProviderAvailabilityRoutes);
-app.use('/api/public/schools', publicSchoolsRoutes);
 app.use('/api/hiring', hiringRoutes);
 app.use('/api/twilio', twilioRoutes);
 app.use('/api/messages', messageRoutes);
