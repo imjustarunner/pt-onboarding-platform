@@ -468,7 +468,7 @@ async function resolvePayrollAgencyId(agencyIdOrOrgId) {
   }
 }
 
-async function requirePayrollAccess(req, res, agencyIdOrOrgId) {
+export async function requirePayrollAccess(req, res, agencyIdOrOrgId) {
   const resolvedAgencyId = await resolvePayrollAgencyId(agencyIdOrOrgId);
   if (!resolvedAgencyId) {
     res.status(400).json({ error: { message: 'agencyId is required' } });
@@ -2130,6 +2130,157 @@ export const patchPayrollImportRow = async (req, res, next) => {
   }
 };
 
+export const getPayrollReportSessionsUnits = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    if (!payrollPeriodId) return res.status(400).json({ error: { message: 'Pay period id is required' } });
+
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const groupByRaw = String(req.query?.groupBy || 'provider');
+    const gb = groupByRaw.toLowerCase();
+    const groupBy = (gb === 'provider_service_code' || gb === 'service_code') ? gb : 'provider';
+    const providerIds = String(req.query?.providerIds || '')
+      .split(',')
+      .map((x) => parseInt(String(x || '').trim(), 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    const rows = await PayrollImportRow.listAggregatedSessionsUnitsForPeriod({
+      payrollPeriodId,
+      providerIds: providerIds.length ? providerIds : null,
+      groupBy
+    });
+
+    res.json({ payrollPeriodId, groupBy, rows: rows || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+function parseBreakdownObject(breakdownMaybeString) {
+  let breakdown = breakdownMaybeString || null;
+  if (typeof breakdown === 'string') {
+    try { breakdown = JSON.parse(breakdown); } catch { breakdown = null; }
+  }
+  return (breakdown && typeof breakdown === 'object') ? breakdown : null;
+}
+
+function servicePayAmountFromBreakdown(breakdown) {
+  if (!breakdown || typeof breakdown !== 'object') return 0;
+  let total = 0;
+  for (const [code, vRaw] of Object.entries(breakdown)) {
+    if (String(code).startsWith('__')) continue;
+    const v = (vRaw && typeof vRaw === 'object') ? vRaw : {};
+    const amt = Number(v.amount || 0);
+    if (Number.isFinite(amt)) total += amt;
+  }
+  return Number.isFinite(total) ? total : 0;
+}
+
+export const getPayrollReportProviderPaySummary = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    if (!payrollPeriodId) return res.status(400).json({ error: { message: 'Pay period id is required' } });
+
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const providerIds = String(req.query?.providerIds || '')
+      .split(',')
+      .map((x) => parseInt(String(x || '').trim(), 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const providerSet = providerIds.length ? new Set(providerIds) : null;
+
+    const summaries = await PayrollSummary.listForPeriod(payrollPeriodId);
+    const rows = (summaries || [])
+      .filter((s) => (providerSet ? providerSet.has(Number(s.user_id)) : true))
+      .map((s) => {
+        const breakdown = parseBreakdownObject(s.breakdown);
+        const adj = breakdown?.__adjustments || {};
+
+        const salaryAmount = Number(adj?.salaryAmount || 0);
+        const salaryIncludeServicePay = !!adj?.salaryIncludeServicePay;
+        const servicePayAmount = servicePayAmountFromBreakdown(breakdown);
+
+        const hasSalary = salaryAmount > 0.001;
+        const paidServicePayAmount = hasSalary ? (salaryIncludeServicePay ? servicePayAmount : 0) : servicePayAmount;
+
+        const nonTaxableAmount = Number(adj?.nonTaxableAmount ?? 0);
+        const taxableAdjustmentsAmount = Number(adj?.taxableAdjustmentsAmount ?? 0);
+
+        return {
+          user_id: Number(s.user_id),
+          provider_name: `${s.last_name || ''}, ${s.first_name || ''}`.trim().replace(/^, /, '').replace(/, $/, ''),
+          total_units: Number(s.total_units || 0),
+          total_hours: Number(s.total_hours || 0),
+          direct_hours: Number(s.direct_hours || 0),
+          indirect_hours: Number(s.indirect_hours || 0),
+          salary_amount: Number(salaryAmount || 0),
+          salary_include_service_pay: salaryIncludeServicePay ? 1 : 0,
+          service_pay_amount: Number(servicePayAmount || 0),
+          service_pay_paid_amount: Number(paidServicePayAmount || 0),
+          adjustments_total: Number(s.adjustments_amount || 0),
+          taxable_adjustments_total: Number(taxableAdjustmentsAmount || 0),
+          non_taxable_total: Number(nonTaxableAmount || 0),
+          total_pay: Number(s.total_amount || 0)
+        };
+      });
+
+    res.json({ payrollPeriodId, rows });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getPayrollReportAdjustmentsBreakdown = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    if (!payrollPeriodId) return res.status(400).json({ error: { message: 'Pay period id is required' } });
+
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const providerIds = String(req.query?.providerIds || '')
+      .split(',')
+      .map((x) => parseInt(String(x || '').trim(), 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const providerSet = providerIds.length ? new Set(providerIds) : null;
+
+    const summaries = await PayrollSummary.listForPeriod(payrollPeriodId);
+    const rows = [];
+    for (const s of (summaries || [])) {
+      const uid = Number(s.user_id);
+      if (providerSet && !providerSet.has(uid)) continue;
+
+      const breakdown = parseBreakdownObject(s.breakdown);
+      const adj = breakdown?.__adjustments || {};
+      const lines = Array.isArray(adj?.lines) ? adj.lines : [];
+      const providerName = `${s.last_name || ''}, ${s.first_name || ''}`.trim().replace(/^, /, '').replace(/, $/, '');
+
+      for (const l of lines) {
+        rows.push({
+          user_id: uid,
+          provider_name: providerName,
+          type: String(l?.type || ''),
+          label: String(l?.label || ''),
+          taxable: l?.taxable ? 1 : 0,
+          bucket: l?.bucket ? String(l.bucket) : '',
+          amount: Number(l?.amount || 0),
+          credits_hours: (l?.meta && Number.isFinite(Number(l.meta.creditsHours))) ? Number(l.meta.creditsHours) : null
+        });
+      }
+    }
+
+    res.json({ payrollPeriodId, rows });
+  } catch (e) {
+    next(e);
+  }
+};
+
 function csvEscape(v) {
   const s = v === null || v === undefined ? '' : String(v);
   if (/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
@@ -2330,7 +2481,33 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       );
     }
 
-    const filename = `payroll-export-period-${payrollPeriodId}.csv`;
+    // Footer: who ran payroll + when downloaded
+    const downloadedAt = new Date().toISOString();
+    let ranByLabel = '';
+    try {
+      const ranByUserId = Number(period?.ran_by_user_id || 0);
+      if (ranByUserId) {
+        const [urows] = await pool.execute('SELECT first_name, last_name, email FROM users WHERE id = ? LIMIT 1', [ranByUserId]);
+        const u = urows?.[0] || null;
+        if (u) {
+          const name = `${u.last_name || ''}, ${u.first_name || ''}`.trim().replace(/^, /, '').replace(/, $/, '');
+          ranByLabel = name || String(u.email || '') || `User #${ranByUserId}`;
+        } else {
+          ranByLabel = `User #${ranByUserId}`;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    const ranAt = period?.ran_at ? String(period.ran_at).slice(0, 19) : '';
+    lines.push('');
+    lines.push(`Payroll ran by,${csvEscape(ranByLabel)}`);
+    lines.push(`Payroll ran at,${csvEscape(ranAt)}`);
+    lines.push(`Report downloaded at,${csvEscape(downloadedAt)}`);
+
+    const ps = String(period.period_start || '').slice(0, 10);
+    const pe = String(period.period_end || '').slice(0, 10);
+    const filename = (ps && pe) ? `${ps}-${pe}.csv` : `payroll-export-period-${payrollPeriodId}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(lines.join('\n'));
@@ -3103,9 +3280,13 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       manualPayLinesAmount +
       otherHoursPay;
     const adjustmentsAmount = taxableAdjustmentsAmount + nonTaxableAmount;
-    const basePay = (salaryAmount > 0.001 && !salaryIncludeServicePay) ? salaryAmount : subtotal;
-    const salaryAddonAmount = (salaryAmount > 0.001 && salaryIncludeServicePay) ? salaryAmount : 0;
-    const totalAmount = basePay + adjustmentsAmount + salaryAddonAmount;
+    // Salary rule:
+    // - If salary exists, salary is the base pay.
+    // - Service/session pay only adds on top when explicitly enabled (include_service_pay = true).
+    const hasSalary = salaryAmount > 0.001;
+    const basePay = hasSalary ? salaryAmount : subtotal;
+    const servicePayAddonAmount = (hasSalary && salaryIncludeServicePay) ? subtotal : 0;
+    const totalAmount = basePay + adjustmentsAmount + servicePayAddonAmount;
 
     const adjustmentLines = [];
     const pushLine = (l) => { if (Math.abs(Number(l?.amount || 0)) > 1e-9) adjustmentLines.push(l); };
@@ -4279,9 +4460,11 @@ export const listPayrollAgencyUsers = async (req, res, next) => {
     }
 
     const supField = hasSupervisorPrivilegesCol ? ', u.has_supervisor_privileges' : '';
-    const activeFilter = hasIsActiveCol ? ' AND u.is_active = TRUE' : '';
+    const activeField = hasIsActiveCol ? ', u.is_active' : '';
+    const includeInactive = String(req.query?.includeInactive || '').toLowerCase() === 'true' || String(req.query?.includeInactive || '') === '1';
+    const activeFilter = (hasIsActiveCol && !includeInactive) ? ' AND u.is_active = TRUE' : '';
     const [rows] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role${supField}
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role${supField}${activeField}
        FROM users u
        JOIN user_agencies ua ON u.id = ua.user_id
        WHERE ua.agency_id = ?

@@ -5,11 +5,20 @@
         <h2>Platform Chats</h2>
         <p class="subtitle">Direct messages within the selected agency.</p>
       </div>
-      <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
+      <div class="header-actions">
+        <div v-if="canChooseAgency" class="agency-picker">
+          <label>Agency</label>
+          <select v-model="selectedAgencyId" @change="onAgencyPicked">
+            <option :value="''">Select…</option>
+            <option v-for="a in agencyOptions" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
+          </select>
+        </div>
+        <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
+      </div>
     </div>
 
     <div v-if="!agencyId" class="empty">
-      Select an agency first (use Settings → agency selector, or your agency selector at the top of the app).
+      Select an agency first.
     </div>
 
     <div v-else class="grid">
@@ -74,11 +83,18 @@ import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
-import { useRoute } from 'vue-router';
+import { useBrandingStore } from '../../store/branding';
+import { useOrganizationStore } from '../../store/organization';
+import { useRoute, useRouter } from 'vue-router';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const brandingStore = useBrandingStore();
+const organizationStore = useOrganizationStore();
 const route = useRoute();
+const router = useRouter();
+
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
 const agencyId = computed(() => {
   const q = route.query?.agencyId ? parseInt(String(route.query.agencyId), 10) : null;
@@ -99,12 +115,66 @@ const messages = ref([]);
 const draft = ref('');
 const sending = ref(false);
 
+const agencyOptions = computed(() => {
+  const list = isSuperAdmin.value ? (agencyStore.agencies || []) : (agencyStore.userAgencies || agencyStore.agencies || []);
+  return (list || []).filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+});
+
+const canChooseAgency = computed(() => {
+  const list = agencyOptions.value || [];
+  // Only show the picker when switching is meaningful.
+  return list.length > 1;
+});
+
+const selectedAgencyId = ref('');
+
 const activeThreadLabel = computed(() => {
   if (!activeThread.value) return 'Messages';
   const other = activeThread.value.other_participant;
   if (!other) return `Thread #${activeThread.value.thread_id}`;
   return `${other.first_name} ${other.last_name}`;
 });
+
+const onAgencyPicked = async () => {
+  const id = parseInt(String(selectedAgencyId.value || ''), 10);
+  if (!Number.isFinite(id) || id <= 0) return;
+  const found = (agencyOptions.value || []).find((a) => Number(a?.id) === id);
+  if (!found) return;
+
+  // Persist the agency selection for branding/theme.
+  agencyStore.setCurrentAgency(found);
+  organizationStore.setCurrentOrganization(found);
+
+  // Ensure full agency record for theme settings (best-effort).
+  const hydrated = await agencyStore.hydrateAgencyById(id);
+  const org = hydrated || found;
+
+  // Apply theme immediately (so the user sees the branding switch right away).
+  try {
+    const paletteRaw = org?.color_palette ?? org?.colorPalette ?? null;
+    const themeRaw = org?.theme_settings ?? org?.themeSettings ?? null;
+    const colorPalette = typeof paletteRaw === 'string' ? JSON.parse(paletteRaw) : (paletteRaw || {});
+    const themeSettings = typeof themeRaw === 'string' ? JSON.parse(themeRaw) : (themeRaw || {});
+    brandingStore.applyTheme({
+      brandingAgencyId: org?.id,
+      agencyId: org?.id,
+      colorPalette,
+      themeSettings
+    });
+  } catch {
+    // ignore
+  }
+
+  // Navigate into the agency slug route (so chat is fully agency-scoped).
+  const slug = String(org?.slug || org?.portal_url || '').trim();
+  const curSlug = String(route.params?.organizationSlug || '').trim();
+  const query = { ...route.query, agencyId: String(id) };
+  if (slug && slug !== curSlug) {
+    await router.push({ path: `/${slug}/admin/communications/chats`, query });
+    return;
+  }
+  await router.push({ path: route.path, query });
+};
 
 const loadThreads = async () => {
   if (!agencyId.value) return;
@@ -190,11 +260,35 @@ watch(agencyId, async () => {
   }
 });
 
-onMounted(loadThreads);
+onMounted(async () => {
+  // Preload agency options for the in-page selector.
+  try {
+    if (isSuperAdmin.value) {
+      if (!agencyStore.agencies || agencyStore.agencies.length === 0) {
+        await agencyStore.fetchAgencies();
+      }
+    } else {
+      // Multi-agency admins/support/staff: ensure we have their agency list.
+      if (!agencyStore.userAgencies || agencyStore.userAgencies.length === 0) {
+        await agencyStore.fetchUserAgencies();
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // Sync selector to current context.
+  selectedAgencyId.value = agencyId.value ? String(agencyId.value) : '';
+  await loadThreads();
+});
 </script>
 
 <style scoped>
 .header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 14px; }
+.header-actions { display: flex; align-items: flex-end; gap: 10px; }
+.agency-picker { display: flex; flex-direction: column; gap: 6px; }
+.agency-picker label { font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+.agency-picker select { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: white; min-width: 220px; }
 .subtitle { color: var(--text-secondary); margin: 6px 0 0 0; }
 .grid { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 14px; }
 .card { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 14px; }

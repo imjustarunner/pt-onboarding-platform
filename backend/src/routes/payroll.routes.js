@@ -122,6 +122,9 @@ import {
   ,getAgencyPayrollScheduleSettings
   ,putAgencyPayrollScheduleSettings
   ,cleanupFuturePayrollPeriods
+  ,getPayrollReportSessionsUnits
+  ,getPayrollReportProviderPaySummary
+  ,getPayrollReportAdjustmentsBreakdown
   ,listUserSalaryPositions
   ,upsertUserSalaryPosition
   ,deleteUserSalaryPosition
@@ -144,6 +147,9 @@ router.post('/periods/ensure-future', ensureFuturePayrollPeriods);
 router.get('/periods', listPayrollPeriods);
 router.get('/periods/:id', getPayrollPeriod);
 router.patch('/import-rows/:rowId', patchPayrollImportRow);
+router.get('/periods/:id/reports/sessions-units', getPayrollReportSessionsUnits);
+router.get('/periods/:id/reports/provider-pay-summary', getPayrollReportProviderPaySummary);
+router.get('/periods/:id/reports/adjustments-breakdown', getPayrollReportAdjustmentsBreakdown);
 router.get('/periods/:id/raw.csv', downloadPayrollRawCsv);
 router.get('/periods/:id/export.csv', downloadPayrollExportCsv);
 router.get('/periods/:id/staging', getPayrollStaging);

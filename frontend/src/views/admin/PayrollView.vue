@@ -1087,13 +1087,12 @@
           Preview Post
         </button>
         <button
-          v-if="canSeeRunResults"
           class="btn btn-secondary"
           type="button"
-          @click.prevent.stop="exportPayrollCsv"
+          @click.prevent.stop="openPayrollReports"
           :disabled="!selectedPeriodId"
         >
-          Export Payroll CSV
+          Reports
         </button>
         <button class="btn btn-primary" @click="postPayroll" :disabled="postingPayroll || isPeriodPosted || selectedPeriodStatus !== 'ran'">
           {{ postingPayroll ? 'Posting...' : (isPeriodPosted ? 'Posted' : 'Post Payroll') }}
@@ -3812,6 +3811,19 @@ const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+
+const openPayrollReports = async () => {
+  const pid = Number(selectedPeriodId.value || 0);
+  if (!pid) return;
+  const slug = String(
+    route.params?.organizationSlug ||
+    agencyStore.currentAgency?.slug ||
+    organizationStore.organizationContext?.slug ||
+    ''
+  ).trim();
+  const path = slug ? `/${slug}/admin/payroll/reports` : '/admin/payroll/reports';
+  await router.push({ path, query: { periodId: String(pid) } });
+};
 
 // super-admin-only rate sheet import removed
 

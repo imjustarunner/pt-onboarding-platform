@@ -53,51 +53,110 @@
             </div>
             <div class="nav-links-wrapper">
               <div class="nav-links">
-              <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeMobileMenu">On-Demand Training</router-link>
               <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu">
                 {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
-              </router-link>
-              <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/hiring')" @click="closeMobileMenu">
-                Applicants
               </router-link>
 
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
               <template v-if="canSeePortalNav">
-                <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Admin Dashboard</router-link>
+                <!-- Keep Notifications visible as a top-level item -->
+                <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">
+                  Notifications
+                </router-link>
+                <router-link :to="orgTo('/notifications')" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">
+                  Notifications
+                </router-link>
 
-              <router-link
-                :to="orgTo('/admin/modules')"
-                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canViewTraining')"
-                @click="closeMobileMenu"
-              >Training</router-link>
-              <router-link
-                :to="orgTo('/admin/documents')"
-                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canSignDocuments')"
-                @click="closeMobileMenu"
-              >Documents</router-link>
-                <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Users</router-link>
-                <router-link
-                  :to="orgTo('/admin/credentialing')"
-                  v-if="isAdmin || user?.role === 'support' || user?.role === 'staff'"
-                  @click="closeMobileMenu"
-                >Credentialing</router-link>
-                <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeMobileMenu">Clients</router-link>
-              <router-link
-                :to="orgTo('/admin/communications')"
-                v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
-                @click="closeMobileMenu"
-              >Communications</router-link>
-              <router-link
-                :to="orgTo('/admin/communications/chats')"
-                v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
-                @click="closeMobileMenu"
-              >Chats</router-link>
-                <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu">Payroll</router-link>
+                <div class="nav-dropdown" @click.stop>
+                  <button
+                    type="button"
+                    class="nav-dropdown-trigger"
+                    :aria-expanded="peopleOpsMenuOpen ? 'true' : 'false'"
+                    @click.stop="togglePeopleOpsMenu"
+                  >
+                    People Ops <span class="brand-caret">▾</span>
+                  </button>
+                  <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
+                    <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/hiring')" @click="closeAllNavMenus">Applicants</router-link>
+                    <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeAllNavMenus">On-Demand Training</router-link>
+                    <router-link
+                      :to="orgTo('/admin/modules')"
+                      v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canViewTraining')"
+                      @click="closeAllNavMenus"
+                    >Training Modules</router-link>
+                    <router-link
+                      :to="orgTo('/admin/documents')"
+                      v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canSignDocuments')"
+                      @click="closeAllNavMenus"
+                    >Documents</router-link>
+                    <router-link :to="orgTo('/admin/agency-progress')" v-if="hasCapability('canViewTraining')" @click="closeAllNavMenus">Progress</router-link>
+                  </div>
+                </div>
 
-                <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Notifications</router-link>
-                <router-link :to="orgTo('/notifications')" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">Notifications</router-link>
+                <div class="nav-dropdown" @click.stop>
+                  <button
+                    type="button"
+                    class="nav-dropdown-trigger"
+                    :aria-expanded="directoryMenuOpen ? 'true' : 'false'"
+                    @click.stop="toggleDirectoryMenu"
+                  >
+                    Directory <span class="brand-caret">▾</span>
+                  </button>
+                  <div v-if="directoryMenuOpen" class="nav-dropdown-menu">
+                    <router-link :to="orgTo('/admin/schools/overview?orgType=school')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">School Overview</router-link>
+                    <router-link :to="orgTo('/admin/schools/overview?orgType=program')" v-if="user?.role === 'super_admin' || isAdmin" @click="closeAllNavMenus">Program Overview</router-link>
+                    <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Users</router-link>
+                    <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeAllNavMenus">Clients</router-link>
+                  </div>
+                </div>
 
-                <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">Settings</router-link>
+                <div class="nav-dropdown" @click.stop>
+                  <button
+                    type="button"
+                    class="nav-dropdown-trigger"
+                    :aria-expanded="managementMenuOpen ? 'true' : 'false'"
+                    @click.stop="toggleManagementMenu"
+                  >
+                    Management <span class="brand-caret">▾</span>
+                  </button>
+                  <div v-if="managementMenuOpen" class="nav-dropdown-menu">
+                    <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Admin Dashboard</router-link>
+                    <div class="nav-dropdown-sep" />
+                    <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Executive Report</router-link>
+                    <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Payroll</router-link>
+                    <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Receivables</router-link>
+                    <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Revenue</router-link>
+
+                    <div class="nav-dropdown-sep" />
+
+                    <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Users</router-link>
+                    <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeAllNavMenus">Clients</router-link>
+                    <router-link :to="orgTo('/admin/credentialing')" v-if="isAdmin || user?.role === 'support' || user?.role === 'staff'" @click="closeAllNavMenus">Credentialing</router-link>
+
+                    <div class="nav-dropdown-sep" />
+
+                    <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeAllNavMenus">Settings</router-link>
+                  </div>
+                </div>
+
+                <div
+                  class="nav-dropdown"
+                  v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
+                  @click.stop
+                >
+                  <button
+                    type="button"
+                    class="nav-dropdown-trigger"
+                    :aria-expanded="commsMenuOpen ? 'true' : 'false'"
+                    @click.stop="toggleCommsMenu"
+                  >
+                    Communications <span class="brand-caret">▾</span>
+                  </button>
+                  <div v-if="commsMenuOpen" class="nav-dropdown-menu">
+                    <router-link :to="orgTo('/admin/communications')" @click="closeAllNavMenus">Feed</router-link>
+                    <router-link :to="orgTo('/admin/communications/chats')" @click="closeAllNavMenus">Chats</router-link>
+                  </div>
+                </div>
               </template>
               <router-link
                 v-if="hasCapability('canJoinProgramEvents')"
@@ -205,6 +264,8 @@
                 class="mobile-nav-link"
               >Chats</router-link>
               <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
+              <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Receivables</router-link>
+              <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link">Revenue</router-link>
 
               <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
               <router-link :to="orgTo('/notifications')" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
@@ -365,12 +426,22 @@ watch(effectivePreviewViewport, (next) => {
   applyPreviewToDocument(next);
 }, { immediate: true });
 
-// ---- Brand switcher (top-nav dropdown) ----
+// ---- Brand switcher + nav dropdowns (top-nav) ----
 const brandMenuOpen = ref(false);
+const peopleOpsMenuOpen = ref(false);
+const directoryMenuOpen = ref(false);
+const managementMenuOpen = ref(false);
+const commsMenuOpen = ref(false);
 
-const onDocumentClick = () => {
+const closeAllNavMenus = () => {
   brandMenuOpen.value = false;
+  peopleOpsMenuOpen.value = false;
+  directoryMenuOpen.value = false;
+  managementMenuOpen.value = false;
+  commsMenuOpen.value = false;
 };
+
+const onDocumentClick = () => closeAllNavMenus();
 
 const canSwitchBrand = computed(() => {
   if (!isAuthenticated.value) return false;
@@ -414,6 +485,28 @@ const toggleBrandMenu = async () => {
 
 const closeBrandMenu = () => {
   brandMenuOpen.value = false;
+};
+
+const togglePeopleOpsMenu = () => {
+  // Only one open at a time (feels more professional + avoids overlap).
+  const next = !peopleOpsMenuOpen.value;
+  closeAllNavMenus();
+  peopleOpsMenuOpen.value = next;
+};
+const toggleDirectoryMenu = () => {
+  const next = !directoryMenuOpen.value;
+  closeAllNavMenus();
+  directoryMenuOpen.value = next;
+};
+const toggleManagementMenu = () => {
+  const next = !managementMenuOpen.value;
+  closeAllNavMenus();
+  managementMenuOpen.value = next;
+};
+const toggleCommsMenu = () => {
+  const next = !commsMenuOpen.value;
+  closeAllNavMenus();
+  commsMenuOpen.value = next;
 };
 
 const pushWithSlug = (slug) => {
@@ -930,6 +1023,74 @@ onUnmounted(() => {
   z-index: 1100;
 }
 
+.nav-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.nav-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 6px; /* match nav links */
+  font-weight: 400;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  font-size: 16px;
+  font-family: var(--agency-font-family, var(--font-body));
+}
+
+.nav-dropdown-trigger:hover {
+  background-color: rgba(255,255,255,0.1);
+}
+
+.nav-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 220px;
+  background: white;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 10px;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Match top-nav text sizing */
+  font-size: 16px;
+}
+
+.nav-dropdown-sep {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 8px 4px;
+}
+
+.nav-dropdown-menu a {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 10px;
+  /* IMPORTANT: override .nav-links a { color: white } */
+  color: var(--text-primary) !important;
+  text-decoration: none;
+  /* Match top-nav link typography */
+  font-size: inherit;
+  font-weight: 400;
+  font-family: var(--agency-font-family, var(--font-body));
+}
+
+.nav-dropdown-menu a:hover {
+  background: #f8fafc;
+}
+
 .brand-menu-title {
   font-weight: 800;
   font-size: 13px;
@@ -988,28 +1149,9 @@ onUnmounted(() => {
 .nav-links-wrapper {
   flex: 1;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
-}
-
-.nav-links-wrapper::-webkit-scrollbar {
-  height: 6px;
-}
-
-.nav-links-wrapper::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.nav-links-wrapper::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
-}
-
-.nav-links-wrapper::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.5);
+  /* IMPORTANT: Dropdown menus must be able to render outside this row.
+     Avoid horizontal scrolling here; use dropdowns instead. */
+  overflow: visible;
 }
 
 .nav-links {
@@ -1017,9 +1159,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 14px;
   flex-wrap: nowrap;
-  flex-shrink: 0;
-  min-width: max-content;
-  padding-right: 10px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .nav-availability {
@@ -1112,6 +1253,7 @@ onUnmounted(() => {
   transition: background-color 0.3s;
   white-space: nowrap;
   flex-shrink: 0;
+  font-size: 16px;
 }
 
 .nav-links a:hover,

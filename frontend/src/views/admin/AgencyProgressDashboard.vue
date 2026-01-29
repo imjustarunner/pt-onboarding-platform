@@ -4,7 +4,7 @@
       <h1>Agency Progress Dashboard</h1>
       <div v-if="agencies.length > 1" class="agency-selector">
         <label>Select Agency:</label>
-        <select v-model="selectedAgencyId" @change="loadDashboard" class="agency-select">
+        <select v-model="selectedAgencyId" @change="onAgencyChange" class="agency-select">
           <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
             {{ agency.name }}
           </option>
@@ -173,11 +173,15 @@ import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useBrandingStore } from '../../store/branding';
+import { useOrganizationStore } from '../../store/organization';
 import AdminActionDialog from '../../components/admin/AdminActionDialog.vue';
 import AuditLogViewer from '../../components/admin/AuditLogViewer.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
+const organizationStore = useOrganizationStore();
 
 const agencies = ref([]);
 const selectedAgencyId = ref(null);
@@ -197,6 +201,51 @@ const showAuditLog = ref(false);
 const route = useRoute();
 const router = useRouter();
 
+const switchAgencyBrandAndRoute = async (agencyId) => {
+  const id = Number(agencyId);
+  if (!id) return false;
+  const found = (agencies.value || []).find((a) => Number(a?.id) === id);
+  if (!found) return false;
+
+  // Persist the agency selection for branding/theme.
+  agencyStore.setCurrentAgency(found);
+  organizationStore.setCurrentOrganization(found);
+
+  // Ensure full agency record for theme settings.
+  const hydrated = await agencyStore.hydrateAgencyById(found.id);
+  const org = hydrated || found;
+
+  // Apply theme immediately.
+  try {
+    const paletteRaw = org?.color_palette ?? org?.colorPalette ?? null;
+    const themeRaw = org?.theme_settings ?? org?.themeSettings ?? null;
+    const colorPalette = typeof paletteRaw === 'string' ? JSON.parse(paletteRaw) : (paletteRaw || {});
+    const themeSettings = typeof themeRaw === 'string' ? JSON.parse(themeRaw) : (themeRaw || {});
+    brandingStore.applyTheme({
+      brandingAgencyId: org?.id,
+      agencyId: org?.id,
+      colorPalette,
+      themeSettings
+    });
+  } catch {
+    // ignore
+  }
+
+  // Push into slug-scoped route so the portal context is correct.
+  const slug = String(org?.slug || org?.portal_url || '').trim();
+  const curSlug = String(route.params?.organizationSlug || '').trim();
+  if (slug && slug !== curSlug) {
+    const url = `/${slug}/admin/agencies/${id}/progress`;
+    try {
+      await router.push(url);
+    } catch {
+      try { window.location.assign(url); } catch { /* ignore */ }
+    }
+    return true;
+  }
+  return false;
+};
+
 const loadAgencies = async () => {
   try {
     // For superadmins, fetch all agencies; for others, fetch user's agencies
@@ -205,7 +254,10 @@ const loadAgencies = async () => {
     } else {
       await agencyStore.fetchAgencies(authStore.user?.id);
     }
-    agencies.value = agencyStore.agencies;
+    // Only allow true agencies (not other organization types) in this selector.
+    agencies.value = (agencyStore.agencies || []).filter(
+      (a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency'
+    );
     
     // Check if agencyId is in route params (for super admin clicking from dashboard)
     if (route.params.agencyId) {
@@ -238,6 +290,17 @@ const loadDashboard = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const onAgencyChange = async () => {
+  if (!selectedAgencyId.value) return;
+  try {
+    const navigated = await switchAgencyBrandAndRoute(selectedAgencyId.value);
+    if (navigated) return;
+  } catch {
+    // ignore; fall back to loading in-place
+  }
+  await loadDashboard();
 };
 
 const toggleUser = async (userId) => {

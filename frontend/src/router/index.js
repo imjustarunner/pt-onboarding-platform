@@ -361,6 +361,18 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'school_staff'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/payroll/reports',
+    name: 'OrganizationPayrollReports',
+    component: () => import('../views/admin/PayrollReportsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/receivables',
+    name: 'OrganizationReceivables',
+    component: () => import('../views/admin/ReceivablesView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/payroll',
     name: 'OrganizationPayroll',
     component: () => import('../views/admin/PayrollView.vue'),
@@ -650,6 +662,30 @@ const routes = [
     name: 'Notifications',
     component: () => import('../views/admin/NotificationsView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'school_staff'] }
+  },
+  {
+    path: '/admin/payroll/reports',
+    name: 'PayrollReports',
+    component: () => import('../views/admin/PayrollReportsView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
+  },
+  {
+    path: '/admin/receivables',
+    name: 'Receivables',
+    component: () => import('../views/admin/ReceivablesView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
+  },
+  {
+    path: '/admin/revenue',
+    name: 'PlatformRevenue',
+    component: () => import('../views/admin/PlatformRevenueView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['super_admin'] }
+  },
+  {
+    path: '/admin/executive-report',
+    name: 'ExecutiveReport',
+    component: () => import('../views/admin/ExecutiveReportView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['super_admin'] }
   },
   {
     path: '/admin/payroll',

@@ -330,6 +330,16 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'executive_report',
+    title: 'Executive Report',
+    description: 'Snapshot + trends for meetings',
+    to: '/admin/executive-report',
+    emoji: '📈',
+    category: 'Management',
+    roles: ['super_admin'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
     id: 'platform_settings',
     title: 'Platform Settings',
     description: 'Configure platform-wide settings and terminology',
@@ -372,6 +382,7 @@ const quickActions = computed(() => {
 });
 
 const defaultQuickActionIds = computed(() => ([
+  'executive_report',
   'manage_organizations',
   'manage_clients',
   ...(hasAffiliatedSchools.value ? ['school_overview'] : []),

@@ -108,6 +108,61 @@ class PayrollImportRow {
     return rows;
   }
 
+  static async listAggregatedSessionsUnitsForPeriod({ payrollPeriodId, providerIds = null, groupBy = 'provider' }) {
+    const latestImportId = await this._latestImportIdForPeriod(payrollPeriodId);
+    if (!latestImportId) return [];
+
+    const gb = String(groupBy || 'provider').toLowerCase();
+    const by = gb === 'provider_service_code' ? 'provider_service_code' : (gb === 'service_code' ? 'service_code' : 'provider');
+    const where = ['pir.payroll_period_id = ?', 'pir.payroll_import_id = ?'];
+    const vals = [payrollPeriodId, latestImportId];
+
+    const ids = Array.isArray(providerIds)
+      ? providerIds.map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+    if (ids.length) {
+      where.push(`pir.user_id IN (${ids.map(() => '?').join(',')})`);
+      vals.push(...ids);
+    }
+
+    const selectUser = by === 'service_code' ? 'NULL AS user_id, NULL AS first_name, NULL AS last_name, NULL AS provider_name,' : 'pir.user_id, u.first_name, u.last_name, pir.provider_name,';
+    const selectServiceCode =
+      (by === 'provider_service_code' || by === 'service_code')
+        ? 'pir.service_code,'
+        : '';
+    const groupByClause =
+      by === 'provider_service_code'
+        ? 'pir.user_id, pir.provider_name, pir.service_code'
+        : (by === 'service_code' ? 'pir.service_code' : 'pir.user_id, pir.provider_name');
+    const orderByClause =
+      by === 'service_code'
+        ? 'pir.service_code ASC'
+        : (by === 'provider_service_code'
+            ? 'u.last_name ASC, u.first_name ASC, pir.provider_name ASC, pir.service_code ASC'
+            : 'u.last_name ASC, u.first_name ASC, pir.provider_name ASC');
+
+    const [rows] = await pool.execute(
+      `SELECT
+         ${selectUser}
+         ${selectServiceCode}
+         COUNT(*) AS session_count,
+         SUM(COALESCE(pir.unit_count, 0)) AS units_total,
+         SUM(CASE WHEN pir.note_status = 'NO_NOTE' THEN 1 ELSE 0 END) AS no_note_session_count,
+         SUM(CASE WHEN pir.note_status = 'DRAFT' THEN 1 ELSE 0 END) AS draft_session_count,
+         SUM(CASE WHEN pir.note_status = 'FINALIZED' THEN 1 ELSE 0 END) AS finalized_session_count,
+         SUM(CASE WHEN pir.note_status = 'NO_NOTE' THEN COALESCE(pir.unit_count, 0) ELSE 0 END) AS no_note_units_total,
+         SUM(CASE WHEN pir.note_status = 'DRAFT' THEN COALESCE(pir.unit_count, 0) ELSE 0 END) AS draft_units_total,
+         SUM(CASE WHEN pir.note_status = 'FINALIZED' THEN COALESCE(pir.unit_count, 0) ELSE 0 END) AS finalized_units_total
+       FROM payroll_import_rows pir
+       LEFT JOIN users u ON u.id = pir.user_id
+       WHERE ${where.join(' AND ')}
+       GROUP BY ${groupByClause}
+       ORDER BY ${orderByClause}`,
+      vals
+    );
+    return rows || [];
+  }
+
   static async updateDraftPayable({ rowId, draftPayable }) {
     const [result] = await pool.execute(
       `UPDATE payroll_import_rows
