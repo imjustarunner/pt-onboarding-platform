@@ -5,6 +5,13 @@ import { getUserCapabilities } from '../utils/capabilities.js';
 
 export const authenticate = (req, res, next) => {
   try {
+    // Public endpoints (no auth) - never block these with session auth.
+    // Note: Some environments may inadvertently wrap `/api/public/*` with `authenticate`.
+    const requestPath = String(req.originalUrl || req.path || '');
+    if (requestPath.startsWith('/api/public/')) {
+      return next();
+    }
+
     // Try cookie first (new method), then fall back to Authorization header (for backward compatibility)
     const token = req.cookies?.authToken || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.substring(7) : null);
     
