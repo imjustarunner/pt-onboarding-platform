@@ -24,7 +24,7 @@
             @click="$emit('open-provider', p.provider_user_id)"
           >
             <div class="avatar" aria-hidden="true">
-              <img v-if="p.profile_photo_url" :src="p.profile_photo_url" alt="" class="avatar-img" />
+              <img v-if="providerPhotoUrl(p)" :src="providerPhotoUrl(p)" alt="" class="avatar-img" />
               <span v-else>{{ initialsFor(p) }}</span>
             </div>
             <div class="meta">
@@ -48,6 +48,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import { toUploadsUrl } from '../../../utils/uploadsUrl';
 
 const props = defineProps({
   providers: { type: Array, default: () => [] },
@@ -75,6 +76,8 @@ const initialsFor = (p) => {
   const b = l ? l[0] : '';
   return `${a}${b}`.toUpperCase() || 'P';
 };
+
+const providerPhotoUrl = (p) => toUploadsUrl(p?.profile_photo_url || null);
 
 const filtered = computed(() => {
   const q = normalize(query.value);

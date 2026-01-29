@@ -4,7 +4,7 @@
       <div class="left">
         <div class="header-line">
           <div class="avatar" aria-hidden="true">
-            <img v-if="provider.profile_photo_url" :src="provider.profile_photo_url" alt="" class="avatar-img" />
+            <img v-if="providerPhotoUrl(provider)" :src="providerPhotoUrl(provider)" alt="" class="avatar-img" />
             <span v-else class="avatar-fallback">{{ initialsFor(provider) }}</span>
           </div>
 
@@ -73,6 +73,7 @@
 import { ref } from 'vue';
 import ClientInitialsList from './ClientInitialsList.vue';
 import SoftScheduleEditor from './SoftScheduleEditor.vue';
+import { toUploadsUrl } from '../../../utils/uploadsUrl';
 
 defineProps({
   provider: { type: Object, required: true },
@@ -88,6 +89,8 @@ defineEmits(['open-client', 'save-slots', 'open-provider']);
 
 const selectedSection = ref('all');
 const collapsed = ref(false);
+
+const providerPhotoUrl = (p) => toUploadsUrl(p?.profile_photo_url || null);
 
 const initialsFor = (p) => {
   const f = String(p?.first_name || '').trim();

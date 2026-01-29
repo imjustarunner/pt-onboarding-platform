@@ -12,7 +12,7 @@
         <div class="left">
           <div class="profile-hero">
             <div class="avatar-lg" aria-hidden="true">
-              <img v-if="profile?.profile_photo_url" :src="profile.profile_photo_url" alt="" class="avatar-img" />
+              <img v-if="profilePhotoUrl" :src="profilePhotoUrl" alt="" class="avatar-img" />
               <span v-else>{{ initialsFor(profile) }}</span>
             </div>
             <div class="meta">
@@ -183,6 +183,7 @@ import api from '../../../services/api';
 import SchoolDayBar from './SchoolDayBar.vue';
 import SoftScheduleEditor from './SoftScheduleEditor.vue';
 import { useAuthStore } from '../../../store/auth';
+import { toUploadsUrl } from '../../../utils/uploadsUrl';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
@@ -194,6 +195,8 @@ const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 const meUserId = computed(() => authStore.user?.id || null);
+
+const profilePhotoUrl = computed(() => toUploadsUrl(profile.value?.profile_photo_url || null));
 
 const backToProviders = () => {
   const slug = String(route.params.organizationSlug || '').trim();
