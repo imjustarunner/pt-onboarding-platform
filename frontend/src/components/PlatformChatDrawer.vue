@@ -405,7 +405,7 @@ const openChat = async (u, agencyIdOverride = null) => {
     activeThreadAgencyId.value = useAgencyId;
     const resp = await api.post('/chat/threads/direct', { agencyId: useAgencyId, otherUserId: u.id }, { skipGlobalLoading: true });
     activeThreadId.value = resp.data.threadId;
-    await loadMessages();
+    await loadMessages({ markRead: true });
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || 'Failed to open chat';
   } finally {
@@ -418,7 +418,7 @@ const openThread = async (t) => {
   await openChat(t.other_participant, t.agency_id);
 };
 
-const loadMessages = async () => {
+const loadMessages = async ({ markRead } = { markRead: true }) => {
   if (!activeThreadId.value) return;
   try {
     chatLoading.value = true;
@@ -428,7 +428,9 @@ const loadMessages = async () => {
     );
     chatMessages.value = resp.data || [];
     const last = chatMessages.value[chatMessages.value.length - 1];
-    if (last?.id) {
+    const canMarkRead =
+      !!markRead && typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus();
+    if (canMarkRead && last?.id) {
       await api.post(
         `/chat/threads/${activeThreadId.value}/read`,
         { lastReadMessageId: last.id },
@@ -448,7 +450,7 @@ const send = async () => {
     const body = draft.value.trim();
     draft.value = '';
     await api.post(`/chat/threads/${activeThreadId.value}/messages`, { body }, { skipGlobalLoading: true });
-    await loadMessages();
+    await loadMessages({ markRead: true });
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || 'Failed to send message';
   } finally {
@@ -463,7 +465,7 @@ const unsend = async (m) => {
   try {
     sending.value = true;
     await api.delete(`/chat/threads/${activeThreadId.value}/messages/${m.id}`, { skipGlobalLoading: true });
-    await loadMessages();
+    await loadMessages({ markRead: true });
     await loadThreads();
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || 'Failed to unsend message';
@@ -481,7 +483,7 @@ const deleteForMe = async (m) => {
       {},
       { skipGlobalLoading: true }
     );
-    await loadMessages();
+    await loadMessages({ markRead: true });
     await loadThreads();
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || 'Failed to delete message';
@@ -537,7 +539,8 @@ const startPolling = () => {
     if (!isAuthenticated.value) return;
     Promise.all([loadPresence(), loadThreads()]);
     if (activeThreadId.value) {
-      loadMessages();
+      // Poll messages without marking them as read (prevents background tabs from auto-reading).
+      loadMessages({ markRead: false });
     }
   }, 20000);
 };

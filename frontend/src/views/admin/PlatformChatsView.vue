@@ -222,7 +222,7 @@ const loadThreads = async () => {
   }
 };
 
-const loadMessages = async () => {
+const loadMessages = async ({ markRead } = { markRead: true }) => {
   if (!activeThreadId.value) return;
   try {
     messagesLoading.value = true;
@@ -230,7 +230,9 @@ const loadMessages = async () => {
     const resp = await api.get(`/chat/threads/${activeThreadId.value}/messages`, { params: { limit: 200 } });
     messages.value = resp.data || [];
     const last = messages.value[messages.value.length - 1];
-    if (last?.id) {
+    const canMarkRead =
+      !!markRead && typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus();
+    if (canMarkRead && last?.id) {
       await api.post(`/chat/threads/${activeThreadId.value}/read`, { lastReadMessageId: last.id }).catch(() => {});
       await loadThreads();
     }
@@ -244,7 +246,7 @@ const loadMessages = async () => {
 const selectThread = async (t) => {
   activeThreadId.value = t.thread_id;
   activeThread.value = t;
-  await loadMessages();
+  await loadMessages({ markRead: true });
 };
 
 const send = async () => {
@@ -254,7 +256,7 @@ const send = async () => {
     const body = draft.value.trim();
     draft.value = '';
     await api.post(`/chat/threads/${activeThreadId.value}/messages`, { body });
-    await loadMessages();
+    await loadMessages({ markRead: true });
   } finally {
     sending.value = false;
   }
@@ -267,7 +269,7 @@ const unsend = async (m) => {
   try {
     sending.value = true;
     await api.delete(`/chat/threads/${activeThreadId.value}/messages/${m.id}`);
-    await loadMessages();
+    await loadMessages({ markRead: true });
     await loadThreads();
   } finally {
     sending.value = false;
@@ -279,7 +281,7 @@ const deleteForMe = async (m) => {
   try {
     sending.value = true;
     await api.post(`/chat/threads/${activeThreadId.value}/messages/${m.id}/delete-for-me`, {});
-    await loadMessages();
+    await loadMessages({ markRead: true });
     await loadThreads();
   } finally {
     sending.value = false;
@@ -288,7 +290,7 @@ const deleteForMe = async (m) => {
 
 const refresh = async () => {
   await loadThreads();
-  if (activeThreadId.value) await loadMessages();
+  if (activeThreadId.value) await loadMessages({ markRead: true });
 };
 
 const formatTime = (d) => {
