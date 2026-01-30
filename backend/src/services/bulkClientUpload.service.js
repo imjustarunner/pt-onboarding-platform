@@ -801,13 +801,15 @@ export async function processBulkClientUpload({ agencyId, userId, userRole, file
           const submissionDate = row.referralDate || todayYmd();
           const referralDate = row.referralDate || submissionDate;
           const statusToSet = shouldArchive ? 'ARCHIVED' : 'PENDING_REVIEW';
+          const newStatusKey = String(clientStatusKey || '').trim().toLowerCase();
+          const waitlistStartedAt = newStatusKey === 'waitlist' && !shouldArchive ? submissionDate : null;
 
           await connection.execute(
             `INSERT INTO clients (
               organization_id, agency_id, provider_id, initials, full_name, status,
               submission_date, document_status, source, created_by_user_id,
               referral_date, client_status_id, paperwork_status_id, insurance_type_id, paperwork_delivery_method_id,
-              doc_date, grade, school_year, gender, identifier_code, primary_client_language, primary_parent_language,
+              waitlist_started_at, doc_date, grade, school_year, gender, identifier_code, primary_client_language, primary_parent_language,
               skills, internal_notes, service_day, paperwork_received_at
             ) VALUES (
               ?, ?, ?, ?, ?, ?,
@@ -832,6 +834,7 @@ export async function processBulkClientUpload({ agencyId, userId, userRole, file
               paperworkStatusId,
               insuranceTypeId,
               deliveryMethodId,
+              waitlistStartedAt,
               row.docDate || null,
               row.grade || null,
               row.schoolYear || null,
@@ -866,6 +869,18 @@ export async function processBulkClientUpload({ agencyId, userId, userRole, file
             set('initials', initials);
           }
           if (statusProvided) set('client_status_id', clientStatusId);
+          // Track waitlist start date when transitioning into waitlist (best-effort; requires migration 298).
+          try {
+            const newKey = String(clientStatusKey || row.status || '').trim().toLowerCase();
+            const wantsWaitlist = newKey.includes('waitlist');
+            if (statusProvided && wantsWaitlist && !shouldArchive) {
+              // Only set if missing so we don't clobber historical ordering.
+              updates.push(`waitlist_started_at = COALESCE(waitlist_started_at, ?)`);
+              values.push(row.referralDate || todayYmd());
+            }
+          } catch {
+            // ignore
+          }
           if (paperworkProvided) set('paperwork_status_id', paperworkStatusId);
           if (insuranceProvided) set('insurance_type_id', insuranceTypeId);
           if (deliveryProvided) set('paperwork_delivery_method_id', deliveryMethodId);

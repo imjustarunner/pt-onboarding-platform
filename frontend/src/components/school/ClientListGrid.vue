@@ -63,9 +63,19 @@
               <span class="initials" :title="rosterLabelTitle(client)">{{ formatRosterLabel(client) }}</span>
             </td>
             <td>
-              <span :class="['status-badge', `status-${String(client.client_status_key || 'unknown').toLowerCase().replace('_', '-')}`]">
-                {{ client.client_status_label || '—' }}
-              </span>
+              <div class="status-cell">
+                <span :class="['status-badge', `status-${String(client.client_status_key || 'unknown').toLowerCase().replace('_', '-')}`]">
+                  {{ client.client_status_label || '—' }}
+                </span>
+                <span
+                  v-if="String(client.client_status_key || '').toLowerCase() === 'waitlist' && client.waitlist_days !== null && client.waitlist_rank !== null"
+                  class="waitlist-bubble"
+                  :title="`Waitlisted ${client.waitlist_days} day(s) • Rank #${client.waitlist_rank}`"
+                >
+                  <span class="wl-left">{{ client.waitlist_days }}d</span>
+                  <span class="wl-right">#{{ client.waitlist_rank }}</span>
+                </span>
+              </div>
             </td>
             <td>{{ formatDocSummary(client) }}</td>
             <td>{{ client.provider_name || 'Not assigned' }}</td>
@@ -374,6 +384,31 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.waitlist-bubble {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+  font-weight: 800;
+  font-size: 12px;
+  line-height: 1;
+}
+.waitlist-bubble .wl-left {
+  padding: 4px 8px;
+  border-right: 1px solid rgba(245, 158, 11, 0.25);
+}
+.waitlist-bubble .wl-right {
+  padding: 4px 8px;
+}
 .client-list-grid {
   width: 100%;
 }

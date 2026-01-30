@@ -1327,6 +1327,24 @@ export const updateClient = async (req, res, next) => {
         const newLabel = String(newStatusRow?.label || '').toLowerCase();
         const shouldArchive = newKey === 'dead' || newKey === 'terminated' || newLabel.includes('dead') || newLabel.includes('terminated');
 
+        // Waitlist tracking: if a client enters waitlist and doesn't have a start date yet,
+        // set waitlist_started_at so we can compute days + rank in school rosters.
+        // (Best-effort: column may not exist until migration 298.)
+        if (newKey === 'waitlist') {
+          try {
+            await pool.execute(
+              `UPDATE clients
+               SET waitlist_started_at = COALESCE(waitlist_started_at, CURDATE())
+               WHERE id = ?`,
+              [parseInt(id, 10)]
+            );
+            // Keep updatedClient in sync for immediate response.
+            updatedClient = await Client.findById(id);
+          } catch {
+            // ignore
+          }
+        }
+
         const oldWorkflowArchived = String(currentClient.status || '').toUpperCase() === 'ARCHIVED';
         const newWorkflowArchived = shouldArchive || String(updatedClient.status || '').toUpperCase() === 'ARCHIVED';
 

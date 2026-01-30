@@ -153,6 +153,7 @@ export const getSchoolClients = async (req, res, next) => {
            c.client_status_id,
            cs.label AS client_status_label,
            cs.status_key AS client_status_key,
+           c.waitlist_started_at,
            c.grade,
            c.school_year,
            GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name) ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ', ') AS provider_name,
@@ -241,6 +242,7 @@ export const getSchoolClients = async (req, res, next) => {
         client_status_id: client.client_status_id || null,
         client_status_label: client.client_status_label || null,
         client_status_key: client.client_status_key || null,
+        waitlist_started_at: client.waitlist_started_at || null,
         grade: client.grade || null,
         school_year: client.school_year || null,
         provider_id: null,
@@ -262,6 +264,44 @@ export const getSchoolClients = async (req, res, next) => {
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0
       };
     });
+
+    // Waitlist UI helpers: compute days waitlisted + rank within this org.
+    try {
+      const now = Date.now();
+      const MS_DAY = 24 * 60 * 60 * 1000;
+      const waitlisted = restrictedClients
+        .filter((c) => String(c?.client_status_key || '').toLowerCase() === 'waitlist')
+        .map((c) => ({
+          id: Number(c.id),
+          startedAt: c.waitlist_started_at || c.submission_date || null
+        }))
+        .filter((x) => Number.isFinite(x.id));
+
+      waitlisted.sort((a, b) => {
+        const at = a.startedAt ? new Date(a.startedAt).getTime() : Number.POSITIVE_INFINITY;
+        const bt = b.startedAt ? new Date(b.startedAt).getTime() : Number.POSITIVE_INFINITY;
+        if (at !== bt) return at - bt;
+        return a.id - b.id;
+      });
+
+      const rankById = new Map();
+      waitlisted.forEach((w, idx) => rankById.set(w.id, idx + 1));
+
+      for (const c of restrictedClients) {
+        if (String(c?.client_status_key || '').toLowerCase() !== 'waitlist') {
+          c.waitlist_days = null;
+          c.waitlist_rank = null;
+          continue;
+        }
+        const startedAt = c.waitlist_started_at || c.submission_date || null;
+        const startedMs = startedAt ? new Date(startedAt).getTime() : NaN;
+        const days = Number.isFinite(startedMs) ? Math.max(0, Math.floor((now - startedMs) / MS_DAY)) : 0;
+        c.waitlist_days = days;
+        c.waitlist_rank = rankById.get(Number(c.id)) || null;
+      }
+    } catch {
+      // ignore
+    }
 
     res.json(restrictedClients);
   } catch (error) {
@@ -319,6 +359,7 @@ export const getProviderMyRoster = async (req, res, next) => {
            c.client_status_id,
            cs.label AS client_status_label,
            cs.status_key AS client_status_key,
+           c.waitlist_started_at,
            c.grade,
            c.school_year,
            GROUP_CONCAT(DISTINCT CONCAT(u.first_name, ' ', u.last_name) ORDER BY u.last_name ASC, u.first_name ASC SEPARATOR ', ') AS provider_name,
@@ -404,6 +445,7 @@ export const getProviderMyRoster = async (req, res, next) => {
         client_status_id: client.client_status_id || null,
         client_status_label: client.client_status_label || null,
         client_status_key: client.client_status_key || null,
+        waitlist_started_at: client.waitlist_started_at || null,
         grade: client.grade || null,
         school_year: client.school_year || null,
         provider_id: providerUserId,
@@ -423,6 +465,44 @@ export const getProviderMyRoster = async (req, res, next) => {
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0
       };
     });
+
+    // Waitlist helpers within this org for providers too.
+    try {
+      const now = Date.now();
+      const MS_DAY = 24 * 60 * 60 * 1000;
+      const waitlisted = restrictedClients
+        .filter((c) => String(c?.client_status_key || '').toLowerCase() === 'waitlist')
+        .map((c) => ({
+          id: Number(c.id),
+          startedAt: c.waitlist_started_at || c.submission_date || null
+        }))
+        .filter((x) => Number.isFinite(x.id));
+
+      waitlisted.sort((a, b) => {
+        const at = a.startedAt ? new Date(a.startedAt).getTime() : Number.POSITIVE_INFINITY;
+        const bt = b.startedAt ? new Date(b.startedAt).getTime() : Number.POSITIVE_INFINITY;
+        if (at !== bt) return at - bt;
+        return a.id - b.id;
+      });
+
+      const rankById = new Map();
+      waitlisted.forEach((w, idx) => rankById.set(w.id, idx + 1));
+
+      for (const c of restrictedClients) {
+        if (String(c?.client_status_key || '').toLowerCase() !== 'waitlist') {
+          c.waitlist_days = null;
+          c.waitlist_rank = null;
+          continue;
+        }
+        const startedAt = c.waitlist_started_at || c.submission_date || null;
+        const startedMs = startedAt ? new Date(startedAt).getTime() : NaN;
+        const days = Number.isFinite(startedMs) ? Math.max(0, Math.floor((now - startedMs) / MS_DAY)) : 0;
+        c.waitlist_days = days;
+        c.waitlist_rank = rankById.get(Number(c.id)) || null;
+      }
+    } catch {
+      // ignore
+    }
 
     res.json(restrictedClients);
   } catch (e) {
