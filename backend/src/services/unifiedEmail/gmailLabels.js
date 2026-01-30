@@ -3,7 +3,7 @@ import { getGmailClient } from './gmailClient.js';
 let cachedLabelIds = null;
 
 async function listLabels() {
-  const gmail = getGmailClient();
+  const gmail = await getGmailClient();
   const res = await gmail.users.labels.list({ userId: 'me' });
   return res.data?.labels || [];
 }
@@ -22,7 +22,7 @@ export async function ensureLabelId(labelName) {
     return existing.id;
   }
 
-  const gmail = getGmailClient();
+  const gmail = await getGmailClient();
   const created = await gmail.users.labels.create({
     userId: 'me',
     requestBody: {

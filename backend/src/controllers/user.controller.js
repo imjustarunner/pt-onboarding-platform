@@ -37,6 +37,39 @@ async function requireSharedAgencyAccessOrSuperAdmin({ actorUserId, targetUserId
   return shared.length > 0;
 }
 
+async function attachAffiliationMeta(orgs) {
+  const list = Array.isArray(orgs) ? orgs : [];
+  if (!list.length) return list;
+  try {
+    const [tables] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_affiliations'"
+    );
+    const has = Number(tables?.[0]?.cnt || 0) > 0;
+    if (!has) return list;
+
+    const [rows] = await pool.execute(
+      `SELECT organization_id, agency_id
+       FROM organization_affiliations
+       WHERE is_active = TRUE
+       ORDER BY updated_at DESC, id DESC`
+    );
+    const byOrg = new Map();
+    for (const r of (rows || [])) {
+      const orgId = Number(r?.organization_id || 0);
+      if (!orgId || byOrg.has(orgId)) continue;
+      byOrg.set(orgId, Number(r?.agency_id || 0) || null);
+    }
+
+    for (const o of list) {
+      if (!o || !o.id) continue;
+      o.affiliated_agency_id = byOrg.get(Number(o.id)) || null;
+    }
+  } catch {
+    // ignore; best-effort only
+  }
+  return list;
+}
+
 export const getCurrentUser = async (req, res, next) => {
   try {
     // Approved employee tokens do not have a users-table record.
@@ -2163,6 +2196,7 @@ export const getUserAgencies = async (req, res, next) => {
         }
       }
       
+      await attachAffiliationMeta(agencies);
       return res.json(agencies);
     }
     
@@ -2204,6 +2238,7 @@ export const getUserAgencies = async (req, res, next) => {
     }
     
     const agencies = await User.getAgencies(userId);
+    await attachAffiliationMeta(agencies);
     res.json(agencies);
   } catch (error) {
     next(error);

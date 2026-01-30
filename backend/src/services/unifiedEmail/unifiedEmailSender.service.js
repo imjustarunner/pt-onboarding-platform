@@ -84,7 +84,7 @@ export async function sendNotificationEmail({
     }).catch(() => null);
   }
 
-  const gmail = getGmailClient();
+  const gmail = await getGmailClient();
   const mime = buildMimeMessage({ to, subject, text, html, from, replyTo });
   const raw = base64UrlEncode(mime);
 
@@ -128,7 +128,7 @@ export async function sendEmailFromIdentity({
   const from = pickFromHeader({ displayName: identity.display_name, fromEmail: identity.from_email });
   const replyTo = identity.reply_to || null;
 
-  const gmail = getGmailClient();
+  const gmail = await getGmailClient();
   const mime = buildMimeMessage({ to, subject, text, html, from, replyTo, inReplyTo, references });
   const raw = base64UrlEncode(mime);
 

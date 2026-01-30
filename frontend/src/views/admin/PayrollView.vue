@@ -5630,8 +5630,17 @@ const payrollAgencyOptions = computed(() => {
     ? (Array.isArray(aa) ? aa : [])
     : ((Array.isArray(ua) && ua.length > 0) ? ua : (Array.isArray(aa) ? aa : []));
 
-  // Payroll only runs at the Agency org level (not schools/programs/learning).
-  return base.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+  // Payroll only runs at the Agency org level.
+  //
+  // Important: some child orgs (schools/programs) may appear here depending on how the
+  // org list is hydrated. We treat any org with an active `affiliated_agency_id` as a child
+  // org and exclude it, even if organization_type is missing/incorrect.
+  return base.filter((a) => {
+    const orgType = String(a?.organization_type || '').toLowerCase();
+    const isAgencyType = !orgType || orgType === 'agency';
+    const isAffiliatedChildOrg = Number(a?.affiliated_agency_id || 0) > 0;
+    return isAgencyType && !isAffiliatedChildOrg;
+  });
 });
 
 const filteredAgencies = computed(() => {

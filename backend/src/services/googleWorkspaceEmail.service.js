@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { getWorkspaceClientsForEmployee, logGoogleUnauthorizedHint } from './googleWorkspaceAuth.service.js';
 
 function base64UrlEncode(str) {
   return Buffer.from(str)
@@ -78,11 +79,6 @@ class GoogleWorkspaceEmailService {
   }
 
   static async sendEmail({ to, subject, text = null, html = null, fromName = null, fromAddress = null, replyTo = null }) {
-    const sa = parseServiceAccountJson();
-    if (!sa?.client_email || !sa?.private_key) {
-      throw new Error('Google Workspace service account JSON is not configured');
-    }
-
     const impersonate = process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER;
     if (!impersonate) {
       throw new Error('Missing GOOGLE_WORKSPACE_IMPERSONATE_USER');
@@ -96,14 +92,14 @@ class GoogleWorkspaceEmailService {
     const fromHeader = fromName ? `${fromName} <${fromEmail}>` : fromEmail;
 
     // Domain-wide delegation impersonation via JWT
-    const auth = new google.auth.JWT({
-      email: sa.client_email,
-      key: sa.private_key,
-      scopes: ['https://www.googleapis.com/auth/gmail.send'],
-      subject: impersonate
-    });
-
-    const gmail = google.gmail({ version: 'v1', auth });
+    // Uses GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 and the full scope list (calendar + gmail).
+    let gmail;
+    try {
+      ({ gmail } = await getWorkspaceClientsForEmployee({ subjectEmail: impersonate }));
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceEmailService.sendEmail' });
+      throw e;
+    }
 
     const mime = buildMimeMessage({
       to,

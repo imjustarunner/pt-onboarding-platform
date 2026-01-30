@@ -1,26 +1,11 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
+import {
+  buildImpersonatedJwtClient,
+  GOOGLE_WORKSPACE_SCOPES,
+  parseGoogleWorkspaceServiceAccountFromEnv
+} from '../googleWorkspaceAuth.service.js';
 
 let cached = null;
-
-function resolveDefaultKeyPath() {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  // backend/src/services/unifiedEmail/ -> backend/secrets/service-account.json
-  return path.resolve(__dirname, '../../../secrets/service-account.json');
-}
-
-function loadServiceAccountKey() {
-  const keyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS || resolveDefaultKeyPath();
-  const raw = fs.readFileSync(keyPath, 'utf8');
-  const json = JSON.parse(raw);
-  if (!json?.client_email || !json?.private_key) {
-    throw new Error('Service account key JSON missing client_email/private_key');
-  }
-  return { json, keyPath };
-}
 
 export function getImpersonatedUser() {
   return (
@@ -30,24 +15,22 @@ export function getImpersonatedUser() {
   );
 }
 
-export function getGmailClient() {
+export async function getGmailClient() {
   const impersonate = getImpersonatedUser();
-  const { json, keyPath } = loadServiceAccountKey();
+  const sa = parseGoogleWorkspaceServiceAccountFromEnv();
+  if (!sa?.client_email || !sa?.private_key) {
+    throw new Error('GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 is not configured');
+  }
 
-  const cacheKey = `${json.client_email}::${impersonate}::${keyPath}`;
+  const cacheKey = `${sa.client_email}::${impersonate}::GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64`;
   if (cached?.cacheKey === cacheKey) return cached.gmail;
 
   // Domain-wide delegation via JWT (impersonation)
-  const auth = new google.auth.JWT({
-    email: json.client_email,
-    key: json.private_key,
-    subject: impersonate,
-    scopes: [
-      // Read + label modifications for the agent
-      'https://www.googleapis.com/auth/gmail.modify',
-      // Send mail for both modules
-      'https://www.googleapis.com/auth/gmail.send'
-    ]
+  // NOTE: We include your required Gmail scopes (readonly/send/compose) and add gmail.modify
+  // because this module applies labels and marks messages.
+  const auth = await buildImpersonatedJwtClient({
+    subjectEmail: impersonate,
+    scopes: [...GOOGLE_WORKSPACE_SCOPES, 'https://www.googleapis.com/auth/gmail.modify']
   });
 
   const gmail = google.gmail({ version: 'v1', auth });

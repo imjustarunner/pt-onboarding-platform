@@ -131,7 +131,7 @@ async function routeSenderIdentityIdFromHeaders(hdrs) {
 }
 
 export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
-  const gmail = getGmailClient();
+  const gmail = await getGmailClient();
   const processedLabelId = await ensureLabelId('AI_PROCESSED');
   const needsHumanLabelId = await ensureLabelId('AI_NEEDS_HUMAN');
   const ignoredLabelId = await ensureLabelId('AI_IGNORED');

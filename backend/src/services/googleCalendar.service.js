@@ -1,5 +1,11 @@
 import { google } from 'googleapis';
 import pool from '../config/database.js';
+import {
+  GOOGLE_WORKSPACE_SCOPES,
+  parseGoogleWorkspaceServiceAccountFromEnv,
+  getWorkspaceClientsForEmployee,
+  logGoogleUnauthorizedHint
+} from './googleWorkspaceAuth.service.js';
 
 function parseServiceAccountJson() {
   const raw = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON;
@@ -38,19 +44,24 @@ export class GoogleCalendarService {
   }
 
   static buildCalendarClientForSubject(subjectEmail) {
-    const sa = parseServiceAccountJson();
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    if (!subject) throw new Error('Missing subject (provider email) for calendar impersonation');
+
+    // Keep this synchronous for existing callers (e.g. office-event sync).
+    // Prefer base64 env for consistency; fall back to legacy raw JSON if present.
+    const sa = parseGoogleWorkspaceServiceAccountFromEnv() || parseServiceAccountJson();
     if (!sa?.client_email || !sa?.private_key) {
       throw new Error('Google Workspace service account JSON is not configured');
     }
-    const subject = String(subjectEmail || '').trim().toLowerCase();
-    if (!subject) throw new Error('Missing subject (provider email) for calendar impersonation');
 
     const auth = new google.auth.JWT({
       email: sa.client_email,
       key: sa.private_key,
-      scopes: ['https://www.googleapis.com/auth/calendar'],
+      // Use the full Workspace scope list (calendar + gmail) so one DWD config covers all.
+      scopes: GOOGLE_WORKSPACE_SCOPES,
       subject
     });
+
     return google.calendar({ version: 'v3', auth });
   }
 
@@ -61,8 +72,8 @@ export class GoogleCalendarService {
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured', busy: [] };
 
     try {
-      const cal = this.buildCalendarClientForSubject(subject);
-      const r = await cal.freebusy.query({
+      const { calendar } = await getWorkspaceClientsForEmployee({ subjectEmail: subject });
+      const r = await calendar.freebusy.query({
         requestBody: {
           timeMin,
           timeMax,
@@ -78,6 +89,7 @@ export class GoogleCalendarService {
         })).filter((x) => x.startAt && x.endAt)
       };
     } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.freeBusy' });
       return { ok: false, reason: 'freebusy_failed', error: String(e?.message || e), busy: [] };
     }
   }
