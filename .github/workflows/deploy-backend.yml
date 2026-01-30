@@ -61,7 +61,32 @@ jobs:
           docker push $IMAGE_NAME:latest
 
       - name: Deploy to Cloud Run
+        env:
+          CLIENT_CHAT_ENCRYPTION_KEY_ID: ${{ secrets.CLIENT_CHAT_ENCRYPTION_KEY_ID }}
+          CLIENT_CHAT_ENCRYPTION_KEY_BASE64: ${{ secrets.CLIENT_CHAT_ENCRYPTION_KEY_BASE64 }}
         run: |
+          # Build env var list safely. Use update-env-vars so we don't accidentally wipe
+          # existing Cloud Run configuration that isn't specified here.
+          ENV_VARS="NODE_ENV=production"
+          ENV_VARS="${ENV_VARS},CORS_ORIGIN=https://onboarding-frontend-378990906760.us-west3.run.app"
+          ENV_VARS="${ENV_VARS},DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }}"
+          ENV_VARS="${ENV_VARS},DB_PORT=3306"
+          ENV_VARS="${ENV_VARS},DB_NAME=onboarding_stage"
+          ENV_VARS="${ENV_VARS},STORAGE_TYPE=gcs"
+          ENV_VARS="${ENV_VARS},GCS_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}"
+          ENV_VARS="${ENV_VARS},GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}"
+          ENV_VARS="${ENV_VARS},PTONBOARDFILES=${{ secrets.GCS_BUCKET_NAME }}"
+
+          # Ensure chat encryption key is present for decryption of existing messages.
+          # IMPORTANT: Only set if the GitHub secret exists, to avoid overriding a working
+          # Cloud Run env var with an empty string.
+          if [ -n "$CLIENT_CHAT_ENCRYPTION_KEY_ID" ]; then
+            ENV_VARS="${ENV_VARS},CLIENT_CHAT_ENCRYPTION_KEY_ID=${CLIENT_CHAT_ENCRYPTION_KEY_ID}"
+          fi
+          if [ -n "$CLIENT_CHAT_ENCRYPTION_KEY_BASE64" ]; then
+            ENV_VARS="${ENV_VARS},CLIENT_CHAT_ENCRYPTION_KEY_BASE64=${CLIENT_CHAT_ENCRYPTION_KEY_BASE64}"
+          fi
+
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:$GITHUB_SHA \
             --platform managed \
@@ -69,15 +94,7 @@ jobs:
             --allow-unauthenticated \
             --service-account ${{ secrets.CLOUD_RUN_SA_EMAIL }} \
             --add-cloudsql-instances=${{ secrets.CLOUD_SQL_CONNECTION_NAME }} \
-            --set-env-vars="NODE_ENV=production" \
-            --set-env-vars="CORS_ORIGIN=https://onboarding-frontend-378990906760.us-west3.run.app" \
-            --set-env-vars="DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }}" \
-            --set-env-vars="DB_PORT=3306" \
-            --set-env-vars="DB_NAME=onboarding_stage" \
-            --set-env-vars="STORAGE_TYPE=gcs" \
-            --set-env-vars="GCS_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}" \
-            --set-env-vars="GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}" \
-            --set-env-vars="PTONBOARDFILES=${{ secrets.GCS_BUCKET_NAME }}" \
+            --update-env-vars="${ENV_VARS}" \
             --memory=512Mi \
             --cpu=1 \
             --timeout=300 \
