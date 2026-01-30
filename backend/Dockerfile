@@ -1,6 +1,7 @@
 # Multi-stage Dockerfile for Google Cloud Run
 # Stage 1: Build frontend
-FROM node:20-alpine AS frontend-builder
+# Use Node 18 to match repo engines (reduces CI inconsistencies).
+FROM node:18-alpine AS frontend-builder
 
 # Install and Build Frontend
 WORKDIR /app/frontend
@@ -23,6 +24,7 @@ ENV VITE_API_URL=$VITE_API_URL
 
 # Verify index.html exists and show directory structure before building
 RUN echo "=== Verifying frontend structure ===" && \
+    node -v && npm -v && \
     ls -la && \
     test -f index.html || (echo "ERROR: index.html not found!" && ls -la && exit 1) && \
     echo "✓ index.html found" && \
@@ -32,7 +34,7 @@ RUN echo "=== Verifying frontend structure ===" && \
 
 # Build the frontend
 # Explicitly pass root/config so Vite resolves index.html reliably in CI builds.
-RUN npm run build -- --config vite.config.js --root .
+RUN npm run build -- --config ./vite.config.js --root /app/frontend
 
 # Switch back to app root for copying
 WORKDIR /app
