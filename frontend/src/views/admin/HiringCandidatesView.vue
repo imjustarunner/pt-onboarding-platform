@@ -243,9 +243,23 @@ const detail = ref({ user: null, profile: null, notes: [], latestResearch: null 
 
 const tab = ref('profile');
 
-const currentAgencyId = computed(() => {
+const effectiveAgencyId = computed(() => {
+  // Prefer explicit agency context (brand/selector)
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
-  return a?.id || null;
+  const fromStore = a?.id || null;
+  if (fromStore) return fromStore;
+
+  // Fallback: some sessions only have agencyId/agencyIds on the user object.
+  const fromUser = authStore.user?.agencyId || null;
+  if (fromUser) return fromUser;
+
+  const ids = Array.isArray(authStore.user?.agencyIds) ? authStore.user.agencyIds : [];
+  if (ids.length > 0) return ids[0];
+
+  const agencies = Array.isArray(authStore.user?.agencies) ? authStore.user.agencies : [];
+  if (agencies.length > 0 && agencies[0]?.id) return agencies[0].id;
+
+  return null;
 });
 
 const candidateName = computed(() => {
@@ -255,12 +269,16 @@ const candidateName = computed(() => {
 });
 
 const refresh = async () => {
-  if (!currentAgencyId.value) return;
+  if (!effectiveAgencyId.value) {
+    error.value = 'No agency selected. Please pick an agency in the header selector, then refresh.';
+    candidates.value = [];
+    return;
+  }
   try {
     loading.value = true;
     error.value = '';
     const r = await api.get('/hiring/candidates', {
-      params: { agencyId: currentAgencyId.value, status: 'PROSPECTIVE', q: q.value || undefined }
+      params: { agencyId: effectiveAgencyId.value, status: 'PROSPECTIVE', q: q.value || undefined }
     });
     candidates.value = r.data || [];
   } catch (e) {
@@ -271,7 +289,11 @@ const refresh = async () => {
 };
 
 const selectCandidate = async (id) => {
-  if (!id || !currentAgencyId.value) return;
+  if (!id) return;
+  if (!effectiveAgencyId.value) {
+    error.value = 'No agency selected. Please pick an agency in the header selector.';
+    return;
+  }
   selectedId.value = id;
   tab.value = 'profile';
   promoteResult.value = null;
@@ -282,10 +304,10 @@ const selectCandidate = async (id) => {
 };
 
 const loadDetail = async () => {
-  if (!selectedId.value || !currentAgencyId.value) return;
+  if (!selectedId.value || !effectiveAgencyId.value) return;
   try {
     detailLoading.value = true;
-    const r = await api.get(`/hiring/candidates/${selectedId.value}`, { params: { agencyId: currentAgencyId.value } });
+    const r = await api.get(`/hiring/candidates/${selectedId.value}`, { params: { agencyId: effectiveAgencyId.value } });
     detail.value = r.data || { user: null, profile: null, notes: [], latestResearch: null };
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load candidate';
@@ -298,12 +320,12 @@ const loadDetail = async () => {
 const noteMessage = ref('');
 const noteSaving = ref(false);
 const addNote = async () => {
-  if (!selectedId.value || !currentAgencyId.value) return;
+  if (!selectedId.value || !effectiveAgencyId.value) return;
   const msg = String(noteMessage.value || '').trim();
   if (!msg) return;
   try {
     noteSaving.value = true;
-    await api.post(`/hiring/candidates/${selectedId.value}/notes`, { message: msg }, { params: { agencyId: currentAgencyId.value } });
+    await api.post(`/hiring/candidates/${selectedId.value}/notes`, { message: msg }, { params: { agencyId: effectiveAgencyId.value } });
     noteMessage.value = '';
     await loadDetail();
   } catch (e) {
@@ -316,10 +338,10 @@ const addNote = async () => {
 // Research
 const researching = ref(false);
 const doResearch = async () => {
-  if (!selectedId.value || !currentAgencyId.value) return;
+  if (!selectedId.value || !effectiveAgencyId.value) return;
   try {
     researching.value = true;
-    await api.post(`/hiring/candidates/${selectedId.value}/research`, {}, { params: { agencyId: currentAgencyId.value } });
+    await api.post(`/hiring/candidates/${selectedId.value}/research`, {}, { params: { agencyId: effectiveAgencyId.value } });
     await loadDetail();
     tab.value = 'research';
   } catch (e) {
@@ -333,10 +355,10 @@ const doResearch = async () => {
 const promoting = ref(false);
 const promoteResult = ref(null);
 const promote = async () => {
-  if (!selectedId.value || !currentAgencyId.value) return;
+  if (!selectedId.value || !effectiveAgencyId.value) return;
   try {
     promoting.value = true;
-    const r = await api.post(`/hiring/candidates/${selectedId.value}/promote`, {}, { params: { agencyId: currentAgencyId.value } });
+    const r = await api.post(`/hiring/candidates/${selectedId.value}/promote`, {}, { params: { agencyId: effectiveAgencyId.value } });
     promoteResult.value = r.data || null;
     await refresh();
     await loadDetail();
@@ -361,11 +383,11 @@ const onResumeFileChange = (e) => {
 };
 
 const loadResumes = async () => {
-  if (!selectedId.value || !currentAgencyId.value) return;
+  if (!selectedId.value || !effectiveAgencyId.value) return;
   try {
     resumesLoading.value = true;
     resumeError.value = '';
-    const r = await api.get(`/hiring/candidates/${selectedId.value}/resumes`, { params: { agencyId: currentAgencyId.value } });
+    const r = await api.get(`/hiring/candidates/${selectedId.value}/resumes`, { params: { agencyId: effectiveAgencyId.value } });
     resumes.value = r.data || [];
   } catch (e) {
     resumeError.value = e.response?.data?.error?.message || 'Failed to load resumes';
@@ -375,14 +397,14 @@ const loadResumes = async () => {
 };
 
 const uploadResume = async () => {
-  if (!selectedId.value || !currentAgencyId.value || !resumeSelectedFile.value) return;
+  if (!selectedId.value || !effectiveAgencyId.value || !resumeSelectedFile.value) return;
   try {
     resumeUploading.value = true;
     resumeError.value = '';
     const fd = new FormData();
     fd.append('file', resumeSelectedFile.value);
     if (resumeTitle.value) fd.append('title', resumeTitle.value);
-    fd.append('agencyId', String(currentAgencyId.value));
+    fd.append('agencyId', String(effectiveAgencyId.value));
     await api.post(`/hiring/candidates/${selectedId.value}/resumes/upload`, fd);
     resumeSelectedFile.value = null;
     resumeTitle.value = '';
@@ -396,9 +418,9 @@ const uploadResume = async () => {
 };
 
 const viewResume = async (r) => {
-  if (!selectedId.value || !currentAgencyId.value || !r?.id) return;
+  if (!selectedId.value || !effectiveAgencyId.value || !r?.id) return;
   try {
-    const resp = await api.get(`/hiring/candidates/${selectedId.value}/resumes/${r.id}/view`, { params: { agencyId: currentAgencyId.value } });
+    const resp = await api.get(`/hiring/candidates/${selectedId.value}/resumes/${r.id}/view`, { params: { agencyId: effectiveAgencyId.value } });
     const url = resp.data?.url;
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
     else alert('No URL returned');
@@ -418,9 +440,9 @@ const taskAssigneeId = ref('');
 const taskDueDate = ref('');
 
 const loadAssignees = async () => {
-  if (!currentAgencyId.value) return;
+  if (!effectiveAgencyId.value) return;
   try {
-    const r = await api.get('/hiring/assignees', { params: { agencyId: currentAgencyId.value } });
+    const r = await api.get('/hiring/assignees', { params: { agencyId: effectiveAgencyId.value } });
     assignees.value = r.data || [];
     // Default assignee to current user when possible.
     if (!taskAssigneeId.value && authStore.user?.id) {
@@ -434,10 +456,10 @@ const loadAssignees = async () => {
 };
 
 const loadTasks = async () => {
-  if (!selectedId.value || !currentAgencyId.value) return;
+  if (!selectedId.value || !effectiveAgencyId.value) return;
   try {
     tasksLoading.value = true;
-    const r = await api.get(`/hiring/candidates/${selectedId.value}/tasks`, { params: { agencyId: currentAgencyId.value } });
+    const r = await api.get(`/hiring/candidates/${selectedId.value}/tasks`, { params: { agencyId: effectiveAgencyId.value } });
     tasks.value = r.data || [];
   } catch {
     tasks.value = [];
@@ -447,7 +469,7 @@ const loadTasks = async () => {
 };
 
 const createTask = async () => {
-  if (!selectedId.value || !currentAgencyId.value) return;
+  if (!selectedId.value || !effectiveAgencyId.value) return;
   if (!taskTitle.value.trim() || !taskAssigneeId.value) return;
   try {
     taskSaving.value = true;
@@ -455,7 +477,7 @@ const createTask = async () => {
       title: taskTitle.value.trim(),
       description: String(taskDescription.value || '').trim() || null,
       assignedToUserId: parseInt(taskAssigneeId.value, 10),
-      agencyId: currentAgencyId.value,
+      agencyId: effectiveAgencyId.value,
       kind: 'call',
       dueDate: taskDueDate.value ? new Date(taskDueDate.value).toISOString() : null
     };
@@ -495,12 +517,15 @@ const closeCreate = () => {
 };
 
 const createApplicant = async () => {
-  if (!currentAgencyId.value) return;
+  if (!effectiveAgencyId.value) {
+    createError.value = 'No agency selected. Please pick an agency in the header selector and try again.';
+    return;
+  }
   try {
     createSaving.value = true;
     createError.value = '';
     const body = {
-      agencyId: currentAgencyId.value,
+      agencyId: effectiveAgencyId.value,
       firstName: createForm.value.firstName,
       lastName: createForm.value.lastName,
       personalEmail: createForm.value.personalEmail,
@@ -515,6 +540,13 @@ const createApplicant = async () => {
     if (newId) await selectCandidate(newId);
   } catch (e) {
     createError.value = e.response?.data?.error?.message || 'Failed to create applicant';
+    // In production, some errors are easy to miss in a modal; surface them loudly too.
+    try {
+      // eslint-disable-next-line no-alert
+      alert(createError.value);
+    } catch {
+      // ignore
+    }
   } finally {
     createSaving.value = false;
   }
@@ -542,7 +574,7 @@ const noteAuthor = (n) => {
   return name || n.author_email || `User ${n.author_user_id || ''}`.trim();
 };
 
-watch(currentAgencyId, async (next) => {
+watch(effectiveAgencyId, async (next) => {
   if (!next) return;
   await refresh();
   selectedId.value = null;
