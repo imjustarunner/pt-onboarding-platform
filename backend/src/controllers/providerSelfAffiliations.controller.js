@@ -38,7 +38,8 @@ const autoSlotsFromTimes = (startTime, endTime) => {
 async function resolveTargetProviderId(req) {
   const requested = req.query?.providerUserId ? parseInt(req.query.providerUserId, 10) : null;
   const requesterRole = String(req.user?.role || '').trim();
-  const canActForOthers = requesterRole === 'admin' || requesterRole === 'super_admin' || requesterRole === 'support';
+  const r = requesterRole.toLowerCase();
+  const canActForOthers = r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff';
 
   const targetId = requested && canActForOthers ? requested : parseInt(req.user?.id, 10);
   if (!targetId) return { ok: false, status: 401, message: 'Not authenticated' };
@@ -61,6 +62,139 @@ async function resolveTargetProviderId(req) {
 
   return { ok: true, providerUserId: targetId, provider: targetUser };
 }
+
+async function computeProviderUsedByDay({ connection, schoolId, providerUserId, days }) {
+  const orgId = parseInt(schoolId, 10);
+  const pid = parseInt(providerUserId, 10);
+  const dayList = Array.isArray(days) ? days.map((d) => String(d || '').trim()).filter(Boolean) : [];
+  const out = new Map();
+  for (const d of dayList) out.set(d, 0);
+  if (!orgId || !pid || dayList.length === 0) return out;
+
+  const dPlaceholders = dayList.map(() => '?').join(',');
+  try {
+    const [cpaCounts] = await connection.execute(
+      `SELECT cpa.service_day, COUNT(*) AS cnt
+       FROM client_provider_assignments cpa
+       WHERE cpa.organization_id = ?
+         AND cpa.provider_user_id = ?
+         AND cpa.is_active = TRUE
+         AND cpa.service_day IN (${dPlaceholders})
+       GROUP BY cpa.service_day`,
+      [orgId, pid, ...dayList]
+    );
+    for (const r of cpaCounts || []) out.set(String(r.service_day), Number(r.cnt || 0));
+
+    const [legacyCounts] = await connection.execute(
+      `SELECT c.service_day, COUNT(*) AS cnt
+       FROM clients c
+       LEFT JOIN client_provider_assignments cpa
+         ON cpa.organization_id = c.organization_id
+        AND cpa.client_id = c.id
+        AND cpa.provider_user_id = c.provider_id
+        AND cpa.service_day = c.service_day
+        AND cpa.is_active = TRUE
+       WHERE c.organization_id = ?
+         AND c.provider_id = ?
+         AND c.service_day IN (${dPlaceholders})
+         AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
+         AND cpa.client_id IS NULL
+       GROUP BY c.service_day`,
+      [orgId, pid, ...dayList]
+    );
+    for (const r of legacyCounts || []) out.set(String(r.service_day), (out.get(String(r.service_day)) || 0) + Number(r.cnt || 0));
+    return out;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+    if (!missing) throw e;
+    const [legacyCounts] = await connection.execute(
+      `SELECT c.service_day, COUNT(*) AS cnt
+       FROM clients c
+       WHERE c.organization_id = ?
+         AND c.provider_id = ?
+         AND c.service_day IN (${dPlaceholders})
+         AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
+       GROUP BY c.service_day`,
+      [orgId, pid, ...dayList]
+    );
+    for (const r of legacyCounts || []) out.set(String(r.service_day), Number(r.cnt || 0));
+    return out;
+  }
+}
+
+export const repairProviderSchoolSlots = async (req, res, next) => {
+  const connection = await pool.getConnection();
+  try {
+    const { schoolId } = req.params;
+    const target = await resolveTargetProviderId(req);
+    if (!target.ok) return res.status(target.status).json({ error: { message: target.message } });
+
+    // Only backoffice roles should run repairs.
+    const actorRole = String(req.user?.role || '').toLowerCase();
+    if (!['super_admin', 'admin', 'staff'].includes(actorRole)) {
+      return res.status(403).json({ error: { message: 'Admin/staff access required' } });
+    }
+
+    const aff = await ensureSchoolAffiliation(req, target.providerUserId, schoolId);
+    if (!aff.ok) return res.status(aff.status).json({ error: { message: aff.message } });
+
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      `SELECT id, day_of_week, slots_total, slots_available
+       FROM provider_school_assignments
+       WHERE provider_user_id = ? AND school_organization_id = ?
+       FOR UPDATE`,
+      [target.providerUserId, aff.schoolId]
+    );
+
+    if (!rows || rows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: { message: 'No school assignment rows found for this provider.' } });
+    }
+
+    const days = rows.map((r) => String(r.day_of_week || '')).filter(Boolean);
+    const usedByDay = await computeProviderUsedByDay({
+      connection,
+      schoolId: aff.schoolId,
+      providerUserId: target.providerUserId,
+      days
+    });
+
+    const updated = [];
+    for (const r of rows) {
+      const day = String(r.day_of_week || '');
+      const total = Number(r.slots_total ?? 0);
+      const used = Number(usedByDay.get(day) || 0);
+      // IMPORTANT: allow negative availability (overbooked).
+      const nextAvail = Number.isFinite(total) ? (total - used) : null;
+      if (nextAvail === null) continue;
+      await connection.execute(`UPDATE provider_school_assignments SET slots_available = ? WHERE id = ?`, [nextAvail, r.id]);
+      updated.push({
+        id: r.id,
+        day_of_week: day,
+        slots_total: total,
+        slots_used: used,
+        slots_available_before: Number(r.slots_available ?? 0),
+        slots_available_after: nextAvail
+      });
+    }
+
+    await connection.commit();
+    res.json({
+      ok: true,
+      providerUserId: target.providerUserId,
+      schoolOrganizationId: aff.schoolId,
+      updatedCount: updated.length,
+      updated
+    });
+  } catch (e) {
+    try { await connection.rollback(); } catch { /* ignore */ }
+    next(e);
+  } finally {
+    connection.release();
+  }
+};
 
 async function ensureSchoolAffiliation(req, providerUserId, schoolId) {
   const sid = parseInt(schoolId, 10);
@@ -114,6 +248,68 @@ export const getProviderSchoolAssignments = async (req, res, next) => {
       [target.providerUserId, aff.schoolId]
     );
 
+    // Best-effort: compute used + calculated availability from actual assignments so this view matches the School Portal.
+    // This also makes it obvious when stored slots_available has drifted.
+    let usedByDay = new Map();
+    try {
+      const orgId = parseInt(aff.schoolId, 10);
+      const providerId = parseInt(target.providerUserId, 10);
+      const days = allowedDays;
+      for (const d of days) usedByDay.set(d, 0);
+      if (orgId && providerId) {
+        const dPlaceholders = days.map(() => '?').join(',');
+        try {
+          const [cpaCounts] = await pool.execute(
+            `SELECT cpa.service_day, COUNT(*) AS cnt
+             FROM client_provider_assignments cpa
+             WHERE cpa.organization_id = ?
+               AND cpa.provider_user_id = ?
+               AND cpa.is_active = TRUE
+               AND cpa.service_day IN (${dPlaceholders})
+             GROUP BY cpa.service_day`,
+            [orgId, providerId, ...days]
+          );
+          for (const r of cpaCounts || []) usedByDay.set(String(r.service_day), Number(r.cnt || 0));
+
+          const [legacyCounts] = await pool.execute(
+            `SELECT c.service_day, COUNT(*) AS cnt
+             FROM clients c
+             LEFT JOIN client_provider_assignments cpa
+               ON cpa.organization_id = c.organization_id
+              AND cpa.client_id = c.id
+              AND cpa.provider_user_id = c.provider_id
+              AND cpa.service_day = c.service_day
+              AND cpa.is_active = TRUE
+             WHERE c.organization_id = ?
+               AND c.provider_id = ?
+               AND c.service_day IN (${dPlaceholders})
+               AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
+               AND cpa.client_id IS NULL
+             GROUP BY c.service_day`,
+            [orgId, providerId, ...days]
+          );
+          for (const r of legacyCounts || []) usedByDay.set(String(r.service_day), (usedByDay.get(String(r.service_day)) || 0) + Number(r.cnt || 0));
+        } catch (e) {
+          const msg = String(e?.message || '');
+          const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+          if (!missing) throw e;
+          const [legacyCounts] = await pool.execute(
+            `SELECT c.service_day, COUNT(*) AS cnt
+             FROM clients c
+             WHERE c.organization_id = ?
+               AND c.provider_id = ?
+               AND c.service_day IN (${dPlaceholders})
+               AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
+             GROUP BY c.service_day`,
+            [orgId, providerId, ...days]
+          );
+          for (const r of legacyCounts || []) usedByDay.set(String(r.service_day), Number(r.cnt || 0));
+        }
+      }
+    } catch {
+      usedByDay = new Map();
+    }
+
     const override = (rows || []).reduce((acc, r) => {
       if (acc !== undefined) return acc;
       if (r.accepting_new_clients_override === null || r.accepting_new_clients_override === undefined) return acc;
@@ -124,7 +320,18 @@ export const getProviderSchoolAssignments = async (req, res, next) => {
       providerUserId: target.providerUserId,
       schoolOrganizationId: aff.schoolId,
       schoolAcceptingNewClientsOverride: override === undefined ? null : override,
-      assignments: rows || []
+      assignments: (rows || []).map((r) => {
+        const day = String(r.day_of_week || '');
+        const used = usedByDay.get(day);
+        const total = Number(r.slots_total);
+        const totalOk = Number.isFinite(total) && total >= 0;
+        const availCalc = totalOk && Number.isFinite(used) ? Math.max(0, total - Number(used || 0)) : null;
+        return {
+          ...r,
+          slots_used: Number.isFinite(used) ? Number(used || 0) : null,
+          slots_available_calculated: availCalc
+        };
+      })
     });
   } catch (e) {
     next(e);

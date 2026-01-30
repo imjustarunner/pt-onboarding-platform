@@ -3,7 +3,8 @@ import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listProviderAffiliations,
   getProviderSchoolAssignments,
-  upsertProviderSchoolAssignments
+  upsertProviderSchoolAssignments,
+  repairProviderSchoolSlots
 } from '../controllers/providerSelfAffiliations.controller.js';
 
 const router = express.Router();
@@ -24,6 +25,10 @@ router.get('/affiliations/:schoolId/assignments', getProviderSchoolAssignments);
 // - Provider self: PUT /api/provider-self/affiliations/:schoolId/assignments
 // - Admin/support: PUT /api/provider-self/affiliations/:schoolId/assignments?providerUserId=123
 router.put('/affiliations/:schoolId/assignments', upsertProviderSchoolAssignments);
+
+// Repair stored slot availability for this provider+school (admin/staff/super_admin).
+// POST /api/provider-self/affiliations/:schoolId/repair-slots?providerUserId=123
+router.post('/affiliations/:schoolId/repair-slots', repairProviderSchoolSlots);
 
 export default router;
 

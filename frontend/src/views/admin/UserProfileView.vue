@@ -39,6 +39,17 @@
               <strong>Reminder:</strong> Please ensure your schedule is open in the EHR system for the times that you are available via “Extra availability”.
             </div>
           </div>
+
+          <button
+            v-if="canRepairProviderSlots && activeTab === 'school_affiliation' && selectedSchoolAffiliationId"
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="repairingProviderSlots"
+            @click="repairProviderSlots"
+            :title="'Recalculate and repair stored slot availability for this school'"
+          >
+            {{ repairingProviderSlots ? 'Repairing…' : 'Repair slots' }}
+          </button>
         </div>
         <p class="subtitle">{{ user?.email }}</p>
 
@@ -1051,9 +1062,21 @@
               <div class="card" style="margin-top: 12px;">
                 <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
                   <h3 style="margin:0;">Days & slots</h3>
-                  <button class="btn btn-primary btn-sm" @click="saveSchoolAffiliation" :disabled="!canEditUser || savingSchoolAffiliation">
-                    {{ savingSchoolAffiliation ? 'Saving…' : 'Save' }}
-                  </button>
+                  <div style="display:flex; gap: 8px; align-items:center; flex-wrap: wrap;">
+                    <button
+                      v-if="canRepairProviderSlots"
+                      class="btn btn-secondary btn-sm"
+                      type="button"
+                      @click="repairProviderSlots"
+                      :disabled="repairingProviderSlots"
+                      title="Recalculate and repair stored slot availability for this school"
+                    >
+                      {{ repairingProviderSlots ? 'Repairing…' : 'Repair slots' }}
+                    </button>
+                    <button class="btn btn-primary btn-sm" @click="saveSchoolAffiliation" :disabled="!canEditUser || savingSchoolAffiliation">
+                      {{ savingSchoolAffiliation ? 'Saving…' : 'Save' }}
+                    </button>
+                  </div>
                 </div>
 
                 <div v-if="schoolAssignmentsLoading" class="loading">Loading schedule…</div>
@@ -1935,6 +1958,7 @@ const schoolAssignmentsLoading = ref(false);
 const schoolAssignmentsError = ref('');
 const savingSchoolAffiliation = ref(false);
 const schoolOverrideOpen = ref(false);
+const repairingProviderSlots = ref(false);
 
 const schoolDayEdits = ref([
   { dayOfWeek: 'Monday', isActive: true, startTime: '', endTime: '', slotsTotal: 0, slotsAuto: true, slotsAvailableDisplay: '—' },
@@ -1996,7 +2020,11 @@ const loadSchoolAssignments = async () => {
       const end = a?.end_time ? String(a.end_time).slice(0, 5) : '';
       const autoSlots = calcAutoSlots(start, end);
       const slotsTotal = a?.slots_total !== undefined && a?.slots_total !== null ? Number(a.slots_total) : autoSlots;
-      const slotsAvail = a?.slots_available !== undefined && a?.slots_available !== null ? Number(a.slots_available) : null;
+      // Prefer calculated availability when present (matches School Portal display).
+      const slotsAvail =
+        a?.slots_available_calculated !== undefined && a?.slots_available_calculated !== null
+          ? Number(a.slots_available_calculated)
+          : (a?.slots_available !== undefined && a?.slots_available !== null ? Number(a.slots_available) : null);
       return {
         ...d,
         isActive: a ? Boolean(a.is_active) : false,
@@ -2011,6 +2039,23 @@ const loadSchoolAssignments = async () => {
     schoolAssignmentsError.value = e.response?.data?.error?.message || 'Failed to load school assignments';
   } finally {
     schoolAssignmentsLoading.value = false;
+  }
+};
+
+const repairProviderSlots = async () => {
+  if (!canRepairProviderSlots.value) return;
+  if (!selectedSchoolAffiliationId.value) return;
+  try {
+    repairingProviderSlots.value = true;
+    schoolAssignmentsError.value = '';
+    await api.post(`/provider-self/affiliations/${selectedSchoolAffiliationId.value}/repair-slots`, null, {
+      params: { providerUserId: userId.value }
+    });
+    await loadSchoolAssignments();
+  } catch (e) {
+    schoolAssignmentsError.value = e.response?.data?.error?.message || 'Failed to repair slots';
+  } finally {
+    repairingProviderSlots.value = false;
   }
 };
 
@@ -2258,6 +2303,12 @@ const canEditUser = computed(() => {
   if (!user) return false;
   // CPAs and supervisors have view-only access
   return !isSupervisor(user) && user.role !== 'clinical_practice_assistant';
+});
+
+const canRepairProviderSlots = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  // Explicitly NOT for school_staff (and not for providers acting on themselves here).
+  return r === 'super_admin' || r === 'admin' || r === 'staff';
 });
 
 const canChangeRole = computed(() => {
