@@ -167,14 +167,39 @@
               <div class="chat-title">
                 {{ activeChatUser.first_name }} {{ activeChatUser.last_name }}
               </div>
-              <button class="btn-close" @click="closeChat">×</button>
+              <div class="chat-box-actions">
+                <button class="btn btn-xs btn-secondary" type="button" @click="toggleSelectMode" :disabled="sending || chatLoading">
+                  {{ selectMode ? 'Cancel' : 'Select' }}
+                </button>
+                <button
+                  v-if="selectMode"
+                  class="btn btn-xs btn-danger"
+                  type="button"
+                  @click="deleteSelected"
+                  :disabled="sending || selectedMessageIds.length === 0"
+                  :title="selectedMessageIds.length ? `Delete ${selectedMessageIds.length} selected` : 'Select messages to delete'"
+                >
+                  Delete ({{ selectedMessageIds.length }})
+                </button>
+                <button class="btn btn-xs btn-danger" type="button" @click="deleteThread" :disabled="sending || chatLoading">
+                  Delete thread
+                </button>
+                <button class="btn-close" @click="closeChat">×</button>
+              </div>
             </div>
 
-            <div class="chat-messages">
+            <div class="chat-messages" ref="chatMessagesEl">
               <div v-if="chatLoading" class="muted">Loading messages…</div>
               <div v-else-if="chatError" class="error">{{ chatError }}</div>
+              <div v-else-if="chatMessages.length === 0" class="muted" style="padding: 10px 2px;">
+                No messages yet.
+              </div>
               <div v-else class="msg-list">
-                <div v-for="m in chatMessages" :key="m.id" class="msg" :class="{ mine: m.sender_user_id === meId }">
+                <div v-for="m in chatMessages" :key="m.id" class="msg-row" :class="{ mine: m.sender_user_id === meId }">
+                  <label v-if="selectMode" class="msg-select">
+                    <input type="checkbox" :checked="isSelected(m.id)" @change="toggleSelected(m.id)" />
+                  </label>
+                  <div class="msg" :class="{ mine: m.sender_user_id === meId }">
                   <div class="msg-meta">
                     <span class="msg-author">{{ m.sender_first_name }} {{ m.sender_last_name }}</span>
                     <span class="msg-time">
@@ -204,6 +229,7 @@
                     </span>
                   </div>
                   <div class="msg-body">{{ m.body }}</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -220,7 +246,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../services/api';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
@@ -256,6 +282,9 @@ const chatLoading = ref(false);
 const chatError = ref('');
 const draft = ref('');
 const sending = ref(false);
+const chatMessagesEl = ref(null);
+const selectMode = ref(false);
+const selectedMessageIds = ref([]);
 
 const meId = computed(() => authStore.user?.id);
 
@@ -390,7 +419,6 @@ const loadThreads = async () => {
 };
 
 const openChat = async (u, agencyIdOverride = null) => {
-  activeChatUser.value = u;
   chatError.value = '';
   chatMessages.value = [];
   draft.value = '';
@@ -399,13 +427,21 @@ const openChat = async (u, agencyIdOverride = null) => {
     chatLoading.value = true;
     const useAgencyId = agencyIdOverride || agencyId.value;
     if (!useAgencyId) {
+      // In super-admin "admins-only" mode there may be no agency context.
+      // Don't open the full chat box in that case (it creates a large empty panel).
       chatError.value = 'Select an agency to start a chat';
+      activeChatUser.value = null;
+      activeThreadId.value = null;
+      activeThreadAgencyId.value = null;
+      chatMessages.value = [];
       return;
     }
+
+    activeChatUser.value = u;
     activeThreadAgencyId.value = useAgencyId;
     const resp = await api.post('/chat/threads/direct', { agencyId: useAgencyId, otherUserId: u.id }, { skipGlobalLoading: true });
     activeThreadId.value = resp.data.threadId;
-    await loadMessages({ markRead: true });
+    await loadMessages({ markRead: true, scrollToBottom: true });
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || 'Failed to open chat';
   } finally {
@@ -418,7 +454,31 @@ const openThread = async (t) => {
   await openChat(t.other_participant, t.agency_id);
 };
 
-const loadMessages = async ({ markRead } = { markRead: true }) => {
+const scrollMessagesToBottom = async () => {
+  await nextTick();
+  const el = chatMessagesEl.value;
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+};
+
+const toggleSelectMode = () => {
+  selectMode.value = !selectMode.value;
+  if (!selectMode.value) selectedMessageIds.value = [];
+};
+
+const isSelected = (id) => selectedMessageIds.value.includes(Number(id));
+
+const toggleSelected = (id) => {
+  const n = Number(id);
+  if (!Number.isFinite(n)) return;
+  if (isSelected(n)) {
+    selectedMessageIds.value = selectedMessageIds.value.filter((x) => x !== n);
+  } else {
+    selectedMessageIds.value = [...selectedMessageIds.value, n];
+  }
+};
+
+const loadMessages = async ({ markRead, scrollToBottom } = { markRead: true, scrollToBottom: true }) => {
   if (!activeThreadId.value) return;
   try {
     chatLoading.value = true;
@@ -427,16 +487,20 @@ const loadMessages = async ({ markRead } = { markRead: true }) => {
       { params: { limit: 60 }, skipGlobalLoading: true }
     );
     chatMessages.value = resp.data || [];
+    if (scrollToBottom) {
+      await scrollMessagesToBottom();
+    }
     const last = chatMessages.value[chatMessages.value.length - 1];
     const canMarkRead =
       !!markRead && typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus();
     if (canMarkRead && last?.id) {
-      await api.post(
+      // Fire-and-forget: don't block UI on read receipts or thread refresh.
+      api.post(
         `/chat/threads/${activeThreadId.value}/read`,
         { lastReadMessageId: last.id },
         { skipGlobalLoading: true }
       ).catch(() => {});
-      await loadThreads();
+      loadThreads().catch(() => {});
     }
   } finally {
     chatLoading.value = false;
@@ -450,7 +514,7 @@ const send = async () => {
     const body = draft.value.trim();
     draft.value = '';
     await api.post(`/chat/threads/${activeThreadId.value}/messages`, { body }, { skipGlobalLoading: true });
-    await loadMessages({ markRead: true });
+    await loadMessages({ markRead: true, scrollToBottom: true });
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || 'Failed to send message';
   } finally {
@@ -465,8 +529,7 @@ const unsend = async (m) => {
   try {
     sending.value = true;
     await api.delete(`/chat/threads/${activeThreadId.value}/messages/${m.id}`, { skipGlobalLoading: true });
-    await loadMessages({ markRead: true });
-    await loadThreads();
+    await loadMessages({ markRead: true, scrollToBottom: true });
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || 'Failed to unsend message';
   } finally {
@@ -483,10 +546,46 @@ const deleteForMe = async (m) => {
       {},
       { skipGlobalLoading: true }
     );
-    await loadMessages({ markRead: true });
-    await loadThreads();
+    await loadMessages({ markRead: true, scrollToBottom: true });
   } catch (e) {
     chatError.value = e.response?.data?.error?.message || 'Failed to delete message';
+  } finally {
+    sending.value = false;
+  }
+};
+
+const deleteSelected = async () => {
+  if (!activeThreadId.value) return;
+  const ids = selectedMessageIds.value || [];
+  if (ids.length === 0) return;
+  try {
+    sending.value = true;
+    chatError.value = '';
+    await api.post(
+      `/chat/threads/${activeThreadId.value}/messages/delete-for-me`,
+      { messageIds: ids },
+      { skipGlobalLoading: true }
+    );
+    selectedMessageIds.value = [];
+    selectMode.value = false;
+    await loadMessages({ markRead: true, scrollToBottom: true });
+  } catch (e) {
+    chatError.value = e.response?.data?.error?.message || 'Failed to delete selected messages';
+  } finally {
+    sending.value = false;
+  }
+};
+
+const deleteThread = async () => {
+  if (!activeThreadId.value) return;
+  try {
+    sending.value = true;
+    chatError.value = '';
+    await api.post(`/chat/threads/${activeThreadId.value}/delete-for-me`, {}, { skipGlobalLoading: true });
+    closeChat();
+    await loadThreads();
+  } catch (e) {
+    chatError.value = e.response?.data?.error?.message || 'Failed to delete thread';
   } finally {
     sending.value = false;
   }
@@ -499,6 +598,8 @@ const closeChat = () => {
   chatMessages.value = [];
   draft.value = '';
   chatError.value = '';
+  selectMode.value = false;
+  selectedMessageIds.value = [];
 };
 
 const fetchMyPresence = async () => {
@@ -576,12 +677,14 @@ onUnmounted(() => {
 .chat-drawer {
   position: fixed;
   top: 50%;
+  bottom: auto;
   left: 0;
   transform: translateY(-50%);
-  z-index: 900;
+  z-index: 1200; /* stay above page nav/buttons */
   display: flex;
-  align-items: center;
+  align-items: stretch;
   pointer-events: auto;
+  max-height: calc(100vh - 24px);
 }
 
 .rail {
@@ -660,12 +763,15 @@ onUnmounted(() => {
   background: white;
   border-right: none;
   transition: width 160ms ease, max-height 160ms ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-drawer.open .panel {
   width: 360px;
-  height: 72vh;
-  max-height: 72vh;
+  /* Keep it compact by default but never exceed viewport. */
+  height: clamp(420px, 72vh, calc(100vh - 24px));
+  max-height: calc(100vh - 24px);
   border-right: 1px solid var(--border);
 }
 
@@ -716,7 +822,8 @@ onUnmounted(() => {
 .panel-body {
   position: relative; /* contain the absolute chat-box (prevents “ghost window” on collapse) */
   padding: 12px 14px;
-  height: calc(72vh - 56px); /* 72vh minus header-ish space */
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -758,18 +865,21 @@ onUnmounted(() => {
 .name { flex: 1; font-weight: 700; color: var(--text-primary); font-size: 13px; }
 .pill { border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 12px; color: var(--text-secondary); font-weight: 800; }
 .muted { color: var(--text-secondary); font-size: 13px; padding: 6px 2px; }
-.scroll { max-height: 240px; overflow: auto; padding-right: 4px; }
+/* Let the main `.lists` container handle scrolling; don't cap Offline at 240px. */
+.scroll { max-height: none; overflow: visible; padding-right: 0; }
 
 .chat-box {
   position: absolute;
   right: 0;
   bottom: 0;
+  top: 0;
   width: 360px;
-  height: 420px;
+  height: auto;
   border-top: 1px solid var(--border);
   background: white;
   display: flex;
   flex-direction: column;
+  min-height: 0; /* critical for flex+overflow scrolling */
   z-index: 1;
 }
 
@@ -781,6 +891,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
 }
 .chat-title { font-weight: 800; }
+.chat-box-actions { display: flex; gap: 8px; align-items: center; }
 .btn-close { border: none; background: none; font-size: 18px; cursor: pointer; color: var(--text-secondary); }
 
 .chat-messages {
@@ -788,8 +899,13 @@ onUnmounted(() => {
   overflow: auto;
   padding: 10px 12px;
   background: #f8fafc;
+  min-height: 0; /* allows this flex child to scroll instead of pushing composer off-screen */
 }
 .msg-list { display: flex; flex-direction: column; gap: 10px; }
+.msg-row { display: flex; gap: 10px; align-items: flex-start; }
+.msg-row.mine { justify-content: flex-end; }
+.msg-select { padding-top: 6px; }
+.msg-select input { width: 14px; height: 14px; }
 .msg {
   border: 1px solid var(--border);
   background: white;
@@ -797,7 +913,7 @@ onUnmounted(() => {
   padding: 8px 10px;
   max-width: 90%;
 }
-.msg.mine { margin-left: auto; background: #ecfdf5; border-color: #a7f3d0; }
+.msg.mine { background: #ecfdf5; border-color: #a7f3d0; }
 .msg-meta { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
 .msg-receipt { margin-left: 6px; font-weight: 900; color: rgba(15, 23, 42, 0.6); }
 .msg.mine .msg-receipt { color: rgba(16, 185, 129, 0.9); }
@@ -820,7 +936,7 @@ onUnmounted(() => {
   padding: 10px 12px;
   display: flex;
   gap: 10px;
-  align-items: flex-end;
+  align-items: stretch;
 }
 .chat-composer textarea {
   flex: 1;
@@ -833,10 +949,12 @@ onUnmounted(() => {
   font-size: 13px;
 }
 .chat-composer .btn {
-  padding: 6px 10px;
-  font-size: 12px;
+  padding: 0 14px;
+  font-size: 13px;
   border-radius: 10px;
   min-width: 56px;
+  min-height: 56px; /* match textarea min-height */
+  height: 100%; /* match current textarea height as it grows */
 }
 
 .loading { color: var(--text-secondary); }

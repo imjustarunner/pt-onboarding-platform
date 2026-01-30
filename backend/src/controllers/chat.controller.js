@@ -144,6 +144,7 @@ export const listMyThreads = async (req, res, next) => {
               lm.created_at AS last_message_at,
               lm.sender_user_id AS last_message_sender_user_id,
               r.last_read_message_id,
+              td.deleted_at AS thread_deleted_at,
               (
                 SELECT COUNT(*)
                 FROM chat_messages m2
@@ -158,6 +159,7 @@ export const listMyThreads = async (req, res, next) => {
        FROM chat_threads t
        JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
        LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
+       LEFT JOIN chat_thread_deletes td ON td.thread_id = t.id AND td.user_id = ?
        LEFT JOIN chat_messages lm ON lm.id = (
          SELECT m.id
          FROM chat_messages m
@@ -167,8 +169,9 @@ export const listMyThreads = async (req, res, next) => {
          LIMIT 1
        )
        WHERE t.agency_id IN (${placeholders})
+         AND (td.deleted_at IS NULL OR (lm.created_at IS NOT NULL AND lm.created_at > td.deleted_at))
        ORDER BY t.updated_at DESC`,
-      [userId, userId, userId, userId, userId, ...agencyIds]
+      [userId, userId, userId, userId, userId, userId, ...agencyIds]
     );
 
     // Enrich with "other participant" for direct threads
@@ -258,7 +261,32 @@ export const createOrGetDirectThread = async (req, res, next) => {
     }
 
     const threadId = await findOrCreateDirectThread(agencyId, organizationId, me, otherUserId);
+    // If the user previously deleted/hid this thread, reopen it.
+    try {
+      await pool.execute('DELETE FROM chat_thread_deletes WHERE thread_id = ? AND user_id = ?', [threadId, me]);
+    } catch {
+      // ignore (table may not exist yet in some envs)
+    }
     res.status(201).json({ threadId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteThreadForMe = async (req, res, next) => {
+  try {
+    const threadId = parseInt(req.params.threadId, 10);
+    if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
+    await assertThreadAccess(req.user.id, threadId);
+
+    await pool.execute(
+      `INSERT INTO chat_thread_deletes (thread_id, user_id, deleted_at)
+       VALUES (?, ?, NOW())
+       ON DUPLICATE KEY UPDATE deleted_at = NOW()`,
+      [threadId, req.user.id]
+    );
+
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }
@@ -527,6 +555,60 @@ export const deleteForMe = async (req, res, next) => {
     }
 
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const bulkDeleteForMe = async (req, res, next) => {
+  try {
+    const threadId = parseInt(req.params.threadId, 10);
+    if (!threadId) return res.status(400).json({ error: { message: 'threadId is required' } });
+    await assertThreadAccess(req.user.id, threadId);
+
+    const idsRaw = req.body?.messageIds;
+    if (!Array.isArray(idsRaw) || idsRaw.length === 0) {
+      return res.status(400).json({ error: { message: 'messageIds must be a non-empty array' } });
+    }
+    const messageIds = [...new Set(idsRaw.map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0))].slice(0, 500);
+    if (messageIds.length === 0) {
+      return res.status(400).json({ error: { message: 'No valid messageIds provided' } });
+    }
+
+    // Only delete messages that belong to this thread.
+    const placeholders = messageIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT id
+       FROM chat_messages
+       WHERE thread_id = ? AND id IN (${placeholders})`,
+      [threadId, ...messageIds]
+    );
+    const validIds = (rows || []).map((r) => Number(r.id)).filter(Boolean);
+    if (validIds.length === 0) return res.json({ ok: true, deletedCount: 0 });
+
+    const placeholders2 = validIds.map(() => '?').join(',');
+    // Insert per-user deletes.
+    await pool.execute(
+      `INSERT INTO chat_message_deletes (message_id, user_id)
+       SELECT id, ?
+       FROM chat_messages
+       WHERE thread_id = ? AND id IN (${placeholders2})
+       ON DUPLICATE KEY UPDATE deleted_at = CURRENT_TIMESTAMP`,
+      [req.user.id, threadId, ...validIds]
+    );
+
+    // Ensure the newest deleted message doesn't remain counted as unread.
+    const maxId = Math.max(...validIds);
+    await pool.execute(
+      `INSERT INTO chat_thread_reads (thread_id, user_id, last_read_message_id, last_read_at)
+       VALUES (?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE
+         last_read_message_id = GREATEST(COALESCE(last_read_message_id, 0), VALUES(last_read_message_id)),
+         last_read_at = NOW()`,
+      [threadId, req.user.id, maxId]
+    );
+
+    res.json({ ok: true, deletedCount: validIds.length });
   } catch (e) {
     next(e);
   }

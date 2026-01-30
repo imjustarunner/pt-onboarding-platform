@@ -48,16 +48,42 @@
       </div>
 
       <div class="card messages">
-        <div class="card-title">
-          {{ activeThreadLabel }}
+        <div class="card-title title-row">
+          <span>{{ activeThreadLabel }}</span>
+          <div v-if="activeThreadId" class="title-actions">
+            <button class="btn btn-secondary btn-xs" type="button" @click="toggleSelectMode" :disabled="sending || messagesLoading">
+              {{ selectMode ? 'Cancel' : 'Select' }}
+            </button>
+            <button
+              v-if="selectMode"
+              class="btn btn-danger btn-xs"
+              type="button"
+              @click="deleteSelected"
+              :disabled="sending || selectedMessageIds.length === 0"
+              :title="selectedMessageIds.length ? `Delete ${selectedMessageIds.length} selected` : 'Select messages to delete'"
+            >
+              Delete selected ({{ selectedMessageIds.length }})
+            </button>
+            <button class="btn btn-danger btn-xs" type="button" @click="deleteThread" :disabled="sending || messagesLoading">
+              Delete thread
+            </button>
+          </div>
         </div>
 
         <div v-if="!activeThreadId" class="muted">Select a thread.</div>
         <div v-else>
           <div v-if="messagesLoading" class="muted">Loading…</div>
           <div v-else-if="messagesError" class="error">{{ messagesError }}</div>
-          <div v-else class="bubble-list">
-            <div v-for="m in messages" :key="m.id" class="bubble" :class="{ mine: m.sender_user_id === meId }">
+          <div v-else class="bubble-list" ref="messagesEl">
+            <div v-for="m in messages" :key="m.id" class="bubble-row" :class="{ mine: m.sender_user_id === meId }">
+              <label v-if="selectMode" class="select-box">
+                <input
+                  type="checkbox"
+                  :checked="isSelected(m.id)"
+                  @change="toggleSelected(m.id)"
+                />
+              </label>
+              <div class="bubble">
               <div class="meta">
                 <span>{{ m.sender_first_name }} {{ m.sender_last_name }}</span>
                 <span>
@@ -85,6 +111,7 @@
                 </span>
               </div>
               <div class="text">{{ m.body }}</div>
+              </div>
             </div>
           </div>
 
@@ -101,7 +128,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -136,6 +163,9 @@ const messagesError = ref('');
 const messages = ref([]);
 const draft = ref('');
 const sending = ref(false);
+const messagesEl = ref(null);
+const selectMode = ref(false);
+const selectedMessageIds = ref([]);
 
 const agencyOptions = computed(() => {
   const list = isSuperAdmin.value ? (agencyStore.agencies || []) : (agencyStore.userAgencies || agencyStore.agencies || []);
@@ -203,7 +233,7 @@ const loadThreads = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get('/chat/threads', { params: { agencyId: agencyId.value } });
+    const resp = await api.get('/chat/threads', { params: { agencyId: agencyId.value }, skipGlobalLoading: true });
     threads.value = resp.data || [];
 
     // Auto-open thread when linked from notifications/communications feed.
@@ -222,19 +252,56 @@ const loadThreads = async () => {
   }
 };
 
-const loadMessages = async ({ markRead } = { markRead: true }) => {
+const scrollToBottom = async () => {
+  await nextTick();
+  const el = messagesEl.value;
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+};
+
+const toggleSelectMode = () => {
+  selectMode.value = !selectMode.value;
+  if (!selectMode.value) {
+    selectedMessageIds.value = [];
+  }
+};
+
+const isSelected = (id) => selectedMessageIds.value.includes(Number(id));
+
+const toggleSelected = (id) => {
+  const n = Number(id);
+  if (!Number.isFinite(n)) return;
+  if (isSelected(n)) {
+    selectedMessageIds.value = selectedMessageIds.value.filter((x) => x !== n);
+  } else {
+    selectedMessageIds.value = [...selectedMessageIds.value, n];
+  }
+};
+
+const loadMessages = async ({ markRead, scrollToBottom: shouldScroll } = { markRead: true, scrollToBottom: true }) => {
   if (!activeThreadId.value) return;
   try {
     messagesLoading.value = true;
     messagesError.value = '';
-    const resp = await api.get(`/chat/threads/${activeThreadId.value}/messages`, { params: { limit: 200 } });
+    const resp = await api.get(
+      `/chat/threads/${activeThreadId.value}/messages`,
+      { params: { limit: 200 }, skipGlobalLoading: true }
+    );
     messages.value = resp.data || [];
+    if (shouldScroll) {
+      await scrollToBottom();
+    }
     const last = messages.value[messages.value.length - 1];
     const canMarkRead =
       !!markRead && typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus();
     if (canMarkRead && last?.id) {
-      await api.post(`/chat/threads/${activeThreadId.value}/read`, { lastReadMessageId: last.id }).catch(() => {});
-      await loadThreads();
+      // Fire-and-forget to avoid leaving UI “spinning” on slow follow-up calls.
+      api.post(
+        `/chat/threads/${activeThreadId.value}/read`,
+        { lastReadMessageId: last.id },
+        { skipGlobalLoading: true }
+      ).catch(() => {});
+      loadThreads().catch(() => {});
     }
   } catch (e) {
     messagesError.value = e.response?.data?.error?.message || 'Failed to load messages';
@@ -246,7 +313,51 @@ const loadMessages = async ({ markRead } = { markRead: true }) => {
 const selectThread = async (t) => {
   activeThreadId.value = t.thread_id;
   activeThread.value = t;
-  await loadMessages({ markRead: true });
+  selectMode.value = false;
+  selectedMessageIds.value = [];
+  await loadMessages({ markRead: true, scrollToBottom: true });
+};
+
+const deleteSelected = async () => {
+  if (!activeThreadId.value) return;
+  const ids = selectedMessageIds.value || [];
+  if (ids.length === 0) return;
+  try {
+    sending.value = true;
+    messagesError.value = '';
+    await api.post(
+      `/chat/threads/${activeThreadId.value}/messages/delete-for-me`,
+      { messageIds: ids },
+      { skipGlobalLoading: true }
+    );
+    selectedMessageIds.value = [];
+    selectMode.value = false;
+    await loadMessages({ markRead: true, scrollToBottom: true });
+  } catch (e) {
+    messagesError.value = e.response?.data?.error?.message || 'Failed to delete selected messages';
+  } finally {
+    sending.value = false;
+  }
+};
+
+const deleteThread = async () => {
+  if (!activeThreadId.value) return;
+  try {
+    sending.value = true;
+    messagesError.value = '';
+    await api.post(`/chat/threads/${activeThreadId.value}/delete-for-me`, {}, { skipGlobalLoading: true });
+    // Hide thread immediately in UI.
+    activeThreadId.value = null;
+    activeThread.value = null;
+    messages.value = [];
+    selectedMessageIds.value = [];
+    selectMode.value = false;
+    await loadThreads();
+  } catch (e) {
+    messagesError.value = e.response?.data?.error?.message || 'Failed to delete thread';
+  } finally {
+    sending.value = false;
+  }
 };
 
 const send = async () => {
@@ -255,8 +366,10 @@ const send = async () => {
     sending.value = true;
     const body = draft.value.trim();
     draft.value = '';
-    await api.post(`/chat/threads/${activeThreadId.value}/messages`, { body });
-    await loadMessages({ markRead: true });
+    await api.post(`/chat/threads/${activeThreadId.value}/messages`, { body }, { skipGlobalLoading: true });
+    await loadMessages({ markRead: true, scrollToBottom: true });
+  } catch (e) {
+    messagesError.value = e.response?.data?.error?.message || 'Failed to send message';
   } finally {
     sending.value = false;
   }
@@ -268,9 +381,10 @@ const unsend = async (m) => {
   if (m.is_read_by_other) return;
   try {
     sending.value = true;
-    await api.delete(`/chat/threads/${activeThreadId.value}/messages/${m.id}`);
-    await loadMessages({ markRead: true });
-    await loadThreads();
+    await api.delete(`/chat/threads/${activeThreadId.value}/messages/${m.id}`, { skipGlobalLoading: true });
+    await loadMessages({ markRead: true, scrollToBottom: true });
+  } catch (e) {
+    messagesError.value = e.response?.data?.error?.message || 'Failed to unsend message';
   } finally {
     sending.value = false;
   }
@@ -280,9 +394,14 @@ const deleteForMe = async (m) => {
   if (!activeThreadId.value || !m?.id) return;
   try {
     sending.value = true;
-    await api.post(`/chat/threads/${activeThreadId.value}/messages/${m.id}/delete-for-me`, {});
-    await loadMessages({ markRead: true });
-    await loadThreads();
+    await api.post(
+      `/chat/threads/${activeThreadId.value}/messages/${m.id}/delete-for-me`,
+      {},
+      { skipGlobalLoading: true }
+    );
+    await loadMessages({ markRead: true, scrollToBottom: true });
+  } catch (e) {
+    messagesError.value = e.response?.data?.error?.message || 'Failed to delete message';
   } finally {
     sending.value = false;
   }
@@ -343,6 +462,9 @@ onMounted(async () => {
 .grid { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 14px; }
 .card { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
 .card-title { font-weight: 800; margin-bottom: 10px; }
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.title-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.btn.btn-xs, .btn.btn-xs.btn-secondary, .btn.btn-xs.btn-danger { padding: 4px 8px; font-size: 12px; border-radius: 8px; }
 .threads { max-height: 74vh; overflow: auto; }
 .thread { width: 100%; text-align: left; border: 1px solid var(--border); border-radius: 10px; background: white; padding: 10px 12px; cursor: pointer; margin-bottom: 10px; }
 .thread.active { border-color: var(--primary); }
@@ -352,8 +474,12 @@ onMounted(async () => {
 .pill { border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 12px; color: var(--text-secondary); font-weight: 800; }
 .messages { display: flex; flex-direction: column; min-height: 74vh; }
 .bubble-list { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 10px 0; }
+.bubble-row { display: flex; gap: 10px; align-items: flex-start; }
+.bubble-row.mine { justify-content: flex-end; }
+.select-box { padding-top: 6px; }
+.select-box input { width: 16px; height: 16px; }
 .bubble { max-width: 90%; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: #f8fafc; }
-.bubble.mine { margin-left: auto; background: #ecfdf5; border-color: #a7f3d0; }
+.bubble-row.mine .bubble { background: #ecfdf5; border-color: #a7f3d0; }
 .meta { display: flex; justify-content: space-between; gap: 10px; color: var(--text-secondary); font-size: 12px; margin-bottom: 4px; }
 .receipt { margin-left: 8px; font-weight: 900; color: rgba(16, 185, 129, 0.9); }
 .unsend {

@@ -53,7 +53,9 @@ export const getCommunicationsFeed = async (req, res, next) => {
     // Chat feed: threads user participates in (scoped optionally to org).
     const chatPlaceholders = agencyIds.map(() => '?').join(',');
     const chatWhereOrg = organizationId ? ' AND t.organization_id = ?' : '';
-    const chatValues = organizationId ? [userId, userId, userId, ...agencyIds, organizationId] : [userId, userId, userId, ...agencyIds];
+    const chatValues = organizationId
+      ? [userId, userId, userId, userId, userId, ...agencyIds, organizationId]
+      : [userId, userId, userId, userId, userId, ...agencyIds];
     const [chatRows] = await pool.execute(
       `SELECT t.id AS thread_id,
               t.agency_id,
@@ -69,22 +71,34 @@ export const getCommunicationsFeed = async (req, res, next) => {
               su.last_name AS last_sender_last_name,
               su.role AS last_sender_role,
               r.last_read_message_id,
+              td.deleted_at AS thread_deleted_at,
               (
                 SELECT COUNT(*)
                 FROM chat_messages m2
                 WHERE m2.thread_id = t.id
                   AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
                   AND m2.sender_user_id <> ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM chat_message_deletes d2
+                    WHERE d2.user_id = ? AND d2.message_id = m2.id
+                  )
               ) AS unread_count
        FROM chat_threads t
        JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
        LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
+       LEFT JOIN chat_thread_deletes td ON td.thread_id = t.id AND td.user_id = ?
        LEFT JOIN chat_messages lm ON lm.id = (
-         SELECT m.id FROM chat_messages m WHERE m.thread_id = t.id ORDER BY m.id DESC LIMIT 1
+         SELECT m.id
+         FROM chat_messages m
+         LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
+         WHERE m.thread_id = t.id AND d.message_id IS NULL
+         ORDER BY m.id DESC
+         LIMIT 1
        )
        LEFT JOIN users su ON su.id = lm.sender_user_id
        LEFT JOIN agencies org ON org.id = t.organization_id
        WHERE t.agency_id IN (${chatPlaceholders})${chatWhereOrg}
+         AND (td.deleted_at IS NULL OR (lm.created_at IS NOT NULL AND lm.created_at > td.deleted_at))
        ORDER BY t.updated_at DESC
        LIMIT ${limit}`,
       chatValues
