@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate, requireAgencyAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireAgencyAccess, requireAgencyAdmin } from '../middleware/auth.middleware.js';
 import {
   listClientStatuses,
   upsertClientStatus,
@@ -14,7 +14,9 @@ import {
 
 const router = express.Router();
 
-router.get('/client-statuses', authenticate, requireAgencyAdmin, listClientStatuses);
+// Read-only lists should be available to agency members (including providers) for workflows like client creation.
+// Writes remain admin-only.
+router.get('/client-statuses', authenticate, requireAgencyAccess, listClientStatuses);
 router.post(
   '/client-statuses',
   authenticate,
@@ -44,7 +46,7 @@ router.put(
   upsertClientStatus
 );
 
-router.get('/paperwork-statuses', authenticate, requireAgencyAdmin, listPaperworkStatuses);
+router.get('/paperwork-statuses', authenticate, requireAgencyAccess, listPaperworkStatuses);
 router.post(
   '/paperwork-statuses',
   authenticate,
@@ -74,7 +76,7 @@ router.put(
   upsertPaperworkStatus
 );
 
-router.get('/insurance-types', authenticate, requireAgencyAdmin, listInsuranceTypes);
+router.get('/insurance-types', authenticate, requireAgencyAccess, listInsuranceTypes);
 router.post(
   '/insurance-types',
   authenticate,
