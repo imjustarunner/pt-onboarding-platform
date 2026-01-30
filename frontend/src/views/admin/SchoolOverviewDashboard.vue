@@ -68,12 +68,12 @@
                 <button
                   v-if="Number(s.skills_groups_count || 0) > 0"
                   type="button"
-                  class="pill pill-icon"
+                  class="sg-icon-btn"
                   title="Open Skills Groups in School Portal"
                   @click.stop="goToSchoolSkillsGroups(s)"
                 >
-                  <img v-if="skillBuildersIconUrl" :src="skillBuildersIconUrl" alt="" class="pill-icon-img" />
-                  <span v-else aria-hidden="true">SB</span>
+                  <img v-if="skillBuildersIconUrl" :src="skillBuildersIconUrl" alt="" class="sg-icon-img" />
+                  <span v-else aria-hidden="true" class="sg-icon-fallback">SB</span>
                 </button>
                 <span
                   v-for="g in (Array.isArray(s.active_skills_groups) ? s.active_skills_groups : [])"
@@ -148,8 +148,8 @@
               <div class="stat-value" :class="{ danger: s.docs_needs_count > 0 }">{{ s.docs_needs_count }}</div>
             </div>
             <div class="stat">
-              <div class="stat-label">School Staff</div>
-              <div class="stat-value">{{ s.school_staff_count }}</div>
+              <div class="stat-label">Skills Participants</div>
+              <div class="stat-value">{{ sumSkillsParticipants(s) }}</div>
             </div>
           </div>
         </div>
@@ -304,6 +304,11 @@ const goToSchoolSkillsGroups = (school) => {
   const slug = String(school?.school_slug || '').trim();
   if (!slug) return;
   router.push(`/${slug}/dashboard?sp=skills`);
+};
+
+const sumSkillsParticipants = (school) => {
+  const groups = Array.isArray(school?.active_skills_groups) ? school.active_skills_groups : [];
+  return groups.reduce((acc, g) => acc + Number(g?.participants_count || 0), 0);
 };
 
 const archiveSchool = async (school) => {
@@ -499,6 +504,34 @@ onMounted(async () => {
   height: 14px;
   object-fit: contain;
   display: block;
+}
+
+/* Skills icon should not be nested in a "pill" bubble */
+.sg-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.sg-icon-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+.sg-icon-img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  display: block;
+}
+.sg-icon-fallback {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--text-secondary);
 }
 .pill-warn {
   background: rgba(245, 158, 11, 0.12);
