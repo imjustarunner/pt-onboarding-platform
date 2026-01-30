@@ -9,11 +9,12 @@ export const GOOGLE_WORKSPACE_SCOPES = [
 ];
 
 export function parseGoogleWorkspaceServiceAccountFromEnv() {
-  // Per requirement: read/decode GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64.
+  // Prefer base64 env (recommended), but support legacy raw JSON as fallback.
+  const raw = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON;
   const b64 = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64;
-  if (!b64) return null;
+  const jsonText = raw ? raw : (b64 ? Buffer.from(b64, 'base64').toString('utf8') : null);
+  if (!jsonText) return null;
   try {
-    const jsonText = Buffer.from(b64, 'base64').toString('utf8');
     const json = JSON.parse(jsonText);
     if (!json?.client_email || !json?.private_key) return null;
     return json;
@@ -45,7 +46,9 @@ export async function buildImpersonatedJwtClient({
 } = {}) {
   const sa = parseGoogleWorkspaceServiceAccountFromEnv();
   if (!sa?.client_email || !sa?.private_key) {
-    throw new Error('GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 is not configured (missing client_email/private_key)');
+    throw new Error(
+      'Google Workspace service account is not configured (set GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 or GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON)'
+    );
   }
 
   const subject = String(subjectEmail || '').trim().toLowerCase();

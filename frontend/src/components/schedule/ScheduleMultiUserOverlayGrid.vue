@@ -408,16 +408,23 @@ const cellBlocks = (dayName, hour) => {
 };
 
 const overlayErrorText = computed(() => {
-  if (!showGoogleEvents.value) return '';
   const ids = (props.userIds || []).map((x) => Number(x)).filter(Boolean);
   const msgs = [];
   for (const uid of ids) {
     const s = summariesByUserId.value?.[uid];
-    const err = String(s?.googleEventsError || '').trim();
-    if (err) msgs.push(`${props.userLabelById?.[uid] || `User ${uid}`}: ${err}`);
+    const parts = [];
+    if (showGoogleBusy.value) {
+      const e1 = String(s?.googleBusyError || '').trim();
+      if (e1) parts.push(`busy: ${e1}`);
+    }
+    if (showGoogleEvents.value) {
+      const e2 = String(s?.googleEventsError || '').trim();
+      if (e2) parts.push(`events: ${e2}`);
+    }
+    if (parts.length) msgs.push(`${props.userLabelById?.[uid] || `User ${uid}`}: ${parts.join(', ')}`);
     if (msgs.length >= 2) break;
   }
-  return msgs.length ? `Google events: ${msgs.join(' • ')}` : '';
+  return msgs.length ? `Calendar overlay error: ${msgs.join(' • ')}` : '';
 });
 
 const onBlockClick = (e, b) => {
