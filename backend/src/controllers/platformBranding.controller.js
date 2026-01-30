@@ -1,6 +1,93 @@
 import PlatformBranding from '../models/PlatformBranding.model.js';
 import { validationResult } from 'express-validator';
 
+/** Map exported (GET) snake_case keys to update payload camelCase. */
+function exportedToUpdatePayload(data) {
+  if (!data || typeof data !== 'object') return {};
+  const map = {
+    tagline: 'tagline',
+    primary_color: 'primaryColor',
+    secondary_color: 'secondaryColor',
+    accent_color: 'accentColor',
+    success_color: 'successColor',
+    background_color: 'backgroundColor',
+    error_color: 'errorColor',
+    warning_color: 'warningColor',
+    header_font: 'headerFont',
+    body_font: 'bodyFont',
+    numeric_font: 'numericFont',
+    display_font: 'displayFont',
+    header_font_id: 'headerFontId',
+    body_font_id: 'bodyFontId',
+    numeric_font_id: 'numericFontId',
+    display_font_id: 'displayFontId',
+    people_ops_term: 'peopleOpsTerm',
+    organization_name: 'organizationName',
+    organization_logo_icon_id: 'organizationLogoIconId',
+    organization_logo_url: 'organizationLogoUrl',
+    organization_logo_path: 'organizationLogoPath',
+    training_focus_default_icon_id: 'trainingFocusDefaultIconId',
+    module_default_icon_id: 'moduleDefaultIconId',
+    user_default_icon_id: 'userDefaultIconId',
+    document_default_icon_id: 'documentDefaultIconId',
+    master_brand_icon_id: 'masterBrandIconId',
+    manage_agencies_icon_id: 'manageAgenciesIconId',
+    manage_clients_icon_id: 'manageClientsIconId',
+    school_overview_icon_id: 'schoolOverviewIconId',
+    manage_modules_icon_id: 'manageModulesIconId',
+    manage_documents_icon_id: 'manageDocumentsIconId',
+    manage_users_icon_id: 'manageUsersIconId',
+    platform_settings_icon_id: 'platformSettingsIconId',
+    view_all_progress_icon_id: 'viewAllProgressIconId',
+    progress_dashboard_icon_id: 'progressDashboardIconId',
+    settings_icon_id: 'settingsIconId',
+    dashboard_notifications_icon_id: 'dashboardNotificationsIconId',
+    dashboard_communications_icon_id: 'dashboardCommunicationsIconId',
+    dashboard_chats_icon_id: 'dashboardChatsIconId',
+    dashboard_payroll_icon_id: 'dashboardPayrollIconId',
+    dashboard_billing_icon_id: 'dashboardBillingIconId',
+    all_agencies_notifications_icon_id: 'allAgenciesNotificationsIconId',
+    external_calendar_audit_icon_id: 'externalCalendarAuditIconId',
+    skill_builders_availability_icon_id: 'skillBuildersAvailabilityIconId',
+    company_profile_icon_id: 'companyProfileIconId',
+    team_roles_icon_id: 'teamRolesIconId',
+    billing_icon_id: 'billingIconId',
+    packages_icon_id: 'packagesIconId',
+    checklist_items_icon_id: 'checklistItemsIconId',
+    field_definitions_icon_id: 'fieldDefinitionsIconId',
+    branding_templates_icon_id: 'brandingTemplatesIconId',
+    assets_icon_id: 'assetsIconId',
+    communications_icon_id: 'communicationsIconId',
+    integrations_icon_id: 'integrationsIconId',
+    archive_icon_id: 'archiveIconId',
+    my_dashboard_checklist_icon_id: 'myDashboardChecklistIconId',
+    my_dashboard_training_icon_id: 'myDashboardTrainingIconId',
+    my_dashboard_documents_icon_id: 'myDashboardDocumentsIconId',
+    my_dashboard_my_account_icon_id: 'myDashboardMyAccountIconId',
+    my_dashboard_my_schedule_icon_id: 'myDashboardMyScheduleIconId',
+    my_dashboard_on_demand_training_icon_id: 'myDashboardOnDemandTrainingIconId',
+    my_dashboard_payroll_icon_id: 'myDashboardPayrollIconId',
+    my_dashboard_submit_icon_id: 'myDashboardSubmitIconId',
+    my_dashboard_communications_icon_id: 'myDashboardCommunicationsIconId',
+    my_dashboard_chats_icon_id: 'myDashboardChatsIconId',
+    my_dashboard_notifications_icon_id: 'myDashboardNotificationsIconId',
+    school_portal_providers_icon_id: 'schoolPortalProvidersIconId',
+    school_portal_days_icon_id: 'schoolPortalDaysIconId',
+    school_portal_roster_icon_id: 'schoolPortalRosterIconId',
+    school_portal_skills_groups_icon_id: 'schoolPortalSkillsGroupsIconId',
+    school_portal_contact_admin_icon_id: 'schoolPortalContactAdminIconId',
+    school_portal_school_staff_icon_id: 'schoolPortalSchoolStaffIconId',
+    school_portal_parent_qr_icon_id: 'schoolPortalParentQrIconId',
+    school_portal_parent_sign_icon_id: 'schoolPortalParentSignIconId',
+    school_portal_upload_packet_icon_id: 'schoolPortalUploadPacketIconId'
+  };
+  const out = {};
+  for (const [snake, camel] of Object.entries(map)) {
+    if (data[snake] !== undefined) out[camel] = data[snake];
+  }
+  return out;
+}
+
 export const getPlatformBranding = async (req, res, next) => {
   try {
     console.log('getPlatformBranding: Fetching platform branding...');
@@ -142,23 +229,23 @@ export const updatePlatformBranding = async (req, res, next) => {
       userDefaultIconId,
       documentDefaultIconId,
       masterBrandIconId,
-      manageClientsIconId,
-      manageAgenciesIconId,
-      schoolOverviewIconId,
-      manageModulesIconId,
-      manageDocumentsIconId,
-      manageUsersIconId,
-      platformSettingsIconId,
-      viewAllProgressIconId,
-      progressDashboardIconId,
-      settingsIconId,
-      dashboardNotificationsIconId,
-      dashboardCommunicationsIconId,
-      dashboardChatsIconId,
-      dashboardPayrollIconId,
-      dashboardBillingIconId,
-      externalCalendarAuditIconId,
-      skillBuildersAvailabilityIconId: skillBuildersAvailabilityIconId !== undefined ? (skillBuildersAvailabilityIconId === null || skillBuildersAvailabilityIconId === '' ? null : parseInt(skillBuildersAvailabilityIconId)) : undefined,
+      manageClientsIconId: manageClientsIconId !== undefined ? (manageClientsIconId === null || manageClientsIconId === '' ? null : parseInt(manageClientsIconId, 10)) : undefined,
+      manageAgenciesIconId: manageAgenciesIconId !== undefined ? (manageAgenciesIconId === null || manageAgenciesIconId === '' ? null : parseInt(manageAgenciesIconId, 10)) : undefined,
+      schoolOverviewIconId: schoolOverviewIconId !== undefined ? (schoolOverviewIconId === null || schoolOverviewIconId === '' ? null : parseInt(schoolOverviewIconId, 10)) : undefined,
+      manageModulesIconId: manageModulesIconId !== undefined ? (manageModulesIconId === null || manageModulesIconId === '' ? null : parseInt(manageModulesIconId, 10)) : undefined,
+      manageDocumentsIconId: manageDocumentsIconId !== undefined ? (manageDocumentsIconId === null || manageDocumentsIconId === '' ? null : parseInt(manageDocumentsIconId, 10)) : undefined,
+      manageUsersIconId: manageUsersIconId !== undefined ? (manageUsersIconId === null || manageUsersIconId === '' ? null : parseInt(manageUsersIconId, 10)) : undefined,
+      platformSettingsIconId: platformSettingsIconId !== undefined ? (platformSettingsIconId === null || platformSettingsIconId === '' ? null : parseInt(platformSettingsIconId, 10)) : undefined,
+      viewAllProgressIconId: viewAllProgressIconId !== undefined ? (viewAllProgressIconId === null || viewAllProgressIconId === '' ? null : parseInt(viewAllProgressIconId, 10)) : undefined,
+      progressDashboardIconId: progressDashboardIconId !== undefined ? (progressDashboardIconId === null || progressDashboardIconId === '' ? null : parseInt(progressDashboardIconId, 10)) : undefined,
+      settingsIconId: settingsIconId !== undefined ? (settingsIconId === null || settingsIconId === '' ? null : parseInt(settingsIconId, 10)) : undefined,
+      dashboardNotificationsIconId: dashboardNotificationsIconId !== undefined ? (dashboardNotificationsIconId === null || dashboardNotificationsIconId === '' ? null : parseInt(dashboardNotificationsIconId, 10)) : undefined,
+      dashboardCommunicationsIconId: dashboardCommunicationsIconId !== undefined ? (dashboardCommunicationsIconId === null || dashboardCommunicationsIconId === '' ? null : parseInt(dashboardCommunicationsIconId, 10)) : undefined,
+      dashboardChatsIconId: dashboardChatsIconId !== undefined ? (dashboardChatsIconId === null || dashboardChatsIconId === '' ? null : parseInt(dashboardChatsIconId, 10)) : undefined,
+      dashboardPayrollIconId: dashboardPayrollIconId !== undefined ? (dashboardPayrollIconId === null || dashboardPayrollIconId === '' ? null : parseInt(dashboardPayrollIconId, 10)) : undefined,
+      dashboardBillingIconId: dashboardBillingIconId !== undefined ? (dashboardBillingIconId === null || dashboardBillingIconId === '' ? null : parseInt(dashboardBillingIconId, 10)) : undefined,
+      externalCalendarAuditIconId: externalCalendarAuditIconId !== undefined ? (externalCalendarAuditIconId === null || externalCalendarAuditIconId === '' ? null : parseInt(externalCalendarAuditIconId, 10)) : undefined,
+      skillBuildersAvailabilityIconId: skillBuildersAvailabilityIconId !== undefined ? (skillBuildersAvailabilityIconId === null || skillBuildersAvailabilityIconId === '' ? null : parseInt(skillBuildersAvailabilityIconId, 10)) : undefined,
       myDashboardChecklistIconId: myDashboardChecklistIconId !== undefined ? (myDashboardChecklistIconId === null || myDashboardChecklistIconId === '' ? null : parseInt(myDashboardChecklistIconId)) : undefined,
       myDashboardTrainingIconId: myDashboardTrainingIconId !== undefined ? (myDashboardTrainingIconId === null || myDashboardTrainingIconId === '' ? null : parseInt(myDashboardTrainingIconId)) : undefined,
       myDashboardDocumentsIconId: myDashboardDocumentsIconId !== undefined ? (myDashboardDocumentsIconId === null || myDashboardDocumentsIconId === '' ? null : parseInt(myDashboardDocumentsIconId)) : undefined,
@@ -169,10 +256,10 @@ export const updatePlatformBranding = async (req, res, next) => {
       myDashboardSubmitIconId: myDashboardSubmitIconId !== undefined ? (myDashboardSubmitIconId === null || myDashboardSubmitIconId === '' ? null : parseInt(myDashboardSubmitIconId)) : undefined,
       myDashboardCommunicationsIconId: myDashboardCommunicationsIconId !== undefined ? (myDashboardCommunicationsIconId === null || myDashboardCommunicationsIconId === '' ? null : parseInt(myDashboardCommunicationsIconId)) : undefined,
       myDashboardChatsIconId: myDashboardChatsIconId !== undefined ? (myDashboardChatsIconId === null || myDashboardChatsIconId === '' ? null : parseInt(myDashboardChatsIconId)) : undefined,
-      myDashboardNotificationsIconId: myDashboardNotificationsIconId !== undefined ? (myDashboardNotificationsIconId === null || myDashboardNotificationsIconId === '' ? null : parseInt(myDashboardNotificationsIconId)) : undefined,
-      allAgenciesNotificationsIconId,
+      myDashboardNotificationsIconId: myDashboardNotificationsIconId !== undefined ? (myDashboardNotificationsIconId === null || myDashboardNotificationsIconId === '' ? null : parseInt(myDashboardNotificationsIconId, 10)) : undefined,
+      allAgenciesNotificationsIconId: allAgenciesNotificationsIconId !== undefined ? (allAgenciesNotificationsIconId === null || allAgenciesNotificationsIconId === '' ? null : parseInt(allAgenciesNotificationsIconId, 10)) : undefined,
       organizationName,
-      organizationLogoIconId: organizationLogoIconId !== undefined ? (organizationLogoIconId === null || organizationLogoIconId === '' ? null : parseInt(organizationLogoIconId)) : undefined,
+      organizationLogoIconId: organizationLogoIconId !== undefined ? (organizationLogoIconId === null || organizationLogoIconId === '' ? null : parseInt(organizationLogoIconId, 10)) : undefined,
       organizationLogoUrl,
       organizationLogoPath,
       companyProfileIconId: companyProfileIconId !== undefined ? (companyProfileIconId === null || companyProfileIconId === '' ? null : parseInt(companyProfileIconId)) : undefined,
@@ -208,6 +295,24 @@ export const updatePlatformBranding = async (req, res, next) => {
       sqlState: error.sqlState,
       errno: error.errno
     });
+    next(error);
+  }
+};
+
+/**
+ * Restore platform branding from an exported backup (e.g. downloaded template).
+ * Body should match the shape returned by GET /platform-branding (snake_case).
+ */
+export const restorePlatformBranding = async (req, res, next) => {
+  try {
+    const payload = exportedToUpdatePayload(req.body);
+    if (Object.keys(payload).length === 0) {
+      return res.status(400).json({ error: { message: 'No valid platform branding data to restore' } });
+    }
+    const branding = await PlatformBranding.update(payload, req.user.id);
+    res.json(branding);
+  } catch (error) {
+    console.error('restorePlatformBranding: Error:', error);
     next(error);
   }
 };

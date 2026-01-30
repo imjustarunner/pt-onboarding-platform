@@ -1210,26 +1210,20 @@ class PlatformBranding {
             const existingId = values[values.length - 1];
             const valuesForUpdates = values.slice(0, updates.length);
 
-            // Filter out dashboard icon updates and try again
+            // Filter out only the "extra" quick-action icon columns (migration 237) that might not exist.
+            // Keep progress_dashboard_icon_id, settings_icon_id, and other core dashboard icons so they still persist.
+            const optionalExtraIconColumns = [
+              'dashboard_notifications_icon_id',
+              'dashboard_communications_icon_id',
+              'dashboard_chats_icon_id',
+              'dashboard_payroll_icon_id',
+              'dashboard_billing_icon_id'
+            ];
             const filteredUpdates = [];
             const filteredValues = [];
             updates.forEach((update, index) => {
-              if (!update.includes('manage_agencies_icon_id') &&
-                  !update.includes('manage_modules_icon_id') &&
-                  !update.includes('manage_documents_icon_id') &&
-                  !update.includes('manage_users_icon_id') &&
-                  !update.includes('platform_settings_icon_id') &&
-                  !update.includes('view_all_progress_icon_id') &&
-                  !update.includes('progress_dashboard_icon_id') &&
-                  !update.includes('settings_icon_id') &&
-                  !update.includes('my_dashboard_checklist_icon_id') &&
-                  !update.includes('my_dashboard_training_icon_id') &&
-                  !update.includes('my_dashboard_documents_icon_id') &&
-                  !update.includes('my_dashboard_my_account_icon_id') &&
-                  !update.includes('my_dashboard_my_schedule_icon_id') &&
-                  !update.includes('my_dashboard_on_demand_training_icon_id') &&
-                  !update.includes('my_dashboard_payroll_icon_id') &&
-                  !update.includes('my_dashboard_submit_icon_id')) {
+              const isOptionalExtra = optionalExtraIconColumns.some((col) => update.includes(col));
+              if (!isOptionalExtra) {
                 filteredUpdates.push(update);
                 filteredValues.push(valuesForUpdates[index]);
               }

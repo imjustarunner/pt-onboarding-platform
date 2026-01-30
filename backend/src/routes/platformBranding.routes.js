@@ -1,7 +1,8 @@
 import express from 'express';
 import {
   getPlatformBranding,
-  updatePlatformBranding
+  updatePlatformBranding,
+  restorePlatformBranding
 } from '../controllers/platformBranding.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requireSuperAdmin } from '../middleware/auth.middleware.js';
@@ -15,6 +16,9 @@ router.get('/', getPlatformBranding);
 // Update requires authentication and super admin role
 router.use(authenticate);
 router.use(requireSuperAdmin);
+
+// Restore from exported backup (JSON body, snake_case as returned by GET /platform-branding)
+router.post('/restore', restorePlatformBranding);
 
 router.put(
   '/',

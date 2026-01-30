@@ -894,6 +894,27 @@
           <button type="submit" class="btn btn-primary" :disabled="savingPlatform">
             {{ savingPlatform ? 'Saving...' : 'Save Platform Branding' }}
           </button>
+          <div class="platform-backup-restore" style="margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border);">
+            <h4 style="margin-bottom: 12px;">Backup &amp; Restore</h4>
+            <p class="section-description" style="margin-bottom: 12px;">
+              Download the entire platform branding (including all icons) as a JSON file, or restore from a previously downloaded file in case you lose your settings.
+            </p>
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+              <button type="button" class="btn btn-secondary" :disabled="downloadingTemplate" @click="downloadPlatformTemplate">
+                {{ downloadingTemplate ? 'Preparing...' : 'Download platform template' }}
+              </button>
+              <button type="button" class="btn btn-secondary" :disabled="restoringTemplate" @click="platformRestoreFileInputRef?.click()">
+                {{ restoringTemplate ? 'Restoring...' : 'Restore from file' }}
+              </button>
+              <input
+                ref="platformRestoreFileInputRef"
+                type="file"
+                accept=".json,application/json"
+                style="display: none"
+                @change="onPlatformRestoreFileSelected"
+              />
+            </div>
+          </div>
         </div>
       </form>
       
@@ -1867,6 +1888,9 @@ const templateState = ref(null); // { platform, agency, effectiveTemplate }
 
 const savingPlatform = ref(false);
 const savingAgency = ref(false);
+const downloadingTemplate = ref(false);
+const restoringTemplate = ref(false);
+const platformRestoreFileInputRef = ref(null);
 const selectedBrandingScope = ref('platform');
 const selectedAgencyForAdmin = ref(null);
 const userAgencies = computed(() => agencyStore.userAgencies.length > 0 ? agencyStore.userAgencies : (agencyStore.agencies.length > 0 ? agencyStore.agencies : []));
@@ -3041,6 +3065,73 @@ const createTemplateFromCurrent = async () => {
   }
 };
 
+const downloadPlatformTemplate = async () => {
+  try {
+    downloadingTemplate.value = true;
+    const response = await api.get('/platform-branding');
+    const blob = new Blob([JSON.stringify(response.data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `platform-branding-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Error downloading platform template:', err);
+    alert(err?.response?.data?.error?.message || 'Failed to download platform template');
+  } finally {
+    downloadingTemplate.value = false;
+  }
+};
+
+const onPlatformRestoreFileSelected = async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  event.target.value = '';
+  try {
+    restoringTemplate.value = true;
+    const text = await file.text();
+    const data = JSON.parse(text);
+    await api.post('/platform-branding/restore', data);
+    await brandingStore.fetchPlatformBranding(true);
+    if (brandingStore.platformBranding) {
+      platformForm.value.progressDashboardIconId = brandingStore.platformBranding.progress_dashboard_icon_id ?? null;
+      platformForm.value.settingsIconId = brandingStore.platformBranding.settings_icon_id ?? null;
+      platformForm.value.dashboardNotificationsIconId = brandingStore.platformBranding.dashboard_notifications_icon_id ?? null;
+      platformForm.value.dashboardCommunicationsIconId = brandingStore.platformBranding.dashboard_communications_icon_id ?? null;
+      platformForm.value.dashboardChatsIconId = brandingStore.platformBranding.dashboard_chats_icon_id ?? null;
+      platformForm.value.dashboardPayrollIconId = brandingStore.platformBranding.dashboard_payroll_icon_id ?? null;
+      platformForm.value.dashboardBillingIconId = brandingStore.platformBranding.dashboard_billing_icon_id ?? null;
+      platformForm.value.manageAgenciesIconId = brandingStore.platformBranding.manage_agencies_icon_id ?? null;
+      platformForm.value.manageClientsIconId = brandingStore.platformBranding.manage_clients_icon_id ?? null;
+      platformForm.value.schoolOverviewIconId = brandingStore.platformBranding.school_overview_icon_id ?? null;
+      platformForm.value.manageModulesIconId = brandingStore.platformBranding.manage_modules_icon_id ?? null;
+      platformForm.value.manageDocumentsIconId = brandingStore.platformBranding.manage_documents_icon_id ?? null;
+      platformForm.value.manageUsersIconId = brandingStore.platformBranding.manage_users_icon_id ?? null;
+      platformForm.value.platformSettingsIconId = brandingStore.platformBranding.platform_settings_icon_id ?? null;
+      platformForm.value.viewAllProgressIconId = brandingStore.platformBranding.view_all_progress_icon_id ?? null;
+      platformForm.value.allAgenciesNotificationsIconId = brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null;
+      platformForm.value.externalCalendarAuditIconId = brandingStore.platformBranding.external_calendar_audit_icon_id ?? null;
+      platformForm.value.skillBuildersAvailabilityIconId = brandingStore.platformBranding.skill_builders_availability_icon_id ?? null;
+      platformForm.value.tagline = brandingStore.platformBranding.tagline ?? platformForm.value.tagline;
+      platformForm.value.primaryColor = brandingStore.platformBranding.primary_color ?? platformForm.value.primaryColor;
+      platformForm.value.secondaryColor = brandingStore.platformBranding.secondary_color ?? platformForm.value.secondaryColor;
+      platformForm.value.accentColor = brandingStore.platformBranding.accent_color ?? platformForm.value.accentColor;
+      platformForm.value.successColor = brandingStore.platformBranding.success_color ?? platformForm.value.successColor;
+      platformForm.value.backgroundColor = brandingStore.platformBranding.background_color ?? platformForm.value.backgroundColor;
+      platformForm.value.errorColor = brandingStore.platformBranding.error_color ?? platformForm.value.errorColor;
+      platformForm.value.warningColor = brandingStore.platformBranding.warning_color ?? platformForm.value.warningColor;
+      platformForm.value.peopleOpsTerm = brandingStore.platformBranding.people_ops_term ?? platformForm.value.peopleOpsTerm;
+    }
+    alert('Platform branding restored successfully');
+  } catch (err) {
+    console.error('Error restoring platform template:', err);
+    alert(err?.response?.data?.error?.message || 'Failed to restore platform template. Make sure the file is a valid platform branding backup.');
+  } finally {
+    restoringTemplate.value = false;
+  }
+};
+
 const savePlatformBranding = async () => {
   try {
     savingPlatform.value = true;
@@ -3256,7 +3347,11 @@ const savePlatformBranding = async () => {
       platformForm.value.dashboardBillingIconId = response.data.dashboard_billing_icon_id ?? platformForm.value.dashboardBillingIconId ?? null;
       platformForm.value.allAgenciesNotificationsIconId = response.data.all_agencies_notifications_icon_id ?? platformForm.value.allAgenciesNotificationsIconId ?? null;
       platformForm.value.externalCalendarAuditIconId = response.data.external_calendar_audit_icon_id ?? platformForm.value.externalCalendarAuditIconId ?? null;
-      
+      platformForm.value.organizationName = response.data.organization_name ?? platformForm.value.organizationName ?? null;
+      platformForm.value.organizationLogoIconId = response.data.organization_logo_icon_id ?? platformForm.value.organizationLogoIconId ?? null;
+      platformForm.value.organizationLogoUrl = response.data.organization_logo_url ?? platformForm.value.organizationLogoUrl ?? null;
+      platformForm.value.organizationLogoPath = response.data.organization_logo_path ?? platformForm.value.organizationLogoPath ?? null;
+
       // Update other fields
       platformForm.value.tagline = response.data.tagline ?? platformForm.value.tagline;
       platformForm.value.primaryColor = response.data.primary_color ?? platformForm.value.primaryColor;
@@ -3291,6 +3386,10 @@ const savePlatformBranding = async () => {
       platformForm.value.platformSettingsIconId = brandingStore.platformBranding.platform_settings_icon_id ?? null;
       platformForm.value.viewAllProgressIconId = brandingStore.platformBranding.view_all_progress_icon_id ?? null;
       platformForm.value.allAgenciesNotificationsIconId = brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null;
+      platformForm.value.organizationName = brandingStore.platformBranding.organization_name ?? null;
+      platformForm.value.organizationLogoIconId = brandingStore.platformBranding.organization_logo_icon_id ?? null;
+      platformForm.value.organizationLogoUrl = brandingStore.platformBranding.organization_logo_url ?? null;
+      platformForm.value.organizationLogoPath = brandingStore.platformBranding.organization_logo_path ?? null;
     }
     
     console.log('Platform branding saved. Updated form icon IDs:', {
@@ -3350,6 +3449,7 @@ onMounted(async () => {
         userDefaultIconId: brandingStore.platformBranding.user_default_icon_id ?? null,
         documentDefaultIconId: brandingStore.platformBranding.document_default_icon_id ?? null,
         masterBrandIconId: brandingStore.platformBranding.master_brand_icon_id ?? null,
+        progressDashboardIconId: brandingStore.platformBranding.progress_dashboard_icon_id ?? null,
         manageAgenciesIconId: brandingStore.platformBranding.manage_agencies_icon_id ?? null,
         manageClientsIconId: brandingStore.platformBranding.manage_clients_icon_id ?? null,
         schoolOverviewIconId: brandingStore.platformBranding.school_overview_icon_id ?? null,
@@ -3358,9 +3458,20 @@ onMounted(async () => {
         manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,
         platformSettingsIconId: brandingStore.platformBranding.platform_settings_icon_id ?? null,
         viewAllProgressIconId: brandingStore.platformBranding.view_all_progress_icon_id ?? null,
+        settingsIconId: brandingStore.platformBranding.settings_icon_id ?? null,
+        dashboardNotificationsIconId: brandingStore.platformBranding.dashboard_notifications_icon_id ?? null,
+        dashboardCommunicationsIconId: brandingStore.platformBranding.dashboard_communications_icon_id ?? null,
+        dashboardChatsIconId: brandingStore.platformBranding.dashboard_chats_icon_id ?? null,
+        dashboardPayrollIconId: brandingStore.platformBranding.dashboard_payroll_icon_id ?? null,
+        dashboardBillingIconId: brandingStore.platformBranding.dashboard_billing_icon_id ?? null,
         allAgenciesNotificationsIconId: brandingStore.platformBranding.all_agencies_notifications_icon_id ?? null,
         externalCalendarAuditIconId: brandingStore.platformBranding.external_calendar_audit_icon_id ?? null,
         skillBuildersAvailabilityIconId: brandingStore.platformBranding.skill_builders_availability_icon_id ?? null,
+
+        organizationName: brandingStore.platformBranding.organization_name ?? null,
+        organizationLogoIconId: brandingStore.platformBranding.organization_logo_icon_id ?? null,
+        organizationLogoUrl: brandingStore.platformBranding.organization_logo_url ?? null,
+        organizationLogoPath: brandingStore.platformBranding.organization_logo_path ?? null,
 
         companyProfileIconId: brandingStore.platformBranding.company_profile_icon_id ?? null,
         teamRolesIconId: brandingStore.platformBranding.team_roles_icon_id ?? null,
