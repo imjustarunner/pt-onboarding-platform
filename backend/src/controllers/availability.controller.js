@@ -4,6 +4,7 @@ import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import { syncSchoolPortalDayProvider } from '../services/schoolPortalDaySync.service.js';
 import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
 import PublicAppointmentRequest from '../models/PublicAppointmentRequest.model.js';
+import ProviderAvailabilityService from '../services/providerAvailability.service.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -338,6 +339,52 @@ export const putMyVirtualWorkingHours = async (req, res, next) => {
 
     const saved = await ProviderVirtualWorkingHours.replaceForProvider({ agencyId, providerId, rows: normalized });
     res.json({ ok: true, agencyId, providerId, rows: saved });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getProviderWeekAvailability = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+
+    const providerId = parseIntSafe(req.params.providerId);
+    if (!providerId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
+
+    const isSelf = Number(req.user?.id || 0) === Number(providerId);
+    if (!isSelf && !canManageAvailability(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const weekStartYmd = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const includeGoogleBusy = String(req.query.includeGoogleBusy || 'true').toLowerCase() === 'true';
+    const slotMinutes = parseIntSafe(req.query.slotMinutes) || 60;
+    const externalCalendarIds = String(req.query.externalCalendarIds || '')
+      .split(',')
+      .map((x) => parseIntSafe(x))
+      .filter((n) => Number.isInteger(n) && n > 0);
+
+    const r = await ProviderAvailabilityService.computeWeekAvailability({
+      agencyId,
+      providerId,
+      weekStartYmd,
+      includeGoogleBusy,
+      externalCalendarIds,
+      slotMinutes
+    });
+
+    res.json({
+      ok: true,
+      agencyId: r.agencyId,
+      providerId: r.providerId,
+      weekStart: r.weekStart,
+      weekEnd: r.weekEnd,
+      timeZone: r.timeZone,
+      slotMinutes: r.slotMinutes,
+      virtualSlots: r.virtualSlots || [],
+      inPersonSlots: r.inPersonSlots || []
+    });
   } catch (e) {
     next(e);
   }

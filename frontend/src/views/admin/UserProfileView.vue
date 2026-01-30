@@ -1161,8 +1161,63 @@
             :user-id="Number(userId)"
             :agency-ids="selectedScheduleAgencyIds"
             :agency-label-by-id="scheduleAgencyLabelById"
+            :week-start-ymd="scheduleWeekStartYmd"
+            @update:weekStartYmd="(v) => { scheduleWeekStartYmd = v; }"
+            :availability-overlay="showAvailability ? providerWeekAvailability : null"
             mode="admin"
           />
+
+          <details class="card" style="margin-top: 10px; padding: 10px 12px;">
+            <summary style="cursor: pointer; list-style: none; display:flex; align-items:center; justify-content: space-between; gap: 10px;">
+              <div style="font-size: 13px; font-weight: 800; color: var(--text-secondary);">
+                Show availability
+              </div>
+              <div class="muted" style="font-size: 12px;">
+                Virtual vs office
+              </div>
+            </summary>
+
+            <div style="display:flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px;">
+              <label class="sched-toggle" style="display:flex; align-items:center; gap: 8px;">
+                <input type="checkbox" v-model="showAvailability" />
+                <span>Highlight availability</span>
+              </label>
+              <div class="muted" style="font-size: 12px;">
+                Virtual (green) • Office (blue). Computed per selected agency (first).
+              </div>
+            </div>
+
+            <div v-if="showAvailability" style="margin-top: 10px;">
+              <div v-if="availabilityLoading" class="muted">Loading availability…</div>
+              <div v-else-if="availabilityError" class="error" style="margin-top: 6px;">{{ availabilityError }}</div>
+              <div v-else-if="availabilityByDay.length" class="availability-list">
+                <div v-for="d in availabilityByDay" :key="`av-${d.day}`" class="availability-day">
+                  <div class="availability-day-title">{{ d.day }}</div>
+                  <div class="availability-lines">
+                    <div v-if="d.virtual.length" class="availability-line">
+                      <span class="pill pill-virtual">Virtual</span>
+                      <span class="muted">{{ d.virtual.join(', ') }}</span>
+                    </div>
+                    <div v-if="d.officeGroups.length" class="availability-line" style="flex-direction: column; align-items: flex-start;">
+                      <div
+                        v-for="g in d.officeGroups"
+                        :key="`off-${d.day}-${g.label}`"
+                        class="availability-line"
+                        style="padding: 0; border: none; width: 100%;"
+                      >
+                        <span class="pill pill-office">Office</span>
+                        <span class="muted">
+                          <strong style="color: var(--text-primary);">{{ g.label }}</strong>
+                          <span v-if="g.ranges.length"> — {{ g.ranges.join(', ') }}</span>
+                        </span>
+                      </div>
+                    </div>
+                    <div v-if="!d.virtual.length && !d.officeGroups.length" class="muted">—</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
 
           <details
             v-if="affiliatedAgencies.length"
@@ -2286,6 +2341,151 @@ const selectAllScheduleAgencies = () => {
 const clearScheduleAgencies = () => {
   selectedScheduleAgencyIds.value = [];
 };
+
+const scheduleWeekStartYmd = ref(new Date().toISOString().slice(0, 10));
+const showAvailability = ref(false);
+const availabilityLoading = ref(false);
+const availabilityError = ref('');
+const providerWeekAvailability = ref(null);
+
+const availabilityAgencyId = computed(() => {
+  const ids = (selectedScheduleAgencyIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+  return ids[0] || Number(scheduleAgencyId.value || 0) || null;
+});
+
+const loadProviderWeekAvailability = async () => {
+  const aid = availabilityAgencyId.value;
+  if (!aid) return;
+  try {
+    availabilityLoading.value = true;
+    availabilityError.value = '';
+    const r = await api.get(`/availability/providers/${Number(userId)}/week`, {
+      params: {
+        agencyId: aid,
+        weekStart: scheduleWeekStartYmd.value,
+        includeGoogleBusy: 'true',
+        slotMinutes: 60
+      }
+    });
+    providerWeekAvailability.value = r.data || null;
+  } catch (e) {
+    providerWeekAvailability.value = null;
+    availabilityError.value = e.response?.data?.error?.message || 'Failed to load availability';
+  } finally {
+    availabilityLoading.value = false;
+  }
+};
+
+watch([showAvailability, scheduleWeekStartYmd, availabilityAgencyId], () => {
+  if (!showAvailability.value) return;
+  void loadProviderWeekAvailability();
+}, { immediate: false });
+
+const availabilityByDay = computed(() => {
+  const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const a = providerWeekAvailability.value;
+  const out = DAY_ORDER.map((day) => ({ day, virtual: [], officeGroups: [] }));
+  if (!a) return out;
+
+  const toLocalHHMM = (iso) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${hh}:${mm}`;
+  };
+  const dayNameFor = (iso) => {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    const map = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    return map[d.getDay()] || null;
+  };
+  const addRanges = (slots, targetKey) => {
+    const byDay = new Map();
+    for (const s of slots || []) {
+      const day = dayNameFor(s.startAt);
+      if (!day) continue;
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day).push(s);
+    }
+    for (const [day, list] of byDay.entries()) {
+      list.sort((a, b) => String(a.startAt).localeCompare(String(b.startAt)));
+      const ranges = [];
+      let curStart = null;
+      let curEnd = null;
+      for (const s of list) {
+        const st = String(s.startAt);
+        const en = String(s.endAt);
+        if (!curStart) {
+          curStart = st; curEnd = en;
+          continue;
+        }
+        if (st === curEnd) {
+          curEnd = en;
+        } else {
+          ranges.push(`${toLocalHHMM(curStart)}–${toLocalHHMM(curEnd)}`);
+          curStart = st; curEnd = en;
+        }
+      }
+      if (curStart) ranges.push(`${toLocalHHMM(curStart)}–${toLocalHHMM(curEnd)}`);
+      const row = out.find((x) => x.day === day);
+      if (row) row[targetKey] = ranges;
+    }
+  };
+
+  const addOfficeGroups = (slots) => {
+    // Group by (building, room) so the list can show "Building — Room: ranges"
+    const byDay = new Map();
+    for (const s of slots || []) {
+      const day = dayNameFor(s.startAt);
+      if (!day) continue;
+      const building = String(s.buildingName || '').trim();
+      const room = String(s.roomLabel || '').trim();
+      const label = building && room ? `${building} — ${room}` : (room || building || 'Office');
+      const key = `${label}`;
+      if (!byDay.has(day)) byDay.set(day, new Map());
+      const m = byDay.get(day);
+      if (!m.has(key)) m.set(key, []);
+      m.get(key).push(s);
+    }
+
+    for (const [day, groupMap] of byDay.entries()) {
+      const row = out.find((x) => x.day === day);
+      if (!row) continue;
+      const groups = [];
+      for (const [label, list] of groupMap.entries()) {
+        list.sort((a, b) => String(a.startAt).localeCompare(String(b.startAt)));
+        const ranges = [];
+        let curStart = null;
+        let curEnd = null;
+        for (const s of list) {
+          const st = String(s.startAt);
+          const en = String(s.endAt);
+          if (!curStart) {
+            curStart = st;
+            curEnd = en;
+            continue;
+          }
+          if (st === curEnd) {
+            curEnd = en;
+          } else {
+            ranges.push(`${toLocalHHMM(curStart)}–${toLocalHHMM(curEnd)}`);
+            curStart = st;
+            curEnd = en;
+          }
+        }
+        if (curStart) ranges.push(`${toLocalHHMM(curStart)}–${toLocalHHMM(curEnd)}`);
+        groups.push({ label, ranges });
+      }
+      groups.sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
+      row.officeGroups = groups;
+    }
+  };
+
+  addRanges(a.virtualSlots || [], 'virtual');
+  addOfficeGroups(a.inPersonSlots || []);
+  return out;
+});
 
 // Per-organization login email alias (stored in user_login_emails)
 const newAgencyLoginEmail = ref('');

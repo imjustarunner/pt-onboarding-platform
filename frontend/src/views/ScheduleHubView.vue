@@ -14,6 +14,12 @@
         <div class="card-cta">Open</div>
       </router-link>
 
+      <router-link class="card" :to="orgTo('/schedule/staff')">
+        <div class="card-title">Staff schedules (compare)</div>
+        <div class="card-desc">Select multiple providers and compare schedules; reorder and view two+ at once.</div>
+        <div class="card-cta">Open</div>
+      </router-link>
+
       <router-link class="card" :to="orgTo('/buildings/schedule')">
         <div class="card-title">Buildings / offices schedule</div>
         <div class="card-desc">Master building schedule grid (rooms, slot states, booking actions).</div>

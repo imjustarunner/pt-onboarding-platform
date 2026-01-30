@@ -168,7 +168,16 @@ export class ProviderAvailabilityService {
     for (const r of virtualRows || []) {
       const s = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: tz });
       const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: tz });
-      if (s && e && e > s) virtualBase.push({ start: s, end: e });
+      if (s && e && e > s) {
+        virtualBase.push({
+          start: s,
+          end: e,
+          meta: {
+            sessionType: String(r.sessionType || 'REGULAR').toUpperCase(),
+            frequency: String(r.frequency || 'WEEKLY').toUpperCase()
+          }
+        });
+      }
     }
 
     // 2) School scheduled hours block both modalities
@@ -335,16 +344,22 @@ export class ProviderAvailabilityService {
       ...officeBookedBusy
     ]);
 
-    // Virtual availability
-    const virtualAvail = [];
+    // Virtual availability (preserve meta for each slot)
+    const virtualSlots = [];
     for (const base of virtualBase) {
       const segs = subtractInterval(base, busyVirtual);
-      for (const s of segs) virtualAvail.push(s);
+      for (const seg of segs) {
+        const slots = slotizeIntervals([seg], slotMinutes);
+        for (const sl of slots) {
+          virtualSlots.push({
+            startAt: sl.start.toISOString(),
+            endAt: sl.end.toISOString(),
+            sessionType: base?.meta?.sessionType || 'REGULAR',
+            frequency: base?.meta?.frequency || 'WEEKLY'
+          });
+        }
+      }
     }
-    const virtualSlots = slotizeIntervals(virtualAvail, slotMinutes).map((s) => ({
-      startAt: s.start.toISOString(),
-      endAt: s.end.toISOString()
-    }));
 
     // In-person availability (preserve office metadata)
     const inPersonSlots = [];
@@ -358,7 +373,10 @@ export class ProviderAvailabilityService {
           buildingId: base.meta?.buildingId ?? null,
           buildingName: base.meta?.buildingName ?? null,
           roomId: base.meta?.roomId ?? null,
-          roomLabel: base.meta?.roomLabel ?? null
+          roomLabel: base.meta?.roomLabel ?? null,
+          // Future: support intake vs regular per office assignment/plan.
+          sessionType: 'REGULAR',
+          frequency: 'WEEKLY'
         });
       }
     }

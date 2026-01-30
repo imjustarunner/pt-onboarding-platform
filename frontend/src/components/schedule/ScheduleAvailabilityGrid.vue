@@ -17,6 +17,11 @@
           </label>
 
           <label class="sched-toggle">
+            <input type="checkbox" v-model="showGoogleEvents" :disabled="loading" />
+            <span>Google titles</span>
+          </label>
+
+          <label class="sched-toggle">
             <input type="checkbox" v-model="hideWeekend" :disabled="loading" />
             <span>Hide weekends</span>
           </label>
@@ -56,6 +61,7 @@
         <div class="legend-item"><span class="swatch swatch-ot"></span> Office temporary</div>
         <div class="legend-item"><span class="swatch swatch-ob"></span> Office booked</div>
         <div class="legend-item" v-if="showGoogleBusy"><span class="swatch swatch-gbusy"></span> Google busy</div>
+        <div class="legend-item" v-if="showGoogleEvents"><span class="swatch swatch-gevt"></span> Google event</div>
         <div class="legend-item" v-if="selectedExternalCalendarIds.length"><span class="swatch swatch-ebusy"></span> EHR busy</div>
       </div>
 
@@ -79,6 +85,7 @@
             :class="{ clickable: canCreateRequests }"
             @click="onCellClick(d, h)"
           >
+            <div v-if="availabilityClass(d, h)" class="cell-avail" :class="availabilityClass(d, h)"></div>
             <div class="cell-blocks">
               <div
                 v-for="b in cellBlocks(d, h)"
@@ -231,6 +238,60 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showOfficeAssignModal" class="modal-backdrop" @click.self="closeOfficeAssignModal">
+      <div class="modal">
+        <div class="modal-head">
+          <div class="modal-title">Assign office slot</div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeOfficeAssignModal">Close</button>
+        </div>
+
+        <div v-if="officeAssignError" class="error" style="margin-top: 10px;">{{ officeAssignError }}</div>
+
+        <div class="muted" style="margin-top: 6px;">
+          {{ officeAssignDay }} • {{ hourLabel(officeAssignStartHour) }}–{{ hourLabel(officeAssignEndHour) }}
+        </div>
+
+        <div class="modal-body">
+          <div class="field-grid">
+            <div>
+              <label class="lbl">Building</label>
+              <select v-model.number="officeAssignBuildingId" class="input" :disabled="officeAssignLoading">
+                <option :value="0">Select…</option>
+                <option v-for="o in officeLocations" :key="`bld-${o.id}`" :value="Number(o.id)">{{ o.name }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="lbl">Office</label>
+              <select v-model.number="officeAssignRoomId" class="input" :disabled="officeAssignLoading || !officeAssignBuildingId">
+                <option :value="0">Select…</option>
+                <option v-for="r in officeRooms" :key="`room-${r.id}`" :value="Number(r.id)">
+                  {{ r.roomNumber ? `#${r.roomNumber}` : '' }} {{ r.label || r.name }}
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <label class="lbl">End time</label>
+            <select v-model.number="officeAssignEndHour" class="input" :disabled="officeAssignLoading">
+              <option v-for="h in officeAssignEndHourOptions" :key="`oa-end-${h}`" :value="h">
+                {{ hourLabel(h) }}
+              </option>
+            </select>
+          </div>
+
+          <div class="modal-actions" style="justify-content: space-between;">
+            <div class="muted" style="font-size: 12px;">
+              Assigns {{ isAdminMode ? 'this user' : '' }} without a request.
+            </div>
+            <button class="btn btn-primary" type="button" @click="submitOfficeAssign" :disabled="officeAssignLoading || !officeAssignBuildingId || !officeAssignRoomId">
+              {{ officeAssignLoading ? 'Assigning…' : 'Assign' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -249,8 +310,11 @@ const props = defineProps({
   agencyLabelById: { type: Object, default: null },
   mode: { type: String, default: 'self' }, // 'self' | 'admin'
   // Optional: parent-controlled weekStart (any date; normalized to Monday).
-  weekStartYmd: { type: String, default: null }
+  weekStartYmd: { type: String, default: null },
+  // Optional: availability overlay (computed server-side), to highlight open slots.
+  availabilityOverlay: { type: Object, default: null }
 });
+const emit = defineEmits(['update:weekStartYmd']);
 
 const authStore = useAuthStore();
 
@@ -373,6 +437,7 @@ const error = ref('');
 const summary = ref(null);
 
 const showGoogleBusy = ref(false);
+const showGoogleEvents = ref(false);
 const selectedExternalCalendarIds = ref([]);
 const hideWeekend = ref(props.mode === 'self');
 const initializedOverlayDefaults = ref(false);
@@ -478,6 +543,39 @@ const agencyLabel = (agencyId) => {
 };
 
 const canCreateRequests = computed(() => props.mode === 'self');
+const isAdminMode = computed(() => props.mode === 'admin');
+const canManageOffices = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['clinical_practice_assistant', 'admin', 'super_admin', 'support', 'staff'].includes(role);
+});
+
+const availabilityClass = (dayName, hour) => {
+  const a = props.availabilityOverlay && typeof props.availabilityOverlay === 'object' ? props.availabilityOverlay : null;
+  if (!a) return '';
+  const virtual = Array.isArray(a.virtualSlots) ? a.virtualSlots : [];
+  const office = Array.isArray(a.inPersonSlots) ? a.inPersonSlots : [];
+
+  const dayIdx = ALL_DAYS.indexOf(String(dayName));
+  if (dayIdx < 0) return '';
+  const cellDate = addDaysYmd(weekStart.value, dayIdx);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
+  const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
+  if (Number.isNaN(cellStart.getTime()) || Number.isNaN(cellEnd.getTime())) return '';
+
+  const overlaps = (slot) => {
+    const st = new Date(slot.startAt);
+    const en = new Date(slot.endAt);
+    if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) return false;
+    return en > cellStart && st < cellEnd;
+  };
+
+  const hasV = virtual.some(overlaps);
+  const hasO = office.some(overlaps);
+  if (hasV && hasO) return 'cell-avail-both';
+  if (hasV) return 'cell-avail-virtual';
+  if (hasO) return 'cell-avail-office';
+  return '';
+};
 
 const load = async () => {
   if (!props.userId) return;
@@ -498,6 +596,7 @@ const load = async () => {
           weekStart: weekStart.value,
           agencyId: ids[0],
           includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
+          includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false',
           ...(selectedExternalCalendarIds.value.length
             ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
             : {})
@@ -513,6 +612,7 @@ const load = async () => {
                 weekStart: weekStart.value,
                 agencyId,
                 includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
+                includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false',
                 ...(selectedExternalCalendarIds.value.length
                   ? { externalCalendarIds: selectedExternalCalendarIds.value.join(',') }
                   : {})
@@ -587,7 +687,7 @@ const load = async () => {
 };
 
 watch([() => props.userId, effectiveAgencyIds], () => load(), { immediate: true });
-watch([showGoogleBusy, selectedExternalCalendarIds], () => load(), { deep: true });
+watch([showGoogleBusy, showGoogleEvents, selectedExternalCalendarIds], () => load(), { deep: true });
 
 watch(
   () => authStore.user?.id,
@@ -630,10 +730,12 @@ watch(externalCalendarsAvailable, (next) => {
 
 const prevWeek = () => {
   weekStart.value = addDaysYmd(weekStart.value, -7);
+  emit('update:weekStartYmd', weekStart.value);
   load();
 };
 const nextWeek = () => {
   weekStart.value = addDaysYmd(weekStart.value, 7);
+  emit('update:weekStartYmd', weekStart.value);
   load();
 };
 
@@ -836,6 +938,36 @@ const hasGoogleBusy = (dayName, hour) => {
   if (!s) return false;
   return hasBusyIntervals(s.googleBusy || [], dayName, hour, s.weekStart || weekStart.value);
 };
+
+const googleEventsInCell = (dayName, hour) => {
+  const s = summary.value;
+  if (!s) return [];
+  const ws = s.weekStart || weekStart.value;
+  const dayIdx = ALL_DAYS.indexOf(String(dayName));
+  if (dayIdx < 0) return [];
+  const cellDate = addDaysYmd(ws, dayIdx);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
+  const cellEnd = new Date(`${cellDate}T${pad2(Number(hour) + 1)}:00:00`);
+  const list = Array.isArray(s.googleEvents) ? s.googleEvents : [];
+  const hits = [];
+  for (const ev of list) {
+    const st = new Date(ev.startAt);
+    const en = new Date(ev.endAt);
+    if (Number.isNaN(st.getTime()) || Number.isNaN(en.getTime())) continue;
+    if (en > cellStart && st < cellEnd) hits.push(ev);
+  }
+  return hits;
+};
+
+const googleEventShortLabel = (ev) => {
+  const s = String(ev?.summary || '').trim();
+  if (!s) return 'Event';
+  return s.length > 18 ? `${s.slice(0, 18)}…` : s;
+};
+const googleEventTitle = (ev, dayName, hour) => {
+  const s = String(ev?.summary || '').trim() || 'Google event';
+  return `${s} — ${dayName} ${hourLabel(hour)}`;
+};
 const hasExternalBusy = (dayName, hour) => {
   const s = summary.value;
   if (!s) return false;
@@ -997,6 +1129,22 @@ const cellBlocks = (dayName, hour) => {
   if (showGoogleBusy.value && hasGoogleBusy(dayName, hour)) {
     blocks.push({ key: 'gbusy', kind: 'gbusy', shortLabel: 'G', title: googleBusyTitle(dayName, hour) });
   }
+  if (showGoogleEvents.value) {
+    const events = googleEventsInCell(dayName, hour).slice(0, 2);
+    for (const ev of events) {
+      blocks.push({
+        key: `gevt-${String(ev?.id || ev?.summary || 'event')}`,
+        kind: 'gevt',
+        shortLabel: googleEventShortLabel(ev),
+        title: googleEventTitle(ev, dayName, hour),
+        link: String(ev?.htmlLink || '').trim() || null
+      });
+    }
+    const extra = Math.max(0, googleEventsInCell(dayName, hour).length - events.length);
+    if (extra) {
+      blocks.push({ key: 'gevt-more', kind: 'more', shortLabel: `+${extra}`, title: `${extra} more Google events in this hour` });
+    }
+  }
   if (selectedExternalCalendarIds.value.length && hasExternalBusy(dayName, hour)) {
     blocks.push({ key: 'ebusy', kind: 'ebusy', shortLabel: externalBusyShortLabel(dayName, hour), title: externalBusyTitle(dayName, hour) });
   }
@@ -1017,6 +1165,7 @@ const overlayErrorText = computed(() => {
   const s = summary.value;
   if (!s) return '';
   const googleErr = showGoogleBusy.value ? String(s?.googleBusyError || '').trim() : '';
+  const googleEventsErr = showGoogleEvents.value ? String(s?.googleEventsError || '').trim() : '';
   const cals = Array.isArray(s.externalCalendars) ? s.externalCalendars : [];
   const errors = (cals || [])
     .map((c) => ({ label: String(c?.label || '').trim(), err: String(c?.error || '').trim() }))
@@ -1024,6 +1173,7 @@ const overlayErrorText = computed(() => {
     .slice(0, 2);
   const parts = [];
   if (googleErr) parts.push(`Google busy: ${googleErr}`);
+  if (googleEventsErr) parts.push(`Google events: ${googleEventsErr}`);
   if (errors.length) parts.push(`EHR: ${errors.map((e) => (e.label ? `${e.label}: ${e.err}` : e.err)).join(' • ')}`);
   return parts.length ? `Calendar overlay error: ${parts.join(' • ')}` : '';
 });
@@ -1082,7 +1232,13 @@ const canUseSchool = (dayName, startHour, endHour) => {
 };
 
 const onCellClick = (dayName, hour) => {
-  if (!canCreateRequests.value) return;
+  if (!canCreateRequests.value) {
+    // Admin scheduling: assign office slots directly from a provider schedule (no request).
+    if (isAdminMode.value && canManageOffices.value) {
+      openOfficeAssignModal(dayName, hour);
+    }
+    return;
+  }
   modalDay.value = dayName;
   modalHour.value = Number(hour);
   // Default to a 1-hour range; clamp to end-of-grid.
@@ -1094,6 +1250,110 @@ const onCellClick = (dayName, hour) => {
   selectedSupervisorId.value = 0;
   createMeetLink.value = true;
   showRequestModal.value = true;
+};
+
+// ---- Office assignment modal (admin) ----
+const showOfficeAssignModal = ref(false);
+const officeAssignLoading = ref(false);
+const officeAssignError = ref('');
+const officeAssignDay = ref('Monday');
+const officeAssignStartHour = ref(7);
+const officeAssignEndHour = ref(8);
+const officeAssignBuildingId = ref(0);
+const officeAssignRoomId = ref(0);
+const officeLocations = ref([]);
+const officeRooms = ref([]);
+
+const officeAssignEndHourOptions = computed(() => {
+  const start = Number(officeAssignStartHour.value || 0);
+  const maxEnd = 22;
+  const out = [];
+  for (let h = start + 1; h <= maxEnd; h++) out.push(h);
+  return out;
+});
+
+const loadOfficeLocations = async () => {
+  try {
+    const r = await api.get('/offices');
+    const rows = Array.isArray(r.data) ? r.data : [];
+    officeLocations.value = rows;
+  } catch {
+    officeLocations.value = [];
+  }
+};
+
+const loadOfficeRooms = async (buildingId) => {
+  const id = Number(buildingId || 0);
+  if (!id) {
+    officeRooms.value = [];
+    return;
+  }
+  try {
+    const r = await api.get(`/office-schedule/locations/${id}/rooms`);
+    const rows = Array.isArray(r.data) ? r.data : [];
+    // sort by room number if present
+    const numVal = (x) => {
+      const n = x?.roomNumber ?? x?.room_number ?? null;
+      const parsed = parseInt(n, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    rows.sort((a, b) => {
+      const an = numVal(a);
+      const bn = numVal(b);
+      if (an !== null && bn !== null && an !== bn) return an - bn;
+      if (an !== null && bn === null) return -1;
+      if (an === null && bn !== null) return 1;
+      return String(a?.label || a?.name || '').localeCompare(String(b?.label || b?.name || ''));
+    });
+    officeRooms.value = rows;
+  } catch {
+    officeRooms.value = [];
+  }
+};
+
+watch(officeAssignBuildingId, async (id) => {
+  officeAssignRoomId.value = 0;
+  await loadOfficeRooms(id);
+});
+
+const openOfficeAssignModal = async (dayName, hour) => {
+  officeAssignError.value = '';
+  officeAssignDay.value = String(dayName);
+  officeAssignStartHour.value = Number(hour);
+  officeAssignEndHour.value = Math.min(Number(hour) + 1, 22);
+  showOfficeAssignModal.value = true;
+  if (!officeLocations.value.length) await loadOfficeLocations();
+};
+
+const closeOfficeAssignModal = () => {
+  showOfficeAssignModal.value = false;
+  officeAssignError.value = '';
+  officeAssignBuildingId.value = 0;
+  officeAssignRoomId.value = 0;
+  officeRooms.value = [];
+};
+
+const submitOfficeAssign = async () => {
+  try {
+    officeAssignLoading.value = true;
+    officeAssignError.value = '';
+    const dayIdx = ALL_DAYS.indexOf(String(officeAssignDay.value));
+    if (dayIdx < 0) throw new Error('Invalid day');
+    const dateYmd = addDaysYmd(weekStart.value, dayIdx);
+    await api.post(`/office-slots/${officeAssignBuildingId.value}/open-slots/assign`, {
+      roomId: officeAssignRoomId.value,
+      assignedUserId: Number(props.userId),
+      date: dateYmd,
+      hour: officeAssignStartHour.value,
+      endHour: officeAssignEndHour.value
+    });
+    closeOfficeAssignModal();
+    await load();
+  } catch (e) {
+    officeAssignError.value = e.response?.data?.error?.message || e.message || 'Failed to assign slot';
+  } finally {
+    officeAssignLoading.value = false;
+  }
 };
 
 const closeModal = () => {
@@ -1313,6 +1573,14 @@ const cancelSupvSession = async () => {
 
 const onCellBlockClick = (e, block, dayName, hour) => {
   const kind = String(block?.kind || '');
+  if (kind === 'gevt') {
+    const link = String(block?.link || '').trim();
+    if (!link) return;
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    window.open(link, '_blank', 'noreferrer');
+    return;
+  }
   if (kind !== 'supv') return;
   e?.preventDefault?.();
   e?.stopPropagation?.();
@@ -1421,6 +1689,7 @@ watch(modalHour, () => {
 .swatch-ot { background: var(--sched-ot-bg, rgba(242, 153, 74, 0.24)); border-color: var(--sched-ot-border, rgba(242, 153, 74, 0.58)); }
 .swatch-ob { background: var(--sched-ob-bg, rgba(235, 87, 87, 0.22)); border-color: var(--sched-ob-border, rgba(235, 87, 87, 0.58)); }
 .swatch-gbusy { background: var(--sched-gbusy-bg, rgba(17, 24, 39, 0.18)); border-color: var(--sched-gbusy-border, rgba(17, 24, 39, 0.45)); }
+.swatch-gevt { background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.35); }
 .swatch-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.18)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); }
 .sched-grid {
   display: grid;
@@ -1471,6 +1740,8 @@ watch(modalHour, () => {
   min-height: 32px;
   padding: 4px 6px;
   text-align: left;
+  position: relative;
+  overflow: hidden;
 }
 .sched-cell.clickable {
   cursor: pointer;
@@ -1484,6 +1755,25 @@ watch(modalHour, () => {
   align-items: stretch;
   justify-content: flex-start;
   height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.cell-avail {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.85;
+}
+.cell-avail-virtual {
+  background: rgba(16, 185, 129, 0.22);
+}
+.cell-avail-office {
+  background: rgba(59, 130, 246, 0.18);
+}
+.cell-avail-both {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(59, 130, 246, 0.18));
 }
 .cell-block {
   flex: 1 1 0;
@@ -1513,6 +1803,7 @@ watch(modalHour, () => {
 .cell-block-ot { background: var(--sched-ot-bg, rgba(242, 153, 74, 0.24)); border-color: var(--sched-ot-border, rgba(242, 153, 74, 0.58)); }
 .cell-block-ob { background: var(--sched-ob-bg, rgba(235, 87, 87, 0.22)); border-color: var(--sched-ob-border, rgba(235, 87, 87, 0.58)); }
 .cell-block-gbusy { background: var(--sched-gbusy-bg, rgba(17, 24, 39, 0.14)); border-color: var(--sched-gbusy-border, rgba(17, 24, 39, 0.42)); color: rgba(17, 24, 39, 0.9); }
+.cell-block-gevt { background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.35); cursor: pointer; }
 .cell-block-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.16)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); color: rgba(17, 24, 39, 0.9); }
 .cell-block-more { background: rgba(148, 163, 184, 0.18); border-color: rgba(148, 163, 184, 0.45); color: rgba(51, 65, 85, 0.92); }
 

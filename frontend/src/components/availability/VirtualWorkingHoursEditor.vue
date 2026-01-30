@@ -14,6 +14,8 @@
           <div>Day</div>
           <div>Start</div>
           <div>End</div>
+          <div>Session type</div>
+          <div>Frequency</div>
           <div></div>
         </div>
 
@@ -23,6 +25,16 @@
           </select>
           <input class="input" type="time" v-model="r.startTime" />
           <input class="input" type="time" v-model="r.endTime" />
+          <select class="select" v-model="r.sessionType">
+            <option value="REGULAR">Regular</option>
+            <option value="INTAKE">Intake</option>
+            <option value="BOTH">Both</option>
+          </select>
+          <select class="select" v-model="r.frequency">
+            <option value="WEEKLY">Weekly</option>
+            <option value="BIWEEKLY">Biweekly</option>
+            <option value="EITHER">Either</option>
+          </select>
           <button type="button" class="btn btn-secondary btn-sm" @click="removeRow(idx)" :disabled="saving">Remove</button>
         </div>
 
@@ -59,7 +71,7 @@ const rows = ref([]);
 const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const addRow = () => {
-  rows.value.push({ dayOfWeek: 'Monday', startTime: '09:00', endTime: '10:00' });
+  rows.value.push({ dayOfWeek: 'Monday', startTime: '09:00', endTime: '10:00', sessionType: 'REGULAR', frequency: 'WEEKLY' });
 };
 const removeRow = (idx) => {
   rows.value.splice(idx, 1);
@@ -74,7 +86,9 @@ const load = async () => {
     rows.value = (resp.data?.rows || []).map((r) => ({
       dayOfWeek: r.dayOfWeek || 'Monday',
       startTime: r.startTime || '09:00',
-      endTime: r.endTime || '10:00'
+      endTime: r.endTime || '10:00',
+      sessionType: r.sessionType || 'REGULAR',
+      frequency: r.frequency || 'WEEKLY'
     }));
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load virtual working hours';
@@ -107,7 +121,7 @@ watch(() => props.agencyId, load);
 .muted { color: var(--text-secondary); }
 .error { color: #b00020; }
 .vwh-table { display: flex; flex-direction: column; gap: 8px; }
-.vwh-row { display: grid; grid-template-columns: 1fr 160px 160px auto; gap: 10px; align-items: center; }
+.vwh-row { display: grid; grid-template-columns: 1fr 140px 140px 170px 140px auto; gap: 10px; align-items: center; }
 @media (max-width: 900px) { .vwh-row { grid-template-columns: 1fr; } }
 .vwh-row-head { font-weight: 900; color: var(--text-secondary); }
 .select, .input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text-primary); }

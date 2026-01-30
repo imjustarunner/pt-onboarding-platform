@@ -1704,6 +1704,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
     const timeMaxIso = `${weekEnd}T00:00:00Z`;
 
     const includeGoogleBusy = String(req.query.includeGoogleBusy || '').toLowerCase() === 'true';
+    const includeGoogleEvents = String(req.query.includeGoogleEvents || '').toLowerCase() === 'true';
     const includeExternalBusy = String(req.query.includeExternalBusy || '').toLowerCase() === 'true';
     const externalCalendarIdsRaw = String(req.query.externalCalendarIds || '').trim();
     const externalCalendarIds = externalCalendarIdsRaw
@@ -1910,6 +1911,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
     // 5) Optional busy overlays (busy blocks only)
     let googleBusy = [];
     let googleBusyError = null;
+    let googleEvents = [];
+    let googleEventsError = null;
     let externalBusy = [];
     let externalCalendarsAvailable = [];
     let externalCalendars = [];
@@ -1935,6 +1938,24 @@ export const getUserScheduleSummary = async (req, res, next) => {
       } catch {
         googleBusy = [];
         googleBusyError = 'Google busy lookup failed';
+      }
+    }
+
+    if (includeGoogleEvents) {
+      try {
+        const providerEmail = String(provider?.email || '').trim().toLowerCase();
+        const r = await GoogleCalendarService.listEvents({
+          subjectEmail: providerEmail,
+          timeMin: timeMinIso,
+          timeMax: timeMaxIso,
+          calendarId: 'primary',
+          maxItems: 250
+        });
+        if (r?.ok) googleEvents = r.events || [];
+        else googleEventsError = r?.error || r?.reason || 'Google events are not available';
+      } catch {
+        googleEvents = [];
+        googleEventsError = 'Google events lookup failed';
       }
     }
 
@@ -2010,6 +2031,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       externalCalendarsAvailable,
       ...(externalCalendarIds.length ? { externalCalendars } : {}),
       ...(includeGoogleBusy ? { googleBusy, googleBusyError } : {}),
+      ...(includeGoogleEvents ? { googleEvents, googleEventsError } : {}),
       ...(includeExternalBusy ? { externalBusy } : {})
     });
   } catch (e) {

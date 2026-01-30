@@ -4,6 +4,7 @@ import {
   getMyAvailabilityPending,
   getMyVirtualWorkingHours,
   putMyVirtualWorkingHours,
+  getProviderWeekAvailability,
   createMyOfficeAvailabilityRequest,
   createMySchoolAvailabilityRequest,
   submitMySkillBuilderAvailability,
@@ -32,6 +33,7 @@ router.use(authenticate);
 router.get('/me/pending', getMyAvailabilityPending);
 router.get('/me/virtual-working-hours', getMyVirtualWorkingHours);
 router.put('/me/virtual-working-hours', putMyVirtualWorkingHours);
+router.get('/providers/:providerId/week', getProviderWeekAvailability);
 router.post('/office-requests', createMyOfficeAvailabilityRequest);
 router.post('/school-requests', createMySchoolAvailabilityRequest);
 router.post('/me/skill-builder/submit', submitMySkillBuilderAvailability);

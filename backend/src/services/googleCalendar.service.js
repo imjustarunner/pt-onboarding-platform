@@ -94,6 +94,51 @@ export class GoogleCalendarService {
     }
   }
 
+  static async listEvents({ subjectEmail, timeMin, timeMax, calendarId = 'primary', maxItems = 250 } = {}) {
+    const subject = String(subjectEmail || '').trim().toLowerCase();
+    if (!subject) return { ok: false, reason: 'missing_subject_email', events: [] };
+    if (!timeMin || !timeMax) return { ok: false, reason: 'missing_time_window', events: [] };
+    if (!this.isConfigured()) return { ok: false, reason: 'not_configured', events: [] };
+
+    try {
+      const { calendar } = await getWorkspaceClientsForEmployee({ subjectEmail: subject });
+      const items = [];
+      let pageToken = undefined;
+      let guard = 0;
+      while (items.length < maxItems && guard < 6) {
+        guard += 1;
+        const r = await calendar.events.list({
+          calendarId,
+          timeMin,
+          timeMax,
+          singleEvents: true,
+          orderBy: 'startTime',
+          maxResults: Math.min(250, maxItems - items.length),
+          pageToken,
+          fields: 'items(id,summary,htmlLink,start,end),nextPageToken'
+        });
+        const nextItems = r?.data?.items || [];
+        for (const ev of nextItems) {
+          const startAt = ev?.start?.dateTime || ev?.start?.date || null;
+          const endAt = ev?.end?.dateTime || ev?.end?.date || null;
+          items.push({
+            id: ev?.id || null,
+            summary: ev?.summary || null,
+            htmlLink: ev?.htmlLink || null,
+            startAt,
+            endAt
+          });
+        }
+        pageToken = r?.data?.nextPageToken;
+        if (!pageToken) break;
+      }
+      return { ok: true, events: items.filter((x) => x.startAt && x.endAt) };
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.listEvents' });
+      return { ok: false, reason: 'events_list_failed', error: String(e?.message || e), events: [] };
+    }
+  }
+
   static async dryRunBookedOfficeEvent({ officeEventId }) {
     const eid = parseInt(officeEventId, 10);
     if (!eid) return { ok: false, reason: 'invalid_office_event_id' };

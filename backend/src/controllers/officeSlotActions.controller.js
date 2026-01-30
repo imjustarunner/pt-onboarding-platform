@@ -3,8 +3,11 @@ import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
+import OfficeRoom from '../models/OfficeRoom.model.js';
+import OfficeRoomAssignment from '../models/OfficeRoomAssignment.model.js';
 import User from '../models/User.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
+import pool from '../config/database.js';
 
 const canManageSchedule = (role) =>
   role === 'clinical_practice_assistant' || role === 'admin' || role === 'super_admin' || role === 'support' || role === 'staff';
@@ -199,6 +202,106 @@ export const staffBookEvent = async (req, res, next) => {
       // ignore
     }
     res.json({ ok: true, event: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const staffAssignOpenSlot = async (req, res, next) => {
+  try {
+    const { officeId } = req.params;
+    const officeLocationId = parseInt(officeId, 10);
+    if (!officeLocationId) return res.status(400).json({ error: { message: 'Invalid officeId' } });
+
+    if (!canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only staff/admin can assign office slots' } });
+    }
+
+    const ok = await requireOfficeAccess(req, officeLocationId);
+    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const roomId = parseInt(req.body?.roomId, 10);
+    const assignedUserId = parseInt(req.body?.assignedUserId, 10);
+    const date = String(req.body?.date || '').slice(0, 10);
+    const hour = parseInt(req.body?.hour, 10);
+    const endHourRaw = req.body?.endHour;
+    const endHour = endHourRaw === undefined || endHourRaw === null || endHourRaw === ''
+      ? null
+      : parseInt(endHourRaw, 10);
+    if (!roomId || !assignedUserId) {
+      return res.status(400).json({ error: { message: 'roomId and assignedUserId are required' } });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: { message: 'date must be YYYY-MM-DD' } });
+    }
+    if (!(Number.isFinite(hour) && hour >= 0 && hour <= 23)) {
+      return res.status(400).json({ error: { message: 'hour must be 0..23' } });
+    }
+    if (endHour !== null) {
+      if (!(Number.isFinite(endHour) && endHour >= 1 && endHour <= 24)) {
+        return res.status(400).json({ error: { message: 'endHour must be 1..24' } });
+      }
+      if (!(endHour > hour)) {
+        return res.status(400).json({ error: { message: 'endHour must be after hour' } });
+      }
+    }
+
+    const room = await OfficeRoom.findById(roomId);
+    if (!room || room.location_id !== officeLocationId) {
+      return res.status(404).json({ error: { message: 'Room not found for this office' } });
+    }
+
+    const user = await User.findById(assignedUserId);
+    if (!user) return res.status(404).json({ error: { message: 'Assigned user not found' } });
+
+    const startAt = `${date} ${String(hour).padStart(2, '0')}:00:00`;
+    const endAt = `${date} ${String((endHour !== null ? endHour : (hour + 1))).padStart(2, '0')}:00:00`;
+
+    // Avoid double-booking a room. Block if ANY assignment/event overlaps the requested window.
+    try {
+      const [aRows] = await pool.execute(
+        `SELECT id
+         FROM office_room_assignments
+         WHERE room_id = ?
+           AND start_at < ?
+           AND (end_at IS NULL OR end_at > ?)
+         LIMIT 1`,
+        [roomId, endAt, startAt]
+      );
+      if ((aRows || []).length) {
+        return res.status(409).json({ error: { message: 'That office is already assigned during this time.' } });
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+    try {
+      const [eRows] = await pool.execute(
+        `SELECT id
+         FROM office_events
+         WHERE room_id = ?
+           AND start_at < ?
+           AND end_at > ?
+         LIMIT 1`,
+        [roomId, endAt, startAt]
+      );
+      if ((eRows || []).length) {
+        return res.status(409).json({ error: { message: 'That office has an existing schedule event during this time.' } });
+      }
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    const assignment = await OfficeRoomAssignment.create({
+      roomId,
+      assignedUserId,
+      assignmentType: 'ONE_TIME',
+      startAt,
+      endAt,
+      sourceRequestId: null,
+      createdByUserId: req.user.id
+    });
+
+    res.json({ ok: true, assignment });
   } catch (e) {
     next(e);
   }

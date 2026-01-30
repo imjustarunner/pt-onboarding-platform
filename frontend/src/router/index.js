@@ -128,25 +128,31 @@ const routes = [
     path: '/:organizationSlug/buildings',
     name: 'OrganizationBuildings',
     component: () => import('../views/OfficeShellView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
-  },
-  {
-    path: '/:organizationSlug/buildings/schedule',
-    name: 'OrganizationBuildingsSchedule',
-    component: () => import('../views/OfficeScheduleView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
-  },
-  {
-    path: '/:organizationSlug/buildings/review',
-    name: 'OrganizationBuildingsReview',
-    component: () => import('../views/OfficeReviewView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
-  },
-  {
-    path: '/:organizationSlug/buildings/settings',
-    name: 'OrganizationBuildingsSettings',
-    component: () => import('../views/OfficeSettingsView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { requiresAuth: true, organizationSlug: true },
+    children: [
+      {
+        path: '',
+        redirect: (to) => `/${to.params.organizationSlug}/buildings/schedule`
+      },
+      {
+        path: 'schedule',
+        name: 'OrganizationBuildingsSchedule',
+        component: () => import('../views/OfficeScheduleView.vue'),
+        meta: { requiresAuth: true, organizationSlug: true }
+      },
+      {
+        path: 'review',
+        name: 'OrganizationBuildingsReview',
+        component: () => import('../views/OfficeReviewView.vue'),
+        meta: { requiresAuth: true, organizationSlug: true }
+      },
+      {
+        path: 'settings',
+        name: 'OrganizationBuildingsSettings',
+        component: () => import('../views/OfficeSettingsView.vue'),
+        meta: { requiresAuth: true, organizationSlug: true }
+      }
+    ]
   },
   // Redirect old office URLs (backward-compatible)
   {
@@ -179,6 +185,12 @@ const routes = [
     name: 'OrganizationScheduleHub',
     component: () => import('../views/ScheduleHubView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/schedule/staff',
+    name: 'OrganizationStaffScheduleCompare',
+    component: () => import('../views/StaffScheduleCompareView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant'] }
   },
   {
     path: '/:organizationSlug/schedule/board/:locationId',
@@ -480,25 +492,28 @@ const routes = [
     path: '/buildings',
     name: 'Buildings',
     component: () => import('../views/OfficeShellView.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/buildings/schedule',
-    name: 'BuildingsSchedule',
-    component: () => import('../views/OfficeScheduleView.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/buildings/review',
-    name: 'BuildingsReview',
-    component: () => import('../views/OfficeReviewView.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
-    path: '/buildings/settings',
-    name: 'BuildingsSettings',
-    component: () => import('../views/OfficeSettingsView.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: true },
+    children: [
+      { path: '', redirect: '/buildings/schedule' },
+      {
+        path: 'schedule',
+        name: 'BuildingsSchedule',
+        component: () => import('../views/OfficeScheduleView.vue'),
+        meta: { requiresAuth: true }
+      },
+      {
+        path: 'review',
+        name: 'BuildingsReview',
+        component: () => import('../views/OfficeReviewView.vue'),
+        meta: { requiresAuth: true }
+      },
+      {
+        path: 'settings',
+        name: 'BuildingsSettings',
+        component: () => import('../views/OfficeSettingsView.vue'),
+        meta: { requiresAuth: true }
+      }
+    ]
   },
   // Redirect old office URLs (backward-compatible)
   {
@@ -529,8 +544,14 @@ const routes = [
   {
     path: '/schedule',
     name: 'OfficeScheduleLegacy',
-    redirect: '/buildings/schedule',
+    component: () => import('../views/ScheduleHubView.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/schedule/staff',
+    name: 'StaffScheduleCompare',
+    component: () => import('../views/StaffScheduleCompareView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant'] }
   },
   {
     path: '/schedule/board/:locationId',
