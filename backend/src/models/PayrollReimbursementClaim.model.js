@@ -28,9 +28,7 @@ class PayrollReimbursementClaim {
        (agency_id, user_id, status, expense_date, amount, payment_method, vendor, purchase_approved_by, purchase_preapproved, project_ref, reason, splits_json, category, notes, attestation,
         receipt_file_path, receipt_original_name, receipt_mime_type, receipt_size_bytes,
         suggested_payroll_period_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-               ?, ?, ?, ?,
-               ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         userId,

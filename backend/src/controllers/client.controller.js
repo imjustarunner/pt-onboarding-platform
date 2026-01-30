@@ -482,6 +482,27 @@ export const createClient = async (req, res, next) => {
       skills: skills === undefined || skills === null ? undefined : !!skills
     });
 
+    // Seed multi-agency affiliation table so access control works immediately.
+    // Best-effort only: table may not exist in older environments.
+    try {
+      const dbName2 = process.env.DB_NAME || 'onboarding_stage';
+      const [t2] = await pool.execute(
+        "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'client_agency_assignments' LIMIT 1",
+        [dbName2]
+      );
+      const hasAgencyAffiliationsTable = (t2 || []).length > 0;
+      if (hasAgencyAffiliationsTable) {
+        await pool.execute(
+          `INSERT INTO client_agency_assignments (client_id, agency_id, is_primary, is_active)
+           VALUES (?, ?, TRUE, TRUE)
+           ON DUPLICATE KEY UPDATE is_primary = TRUE, is_active = TRUE`,
+          [client.id, parsedAgencyId]
+        );
+      }
+    } catch {
+      // ignore (older DBs)
+    }
+
     // Seed multi-org affiliation table so the primary org appears in the Affiliations UI immediately.
     // Best-effort only: table may not exist in older environments.
     try {
@@ -2766,6 +2787,14 @@ async function ensureAgencyAccessToClient({ userId, role, clientId }) {
     if (!missing) throw e;
     // Fall back to legacy single-agency check.
     hasAgencyAccess = userAgencyIds.some((id) => id === parseInt(client.agency_id, 10));
+  }
+  // Safety fallback: if the multi-agency table exists but doesn't have a row yet
+  // (e.g., client created before seeding), fall back to the legacy primary agency_id.
+  if (!hasAgencyAccess) {
+    const legacyAgencyId = parseInt(client?.agency_id, 10);
+    if (Number.isFinite(legacyAgencyId) && legacyAgencyId > 0) {
+      hasAgencyAccess = userAgencyIds.some((id) => id === legacyAgencyId);
+    }
   }
   if (!hasAgencyAccess) return { ok: false, status: 403, message: 'You do not have access to this client', client };
   return { ok: true, client };

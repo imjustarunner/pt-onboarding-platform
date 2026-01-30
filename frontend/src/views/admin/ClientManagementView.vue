@@ -552,7 +552,7 @@
             <button
               type="submit"
               class="btn btn-primary"
-              :disabled="creating || !newClient.insurance_type_id || (newClient.provider_id && !newClient.service_day)"
+              :disabled="creating || !createAgencyEffectiveId || !newClient.organization_id || !String(newClient.initials || '').trim() || !newClient.submission_date || !newClient.insurance_type_id || (newClient.provider_id && !newClient.service_day)"
             >
               {{ creating ? 'Creating...' : 'Create Client' }}
             </button>

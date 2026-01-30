@@ -74,12 +74,14 @@ import {
   ,createMyReimbursementClaim
   ,createUserReimbursementClaim
   ,listMyReimbursementClaims
+  ,updateMyReimbursementClaim
   ,deleteMyReimbursementClaim
   ,listReimbursementClaims
   ,patchReimbursementClaim
   ,createMyCompanyCardExpense
   ,createUserCompanyCardExpense
   ,listMyCompanyCardExpenses
+  ,updateMyCompanyCardExpense
   ,deleteMyCompanyCardExpense
   ,listCompanyCardExpenses
   ,patchCompanyCardExpense
@@ -194,10 +196,12 @@ router.delete('/me/medcancel-claims/:id', deleteMyMedcancelClaim);
 router.post('/me/reimbursement-claims', ...createMyReimbursementClaim);
 router.post('/users/:userId/reimbursement-claims', ...createUserReimbursementClaim);
 router.get('/me/reimbursement-claims', listMyReimbursementClaims);
+router.put('/me/reimbursement-claims/:id', ...updateMyReimbursementClaim);
 router.delete('/me/reimbursement-claims/:id', deleteMyReimbursementClaim);
 router.post('/me/company-card-expenses', ...createMyCompanyCardExpense);
 router.post('/users/:userId/company-card-expenses', ...createUserCompanyCardExpense);
 router.get('/me/company-card-expenses', listMyCompanyCardExpenses);
+router.put('/me/company-card-expenses/:id', ...updateMyCompanyCardExpense);
 router.delete('/me/company-card-expenses/:id', deleteMyCompanyCardExpense);
 router.post('/me/time-claims', createMyTimeClaim);
 router.post('/users/:userId/time-claims', createUserTimeClaim);

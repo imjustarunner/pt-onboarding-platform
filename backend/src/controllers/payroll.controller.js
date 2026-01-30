@@ -8391,6 +8391,213 @@ export const listMyReimbursementClaims = async (req, res, next) => {
   }
 };
 
+export const updateMyReimbursementClaim = [
+  receiptUpload.single('receipt'),
+  async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const userId = req.user?.id;
+      const body = req.body || {};
+      const agencyId = body.agencyId ? parseInt(body.agencyId, 10) : null;
+      if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+      if (!id) return res.status(400).json({ error: { message: 'id is required' } });
+      if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+      // Ensure membership for non-admins.
+      if (!isAdminRole(req.user.role)) {
+        const [rows] = await pool.execute(
+          'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+          [userId, agencyId]
+        );
+        if (!rows || rows.length === 0) {
+          return res.status(403).json({ error: { message: 'Access denied' } });
+        }
+      }
+
+      const claim = await PayrollReimbursementClaim.findById(id);
+      if (!claim) return res.status(404).json({ error: { message: 'Reimbursement claim not found' } });
+      if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
+      if (Number(claim.agency_id) !== Number(agencyId)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+      const st = String(claim.status || '').toLowerCase();
+      if (!['deferred', 'rejected'].includes(st)) {
+        return res.status(409).json({ error: { message: 'Only returned or rejected claims can be edited and resubmitted' } });
+      }
+
+      const expenseDate = String(body.expenseDate || '').slice(0, 10);
+      const amount = body.amount === null || body.amount === undefined || body.amount === '' ? null : Number(body.amount);
+      const paymentMethodRaw = String(body.paymentMethod || body.payment_method || '').trim().toLowerCase();
+      const paymentMethod =
+        ['personal_card', 'cash', 'check', 'other'].includes(paymentMethodRaw)
+          ? paymentMethodRaw
+          : (paymentMethodRaw ? paymentMethodRaw.slice(0, 32) : null);
+      const vendor = body.vendor ? String(body.vendor).slice(0, 255) : null;
+      const purchaseApprovedBy = body.purchaseApprovedBy ? String(body.purchaseApprovedBy).trim().slice(0, 255) : null;
+      const purchasePreapprovedRaw = body.purchasePreapproved;
+      const purchasePreapproved =
+        purchasePreapprovedRaw === null || purchasePreapprovedRaw === undefined || purchasePreapprovedRaw === ''
+          ? null
+          : (purchasePreapprovedRaw === true || purchasePreapprovedRaw === 1 || purchasePreapprovedRaw === '1' || String(purchasePreapprovedRaw).toLowerCase() === 'true')
+            ? 1
+            : (purchasePreapprovedRaw === false || purchasePreapprovedRaw === 0 || purchasePreapprovedRaw === '0' || String(purchasePreapprovedRaw).toLowerCase() === 'false')
+              ? 0
+              : null;
+      const projectRef = body.projectRef ? String(body.projectRef).trim().slice(0, 64) : null;
+      const reason = body.reason ? String(body.reason).trim().slice(0, 255) : null;
+      const splitsRaw = body.splits || body.splitsJson || body.splits_json || null;
+      let splits = [];
+      if (Array.isArray(splitsRaw)) {
+        splits = splitsRaw;
+      } else if (typeof splitsRaw === 'string' && splitsRaw.trim()) {
+        try { splits = JSON.parse(splitsRaw); } catch { splits = []; }
+      }
+      splits = Array.isArray(splits) ? splits : [];
+      const normalizedSplits = splits
+        .map((s) => ({
+          category: String(s?.category || '').trim().slice(0, 64),
+          amount: Number(s?.amount)
+        }))
+        .filter((s) => s.category && Number.isFinite(s.amount) && s.amount > 0);
+      const category = body.category ? String(body.category).slice(0, 64) : null;
+      const notes = body.notes ? String(body.notes) : '';
+      const attestation = body.attestation ? 1 : 0;
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)) {
+        return res.status(400).json({ error: { message: 'expenseDate (YYYY-MM-DD) is required' } });
+      }
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return res.status(400).json({ error: { message: 'amount must be a positive number' } });
+      }
+      if (!purchaseApprovedBy) {
+        return res.status(400).json({ error: { message: 'purchaseApprovedBy is required' } });
+      }
+      if (purchasePreapproved === null) {
+        return res.status(400).json({ error: { message: 'purchasePreapproved must be true/false' } });
+      }
+      if (!paymentMethod) {
+        return res.status(400).json({ error: { message: 'paymentMethod is required' } });
+      }
+      if (!reason) {
+        return res.status(400).json({ error: { message: 'reason is required' } });
+      }
+      if (!String(notes || '').trim()) {
+        return res.status(400).json({ error: { message: 'notes is required' } });
+      }
+      if (!attestation) {
+        return res.status(400).json({ error: { message: 'attestation is required' } });
+      }
+      if (!req.file && !String(claim.receipt_file_path || '').trim()) {
+        return res.status(400).json({ error: { message: 'receipt file is required' } });
+      }
+
+      // Validate split categories if provided (sum must match amount).
+      let splitsJson = null;
+      let resolvedCategory = category;
+      if (normalizedSplits.length) {
+        const sum = Math.round(normalizedSplits.reduce((a, s) => a + Number(s.amount || 0), 0) * 100) / 100;
+        const amt = Math.round(Number(amount || 0) * 100) / 100;
+        if (Math.abs(sum - amt) > 0.009) {
+          return res.status(400).json({ error: { message: `Category splits must add up to ${amt.toFixed(2)}.` } });
+        }
+        splitsJson = JSON.stringify(normalizedSplits);
+        if (normalizedSplits.length === 1) {
+          resolvedCategory = normalizedSplits[0].category;
+        }
+      }
+
+      // Enforce submission deadlines (and choose suggested period accordingly).
+      const win = await computeSubmissionWindow({
+        agencyId,
+        effectiveDateYmd: expenseDate,
+        submittedAt: new Date(),
+        timeZone: resolveClaimTimeZone(),
+        hardStopPolicy: '60_days'
+      });
+      if (!win.ok) {
+        return res.status(win.status || 409).json({ error: { message: win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE } });
+      }
+      const suggestedPayrollPeriodId = win.suggestedPayrollPeriodId;
+
+      let receiptFilePath = claim.receipt_file_path || null;
+      let receiptOriginalName = claim.receipt_original_name || null;
+      let receiptMimeType = claim.receipt_mime_type || null;
+      let receiptSizeBytes = claim.receipt_size_bytes || null;
+      if (req.file) {
+        const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+        const original = req.file.originalname || 'receipt';
+        const ext = (original.includes('.') ? `.${original.split('.').pop()}` : '');
+        const filename = `reimbursement-${agencyId}-${userId}-${uniqueSuffix}${ext}`;
+        const storageResult = await StorageService.saveReimbursementReceipt(req.file.buffer, filename, req.file.mimetype);
+        receiptFilePath = storageResult.relativePath;
+        receiptOriginalName = String(original).slice(0, 255);
+        receiptMimeType = String(req.file.mimetype || '').slice(0, 128) || null;
+        receiptSizeBytes = Number(req.file.size || 0) || null;
+      }
+
+      await pool.execute(
+        `UPDATE payroll_reimbursement_claims
+         SET status = 'submitted',
+             expense_date = ?,
+             amount = ?,
+             payment_method = ?,
+             vendor = ?,
+             purchase_approved_by = ?,
+             purchase_preapproved = ?,
+             project_ref = ?,
+             reason = ?,
+             splits_json = ?,
+             category = ?,
+             notes = ?,
+             attestation = ?,
+             receipt_file_path = ?,
+             receipt_original_name = ?,
+             receipt_mime_type = ?,
+             receipt_size_bytes = ?,
+             suggested_payroll_period_id = ?,
+             target_payroll_period_id = NULL,
+             applied_amount = NULL,
+             approved_by_user_id = NULL,
+             approved_at = NULL,
+             rejection_reason = NULL,
+             rejected_by_user_id = NULL,
+             rejected_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND user_id = ?
+           AND agency_id = ?
+         LIMIT 1`,
+        [
+          expenseDate,
+          amount,
+          paymentMethod,
+          vendor,
+          purchaseApprovedBy,
+          purchasePreapproved,
+          projectRef,
+          reason,
+          splitsJson,
+          resolvedCategory,
+          String(notes || ''),
+          attestation ? 1 : 0,
+          receiptFilePath,
+          receiptOriginalName,
+          receiptMimeType,
+          receiptSizeBytes,
+          suggestedPayrollPeriodId,
+          id,
+          userId,
+          agencyId
+        ]
+      );
+
+      const refreshed = await PayrollReimbursementClaim.findById(id);
+      return res.json(refreshed);
+    } catch (e) {
+      next(e);
+    }
+  }
+];
+
 export const deleteMyReimbursementClaim = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -8700,6 +8907,199 @@ export const listMyCompanyCardExpenses = async (req, res, next) => {
     next(e);
   }
 };
+
+export const updateMyCompanyCardExpense = [
+  receiptUpload.single('receipt'),
+  async (req, res, next) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const userId = req.user?.id;
+      const body = req.body || {};
+      const agencyId = body.agencyId ? parseInt(body.agencyId, 10) : null;
+      if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+      if (!id) return res.status(400).json({ error: { message: 'id is required' } });
+      if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+      const user = await User.findById(userId);
+      if (!user) return res.status(404).json({ error: { message: 'User not found' } });
+      if (!(user.company_card_enabled === true || user.company_card_enabled === 1 || user.company_card_enabled === '1')) {
+        return res.status(403).json({ error: { message: 'Company card expense submissions are not enabled for this user' } });
+      }
+
+      // Ensure membership for non-admins.
+      if (!isAdminRole(req.user.role)) {
+        const [rows] = await pool.execute(
+          'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+          [userId, agencyId]
+        );
+        if (!rows || rows.length === 0) {
+          return res.status(403).json({ error: { message: 'Access denied' } });
+        }
+      }
+
+      const claim = await PayrollCompanyCardExpense.findById(id);
+      if (!claim) return res.status(404).json({ error: { message: 'Company card expense not found' } });
+      if (Number(claim.user_id) !== Number(userId)) return res.status(403).json({ error: { message: 'Access denied' } });
+      if (Number(claim.agency_id) !== Number(agencyId)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+      const st = String(claim.status || '').toLowerCase();
+      if (!['deferred', 'rejected'].includes(st)) {
+        return res.status(409).json({ error: { message: 'Only returned or rejected claims can be edited and resubmitted' } });
+      }
+
+      const expenseDate = String(body.expenseDate || '').slice(0, 10);
+      const amount = body.amount === null || body.amount === undefined || body.amount === '' ? null : Number(body.amount);
+      const paymentMethodRaw = String(body.paymentMethod || body.payment_method || 'company_card').trim().toLowerCase();
+      const paymentMethod = paymentMethodRaw ? paymentMethodRaw.slice(0, 32) : 'company_card';
+      const vendor = body.vendor ? String(body.vendor).slice(0, 255) : null;
+      const supervisorName = body.supervisorName ? String(body.supervisorName).trim().slice(0, 255) : null;
+      const projectRef = body.projectRef ? String(body.projectRef).trim().slice(0, 64) : null;
+      const purpose = body.purpose ? String(body.purpose).trim().slice(0, 255) : null;
+      const category = body.category ? String(body.category).trim().slice(0, 64) : null;
+      const splitsRaw = body.splits || body.splitsJson || body.splits_json || null;
+      let splits = [];
+      if (Array.isArray(splitsRaw)) {
+        splits = splitsRaw;
+      } else if (typeof splitsRaw === 'string' && splitsRaw.trim()) {
+        try { splits = JSON.parse(splitsRaw); } catch { splits = []; }
+      }
+      splits = Array.isArray(splits) ? splits : [];
+      const normalizedSplits = splits
+        .map((s) => ({
+          category: String(s?.category || '').trim().slice(0, 64),
+          amount: Number(s?.amount)
+        }))
+        .filter((s) => s.category && Number.isFinite(s.amount) && s.amount > 0);
+      const notes = body.notes ? String(body.notes) : '';
+      const attestation = body.attestation ? 1 : 0;
+
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)) {
+        return res.status(400).json({ error: { message: 'expenseDate (YYYY-MM-DD) is required' } });
+      }
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return res.status(400).json({ error: { message: 'amount must be a positive number' } });
+      }
+      if (!supervisorName) {
+        return res.status(400).json({ error: { message: 'supervisorName is required' } });
+      }
+      if (!String(purpose || '').trim()) {
+        return res.status(400).json({ error: { message: 'purpose is required' } });
+      }
+      if (!String(notes || '').trim()) {
+        return res.status(400).json({ error: { message: 'notes is required' } });
+      }
+      if (!attestation) {
+        return res.status(400).json({ error: { message: 'attestation is required' } });
+      }
+      if (!req.file && !String(claim.receipt_file_path || '').trim()) {
+        return res.status(400).json({ error: { message: 'receipt file is required' } });
+      }
+
+      // Validate split categories if provided (sum must match amount).
+      let splitsJson = null;
+      let resolvedCategory = category;
+      if (normalizedSplits.length) {
+        const sum = Math.round(normalizedSplits.reduce((a, s) => a + Number(s.amount || 0), 0) * 100) / 100;
+        const amt = Math.round(Number(amount || 0) * 100) / 100;
+        if (Math.abs(sum - amt) > 0.009) {
+          return res.status(400).json({ error: { message: `Category splits must add up to ${amt.toFixed(2)}.` } });
+        }
+        splitsJson = JSON.stringify(normalizedSplits);
+        if (normalizedSplits.length === 1) {
+          resolvedCategory = normalizedSplits[0].category;
+        }
+      }
+
+      // Enforce submission deadlines (and choose suggested period accordingly).
+      const win = await computeSubmissionWindow({
+        agencyId,
+        effectiveDateYmd: expenseDate,
+        submittedAt: new Date(),
+        timeZone: resolveClaimTimeZone(),
+        hardStopPolicy: '60_days'
+      });
+      if (!win.ok) {
+        return res.status(win.status || 409).json({ error: { message: win.errorMessage || CLAIM_DEADLINE_ERROR_MESSAGE } });
+      }
+      const suggestedPayrollPeriodId = win.suggestedPayrollPeriodId;
+
+      let receiptFilePath = claim.receipt_file_path || null;
+      let receiptOriginalName = claim.receipt_original_name || null;
+      let receiptMimeType = claim.receipt_mime_type || null;
+      let receiptSizeBytes = claim.receipt_size_bytes || null;
+      if (req.file) {
+        const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+        const original = req.file.originalname || 'receipt';
+        const ext = (original.includes('.') ? `.${original.split('.').pop()}` : '');
+        const filename = `company-card-expense-${agencyId}-${userId}-${uniqueSuffix}${ext}`;
+        const storageResult = await StorageService.saveCompanyCardExpenseReceipt(req.file.buffer, filename, req.file.mimetype);
+        receiptFilePath = storageResult.relativePath;
+        receiptOriginalName = String(original).slice(0, 255);
+        receiptMimeType = String(req.file.mimetype || '').slice(0, 128) || null;
+        receiptSizeBytes = Number(req.file.size || 0) || null;
+      }
+
+      await pool.execute(
+        `UPDATE payroll_company_card_expenses
+         SET status = 'submitted',
+             expense_date = ?,
+             amount = ?,
+             payment_method = ?,
+             vendor = ?,
+             supervisor_name = ?,
+             project_ref = ?,
+             category = ?,
+             splits_json = ?,
+             purpose = ?,
+             notes = ?,
+             attestation = ?,
+             receipt_file_path = ?,
+             receipt_original_name = ?,
+             receipt_mime_type = ?,
+             receipt_size_bytes = ?,
+             suggested_payroll_period_id = ?,
+             target_payroll_period_id = NULL,
+             applied_amount = NULL,
+             approved_by_user_id = NULL,
+             approved_at = NULL,
+             rejection_reason = NULL,
+             rejected_by_user_id = NULL,
+             rejected_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+           AND user_id = ?
+           AND agency_id = ?
+         LIMIT 1`,
+        [
+          expenseDate,
+          amount,
+          paymentMethod,
+          vendor,
+          supervisorName,
+          projectRef,
+          resolvedCategory,
+          splitsJson,
+          purpose,
+          String(notes || ''),
+          attestation ? 1 : 0,
+          receiptFilePath,
+          receiptOriginalName,
+          receiptMimeType,
+          receiptSizeBytes,
+          suggestedPayrollPeriodId,
+          id,
+          userId,
+          agencyId
+        ]
+      );
+
+      const refreshed = await PayrollCompanyCardExpense.findById(id);
+      return res.json(refreshed);
+    } catch (e) {
+      next(e);
+    }
+  }
+];
 
 export const deleteMyCompanyCardExpense = async (req, res, next) => {
   try {

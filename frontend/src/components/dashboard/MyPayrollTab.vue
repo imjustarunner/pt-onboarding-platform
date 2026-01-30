@@ -150,6 +150,9 @@
                   <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
                     Needs changes: {{ c.rejection_reason }}
                   </div>
+                  <div v-if="String(c.status||'').toLowerCase()==='rejected' && c.rejection_reason" class="muted" style="margin-top: 4px;">
+                    Rejected: {{ c.rejection_reason }}
+                  </div>
                 </td>
                 <td
                   class="right"
@@ -182,6 +185,15 @@
                   }}
                 </td>
                 <td class="right">
+                  <button
+                    v-if="['deferred','rejected'].includes(String(c.status||'').toLowerCase())"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="openEditMileageClaim(c)"
+                    style="margin-right: 8px;"
+                  >
+                    Edit &amp; resubmit
+                  </button>
                   <button
                     v-if="String(c.status||'').toLowerCase()==='deferred'"
                     class="btn btn-danger btn-sm"
@@ -230,9 +242,21 @@
                   <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
                     Needs changes: {{ c.rejection_reason }}
                   </div>
+                  <div v-if="String(c.status||'').toLowerCase()==='rejected' && c.rejection_reason" class="muted" style="margin-top: 4px;">
+                    Rejected: {{ c.rejection_reason }}
+                  </div>
                 </td>
                 <td class="right">{{ medcancelAmountLabel(c) }}</td>
                 <td class="right">
+                  <button
+                    v-if="['deferred','rejected'].includes(String(c.status||'').toLowerCase())"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="openEditMedcancelClaim(c)"
+                    style="margin-right: 8px;"
+                  >
+                    Edit &amp; resubmit
+                  </button>
                   <button
                     v-if="String(c.status||'').toLowerCase()==='deferred'"
                     class="btn btn-danger btn-sm"
@@ -281,12 +305,24 @@
                   <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
                     Needs changes: {{ c.rejection_reason }}
                   </div>
+                  <div v-if="String(c.status||'').toLowerCase()==='rejected' && c.rejection_reason" class="muted" style="margin-top: 4px;">
+                    Rejected: {{ c.rejection_reason }}
+                  </div>
                 </td>
                 <td>
                   <a v-if="c.receipt_file_path" :href="receiptUrl(c)" target="_blank" rel="noopener noreferrer">View</a>
                   <span v-else class="muted">—</span>
                 </td>
                 <td class="right">
+                  <button
+                    v-if="['deferred','rejected'].includes(String(c.status||'').toLowerCase())"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="openEditReimbursementModal(c)"
+                    style="margin-right: 8px;"
+                  >
+                    Edit &amp; resubmit
+                  </button>
                   <button
                     v-if="String(c.status||'').toLowerCase()==='deferred'"
                     class="btn btn-danger btn-sm"
@@ -335,12 +371,24 @@
                   <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
                     Needs changes: {{ c.rejection_reason }}
                   </div>
+                  <div v-if="String(c.status||'').toLowerCase()==='rejected' && c.rejection_reason" class="muted" style="margin-top: 4px;">
+                    Rejected: {{ c.rejection_reason }}
+                  </div>
                 </td>
                 <td>
                   <a v-if="c.receipt_file_path" :href="receiptUrl(c)" target="_blank" rel="noopener noreferrer">View</a>
                   <span v-else class="muted">—</span>
                 </td>
                 <td class="right">
+                  <button
+                    v-if="['deferred','rejected'].includes(String(c.status||'').toLowerCase())"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="openEditCompanyCardExpenseModal(c)"
+                    style="margin-right: 8px;"
+                  >
+                    Edit &amp; resubmit
+                  </button>
                   <button
                     v-if="String(c.status||'').toLowerCase()==='deferred'"
                     class="btn btn-danger btn-sm"
@@ -389,9 +437,21 @@
                   <div v-if="String(c.status||'').toLowerCase()==='deferred' && c.rejection_reason" class="muted" style="margin-top: 4px;">
                     Needs changes: {{ c.rejection_reason }}
                   </div>
+                  <div v-if="String(c.status||'').toLowerCase()==='rejected' && c.rejection_reason" class="muted" style="margin-top: 4px;">
+                    Rejected: {{ c.rejection_reason }}
+                  </div>
                 </td>
               <td class="right">{{ c.applied_amount ? fmtMoney(c.applied_amount) : '—' }}</td>
                 <td class="right">
+                  <button
+                    v-if="['deferred','rejected'].includes(String(c.status||'').toLowerCase())"
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    @click="openEditTimeClaim(c)"
+                    style="margin-right: 8px;"
+                  >
+                    Edit &amp; resubmit
+                  </button>
                   <button
                     v-if="String(c.status||'').toLowerCase()==='deferred'"
                     class="btn btn-danger btn-sm"
@@ -1220,7 +1280,7 @@
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
-          <div class="modal-title">Submit Reimbursement</div>
+          <div class="modal-title">{{ editingReimbursementClaimId ? 'Edit + Resubmit Reimbursement' : 'Submit Reimbursement' }}</div>
           <div class="hint">Upload a receipt and submit for payroll approval.</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closeReimbursementModal">Close</button>
@@ -1319,7 +1379,11 @@
       </div>
 
       <div class="field" style="margin-top: 10px;">
-        <label>Receipt (required)</label>
+        <label>Receipt {{ editingReimbursementClaimId ? '(optional if unchanged)' : '(required)' }}</label>
+        <div v-if="editingReimbursementClaimId && editingReimbursementExistingReceiptPath" class="hint" style="margin-bottom: 6px;">
+          Current receipt:
+          <a :href="receiptUrl({ receipt_file_path: editingReimbursementExistingReceiptPath })" target="_blank" rel="noopener noreferrer">View</a>
+        </div>
         <input type="file" accept="application/pdf,image/png,image/jpeg,image/jpg,image/gif,image/webp" @change="onReceiptPick" />
         <div class="hint" v-if="reimbursementForm.receiptName">Selected: <strong>{{ reimbursementForm.receiptName }}</strong></div>
       </div>
@@ -1337,7 +1401,7 @@
 
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
         <button class="btn btn-primary" @click="submitReimbursement" :disabled="submittingReimbursement">
-          {{ submittingReimbursement ? 'Submitting…' : 'Submit for approval' }}
+          {{ submittingReimbursement ? 'Submitting…' : (editingReimbursementClaimId ? 'Resubmit for approval' : 'Submit for approval') }}
         </button>
       </div>
     </div>
@@ -1348,7 +1412,7 @@
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
-          <div class="modal-title">Submit Expense (Company Card)</div>
+          <div class="modal-title">{{ editingCompanyCardExpenseId ? 'Edit + Resubmit Expense (Company Card)' : 'Submit Expense (Company Card)' }}</div>
           <div class="hint">Submit a company card purchase for tracking/review.</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closeCompanyCardExpenseModal">Close</button>
@@ -1436,7 +1500,11 @@
       </div>
 
       <div class="field" style="margin-top: 10px;">
-        <label>Receipt (required)</label>
+        <label>Receipt {{ editingCompanyCardExpenseId ? '(optional if unchanged)' : '(required)' }}</label>
+        <div v-if="editingCompanyCardExpenseId && editingCompanyCardExistingReceiptPath" class="hint" style="margin-bottom: 6px;">
+          Current receipt:
+          <a :href="receiptUrl({ receipt_file_path: editingCompanyCardExistingReceiptPath })" target="_blank" rel="noopener noreferrer">View</a>
+        </div>
         <input type="file" accept="application/pdf,image/png,image/jpeg,image/jpg,image/gif,image/webp" @change="onCompanyCardReceiptPick" />
         <div class="hint" v-if="companyCardExpenseForm.receiptName">Selected: <strong>{{ companyCardExpenseForm.receiptName }}</strong></div>
       </div>
@@ -1454,7 +1522,7 @@
 
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
         <button class="btn btn-primary" @click="submitCompanyCardExpense" :disabled="submittingCompanyCardExpense">
-          {{ submittingCompanyCardExpense ? 'Submitting…' : 'Submit for review' }}
+          {{ submittingCompanyCardExpense ? 'Submitting…' : (editingCompanyCardExpenseId ? 'Resubmit for review' : 'Submit for review') }}
         </button>
       </div>
     </div>
@@ -1886,12 +1954,16 @@ const submitReimbursementError = ref('');
 const reimbursementClaims = ref([]);
 const reimbursementClaimsLoading = ref(false);
 const reimbursementClaimsError = ref('');
+const editingReimbursementClaimId = ref(null);
+const editingReimbursementExistingReceiptPath = ref('');
 const showCompanyCardExpenseModal = ref(false);
 const submittingCompanyCardExpense = ref(false);
 const submitCompanyCardExpenseError = ref('');
 const companyCardExpenses = ref([]);
 const companyCardExpensesLoading = ref(false);
 const companyCardExpensesError = ref('');
+const editingCompanyCardExpenseId = ref(null);
+const editingCompanyCardExistingReceiptPath = ref('');
 const showTimeMeetingModal = ref(false);
 const showTimeExcessModal = ref(false);
 const showTimeCorrectionModal = ref(false);
@@ -2419,6 +2491,46 @@ const openMileageModal = (claimType = 'school_travel') => {
   showMileageModal.value = true;
 };
 
+const openEditMileageClaim = async (c) => {
+  if (!c?.id) return;
+  submitMileageError.value = '';
+  // Ensure dropdown data is loaded so the modal can render selected values.
+  await loadMileageSchools();
+  await loadMileageOffices();
+  await loadMyHomeAddress();
+
+  const claimType = String(c.claim_type || '').toLowerCase() === 'school_travel' ? 'school_travel' : 'standard';
+  openMileageModal(claimType);
+
+  // Default to manual miles for edits (avoids hard-blocks if auto distance is unavailable).
+  if (claimType === 'school_travel') {
+    schoolTravelManualMilesMode.value = true;
+    schoolTravelManualMilesReason.value = 'Editing an existing submission uses manual miles.';
+  }
+
+  mileageForm.value = {
+    ...mileageForm.value,
+    claimType,
+    driveDate: String(c.drive_date || '').slice(0, 10),
+    schoolOrganizationId: c.school_organization_id ? Number(c.school_organization_id) : null,
+    officeLocationId: c.office_location_id ? Number(c.office_location_id) : null,
+    tierLevel: c.tier_level === null || c.tier_level === undefined ? null : Number(c.tier_level),
+    miles: String((c.miles ?? c.eligible_miles ?? '') || ''),
+    roundTrip: !!c.round_trip,
+    startLocation: String(c.start_location || ''),
+    endLocation: String(c.end_location || ''),
+    notes: String(c.notes || ''),
+    tripApprovedBy: String(c.trip_approved_by || ''),
+    tripPreapproved:
+      c.trip_preapproved === null || c.trip_preapproved === undefined
+        ? null
+        : (Number(c.trip_preapproved) === 1 || c.trip_preapproved === true),
+    tripPurpose: String(c.trip_purpose || ''),
+    costCenter: String(c.cost_center || ''),
+    attestation: false
+  };
+};
+
 const switchToSchoolMileage = () => {
   const keepDate = mileageForm.value.driveDate;
   openMileageModal('school_travel');
@@ -2635,6 +2747,25 @@ const openMedcancelModal = () => {
   showMedcancelModal.value = true;
 };
 
+const openEditMedcancelClaim = async (c) => {
+  if (!c?.id) return;
+  submitMedcancelError.value = '';
+  await loadMileageSchools();
+  const items = Array.isArray(c.items) ? c.items : [];
+  medcancelForm.value = {
+    claimDate: dateYmd(c.claim_date),
+    schoolOrganizationId: c.school_organization_id ? Number(c.school_organization_id) : null,
+    items: (items.length ? items : [{}]).map((it) => ({
+      missedServiceCode: String(it?.missed_service_code || it?.missedServiceCode || '90832'),
+      clientInitials: String(it?.client_initials || it?.clientInitials || ''),
+      sessionTime: String(it?.session_time || it?.sessionTime || ''),
+      note: String(it?.note || ''),
+      attestation: false
+    }))
+  };
+  showMedcancelModal.value = true;
+};
+
 const closeMedcancelModal = () => {
   showMedcancelModal.value = false;
 };
@@ -2649,6 +2780,8 @@ const receiptUrl = (c) => {
 
 const openReimbursementModal = () => {
   submitReimbursementError.value = '';
+  editingReimbursementClaimId.value = null;
+  editingReimbursementExistingReceiptPath.value = '';
   const today = new Date();
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   reimbursementForm.value = {
@@ -2669,8 +2802,46 @@ const openReimbursementModal = () => {
   showReimbursementModal.value = true;
 };
 
+const openEditReimbursementModal = (c) => {
+  if (!c?.id) return;
+  submitReimbursementError.value = '';
+  editingReimbursementClaimId.value = Number(c.id);
+  editingReimbursementExistingReceiptPath.value = String(c.receipt_file_path || '').trim();
+  let splits = [{ category: '', amount: '' }];
+  try {
+    const raw = c.splits_json || c.splitsJson || c.splits || null;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? raw : null);
+    if (Array.isArray(parsed) && parsed.length) {
+      splits = parsed.map((s) => ({ category: String(s?.category || ''), amount: String(s?.amount ?? '') }));
+    }
+  } catch {
+    splits = [{ category: '', amount: '' }];
+  }
+  reimbursementForm.value = {
+    expenseDate: String(c.expense_date || '').slice(0, 10),
+    amount: String(c.amount ?? ''),
+    paymentMethod: c.payment_method || null,
+    vendor: c.vendor || '',
+    purchaseApprovedBy: c.purchase_approved_by || '',
+    purchasePreapproved:
+      c.purchase_preapproved === null || c.purchase_preapproved === undefined
+        ? null
+        : (Number(c.purchase_preapproved) === 1 || c.purchase_preapproved === true),
+    projectRef: c.project_ref || '',
+    reason: c.reason || '',
+    splits,
+    notes: c.notes || '',
+    attestation: false,
+    receiptFile: null,
+    receiptName: ''
+  };
+  showReimbursementModal.value = true;
+};
+
 const closeReimbursementModal = () => {
   showReimbursementModal.value = false;
+  editingReimbursementClaimId.value = null;
+  editingReimbursementExistingReceiptPath.value = '';
 };
 
 const onReceiptPick = (e) => {
@@ -2681,6 +2852,8 @@ const onReceiptPick = (e) => {
 
 const openCompanyCardExpenseModal = () => {
   submitCompanyCardExpenseError.value = '';
+  editingCompanyCardExpenseId.value = null;
+  editingCompanyCardExistingReceiptPath.value = '';
   const today = new Date();
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   companyCardExpenseForm.value = {
@@ -2700,8 +2873,42 @@ const openCompanyCardExpenseModal = () => {
   showCompanyCardExpenseModal.value = true;
 };
 
+const openEditCompanyCardExpenseModal = (c) => {
+  if (!c?.id) return;
+  submitCompanyCardExpenseError.value = '';
+  editingCompanyCardExpenseId.value = Number(c.id);
+  editingCompanyCardExistingReceiptPath.value = String(c.receipt_file_path || '').trim();
+  let splits = [{ category: '', amount: '' }];
+  try {
+    const raw = c.splits_json || c.splitsJson || c.splits || null;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : (Array.isArray(raw) ? raw : null);
+    if (Array.isArray(parsed) && parsed.length) {
+      splits = parsed.map((s) => ({ category: String(s?.category || ''), amount: String(s?.amount ?? '') }));
+    }
+  } catch {
+    splits = [{ category: '', amount: '' }];
+  }
+  companyCardExpenseForm.value = {
+    expenseDate: String(c.expense_date || '').slice(0, 10),
+    amount: String(c.amount ?? ''),
+    paymentMethod: 'company_card',
+    vendor: c.vendor || '',
+    supervisorName: c.supervisor_name || '',
+    projectRef: c.project_ref || '',
+    splits,
+    purpose: c.purpose || '',
+    notes: c.notes || '',
+    attestation: false,
+    receiptFile: null,
+    receiptName: ''
+  };
+  showCompanyCardExpenseModal.value = true;
+};
+
 const closeCompanyCardExpenseModal = () => {
   showCompanyCardExpenseModal.value = false;
+  editingCompanyCardExpenseId.value = null;
+  editingCompanyCardExistingReceiptPath.value = '';
 };
 
 const onCompanyCardReceiptPick = (e) => {
@@ -2777,7 +2984,8 @@ const submitReimbursement = async () => {
       submitReimbursementError.value = 'Notes are required.';
       return;
     }
-    if (!reimbursementForm.value.receiptFile) {
+    const hasExistingReceipt = !!String(editingReimbursementExistingReceiptPath.value || '').trim();
+    if (!reimbursementForm.value.receiptFile && !(editingReimbursementClaimId.value && hasExistingReceipt)) {
       submitReimbursementError.value = 'Receipt file is required.';
       return;
     }
@@ -2812,13 +3020,21 @@ const submitReimbursement = async () => {
     if (splits.length) fd.append('splits', JSON.stringify(splits));
     fd.append('notes', String(reimbursementForm.value.notes || '').trim());
     fd.append('attestation', reimbursementForm.value.attestation ? '1' : '0');
-    fd.append('receipt', reimbursementForm.value.receiptFile);
+    if (reimbursementForm.value.receiptFile) fd.append('receipt', reimbursementForm.value.receiptFile);
 
-    await api.post('/payroll/me/reimbursement-claims', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
+    if (editingReimbursementClaimId.value) {
+      await api.put(`/payroll/me/reimbursement-claims/${editingReimbursementClaimId.value}`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+    } else {
+      await api.post('/payroll/me/reimbursement-claims', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+    }
 
     showReimbursementModal.value = false;
+    editingReimbursementClaimId.value = null;
+    editingReimbursementExistingReceiptPath.value = '';
     submitSuccess.value = 'Reimbursement submitted successfully. Payroll will review and approve it before it is added to a pay period.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
     await loadReimbursementClaims();
@@ -2857,7 +3073,8 @@ const submitCompanyCardExpense = async () => {
       submitCompanyCardExpenseError.value = 'Notes are required.';
       return;
     }
-    if (!companyCardExpenseForm.value.receiptFile) {
+    const hasExistingReceipt = !!String(editingCompanyCardExistingReceiptPath.value || '').trim();
+    if (!companyCardExpenseForm.value.receiptFile && !(editingCompanyCardExpenseId.value && hasExistingReceipt)) {
       submitCompanyCardExpenseError.value = 'Receipt file is required.';
       return;
     }
@@ -2891,13 +3108,21 @@ const submitCompanyCardExpense = async () => {
     fd.append('purpose', String(companyCardExpenseForm.value.purpose || '').trim());
     fd.append('notes', String(companyCardExpenseForm.value.notes || '').trim());
     fd.append('attestation', companyCardExpenseForm.value.attestation ? '1' : '0');
-    fd.append('receipt', companyCardExpenseForm.value.receiptFile);
+    if (companyCardExpenseForm.value.receiptFile) fd.append('receipt', companyCardExpenseForm.value.receiptFile);
 
-    await api.post('/payroll/me/company-card-expenses', fd, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
+    if (editingCompanyCardExpenseId.value) {
+      await api.put(`/payroll/me/company-card-expenses/${editingCompanyCardExpenseId.value}`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+    } else {
+      await api.post('/payroll/me/company-card-expenses', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+    }
 
     showCompanyCardExpenseModal.value = false;
+    editingCompanyCardExpenseId.value = null;
+    editingCompanyCardExistingReceiptPath.value = '';
     submitSuccess.value = 'Company card expense submitted successfully. Admins can review it in payroll submissions.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
     await loadCompanyCardExpenses();
@@ -3027,6 +3252,76 @@ const openTimeOvertimeModal = () => {
   showTimeOvertimeModal.value = true;
 };
 const closeTimeOvertimeModal = () => { showTimeOvertimeModal.value = false; };
+
+const openEditTimeClaim = (c) => {
+  if (!c?.id) return;
+  submitTimeClaimError.value = '';
+  const type = String(c.claim_type || '').toLowerCase();
+  const payload = c.payload || {};
+  if (type === 'meeting_training') {
+    openTimeMeetingModal();
+    timeMeetingForm.value = {
+      ...timeMeetingForm.value,
+      claimDate: String(c.claim_date || '').slice(0, 10),
+      meetingType: payload.meetingType || 'Training',
+      otherMeeting: payload.otherMeeting || '',
+      startTime: payload.startTime || '',
+      endTime: payload.endTime || '',
+      totalMinutes: String(payload.totalMinutes ?? ''),
+      platform: payload.platform || 'Google Meet',
+      summary: payload.summary || '',
+      attestation: false
+    };
+    return;
+  }
+  if (type === 'excess_holiday') {
+    openTimeExcessModal();
+    timeExcessForm.value = {
+      ...timeExcessForm.value,
+      claimDate: String(c.claim_date || '').slice(0, 10),
+      directMinutes: String(payload.directMinutes ?? ''),
+      indirectMinutes: String(payload.indirectMinutes ?? ''),
+      reason: payload.reason || '',
+      ptoOnly: payload.ptoOnly || 'Unknown',
+      totalTimeWorkedForPto: payload.totalTimeWorkedForPto || '',
+      requestOvertimeEvaluation: !!payload.requestOvertimeEvaluation,
+      attestation: false
+    };
+    return;
+  }
+  if (type === 'service_correction') {
+    openTimeCorrectionModal();
+    timeCorrectionForm.value = {
+      ...timeCorrectionForm.value,
+      claimDate: String(c.claim_date || '').slice(0, 10),
+      clientInitials: payload.clientInitials || '',
+      originalService: payload.originalService || '',
+      correctedService: payload.correctedService || '',
+      duration: payload.duration || '',
+      reason: payload.reason || '',
+      attestation: false
+    };
+    return;
+  }
+  if (type === 'overtime_evaluation') {
+    openTimeOvertimeModal();
+    timeOvertimeForm.value = {
+      ...timeOvertimeForm.value,
+      claimDate: String(c.claim_date || '').slice(0, 10),
+      workedOver12Hours: !!payload.workedOver12Hours,
+      datesAndHours: payload.datesAndHours || '',
+      estimatedWorkweekHours: String(payload.estimatedWorkweekHours ?? ''),
+      allDirectServiceRecorded: payload.allDirectServiceRecorded === undefined ? true : !!payload.allDirectServiceRecorded,
+      overtimeApproved: !!payload.overtimeApproved,
+      approvedBy: payload.approvedBy || '',
+      notesForPayroll: payload.notesForPayroll || '',
+      attestation: false
+    };
+    return;
+  }
+  // Fallback: open meeting modal
+  openTimeMeetingModal();
+};
 
 const submitTimeMeeting = async () => {
   submitTimeClaimError.value = '';

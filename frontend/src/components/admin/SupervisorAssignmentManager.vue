@@ -187,10 +187,11 @@ const canCreateAssignment = computed(() => {
 
 const fetchAgencies = async () => {
   try {
-    // If superviseeId prop is provided, fetch that user's agencies
-    // Otherwise, fetch current user's agencies
-    if (props.superviseeId) {
-      const response = await api.get(`/users/${props.superviseeId}/agencies`);
+    // If a target user is provided (supervisee/supervisor), fetch that user's agencies.
+    // Otherwise, fall back to the current user's agencies.
+    const targetUserId = props.superviseeId || props.supervisorId || null;
+    if (targetUserId) {
+      const response = await api.get(`/users/${targetUserId}/agencies`);
       agencies.value = response.data || [];
       // Auto-select first agency if only one
       if (agencies.value.length === 1 && !newAssignment.value.agencyId) {

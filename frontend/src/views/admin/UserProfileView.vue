@@ -925,7 +925,7 @@
           <div v-if="canManageAssignments" class="supervisor-assignments-section">
               <SupervisorAssignmentManager
               :supervisor-id="(user && (isSupervisor(user) || user.role === 'clinical_practice_assistant')) ? userId : null"
-              :supervisee-id="(['provider', 'staff'].includes(user?.role)) ? userId : null"
+              :supervisee-id="(user && !((isSupervisor(user) || user.role === 'clinical_practice_assistant'))) ? userId : null"
             />
           </div>
 
@@ -943,7 +943,7 @@
                 </div>
               </div>
             </div>
-            <div v-else-if="['provider', 'staff'].includes(user?.role)" class="assignments-info">
+            <div v-else class="assignments-info">
               <h4>Assigned Supervisors</h4>
               <div v-if="supervisorsLoading" class="loading">Loading supervisors...</div>
               <div v-else-if="supervisors.length === 0" class="empty-state">
