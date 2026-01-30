@@ -7349,6 +7349,27 @@ export const createMyMileageClaim = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'driveDate (YYYY-MM-DD) is required' } });
     }
 
+    const mileageDebugEnabled = String(process.env.DEBUG_PAYROLL_MILEAGE_CLAIMS || '').toLowerCase() === 'true';
+    const logMileage409 = (reason, extra = {}) => {
+      if (!mileageDebugEnabled) return;
+      // Intentionally avoid logging addresses/PII. Log IDs + presence booleans only.
+      try {
+        console.warn('[payroll][mileage-claims][409]', JSON.stringify({
+          reason: String(reason || 'unknown'),
+          userId,
+          agencyId,
+          claimType,
+          driveDate,
+          schoolOrganizationId,
+          officeLocationId,
+          hasManualMiles: miles !== null && Number.isFinite(Number(miles)),
+          ...extra
+        }));
+      } catch {
+        // ignore
+      }
+    };
+
     // Enforce submission deadlines (timezone: office location when available; otherwise default).
     let officeTz = null;
     try {
@@ -7412,6 +7433,7 @@ export const createMyMileageClaim = async (req, res, next) => {
       const u = uRows?.[0] || {};
       const homeAddr = [u.home_street_address, u.home_address_line2, u.home_city, u.home_state, u.home_postal_code].filter(Boolean).join(', ');
       if (!homeAddr) {
+        logMileage409('missing_home_address');
         return res.status(409).json({ error: { message: 'Home address is required to auto-calculate mileage. Please set it first.' } });
       }
 
@@ -7424,6 +7446,7 @@ export const createMyMileageClaim = async (req, res, next) => {
       const s = sRows?.[0] || {};
       const schoolAddr = [s.street_address, s.city, s.state, s.postal_code].filter(Boolean).join(', ');
       if (!schoolAddr) {
+        logMileage409('missing_school_address');
         return res.status(409).json({ error: { message: 'School address is not configured for mileage calculation.' } });
       }
 
@@ -7439,6 +7462,7 @@ export const createMyMileageClaim = async (req, res, next) => {
         officeAddr = [o.street_address, o.city, o.state, o.postal_code].filter(Boolean).join(', ');
       }
       if (!officeAddr) {
+        logMileage409('missing_office_address');
         return res.status(409).json({ error: { message: 'Office address is not configured for mileage calculation.' } });
       }
 
@@ -7451,6 +7475,7 @@ export const createMyMileageClaim = async (req, res, next) => {
         const msg = e?.code === 'MAPS_KEY_MISSING'
           ? 'Automatic mileage requires GOOGLE_MAPS_API_KEY to be configured.'
           : (e.message || 'Failed to compute distance');
+        logMileage409('distance_compute_failed', { errorCode: e?.code || null, errorMessage: String(e?.message || '') });
         return res.status(409).json({ error: { message: msg } });
       }
     }
