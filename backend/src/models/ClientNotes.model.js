@@ -52,7 +52,8 @@ class ClientNotes {
         row.message = decryptChatText({
           ciphertextB64: row.message_ciphertext,
           ivB64: row.message_iv,
-          authTagB64: row.message_auth_tag
+          authTagB64: row.message_auth_tag,
+          keyId: row.encryption_key_id || null
         });
       } catch {
         row.message = '[Unable to decrypt message]';
