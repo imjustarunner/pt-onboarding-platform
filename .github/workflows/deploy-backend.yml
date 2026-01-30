@@ -86,3 +86,8 @@ jobs:
             --timeout=300 \
             --max-instances=10 \
             --min-instances=0
+
+          # IMPORTANT: if traffic was pinned to an older revision, explicitly promote the latest revision.
+          gcloud run services update-traffic $SERVICE_NAME \
+            --region $REGION \
+            --to-latest
