@@ -64,6 +64,7 @@
               <thead>
                 <tr>
                   <th>Created</th>
+                  <th>Submitted by</th>
                   <th>Type</th>
                   <th class="right">Hours</th>
                   <th>Status</th>
@@ -73,6 +74,7 @@
               <tbody>
                 <tr v-for="r in ptoRequests" :key="r.id">
                   <td>{{ String(r.created_at || '').slice(0, 10) }}</td>
+                  <td>{{ submitterLabel(r) }}</td>
                   <td>{{ String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
                   <td class="right">{{ fmtNum(Number(r.total_hours || 0)) }}</td>
                   <td>
@@ -112,6 +114,8 @@
         <table class="table">
           <thead>
             <tr>
+              <th>Submitted</th>
+              <th>Submitted by</th>
               <th>Date</th>
                 <th>Type</th>
                 <th class="right">Miles</th>
@@ -122,6 +126,8 @@
           </thead>
           <tbody>
             <tr v-for="c in mileageClaims" :key="c.id">
+              <td>{{ String(c.created_at || '').slice(0, 10) }}</td>
+              <td>{{ submitterLabel(c) }}</td>
               <td>{{ c.drive_date }}</td>
                 <td>{{ String(c.claim_type || '').toLowerCase() === 'school_travel' ? 'School' : 'Other' }}</td>
                 <td
@@ -226,6 +232,8 @@
           <table class="table">
             <thead>
               <tr>
+                <th>Submitted</th>
+                <th>Submitted by</th>
                 <th>Date</th>
                 <th class="right">Services</th>
                 <th>Status</th>
@@ -235,6 +243,8 @@
             </thead>
             <tbody>
               <tr v-for="c in medcancelClaims" :key="c.id">
+                <td>{{ String(c.created_at || '').slice(0, 10) }}</td>
+                <td>{{ submitterLabel(c) }}</td>
                 <td>{{ dateYmd(c.claim_date) }}</td>
                 <td class="right">{{ fmtNum(Number((c.items || []).length || c.units || 0)) }}</td>
                 <td>
@@ -289,6 +299,8 @@
           <table class="table">
             <thead>
               <tr>
+                <th>Submitted</th>
+                <th>Submitted by</th>
                 <th>Date</th>
                 <th class="right">Amount</th>
                 <th>Status</th>
@@ -298,6 +310,8 @@
             </thead>
             <tbody>
               <tr v-for="c in reimbursementClaims" :key="c.id">
+                <td>{{ String(c.created_at || '').slice(0, 10) }}</td>
+                <td>{{ submitterLabel(c) }}</td>
                 <td>{{ c.expense_date }}</td>
                 <td class="right">{{ fmtMoney(Number(c.amount || 0)) }}</td>
                 <td>
@@ -355,6 +369,8 @@
           <table class="table">
             <thead>
               <tr>
+                <th>Submitted</th>
+                <th>Submitted by</th>
                 <th>Date</th>
                 <th class="right">Amount</th>
                 <th>Status</th>
@@ -364,6 +380,8 @@
             </thead>
             <tbody>
               <tr v-for="c in companyCardExpenses" :key="c.id">
+                <td>{{ String(c.created_at || '').slice(0, 10) }}</td>
+                <td>{{ submitterLabel(c) }}</td>
                 <td>{{ c.expense_date }}</td>
                 <td class="right">{{ fmtMoney(Number(c.amount || 0)) }}</td>
                 <td>
@@ -421,6 +439,8 @@
           <table class="table">
             <thead>
               <tr>
+                <th>Submitted</th>
+                <th>Submitted by</th>
                 <th>Date</th>
                 <th>Type</th>
                 <th>Status</th>
@@ -430,6 +450,8 @@
             </thead>
             <tbody>
               <tr v-for="c in timeClaims" :key="c.id">
+                <td>{{ String(c.created_at || '').slice(0, 10) }}</td>
+                <td>{{ submitterLabel(c) }}</td>
                 <td>{{ c.claim_date }}</td>
                 <td>{{ timeClaimTypeLabel(c) }}</td>
                 <td>
@@ -1884,6 +1906,21 @@ const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEna
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
 
 const userId = computed(() => authStore.user?.id || null);
+
+const submitterLabel = (row) => {
+  const currentUid = userId.value ? Number(userId.value) : null;
+  const submittedById = row?.submitted_by_user_id === null || row?.submitted_by_user_id === undefined ? null : Number(row.submitted_by_user_id);
+  if (currentUid && submittedById && submittedById === currentUid) return 'You';
+
+  const fn = String(row?.submitted_by_first_name || '').trim();
+  const ln = String(row?.submitted_by_last_name || '').trim();
+  const email = String(row?.submitted_by_email || '').trim();
+
+  if (ln || fn) return `${ln}${ln && fn ? ', ' : ''}${fn}`;
+  if (email) return email;
+  if (submittedById) return `User #${submittedById}`;
+  return '—';
+};
 
 const agencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;

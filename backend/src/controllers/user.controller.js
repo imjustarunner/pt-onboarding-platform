@@ -16,6 +16,7 @@ import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.s
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import ExternalBusyCalendarService from '../services/externalBusyCalendar.service.js';
 import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
+import SupervisionSession from '../models/SupervisionSession.model.js';
 import pool from '../config/database.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 
@@ -1874,6 +1875,38 @@ export const getUserScheduleSummary = async (req, res, next) => {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
+    // 4b) Supervision sessions (app-scheduled, optionally synced to Google)
+    let supervisionSessions = [];
+    try {
+      const rows = await SupervisionSession.listForUserInWindow({
+        agencyId,
+        userId: providerId,
+        windowStart,
+        windowEnd
+      });
+      supervisionSessions = (rows || []).map((r) => {
+        const isSupervisor = Number(r.supervisor_user_id) === Number(providerId);
+        const otherName = isSupervisor
+          ? `${r.supervisee_first_name || ''} ${r.supervisee_last_name || ''}`.trim()
+          : `${r.supervisor_first_name || ''} ${r.supervisor_last_name || ''}`.trim();
+        return {
+          id: r.id,
+          role: isSupervisor ? 'supervisor' : 'supervisee',
+          counterpartyName: otherName || null,
+          startAt: r.start_at,
+          endAt: r.end_at,
+          status: r.status,
+          modality: r.modality,
+          locationText: r.location_text,
+          notes: r.notes,
+          googleMeetLink: r.google_meet_link || null
+        };
+      });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      supervisionSessions = [];
+    }
+
     // 5) Optional busy overlays (busy blocks only)
     let googleBusy = [];
     let googleBusyError = null;
@@ -1973,6 +2006,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
       schoolRequests,
       schoolAssignments,
       officeEvents,
+      supervisionSessions,
       externalCalendarsAvailable,
       ...(externalCalendarIds.length ? { externalCalendars } : {}),
       ...(includeGoogleBusy ? { googleBusy, googleBusyError } : {}),

@@ -51,6 +51,7 @@ import brandingTemplateRoutes from './routes/brandingTemplate.routes.js';
 import fontRoutes from './routes/font.routes.js';
 import activityLogRoutes from './routes/activityLog.routes.js';
 import supervisorAssignmentRoutes from './routes/supervisorAssignment.routes.js';
+import supervisionSessionsRoutes from './routes/supervisionSessions.routes.js';
 import healthCheckRoutes from './routes/healthCheck.routes.js';
 import referralUploadRoutes from './routes/referralUpload.routes.js';
 import schoolPortalRoutes from './routes/schoolPortal.routes.js';
@@ -474,6 +475,7 @@ app.use('/api/branding-templates', brandingTemplateRoutes);
 app.use('/api/fonts', fontRoutes);
 app.use('/api/activity-log', activityLogRoutes);
 app.use('/api/supervisor-assignments', supervisorAssignmentRoutes);
+app.use('/api/supervision', supervisionSessionsRoutes);
 app.use('/api/organizations', referralUploadRoutes); // Organization routes (referral upload, etc.)
 app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
 app.use('/api/referrals', referralRoutes); // Referral pipeline routes

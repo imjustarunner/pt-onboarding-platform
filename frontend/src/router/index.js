@@ -176,8 +176,8 @@ const routes = [
   // Backward-compatible: legacy schedule route
   {
     path: '/:organizationSlug/schedule',
-    name: 'OrganizationOfficeScheduleLegacy',
-    redirect: (to) => `/${to.params.organizationSlug}/buildings/schedule`,
+    name: 'OrganizationScheduleHub',
+    component: () => import('../views/ScheduleHubView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {

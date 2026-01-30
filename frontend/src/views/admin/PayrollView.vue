@@ -1055,6 +1055,9 @@
         <button class="btn btn-secondary" @click="openPayrollToolsModal">
           Payroll Tools (Checker)
         </button>
+        <button class="btn btn-secondary" type="button" @click="openSubmitOnBehalfModal" :disabled="!agencyId">
+          Submit on behalf
+        </button>
         <button class="btn btn-secondary" type="button" @click="openTodoModal" :disabled="!selectedPeriodId">
           Add Single/Recurring Note or To Do
         </button>
@@ -1283,6 +1286,68 @@
           Run results are private until you click <strong>Run Payroll</strong>. Providers will not see anything until <strong>Post Payroll</strong>.
         </div>
 
+        <!-- Submit on behalf modal -->
+        <teleport to="body">
+          <div v-if="showSubmitOnBehalfModal" class="modal-backdrop" @click.self="closeSubmitOnBehalfModal">
+            <div class="modal" style="width: min(1100px, 100%);">
+              <div class="modal-header">
+                <div>
+                  <div class="modal-title">Submit on behalf</div>
+                  <div class="hint">
+                    Submit payroll requests on behalf of a provider. These will appear in their history and in the normal payroll queues.
+                  </div>
+                </div>
+                <div class="actions" style="margin: 0; justify-content: flex-end;">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="closeSubmitOnBehalfModal">Close</button>
+                </div>
+              </div>
+
+              <div class="card" style="margin-top: 12px;">
+                <div v-if="!agencyId" class="warn-box">
+                  Select an organization first to use Submit on behalf.
+                </div>
+
+                <div v-else>
+                  <div class="field-row" style="grid-template-columns: 1fr 1fr auto; align-items: end; gap: 10px;">
+                    <div class="field">
+                      <label>Search provider</label>
+                      <input v-model="submitOnBehalfSearch" type="text" placeholder="Search name or email…" />
+                    </div>
+                    <div class="field">
+                      <label>Provider</label>
+                      <select v-model="submitOnBehalfUserId">
+                        <option :value="null" disabled>Select a provider…</option>
+                        <option v-for="u in submitOnBehalfUsers" :key="u.id" :value="u.id">
+                          {{ u.last_name }}, {{ u.first_name }} <span v-if="u.email">({{ u.email }})</span>
+                        </option>
+                      </select>
+                      <div class="hint" style="margin-top: 6px;">
+                        {{ submitOnBehalfUserId ? `Selected: ${submitOnBehalfUserName}` : 'Select a provider to submit requests.' }}
+                      </div>
+                    </div>
+                    <div class="actions" style="margin: 0; justify-content: flex-end; gap: 8px;">
+                      <button class="btn btn-secondary btn-sm" type="button" @click="clearSubmitOnBehalfProvider" :disabled="!submitOnBehalfUserId">
+                        Clear
+                      </button>
+                      <button class="btn btn-secondary btn-sm" type="button" @click="nextSubmitOnBehalfProvider" :disabled="!submitOnBehalfUsers.length">
+                        Next
+                      </button>
+                    </div>
+                  </div>
+
+                  <div v-if="loadingUsers" class="muted" style="margin-top: 10px;">Loading providers…</div>
+                  <div v-else-if="submitOnBehalfUserId" style="margin-top: 10px;">
+                    <AdminPayrollSubmitOverride :agency-id="agencyId" :user-id="submitOnBehalfUserId" :user-name="submitOnBehalfUserName" />
+                  </div>
+                  <div v-else class="hint" style="margin-top: 10px;">
+                    Pick a provider above to begin submitting.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </teleport>
+
         <!-- Payroll Stage modal -->
         <div v-show="showStageModal" class="modal-backdrop" @click.self="showStageModal = false">
           <div class="modal">
@@ -1425,6 +1490,8 @@
                   <thead>
                     <tr>
                       <th>Provider</th>
+                      <th>Submitted</th>
+                      <th>Submitted by</th>
                       <th>Date</th>
                       <th class="right">Eligible miles</th>
                       <th class="right">Tier</th>
@@ -1436,6 +1503,8 @@
                   <tbody>
                     <tr v-for="c in pendingMileageClaims" :key="c.id">
                       <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td>{{ submittedAtYmd(c) }}</td>
+                      <td>{{ submitterLabel(c) }}</td>
                       <td>{{ c.drive_date }}</td>
                       <td class="right">
                         {{ fmtNum(Number(c.eligible_miles ?? c.miles ?? 0)) }}
@@ -1500,6 +1569,8 @@
                   <thead>
                     <tr>
                       <th>Provider</th>
+                      <th>Submitted</th>
+                      <th>Submitted by</th>
                       <th>Date</th>
                       <th class="right">Units</th>
                       <th class="right">Pay period</th>
@@ -1509,6 +1580,8 @@
                   <tbody>
                     <tr v-for="c in pendingMedcancelClaims" :key="c.id">
                       <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td>{{ submittedAtYmd(c) }}</td>
+                      <td>{{ submitterLabel(c) }}</td>
                       <td>{{ c.claim_date }}</td>
                       <td class="right">{{ fmtNum(Number(c.units ?? 0)) }}</td>
                       <td class="right">
@@ -1558,6 +1631,8 @@
                   <thead>
                     <tr>
                       <th>Provider</th>
+                      <th>Submitted</th>
+                      <th>Submitted by</th>
                       <th>Date</th>
                       <th class="right">Amount</th>
                       <th>Details</th>
@@ -1569,6 +1644,8 @@
                   <tbody>
                     <tr v-for="c in pendingReimbursementClaims" :key="c.id">
                       <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td>{{ submittedAtYmd(c) }}</td>
+                      <td>{{ submitterLabel(c) }}</td>
                       <td>{{ c.expense_date }}</td>
                       <td class="right">{{ fmtMoney(Number(c.amount || 0)) }}</td>
                       <td>
@@ -1632,6 +1709,8 @@
                   <thead>
                     <tr>
                       <th>Provider</th>
+                      <th>Submitted</th>
+                      <th>Submitted by</th>
                       <th>Date</th>
                       <th>Type</th>
                       <th class="right">Bucket</th>
@@ -1644,6 +1723,8 @@
                   <tbody>
                     <tr v-for="c in pendingTimeClaims" :key="c.id">
                       <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td>{{ submittedAtYmd(c) }}</td>
+                      <td>{{ submitterLabel(c) }}</td>
                       <td>{{ c.claim_date }}</td>
                       <td>{{ timeTypeLabel(c) }}</td>
                       <td class="right">
@@ -1721,6 +1802,7 @@
                     <tr>
                       <th>Provider</th>
                       <th>Created</th>
+                      <th>Submitted by</th>
                       <th>Type</th>
                       <th class="right">Hours</th>
                       <th>First date</th>
@@ -1732,6 +1814,7 @@
                     <tr v-for="r in pendingPtoRequests" :key="r.id">
                       <td>{{ nameForUserId(r.user_id) }}</td>
                       <td>{{ String(r.created_at || '').slice(0, 10) }}</td>
+                      <td>{{ submitterLabel(r) }}</td>
                       <td>{{ String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
                       <td class="right">{{ fmtNum(Number(r.total_hours || 0)) }}</td>
                       <td>
@@ -2204,6 +2287,8 @@
 
                 <div v-if="selectedMileageClaim" style="margin-top: 10px;">
                   <div class="row"><strong>Provider:</strong> {{ nameForUserId(selectedMileageClaim.user_id) }}</div>
+                  <div class="row"><strong>Submitted:</strong> {{ submittedAtYmd(selectedMileageClaim) }}</div>
+                  <div class="row"><strong>Submitted by:</strong> {{ submitterLabel(selectedMileageClaim) }}</div>
                   <div class="row"><strong>Date:</strong> {{ selectedMileageClaim.drive_date }}</div>
                   <div class="row"><strong>Type:</strong> {{ String(selectedMileageClaim.claim_type || '').toLowerCase() === 'school_travel' ? 'School Mileage' : 'Other Mileage' }}</div>
                   <div class="row"><strong>Status:</strong> {{ String(selectedMileageClaim.status || '').toUpperCase() }}</div>
@@ -2518,10 +2603,6 @@
 
           <!-- Keep this section mounted when modals are open (even if no provider is selected yet). -->
           <div v-if="selectedUserId || showRunModal || showPreviewPostModal || showRawModal">
-          <div v-if="selectedUserId">
-            <h3 class="section-title" style="margin-top: 16px;">Admin Requests — Submit on behalf</h3>
-            <AdminPayrollSubmitOverride :agency-id="agencyId" :user-id="selectedUserId" :user-name="selectedUserName" />
-          </div>
           <h3 class="section-title" style="margin-top: 16px;">Adjustments (Add-ons / Overrides) — {{ selectedUserName }}</h3>
           <div class="card" style="margin-top: 10px;">
             <h3 class="card-title" style="margin: 0 0 6px 0;">Benefit Tier (Preview)</h3>
@@ -3932,6 +4013,7 @@ const showStageModal = ref(false);
 const showRawModal = ref(false);
 const showRunModal = ref(false);
 const showPayrollToolsModal = ref(false);
+const showSubmitOnBehalfModal = ref(false);
 const showTodoModal = ref(false);
 const showPayrollWizardModal = ref(false);
 const payrollToolsTab = ref('compare'); // compare | viewer
@@ -3947,6 +4029,28 @@ const payrollToolsViewerResult = ref(null);
 const payrollToolsCompareMode = ref('detail'); // detail | summary
 const payrollToolsCompareFilter = ref('changed'); // all | changed | added | removed
 const payrollToolsCompareSort = ref('human'); // human | change | code | date
+
+const submitOnBehalfSearch = ref('');
+const submitOnBehalfUserId = ref(null);
+const submitOnBehalfUsers = computed(() => {
+  const q = String(submitOnBehalfSearch.value || '').trim().toLowerCase();
+  const list = sortedAgencyUsers.value || [];
+  if (!q) return list;
+  return list.filter((u) => {
+    const first = String(u?.first_name || '').trim().toLowerCase();
+    const last = String(u?.last_name || '').trim().toLowerCase();
+    const email = String(u?.email || '').trim().toLowerCase();
+    return first.includes(q) || last.includes(q) || `${last}, ${first}`.includes(q) || email.includes(q);
+  });
+});
+const submitOnBehalfUserName = computed(() => {
+  const id = submitOnBehalfUserId.value ? Number(submitOnBehalfUserId.value) : null;
+  const u = (agencyUsers.value || []).find((x) => Number(x?.id) === id) || null;
+  if (!u) return id ? `User #${id}` : '';
+  const ln = String(u.last_name || '').trim();
+  const fn = String(u.first_name || '').trim();
+  return (ln || fn) ? `${ln}${ln && fn ? ', ' : ''}${fn}` : `User #${id}`;
+});
 
 const payrollToolsCompareAllRows = computed(() => {
   const r = payrollToolsCompareResult.value;
@@ -6320,6 +6424,19 @@ const nameForUserId = (uid) => {
   return `${u.first_name || ''} ${u.last_name || ''}`.trim();
 };
 
+const submittedAtYmd = (row) => String(row?.created_at || '').slice(0, 10) || '—';
+const submitterLabel = (row) => {
+  const submittedById = row?.submitted_by_user_id === null || row?.submitted_by_user_id === undefined ? null : Number(row.submitted_by_user_id);
+  const fn = String(row?.submitted_by_first_name || '').trim();
+  const ln = String(row?.submitted_by_last_name || '').trim();
+  const email = String(row?.submitted_by_email || '').trim();
+
+  if (ln || fn) return `${ln}${ln && fn ? ', ' : ''}${fn}`;
+  if (email) return email;
+  if (submittedById) return nameForUserId(submittedById);
+  return '—';
+};
+
 const loadMileageRates = async () => {
   if (!agencyId.value) return;
   try {
@@ -7964,6 +8081,38 @@ const nextProvider = () => {
   const nextIdx = idx >= 0 ? (idx + 1) % ids.length : 0;
   selectedUserId.value = ids[nextIdx];
   selectedSummary.value = (summaries.value || []).find((x) => x.user_id === selectedUserId.value) || null;
+};
+
+const openSubmitOnBehalfModal = async () => {
+  showSubmitOnBehalfModal.value = true;
+  // Ensure provider list is available (shared with staging selector).
+  try {
+    if (agencyId.value && !(agencyUsers.value || []).length && !loadingUsers.value) {
+      await loadAgencyUsers();
+    }
+  } catch {
+    // ignore; UI will show loading/errors elsewhere
+  }
+};
+
+const closeSubmitOnBehalfModal = () => {
+  showSubmitOnBehalfModal.value = false;
+};
+
+const clearSubmitOnBehalfProvider = () => {
+  submitOnBehalfUserId.value = null;
+};
+
+const nextSubmitOnBehalfProvider = () => {
+  const ids = (submitOnBehalfUsers.value || []).map((u) => u.id).filter(Boolean);
+  if (!ids.length) return;
+  if (!submitOnBehalfUserId.value || !ids.includes(submitOnBehalfUserId.value)) {
+    submitOnBehalfUserId.value = ids[0];
+    return;
+  }
+  const idx = ids.indexOf(submitOnBehalfUserId.value);
+  const nextIdx = idx >= 0 ? (idx + 1) % ids.length : 0;
+  submitOnBehalfUserId.value = ids[nextIdx];
 };
 
 const nextRunProvider = () => {

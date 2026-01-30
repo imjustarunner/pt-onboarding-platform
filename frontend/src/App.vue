@@ -160,11 +160,11 @@
               </template>
               <router-link
                 v-if="hasCapability('canJoinProgramEvents')"
-                :to="orgTo('/buildings')"
+                :to="orgTo('/schedule')"
                 @click="closeMobileMenu"
                 class="nav-link"
               >
-                Buildings
+                Schedule
                 <span v-if="showBuildingsPendingBadge && buildingsPendingCount > 0" class="nav-badge" :title="`${buildingsPendingCount} pending availability request(s)`">
                   {{ buildingsPendingCount }}
                 </span>

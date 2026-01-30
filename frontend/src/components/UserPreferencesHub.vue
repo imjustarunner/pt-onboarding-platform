@@ -228,6 +228,10 @@
                 <input v-model="scheduleColors.school" type="color" :disabled="viewOnly" />
               </div>
               <div class="field">
+                <label>Supervision</label>
+                <input v-model="scheduleColors.supervision" type="color" :disabled="viewOnly" />
+              </div>
+              <div class="field">
                 <label>Office assigned</label>
                 <input v-model="scheduleColors.office_assigned" type="color" :disabled="viewOnly" />
               </div>
@@ -523,6 +527,7 @@ const prefs = ref({
 const defaultScheduleColors = () => ({
   request: '#F2C94C',
   school: '#2D9CDB',
+  supervision: '#9B51E0',
   office_assigned: '#27AE60',
   office_temporary: '#9B51E0',
   office_booked: '#EB5757',

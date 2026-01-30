@@ -7489,9 +7489,13 @@ export const createMyMileageClaim = async (req, res, next) => {
             : null))
         : null;
 
+    // Auditing: who actually submitted this request (provider vs admin-on-behalf).
+    const submittedByUserId = req.actorUser?.id ? Number(req.actorUser.id) : userId;
+
     const claim = await PayrollMileageClaim.create({
       agencyId,
       userId,
+      submittedByUserId,
       driveDate,
       claimType,
       schoolOrganizationId,
@@ -7529,11 +7533,14 @@ export const createUserMileageClaim = async (req, res, next) => {
     if (!(await requireTargetUserInAgency({ res, agencyId, targetUserId }))) return;
 
     const prev = req.user;
+    const prevActor = req.actorUser;
+    req.actorUser = prev;
     req.user = { ...(prev || {}), id: targetUserId, role: 'provider' };
     try {
       return await createMyMileageClaim(req, res, next);
     } finally {
       req.user = prev;
+      req.actorUser = prevActor;
     }
   } catch (e) {
     next(e);
@@ -8149,9 +8156,13 @@ export const createMyMedcancelClaim = async (req, res, next) => {
     const notes = null;
     const attestation = 1;
 
+    // Auditing: who actually submitted this request (provider vs admin-on-behalf).
+    const submittedByUserId = req.actorUser?.id ? Number(req.actorUser.id) : userId;
+
     const claim = await PayrollMedcancelClaim.create({
       agencyId,
       userId,
+      submittedByUserId,
       claimDate,
       schoolOrganizationId,
       units: unitsRaw,
@@ -8180,11 +8191,14 @@ export const createUserMedcancelClaim = async (req, res, next) => {
     if (!(await requireTargetUserInAgency({ res, agencyId, targetUserId }))) return;
 
     const prev = req.user;
+    const prevActor = req.actorUser;
+    req.actorUser = prev;
     req.user = { ...(prev || {}), id: targetUserId, role: 'provider' };
     try {
       return await createMyMedcancelClaim(req, res, next);
     } finally {
       req.user = prev;
+      req.actorUser = prevActor;
     }
   } catch (e) {
     next(e);
@@ -8306,6 +8320,9 @@ export const createMyReimbursementClaim = [
       }
       const suggestedPayrollPeriodId = win.suggestedPayrollPeriodId;
 
+      // Auditing: who actually submitted this request (provider vs admin-on-behalf).
+      const submittedByUserId = req.actorUser?.id ? Number(req.actorUser.id) : userId;
+
       const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
       const original = req.file.originalname || 'receipt';
       const ext = (original.includes('.') ? `.${original.split('.').pop()}` : '');
@@ -8315,6 +8332,7 @@ export const createMyReimbursementClaim = [
       const claim = await PayrollReimbursementClaim.create({
         agencyId,
         userId,
+        submittedByUserId,
         status: 'submitted',
         expenseDate,
         amount,
@@ -8354,11 +8372,14 @@ export const createUserReimbursementClaim = [
       if (!(await requireTargetUserInAgency({ res, agencyId, targetUserId }))) return;
 
       const prev = req.user;
+      const prevActor = req.actorUser;
+      req.actorUser = prev;
       req.user = { ...(prev || {}), id: targetUserId, role: 'provider' };
       try {
         return await createMyReimbursementClaim[1](req, res, next);
       } finally {
         req.user = prev;
+        req.actorUser = prevActor;
       }
     } catch (e) {
       next(e);
@@ -8723,6 +8744,9 @@ export const createMyCompanyCardExpense = [
       }
       const suggestedPayrollPeriodId = win.suggestedPayrollPeriodId;
 
+      // Auditing: who actually submitted this request (provider vs admin-on-behalf).
+      const submittedByUserId = req.actorUser?.id ? Number(req.actorUser.id) : userId;
+
       const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
       const original = req.file.originalname || 'receipt';
       const ext = (original.includes('.') ? `.${original.split('.').pop()}` : '');
@@ -8732,6 +8756,7 @@ export const createMyCompanyCardExpense = [
       const claim = await PayrollCompanyCardExpense.create({
         agencyId,
         userId,
+        submittedByUserId,
         status: 'submitted',
         expenseDate,
         amount,
@@ -8848,6 +8873,9 @@ export const createUserCompanyCardExpense = [
       }
       const suggestedPayrollPeriodId = win.suggestedPayrollPeriodId;
 
+      // Auditing: for admin endpoints, this is the authenticated payroll user (not the target provider).
+      const submittedByUserId = req.user?.id ? Number(req.user.id) : null;
+
       const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
       const original = req.file.originalname || 'receipt';
       const ext = (original.includes('.') ? `.${original.split('.').pop()}` : '');
@@ -8857,6 +8885,7 @@ export const createUserCompanyCardExpense = [
       const claim = await PayrollCompanyCardExpense.create({
         agencyId,
         userId: targetUserId,
+        submittedByUserId,
         status: 'submitted',
         expenseDate,
         amount,
@@ -9537,9 +9566,13 @@ export const createMyTimeClaim = async (req, res, next) => {
     }
     const suggestedPayrollPeriodId = win.suggestedPayrollPeriodId;
 
+    // Auditing: who actually submitted this request (provider vs admin-on-behalf).
+    const submittedByUserId = req.actorUser?.id ? Number(req.actorUser.id) : userId;
+
     const claim = await PayrollTimeClaim.create({
       agencyId,
       userId,
+      submittedByUserId,
       status: 'submitted',
       claimType,
       claimDate,
@@ -9563,11 +9596,14 @@ export const createUserTimeClaim = async (req, res, next) => {
     if (!(await requireTargetUserInAgency({ res, agencyId, targetUserId }))) return;
 
     const prev = req.user;
+    const prevActor = req.actorUser;
+    req.actorUser = prev;
     req.user = { ...(prev || {}), id: targetUserId, role: 'provider' };
     try {
       return await createMyTimeClaim(req, res, next);
     } finally {
       req.user = prev;
+      req.actorUser = prevActor;
     }
   } catch (e) {
     next(e);
@@ -10471,9 +10507,13 @@ export const createMyPtoRequest = [
         };
       }
 
+      // Auditing: who actually submitted this request (provider vs admin-on-behalf).
+      const submittedByUserId = req.actorUser?.id ? Number(req.actorUser.id) : userId;
+
       const created = await PayrollPtoRequest.create({
         agencyId,
         userId,
+        submittedByUserId,
         requestType,
         notes,
         trainingDescription,
@@ -10507,11 +10547,14 @@ export const createUserPtoRequest = [
       if (!(await requireTargetUserInAgency({ res, agencyId, targetUserId }))) return;
 
       const prev = req.user;
+      const prevActor = req.actorUser;
+      req.actorUser = prev;
       req.user = { ...(prev || {}), id: targetUserId, role: 'provider' };
       try {
         return await createMyPtoRequest[1](req, res, next);
       } finally {
         req.user = prev;
+        req.actorUser = prevActor;
       }
     } catch (e) {
       next(e);

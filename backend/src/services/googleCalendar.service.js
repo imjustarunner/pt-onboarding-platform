@@ -316,6 +316,104 @@ export class GoogleCalendarService {
       return { ok: false, reason: 'google_api_error', error: msg };
     }
   }
+
+  static async upsertSupervisionSession({
+    supervisionSessionId,
+    hostEmail,
+    attendeeEmail,
+    startAt,
+    endAt,
+    timeZone = 'America/New_York',
+    summary,
+    description = null,
+    createMeetLink = false,
+    existingGoogleEventId = null,
+    existingMeetLink = null
+  }) {
+    const subject = String(hostEmail || '').trim().toLowerCase();
+    if (!subject) return { ok: false, reason: 'missing_host_email' };
+    const attendee = String(attendeeEmail || '').trim().toLowerCase();
+    if (!attendee) return { ok: false, reason: 'missing_attendee_email' };
+    if (!startAt || !endAt) return { ok: false, reason: 'missing_start_end' };
+
+    const cal = this.buildCalendarClientForSubject(subject);
+    const calendarId = 'primary';
+
+    const requestBody = {
+      summary: String(summary || 'Supervision').trim() || 'Supervision',
+      description: description ? String(description) : undefined,
+      start: { dateTime: toRfc3339Local(startAt), timeZone },
+      end: { dateTime: toRfc3339Local(endAt), timeZone },
+      attendees: [{ email: attendee }],
+      extendedProperties: {
+        private: {
+          pt_supervision_session_id: String(supervisionSessionId || ''),
+          pt_kind: 'SUPERVISION_SESSION'
+        }
+      }
+    };
+
+    const hasExistingMeet = !!String(existingMeetLink || '').trim();
+    if (createMeetLink && !hasExistingMeet) {
+      requestBody.conferenceData = {
+        createRequest: {
+          requestId: `pt-sup-${supervisionSessionId}-${Date.now()}`
+        }
+      };
+    }
+
+    try {
+      let data;
+      let googleEventId = String(existingGoogleEventId || '').trim() || null;
+
+      if (googleEventId) {
+        const upd = await cal.events.patch({
+          calendarId,
+          eventId: googleEventId,
+          requestBody,
+          sendUpdates: 'all',
+          ...(createMeetLink ? { conferenceDataVersion: 1 } : {})
+        });
+        data = upd.data;
+      } else {
+        const ins = await cal.events.insert({
+          calendarId,
+          requestBody,
+          sendUpdates: 'all',
+          ...(createMeetLink ? { conferenceDataVersion: 1 } : {})
+        });
+        data = ins.data;
+        googleEventId = data?.id || null;
+      }
+
+      const meetLink =
+        data?.conferenceData?.entryPoints?.find((e) => e?.entryPointType === 'video')?.uri ||
+        data?.hangoutLink ||
+        null;
+
+      return { ok: true, googleEventId, calendarId, meetLink };
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.upsertSupervisionSession' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
+
+  static async cancelSupervisionSessionGoogleEvent({ hostEmail, googleEventId }) {
+    const subject = String(hostEmail || '').trim().toLowerCase();
+    const eventId = String(googleEventId || '').trim();
+    if (!subject) return { ok: false, reason: 'missing_host_email' };
+    if (!eventId) return { ok: false, reason: 'missing_event_id' };
+
+    const cal = this.buildCalendarClientForSubject(subject);
+    const calendarId = 'primary';
+    try {
+      await cal.events.delete({ calendarId, eventId, sendUpdates: 'all' });
+      return { ok: true };
+    } catch (e) {
+      logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.cancelSupervisionSessionGoogleEvent' });
+      return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
+    }
+  }
 }
 
 export default GoogleCalendarService;

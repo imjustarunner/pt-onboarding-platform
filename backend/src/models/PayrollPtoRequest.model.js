@@ -2,23 +2,37 @@ import pool from '../config/database.js';
 
 class PayrollPtoRequest {
   static async findById(id) {
-    const [rows] = await pool.execute(`SELECT * FROM payroll_pto_requests WHERE id = ? LIMIT 1`, [id]);
+    const [rows] = await pool.execute(
+      `SELECT r.*,
+              sb.first_name AS submitted_by_first_name,
+              sb.last_name AS submitted_by_last_name,
+              sb.email AS submitted_by_email
+       FROM payroll_pto_requests r
+       LEFT JOIN users sb ON sb.id = r.submitted_by_user_id
+       WHERE r.id = ?
+       LIMIT 1`,
+      [id]
+    );
     return rows?.[0] || null;
   }
 
   static async listForAgency({ agencyId, status = null, limit = 200 }) {
     const lim = Math.max(1, Math.min(500, Number(limit || 200)));
     const params = [agencyId];
-    let where = 'WHERE agency_id = ?';
+    let where = 'WHERE r.agency_id = ?';
     if (status) {
-      where += ' AND status = ?';
+      where += ' AND r.status = ?';
       params.push(status);
     }
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM payroll_pto_requests
+      `SELECT r.*,
+              sb.first_name AS submitted_by_first_name,
+              sb.last_name AS submitted_by_last_name,
+              sb.email AS submitted_by_email
+       FROM payroll_pto_requests r
+       LEFT JOIN users sb ON sb.id = r.submitted_by_user_id
        ${where}
-       ORDER BY created_at DESC
+       ORDER BY r.created_at DESC
        LIMIT ${lim}`,
       params
     );
@@ -28,10 +42,14 @@ class PayrollPtoRequest {
   static async listForAgencyUser({ agencyId, userId, limit = 200 }) {
     const lim = Math.max(1, Math.min(500, Number(limit || 200)));
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM payroll_pto_requests
-       WHERE agency_id = ? AND user_id = ?
-       ORDER BY created_at DESC
+      `SELECT r.*,
+              sb.first_name AS submitted_by_first_name,
+              sb.last_name AS submitted_by_last_name,
+              sb.email AS submitted_by_email
+       FROM payroll_pto_requests r
+       LEFT JOIN users sb ON sb.id = r.submitted_by_user_id
+       WHERE r.agency_id = ? AND r.user_id = ?
+       ORDER BY r.created_at DESC
        LIMIT ${lim}`,
       [agencyId, userId]
     );
@@ -52,6 +70,7 @@ class PayrollPtoRequest {
   static async create({
     agencyId,
     userId,
+    submittedByUserId = null,
     requestType,
     notes,
     trainingDescription,
@@ -62,13 +81,14 @@ class PayrollPtoRequest {
   }) {
     const [res] = await pool.execute(
       `INSERT INTO payroll_pto_requests
-       (agency_id, user_id, status, request_type, notes, training_description,
+       (agency_id, user_id, submitted_by_user_id, status, request_type, notes, training_description,
         proof_file_path, proof_original_name, proof_mime_type, proof_size_bytes,
         policy_warnings_json, policy_ack_json, total_hours)
-       VALUES (?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         userId,
+        (Number.isFinite(Number(submittedByUserId)) && Number(submittedByUserId) > 0) ? Number(submittedByUserId) : Number(userId),
         requestType,
         notes || null,
         trainingDescription || null,

@@ -4,6 +4,7 @@ class PayrollCompanyCardExpense {
   static async create({
     agencyId,
     userId,
+    submittedByUserId = null,
     status = 'submitted',
     expenseDate,
     amount,
@@ -24,15 +25,16 @@ class PayrollCompanyCardExpense {
   }) {
     const [result] = await pool.execute(
       `INSERT INTO payroll_company_card_expenses
-       (agency_id, user_id, status, expense_date, amount, payment_method, vendor, supervisor_name, project_ref, category, splits_json, purpose, notes, attestation,
+       (agency_id, user_id, submitted_by_user_id, status, expense_date, amount, payment_method, vendor, supervisor_name, project_ref, category, splits_json, purpose, notes, attestation,
         receipt_file_path, receipt_original_name, receipt_mime_type, receipt_size_bytes,
         suggested_payroll_period_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                ?, ?, ?, ?,
                ?)`,
       [
         agencyId,
         userId,
+        (Number.isFinite(Number(submittedByUserId)) && Number(submittedByUserId) > 0) ? Number(submittedByUserId) : Number(userId),
         String(status || 'submitted'),
         expenseDate,
         amount,
@@ -56,7 +58,17 @@ class PayrollCompanyCardExpense {
   }
 
   static async findById(id) {
-    const [rows] = await pool.execute('SELECT * FROM payroll_company_card_expenses WHERE id = ? LIMIT 1', [id]);
+    const [rows] = await pool.execute(
+      `SELECT c.*,
+              sb.first_name AS submitted_by_first_name,
+              sb.last_name AS submitted_by_last_name,
+              sb.email AS submitted_by_email
+       FROM payroll_company_card_expenses c
+       LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
+       WHERE c.id = ?
+       LIMIT 1`,
+      [id]
+    );
     return rows?.[0] || null;
   }
 
@@ -64,16 +76,20 @@ class PayrollCompanyCardExpense {
     const lim = Math.max(1, Math.min(500, Number(limit || 200)));
     const off = Math.max(0, Number(offset || 0));
     const params = [agencyId, userId];
-    let where = `agency_id = ? AND user_id = ?`;
+    let where = `c.agency_id = ? AND c.user_id = ?`;
     if (status) {
-      where += ` AND status = ?`;
+      where += ` AND c.status = ?`;
       params.push(String(status));
     }
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM payroll_company_card_expenses
+      `SELECT c.*,
+              sb.first_name AS submitted_by_first_name,
+              sb.last_name AS submitted_by_last_name,
+              sb.email AS submitted_by_email
+       FROM payroll_company_card_expenses c
+       LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
        WHERE ${where}
-       ORDER BY expense_date DESC, id DESC
+       ORDER BY c.expense_date DESC, c.id DESC
        LIMIT ${lim} OFFSET ${off}`,
       params
     );
@@ -92,30 +108,34 @@ class PayrollCompanyCardExpense {
     const lim = Math.max(1, Math.min(500, Number(limit || 200)));
     const off = Math.max(0, Number(offset || 0));
     const params = [agencyId];
-    const conds = [`agency_id = ?`];
+    const conds = [`c.agency_id = ?`];
 
     if (status) {
-      conds.push(`status = ?`);
+      conds.push(`c.status = ?`);
       params.push(String(status));
     }
     if (Number.isFinite(Number(suggestedPayrollPeriodId)) && Number(suggestedPayrollPeriodId) > 0) {
-      conds.push(`suggested_payroll_period_id = ?`);
+      conds.push(`c.suggested_payroll_period_id = ?`);
       params.push(Number(suggestedPayrollPeriodId));
     }
     if (Number.isFinite(Number(targetPayrollPeriodId)) && Number(targetPayrollPeriodId) > 0) {
-      conds.push(`target_payroll_period_id = ?`);
+      conds.push(`c.target_payroll_period_id = ?`);
       params.push(Number(targetPayrollPeriodId));
     }
     if (Number.isFinite(Number(userId)) && Number(userId) > 0) {
-      conds.push(`user_id = ?`);
+      conds.push(`c.user_id = ?`);
       params.push(Number(userId));
     }
 
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM payroll_company_card_expenses
+      `SELECT c.*,
+              sb.first_name AS submitted_by_first_name,
+              sb.last_name AS submitted_by_last_name,
+              sb.email AS submitted_by_email
+       FROM payroll_company_card_expenses c
+       LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
        WHERE ${conds.join(' AND ')}
-       ORDER BY status ASC, expense_date DESC, id DESC
+       ORDER BY c.status ASC, c.expense_date DESC, c.id DESC
        LIMIT ${lim} OFFSET ${off}`,
       params
     );

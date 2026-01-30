@@ -51,6 +51,7 @@
       <div class="legend">
         <div class="legend-item"><span class="swatch swatch-request"></span> Pending request</div>
         <div class="legend-item"><span class="swatch swatch-school"></span> School assigned</div>
+        <div class="legend-item"><span class="swatch swatch-supv"></span> Supervision</div>
         <div class="legend-item"><span class="swatch swatch-oa"></span> Office assigned</div>
         <div class="legend-item"><span class="swatch swatch-ot"></span> Office temporary</div>
         <div class="legend-item"><span class="swatch swatch-ob"></span> Office booked</div>
@@ -85,6 +86,7 @@
                 class="cell-block"
                 :class="`cell-block-${b.kind}`"
                 :title="b.title"
+                @click="onCellBlockClick($event, b, d, h)"
               >
                 <span class="cell-block-text">{{ b.shortLabel }}</span>
               </div>
@@ -110,9 +112,31 @@
           <select v-model="requestType" class="input">
             <option value="office">Additional office availability request</option>
             <option value="school" :disabled="!canUseSchool(modalDay, modalHour, modalEndHour)">School daytime availability</option>
+            <option value="supervision" :disabled="supervisorsLoading || supervisors.length === 0">Supervision (adds to Google Calendar)</option>
           </select>
           <div v-if="requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)" class="muted" style="margin-top: 6px;">
             School daytime availability must be on weekdays and between 06:00 and 18:00.
+          </div>
+          <div v-if="requestType === 'supervision' && supervisorsLoading" class="muted" style="margin-top: 6px;">
+            Loading supervisors…
+          </div>
+          <div v-if="requestType === 'supervision' && !supervisorsLoading && supervisors.length === 0" class="muted" style="margin-top: 6px;">
+            No supervisor is assigned. Ask an admin to add a supervisor assignment first.
+          </div>
+
+          <div v-if="requestType === 'supervision' && supervisors.length" style="margin-top: 10px;">
+            <label class="lbl">Supervisor</label>
+            <select v-model.number="selectedSupervisorId" class="input">
+              <option :value="0">Select…</option>
+              <option v-for="s in supervisors" :key="`sup-${s.supervisor_id}`" :value="Number(s.supervisor_id)">
+                {{ (s.supervisor_first_name || '') + ' ' + (s.supervisor_last_name || '') }}
+              </option>
+            </select>
+
+            <label class="sched-toggle" style="margin-top: 8px;">
+              <input type="checkbox" v-model="createMeetLink" />
+              <span>Create Google Meet link</span>
+            </label>
           </div>
 
           <label class="lbl" style="margin-top: 10px;">End time</label>
@@ -133,10 +157,77 @@
             class="btn btn-primary"
             type="button"
             @click="submitRequest"
-            :disabled="submitting || (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour))"
+            :disabled="
+              submitting ||
+              (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
+              (requestType === 'supervision' && (supervisorsLoading || supervisors.length === 0 || !selectedSupervisorId))
+            "
           >
             {{ submitting ? 'Submitting…' : 'Submit request' }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showSupvModal" class="modal-backdrop" @click.self="closeSupvModal">
+      <div class="modal">
+        <div class="modal-head">
+          <div class="modal-title">Supervision session</div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeSupvModal">Close</button>
+        </div>
+
+        <div v-if="supvModalError" class="error" style="margin-top: 10px;">{{ supvModalError }}</div>
+
+        <div class="muted" style="margin-top: 6px;">
+          {{ supvDayLabel }} • {{ hourLabel(supvStartHour) }}–{{ hourLabel(supvEndHour) }}
+        </div>
+
+        <div class="modal-body">
+          <div v-if="supvOptions.length > 1" style="margin-bottom: 10px;">
+            <label class="lbl">Session</label>
+            <select v-model.number="selectedSupvSessionId" class="input">
+              <option v-for="o in supvOptions" :key="`supv-opt-${o.id}`" :value="o.id">
+                {{ o.label }}
+              </option>
+            </select>
+          </div>
+
+          <div class="field-grid">
+            <div>
+              <label class="lbl">Start</label>
+              <input v-model="supvStartIsoLocal" class="input" type="datetime-local" />
+            </div>
+            <div>
+              <label class="lbl">End</label>
+              <input v-model="supvEndIsoLocal" class="input" type="datetime-local" />
+            </div>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <label class="lbl">Notes</label>
+            <textarea v-model="supvNotes" class="input" rows="4" placeholder="Optional notes for the Google Calendar description…" />
+          </div>
+
+          <div v-if="selectedSupvSession?.googleMeetLink" class="muted" style="margin-top: 8px;">
+            Meet:
+            <a :href="selectedSupvSession.googleMeetLink" target="_blank" rel="noreferrer">
+              {{ selectedSupvSession.googleMeetLink }}
+            </a>
+          </div>
+
+          <label class="sched-toggle" style="margin-top: 10px;">
+            <input type="checkbox" v-model="supvCreateMeetLink" />
+            <span>Create Google Meet link (only if missing)</span>
+          </label>
+
+          <div class="modal-actions" style="justify-content: space-between;">
+            <button class="btn btn-danger" type="button" @click="cancelSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
+              Cancel session
+            </button>
+            <button class="btn btn-primary" type="button" @click="saveSupvSession" :disabled="supvSaving || !selectedSupvSessionId">
+              {{ supvSaving ? 'Saving…' : 'Save changes' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -166,6 +257,7 @@ const authStore = useAuthStore();
 const defaultScheduleColors = () => ({
   request: '#F2C94C',
   school: '#2D9CDB',
+  supervision: '#9B51E0',
   office_assigned: '#27AE60',
   office_temporary: '#9B51E0',
   office_booked: '#EB5757',
@@ -231,6 +323,7 @@ const scheduleColorVars = computed(() => {
   const c = scheduleColors.value || {};
   const req = c.request;
   const school = c.school;
+  const supv = c.supervision;
   const oa = c.office_assigned;
   const ot = c.office_temporary;
   const ob = c.office_booked;
@@ -246,6 +339,7 @@ const scheduleColorVars = computed(() => {
 
   const reqv = set(req, 0.35, 0.65);
   const schv = set(school, 0.28, 0.60);
+  const supvv = set(supv, 0.20, 0.55);
   const oav = set(oa, 0.22, 0.55);
   const otv = set(ot, 0.24, 0.58);
   const obv = set(ob, 0.22, 0.58);
@@ -256,6 +350,8 @@ const scheduleColorVars = computed(() => {
   if (reqv.br) v['--sched-request-border'] = reqv.br;
   if (schv.bg) v['--sched-school-bg'] = schv.bg;
   if (schv.br) v['--sched-school-border'] = schv.br;
+  if (supvv.bg) v['--sched-supv-bg'] = supvv.bg;
+  if (supvv.br) v['--sched-supv-border'] = supvv.br;
   if (oav.bg) v['--sched-oa-bg'] = oav.bg;
   if (oav.br) v['--sched-oa-border'] = oav.br;
   if (otv.bg) v['--sched-ot-bg'] = otv.bg;
@@ -451,7 +547,8 @@ const load = async () => {
         officeRequests: [],
         schoolRequests: [],
         schoolAssignments: [],
-        officeEvents: []
+        officeEvents: [],
+        supervisionSessions: []
       };
 
       // Union calendars available (per-user, but keep stable)
@@ -471,6 +568,7 @@ const load = async () => {
         merged.schoolRequests.push(...(r.data?.schoolRequests || []).map((x) => tag(x, aId)));
         merged.schoolAssignments.push(...(r.data?.schoolAssignments || []).map((x) => tag(x, aId)));
         merged.officeEvents.push(...(r.data?.officeEvents || []).map((x) => tag(x, aId)));
+        merged.supervisionSessions.push(...(r.data?.supervisionSessions || []).map((x) => tag(x, aId)));
       }
 
       // Prefer overlay info from the first successful result (per-user; not agency-scoped).
@@ -571,6 +669,78 @@ const hasRequest = (dayName, hour) => {
     }
   }
   return false;
+};
+
+const hasSupervision = (dayName, hour) => {
+  const s = summary.value;
+  if (!s) return false;
+  const list = s.supervisionSessions || [];
+  for (const ev of list) {
+    const startRaw = String(ev.startAt || '').trim();
+    const endRaw = String(ev.endAt || '').trim();
+    if (!startRaw || !endRaw) continue;
+    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
+    const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
+    if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
+    const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
+    const dn = ALL_DAYS[idx] || null;
+    if (dn !== dayName) continue;
+    const cellDate = addDaysYmd(s.weekStart || weekStart.value, ALL_DAYS.indexOf(dayName));
+    const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
+    const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
+    if (endLocal > cellStart && startLocal < cellEnd) return true;
+  }
+  return false;
+};
+
+const supervisionLabel = (dayName, hour) => {
+  const s = summary.value;
+  const list = s?.supervisionSessions || [];
+  const names = [];
+  for (const ev of list) {
+    const startRaw = String(ev.startAt || '').trim();
+    const endRaw = String(ev.endAt || '').trim();
+    if (!startRaw || !endRaw) continue;
+    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
+    const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
+    if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
+    const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
+    const dn = ALL_DAYS[idx] || null;
+    if (dn !== dayName) continue;
+    const cellDate = addDaysYmd(s.weekStart || weekStart.value, ALL_DAYS.indexOf(dayName));
+    const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
+    const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
+    if (!(endLocal > cellStart && startLocal < cellEnd)) continue;
+    const nm = String(ev.counterpartyName || '').trim();
+    if (nm) names.push(nm);
+  }
+  if (!names.length) return 'Supv';
+  if (names.length === 1) return names[0];
+  return `${names[0]}+${names.length - 1}`;
+};
+
+const supervisionTitle = (dayName, hour) => {
+  const s = summary.value;
+  const list = s?.supervisionSessions || [];
+  const hits = [];
+  for (const ev of list) {
+    const startRaw = String(ev.startAt || '').trim();
+    const endRaw = String(ev.endAt || '').trim();
+    if (!startRaw || !endRaw) continue;
+    const startLocal = new Date(startRaw.includes('T') ? startRaw : startRaw.replace(' ', 'T'));
+    const endLocal = new Date(endRaw.includes('T') ? endRaw : endRaw.replace(' ', 'T'));
+    if (Number.isNaN(startLocal.getTime()) || Number.isNaN(endLocal.getTime())) continue;
+    const idx = dayIndexForDateLocal(localYmd(startLocal), s.weekStart || weekStart.value);
+    const dn = ALL_DAYS[idx] || null;
+    if (dn !== dayName) continue;
+    const cellDate = addDaysYmd(s.weekStart || weekStart.value, ALL_DAYS.indexOf(dayName));
+    const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
+    const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
+    if (endLocal > cellStart && startLocal < cellEnd) hits.push(ev);
+  }
+  const withNames = hits.map((ev) => String(ev.counterpartyName || '').trim()).filter(Boolean);
+  const who = withNames.length ? withNames.join(', ') : '—';
+  return `Supervision — ${who} — ${dayName} ${hourLabel(hour)}`;
 };
 
 const hasSchool = (dayName, hour) => {
@@ -813,6 +983,11 @@ const cellBlocks = (dayName, hour) => {
     blocks.push({ key: 'school-assigned', kind: 'school', shortLabel: schoolShortLabel(dayName, hour), title: schoolTitle(dayName, hour) });
   }
 
+  // Supervision sessions
+  if (hasSupervision(dayName, hour)) {
+    blocks.push({ key: 'supv', kind: 'supv', shortLabel: supervisionLabel(dayName, hour), title: supervisionTitle(dayName, hour) });
+  }
+
   // Pending request
   if (hasRequest(dayName, hour)) {
     blocks.push({ key: 'request', kind: 'request', shortLabel: 'Req', title: requestTitle(dayName, hour) });
@@ -858,10 +1033,34 @@ const showRequestModal = ref(false);
 const modalDay = ref('Monday');
 const modalHour = ref(7);
 const modalEndHour = ref(8);
-const requestType = ref('office'); // office | school
+const requestType = ref('office'); // office | school | supervision
 const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
+
+const supervisorsLoading = ref(false);
+const supervisors = ref([]);
+const selectedSupervisorId = ref(0);
+const createMeetLink = ref(true);
+
+const loadSupervisors = async () => {
+  if (!props.userId) return;
+  if (!effectiveAgencyId.value) return;
+  try {
+    supervisorsLoading.value = true;
+    const r = await api.get(`/supervisor-assignments/supervisee/${props.userId}`, {
+      params: { agencyId: effectiveAgencyId.value }
+    });
+    supervisors.value = Array.isArray(r.data) ? r.data : [];
+    if (!selectedSupervisorId.value && supervisors.value.length === 1) {
+      selectedSupervisorId.value = Number(supervisors.value[0].supervisor_id || 0);
+    }
+  } catch {
+    supervisors.value = [];
+  } finally {
+    supervisorsLoading.value = false;
+  }
+};
 
 const endHourOptions = computed(() => {
   const start = Number(modalHour.value || 0);
@@ -892,6 +1091,8 @@ const onCellClick = (dayName, hour) => {
   requestType.value = 'office';
   requestNotes.value = '';
   modalError.value = '';
+  selectedSupervisorId.value = 0;
+  createMeetLink.value = true;
   showRequestModal.value = true;
 };
 
@@ -919,7 +1120,7 @@ const submitRequest = async () => {
         notes: requestNotes.value || '',
         slots: [{ weekday, startHour: h, endHour: endH }]
       });
-    } else {
+    } else if (requestType.value === 'school') {
       if (!canUseSchool(dn, h, endH)) throw new Error('School daytime availability must be on weekdays and between 06:00 and 18:00.');
       await api.post('/availability/school-requests', {
         agencyId: effectiveAgencyId.value,
@@ -930,6 +1131,27 @@ const submitRequest = async () => {
           endTime: `${pad2(endH)}:00`
         }]
       });
+    } else if (requestType.value === 'supervision') {
+      if (supervisorsLoading.value) throw new Error('Supervisors are still loading.');
+      const supId = Number(selectedSupervisorId.value || 0);
+      if (!supId) throw new Error('Please select a supervisor.');
+      const dayIdx = ALL_DAYS.indexOf(String(dn));
+      if (dayIdx < 0) throw new Error('Invalid day');
+      const dateYmd = addDaysYmd(weekStart.value, dayIdx);
+      const startAt = `${dateYmd}T${pad2(h)}:00:00`;
+      const endAt = `${dateYmd}T${pad2(endH)}:00:00`;
+      await api.post('/supervision/sessions', {
+        agencyId: effectiveAgencyId.value,
+        supervisorUserId: supId,
+        superviseeUserId: Number(props.userId),
+        startAt,
+        endAt,
+        notes: requestNotes.value || '',
+        createMeetLink: !!createMeetLink.value,
+        modality: 'virtual'
+      });
+    } else {
+      throw new Error('Invalid request type.');
     }
 
     closeModal();
@@ -939,6 +1161,162 @@ const submitRequest = async () => {
   } finally {
     submitting.value = false;
   }
+};
+
+watch(requestType, (t) => {
+  if (t === 'supervision') {
+    void loadSupervisors();
+  }
+});
+
+// ---- Supervision edit modal ----
+const showSupvModal = ref(false);
+const supvModalError = ref('');
+const supvSaving = ref(false);
+const selectedSupvSessionId = ref(0);
+const supvStartIsoLocal = ref('');
+const supvEndIsoLocal = ref('');
+const supvNotes = ref('');
+const supvCreateMeetLink = ref(false);
+
+const supvDayLabel = ref('');
+const supvStartHour = ref(7);
+const supvEndHour = ref(8);
+
+const parseMaybeDate = (raw) => {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+const toDatetimeLocalValue = (d) => {
+  if (!d) return '';
+  const p2 = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+};
+
+const supervisionSessionsInCell = (dayName, hour) => {
+  const s = summary.value;
+  if (!s) return [];
+  const list = Array.isArray(s.supervisionSessions) ? s.supervisionSessions : [];
+  const out = [];
+  const week = s.weekStart || weekStart.value;
+  const dayIdx = ALL_DAYS.indexOf(String(dayName));
+  if (dayIdx < 0) return [];
+  const cellDate = addDaysYmd(week, dayIdx);
+  const cellStart = new Date(`${cellDate}T${pad2(hour)}:00:00`);
+  const cellEnd = new Date(`${cellDate}T${pad2(hour + 1)}:00:00`);
+  for (const ev of list) {
+    const startLocal = parseMaybeDate(ev.startAt);
+    const endLocal = parseMaybeDate(ev.endAt);
+    if (!startLocal || !endLocal) continue;
+    const idx = dayIndexForDateLocal(localYmd(startLocal), week);
+    const dn = ALL_DAYS[idx] || null;
+    if (dn !== dayName) continue;
+    if (endLocal > cellStart && startLocal < cellEnd) out.push(ev);
+  }
+  return out;
+};
+
+const supvOptions = computed(() => {
+  const list = supervisionSessionsInCell(supvDayLabel.value, supvStartHour.value);
+  return list.map((ev) => {
+    const who = String(ev.counterpartyName || '').trim() || '—';
+    const st = parseMaybeDate(ev.startAt);
+    const en = parseMaybeDate(ev.endAt);
+    const label = `${who} • ${st ? toDatetimeLocalValue(st).slice(11) : ''}-${en ? toDatetimeLocalValue(en).slice(11) : ''}`;
+    return { id: Number(ev.id), label };
+  });
+});
+
+const selectedSupvSession = computed(() => {
+  const list = supervisionSessionsInCell(supvDayLabel.value, supvStartHour.value);
+  return list.find((x) => Number(x?.id) === Number(selectedSupvSessionId.value)) || null;
+});
+
+const openSupvModal = (dayName, hour) => {
+  const hits = supervisionSessionsInCell(dayName, hour);
+  if (!hits.length) return;
+  showSupvModal.value = true;
+  supvModalError.value = '';
+  supvSaving.value = false;
+  supvDayLabel.value = String(dayName);
+  supvStartHour.value = Number(hour);
+  supvEndHour.value = Number(hour) + 1;
+
+  const first = hits[0];
+  selectedSupvSessionId.value = Number(first.id || 0);
+  supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.startAt));
+  supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
+  supvNotes.value = String(first.notes || '');
+  supvCreateMeetLink.value = false;
+};
+
+const closeSupvModal = () => {
+  showSupvModal.value = false;
+  supvModalError.value = '';
+  selectedSupvSessionId.value = 0;
+  supvStartIsoLocal.value = '';
+  supvEndIsoLocal.value = '';
+  supvNotes.value = '';
+  supvCreateMeetLink.value = false;
+};
+
+watch(selectedSupvSessionId, (id) => {
+  if (!id) return;
+  const ev = selectedSupvSession.value;
+  if (!ev) return;
+  supvNotes.value = String(ev.notes || '');
+  supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.startAt));
+  supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.endAt));
+});
+
+const saveSupvSession = async () => {
+  const id = Number(selectedSupvSessionId.value || 0);
+  if (!id) return;
+  try {
+    supvSaving.value = true;
+    supvModalError.value = '';
+    const startAt = supvStartIsoLocal.value ? `${supvStartIsoLocal.value}:00` : '';
+    const endAt = supvEndIsoLocal.value ? `${supvEndIsoLocal.value}:00` : '';
+    if (!startAt || !endAt) throw new Error('Start and end are required.');
+    await api.patch(`/supervision/sessions/${id}`, {
+      startAt,
+      endAt,
+      notes: supvNotes.value || '',
+      createMeetLink: !!supvCreateMeetLink.value
+    });
+    await load();
+    closeSupvModal();
+  } catch (e) {
+    supvModalError.value = e.response?.data?.error?.message || e.message || 'Failed to save session';
+  } finally {
+    supvSaving.value = false;
+  }
+};
+
+const cancelSupvSession = async () => {
+  const id = Number(selectedSupvSessionId.value || 0);
+  if (!id) return;
+  try {
+    supvSaving.value = true;
+    supvModalError.value = '';
+    await api.post(`/supervision/sessions/${id}/cancel`);
+    await load();
+    closeSupvModal();
+  } catch (e) {
+    supvModalError.value = e.response?.data?.error?.message || e.message || 'Failed to cancel session';
+  } finally {
+    supvSaving.value = false;
+  }
+};
+
+const onCellBlockClick = (e, block, dayName, hour) => {
+  const kind = String(block?.kind || '');
+  if (kind !== 'supv') return;
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  openSupvModal(dayName, hour);
 };
 
 watch(modalHour, () => {
@@ -1038,6 +1416,7 @@ watch(modalHour, () => {
 }
 .swatch-request { background: var(--sched-request-bg, rgba(242, 201, 76, 0.35)); border-color: var(--sched-request-border, rgba(242, 201, 76, 0.65)); }
 .swatch-school { background: var(--sched-school-bg, rgba(45, 156, 219, 0.28)); border-color: var(--sched-school-border, rgba(45, 156, 219, 0.60)); }
+.swatch-supv { background: var(--sched-supv-bg, rgba(155, 81, 224, 0.20)); border-color: var(--sched-supv-border, rgba(155, 81, 224, 0.55)); }
 .swatch-oa { background: var(--sched-oa-bg, rgba(39, 174, 96, 0.22)); border-color: var(--sched-oa-border, rgba(39, 174, 96, 0.55)); }
 .swatch-ot { background: var(--sched-ot-bg, rgba(242, 153, 74, 0.24)); border-color: var(--sched-ot-border, rgba(242, 153, 74, 0.58)); }
 .swatch-ob { background: var(--sched-ob-bg, rgba(235, 87, 87, 0.22)); border-color: var(--sched-ob-border, rgba(235, 87, 87, 0.58)); }
@@ -1129,6 +1508,7 @@ watch(modalHour, () => {
 }
 .cell-block-request { background: var(--sched-request-bg, rgba(242, 201, 76, 0.35)); border-color: var(--sched-request-border, rgba(242, 201, 76, 0.65)); }
 .cell-block-school { background: var(--sched-school-bg, rgba(45, 156, 219, 0.28)); border-color: var(--sched-school-border, rgba(45, 156, 219, 0.60)); }
+.cell-block-supv { background: var(--sched-supv-bg, rgba(155, 81, 224, 0.20)); border-color: var(--sched-supv-border, rgba(155, 81, 224, 0.55)); }
 .cell-block-oa { background: var(--sched-oa-bg, rgba(39, 174, 96, 0.22)); border-color: var(--sched-oa-border, rgba(39, 174, 96, 0.55)); }
 .cell-block-ot { background: var(--sched-ot-bg, rgba(242, 153, 74, 0.24)); border-color: var(--sched-ot-border, rgba(242, 153, 74, 0.58)); }
 .cell-block-ob { background: var(--sched-ob-bg, rgba(235, 87, 87, 0.22)); border-color: var(--sched-ob-border, rgba(235, 87, 87, 0.58)); }
@@ -1179,6 +1559,17 @@ watch(modalHour, () => {
   margin-top: 12px;
   display: flex;
   justify-content: flex-end;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 640px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 860px) {

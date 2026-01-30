@@ -35,6 +35,7 @@ const buildDefaultPreferences = (userRole) => {
     schedule_color_overrides: {
       request: '#F2C94C',
       school: '#2D9CDB',
+      supervision: '#9B51E0',
       office_assigned: '#27AE60',
       office_temporary: '#9B51E0',
       office_booked: '#EB5757',
