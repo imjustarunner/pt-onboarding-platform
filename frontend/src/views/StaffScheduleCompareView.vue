@@ -31,6 +31,26 @@
           </div>
         </div>
 
+        <details class="agency-filter" open>
+          <summary class="agency-filter-summary">
+            <span>Agencies</span>
+            <span class="muted" style="font-size: 12px;">({{ agencyIdsForSchedule.length }}/{{ availableAgencies.length }})</span>
+          </summary>
+          <div class="row" style="margin-top: 8px; gap: 8px;">
+            <button class="btn btn-secondary btn-sm" type="button" @click="selectAllAgencies" :disabled="!availableAgencies.length">All</button>
+            <button class="btn btn-secondary btn-sm" type="button" @click="selectNoAgencies" :disabled="!availableAgencies.length">None</button>
+          </div>
+          <div v-if="availableAgencies.length" class="agency-list">
+            <label v-for="a in availableAgencies" :key="`sa-${a.id}`" class="agency-item">
+              <input type="checkbox" v-model="selectedAgencyIds" :value="Number(a.id)" />
+              <span class="name">{{ a.name }}</span>
+            </label>
+          </div>
+          <div v-else class="muted" style="font-size: 12px; margin-top: 8px;">
+            No agencies available for your account.
+          </div>
+        </details>
+
         <input v-model="search" class="input" placeholder="Search name/email…" />
 
         <div class="row" style="margin-top: 10px; gap: 8px;">
@@ -129,7 +149,27 @@ const effectiveAgencyId = computed(() => {
   const first = Number(authStore.user?.agencies?.find((a) => String(a?.organization_type || '').toLowerCase() === 'agency')?.id || 0);
   return first || 0;
 });
-const agencyIdsForSchedule = computed(() => (effectiveAgencyId.value ? [effectiveAgencyId.value] : []));
+const availableAgencies = computed(() =>
+  (authStore.user?.agencies || []).filter((a) => String(a?.organization_type || '').toLowerCase() === 'agency')
+);
+const selectedAgencyIds = ref([]);
+const selectAllAgencies = () => {
+  selectedAgencyIds.value = (availableAgencies.value || []).map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0);
+};
+const selectNoAgencies = () => {
+  selectedAgencyIds.value = [];
+};
+const agencyIdsForSchedule = computed(() => {
+  const ids = (selectedAgencyIds.value || []).map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0);
+  const seen = new Set();
+  const out = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+});
 const agencyLabelById = computed(() => {
   const m = {};
   const list = authStore.user?.agencies || [];
@@ -229,6 +269,13 @@ onMounted(async () => {
   // If organizationSlug exists, this route is org-prefixed; still safe to load the same endpoint.
   void route.params.organizationSlug;
   await loadUsers();
+
+  // Default agency filter to all agencies (best for multi-agency providers) or fall back to current.
+  if (!selectedAgencyIds.value.length) {
+    const ids = (availableAgencies.value || []).map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0);
+    if (ids.length) selectedAgencyIds.value = ids;
+    else if (effectiveAgencyId.value) selectedAgencyIds.value = [Number(effectiveAgencyId.value)];
+  }
 });
 </script>
 
@@ -271,6 +318,35 @@ onMounted(async () => {
   padding: 12px;
   height: calc(100vh - 220px);
   overflow: auto;
+}
+.agency-filter {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: white;
+  margin-bottom: 10px;
+}
+.agency-filter-summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 900;
+  color: var(--text-primary);
+}
+.agency-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.agency-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-primary);
 }
 .panel-head {
   display: flex;

@@ -26,7 +26,7 @@
       </div>
     </div>
 
-    <div v-if="!effectiveAgencyId" class="hint" style="margin-top: 10px;">Select an organization first.</div>
+    <div v-if="!effectiveAgencyIds.length" class="hint" style="margin-top: 10px;">Select an organization first.</div>
     <div v-else-if="loading" class="hint" style="margin-top: 10px;">Loading…</div>
     <div v-else-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
 
@@ -48,6 +48,7 @@
               :key="b.key"
               class="cell-block"
               :class="`cell-block-${b.kind}`"
+              :style="blockStyle(b)"
               :title="b.title"
               @click="onBlockClick($event, b)"
             >
@@ -98,10 +99,18 @@ const shiftWeek = (deltaDays) => {
   emit('update:weekStartYmd', next);
 };
 
-const effectiveAgencyId = computed(() => {
+const effectiveAgencyIds = computed(() => {
   const ids = Array.isArray(props.agencyIds) ? props.agencyIds : [];
-  const first = Number(ids[0] || 0);
-  return first || 0;
+  const out = [];
+  const seen = new Set();
+  for (const x of ids) {
+    const n = Number(x || 0);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    if (seen.has(n)) continue;
+    seen.add(n);
+    out.push(n);
+  }
+  return out;
 });
 
 const showGoogleBusy = ref(true);
@@ -110,6 +119,18 @@ const showGoogleEvents = ref(false);
 const loading = ref(false);
 const error = ref('');
 const summariesByUserId = ref({}); // uid -> schedule-summary
+
+const stableColorForId = (id) => {
+  const n = Number(id || 0);
+  if (!n) return 'rgba(0,0,0,0.25)';
+  const hue = (n * 47) % 360;
+  return `hsl(${hue} 70% 45%)`;
+};
+
+const blockStyle = (b) => {
+  const uid = Number(b?.userId || 0);
+  return uid ? { '--user-color': stableColorForId(uid) } : {};
+};
 
 const initialsForUser = (uid) => {
   const label = String(props.userLabelById?.[uid] || '').trim();
@@ -121,9 +142,9 @@ const initialsForUser = (uid) => {
 };
 
 const load = async () => {
-  const agencyId = effectiveAgencyId.value;
+  const agencyIds = effectiveAgencyIds.value;
   const ids = (props.userIds || []).map((x) => Number(x)).filter(Boolean);
-  if (!agencyId || !ids.length) {
+  if (!agencyIds.length || !ids.length) {
     summariesByUserId.value = {};
     return;
   }
@@ -134,15 +155,62 @@ const load = async () => {
     const results = await Promise.all(
       ids.map(async (uid) => {
         try {
-          const r = await api.get(`/users/${uid}/schedule-summary`, {
-            params: {
-              agencyId,
-              weekStart: ws,
-              includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
-              includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false'
-            }
-          });
-          return { ok: true, uid, data: r.data };
+          const perAgency = await Promise.all(
+            agencyIds.map((agencyId) =>
+              api
+                .get(`/users/${uid}/schedule-summary`, {
+                  params: {
+                    agencyId,
+                    weekStart: ws,
+                    includeGoogleBusy: showGoogleBusy.value ? 'true' : 'false',
+                    includeGoogleEvents: showGoogleEvents.value ? 'true' : 'false'
+                  }
+                })
+                .then((r) => ({ ok: true, agencyId, data: r.data }))
+                .catch((e) => ({
+                  ok: false,
+                  agencyId,
+                  error: e?.response?.data?.error?.message || e?.message || 'Failed to load schedule'
+                }))
+            )
+          );
+
+          const okOnes = perAgency.filter((r) => r.ok && r.data);
+          const first = okOnes[0]?.data || null;
+          if (!first) {
+            const msg =
+              perAgency
+                .filter((r) => !r.ok)
+                .slice(0, 1)
+                .map((r) => r.error)[0] || 'Failed to load schedule';
+            return { ok: false, uid, error: msg };
+          }
+
+          const tag = (row, agencyId) => ({ ...row, _agencyId: agencyId });
+          const merged = {
+            ...first,
+            agencyId: first.agencyId || agencyIds[0],
+            agencyIds: [...agencyIds],
+            schoolAssignments: [],
+            officeEvents: [],
+            supervisionSessions: []
+          };
+          for (const r of okOnes) {
+            const aId = r.agencyId;
+            merged.schoolAssignments.push(...(r.data?.schoolAssignments || []).map((x) => tag(x, aId)));
+            merged.officeEvents.push(...(r.data?.officeEvents || []).map((x) => tag(x, aId)));
+            merged.supervisionSessions.push(...(r.data?.supervisionSessions || []).map((x) => tag(x, aId)));
+          }
+
+          // Overlays are per-user (not agency-scoped), so prefer from the first successful result.
+          merged.googleBusy = first.googleBusy || [];
+          merged.googleBusyError = first.googleBusyError || null;
+          merged.googleEvents = first.googleEvents || [];
+          merged.googleEventsError = first.googleEventsError || null;
+          merged.externalCalendars = first.externalCalendars || [];
+          merged.externalCalendarsAvailable = first.externalCalendarsAvailable || [];
+
+          return { ok: true, uid, data: merged };
         } catch (e) {
           return { ok: false, uid, error: e?.response?.data?.error?.message || e?.message || 'Failed to load schedule' };
         }
@@ -160,7 +228,7 @@ const load = async () => {
   }
 };
 
-watch([() => props.userIds, effectiveWeekStart, showGoogleBusy, showGoogleEvents, effectiveAgencyId], () => void load(), { deep: true, immediate: true });
+watch([() => props.userIds, effectiveWeekStart, showGoogleBusy, showGoogleEvents, effectiveAgencyIds], () => void load(), { deep: true, immediate: true });
 
 const gridStyle = computed(() => ({
   gridTemplateColumns: `64px repeat(${ALL_DAYS.length}, minmax(0, 1fr))`
@@ -241,6 +309,7 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
     blocks.push({
       kind: 'school',
       key: `u${uid}-school-${dayName}-${hour}`,
+      userId: uid,
       shortLabel: `${init} ${short}`,
       title: `${props.userLabelById?.[uid] || `User ${uid}`} — School — ${short}`
     });
@@ -264,6 +333,7 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
     blocks.push({
       kind,
       key: `u${uid}-office-${dayName}-${hour}`,
+      userId: uid,
       shortLabel: `${init} ${label}`,
       title: `${props.userLabelById?.[uid] || `User ${uid}`} — Office — ${label}`
     });
@@ -280,6 +350,7 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
     blocks.push({
       kind: 'supv',
       key: `u${uid}-supv-${dayName}-${hour}`,
+      userId: uid,
       shortLabel: `${init} ${who}`,
       title: `${props.userLabelById?.[uid] || `User ${uid}`} — Supervision — ${who}`
     });
@@ -290,6 +361,7 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
     blocks.push({
       kind: 'gbusy',
       key: `u${uid}-gbusy-${dayName}-${hour}`,
+      userId: uid,
       shortLabel: `${init} G`,
       title: `${props.userLabelById?.[uid] || `User ${uid}`} — Google busy`
     });
@@ -311,6 +383,7 @@ const eventBlocksForUserCell = (uid, dayName, hour) => {
       blocks.push({
         kind: 'gevt',
         key: `u${uid}-gevt-${ev.id || summary}-${dayName}-${hour}`,
+        userId: uid,
         shortLabel: `${init} ${summary}`,
         title: `${props.userLabelById?.[uid] || `User ${uid}`} — ${summary}`,
         link: ev.htmlLink || null
@@ -403,6 +476,7 @@ const onBlockClick = (e, b) => {
 .cell-block {
   cursor: default;
   border: 1px solid rgba(15, 23, 42, 0.18);
+  border-left: 5px solid var(--user-color, rgba(15, 23, 42, 0.18));
   border-radius: 10px;
   padding: 2px 8px;
   font-size: 11px;

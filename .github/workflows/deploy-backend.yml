@@ -87,6 +87,12 @@ jobs:
             ENV_VARS="${ENV_VARS},CLIENT_CHAT_ENCRYPTION_KEY_BASE64=${CLIENT_CHAT_ENCRYPTION_KEY_BASE64}"
           fi
 
+          # Google Workspace (Calendar/Gmail) service account JSON (base64).
+          # NOTE: use GitHub secret directly here (empty => do not override Cloud Run).
+          if [ -n "${{ secrets.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 }}" ]; then
+            ENV_VARS="${ENV_VARS},GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64=${{ secrets.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 }}"
+          fi
+
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:$GITHUB_SHA \
             --platform managed \
