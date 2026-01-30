@@ -39,8 +39,8 @@
             class="btn btn-secondary btn-sm settings-icon-btn"
             type="button"
             @click="openSchoolSettings"
-            :title="'School settings'"
-            aria-label="School settings"
+            :title="'Organization settings'"
+            aria-label="Organization settings"
           >
             <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="btn-icon-img" />
             <span v-else aria-hidden="true">⚙</span>
@@ -500,19 +500,11 @@
     <div v-if="showSchoolSettings" class="settings-drawer-overlay" @click.self="showSchoolSettings = false">
       <div class="settings-drawer" @click.stop>
         <div class="settings-drawer-header">
-          <strong>School settings</strong>
+          <strong>Organization settings</strong>
           <button class="btn btn-secondary btn-sm" type="button" @click="showSchoolSettings = false">Close</button>
         </div>
         <div class="settings-drawer-body">
-          <SettingsModal
-            embedded
-            :disable-route-sync="true"
-            :lock-agency-context="true"
-            :initial-agency-id="affiliatedAgencyId"
-            initial-category-id="workflow"
-            initial-item-id="school-settings"
-            :initial-school-id="organizationId"
-          />
+          <OrganizationSettingsModal v-if="organizationId" :organization-id="organizationId" />
         </div>
       </div>
     </div>
@@ -536,7 +528,7 @@ import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPane
 import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersDirectoryPanel.vue';
 import SchoolStaffPanel from '../../components/school/redesign/SchoolStaffPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
-import SettingsModal from '../../components/admin/SettingsModal.vue';
+import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
@@ -1287,15 +1279,18 @@ watch(() => store.selectedWeekday, async (weekday) => {
   inset: 0;
   background: rgba(17, 24, 39, 0.55);
   display: flex;
-  justify-content: flex-end;
+  justify-content: center;
+  align-items: center;
+  padding: 14px;
   z-index: 2500;
 }
 .settings-drawer {
-  height: 100%;
-  width: min(1100px, 96vw);
+  height: min(96vh, 980px);
+  width: min(1400px, 98vw);
   background: var(--bg);
-  border-left: 1px solid var(--border);
-  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
 }

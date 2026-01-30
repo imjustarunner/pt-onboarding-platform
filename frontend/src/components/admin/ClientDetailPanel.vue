@@ -1000,24 +1000,67 @@
                   <tbody>
                     <tr v-for="pa in providerAssignments" :key="pa.id">
                       <td>
-                        {{ pa.provider_last_name }}, {{ pa.provider_first_name }}
-                        <span v-if="pa.is_primary" class="badge badge-success" style="margin-left: 8px;">Primary</span>
+                        <template v-if="Number(editingProviderAssignmentId) === Number(pa.id)">
+                          <select v-model="editProviderUserId" class="inline-select" style="min-width: 220px;">
+                            <option value="">Select…</option>
+                            <option v-for="p in providerOptions" :key="p.id" :value="String(p.id)">
+                              {{ p.last_name }}, {{ p.first_name }}
+                            </option>
+                          </select>
+                        </template>
+                        <template v-else>
+                          {{ pa.provider_last_name }}, {{ pa.provider_first_name }}
+                          <span v-if="pa.is_primary" class="badge badge-success" style="margin-left: 8px;">Primary</span>
+                        </template>
                       </td>
-                      <td>{{ pa.service_day || 'Unknown' }}</td>
+                      <td>
+                        <template v-if="Number(editingProviderAssignmentId) === Number(pa.id)">
+                          <select v-model="editProviderDay" class="inline-select" style="min-width: 180px;">
+                            <option value="Unknown">Unknown</option>
+                            <option v-for="d in weekdayOptions" :key="d" :value="d">{{ d }}</option>
+                          </select>
+                        </template>
+                        <template v-else>{{ pa.service_day || 'Unknown' }}</template>
+                      </td>
                       <td class="right">
-                        <button
-                          v-if="!pa.is_primary"
-                          class="btn btn-secondary btn-sm"
-                          type="button"
-                          :disabled="savingProviderAssignment"
-                          @click="makePrimaryProvider(pa)"
-                          style="margin-right: 8px;"
-                        >
-                          Make primary
-                        </button>
-                        <button class="btn btn-danger btn-sm" type="button" :disabled="savingProviderAssignment" @click="removeProviderAssignment(pa)">
-                          Remove
-                        </button>
+                        <template v-if="Number(editingProviderAssignmentId) === Number(pa.id)">
+                          <button
+                            class="btn btn-primary btn-sm"
+                            type="button"
+                            :disabled="savingProviderAssignment || !editProviderUserId || !editProviderDay"
+                            @click="saveEditProviderAssignment(pa)"
+                            style="margin-right: 8px;"
+                          >
+                            Save
+                          </button>
+                          <button class="btn btn-secondary btn-sm" type="button" :disabled="savingProviderAssignment" @click="cancelEditProviderAssignment">
+                            Cancel
+                          </button>
+                        </template>
+                        <template v-else>
+                          <button
+                            class="btn btn-secondary btn-sm"
+                            type="button"
+                            :disabled="savingProviderAssignment"
+                            @click="startEditProviderAssignment(pa)"
+                            style="margin-right: 8px;"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            v-if="!pa.is_primary"
+                            class="btn btn-secondary btn-sm"
+                            type="button"
+                            :disabled="savingProviderAssignment"
+                            @click="makePrimaryProvider(pa)"
+                            style="margin-right: 8px;"
+                          >
+                            Make primary
+                          </button>
+                          <button class="btn btn-danger btn-sm" type="button" :disabled="savingProviderAssignment" @click="removeProviderAssignment(pa)">
+                            Remove
+                          </button>
+                        </template>
                       </td>
                     </tr>
                   </tbody>
@@ -1605,6 +1648,9 @@ const addProviderUserId = ref('');
 const addProviderDay = ref('');
 const addProviderMakePrimary = ref(true);
 const savingProviderAssignment = ref(false);
+const editingProviderAssignmentId = ref(null);
+const editProviderUserId = ref('');
+const editProviderDay = ref('Unknown');
 
 const weekdayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
@@ -2417,6 +2463,59 @@ const availableProviderDaysForSelectedOrg = computed(() => {
   }
   return out;
 });
+
+const startEditProviderAssignment = (pa) => {
+  const id = Number(pa?.id);
+  if (!id) return;
+  editingProviderAssignmentId.value = id;
+  editProviderUserId.value = pa?.provider_user_id ? String(pa.provider_user_id) : '';
+  editProviderDay.value = pa?.service_day ? String(pa.service_day) : 'Unknown';
+};
+
+const cancelEditProviderAssignment = () => {
+  editingProviderAssignmentId.value = null;
+  editProviderUserId.value = '';
+  editProviderDay.value = 'Unknown';
+};
+
+const saveEditProviderAssignment = async (pa) => {
+  if (!canEditAccount.value) return;
+  const assignmentId = Number(pa?.id);
+  const orgId = Number(pa?.organization_id);
+  const oldProviderUserId = Number(pa?.provider_user_id);
+  const nextProviderUserId = editProviderUserId.value ? Number(editProviderUserId.value) : null;
+  const nextDay = String(editProviderDay.value || '').trim();
+  if (!assignmentId || !orgId || !nextProviderUserId || !nextDay) return;
+
+  const providerChanged = !!(oldProviderUserId && nextProviderUserId && oldProviderUserId !== nextProviderUserId);
+  try {
+    savingProviderAssignment.value = true;
+    assignmentsError.value = '';
+
+    // Upsert the "new" assignment (this also supports changing the day for the same provider).
+    // If the row was primary, carry primary status to the updated/new provider.
+    await api.post(`/clients/${props.client.id}/provider-assignments`, {
+      organization_id: orgId,
+      provider_user_id: nextProviderUserId,
+      service_day: nextDay,
+      ...(pa?.is_primary ? { is_primary: true } : {})
+    });
+
+    // If they switched providers, remove the old assignment row (so it becomes a true edit, not "add another").
+    if (providerChanged) {
+      await api.delete(`/clients/${props.client.id}/provider-assignments/${assignmentId}`);
+    }
+
+    await reloadProviderAssignments();
+    await refreshOverviewProviders();
+    cancelEditProviderAssignment();
+    emit('updated', { keepOpen: true });
+  } catch (e) {
+    assignmentsError.value = e.response?.data?.error?.message || 'Failed to update assignment';
+  } finally {
+    savingProviderAssignment.value = false;
+  }
+};
 
 const reloadProviderAssignments = async () => {
   if (!canEditAccount.value) return;

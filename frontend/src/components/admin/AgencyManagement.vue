@@ -1,7 +1,14 @@
 <template>
   <div class="agency-management">
-    <div class="master-detail" :class="{ 'nav-collapsed': navCollapsed, 'no-selection': !showCreateModal && !editingAgency }">
-      <aside class="nav-pane">
+    <div
+      class="master-detail"
+      :class="{
+        'nav-collapsed': navCollapsed && !embeddedSingleOrg,
+        'no-selection': !showCreateModal && !editingAgency,
+        embedded: embeddedSingleOrg
+      }"
+    >
+      <aside v-if="!embeddedSingleOrg" class="nav-pane">
         <div class="section-header" :class="{ collapsed: navCollapsed }">
           <h2 v-if="!navCollapsed">Organization Management</h2>
           <div v-else class="section-header-collapsed-title">Orgs</div>
@@ -2139,6 +2146,18 @@ const agencyStore = useAgencyStore();
 const route = useRoute();
 const router = useRouter();
 const userRole = computed(() => authStore.user?.role);
+
+const props = defineProps({
+  // Embedded single-organization mode (used by School Portal settings).
+  // When set, the UI loads and opens ONLY this organization (no left list).
+  embeddedOrgId: { type: [Number, String], default: null },
+  embeddedTab: { type: String, default: 'general' } // 'general' | 'branding' | 'features' | ...
+});
+
+const embeddedSingleOrg = computed(() => {
+  const id = parseInt(String(props.embeddedOrgId || ''), 10);
+  return Number.isFinite(id) && id > 0;
+});
 
 const agencies = ref([]);
 const buildings = ref([]); // office_locations (organization_type = 'office')
@@ -4836,7 +4855,31 @@ const copyLoginUrl = async (portalUrl) => {
 
 onMounted(async () => {
   const iconsPromise = loadIconsIndex();
-  await fetchAgencies();
+  if (embeddedSingleOrg.value) {
+    try {
+      loading.value = true;
+      error.value = '';
+      const id = parseInt(String(props.embeddedOrgId || ''), 10);
+      const resp = await api.get(`/agencies/${id}`);
+      agencies.value = resp.data ? [resp.data] : [];
+      buildings.value = [];
+      availableUsers.value = [];
+      affiliatedOrganizations.value = [];
+      showCreateModal.value = false;
+      if (agencies.value[0]) {
+        editAgency(agencies.value[0]);
+      }
+      if (props.embeddedTab) activeTab.value = String(props.embeddedTab);
+      navCollapsed.value = false;
+    } catch (e) {
+      error.value = e.response?.data?.error?.message || 'Failed to load organization';
+      agencies.value = [];
+    } finally {
+      loading.value = false;
+    }
+  } else {
+    await fetchAgencies();
+  }
   if (userRole.value === 'super_admin') {
     await fetchUsers();
   }
@@ -4851,6 +4894,10 @@ onMounted(async () => {
   grid-template-columns: 420px 1fr;
   gap: 18px;
   align-items: start;
+}
+
+.master-detail.embedded {
+  grid-template-columns: 1fr;
 }
 
 .master-detail.no-selection {

@@ -1307,8 +1307,146 @@ export const updateClient = async (req, res, next) => {
       );
     }
 
+    // If changing the client's primary organization (school/program/learning), validate the target org up front.
+    // IMPORTANT: School Portal rosters are assignment-driven (client_organization_assignments), so we also
+    // sync that table below when this field changes.
+    const requestedOrgIdRaw = req.body?.organization_id;
+    const requestedOrgId =
+      requestedOrgIdRaw === null || requestedOrgIdRaw === '' || requestedOrgIdRaw === undefined
+        ? null
+        : parseInt(String(requestedOrgIdRaw), 10);
+    const curOrgId = currentClient.organization_id ? parseInt(String(currentClient.organization_id), 10) : null;
+    const wantsOrgChange = Number.isFinite(requestedOrgId) && requestedOrgId > 0 && requestedOrgId !== curOrgId;
+    if (wantsOrgChange) {
+      const org = await Agency.findById(requestedOrgId);
+      if (!org) {
+        return res.status(400).json({ error: { message: 'Selected organization not found' } });
+      }
+      const t = String(org.organization_type || 'agency').toLowerCase();
+      if (!['school', 'program', 'learning'].includes(t)) {
+        return res.status(400).json({ error: { message: 'Clients can only be assigned to a school/program/learning organization' } });
+      }
+      // Ensure org is linked to the client's agency for non-super-admins.
+      if (String(userRole || '').toLowerCase() !== 'super_admin') {
+        const connection = await pool.getConnection();
+        try {
+          const linked = await isOrgLinkedToAgency({
+            connection,
+            agencyId: parseInt(currentClient.agency_id, 10),
+            organizationId: requestedOrgId
+          });
+          if (!linked) {
+            return res.status(400).json({ error: { message: 'Selected organization is not linked to this agency' } });
+          }
+        } finally {
+          connection.release();
+        }
+      }
+    }
+
     // Update client
     let updatedClient = await Client.update(id, req.body, userId);
+
+    // Keep multi-org assignments in sync when the primary organization is changed via the client profile.
+    // Without this, the profile can show the "new" school (clients.organization_id) while the School Portal
+    // roster still shows the client under the "old" school (client_organization_assignments).
+    if (wantsOrgChange) {
+      const clientId = parseInt(String(id), 10);
+      const newOrgId = updatedClient.organization_id ? parseInt(String(updatedClient.organization_id), 10) : null;
+      const oldOrgId = curOrgId;
+      if (clientId && newOrgId && oldOrgId) {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const hasTable = async (tableName) => {
+          try {
+            const [t] = await pool.execute(
+              "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? LIMIT 1",
+              [dbName, tableName]
+            );
+            return (t || []).length > 0;
+          } catch {
+            return false;
+          }
+        };
+
+        const hasAffTable = await hasTable('client_organization_assignments');
+        const hasProviderAssignmentsTable = await hasTable('client_provider_assignments');
+
+        if (hasAffTable || hasProviderAssignmentsTable) {
+          const conn = await pool.getConnection();
+          try {
+            await conn.beginTransaction();
+
+            // Move primary affiliation from old org -> new org.
+            if (hasAffTable) {
+              await conn.execute(
+                `UPDATE client_organization_assignments
+                 SET is_active = FALSE, is_primary = FALSE, updated_at = CURRENT_TIMESTAMP
+                 WHERE client_id = ? AND organization_id = ?`,
+                [clientId, oldOrgId]
+              );
+              await conn.execute(
+                `INSERT INTO client_organization_assignments (client_id, organization_id, is_primary, is_active)
+                 VALUES (?, ?, TRUE, TRUE)
+                 ON DUPLICATE KEY UPDATE is_active = TRUE, is_primary = TRUE`,
+                [clientId, newOrgId]
+              );
+              // Ensure only one primary.
+              await conn.execute(
+                `UPDATE client_organization_assignments
+                 SET is_primary = CASE WHEN organization_id = ? THEN TRUE ELSE FALSE END
+                 WHERE client_id = ?`,
+                [newOrgId, clientId]
+              );
+            }
+
+            // Deactivate provider assignments tied to the old org (if present) and refund slots.
+            if (hasProviderAssignmentsTable) {
+              try {
+                const [assignRows] = await conn.execute(
+                  `SELECT id, provider_user_id, service_day
+                   FROM client_provider_assignments
+                   WHERE client_id = ? AND organization_id = ? AND is_active = TRUE
+                   FOR UPDATE`,
+                  [clientId, oldOrgId]
+                );
+                for (const a of assignRows || []) {
+                  if (a?.provider_user_id && a?.service_day) {
+                    // eslint-disable-next-line no-await-in-loop
+                    await adjustProviderSlots(conn, {
+                      providerUserId: a.provider_user_id,
+                      schoolId: oldOrgId,
+                      dayOfWeek: a.service_day,
+                      delta: +1
+                    });
+                  }
+                  // eslint-disable-next-line no-await-in-loop
+                  await conn.execute(
+                    `UPDATE client_provider_assignments
+                     SET is_active = FALSE, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+                     WHERE id = ?`,
+                    [userId, a.id]
+                  );
+                }
+              } catch (e) {
+                const msg = String(e?.message || '');
+                const missing =
+                  msg.includes("doesn't exist") ||
+                  msg.includes('ER_NO_SUCH_TABLE') ||
+                  msg.includes('Unknown column') ||
+                  msg.includes('ER_BAD_FIELD_ERROR');
+                if (!missing) throw e;
+              }
+            }
+
+            await conn.commit();
+          } catch {
+            try { await conn.rollback(); } catch { /* ignore */ }
+          } finally {
+            conn.release();
+          }
+        }
+      }
+    }
 
     // If client_status_id changes:
     // - auto-archive for Dead/Terminated

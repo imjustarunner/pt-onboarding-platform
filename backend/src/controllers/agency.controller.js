@@ -572,6 +572,24 @@ export const deleteAgencyHard = async (req, res, next) => {
       }
     };
 
+    const deleteRefs = async (connection, tableName) => {
+      let cols = [];
+      try {
+        cols = await listColumns(tableName);
+      } catch {
+        cols = [];
+      }
+      if (!cols || cols.length === 0) return 0;
+      const cond = cols.map((c) => `\`${c}\` = ?`).join(' OR ');
+      const params = cols.map(() => orgId);
+      try {
+        const [result] = await connection.execute(`DELETE FROM \`${tableName}\` WHERE ${cond}`, params);
+        return Number(result?.affectedRows || 0);
+      } catch {
+        return 0;
+      }
+    };
+
     const dependencyTables = [
       'user_agencies',
       'organization_affiliations',
@@ -589,10 +607,57 @@ export const deleteAgencyHard = async (req, res, next) => {
       'school_soft_schedule_notes'
     ];
 
-    const hits = [];
-    for (const t of dependencyTables) {
-      const c = await countRefs(t);
-      if (c > 0) hits.push({ table: t, count: c });
+    const computeHits = async () => {
+      const hits = [];
+      for (const t of dependencyTables) {
+        const c = await countRefs(t);
+        if (c > 0) hits.push({ table: t, count: c });
+      }
+      return hits;
+    };
+
+    // In practice, many "blocked delete" cases are caused by safe, school-scoped join tables.
+    // We'll auto-clean those, but we still refuse to delete if actual client records remain.
+    const safeAutoCleanupOrder = [
+      // Most-dependent first (child rows)
+      'skills_group_clients',
+      'skills_group_providers',
+      'skills_group_meetings',
+      'skills_groups',
+      'school_soft_schedule_notes',
+      'school_soft_schedule_slots',
+      'school_profiles',
+      'provider_school_assignments',
+      'client_provider_assignments',
+      'client_organization_assignments',
+      'organization_affiliations',
+      'agency_schools',
+      'user_agencies'
+    ];
+
+    let hits = await computeHits();
+    if (hits.length > 0) {
+      const hasClients = hits.some((h) => h.table === 'clients' && Number(h.count || 0) > 0);
+      if (!hasClients) {
+        const connection = await pool.getConnection();
+        try {
+          await connection.beginTransaction();
+          for (const t of safeAutoCleanupOrder) {
+            // best-effort; ignore missing tables/columns
+            await deleteRefs(connection, t);
+          }
+          await connection.commit();
+        } catch {
+          try {
+            await connection.rollback();
+          } catch {
+            // ignore
+          }
+        } finally {
+          connection.release();
+        }
+        hits = await computeHits();
+      }
     }
 
     if (hits.length > 0) {

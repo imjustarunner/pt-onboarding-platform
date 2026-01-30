@@ -310,7 +310,18 @@ const deleteSchool = async (school) => {
     await api.delete(`/agencies/${id}`);
     await fetchOverview();
   } catch (e) {
-    alert(e?.response?.data?.error?.message || 'Failed to delete');
+    const err = e?.response?.data?.error;
+    const msg = err?.message || 'Failed to delete';
+    const deps = Array.isArray(err?.dependencies) ? err.dependencies : [];
+    if (deps.length > 0) {
+      const lines = deps
+        .slice(0, 15)
+        .map((d) => `- ${d?.table || 'unknown'} (${Number(d?.count || 0)})`)
+        .join('\n');
+      alert(`${msg}\n\nDependencies:\n${lines}${deps.length > 15 ? '\n- …' : ''}`);
+      return;
+    }
+    alert(msg);
   }
 };
 
