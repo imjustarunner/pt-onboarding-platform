@@ -2,6 +2,14 @@
   <div class="provider-school-profile">
     <div class="header">
       <button class="btn btn-secondary btn-sm" type="button" @click="backToProviders">← Back</button>
+      <button
+        class="btn btn-secondary btn-sm"
+        type="button"
+        @click="toggleClientLabelMode"
+        :title="clientLabelMode === 'codes' ? 'Show initials' : 'Show codes'"
+      >
+        {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
+      </button>
       <div class="spacer" />
     </div>
 
@@ -231,10 +239,21 @@ const messageDraft = ref('');
 const sendingMessage = ref(false);
 
 const clientLabelMode = ref('codes'); // shared portal setting
+const toggleClientLabelMode = () => {
+  const next = clientLabelMode.value === 'codes' ? 'initials' : 'codes';
+  clientLabelMode.value = next;
+  try {
+    window.localStorage.setItem('schoolPortalClientLabelMode', next);
+  } catch {
+    // ignore
+  }
+};
 const clientShort = (c) => {
   const mode = String(clientLabelMode.value || 'codes');
   const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
-  const raw = String(src || '').replace(/\s+/g, '').toUpperCase();
+  let raw = String(src || '').replace(/\s+/g, '');
+  // Preserve casing when displaying initials; codes can be normalized to uppercase.
+  if (mode !== 'initials') raw = raw.toUpperCase();
   if (!raw) return '—';
   if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
   return raw;

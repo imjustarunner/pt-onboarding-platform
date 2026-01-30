@@ -15,6 +15,11 @@ class DocumentTemplate {
       filePath,
       htmlContent,
       agencyId,
+      organizationId,
+      layoutType,
+      letterheadTemplateId,
+      letterHeaderHtml,
+      letterFooterHtml,
       createdByUserId,
       documentType,
       documentActionType,
@@ -40,6 +45,27 @@ class DocumentTemplate {
     } else {
       versionQuery += ' AND agency_id IS NULL';
     }
+
+    // Best-effort: include organization_id in version calculation when column exists.
+    // This allows independent versioning per affiliated organization.
+    let hasOrganizationColumn = false;
+    try {
+      const [orgCols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME = 'organization_id'"
+      );
+      hasOrganizationColumn = orgCols.length > 0;
+    } catch {
+      hasOrganizationColumn = false;
+    }
+
+    if (hasOrganizationColumn) {
+      if (organizationId !== null && organizationId !== undefined) {
+        versionQuery += ' AND organization_id = ?';
+        versionParams.push(organizationId);
+      } else {
+        versionQuery += ' AND organization_id IS NULL';
+      }
+    }
     
     if (isUserSpecific && userId) {
       versionQuery += ' AND user_id = ?';
@@ -61,6 +87,24 @@ class DocumentTemplate {
       hasIconColumn = columns.length > 0;
     } catch (err) {
       console.error('Error checking for icon_id column:', err);
+    }
+
+    // Optional columns (letter layout).
+    let hasLayoutTypeColumn = false;
+    let hasLetterheadColumn = false;
+    let hasLetterHeaderColumn = false;
+    let hasLetterFooterColumn = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html')"
+      );
+      const set = new Set((cols || []).map((r) => r.COLUMN_NAME));
+      hasLayoutTypeColumn = set.has('layout_type');
+      hasLetterheadColumn = set.has('letterhead_template_id');
+      hasLetterHeaderColumn = set.has('letter_header_html');
+      hasLetterFooterColumn = set.has('letter_footer_html');
+    } catch {
+      // ignore (older DBs)
     }
 
     // Build insert query based on whether icon_id column exists
@@ -90,6 +134,33 @@ class DocumentTemplate {
       isUserSpecific || false,
       userId || null
     ];
+
+    if (hasOrganizationColumn) {
+      insertFields += ', organization_id';
+      insertValues += ', ?';
+      insertParams.push(normalizeNullablePositiveInt(organizationId));
+    }
+
+    if (hasLayoutTypeColumn) {
+      insertFields += ', layout_type';
+      insertValues += ', ?';
+      insertParams.push(String(layoutType || 'standard'));
+    }
+    if (hasLetterheadColumn) {
+      insertFields += ', letterhead_template_id';
+      insertValues += ', ?';
+      insertParams.push(normalizeNullablePositiveInt(letterheadTemplateId));
+    }
+    if (hasLetterHeaderColumn) {
+      insertFields += ', letter_header_html';
+      insertValues += ', ?';
+      insertParams.push(letterHeaderHtml ?? null);
+    }
+    if (hasLetterFooterColumn) {
+      insertFields += ', letter_footer_html';
+      insertValues += ', ?';
+      insertParams.push(letterFooterHtml ?? null);
+    }
 
     if (hasIconColumn) {
       insertFields += ', icon_id';
@@ -412,6 +483,11 @@ class DocumentTemplate {
       isActive,
       iconId,
       agencyId,
+      organizationId,
+      layoutType,
+      letterheadTemplateId,
+      letterHeaderHtml,
+      letterFooterHtml,
       signatureX,
       signatureY,
       signatureWidth,
@@ -444,6 +520,11 @@ class DocumentTemplate {
     if ('isActive' in templateData) normalizedData.isActive = getValue('isActive');
     if ('iconId' in templateData) normalizedData.iconId = getValue('iconId');
     if ('agencyId' in templateData) normalizedData.agencyId = getValue('agencyId');
+    if ('organizationId' in templateData) normalizedData.organizationId = getValue('organizationId');
+    if ('layoutType' in templateData) normalizedData.layoutType = getValue('layoutType');
+    if ('letterheadTemplateId' in templateData) normalizedData.letterheadTemplateId = getValue('letterheadTemplateId');
+    if ('letterHeaderHtml' in templateData) normalizedData.letterHeaderHtml = getValue('letterHeaderHtml');
+    if ('letterFooterHtml' in templateData) normalizedData.letterFooterHtml = getValue('letterFooterHtml');
     if ('signatureX' in templateData) normalizedData.signatureX = getValue('signatureX');
     if ('signatureY' in templateData) normalizedData.signatureY = getValue('signatureY');
     if ('signatureWidth' in templateData) normalizedData.signatureWidth = getValue('signatureWidth');
@@ -470,6 +551,11 @@ class DocumentTemplate {
     const normIsActive = normalizedData.isActive;
     const normIconId = normalizedData.iconId;
     const normAgencyId = normalizedData.agencyId;
+    const normOrganizationId = normalizedData.organizationId;
+    const normLayoutType = normalizedData.layoutType;
+    const normLetterheadTemplateId = normalizedData.letterheadTemplateId;
+    const normLetterHeaderHtml = normalizedData.letterHeaderHtml;
+    const normLetterFooterHtml = normalizedData.letterFooterHtml;
     const normSignatureX = normalizedData.signatureX;
     const normSignatureY = normalizedData.signatureY;
     const normSignatureWidth = normalizedData.signatureWidth;
@@ -496,6 +582,11 @@ class DocumentTemplate {
         filePath: ('filePath' in templateData && normFilePath !== undefined) ? normFilePath : (existing.file_path || null),
         htmlContent: ('htmlContent' in templateData && normHtmlContent !== undefined) ? normHtmlContent : (existing.html_content || null),
         agencyId: finalAgencyId,
+        organizationId: ('organizationId' in templateData && normOrganizationId !== undefined) ? normOrganizationId : (existing.organization_id || null),
+        layoutType: ('layoutType' in templateData && normLayoutType !== undefined) ? normLayoutType : (existing.layout_type || 'standard'),
+        letterheadTemplateId: ('letterheadTemplateId' in templateData && normLetterheadTemplateId !== undefined) ? normLetterheadTemplateId : (existing.letterhead_template_id || null),
+        letterHeaderHtml: ('letterHeaderHtml' in templateData && normLetterHeaderHtml !== undefined) ? normLetterHeaderHtml : (existing.letter_header_html || null),
+        letterFooterHtml: ('letterFooterHtml' in templateData && normLetterFooterHtml !== undefined) ? normLetterFooterHtml : (existing.letter_footer_html || null),
         createdByUserId: existing.created_by_user_id,
         documentType: templateData.documentType !== undefined ? templateData.documentType : (existing.document_type || 'administrative'),
         documentActionType: templateData.documentActionType !== undefined ? templateData.documentActionType : (existing.document_action_type || 'signature'),
@@ -637,6 +728,37 @@ class DocumentTemplate {
       const val = normAgencyId !== null && normAgencyId !== undefined ? normAgencyId : null;
       safePush(val, 'agencyId');
     }
+
+    if (hasOrganizationColumn && 'organizationId' in templateData) {
+      updates.push('organization_id = ?');
+      const val = normOrganizationId !== null && normOrganizationId !== undefined ? normOrganizationId : null;
+      safePush(val, 'organizationId');
+    }
+
+    if (hasLayoutTypeColumn && 'layoutType' in templateData) {
+      updates.push('layout_type = ?');
+      const val = normLayoutType !== null && normLayoutType !== undefined ? String(normLayoutType) : (existing.layout_type || 'standard');
+      safePush(val, 'layoutType');
+    }
+
+    if (hasLetterheadColumn && 'letterheadTemplateId' in templateData) {
+      updates.push('letterhead_template_id = ?');
+      const val = normLetterheadTemplateId !== null && normLetterheadTemplateId !== undefined ? normLetterheadTemplateId : null;
+      safePush(val, 'letterheadTemplateId');
+    }
+
+    if (hasLetterHeaderColumn && 'letterHeaderHtml' in templateData) {
+      updates.push('letter_header_html = ?');
+      const val = normLetterHeaderHtml !== undefined ? normLetterHeaderHtml : (existing.letter_header_html || null);
+      safePush(val, 'letterHeaderHtml');
+    }
+
+    if (hasLetterFooterColumn && 'letterFooterHtml' in templateData) {
+      updates.push('letter_footer_html = ?');
+      const val = normLetterFooterHtml !== undefined ? normLetterFooterHtml : (existing.letter_footer_html || null);
+      safePush(val, 'letterFooterHtml');
+    }
+
     if ('signatureX' in templateData) {
       updates.push('signature_x = ?');
       // Use normalized value or normalized existing value

@@ -15,6 +15,7 @@
  * - Icons: icons/{filename}
  * - Fonts: fonts/{filename}
  * - Templates: templates/{filename}
+ * - Letterheads: letterheads/{filename}
  * - Signed Documents: signed/{userId}/{documentId}/{filename}
  * - User-Specific Documents: user_specific_documents/{filename}
  * - User Documents: user_documents/{filename}
@@ -553,6 +554,48 @@ class StorageService {
   }
 
   /**
+   * Save a letterhead asset (SVG/PNG) to GCS.
+   * @param {Buffer} fileBuffer
+   * @param {string} filename
+   * @param {string} contentType
+   */
+  static async saveLetterheadAsset(fileBuffer, filename, contentType) {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `letterheads/${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: contentType || 'application/octet-stream',
+      metadata: {
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return {
+      path: key,
+      key: key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  static async deleteLetterheadAsset(filename) {
+    const clean = this.sanitizeFilename(filename);
+    const key = `letterheads/${clean}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      if (gcsError.code !== 404) {
+        throw new Error(`Failed to delete letterhead asset from GCS: ${gcsError.message}`);
+      }
+    }
+  }
+
+  /**
    * Read a document template file from GCS
    * @param {string} filename - Filename
    * @returns {Promise<Buffer>}
@@ -802,6 +845,44 @@ class StorageService {
     });
 
     return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  /**
+   * Save a school portal public document under uploads/ so it can be served via /uploads/*.
+   * Intended for non-PHI, school-scoped shared documents (calendars, bell schedule PDFs, etc).
+   */
+  static async saveSchoolPublicDocument({ schoolOrganizationId, uploadedByUserId, fileBuffer, filename, contentType }) {
+    const sid = parseInt(schoolOrganizationId, 10);
+    const sanitizedFilename = this.sanitizeFilename(filename || `school-doc-${Date.now()}`);
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const key = `uploads/school_public_documents/school_${sid || 'unknown'}/${unique}-${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    await file.save(fileBuffer, {
+      contentType: contentType || 'application/octet-stream',
+      metadata: {
+        schoolOrganizationId: String(sid || ''),
+        uploadedByUserId: String(uploadedByUserId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  static async deleteSchoolPublicDocument(filenameOrKey) {
+    const key = String(filenameOrKey || '').trim();
+    if (!key) return;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      // Allow deletes to be best-effort; surfaces for genuine failures.
+      if (gcsError?.code === 404) return;
+      throw new Error(`Failed to delete school public document from GCS: ${gcsError.message}`);
+    }
   }
 
   /**

@@ -91,6 +91,7 @@ class TaskAssignmentService {
             if (user) {
               // Get agency data
               let agencyData = {};
+              let organizationData = {};
               if (user.agency_id) {
                 const Agency = (await import('../models/Agency.model.js')).default;
                 const agency = await Agency.findById(user.agency_id);
@@ -105,6 +106,22 @@ class TaskAssignmentService {
                 }
               }
 
+              // Optional organization scoping (school/program/learning)
+              if (template.organization_id) {
+                try {
+                  const Agency = (await import('../models/Agency.model.js')).default;
+                  const org = await Agency.findById(template.organization_id);
+                  if (org) {
+                    organizationData = {
+                      name: org.name,
+                      type: org.organization_type || null
+                    };
+                  }
+                } catch {
+                  organizationData = {};
+                }
+              }
+
               const taskData = {
                 assignmentDate: task.created_at,
                 dueDate: task.due_date
@@ -113,7 +130,9 @@ class TaskAssignmentService {
               const userData = {
                 firstName: user.first_name,
                 lastName: user.last_name,
-                email: user.email
+                email: user.email,
+                workEmail: user.work_email || null,
+                personalEmail: user.personal_email || null
               };
 
               let personalizedContent = null;
@@ -125,7 +144,8 @@ class TaskAssignmentService {
                   template.html_content,
                   userData,
                   agencyData,
-                  taskData
+                  taskData,
+                  organizationData
                 );
               } else if (template.template_type === 'pdf' && template.file_path) {
                 const StorageService = (await import('./storage.service.js')).default;

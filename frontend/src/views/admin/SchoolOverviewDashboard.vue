@@ -65,6 +65,25 @@
               <div class="school-meta">
                 <span class="pill">{{ formatOrgType(s.organization_type) }}</span>
                 <span v-if="s.district_name" class="pill pill-muted">{{ s.district_name }}</span>
+                <button
+                  v-if="Number(s.skills_groups_count || 0) > 0"
+                  type="button"
+                  class="pill pill-icon"
+                  title="Open Skills Groups in School Portal"
+                  @click.stop="goToSchoolSkillsGroups(s)"
+                >
+                  <img v-if="skillBuildersIconUrl" :src="skillBuildersIconUrl" alt="" class="pill-icon-img" />
+                  <span v-else aria-hidden="true">SB</span>
+                </button>
+                <span
+                  v-for="g in (Array.isArray(s.active_skills_groups) ? s.active_skills_groups : [])"
+                  :key="`asg-${s.school_id}-${g.skills_group_id}`"
+                  class="pill pill-sg-badge"
+                  title="Active Skills Group participants"
+                >
+                  SG
+                  <span class="sg-count">{{ Number(g.participants_count || 0) }}</span>
+                </span>
                 <span v-if="!s.is_active" class="pill pill-warn">Inactive</span>
                 <span v-if="s.is_archived" class="pill pill-warn">Archived</span>
                 <span v-if="s.skills_group_occurring_now" class="pill pill-accent">Skills Group Live</span>
@@ -141,14 +160,17 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useBrandingStore } from '../../store/branding';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const route = useRoute();
+const router = useRouter();
+const brandingStore = useBrandingStore();
 
 const loading = ref(false);
 const error = ref('');
@@ -267,7 +289,21 @@ const formatOrgType = (t) => {
 const openSchool = (school) => {
   const slug = String(school?.school_slug || '').trim();
   if (!slug) return;
-  window.open(`/${slug}/dashboard`, '_blank', 'noopener');
+  router.push(`/${slug}/dashboard`);
+};
+
+const skillBuildersIconUrl = computed(() => {
+  try {
+    return brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', agencyStore.currentAgency || null);
+  } catch {
+    return null;
+  }
+});
+
+const goToSchoolSkillsGroups = (school) => {
+  const slug = String(school?.school_slug || '').trim();
+  if (!slug) return;
+  router.push(`/${slug}/dashboard?sp=skills`);
 };
 
 const archiveSchool = async (school) => {
@@ -450,6 +486,20 @@ onMounted(async () => {
   background: var(--bg-alt);
   color: var(--text-secondary);
 }
+.pill-icon {
+  padding: 3px 8px;
+  cursor: pointer;
+  gap: 6px;
+}
+.pill-icon:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.pill-icon-img {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  display: block;
+}
 .pill-warn {
   background: rgba(245, 158, 11, 0.12);
   border-color: rgba(245, 158, 11, 0.35);
@@ -459,6 +509,26 @@ onMounted(async () => {
   background: rgba(249, 115, 22, 0.12);
   border-color: rgba(249, 115, 22, 0.35);
   color: #9a3412;
+}
+.pill-sg-badge {
+  background: rgba(16, 185, 129, 0.10);
+  border-color: rgba(16, 185, 129, 0.28);
+  color: #065f46;
+  gap: 6px;
+}
+.sg-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.18);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
 }
 .card-cta {
   font-size: 12px;

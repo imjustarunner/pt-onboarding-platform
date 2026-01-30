@@ -1562,33 +1562,33 @@ onUnmounted(() => {
   from {
     opacity: 0;
   }
-
-  .nav-icon-btn {
-    width: 36px;
-    height: 36px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.06);
-    color: white;
-    font-weight: 900;
-    line-height: 1;
-  }
-  .nav-icon-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
-  }
-  .nav-icon-img {
-    width: 18px;
-    height: 18px;
-    object-fit: contain;
-    display: block;
-    filter: brightness(0) invert(1);
-  }
   to {
     opacity: 1;
   }
+}
+
+.nav-icon-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: white;
+  font-weight: 900;
+  line-height: 1;
+}
+.nav-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.nav-icon-img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  display: block;
+  filter: brightness(0) invert(1);
 }
 
 /* Responsive: Hide desktop nav on small mobile, show hamburger */

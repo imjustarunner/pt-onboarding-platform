@@ -25,6 +25,16 @@ const validateTemplate = [
   body('name').notEmpty().withMessage('Template name is required'),
   body('description').optional().isString(),
   body('htmlContent').optional().isString(),
+  body('layoutType').optional().isIn(['standard', 'letter']).withMessage('layoutType must be standard or letter'),
+  body('letterheadTemplateId').optional().custom((value) => {
+    if (value === null || value === undefined || value === 'null' || value === '') return true;
+    const intValue = typeof value === 'string' ? parseInt(value) : value;
+    return Number.isInteger(intValue) && intValue > 0;
+  }).withMessage('letterheadTemplateId must be null or a positive integer'),
+  body('letterHeaderHtml').optional().custom((value) => value === null || value === undefined || typeof value === 'string')
+    .withMessage('letterHeaderHtml must be null or a string'),
+  body('letterFooterHtml').optional().custom((value) => value === null || value === undefined || typeof value === 'string')
+    .withMessage('letterFooterHtml must be null or a string'),
   body('agencyId').optional().custom((value) => {
     // Allow null, undefined, or a valid integer
     if (value === null || value === undefined || value === 'null' || value === '') {
@@ -33,6 +43,14 @@ const validateTemplate = [
     const intValue = typeof value === 'string' ? parseInt(value) : value;
     return Number.isInteger(intValue) && intValue > 0;
   }).withMessage('Agency ID must be null or a positive integer'),
+  body('organizationId').optional().custom((value) => {
+    // Allow null, undefined, or a valid integer
+    if (value === null || value === undefined || value === 'null' || value === '') {
+      return true;
+    }
+    const intValue = typeof value === 'string' ? parseInt(value) : value;
+    return Number.isInteger(intValue) && intValue > 0;
+  }).withMessage('Organization ID must be null or a positive integer'),
   body('documentType').optional().isIn(['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'administrative']).withMessage('Invalid document type'),
   body('isUserSpecific').optional().isBoolean().withMessage('isUserSpecific must be a boolean'),
   body('userId').optional().isInt().withMessage('User ID must be an integer')
@@ -55,6 +73,16 @@ const validateTemplateUpdate = [
     }
     return typeof value === 'string';
   }).withMessage('HTML content must be null or a string'),
+  body('layoutType').optional().isIn(['standard', 'letter']).withMessage('layoutType must be standard or letter'),
+  body('letterheadTemplateId').optional().custom((value) => {
+    if (value === null || value === undefined || value === 'null' || value === '') return true;
+    const intValue = typeof value === 'string' ? parseInt(value) : value;
+    return Number.isInteger(intValue) && intValue > 0;
+  }).withMessage('letterheadTemplateId must be null or a positive integer'),
+  body('letterHeaderHtml').optional().custom((value) => value === null || value === undefined || typeof value === 'string')
+    .withMessage('letterHeaderHtml must be null or a string'),
+  body('letterFooterHtml').optional().custom((value) => value === null || value === undefined || typeof value === 'string')
+    .withMessage('letterFooterHtml must be null or a string'),
   body('isActive').optional().isBoolean().withMessage('isActive must be a boolean'),
   body('createNewVersion').optional().isBoolean().withMessage('createNewVersion must be a boolean'),
   body('iconId').optional().custom((value) => {
@@ -73,6 +101,11 @@ const validateTemplateUpdate = [
     const intValue = typeof value === 'string' ? parseInt(value) : value;
     return Number.isInteger(intValue) && intValue > 0;
   }).withMessage('Agency ID must be null or a positive integer'),
+  body('organizationId').optional().custom((value) => {
+    if (value === null || value === undefined || value === 'null' || value === '') return true;
+    const intValue = typeof value === 'string' ? parseInt(value) : value;
+    return Number.isInteger(intValue) && intValue > 0;
+  }).withMessage('Organization ID must be null or a positive integer'),
   body('signatureX').optional().custom((value) => {
     if (value === null || value === undefined || value === 'null' || value === '') {
       return true;

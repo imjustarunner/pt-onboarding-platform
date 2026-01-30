@@ -3,6 +3,7 @@ import { body } from 'express-validator';
 import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, deleteAgencyHard, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations } from '../controllers/agency.controller.js';
 import { getAgencyAnnouncements, updateAgencyAnnouncements, getAgencyDashboardBanner } from '../controllers/agencyAnnouncements.controller.js';
 import { listAgencyNotificationTriggers, updateAgencyNotificationTrigger } from '../controllers/agencyNotificationTriggers.controller.js';
+import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -262,6 +263,15 @@ router.get('/', authenticate, getAllAgencies);
 router.get('/archived', authenticate, requireSuperAdmin, getArchivedAgencies);
 router.get('/:id/affiliated-organizations', authenticate, requireBackofficeAdmin, listAffiliatedOrganizations);
 router.get('/:id', authenticate, getAgencyById);
+
+// School Staff admin (school orgs only). Includes staff role support.
+router.get('/:id/school-staff/users', authenticate, listSchoolStaffUsers);
+router.post('/:id/school-contacts', authenticate, createSchoolContact);
+router.put('/:id/school-contacts/:contactId', authenticate, updateSchoolContact);
+router.delete('/:id/school-contacts/:contactId', authenticate, deleteSchoolContact);
+router.post('/:id/school-contacts/:contactId/create-user', authenticate, createSchoolStaffUserFromContact);
+router.post('/:id/school-staff/users/:userId/revoke-access', authenticate, revokeSchoolStaffAccess);
+
 router.get('/:id/announcements', authenticate, requireBackofficeAdmin, getAgencyAnnouncements);
 router.put('/:id/announcements', authenticate, requireBackofficeAdmin, updateAgencyAnnouncements);
 router.get('/:id/dashboard-banner', authenticate, getAgencyDashboardBanner);

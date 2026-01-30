@@ -77,6 +77,8 @@ export const getSchoolOverview = async (req, res, next) => {
         waitlist_count: 0,
         docs_needs_count: 0,
         school_staff_count: 0,
+        skills_groups_count: 0,
+        active_skills_groups: [],
         skills_group_occurring_now: false
       });
     }
@@ -174,6 +176,55 @@ export const getSchoolOverview = async (req, res, next) => {
       addCountMap(rows, 'school_id', 'occurring', (t) => {
         t.skills_group_occurring_now = true;
       });
+    } catch (e) {
+      if (!isMissingSchemaError(e)) throw e;
+    }
+
+    // Skills groups count (any)
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           sg.organization_id AS school_id,
+           COUNT(DISTINCT sg.id) AS skills_groups_count
+         FROM skills_groups sg
+         WHERE sg.organization_id IN (${placeholders})
+         GROUP BY sg.organization_id`,
+        schoolIds
+      );
+      addCountMap(rows, 'school_id', 'skills_groups_count', (t, v) => {
+        t.skills_groups_count = Number(v || 0);
+      });
+    } catch (e) {
+      if (!isMissingSchemaError(e)) throw e;
+    }
+
+    // Active skills groups participant counts (per group) for badge bubbles on the overview card.
+    // "Active" means within date range (start_date..end_date). This does not require a meeting occurring now.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           sg.organization_id AS school_id,
+           sg.id AS skills_group_id,
+           COUNT(DISTINCT sgc.client_id) AS participants_count
+         FROM skills_groups sg
+         LEFT JOIN skills_group_clients sgc ON sgc.skills_group_id = sg.id
+         WHERE sg.organization_id IN (${placeholders})
+           AND sg.start_date <= CURDATE()
+           AND sg.end_date >= CURDATE()
+         GROUP BY sg.organization_id, sg.id
+         ORDER BY sg.organization_id ASC, sg.id ASC`,
+        schoolIds
+      );
+      for (const r of rows || []) {
+        const sid = safeInt(r?.school_id);
+        const target = sid ? bySchoolId.get(sid) : null;
+        if (!target) continue;
+        const gid = safeInt(r?.skills_group_id);
+        if (!gid) continue;
+        const cnt = Number(r?.participants_count || 0);
+        target.active_skills_groups = Array.isArray(target.active_skills_groups) ? target.active_skills_groups : [];
+        target.active_skills_groups.push({ skills_group_id: gid, participants_count: cnt });
+      }
     } catch (e) {
       if (!isMissingSchemaError(e)) throw e;
     }

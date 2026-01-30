@@ -240,6 +240,41 @@ export const getProviderSchoolAssignments = async (req, res, next) => {
     const aff = await ensureSchoolAffiliation(req, target.providerUserId, schoolId);
     if (!aff.ok) return res.status(aff.status).json({ error: { message: aff.message } });
 
+    // School bell schedule / notes (school-level quick reference)
+    let schoolBellSchedule = { startTime: null, endTime: null, notes: null };
+    try {
+      try {
+        const [spRows] = await pool.execute(
+          `SELECT bell_schedule_start_time, bell_schedule_end_time, school_days_times
+           FROM school_profiles
+           WHERE school_organization_id = ?
+           LIMIT 1`,
+          [aff.schoolId]
+        );
+        const sp = spRows?.[0] || null;
+        schoolBellSchedule = {
+          startTime: sp?.bell_schedule_start_time ?? null,
+          endTime: sp?.bell_schedule_end_time ?? null,
+          // Reuse existing "school_days_times" field as Notes (legacy Soft Schedule).
+          notes: sp?.school_days_times ?? null
+        };
+      } catch (e) {
+        // Backward-compatible: bell schedule columns may not exist yet.
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+        const [spRows] = await pool.execute(
+          `SELECT school_days_times
+           FROM school_profiles
+           WHERE school_organization_id = ?
+           LIMIT 1`,
+          [aff.schoolId]
+        );
+        const sp = spRows?.[0] || null;
+        schoolBellSchedule = { startTime: null, endTime: null, notes: sp?.school_days_times ?? null };
+      }
+    } catch {
+      schoolBellSchedule = { startTime: null, endTime: null, notes: null };
+    }
+
     const [rows] = await pool.execute(
       `SELECT *
        FROM provider_school_assignments
@@ -319,6 +354,7 @@ export const getProviderSchoolAssignments = async (req, res, next) => {
     res.json({
       providerUserId: target.providerUserId,
       schoolOrganizationId: aff.schoolId,
+      schoolBellSchedule,
       schoolAcceptingNewClientsOverride: override === undefined ? null : override,
       assignments: (rows || []).map((r) => {
         const day = String(r.day_of_week || '');

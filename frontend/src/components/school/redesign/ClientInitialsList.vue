@@ -27,7 +27,9 @@ defineEmits(['select']);
 const displayId = (c) => {
   const mode = String(props.clientLabelMode || 'codes');
   const src = mode === 'initials' ? (c?.initials || c?.identifier_code) : (c?.identifier_code || c?.initials);
-  const raw = String(src || '').replace(/\s+/g, '').toUpperCase();
+  let raw = String(src || '').replace(/\s+/g, '');
+  // Preserve casing when displaying initials; codes can be normalized to uppercase.
+  if (mode !== 'initials') raw = raw.toUpperCase();
   if (!raw) return '—';
   if (raw.length >= 6) return `${raw.slice(0, 3)}${raw.slice(-3)}`;
   return raw;

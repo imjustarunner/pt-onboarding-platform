@@ -51,6 +51,7 @@ export const uploadTemplate = async (req, res, next) => {
       name,
       description,
       agencyId,
+      organizationId,
       documentType,
       documentActionType,
       iconId,
@@ -78,6 +79,18 @@ export const uploadTemplate = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'agencyId must be null or a positive integer' } });
     }
 
+    let parsedOrganizationId = parseNullablePositiveInt(organizationId);
+    if (parsedOrganizationId === undefined) {
+      return res.status(400).json({ error: { message: 'organizationId must be null or a positive integer' } });
+    }
+    // If they picked the agency itself in the org dropdown, treat it as "no specific org"
+    if (parsedOrganizationId !== null && parsedAgencyId !== null && parsedOrganizationId === parsedAgencyId) {
+      parsedOrganizationId = null;
+    }
+    if (parsedAgencyId === null && parsedOrganizationId !== null) {
+      return res.status(400).json({ error: { message: 'organizationId cannot be set for platform templates (agencyId is null)' } });
+    }
+
     // Permissions:
     // - Only super_admin can create platform templates (agencyId null)
     // - Non-super-admins must create templates scoped to an organization they belong to
@@ -97,6 +110,24 @@ export const uploadTemplate = async (req, res, next) => {
       const [rows] = await pool.execute('SELECT id FROM agencies WHERE id = ? LIMIT 1', [parsedAgencyId]);
       if (rows.length === 0) {
         return res.status(400).json({ error: { message: `Invalid agencyId: ${parsedAgencyId} (agency not found)` } });
+      }
+    }
+
+    if (parsedOrganizationId !== null) {
+      // Validate org exists
+      const [orgRows] = await pool.execute('SELECT id FROM agencies WHERE id = ? LIMIT 1', [parsedOrganizationId]);
+      if (orgRows.length === 0) {
+        return res.status(400).json({ error: { message: `Invalid organizationId: ${parsedOrganizationId} (organization not found)` } });
+      }
+      // Validate affiliation to agency
+      const [aff] = await pool.execute(
+        'SELECT id FROM organization_affiliations WHERE agency_id = ? AND organization_id = ? AND is_active = TRUE LIMIT 1',
+        [parsedAgencyId, parsedOrganizationId]
+      );
+      if (!aff || aff.length === 0) {
+        return res.status(400).json({
+          error: { message: `organizationId ${parsedOrganizationId} is not affiliated with agencyId ${parsedAgencyId}` }
+        });
       }
     }
 
@@ -123,6 +154,7 @@ export const uploadTemplate = async (req, res, next) => {
       filePath,
       htmlContent: null,
       agencyId: parsedAgencyId,
+      organizationId: parsedOrganizationId,
       createdByUserId,
       documentType: documentType || 'administrative',
       documentActionType,
@@ -163,6 +195,11 @@ export const createTemplate = async (req, res, next) => {
       description,
       htmlContent,
       agencyId,
+      organizationId,
+      layoutType,
+      letterheadTemplateId,
+      letterHeaderHtml,
+      letterFooterHtml,
       documentType,
       documentActionType,
       iconId
@@ -188,9 +225,25 @@ export const createTemplate = async (req, res, next) => {
       });
     }
 
+    const parsedLayoutType = layoutType ? String(layoutType).trim().toLowerCase() : 'standard';
+    if (!['standard', 'letter'].includes(parsedLayoutType)) {
+      return res.status(400).json({ error: { message: 'layoutType must be "standard" or "letter"' } });
+    }
+
     const parsedAgencyId = parseNullablePositiveInt(agencyId);
     if (parsedAgencyId === undefined) {
       return res.status(400).json({ error: { message: 'agencyId must be null or a positive integer' } });
+    }
+
+    let parsedOrganizationId = parseNullablePositiveInt(organizationId);
+    if (parsedOrganizationId === undefined) {
+      return res.status(400).json({ error: { message: 'organizationId must be null or a positive integer' } });
+    }
+    if (parsedOrganizationId !== null && parsedAgencyId !== null && parsedOrganizationId === parsedAgencyId) {
+      parsedOrganizationId = null;
+    }
+    if (parsedAgencyId === null && parsedOrganizationId !== null) {
+      return res.status(400).json({ error: { message: 'organizationId cannot be set for platform templates (agencyId is null)' } });
     }
 
     // Permissions:
@@ -215,9 +268,50 @@ export const createTemplate = async (req, res, next) => {
       }
     }
 
+    if (parsedOrganizationId !== null) {
+      const [orgRows] = await pool.execute('SELECT id FROM agencies WHERE id = ? LIMIT 1', [parsedOrganizationId]);
+      if (orgRows.length === 0) {
+        return res.status(400).json({ error: { message: `Invalid organizationId: ${parsedOrganizationId} (organization not found)` } });
+      }
+      const [aff] = await pool.execute(
+        'SELECT id FROM organization_affiliations WHERE agency_id = ? AND organization_id = ? AND is_active = TRUE LIMIT 1',
+        [parsedAgencyId, parsedOrganizationId]
+      );
+      if (!aff || aff.length === 0) {
+        return res.status(400).json({
+          error: { message: `organizationId ${parsedOrganizationId} is not affiliated with agencyId ${parsedAgencyId}` }
+        });
+      }
+    }
+
     const parsedIconId = parseNullablePositiveInt(iconId);
     if (parsedIconId === undefined) {
       return res.status(400).json({ error: { message: 'iconId must be null or a positive integer' } });
+    }
+
+    let parsedLetterheadTemplateId = parseNullablePositiveInt(letterheadTemplateId);
+    if (parsedLetterheadTemplateId === undefined) {
+      return res.status(400).json({ error: { message: 'letterheadTemplateId must be null or a positive integer' } });
+    }
+
+    if (parsedLayoutType === 'letter') {
+      if (!parsedLetterheadTemplateId) {
+        return res.status(400).json({ error: { message: 'letterheadTemplateId is required for letter layout templates' } });
+      }
+      const [lhRows] = await pool.execute(
+        'SELECT id, is_active FROM letterhead_templates WHERE id = ? LIMIT 1',
+        [parsedLetterheadTemplateId]
+      );
+      if (!lhRows || lhRows.length === 0) {
+        return res.status(400).json({ error: { message: `Invalid letterheadTemplateId: ${parsedLetterheadTemplateId}` } });
+      }
+      const isActive = lhRows[0].is_active !== false && lhRows[0].is_active !== 0;
+      if (!isActive) {
+        return res.status(400).json({ error: { message: 'Selected letterhead is inactive' } });
+      }
+    } else {
+      // Standard layout should not bind a letterhead
+      parsedLetterheadTemplateId = null;
     }
 
     const template = await DocumentTemplate.create({
@@ -227,6 +321,11 @@ export const createTemplate = async (req, res, next) => {
       filePath: null,
       htmlContent: htmlContent ?? null,
       agencyId: parsedAgencyId,
+      organizationId: parsedOrganizationId,
+      layoutType: parsedLayoutType,
+      letterheadTemplateId: parsedLetterheadTemplateId,
+      letterHeaderHtml: letterHeaderHtml ?? null,
+      letterFooterHtml: letterFooterHtml ?? null,
       createdByUserId,
       documentType: documentType || 'administrative',
       documentActionType,
@@ -432,6 +531,10 @@ export const updateTemplate = async (req, res, next) => {
       name,
       description,
       htmlContent,
+      layoutType,
+      letterheadTemplateId,
+      letterHeaderHtml,
+      letterFooterHtml,
       isActive,
       iconId,
       agencyId,
@@ -443,13 +546,20 @@ export const updateTemplate = async (req, res, next) => {
     } = sanitizedInputBody;
 
     // Check permissions: Support can only edit their own documents
+    let existing = null;
     if (req.user.role === 'support') {
-      const existing = await DocumentTemplate.findById(id);
+      existing = await DocumentTemplate.findById(id);
       if (!existing) {
         return res.status(404).json({ error: { message: 'Template not found' } });
       }
       if (existing.created_by_user_id !== req.user.id) {
         return res.status(403).json({ error: { message: 'You can only edit documents you created' } });
+      }
+    }
+    if (!existing) {
+      existing = await DocumentTemplate.findById(id);
+      if (!existing) {
+        return res.status(404).json({ error: { message: 'Template not found' } });
       }
     }
 
@@ -459,6 +569,59 @@ export const updateTemplate = async (req, res, next) => {
     if (name !== undefined) updateData.name = name !== null && name !== '' ? name : null;
     if (description !== undefined) updateData.description = description !== null && description !== '' ? description : null;
     if (htmlContent !== undefined) updateData.htmlContent = htmlContent !== null && htmlContent !== '' ? htmlContent : null;
+
+    if (layoutType !== undefined) {
+      const lt = layoutType === null ? null : String(layoutType).trim().toLowerCase();
+      if (lt && !['standard', 'letter'].includes(lt)) {
+        return res.status(400).json({ error: { message: 'layoutType must be "standard" or "letter"' } });
+      }
+      updateData.layoutType = lt || 'standard';
+    }
+
+    if (letterheadTemplateId !== undefined) {
+      if (letterheadTemplateId === null || letterheadTemplateId === 'null' || letterheadTemplateId === '') {
+        updateData.letterheadTemplateId = null;
+      } else {
+        const parsed = typeof letterheadTemplateId === 'string' ? parseInt(letterheadTemplateId, 10) : letterheadTemplateId;
+        updateData.letterheadTemplateId = isNaN(parsed) ? null : parsed;
+      }
+    }
+
+    if (letterHeaderHtml !== undefined) {
+      updateData.letterHeaderHtml = letterHeaderHtml !== null && letterHeaderHtml !== '' ? letterHeaderHtml : null;
+    }
+    if (letterFooterHtml !== undefined) {
+      updateData.letterFooterHtml = letterFooterHtml !== null && letterFooterHtml !== '' ? letterFooterHtml : null;
+    }
+
+    // Letter layout validations (HTML only + letterhead required)
+    if (updateData.layoutType === 'letter') {
+      if (String(existing.template_type) !== 'html') {
+        return res.status(400).json({ error: { message: 'Letter layout is only supported for HTML templates' } });
+      }
+      const effectiveLetterheadId =
+        updateData.letterheadTemplateId !== undefined ? updateData.letterheadTemplateId : existing.letterhead_template_id;
+      if (!effectiveLetterheadId) {
+        return res.status(400).json({ error: { message: 'letterheadTemplateId is required for letter layout templates' } });
+      }
+      const [lhRows] = await pool.execute(
+        'SELECT id, is_active FROM letterhead_templates WHERE id = ? LIMIT 1',
+        [effectiveLetterheadId]
+      );
+      if (!lhRows || lhRows.length === 0) {
+        return res.status(400).json({ error: { message: `Invalid letterheadTemplateId: ${effectiveLetterheadId}` } });
+      }
+      const isActive = lhRows[0].is_active !== false && lhRows[0].is_active !== 0;
+      if (!isActive) {
+        return res.status(400).json({ error: { message: 'Selected letterhead is inactive' } });
+      }
+    }
+    if (updateData.layoutType === 'standard') {
+      // If explicitly switching back to standard, clear letter-only fields.
+      updateData.letterheadTemplateId = null;
+      if (!('letterHeaderHtml' in updateData)) updateData.letterHeaderHtml = null;
+      if (!('letterFooterHtml' in updateData)) updateData.letterFooterHtml = null;
+    }
 
     if (isActive !== undefined) {
       updateData.isActive = isActive === true || isActive === 1 || isActive === '1' || isActive === 'true';

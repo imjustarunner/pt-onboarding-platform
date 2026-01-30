@@ -363,10 +363,9 @@
               type="text" 
               required 
               maxlength="10"
-              placeholder="ABC"
-              style="text-transform: uppercase;"
+              placeholder="AbcDef"
             />
-            <small>Client initials (max 10 characters)</small>
+            <small>Case is preserved (max 10 characters).</small>
           </div>
           <div class="form-group">
             <label>Provider</label>

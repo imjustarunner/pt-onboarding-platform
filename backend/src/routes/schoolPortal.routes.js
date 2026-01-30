@@ -33,6 +33,13 @@ import {
   listSkillsEligibleClients,
   listSkillsEligibleProviders
 } from '../controllers/schoolSkillsGroups.controller.js';
+import {
+  listSchoolPublicDocuments,
+  createSchoolPublicDocument,
+  updateSchoolPublicDocumentMeta,
+  replaceSchoolPublicDocumentFile,
+  deleteSchoolPublicDocument
+} from '../controllers/schoolPublicDocuments.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -45,6 +52,13 @@ router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 router.get('/:organizationId/stats', authenticate, getSchoolPortalStats);
 router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);
 router.delete('/:organizationId/school-staff/:userId', authenticate, removeSchoolStaff);
+
+// School portal: shared public documents library (non-PHI)
+router.get('/:organizationId/public-documents', authenticate, listSchoolPublicDocuments);
+router.post('/:organizationId/public-documents', authenticate, createSchoolPublicDocument);
+router.put('/:organizationId/public-documents/:documentId', authenticate, updateSchoolPublicDocumentMeta);
+router.put('/:organizationId/public-documents/:documentId/file', authenticate, replaceSchoolPublicDocumentFile);
+router.delete('/:organizationId/public-documents/:documentId', authenticate, deleteSchoolPublicDocument);
 
 // Provider page within a school (profile + slot-based caseload)
 router.get('/:schoolId/providers/:providerId/profile', authenticate, getProviderSchoolProfile);

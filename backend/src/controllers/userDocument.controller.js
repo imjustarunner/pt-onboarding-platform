@@ -44,6 +44,7 @@ export const generateUserDocument = async (req, res, next) => {
 
     // Get agency data
     let agencyData = {};
+    let organizationData = {};
     if (user.agency_id) {
       const Agency = (await import('../models/Agency.model.js')).default;
       const agency = await Agency.findById(user.agency_id);
@@ -55,6 +56,22 @@ export const generateUserDocument = async (req, res, next) => {
       const agency = await Agency.findById(template.agency_id);
       if (agency) {
         agencyData = { name: agency.name };
+      }
+    }
+
+    // Optional organization scoping for templates
+    if (template.organization_id) {
+      try {
+        const Agency = (await import('../models/Agency.model.js')).default;
+        const org = await Agency.findById(template.organization_id);
+        if (org) {
+          organizationData = {
+            name: org.name,
+            type: org.organization_type || null
+          };
+        }
+      } catch {
+        organizationData = {};
       }
     }
 
@@ -76,7 +93,9 @@ export const generateUserDocument = async (req, res, next) => {
     const userData = {
       firstName: user.first_name,
       lastName: user.last_name,
-      email: user.email
+      email: user.email,
+      workEmail: user.work_email || null,
+      personalEmail: user.personal_email || null
     };
 
     let personalizedContent = null;
@@ -89,7 +108,8 @@ export const generateUserDocument = async (req, res, next) => {
         template.html_content,
         userData,
         agencyData,
-        taskData
+        taskData,
+        organizationData
       );
     } else if (template.template_type === 'pdf' && template.file_path) {
       // For PDFs, we'll generate a personalized copy
@@ -224,11 +244,28 @@ export const regenerateUserDocument = async (req, res, next) => {
 
     // Get agency data
     let agencyData = {};
+    let organizationData = {};
     if (user.agency_id) {
       const Agency = (await import('../models/Agency.model.js')).default;
       const agency = await Agency.findById(user.agency_id);
       if (agency) {
         agencyData = { name: agency.name };
+      }
+    }
+
+    // Optional organization scoping for templates
+    if (template.organization_id) {
+      try {
+        const Agency = (await import('../models/Agency.model.js')).default;
+        const org = await Agency.findById(template.organization_id);
+        if (org) {
+          organizationData = {
+            name: org.name,
+            type: org.organization_type || null
+          };
+        }
+      } catch {
+        organizationData = {};
       }
     }
 
@@ -247,7 +284,9 @@ export const regenerateUserDocument = async (req, res, next) => {
     const userData = {
       firstName: user.first_name,
       lastName: user.last_name,
-      email: user.email
+      email: user.email,
+      workEmail: user.work_email || null,
+      personalEmail: user.personal_email || null
     };
 
     let personalizedContent = null;
@@ -259,7 +298,8 @@ export const regenerateUserDocument = async (req, res, next) => {
         template.html_content,
         userData,
         agencyData,
-        taskData
+        taskData,
+        organizationData
       );
     } else if (template.template_type === 'pdf' && template.file_path) {
       const templatePath = path.join(__dirname, '../../uploads/templates', template.file_path);

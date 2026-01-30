@@ -217,6 +217,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canSignDocuments', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/tasks/documents/:taskId/print',
+    name: 'OrganizationDocumentPrint',
+    component: () => import('../views/LetterPrintView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canSignDocuments', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/onboarding',
     name: 'OrganizationOnboardingChecklist',
     component: () => import('../views/OnboardingChecklistView.vue'),
@@ -335,6 +341,12 @@ const routes = [
     path: '/:organizationSlug/admin/documents',
     name: 'OrganizationDocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canSignDocuments', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/letterheads',
+    name: 'OrganizationLetterheadsLibrary',
+    component: () => import('../views/admin/LetterheadsLibraryView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canSignDocuments', organizationSlug: true }
   },
   {
@@ -641,6 +653,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canSignDocuments' }
   },
   {
+    path: '/admin/letterheads',
+    name: 'LetterheadsLibrary',
+    component: () => import('../views/admin/LetterheadsLibraryView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canSignDocuments' }
+  },
+  {
     path: '/admin/agency-progress',
     name: 'AgencyProgress',
     component: () => import('../views/admin/AgencyProgressDashboard.vue'),
@@ -745,6 +763,12 @@ const routes = [
     path: '/tasks/documents/:taskId/review',
     name: 'DocumentReview',
     component: () => import('../views/DocumentSigningView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canSignDocuments' }
+  },
+  {
+    path: '/tasks/documents/:taskId/print',
+    name: 'DocumentPrint',
+    component: () => import('../views/LetterPrintView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canSignDocuments' }
   },
   {

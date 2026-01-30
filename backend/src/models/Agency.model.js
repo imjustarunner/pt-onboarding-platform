@@ -257,7 +257,8 @@ class Agency {
           { col: 'school_portal_school_staff_icon_id', alias: 'sp_staff_i', path: 'school_portal_school_staff_icon_path', name: 'school_portal_school_staff_icon_name' },
           { col: 'school_portal_parent_qr_icon_id', alias: 'sp_pqr_i', path: 'school_portal_parent_qr_icon_path', name: 'school_portal_parent_qr_icon_name' },
           { col: 'school_portal_parent_sign_icon_id', alias: 'sp_psign_i', path: 'school_portal_parent_sign_icon_path', name: 'school_portal_parent_sign_icon_name' },
-          { col: 'school_portal_upload_packet_icon_id', alias: 'sp_up_i', path: 'school_portal_upload_packet_icon_path', name: 'school_portal_upload_packet_icon_name' }
+          { col: 'school_portal_upload_packet_icon_id', alias: 'sp_up_i', path: 'school_portal_upload_packet_icon_path', name: 'school_portal_upload_packet_icon_name' },
+          { col: 'school_portal_public_documents_icon_id', alias: 'sp_docs_i', path: 'school_portal_public_documents_icon_path', name: 'school_portal_public_documents_icon_name' }
         ];
         const ph = want.map(() => '?').join(',');
         const [cols] = await pool.execute(
@@ -374,23 +375,50 @@ class Agency {
     // We keep these attached to the org object so admin UIs can render "School directory" fields.
     if (agency && String(agency.organization_type || 'agency').toLowerCase() === 'school') {
       try {
-        const [profiles] = await pool.execute(
-          `SELECT
-             district_name,
-             school_number,
-             itsco_email,
-             school_days_times,
-             school_address,
-             location_label,
-             primary_contact_name,
-             primary_contact_email,
-             primary_contact_role,
-             secondary_contact_text
-           FROM school_profiles
-           WHERE school_organization_id = ?
-           LIMIT 1`,
-          [id]
-        );
+        let profiles = null;
+        try {
+          const [rows] = await pool.execute(
+            `SELECT
+               district_name,
+               school_number,
+               itsco_email,
+               school_days_times,
+               bell_schedule_start_time,
+               bell_schedule_end_time,
+               school_address,
+               location_label,
+               primary_contact_name,
+               primary_contact_email,
+               primary_contact_role,
+               secondary_contact_text
+             FROM school_profiles
+             WHERE school_organization_id = ?
+             LIMIT 1`,
+            [id]
+          );
+          profiles = rows;
+        } catch (e) {
+          // Backward-compatible: bell schedule columns may not exist yet.
+          if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+          const [rows] = await pool.execute(
+            `SELECT
+               district_name,
+               school_number,
+               itsco_email,
+               school_days_times,
+               school_address,
+               location_label,
+               primary_contact_name,
+               primary_contact_email,
+               primary_contact_role,
+               secondary_contact_text
+             FROM school_profiles
+             WHERE school_organization_id = ?
+             LIMIT 1`,
+            [id]
+          );
+          profiles = rows;
+        }
         const schoolProfile = profiles?.[0] || null;
         agency.school_profile = schoolProfile;
 
@@ -1404,9 +1432,10 @@ class Agency {
       let hasParentQr = false;
       let hasParentSign = false;
       let hasUploadPacket = false;
+      let hasPublicDocs = false;
       try {
         const [cols] = await pool.execute(
-          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id')"
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id','school_portal_public_documents_icon_id')"
         );
         const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
         hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
@@ -1414,12 +1443,14 @@ class Agency {
         hasParentQr = names.has('school_portal_parent_qr_icon_id');
         hasParentSign = names.has('school_portal_parent_sign_icon_id');
         hasUploadPacket = names.has('school_portal_upload_packet_icon_id');
+        hasPublicDocs = names.has('school_portal_public_documents_icon_id');
       } catch (e) {
         hasSchoolPortalIcons = false;
         hasSchoolPortalStaffIcon = false;
         hasParentQr = false;
         hasParentSign = false;
         hasUploadPacket = false;
+        hasPublicDocs = false;
       }
       if (schoolPortalSchoolStaffIconId !== undefined && !hasSchoolPortalStaffIcon) {
         const err = new Error(
@@ -1445,6 +1476,13 @@ class Agency {
       if (schoolPortalUploadPacketIconId !== undefined && !hasUploadPacket) {
         const err = new Error(
           'Cannot save Upload packet icon: database missing agencies.school_portal_upload_packet_icon_id. Run database/migrations/293_school_portal_parent_packet_cards_icons.sql.'
+        );
+        err.status = 409;
+        throw err;
+      }
+      if (schoolPortalPublicDocumentsIconId !== undefined && !hasPublicDocs) {
+        const err = new Error(
+          'Cannot save Documents icon: database missing agencies.school_portal_public_documents_icon_id. Run database/migrations/303_school_portal_public_documents_card_icon.sql.'
         );
         err.status = 409;
         throw err;
@@ -1485,6 +1523,10 @@ class Agency {
         if (hasUploadPacket && schoolPortalUploadPacketIconId !== undefined) {
           updates.push('school_portal_upload_packet_icon_id = ?');
           values.push(schoolPortalUploadPacketIconId || null);
+        }
+        if (hasPublicDocs && schoolPortalPublicDocumentsIconId !== undefined) {
+          updates.push('school_portal_public_documents_icon_id = ?');
+          values.push(schoolPortalPublicDocumentsIconId || null);
         }
       }
     }

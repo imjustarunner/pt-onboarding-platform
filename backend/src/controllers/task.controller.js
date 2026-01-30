@@ -3,6 +3,7 @@ import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import TaskAssignmentService from '../services/taskAssignment.service.js';
 import { validationResult } from 'express-validator';
 import StorageService from '../services/storage.service.js';
+import DocumentVariableService from '../services/documentVariable.service.js';
 
 export const getTask = async (req, res, next) => {
   try {
@@ -24,6 +25,248 @@ export const getTask = async (req, res, next) => {
     }
 
     res.json(task);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Render a document task as HTML (print-friendly).
+ * Intended for "letter" layout templates: composed from letterhead + template + variables, rendered on demand.
+ *
+ * GET /api/tasks/:id/render
+ */
+export const renderTaskDocumentHtml = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    const task = await Task.findById(id);
+    if (!task) {
+      return res.status(404).json({ error: { message: 'Task not found' } });
+    }
+    if (String(task.task_type) !== 'document') {
+      return res.status(400).json({ error: { message: 'Task is not a document task' } });
+    }
+
+    // Verify user has access to this task
+    const userTasks = await Task.findByUser(userId);
+    const hasAccess =
+      userTasks.some((t) => t.id === parseInt(id, 10)) || req.user.role === 'admin' || req.user.role === 'super_admin';
+    if (!hasAccess) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const DocumentTemplate = (await import('../models/DocumentTemplate.model.js')).default;
+    const template = await DocumentTemplate.findById(task.reference_id);
+    if (!template) {
+      return res.status(404).json({ error: { message: 'Document template not found' } });
+    }
+    if (String(template.template_type) !== 'html') {
+      return res.status(400).json({ error: { message: 'Only HTML templates can be rendered as letters' } });
+    }
+
+    const User = (await import('../models/User.model.js')).default;
+    const assignedUserId = task.assigned_to_user_id || userId;
+    const assignedUser = await User.findById(assignedUserId);
+    if (!assignedUser) {
+      return res.status(404).json({ error: { message: 'Assigned user not found' } });
+    }
+
+    // Agency + org context (best-effort)
+    const Agency = (await import('../models/Agency.model.js')).default;
+    let agencyData = {};
+    if (assignedUser.agency_id) {
+      const a = await Agency.findById(assignedUser.agency_id);
+      if (a) agencyData = { name: a.name };
+    } else if (template.agency_id) {
+      const a = await Agency.findById(template.agency_id);
+      if (a) agencyData = { name: a.name };
+    }
+
+    let organizationData = {};
+    if (template.organization_id) {
+      const org = await Agency.findById(template.organization_id);
+      if (org) organizationData = { name: org.name, type: org.organization_type || null };
+    }
+
+    const taskData = {
+      assignmentDate: task.created_at,
+      dueDate: task.due_date
+    };
+
+    const userData = {
+      firstName: assignedUser.first_name,
+      lastName: assignedUser.last_name,
+      email: assignedUser.email,
+      workEmail: assignedUser.work_email || null,
+      personalEmail: assignedUser.personal_email || null
+    };
+
+    const layoutType = String(template.layout_type || 'standard');
+    if (layoutType !== 'letter') {
+      // Standard HTML template: just replace variables and return.
+      const bodyOnly = DocumentVariableService.replaceVariables(
+        template.html_content || '',
+        userData,
+        agencyData,
+        taskData,
+        organizationData
+      );
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(bodyOnly);
+    }
+
+    // Load letterhead (required for letter layout)
+    const letterheadId = template.letterhead_template_id;
+    if (!letterheadId) {
+      return res.status(400).json({ error: { message: 'This letter template has no letterhead selected' } });
+    }
+    const LetterheadTemplate = (await import('../models/LetterheadTemplate.model.js')).default;
+    const letterhead = await LetterheadTemplate.findById(letterheadId);
+    if (!letterhead || letterhead.is_active === 0 || letterhead.is_active === false) {
+      return res.status(400).json({ error: { message: 'Selected letterhead is missing or inactive' } });
+    }
+
+    // Base URL for /uploads asset links
+    const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+    const host = req.get('x-forwarded-host') || req.get('host');
+    const baseUrl = `${proto}://${host}`;
+
+    const safe = (s) => (s == null ? '' : String(s));
+    const pt = (n, fallback) => {
+      const v = typeof n === 'string' ? parseFloat(n) : Number(n);
+      if (Number.isNaN(v) || !Number.isFinite(v)) return fallback;
+      return v;
+    };
+
+    const pageSize = String(letterhead.page_size || 'letter');
+    const orientation = String(letterhead.orientation || 'portrait');
+    const marginTop = pt(letterhead.margin_top, 72);
+    const marginRight = pt(letterhead.margin_right, 72);
+    const marginBottom = pt(letterhead.margin_bottom, 72);
+    const marginLeft = pt(letterhead.margin_left, 72);
+    const headerHeight = pt(letterhead.header_height, 96);
+    const footerHeight = pt(letterhead.footer_height, 72);
+
+    // Compose header/footer HTML
+    let headerHtml = '';
+    let footerHtml = '';
+
+    if (String(letterhead.template_type) === 'svg' || String(letterhead.template_type) === 'png') {
+      const assetPath = safe(letterhead.file_path);
+      const url = assetPath ? `${baseUrl}/uploads/${assetPath}` : '';
+      if (url) {
+        headerHtml += `<div class="letterhead-asset"><img src="${url}" alt="Letterhead" /></div>`;
+      }
+    } else {
+      headerHtml += safe(letterhead.header_html);
+      footerHtml += safe(letterhead.footer_html);
+    }
+
+    // Append per-document header/footer slots
+    headerHtml += safe(template.letter_header_html);
+    footerHtml += safe(template.letter_footer_html);
+
+    // Replace variables everywhere (including letterhead html/css)
+    const replace = (content) =>
+      DocumentVariableService.replaceVariables(content || '', userData, agencyData, taskData, organizationData);
+
+    const finalHeader = replace(headerHtml);
+    const finalFooter = replace(footerHtml);
+    const finalBody = replace(template.html_content || '');
+    const finalCss = replace(letterhead.css_content || '');
+
+    const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${safe(template.name || 'Document')}</title>
+    <style>
+      :root {
+        --lh-margin-top: ${marginTop}pt;
+        --lh-margin-right: ${marginRight}pt;
+        --lh-margin-bottom: ${marginBottom}pt;
+        --lh-margin-left: ${marginLeft}pt;
+        --lh-header-height: ${headerHeight}pt;
+        --lh-footer-height: ${footerHeight}pt;
+      }
+
+      @page {
+        size: ${pageSize} ${orientation};
+        margin: 0;
+      }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        color: #111;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      /* Fixed header/footer; body padding reserves space + margins */
+      header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: var(--lh-header-height);
+        padding-top: var(--lh-margin-top);
+        padding-left: var(--lh-margin-left);
+        padding-right: var(--lh-margin-right);
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+
+      footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: var(--lh-footer-height);
+        padding-bottom: var(--lh-margin-bottom);
+        padding-left: var(--lh-margin-left);
+        padding-right: var(--lh-margin-right);
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+
+      main {
+        box-sizing: border-box;
+        padding-top: calc(var(--lh-margin-top) + var(--lh-header-height));
+        padding-bottom: calc(var(--lh-margin-bottom) + var(--lh-footer-height));
+        padding-left: var(--lh-margin-left);
+        padding-right: var(--lh-margin-right);
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        font-size: 12pt;
+        line-height: 1.5;
+      }
+
+      /* Print safety helpers */
+      p, li, blockquote, table, pre { break-inside: avoid; }
+      h1, h2, h3 { break-after: avoid; }
+      img { max-width: 100%; }
+
+      .letterhead-asset img {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      ${finalCss}
+    </style>
+  </head>
+  <body>
+    <header>${finalHeader}</header>
+    <footer>${finalFooter}</footer>
+    <main>${finalBody}</main>
+  </body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
   } catch (error) {
     next(error);
   }

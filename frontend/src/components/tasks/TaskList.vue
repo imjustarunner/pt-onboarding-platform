@@ -38,6 +38,14 @@
           <span v-if="task.due_date" class="due-date">
             Due: {{ formatDate(task.due_date) }}
           </span>
+          <button
+            v-if="task.task_type === 'document'"
+            class="btn btn-secondary btn-xs"
+            type="button"
+            @click.stop="openPrint(task)"
+          >
+            Print
+          </button>
         </div>
       </div>
     </div>
@@ -86,6 +94,10 @@ const handleTaskClick = (task) => {
       router.push(`/module/${task.reference_id}`);
     }
   }
+};
+
+const openPrint = (task) => {
+  router.push(`/tasks/documents/${task.id}/print`);
 };
 
 const getStatusLabel = (status) => {
@@ -184,6 +196,12 @@ onMounted(async () => {
   align-items: center;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.btn-xs {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 8px;
 }
 
 .task-type {

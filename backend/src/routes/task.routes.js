@@ -11,7 +11,8 @@ import {
   updateDueDate,
   sendReminder,
   getAllTasks,
-  deleteTask
+  deleteTask,
+  renderTaskDocumentHtml
 } from '../controllers/task.controller.js';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
@@ -36,6 +37,7 @@ const validateDueDate = [
 router.get('/', authenticate, getUserTasks);
 router.get('/counts', authenticate, getTaskCounts);
 router.put('/:id/complete', authenticate, completeTask);
+router.get('/:id/render', authenticate, renderTaskDocumentHtml);
 
 // Admin routes - specific routes must come before parameterized routes
 router.get('/all', authenticate, requireBackofficeAdmin, getAllTasks); // Must be before /:id

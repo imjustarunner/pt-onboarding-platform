@@ -94,6 +94,7 @@
         <thead>
           <tr>
             <th>Document</th>
+            <th>Action</th>
             <th>Format</th>
             <th>Type</th>
             <th>Agency</th>
@@ -129,6 +130,11 @@
                   </div>
                 </div>
               </div>
+            </td>
+            <td>
+              <span :class="['badge', getActionBadgeClass(template.document_action_type)]">
+                {{ formatActionType(template.document_action_type) }}
+              </span>
             </td>
             <td>
               <span :class="['badge', template.template_type === 'pdf' ? 'badge-info' : 'badge-secondary']">
@@ -207,6 +213,40 @@
         <h2>Create HTML Template</h2>
         <form @submit.prevent="saveHTMLTemplate">
           <div class="form-group">
+            <label>Document Type *</label>
+            <select v-model="htmlForm.documentType" required>
+              <option value="">Select document type</option>
+              <option value="acknowledgment">Acknowledgment</option>
+              <option value="authorization">Authorization</option>
+              <option value="agreement">Agreement</option>
+              <option value="compliance">Compliance</option>
+              <option value="disclosure">Disclosure</option>
+              <option value="consent">Consent</option>
+              <option value="administrative">Administrative</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Document Action Type *</label>
+            <div class="action-type-buttons">
+              <button
+                type="button"
+                @click="htmlForm.documentActionType = 'signature'"
+                :class="['action-btn', { active: htmlForm.documentActionType === 'signature' }]"
+              >
+                Require Electronic Signature
+              </button>
+              <button
+                type="button"
+                @click="htmlForm.documentActionType = 'review'"
+                :class="['action-btn', { active: htmlForm.documentActionType === 'review' }]"
+              >
+                Review/Acknowledgment Only
+              </button>
+            </div>
+          </div>
+
+          <div class="form-group">
             <label>Template Name *</label>
             <input v-model="htmlForm.name" type="text" required />
           </div>
@@ -214,21 +254,97 @@
             <label>Description</label>
             <textarea v-model="htmlForm.description" rows="3"></textarea>
           </div>
+
+          <div class="form-group">
+            <label>Scope *</label>
+            <div class="scope-toggle">
+              <button
+                type="button"
+                class="scope-btn"
+                :class="{ active: htmlForm.scope === 'org' }"
+                @click="setHtmlScope('org')"
+              >
+                Agency
+              </button>
+              <button
+                type="button"
+                class="scope-btn"
+                :class="{ active: htmlForm.scope === 'platform', disabled: !canUsePlatformScope }"
+                :disabled="!canUsePlatformScope"
+                @click="setHtmlScope('platform')"
+              >
+                Platform
+              </button>
+            </div>
+
+            <div v-if="htmlForm.scope === 'org'" class="scope-org-select">
+              <label class="sub-label">Agency *</label>
+              <select v-model="htmlForm.agencyId" @change="handleHtmlAgencyChange" required>
+                <option value="">Select an agency</option>
+                <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
+                  {{ agency.name }}
+                </option>
+              </select>
+
+              <label class="sub-label" style="margin-top: 12px;">Associated Organization (Optional)</label>
+              <select v-model="htmlForm.organizationId" @change="handleHtmlOrganizationChange" :disabled="loadingHtmlAffiliatedOrgs || htmlAffiliatedOrganizations.length === 0">
+                <option value="">None</option>
+                <option v-for="org in htmlAffiliatedOrganizations" :key="org.id" :value="org.id">
+                  {{ org.name }}{{ org.organization_type ? ` (${org.organization_type})` : '' }}
+                </option>
+              </select>
+              <small v-if="loadingHtmlAffiliatedOrgs">Loading affiliated organizations…</small>
+              <small v-else-if="htmlAffiliatedOrganizations.length === 0">No affiliated organizations found for this agency.</small>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Layout *</label>
+            <select v-model="htmlForm.layoutType" @change="fetchHtmlLetterheads" required>
+              <option value="standard">Standard</option>
+              <option value="letter">Letter (Letterhead + Print)</option>
+            </select>
+            <small>
+              Letter layout renders as a single print-safe HTML document with fixed header/footer and on-demand printing (no generated PDFs stored).
+            </small>
+          </div>
+
+          <div v-if="htmlForm.layoutType === 'letter'" class="form-group">
+            <label>Letterhead *</label>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <select v-model="htmlForm.letterheadTemplateId" required style="flex: 1;">
+                <option :value="null">Select a letterhead</option>
+                <option v-for="lh in htmlLetterheads" :key="lh.id" :value="lh.id">
+                  {{ lh.name }} {{ lh.agency_id ? '' : '(Platform)' }}
+                </option>
+              </select>
+              <router-link class="btn btn-secondary" to="/admin/letterheads">Manage</router-link>
+            </div>
+            <small v-if="loadingHtmlLetterheads">Loading letterheads…</small>
+            <small v-else-if="htmlLetterheads.length === 0">No letterheads available for this scope.</small>
+          </div>
+
+          <div v-if="htmlForm.layoutType === 'letter'" class="form-group">
+            <label>Header Slot (optional)</label>
+            <HtmlDocumentBuilder v-model="htmlForm.letterHeaderHtml" />
+            <small>This content is appended into the letter header (after the letterhead header).</small>
+          </div>
+
+          <div v-if="htmlForm.layoutType === 'letter'" class="form-group">
+            <label>Footer Slot (optional)</label>
+            <HtmlDocumentBuilder v-model="htmlForm.letterFooterHtml" />
+            <small>This content is appended into the letter footer (after the letterhead footer).</small>
+          </div>
+
           <div class="form-group">
             <label>HTML Content *</label>
-            <textarea v-model="htmlForm.htmlContent" rows="10" required></textarea>
+            <HtmlDocumentBuilder v-model="htmlForm.htmlContent" />
             <small>Enter HTML content for the document template. You can use template variables like {{AGENCY_NAME}}, {{USER_FULL_NAME}}, etc.</small>
             <TemplateVariablesList />
           </div>
           <div class="form-group">
             <label>Icon</label>
             <IconSelector v-model="htmlForm.iconId" label="Select Document Icon" />
-          </div>
-          <div class="form-group">
-            <label>
-              <input v-model="htmlForm.agencyId" type="checkbox" :value="selectedAgencyId" />
-              Make this template agency-specific
-            </label>
           </div>
           <div class="form-actions">
             <button type="button" @click="showCreateModal = false" class="btn btn-secondary">Cancel</button>
@@ -271,11 +387,46 @@
             <label>Description</label>
             <textarea v-model="editForm.description" rows="3"></textarea>
           </div>
-          <div v-if="editingTemplate.template_type === 'html'" class="form-group">
-            <label>HTML Content *</label>
-            <textarea v-model="editForm.htmlContent" rows="15" required></textarea>
-            <small>Edit the HTML content for this document template. You can use template variables like {{AGENCY_NAME}}, {{USER_FULL_NAME}}, etc.</small>
-            <TemplateVariablesList />
+          <div v-if="editingTemplate.template_type === 'html'">
+            <div class="form-group">
+              <label>Layout *</label>
+              <select v-model="editForm.layoutType" @change="fetchEditLetterheads" required>
+                <option value="standard">Standard</option>
+                <option value="letter">Letter (Letterhead + Print)</option>
+              </select>
+            </div>
+
+            <div v-if="editForm.layoutType === 'letter'" class="form-group">
+              <label>Letterhead *</label>
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <select v-model="editForm.letterheadTemplateId" required style="flex: 1;">
+                  <option :value="null">Select a letterhead</option>
+                  <option v-for="lh in editLetterheads" :key="lh.id" :value="lh.id">
+                    {{ lh.name }} {{ lh.agency_id ? '' : '(Platform)' }}
+                  </option>
+                </select>
+                <router-link class="btn btn-secondary" to="/admin/letterheads">Manage</router-link>
+              </div>
+              <small v-if="loadingEditLetterheads">Loading letterheads…</small>
+              <small v-else-if="editLetterheads.length === 0">No letterheads available for this scope.</small>
+            </div>
+
+            <div v-if="editForm.layoutType === 'letter'" class="form-group">
+              <label>Header Slot (optional)</label>
+              <HtmlDocumentBuilder v-model="editForm.letterHeaderHtml" />
+            </div>
+
+            <div v-if="editForm.layoutType === 'letter'" class="form-group">
+              <label>Footer Slot (optional)</label>
+              <HtmlDocumentBuilder v-model="editForm.letterFooterHtml" />
+            </div>
+
+            <div class="form-group">
+              <label>HTML Content *</label>
+              <HtmlDocumentBuilder v-model="editForm.htmlContent" />
+              <small>Edit the HTML content for this document template. You can use template variables like {{AGENCY_NAME}}, {{USER_FULL_NAME}}, etc.</small>
+              <TemplateVariablesList />
+            </div>
           </div>
           <div v-else class="form-group">
             <label>PDF Document</label>
@@ -363,7 +514,17 @@
     <div v-if="showPreviewModal && templateToPreview" class="modal-overlay" @click="showPreviewModal = false">
       <div class="modal-content large" @click.stop>
         <div class="preview-header">
-          <h2>Preview: {{ templateToPreview.name }}</h2>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <h2 style="margin: 0;">Preview: {{ templateToPreview.name }}</h2>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <span :class="['badge', getActionBadgeClass(templateToPreview.document_action_type)]">
+                {{ formatActionType(templateToPreview.document_action_type) }}
+              </span>
+              <span :class="['badge', templateToPreview.template_type === 'pdf' ? 'badge-info' : 'badge-secondary']">
+                {{ templateToPreview.template_type?.toUpperCase() || 'N/A' }}
+              </span>
+            </div>
+          </div>
           <button @click="showPreviewModal = false" class="btn btn-secondary">Close</button>
         </div>
         <div class="preview-content">
@@ -398,6 +559,7 @@ import PDFSignatureCoordinatePicker from '../../components/documents/PDFSignatur
 import PDFPreview from '../../components/documents/PDFPreview.vue';
 import IconSelector from '../../components/admin/IconSelector.vue';
 import TemplateVariablesList from '../../components/documents/TemplateVariablesList.vue';
+import HtmlDocumentBuilder from '../../components/documents/HtmlDocumentBuilder.vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 
@@ -432,13 +594,118 @@ const saving = ref(false);
 const selectedAgencyId = ref(null);
 const availableAgencies = ref([]);
 
+const htmlAffiliatedOrganizations = ref([]);
+const loadingHtmlAffiliatedOrgs = ref(false);
+const htmlLetterheads = ref([]);
+const loadingHtmlLetterheads = ref(false);
+
 const htmlForm = ref({
   name: '',
   description: '',
   htmlContent: '',
+  documentType: 'administrative',
+  documentActionType: 'signature',
+  layoutType: 'standard',
+  letterheadTemplateId: null,
+  letterHeaderHtml: '',
+  letterFooterHtml: '',
   iconId: null,
-  agencyId: null
+  scope: authStore.user?.role === 'super_admin' ? 'platform' : 'org',
+  agencyId: null,
+  organizationId: null
 });
+
+const canUsePlatformScope = computed(() => authStore.user?.role === 'super_admin');
+
+const setHtmlScope = (scope) => {
+  if (scope === 'platform' && !canUsePlatformScope.value) return;
+  htmlForm.value.scope = scope;
+  if (scope === 'platform') {
+    htmlForm.value.agencyId = null;
+    htmlForm.value.organizationId = null;
+    htmlAffiliatedOrganizations.value = [];
+  } else if (!htmlForm.value.agencyId) {
+    const fallbackAgencyId = selectedAgencyId.value || availableAgencies.value?.[0]?.id || null;
+    htmlForm.value.agencyId = fallbackAgencyId;
+  }
+  // Refresh letterhead options based on scope
+  fetchHtmlLetterheads();
+};
+
+const fetchHtmlAffiliatedOrganizations = async () => {
+  const agencyId = htmlForm.value.agencyId;
+  if (!agencyId) {
+    htmlAffiliatedOrganizations.value = [];
+    htmlForm.value.organizationId = null;
+    return;
+  }
+  try {
+    loadingHtmlAffiliatedOrgs.value = true;
+    const res = await api.get(`/agencies/${agencyId}/affiliated-organizations`);
+    htmlAffiliatedOrganizations.value = Array.isArray(res.data) ? res.data : [];
+    if (
+      htmlForm.value.organizationId &&
+      !htmlAffiliatedOrganizations.value.some((o) => String(o.id) === String(htmlForm.value.organizationId))
+    ) {
+      htmlForm.value.organizationId = null;
+    }
+  } catch (err) {
+    console.error('Failed to load affiliated organizations for HTML template:', err);
+    htmlAffiliatedOrganizations.value = [];
+    htmlForm.value.organizationId = null;
+  } finally {
+    loadingHtmlAffiliatedOrgs.value = false;
+  }
+};
+
+const handleHtmlAgencyChange = async () => {
+  htmlForm.value.organizationId = null;
+  await fetchHtmlAffiliatedOrganizations();
+  await fetchHtmlLetterheads();
+};
+
+const handleHtmlOrganizationChange = async () => {
+  await fetchHtmlLetterheads();
+};
+
+async function fetchHtmlLetterheads() {
+  try {
+    const currentSelection = htmlForm.value.letterheadTemplateId;
+    htmlLetterheads.value = [];
+
+    // Only needed for letter layout
+    if (String(htmlForm.value.layoutType || 'standard') !== 'letter') return;
+
+    const agencyId = htmlForm.value.scope === 'platform' ? null : (htmlForm.value.agencyId || null);
+    const organizationId =
+      htmlForm.value.scope === 'platform'
+        ? null
+        : (htmlForm.value.organizationId && String(htmlForm.value.organizationId) !== String(htmlForm.value.agencyId)
+            ? htmlForm.value.organizationId
+            : null);
+
+    loadingHtmlLetterheads.value = true;
+    const res = await api.get('/letterhead-templates', {
+      params: { agencyId, organizationId, includePlatform: true }
+    });
+    htmlLetterheads.value = Array.isArray(res.data) ? res.data : [];
+    const stillValid =
+      currentSelection && htmlLetterheads.value.some((lh) => String(lh.id) === String(currentSelection));
+    if (stillValid) {
+      htmlForm.value.letterheadTemplateId = currentSelection;
+    } else if (htmlLetterheads.value?.[0]?.id) {
+      htmlForm.value.letterheadTemplateId = htmlLetterheads.value[0].id;
+    } else {
+      htmlForm.value.letterheadTemplateId = null;
+    }
+  } catch (e) {
+    console.error('Failed to load letterheads:', e);
+    htmlLetterheads.value = [];
+    htmlForm.value.letterheadTemplateId = null;
+  } finally {
+    loadingHtmlLetterheads.value = false;
+  }
+}
 
 const applyFilters = async () => {
   currentPage.value = 1; // Reset to first page when filters change
@@ -524,13 +791,20 @@ const handleAssign = (template) => {
 
 const editingTemplate = ref(null);
 const showEditModal = ref(false);
+const editLetterheads = ref([]);
+const loadingEditLetterheads = ref(false);
 const editForm = ref({
   name: '',
   description: '',
   htmlContent: '',
+  layoutType: 'standard',
+  letterheadTemplateId: null,
+  letterHeaderHtml: '',
+  letterFooterHtml: '',
   isActive: true,
   iconId: null,
   agencyId: null,
+  organizationId: null,
   saveAsNewVersion: false,
   signatureCoordinates: {
     x: null,
@@ -543,6 +817,39 @@ const editForm = ref({
 const showUploadNewVersionModal = ref(false);
 const templateForNewVersion = ref(null);
 
+async function fetchEditLetterheads() {
+  try {
+    const currentSelection = editForm.value.letterheadTemplateId;
+    editLetterheads.value = [];
+    if (String(editForm.value.layoutType || 'standard') !== 'letter') return;
+
+    loadingEditLetterheads.value = true;
+
+    const agencyId = editForm.value.agencyId || null;
+    const organizationId = editForm.value.organizationId || null;
+    const res = await api.get('/letterhead-templates', {
+      params: { agencyId, organizationId, includePlatform: true }
+    });
+    editLetterheads.value = Array.isArray(res.data) ? res.data : [];
+
+    const stillValid =
+      currentSelection && editLetterheads.value.some((lh) => String(lh.id) === String(currentSelection));
+    if (stillValid) {
+      editForm.value.letterheadTemplateId = currentSelection;
+    } else if (editLetterheads.value?.[0]?.id) {
+      editForm.value.letterheadTemplateId = editLetterheads.value[0].id;
+    } else {
+      editForm.value.letterheadTemplateId = null;
+    }
+  } catch (e) {
+    console.error('Failed to load edit letterheads:', e);
+    editLetterheads.value = [];
+    editForm.value.letterheadTemplateId = null;
+  } finally {
+    loadingEditLetterheads.value = false;
+  }
+}
+
 const handleEdit = (template) => {
   console.log('Opening edit for template:', template.name, 'icon_id:', template.icon_id, 'icon_file_path:', template.icon_file_path);
   editingTemplate.value = template;
@@ -550,9 +857,14 @@ const handleEdit = (template) => {
     name: template.name || '',
     description: template.description !== undefined && template.description !== null ? template.description : '',
     htmlContent: template.html_content !== undefined && template.html_content !== null ? template.html_content : '',
+    layoutType: template.layout_type || 'standard',
+    letterheadTemplateId: template.letterhead_template_id ?? null,
+    letterHeaderHtml: template.letter_header_html || '',
+    letterFooterHtml: template.letter_footer_html || '',
     isActive: template.is_active !== false && template.is_active !== 0,
     iconId: template.icon_id !== undefined && template.icon_id !== null ? template.icon_id : null,
     agencyId: template.agency_id !== undefined && template.agency_id !== null ? template.agency_id : null,
+    organizationId: template.organization_id !== undefined && template.organization_id !== null ? template.organization_id : null,
     saveAsNewVersion: false,
     signatureCoordinates: {
       x: template.signature_x !== undefined && template.signature_x !== null ? template.signature_x : null,
@@ -564,6 +876,8 @@ const handleEdit = (template) => {
   };
   console.log('Edit form iconId set to:', editForm.value.iconId);
   showEditModal.value = true;
+  // Preload letterheads for letter layout templates
+  fetchEditLetterheads();
 };
 
 const handleDuplicate = async (template) => {
@@ -578,9 +892,14 @@ const handleDuplicate = async (template) => {
       name: newTemplate.name,
       description: newTemplate.description || '',
       htmlContent: newTemplate.html_content || '',
+      layoutType: newTemplate.layout_type || 'standard',
+      letterheadTemplateId: newTemplate.letterhead_template_id ?? null,
+      letterHeaderHtml: newTemplate.letter_header_html || '',
+      letterFooterHtml: newTemplate.letter_footer_html || '',
       isActive: newTemplate.is_active !== false && newTemplate.is_active !== 0,
       iconId: newTemplate.icon_id !== undefined && newTemplate.icon_id !== null ? newTemplate.icon_id : null,
       agencyId: newTemplate.agency_id !== undefined && newTemplate.agency_id !== null ? newTemplate.agency_id : null,
+      organizationId: newTemplate.organization_id !== undefined && newTemplate.organization_id !== null ? newTemplate.organization_id : null,
       saveAsNewVersion: false,
       signatureCoordinates: {
         x: newTemplate.signature_x !== undefined && newTemplate.signature_x !== null ? newTemplate.signature_x : null,
@@ -591,6 +910,7 @@ const handleDuplicate = async (template) => {
       }
     };
     showEditModal.value = true;
+    fetchEditLetterheads();
     
     // Reload templates to include the new one
     await loadTemplates();
@@ -609,6 +929,14 @@ const handleUploadNewVersion = (template) => {
 const saveEdit = async () => {
   try {
     saving.value = true;
+    if (
+      editingTemplate.value?.template_type === 'html' &&
+      String(editForm.value.layoutType || 'standard') === 'letter' &&
+      !editForm.value.letterheadTemplateId
+    ) {
+      alert('Please select a letterhead for letter layout templates.');
+      return;
+    }
     // Ensure no undefined values are sent - convert to null or omit
     // Build updateData object with explicit null checks
     const updateData = {};
@@ -624,6 +952,17 @@ const saveEdit = async () => {
     
     // Always include htmlContent (for HTML templates, can be null for PDFs)
     updateData.htmlContent = editForm.value.htmlContent !== undefined ? (editForm.value.htmlContent || null) : null;
+
+    // Letter layout fields (HTML templates)
+    if (editingTemplate.value?.template_type === 'html') {
+      updateData.layoutType = editForm.value.layoutType || 'standard';
+      updateData.letterheadTemplateId =
+        editForm.value.layoutType === 'letter' ? (editForm.value.letterheadTemplateId || null) : null;
+      updateData.letterHeaderHtml =
+        editForm.value.layoutType === 'letter' ? (editForm.value.letterHeaderHtml || null) : null;
+      updateData.letterFooterHtml =
+        editForm.value.layoutType === 'letter' ? (editForm.value.letterFooterHtml || null) : null;
+    }
     
     // Always include iconId (can be null to remove icon, or a number to set it)
     updateData.iconId = editForm.value.iconId !== undefined ? (editForm.value.iconId !== null && editForm.value.iconId !== '' ? editForm.value.iconId : null) : null;
@@ -879,6 +1218,22 @@ const formatDocumentType = (type) => {
   return types[type] || type;
 };
 
+const formatActionType = (actionType) => {
+  const t = String(actionType || '').toLowerCase();
+  if (t === 'signature') return 'Signature';
+  if (t === 'review') return 'Review';
+  if (t === 'acroform') return 'AcroForm';
+  return 'Unknown';
+};
+
+const getActionBadgeClass = (actionType) => {
+  const t = String(actionType || '').toLowerCase();
+  if (t === 'signature') return 'badge-info';
+  if (t === 'review') return 'badge-secondary';
+  if (t === 'acroform') return 'badge-warning';
+  return 'badge-secondary';
+};
+
 const getDocumentIconUrl = (template) => {
   if (!template) {
     return null;
@@ -1083,15 +1438,47 @@ const canDelete = (template) => {
 const saveHTMLTemplate = async () => {
   try {
     saving.value = true;
+    if (String(htmlForm.value.layoutType || 'standard') === 'letter' && !htmlForm.value.letterheadTemplateId) {
+      alert('Please select a letterhead for letter layout templates.');
+      return;
+    }
     await documentsStore.createTemplate({
       name: htmlForm.value.name,
       description: htmlForm.value.description,
       htmlContent: htmlForm.value.htmlContent,
       iconId: htmlForm.value.iconId || null,
-      agencyId: htmlForm.value.agencyId || null
+      documentType: htmlForm.value.documentType,
+      documentActionType: htmlForm.value.documentActionType,
+      layoutType: htmlForm.value.layoutType,
+      letterheadTemplateId: htmlForm.value.layoutType === 'letter' ? htmlForm.value.letterheadTemplateId : null,
+      letterHeaderHtml: htmlForm.value.layoutType === 'letter' ? (htmlForm.value.letterHeaderHtml || null) : null,
+      letterFooterHtml: htmlForm.value.layoutType === 'letter' ? (htmlForm.value.letterFooterHtml || null) : null,
+      agencyId: htmlForm.value.scope === 'platform' ? null : (htmlForm.value.agencyId || null),
+      organizationId:
+        htmlForm.value.scope === 'platform'
+          ? null
+          : (htmlForm.value.organizationId && String(htmlForm.value.organizationId) !== String(htmlForm.value.agencyId)
+              ? htmlForm.value.organizationId
+              : null)
     });
     showCreateModal.value = false;
-    htmlForm.value = { name: '', description: '', htmlContent: '', iconId: null, agencyId: null };
+    htmlForm.value = {
+      name: '',
+      description: '',
+      htmlContent: '',
+      documentType: 'administrative',
+      documentActionType: 'signature',
+      layoutType: 'standard',
+      letterheadTemplateId: null,
+      letterHeaderHtml: '',
+      letterFooterHtml: '',
+      iconId: null,
+      scope: canUsePlatformScope.value ? 'platform' : 'org',
+      agencyId: canUsePlatformScope.value ? null : (selectedAgencyId.value || null),
+      organizationId: null
+    };
+    htmlAffiliatedOrganizations.value = [];
+    htmlLetterheads.value = [];
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to create template');
   } finally {
@@ -1110,6 +1497,14 @@ onMounted(async () => {
   await brandingStore.fetchPlatformBranding();
   await fetchAgencies();
   await loadTemplates();
+
+  // Default HTML scope + load affiliated orgs for the default agency (best-effort)
+  if (!canUsePlatformScope.value) {
+    setHtmlScope('org');
+  }
+  if (htmlForm.value.scope === 'org' && htmlForm.value.agencyId) {
+    await fetchHtmlAffiliatedOrganizations();
+  }
 });
 </script>
 
@@ -1438,6 +1833,79 @@ onMounted(async () => {
   gap: 12px;
   justify-content: flex-end;
   margin-top: 24px;
+}
+
+.action-type-buttons {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.action-btn {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid var(--border, #ddd);
+  border-radius: 8px;
+  background: white;
+  color: var(--text-primary, #333);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-btn:hover {
+  border-color: var(--primary-color, #007bff);
+  background: #f8f9fa;
+}
+
+.action-btn.active {
+  border-color: var(--primary-color, #007bff);
+  background: var(--primary-color, #007bff);
+  color: white;
+}
+
+.scope-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.scope-btn {
+  padding: 12px 14px;
+  border: 2px solid var(--border, #ddd);
+  border-radius: 10px;
+  background: white;
+  color: var(--text-primary, #333);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.scope-btn:hover:not(:disabled) {
+  border-color: var(--primary-color, #007bff);
+  background: #f8f9fa;
+}
+
+.scope-btn.active {
+  border-color: var(--primary-color, #007bff);
+  background: var(--primary-color, #007bff);
+  color: white;
+}
+
+.scope-btn:disabled,
+.scope-btn.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.scope-org-select .sub-label {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 </style>
 

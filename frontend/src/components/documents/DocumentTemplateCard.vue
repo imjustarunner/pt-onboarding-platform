@@ -21,6 +21,9 @@
       <span :class="['badge', template.is_active !== false && template.is_active !== 0 ? 'badge-success' : 'badge-secondary']">
         {{ template.is_active !== false && template.is_active !== 0 ? 'Active' : 'Inactive' }}
       </span>
+      <span :class="['badge', getActionBadgeClass(template.document_action_type)]">
+        {{ formatActionType(template.document_action_type) }}
+      </span>
       <span :class="['badge', template.template_type === 'pdf' ? 'badge-info' : 'badge-secondary']">
         {{ template.template_type.toUpperCase() }}
       </span>
@@ -143,6 +146,22 @@ const formatDocumentType = (type) => {
     administrative: 'Administrative'
   };
   return types[type] || type;
+};
+
+const formatActionType = (actionType) => {
+  const t = String(actionType || '').toLowerCase();
+  if (t === 'signature') return 'Signature';
+  if (t === 'review') return 'Review';
+  if (t === 'acroform') return 'AcroForm';
+  return 'Unknown';
+};
+
+const getActionBadgeClass = (actionType) => {
+  const t = String(actionType || '').toLowerCase();
+  if (t === 'signature') return 'badge-info';
+  if (t === 'review') return 'badge-secondary';
+  if (t === 'acroform') return 'badge-warning';
+  return 'badge-secondary';
 };
 
 const getIconUrl = (template) => {

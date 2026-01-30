@@ -243,7 +243,8 @@ const clientPick = ref('');
 
 const clientLabel = (c) => {
   // Skills Groups creation/assignment is a back-office workflow; show initials by default (no need for anonymized codes here).
-  const initials = String(c?.initials || '').replace(/\s+/g, '').toUpperCase();
+  // IMPORTANT: preserve entered casing for initials (some clients use mixed-case identifiers like AbcDef).
+  const initials = String(c?.initials || '').replace(/\s+/g, '');
   const code = String(c?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
   return initials || code || `ID ${c?.id || c?.client_id || ''}`.trim();
 };

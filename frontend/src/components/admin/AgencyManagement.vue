@@ -227,7 +227,7 @@
             Features
           </button>
           <button
-            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() !== 'office'"
+            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() !== 'office' && String(agencyForm.organizationType || 'agency').toLowerCase() !== 'school'"
             type="button"
             :class="['tab-button', { active: activeTab === 'contact' }]"
             @click="activeTab = 'contact'"
@@ -257,14 +257,6 @@
             @click="activeTab = 'school_staff'"
           >
             School Staff
-          </button>
-          <button
-            v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'school'"
-            type="button"
-            :class="['tab-button', { active: activeTab === 'school_soft_schedule' }]"
-            @click="activeTab = 'school_soft_schedule'"
-          >
-            Soft Schedule
           </button>
           <button
             v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
@@ -473,9 +465,24 @@
                 <label>ITSCO Group Email</label>
                 <input v-model="agencyForm.schoolProfile.itscoEmail" type="email" placeholder="group@example.org" />
               </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 12px; margin-top: 10px;">
               <div class="form-group">
-                <label>School Days/Times</label>
-                <input v-model="agencyForm.schoolProfile.schoolDaysTimes" type="text" placeholder="Mon/Wed 8–12" />
+                <label>Bell Schedule Start</label>
+                <input v-model="agencyForm.schoolProfile.bellScheduleStartTime" type="time" />
+              </div>
+              <div class="form-group">
+                <label>Bell Schedule End</label>
+                <input v-model="agencyForm.schoolProfile.bellScheduleEndTime" type="time" />
+              </div>
+              <div class="form-group">
+                <label>Notes</label>
+                <textarea
+                  v-model="agencyForm.schoolProfile.schoolDaysTimes"
+                  rows="2"
+                  placeholder="(migrated from Soft Schedule) Freeform notes…"
+                ></textarea>
               </div>
             </div>
 
@@ -515,7 +522,7 @@
                 </div>
               </div>
               <small class="hint" style="display: block; margin-top: 6px;">
-                Contacts are currently read-only here; re-run the import to update them.
+                Tip: edit these contacts in the <strong>School Staff</strong> tab (bulk import can still overwrite them later).
               </small>
             </div>
           </div>
@@ -758,14 +765,6 @@
               <input v-model="agencyForm.phoneNumber" type="tel" placeholder="(555) 123-4567" />
               <small>Main phone number for this school</small>
             </div>
-            <div class="form-group">
-              <label>Secondary Contact (string)</label>
-              <textarea
-                v-model="agencyForm.schoolProfile.secondaryContactText"
-                rows="2"
-                placeholder="Freeform: name, role, email, phone, notes…"
-              ></textarea>
-            </div>
           </template>
 
           <template v-else>
@@ -808,39 +807,199 @@
           </div>
 
           <div v-if="activeTab === 'school_staff'" class="tab-section">
-            <h4 style="margin: 0 0 8px 0;">Affiliated School Staff</h4>
-            <small class="hint">This tab will list school staff accounts eligible for login (coming next).</small>
-
-            <div v-if="schoolContactsForEditor.length" style="margin-top: 12px;">
-              <div style="font-weight: 700; font-size: 13px; margin-bottom: 6px;">Imported contacts</div>
-              <div style="display: grid; gap: 8px;">
-                <div
-                  v-for="c in schoolContactsForEditor"
-                  :key="c.id"
-                  style="border: 1px solid var(--border); border-radius: 10px; padding: 10px; background: var(--card-bg);"
-                >
-                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                    <strong v-if="c.full_name">{{ c.full_name }}</strong>
-                    <span v-else style="color: var(--text-secondary);">(no name)</span>
-                    <span v-if="c.is_primary" class="badge badge-success">Primary</span>
-                    <span v-if="c.role_title" style="color: var(--text-secondary);">• {{ c.role_title }}</span>
-                    <span v-if="c.email" style="color: var(--text-secondary);">• {{ c.email }}</span>
-                  </div>
-                  <div v-if="c.notes" style="margin-top: 4px; color: var(--text-secondary); font-size: 12px;">
-                    {{ c.notes }}
-                  </div>
-                </div>
-              </div>
+            <div class="form-section-divider" style="margin-top: 6px; margin-bottom: 12px; padding-top: 6px;">
+              <h4 style="margin: 0 0 8px 0; color: var(--text-primary); font-size: 18px; font-weight: 700;">
+                School Staff
+              </h4>
+              <small class="hint">
+                Manage school directory contacts and portal login accounts (role: <code>school_staff</code>).
+                This replaces the redundant Contact tab for schools.
+              </small>
             </div>
-          </div>
 
-          <div v-if="activeTab === 'school_soft_schedule'" class="tab-section">
-            <h4 style="margin: 0 0 8px 0;">School Soft Schedule</h4>
-            <small class="hint">Lightweight schedule notes (not the full scheduler).</small>
+            <div class="form-group" style="margin-top: 12px;">
+              <label>Secondary Contact (string)</label>
+              <textarea
+                v-model="agencyForm.schoolProfile.secondaryContactText"
+                rows="3"
+                placeholder="Freeform: name, role, email, phone, notes…"
+              ></textarea>
+              <small class="hint">Freeform notes that don’t fit the structured contact rows below.</small>
+            </div>
 
-            <div class="form-group" style="margin-top: 10px;">
-              <label>School Days/Times</label>
-              <input v-model="agencyForm.schoolProfile.schoolDaysTimes" type="text" placeholder="Mon/Wed 8–12" />
+            <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 10px; padding-top: 18px; border-top: 1px solid var(--border);">
+              <h4 style="margin: 0 0 8px 0; color: var(--text-primary); font-size: 16px; font-weight: 700;">Contacts</h4>
+              <small class="hint">Add, edit, delete. You can also create/revoke a portal user account from a contact.</small>
+            </div>
+
+            <div v-if="addSchoolContactError" class="error-modal">
+              <strong>Error:</strong> {{ addSchoolContactError }}
+            </div>
+
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 88px;">Primary</th>
+                    <th>Name</th>
+                    <th>Role/Title</th>
+                    <th>Email</th>
+                    <th>Notes</th>
+                    <th style="width: 210px;">Account</th>
+                    <th class="right" style="width: 240px;"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>
+                      <label style="display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" v-model="newSchoolContact.isPrimary" :disabled="addingSchoolContact" />
+                        <span>Primary</span>
+                      </label>
+                    </td>
+                    <td><input v-model="newSchoolContact.fullName" type="text" placeholder="Full name" :disabled="addingSchoolContact" /></td>
+                    <td><input v-model="newSchoolContact.roleTitle" type="text" placeholder="e.g. Counselor" :disabled="addingSchoolContact" /></td>
+                    <td><input v-model="newSchoolContact.email" type="email" placeholder="name@school.org" :disabled="addingSchoolContact" /></td>
+                    <td><input v-model="newSchoolContact.notes" type="text" placeholder="Optional notes" :disabled="addingSchoolContact" /></td>
+                    <td style="color: var(--text-secondary); font-size: 12px;">—</td>
+                    <td class="right">
+                      <button type="button" class="btn btn-primary btn-sm" @click="addSchoolContact" :disabled="addingSchoolContact || !editingAgency?.id">
+                        {{ addingSchoolContact ? 'Adding…' : 'Add' }}
+                      </button>
+                    </td>
+                  </tr>
+
+                  <tr v-if="!schoolContactsForEditor.length">
+                    <td colspan="7" style="color: var(--text-secondary); padding: 12px;">
+                      No contacts yet.
+                    </td>
+                  </tr>
+
+                  <tr v-for="c in schoolContactsForEditor" :key="c.id">
+                    <template v-if="editingSchoolContactId === c.id">
+                      <td>
+                        <label style="display:flex; align-items:center; gap:8px;">
+                          <input type="checkbox" v-model="schoolContactEdits[c.id].isPrimary" :disabled="savingSchoolContactId === c.id" />
+                          <span>Primary</span>
+                        </label>
+                      </td>
+                      <td><input v-model="schoolContactEdits[c.id].fullName" type="text" :disabled="savingSchoolContactId === c.id" /></td>
+                      <td><input v-model="schoolContactEdits[c.id].roleTitle" type="text" :disabled="savingSchoolContactId === c.id" /></td>
+                      <td><input v-model="schoolContactEdits[c.id].email" type="email" :disabled="savingSchoolContactId === c.id" /></td>
+                      <td><input v-model="schoolContactEdits[c.id].notes" type="text" :disabled="savingSchoolContactId === c.id" /></td>
+                      <td style="color: var(--text-secondary); font-size: 12px;">
+                        <span v-if="schoolStaffUsersByEmail[String(schoolContactEdits[c.id].email || '').trim().toLowerCase()]">Has account</span>
+                        <span v-else>—</span>
+                      </td>
+                      <td class="right">
+                        <button type="button" class="btn btn-primary btn-sm" @click="saveSchoolContact(c.id)" :disabled="savingSchoolContactId === c.id">
+                          {{ savingSchoolContactId === c.id ? 'Saving…' : 'Save' }}
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" @click="cancelEditSchoolContact(c.id)" :disabled="savingSchoolContactId === c.id">
+                          Cancel
+                        </button>
+                      </td>
+                    </template>
+                    <template v-else>
+                      <td>
+                        <span v-if="c.is_primary" class="badge badge-success">Primary</span>
+                        <span v-else style="color: var(--text-secondary); font-size: 12px;">—</span>
+                      </td>
+                      <td>
+                        <strong v-if="c.full_name">{{ c.full_name }}</strong>
+                        <span v-else style="color: var(--text-secondary);">(no name)</span>
+                      </td>
+                      <td style="color: var(--text-secondary);">{{ c.role_title || '—' }}</td>
+                      <td style="color: var(--text-secondary);">{{ c.email || '—' }}</td>
+                      <td style="color: var(--text-secondary);">{{ c.notes || '—' }}</td>
+                      <td>
+                        <template v-if="c.email && schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()]">
+                          <span style="display:inline-block; font-size: 12px; color: var(--text-secondary);">
+                            Linked
+                          </span>
+                        </template>
+                        <template v-else>
+                          <span style="display:inline-block; font-size: 12px; color: var(--text-secondary);">No account</span>
+                        </template>
+                      </td>
+                      <td class="right">
+                        <button type="button" class="btn btn-secondary btn-sm" @click="startEditSchoolContact(c)">
+                          Edit
+                        </button>
+                        <button
+                          v-if="c.email && !schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()]"
+                          type="button"
+                          class="btn btn-primary btn-sm"
+                          @click="createSchoolStaffUserForContact(c)"
+                          :disabled="creatingSchoolStaffUserContactId === c.id"
+                        >
+                          {{ creatingSchoolStaffUserContactId === c.id ? 'Creating…' : 'Create user' }}
+                        </button>
+                        <button
+                          v-else-if="c.email && schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()]"
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          @click="revokeSchoolStaffAccess(schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()])"
+                          :disabled="revokingSchoolStaffUserId === schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()].id"
+                        >
+                          {{ revokingSchoolStaffUserId === schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()].id ? 'Revoking…' : 'Revoke access' }}
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-danger btn-sm"
+                          @click="deleteSchoolContact(c)"
+                          :disabled="deletingSchoolContactId === c.id"
+                        >
+                          {{ deletingSchoolContactId === c.id ? 'Deleting…' : 'Delete' }}
+                        </button>
+                      </td>
+                    </template>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 10px; padding-top: 18px; border-top: 1px solid var(--border);">
+              <h4 style="margin: 0 0 8px 0; color: var(--text-primary); font-size: 16px; font-weight: 700;">School staff accounts</h4>
+              <small class="hint">Accounts currently assigned to this school (role: <code>school_staff</code>).</small>
+            </div>
+
+            <div v-if="schoolStaffUsersError" class="error-modal">
+              <strong>Error:</strong> {{ schoolStaffUsersError }}
+            </div>
+            <div v-if="schoolStaffUsersLoading" class="loading">Loading school staff accounts…</div>
+
+            <div v-else class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th class="right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!schoolStaffUsers.length">
+                    <td colspan="4" style="color: var(--text-secondary); padding: 12px;">No school staff accounts assigned.</td>
+                  </tr>
+                  <tr v-for="u in schoolStaffUsers" :key="u.id">
+                    <td>{{ [u.first_name, u.last_name].filter(Boolean).join(' ') || `User #${u.id}` }}</td>
+                    <td style="color: var(--text-secondary);">{{ u.email || u.work_email || '—' }}</td>
+                    <td style="color: var(--text-secondary);">{{ u.status || '—' }}</td>
+                    <td class="right">
+                      <button
+                        type="button"
+                        class="btn btn-secondary btn-sm"
+                        @click="revokeSchoolStaffAccess(u)"
+                        :disabled="revokingSchoolStaffUserId === u.id"
+                      >
+                        {{ revokingSchoolStaffUserId === u.id ? 'Revoking…' : 'Revoke access' }}
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -1592,6 +1751,11 @@
                 <IconSelector v-model="agencyForm.schoolPortalUploadPacketIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Upload packet" card in school portals</small>
               </div>
+              <div class="form-group">
+                <label>Documents Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalPublicDocumentsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Documents" card in school portals</small>
+              </div>
             </div>
             
             <div class="settings-section-divider">
@@ -2216,7 +2380,7 @@ const error = ref('');
 const showCreateModal = ref(false);
 const editingAgency = ref(null);
 
-// School org directory contacts (read-only in this UI; imported via bulk school upload)
+// School org directory contacts (imported via bulk school upload; editable in the School Staff tab)
 const schoolContactsForEditor = computed(() => {
   const list = editingAgency.value?.school_contacts;
   return Array.isArray(list) ? list : [];
@@ -3028,6 +3192,7 @@ const ICON_TEMPLATE_FIELDS = [
   'schoolPortalParentQrIconId',
   'schoolPortalParentSignIconId',
   'schoolPortalUploadPacketIconId',
+  'schoolPortalPublicDocumentsIconId',
   'statusExpiredIconId',
   'tempPasswordExpiredIconId',
   'taskOverdueIconId',
@@ -3096,6 +3261,7 @@ const defaultAgencyForm = () => ({
   schoolPortalParentQrIconId: null,
   schoolPortalParentSignIconId: null,
   schoolPortalUploadPacketIconId: null,
+  schoolPortalPublicDocumentsIconId: null,
   onboardingTeamEmail: '',
   phoneNumber: '',
   phoneExtension: '',
@@ -3105,6 +3271,8 @@ const defaultAgencyForm = () => ({
     schoolNumber: '',
     itscoEmail: '',
     schoolDaysTimes: '',
+    bellScheduleStartTime: '',
+    bellScheduleEndTime: '',
     primaryContactName: '',
     primaryContactEmail: '',
     primaryContactRole: '',
@@ -3158,6 +3326,216 @@ const defaultAgencyForm = () => ({
 });
 
 const agencyForm = ref(defaultAgencyForm());
+
+// -------------------------
+// School Staff (contacts + accounts)
+// -------------------------
+const isSchoolOrg = computed(() => String(agencyForm.value.organizationType || 'agency').toLowerCase() === 'school');
+
+const schoolStaffUsers = ref([]);
+const schoolStaffUsersLoading = ref(false);
+const schoolStaffUsersError = ref('');
+
+const loadSchoolStaffUsers = async () => {
+  if (!editingAgency.value?.id || !isSchoolOrg.value) {
+    schoolStaffUsers.value = [];
+    return;
+  }
+  try {
+    schoolStaffUsersLoading.value = true;
+    schoolStaffUsersError.value = '';
+    const res = await api.get(`/agencies/${editingAgency.value.id}/school-staff/users`, { params: { _ts: Date.now() } });
+    schoolStaffUsers.value = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    schoolStaffUsers.value = [];
+    schoolStaffUsersError.value = e.response?.data?.error?.message || 'Failed to load school staff users';
+  } finally {
+    schoolStaffUsersLoading.value = false;
+  }
+};
+
+const schoolStaffUsersByEmail = computed(() => {
+  const map = {};
+  for (const u of schoolStaffUsers.value || []) {
+    const email = String(u?.email || u?.work_email || '').trim().toLowerCase();
+    if (email) map[email] = u;
+  }
+  return map;
+});
+
+const reloadSchoolContacts = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    const resp = await api.get(`/agencies/${editingAgency.value.id}`, { params: { _ts: Date.now() } });
+    if (editingAgency.value && resp?.data) {
+      editingAgency.value.school_contacts = Array.isArray(resp.data?.school_contacts) ? resp.data.school_contacts : [];
+    }
+  } catch {
+    // best effort
+  }
+};
+
+const newSchoolContact = ref({
+  fullName: '',
+  roleTitle: '',
+  email: '',
+  notes: '',
+  isPrimary: false
+});
+const addingSchoolContact = ref(false);
+const addSchoolContactError = ref('');
+
+const addSchoolContact = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    addingSchoolContact.value = true;
+    addSchoolContactError.value = '';
+    await api.post(`/agencies/${editingAgency.value.id}/school-contacts`, {
+      fullName: String(newSchoolContact.value.fullName || '').trim(),
+      roleTitle: String(newSchoolContact.value.roleTitle || '').trim(),
+      email: String(newSchoolContact.value.email || '').trim(),
+      notes: String(newSchoolContact.value.notes || '').trim(),
+      isPrimary: newSchoolContact.value.isPrimary === true
+    });
+    newSchoolContact.value = { fullName: '', roleTitle: '', email: '', notes: '', isPrimary: false };
+    await reloadSchoolContacts();
+  } catch (e) {
+    addSchoolContactError.value = e.response?.data?.error?.message || 'Failed to add contact';
+  } finally {
+    addingSchoolContact.value = false;
+  }
+};
+
+const editingSchoolContactId = ref(null);
+const schoolContactEdits = ref({}); // contactId -> draft
+const savingSchoolContactId = ref(null);
+const deletingSchoolContactId = ref(null);
+const creatingSchoolStaffUserContactId = ref(null);
+const revokingSchoolStaffUserId = ref(null);
+
+const startEditSchoolContact = (c) => {
+  if (!c?.id) return;
+  editingSchoolContactId.value = c.id;
+  schoolContactEdits.value[c.id] = {
+    fullName: c.full_name || '',
+    roleTitle: c.role_title || '',
+    email: c.email || '',
+    notes: c.notes || '',
+    isPrimary: !!c.is_primary
+  };
+};
+
+const cancelEditSchoolContact = (contactId) => {
+  const id = contactId ?? editingSchoolContactId.value;
+  if (!id) return;
+  try {
+    delete schoolContactEdits.value[id];
+  } catch {
+    schoolContactEdits.value[id] = undefined;
+  }
+  if (editingSchoolContactId.value === id) editingSchoolContactId.value = null;
+};
+
+const saveSchoolContact = async (contactId) => {
+  if (!editingAgency.value?.id || !contactId) return;
+  const draft = schoolContactEdits.value?.[contactId];
+  if (!draft) return;
+  try {
+    savingSchoolContactId.value = contactId;
+    await api.put(`/agencies/${editingAgency.value.id}/school-contacts/${contactId}`, {
+      fullName: String(draft.fullName || '').trim(),
+      roleTitle: String(draft.roleTitle || '').trim(),
+      email: String(draft.email || '').trim(),
+      notes: String(draft.notes || '').trim(),
+      isPrimary: draft.isPrimary === true
+    });
+    await reloadSchoolContacts();
+    await loadSchoolStaffUsers(); // email may have changed
+    cancelEditSchoolContact(contactId);
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to save contact');
+  } finally {
+    savingSchoolContactId.value = null;
+  }
+};
+
+const deleteSchoolContact = async (c) => {
+  if (!editingAgency.value?.id || !c?.id) return;
+  const label = (c.full_name || c.email || `Contact #${c.id}`);
+  const ok = window.confirm(`Are you sure you want to delete "${label}" from this school? This cannot be undone.`);
+  if (!ok) return;
+
+  try {
+    deletingSchoolContactId.value = c.id;
+    await api.delete(`/agencies/${editingAgency.value.id}/school-contacts/${c.id}`);
+    await reloadSchoolContacts();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to delete contact');
+  } finally {
+    deletingSchoolContactId.value = null;
+  }
+};
+
+const createSchoolStaffUserForContact = async (c) => {
+  if (!editingAgency.value?.id || !c?.id) return;
+  if (!c?.email) {
+    alert('This contact needs an email to create a user account.');
+    return;
+  }
+  try {
+    creatingSchoolStaffUserContactId.value = c.id;
+    const res = await api.post(`/agencies/${editingAgency.value.id}/school-contacts/${c.id}/create-user`);
+    const setupLink = res?.data?.setupLink || '';
+    if (setupLink) {
+      try {
+        await navigator.clipboard.writeText(setupLink);
+        alert('School staff user created. Setup link copied to clipboard.');
+      } catch {
+        alert(`School staff user created. Setup link:\n\n${setupLink}`);
+      }
+    } else {
+      alert('School staff user created.');
+    }
+    await loadSchoolStaffUsers();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to create user account');
+  } finally {
+    creatingSchoolStaffUserContactId.value = null;
+  }
+};
+
+const revokeSchoolStaffAccess = async (u) => {
+  if (!editingAgency.value?.id || !u?.id) return;
+  const label = `${u.first_name || ''} ${u.last_name || ''}`.trim() || (u.email || `User #${u.id}`);
+  const ok = window.confirm(`Revoke portal access for "${label}" on this school?`);
+  if (!ok) return;
+
+  try {
+    revokingSchoolStaffUserId.value = u.id;
+    await api.post(`/agencies/${editingAgency.value.id}/school-staff/users/${u.id}/revoke-access`);
+    await loadSchoolStaffUsers();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to revoke access');
+  } finally {
+    revokingSchoolStaffUserId.value = null;
+  }
+};
+
+// If a school org somehow lands on the old Contact tab, redirect.
+watch(
+  () => agencyForm.value.organizationType,
+  () => {
+    if (isSchoolOrg.value && activeTab.value === 'contact') activeTab.value = 'school_staff';
+  },
+  { immediate: true }
+);
+
+// Load accounts when the School Staff tab is opened.
+watch([editingAgency, activeTab], () => {
+  if (editingAgency.value?.id && isSchoolOrg.value && activeTab.value === 'school_staff') {
+    loadSchoolStaffUsers();
+  }
+});
 
 const availableFontFamilies = ref([]);
 const loadingFontFamilies = ref(false);
@@ -3977,6 +4355,7 @@ const editAgency = async (agency) => {
     schoolPortalParentQrIconId: agency.school_portal_parent_qr_icon_id ?? null,
     schoolPortalParentSignIconId: agency.school_portal_parent_sign_icon_id ?? null,
     schoolPortalUploadPacketIconId: agency.school_portal_upload_packet_icon_id ?? null,
+    schoolPortalPublicDocumentsIconId: agency.school_portal_public_documents_icon_id ?? null,
     onboardingTeamEmail: agency.onboarding_team_email || '',
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
@@ -3985,6 +4364,8 @@ const editAgency = async (agency) => {
       schoolNumber: agency?.school_profile?.school_number || '',
       itscoEmail: agency?.school_profile?.itsco_email || '',
       schoolDaysTimes: agency?.school_profile?.school_days_times || '',
+      bellScheduleStartTime: agency?.school_profile?.bell_schedule_start_time ? String(agency.school_profile.bell_schedule_start_time).slice(0, 5) : '',
+      bellScheduleEndTime: agency?.school_profile?.bell_schedule_end_time ? String(agency.school_profile.bell_schedule_end_time).slice(0, 5) : '',
       primaryContactName: agency?.school_profile?.primary_contact_name || '',
       primaryContactEmail: agency?.school_profile?.primary_contact_email || '',
       primaryContactRole: agency?.school_profile?.primary_contact_role || '',
@@ -4541,6 +4922,7 @@ const saveAgency = async () => {
       schoolPortalParentQrIconId: agencyForm.value.schoolPortalParentQrIconId ?? null,
       schoolPortalParentSignIconId: agencyForm.value.schoolPortalParentSignIconId ?? null,
       schoolPortalUploadPacketIconId: agencyForm.value.schoolPortalUploadPacketIconId ?? null,
+      schoolPortalPublicDocumentsIconId: agencyForm.value.schoolPortalPublicDocumentsIconId ?? null,
       onboardingTeamEmail: agencyForm.value.onboardingTeamEmail?.trim() || null,
       phoneNumber: agencyForm.value.phoneNumber?.trim() || null,
       // Schools don't use extensions (per directory requirements)
@@ -4582,6 +4964,8 @@ const saveAgency = async () => {
               schoolNumber: agencyForm.value.schoolProfile?.schoolNumber?.trim() || null,
               itscoEmail: agencyForm.value.schoolProfile?.itscoEmail?.trim() || null,
               schoolDaysTimes: agencyForm.value.schoolProfile?.schoolDaysTimes?.trim() || null,
+              bellScheduleStartTime: agencyForm.value.schoolProfile?.bellScheduleStartTime?.trim() || null,
+              bellScheduleEndTime: agencyForm.value.schoolProfile?.bellScheduleEndTime?.trim() || null,
               primaryContactName: agencyForm.value.schoolProfile?.primaryContactName?.trim() || null,
               primaryContactEmail: agencyForm.value.schoolProfile?.primaryContactEmail?.trim() || null,
               primaryContactRole: agencyForm.value.schoolProfile?.primaryContactRole?.trim() || null,

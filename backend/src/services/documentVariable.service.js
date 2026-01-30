@@ -18,6 +18,16 @@ class DocumentVariableService {
         example: 'Acme Corporation'
       },
       {
+        variable: '{{ORGANIZATION_NAME}}',
+        description: 'Associated organization name (school/program/learning); falls back to agency name when not set',
+        example: 'Lincoln Middle School'
+      },
+      {
+        variable: '{{ORGANIZATION_TYPE}}',
+        description: 'Associated organization type (school/program/learning/agency)',
+        example: 'school'
+      },
+      {
         variable: '{{USER_FIRST_NAME}}',
         description: "User's first name",
         example: 'John'
@@ -36,6 +46,16 @@ class DocumentVariableService {
         variable: '{{USER_EMAIL}}',
         description: "User's email address",
         example: 'john.doe@example.com'
+      },
+      {
+        variable: '{{USER_WORK_EMAIL}}',
+        description: "User's work email address (if available)",
+        example: 'john.doe@acme.org'
+      },
+      {
+        variable: '{{USER_PERSONAL_EMAIL}}',
+        description: "User's personal email address (if available)",
+        example: 'john.doe@gmail.com'
       },
       {
         variable: '{{ASSIGNMENT_DATE}}',
@@ -61,9 +81,10 @@ class DocumentVariableService {
    * @param {object} userData - User data object
    * @param {object} agencyData - Agency data object
    * @param {object} taskData - Task data object
+   * @param {object} organizationData - Organization data object
    * @returns {string} - Content with variables replaced
    */
-  static replaceVariables(content, userData = {}, agencyData = {}, taskData = {}) {
+  static replaceVariables(content, userData = {}, agencyData = {}, taskData = {}, organizationData = {}) {
     if (!content || typeof content !== 'string') {
       return content;
     }
@@ -73,6 +94,16 @@ class DocumentVariableService {
     // Agency variables
     if (agencyData.name) {
       replaced = replaced.replace(/\{\{AGENCY_NAME\}\}/g, agencyData.name);
+    }
+
+    // Organization variables (optional; fall back to agency)
+    const orgName = organizationData.name || agencyData.name || '';
+    if (orgName) {
+      replaced = replaced.replace(/\{\{ORGANIZATION_NAME\}\}/g, orgName);
+    }
+    const orgType = organizationData.type ? String(organizationData.type) : '';
+    if (orgType) {
+      replaced = replaced.replace(/\{\{ORGANIZATION_TYPE\}\}/g, orgType);
     }
 
     // User variables
@@ -88,6 +119,12 @@ class DocumentVariableService {
     }
     if (userData.email) {
       replaced = replaced.replace(/\{\{USER_EMAIL\}\}/g, userData.email);
+    }
+    if (userData.workEmail) {
+      replaced = replaced.replace(/\{\{USER_WORK_EMAIL\}\}/g, userData.workEmail);
+    }
+    if (userData.personalEmail) {
+      replaced = replaced.replace(/\{\{USER_PERSONAL_EMAIL\}\}/g, userData.personalEmail);
     }
 
     // Date variables

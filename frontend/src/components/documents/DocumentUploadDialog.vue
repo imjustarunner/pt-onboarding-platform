@@ -109,9 +109,9 @@
           </div>
 
           <div v-if="formData.scope === 'org'" class="scope-org-select">
-            <label class="sub-label">Organization *</label>
-            <select v-model="formData.agencyId" required>
-              <option value="">Select an organization</option>
+            <label class="sub-label">Agency *</label>
+            <select v-model="formData.agencyId" @change="handleAgencyScopeChange" required>
+              <option value="">Select an agency</option>
               <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
                 {{ agency.name }}
               </option>
@@ -119,6 +119,16 @@
             <small v-if="availableAgencies.length === 0" style="color: #dc3545;">
               Loading organizations...
             </small>
+
+            <label class="sub-label" style="margin-top: 12px;">Associated Organization (Optional)</label>
+            <select v-model="formData.organizationId" :disabled="loadingAffiliatedOrganizations || affiliatedOrganizations.length === 0">
+              <option value="">None</option>
+              <option v-for="org in affiliatedOrganizations" :key="org.id" :value="org.id">
+                {{ org.name }}{{ org.organization_type ? ` (${org.organization_type})` : '' }}
+              </option>
+            </select>
+            <small v-if="loadingAffiliatedOrganizations">Loading affiliated organizations…</small>
+            <small v-else-if="affiliatedOrganizations.length === 0">No affiliated organizations found for this agency.</small>
           </div>
 
           <small v-if="!canUsePlatformScope">
@@ -177,6 +187,7 @@ const formData = ref({
   documentActionType: props.existingTemplate?.document_action_type || 'signature',
   scope: props.existingTemplate?.agency_id === null ? 'platform' : 'org',
   agencyId: props.existingTemplate?.agency_id ?? '',
+  organizationId: props.existingTemplate?.organization_id ?? '',
   iconId: props.existingTemplate?.icon_id || null
 });
 
@@ -185,6 +196,8 @@ const fileInput = ref(null);
 const uploading = ref(false);
 const error = ref('');
 const availableAgencies = ref([]);
+const affiliatedOrganizations = ref([]);
+const loadingAffiliatedOrganizations = ref(false);
 const pdfUrl = ref(null);
 const signatureCoordinates = ref({
   x: null,
@@ -202,12 +215,47 @@ const setScope = (scope) => {
   formData.value.scope = scope;
   if (scope === 'platform') {
     formData.value.agencyId = '';
+    formData.value.organizationId = '';
+    affiliatedOrganizations.value = [];
   } else if (!formData.value.agencyId) {
     // Best-effort default to current org or first available
     const current = agencyStore.currentAgency?.id;
     if (current) formData.value.agencyId = current;
     else if (availableAgencies.value?.[0]?.id) formData.value.agencyId = availableAgencies.value[0].id;
   }
+};
+
+const fetchAffiliatedOrganizations = async () => {
+  const agencyId = formData.value.agencyId;
+  if (!agencyId) {
+    affiliatedOrganizations.value = [];
+    formData.value.organizationId = '';
+    return;
+  }
+  try {
+    loadingAffiliatedOrganizations.value = true;
+    const res = await api.get(`/agencies/${agencyId}/affiliated-organizations`);
+    affiliatedOrganizations.value = Array.isArray(res.data) ? res.data : [];
+    // If the selected org is no longer present, clear it.
+    if (
+      formData.value.organizationId &&
+      !affiliatedOrganizations.value.some((o) => String(o.id) === String(formData.value.organizationId))
+    ) {
+      formData.value.organizationId = '';
+    }
+  } catch (err) {
+    console.error('Failed to fetch affiliated organizations:', err);
+    affiliatedOrganizations.value = [];
+    formData.value.organizationId = '';
+  } finally {
+    loadingAffiliatedOrganizations.value = false;
+  }
+};
+
+const handleAgencyScopeChange = async () => {
+  // Reset dependent org selection when agency changes
+  formData.value.organizationId = '';
+  await fetchAffiliatedOrganizations();
 };
 
 const fetchAgencies = async () => {
@@ -229,6 +277,11 @@ const fetchAgencies = async () => {
     // Ensure we have an organization selected when org scope is active
     if (formData.value.scope === 'org' && !formData.value.agencyId) {
       setScope('org');
+    }
+
+    // Load affiliated orgs for the current agency selection (best-effort)
+    if (formData.value.scope === 'org' && formData.value.agencyId) {
+      await fetchAffiliatedOrganizations();
     }
   } catch (err) {
     console.error('Failed to fetch agencies:', err);
@@ -292,6 +345,9 @@ const handleUpload = async () => {
     // IMPORTANT: Never send the literal string "null" (backend treats missing/empty as null).
     if (formData.value.scope === 'org') {
       formDataToSend.append('agencyId', String(formData.value.agencyId));
+      if (formData.value.organizationId && String(formData.value.organizationId) !== String(formData.value.agencyId)) {
+        formDataToSend.append('organizationId', String(formData.value.organizationId));
+      }
     }
 
     // Add signature coordinates if signature is selected and coordinates are set
@@ -320,8 +376,10 @@ const handleUpload = async () => {
       documentActionType: 'signature',
       scope: canUsePlatformScope.value ? 'platform' : 'org',
       agencyId: '',
+      organizationId: '',
       iconId: null
     };
+    affiliatedOrganizations.value = [];
     selectedFile.value = null;
     if (pdfUrl.value) {
       URL.revokeObjectURL(pdfUrl.value);

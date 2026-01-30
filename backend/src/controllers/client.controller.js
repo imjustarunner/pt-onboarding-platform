@@ -355,7 +355,9 @@ export const createClient = async (req, res, next) => {
 
     // Check for an existing client with the same initials at the same school (agency-scoped).
     // This is a warning only (we still allow creating a new client).
-    const normalizedInitials = String(initials || '').toUpperCase().trim();
+    // IMPORTANT: preserve user-entered casing in storage/display, but use uppercase for matching/dedup checks.
+    const initialsForSave = String(initials || '').trim();
+    const normalizedInitials = initialsForSave.toUpperCase();
     try {
       const existingByMatchKey = await Client.findByMatchKey(parsedAgencyId, parsedOrganizationId, normalizedInitials);
       if (existingByMatchKey?.id) {
@@ -458,7 +460,7 @@ export const createClient = async (req, res, next) => {
       organization_id: parsedOrganizationId,
       agency_id: parsedAgencyId,
       provider_id: provider_id || null,
-      initials: initials.toUpperCase().trim(),
+      initials: initialsForSave,
       identifier_code: clientIdentifierCode,
       // "status" is treated as internal workflow/archive flag; new clients are not archived.
       status: workflowStatus,

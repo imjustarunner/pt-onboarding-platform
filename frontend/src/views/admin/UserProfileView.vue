@@ -1028,6 +1028,28 @@
 
               <div class="card" style="margin-top: 12px;">
                 <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+                  <h3 style="margin:0;">School bell schedule (reference)</h3>
+                </div>
+                <div v-if="schoolAssignmentsLoading" class="loading">Loading bell schedule…</div>
+                <div v-else class="form-grid" style="grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr); gap: 12px; margin-top: 10px;">
+                  <div class="form-group">
+                    <label>Start</label>
+                    <input :value="selectedSchoolBellScheduleStartDisplay" type="text" disabled />
+                  </div>
+                  <div class="form-group">
+                    <label>End</label>
+                    <input :value="selectedSchoolBellScheduleEndDisplay" type="text" disabled />
+                  </div>
+                  <div class="form-group form-group-full">
+                    <label>Notes</label>
+                    <textarea :value="selectedSchoolBellScheduleNotesDisplay" rows="3" disabled style="width: 100%;" />
+                    <small class="form-help">Configured in the school’s Organization Settings → General.</small>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card" style="margin-top: 12px;">
+                <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
                   <h3 style="margin:0;">Provider School Info blurb</h3>
                   <button
                     class="btn btn-primary btn-sm"
@@ -1960,6 +1982,19 @@ const savingSchoolAffiliation = ref(false);
 const schoolOverrideOpen = ref(false);
 const repairingProviderSlots = ref(false);
 
+const selectedSchoolBellSchedule = ref({ startTime: null, endTime: null, notes: null });
+const fmtTime = (v) => {
+  const s = String(v || '').trim();
+  if (!s) return '—';
+  return s.length >= 5 ? s.slice(0, 5) : s;
+};
+const selectedSchoolBellScheduleStartDisplay = computed(() => fmtTime(selectedSchoolBellSchedule.value?.startTime));
+const selectedSchoolBellScheduleEndDisplay = computed(() => fmtTime(selectedSchoolBellSchedule.value?.endTime));
+const selectedSchoolBellScheduleNotesDisplay = computed(() => {
+  const n = String(selectedSchoolBellSchedule.value?.notes || '').trim();
+  return n || '—';
+});
+
 const schoolDayEdits = ref([
   { dayOfWeek: 'Monday', isActive: true, startTime: '', endTime: '', slotsTotal: 0, slotsAuto: true, slotsAvailableDisplay: '—' },
   { dayOfWeek: 'Tuesday', isActive: true, startTime: '', endTime: '', slotsTotal: 0, slotsAuto: true, slotsAvailableDisplay: '—' },
@@ -2012,6 +2047,7 @@ const loadSchoolAssignments = async () => {
     const assignments = r.data?.assignments || [];
     const override = r.data?.schoolAcceptingNewClientsOverride;
     schoolOverrideOpen.value = override === true;
+    selectedSchoolBellSchedule.value = r.data?.schoolBellSchedule || { startTime: null, endTime: null, notes: null };
 
     const byDay = new Map(assignments.map((a) => [String(a.day_of_week), a]));
     schoolDayEdits.value = (schoolDayEdits.value || []).map((d) => {
@@ -2037,6 +2073,7 @@ const loadSchoolAssignments = async () => {
     });
   } catch (e) {
     schoolAssignmentsError.value = e.response?.data?.error?.message || 'Failed to load school assignments';
+    selectedSchoolBellSchedule.value = { startTime: null, endTime: null, notes: null };
   } finally {
     schoolAssignmentsLoading.value = false;
   }

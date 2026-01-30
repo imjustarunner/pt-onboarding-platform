@@ -160,6 +160,19 @@
             <div class="nav-label">Staff</div>
           </button>
 
+          <button class="nav-item" type="button" @click="portalMode = 'documents'" :class="{ active: portalMode === 'documents' }">
+            <div class="nav-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">DO</div>
+            </div>
+            <div class="nav-label">Docs/Links</div>
+          </button>
+
           <button class="nav-item" type="button" @click="showHelpDesk = true">
             <div class="nav-icon">
               <img
@@ -301,6 +314,23 @@
             </div>
           </button>
 
+          <button class="dash-card" type="button" @click="portalMode = 'documents'">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
+                alt="Public documents icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">DO</div>
+            </div>
+            <div class="dash-card-title">Docs / Links</div>
+            <div class="dash-card-desc">Shared calendars and school-wide reference docs/links.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+            </div>
+          </button>
+
           <button class="dash-card" type="button" @click="showHelpDesk = true">
             <div class="dash-card-icon">
               <img
@@ -438,6 +468,11 @@
         />
           </div>
 
+          <div v-else-if="portalMode === 'documents'">
+        <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
+        <PublicDocumentsPanel v-else :school-organization-id="organizationId" />
+          </div>
+
           <div v-else-if="portalMode === 'roster'" class="roster">
         <div class="roster-header">
           <h2 style="margin: 0;">{{ isProvider ? 'My roster' : 'School roster' }}</h2>
@@ -527,6 +562,7 @@ import ClientModal from '../../components/school/redesign/ClientModal.vue';
 import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPanel.vue';
 import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersDirectoryPanel.vue';
 import SchoolStaffPanel from '../../components/school/redesign/SchoolStaffPanel.vue';
+import PublicDocumentsPanel from '../../components/school/redesign/PublicDocumentsPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
@@ -559,7 +595,7 @@ const comingSoonTitle = computed(() => {
   return 'Coming soon';
 });
 const selectedClient = ref(null);
-const portalMode = ref('home'); // home | providers | days | roster | skills | school_staff
+const portalMode = ref('home'); // home | providers | days | roster | skills | school_staff | documents
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
 const cardIconOrg = ref(null); // affiliated agency record (for School Portal card icon overrides)
