@@ -191,6 +191,17 @@
               >
                 Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
               </button>
+              <router-link
+                v-if="canShowSettingsIcon"
+                :to="orgTo('/admin/settings')"
+                class="nav-icon-btn"
+                title="Settings"
+                aria-label="Settings"
+                @click="closeAllNavMenus"
+              >
+                <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="nav-icon-img" />
+                <span v-else aria-hidden="true">⚙</span>
+              </router-link>
               <button @click="handleLogout" class="btn btn-secondary">Logout</button>
               </div>
             </div>
@@ -708,6 +719,21 @@ const showOnDemandLink = computed(() => {
 const canCreateEdit = computed(() => {
   const role = user.value?.role;
   return role === 'admin' || role === 'super_admin';
+});
+
+const canShowSettingsIcon = computed(() => {
+  const u = authStore.user;
+  if (!u) return false;
+  // Mirror Settings link gating.
+  return (canCreateEdit.value || u?.role === 'support') && u?.role !== 'clinical_practice_assistant' && !isSupervisor(u);
+});
+
+const settingsIconUrl = computed(() => {
+  try {
+    return brandingStore.getAdminQuickActionIconUrl('settings', agencyStore.currentAgency || null);
+  } catch {
+    return null;
+  }
 });
 
 const activeOrganizationSlug = computed(() => {
@@ -1535,6 +1561,30 @@ onUnmounted(() => {
 @keyframes fadeIn {
   from {
     opacity: 0;
+  }
+
+  .nav-icon-btn {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.06);
+    color: white;
+    font-weight: 900;
+    line-height: 1;
+  }
+  .nav-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .nav-icon-img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+    display: block;
+    filter: brightness(0) invert(1);
   }
   to {
     opacity: 1;

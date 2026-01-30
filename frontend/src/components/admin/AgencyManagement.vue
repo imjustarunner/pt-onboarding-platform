@@ -307,6 +307,43 @@
           <!-- Form-based tabs (all but Icons/Payroll) -->
           <div v-show="activeTab !== 'icons' && activeTab !== 'payroll'" class="tab-content">
           <div v-if="activeTab === 'general'" class="tab-section">
+          <div v-if="editingAgency" class="org-general-header">
+            <div class="org-general-title">
+              <div class="org-name">{{ editingAgency.name }}</div>
+              <div class="org-status-pills">
+                <span v-if="editingAgency.is_archived" class="pill pill-warn">Archived</span>
+                <span v-else-if="editingAgency.is_active === false" class="pill pill-warn">Inactive</span>
+                <span v-else class="pill pill-ok">Active</span>
+                <span v-if="editingAgency.portal_url" class="pill pill-muted mono">/{{ editingAgency.portal_url }}</span>
+              </div>
+            </div>
+            <div class="org-general-actions">
+              <button
+                v-if="editingAgency.portal_url"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click.stop="copyLoginUrl(editingAgency.portal_url)"
+              >
+                Copy URL
+              </button>
+              <button
+                v-if="userRole === 'super_admin'"
+                type="button"
+                class="btn btn-secondary btn-sm"
+                @click.stop="openDuplicateModal(editingAgency)"
+              >
+                Duplicate
+              </button>
+              <button
+                v-if="userRole === 'super_admin'"
+                type="button"
+                :class="['btn', editingAgency.is_active ? 'btn-danger' : 'btn-secondary', 'btn-sm']"
+                @click.stop="editingAgency.is_active ? archiveOrganization(editingAgency) : restoreOrganization(editingAgency)"
+              >
+                {{ editingAgency.is_active ? 'Archive' : 'Restore' }}
+              </button>
+            </div>
+          </div>
           <div class="form-group">
             <label>Organization Type *</label>
             <select v-model="agencyForm.organizationType" required :disabled="!!editingAgency">
@@ -4345,6 +4382,7 @@ const saveAgency = async () => {
           }
         }
 
+        // Keep embedded/single-org editors open; office creation isn't used in embedded mode.
         closeModal();
         await fetchAgencies();
 
@@ -4578,8 +4616,19 @@ const saveAgency = async () => {
     } else {
       await api.post('/agencies', data);
     }
-    
-    closeModal();
+
+    // IMPORTANT: In embedded single-org contexts (School Portal settings / embedded org editor),
+    // saving should not "exit" the editor. Keep the modal/editor open so users can continue.
+    if (!embeddedSingleOrg.value) {
+      closeModal();
+    } else {
+      // Mark current form as the new baseline (no unsaved-changes prompt).
+      originalAgencyFormSnapshot.value = JSON.stringify(agencyForm.value);
+      // Keep editor state pointing at the updated agency record.
+      if (updatedAgency) {
+        editingAgency.value = updatedAgency;
+      }
+    }
     fetchAgencies();
   } catch (err) {
     console.error('Agency save error:', err);
@@ -4906,6 +4955,62 @@ onMounted(async () => {
 
 .master-detail.nav-collapsed {
   grid-template-columns: 88px 1fr;
+}
+
+.org-general-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(16, 185, 129, 0.04);
+  margin-bottom: 12px;
+}
+.org-general-title .org-name {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--text-primary);
+}
+.org-status-pills {
+  margin-top: 6px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+  background: white;
+}
+.pill-ok {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.10);
+}
+.pill-warn {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.12);
+}
+.pill-muted {
+  color: var(--text-secondary);
+  background: rgba(148, 163, 184, 0.12);
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+.org-general-actions {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .nav-pane {
