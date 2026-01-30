@@ -31,7 +31,8 @@ RUN echo "=== Verifying frontend structure ===" && \
     echo "=== Ready to build ==="
 
 # Build the frontend
-RUN npm run build
+# Explicitly pass root/config so Vite resolves index.html reliably in CI builds.
+RUN npm run build -- --config vite.config.js --root .
 
 # Switch back to app root for copying
 WORKDIR /app
