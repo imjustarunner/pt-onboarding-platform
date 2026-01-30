@@ -6,6 +6,14 @@
         <div class="subtle">Prospective candidates (internal)</div>
       </div>
       <div class="header-actions">
+        <div v-if="canChooseAgency" class="agency-picker">
+          <label class="agency-label">Agency</label>
+          <select v-model="selectedAgencyId" class="input agency-select">
+            <option v-for="a in agencyChoices" :key="a.id" :value="String(a.id)">
+              {{ a.name }}
+            </option>
+          </select>
+        </div>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
         <button class="btn btn-primary" @click="openCreate">New applicant</button>
       </div>
@@ -243,7 +251,26 @@ const detail = ref({ user: null, profile: null, notes: [], latestResearch: null 
 
 const tab = ref('profile');
 
+const agencyChoices = computed(() => {
+  // Super admin: can browse all agencies. Others: only assigned agencies.
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const base = role === 'super_admin'
+    ? (Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [])
+    : (Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : []);
+
+  return (base || [])
+    .filter((o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency')
+    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+});
+
+const canChooseAgency = computed(() => (agencyChoices.value || []).length > 1);
+const selectedAgencyId = ref('');
+
 const effectiveAgencyId = computed(() => {
+  // First: explicit selection on this page.
+  const chosen = selectedAgencyId.value ? parseInt(String(selectedAgencyId.value), 10) : null;
+  if (chosen) return chosen;
+
   // Prefer explicit agency context (brand/selector)
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
   const fromStore = a?.id || null;
@@ -582,6 +609,26 @@ watch(effectiveAgencyId, async (next) => {
 });
 
 onMounted(async () => {
+  // Ensure we have agency lists for the selector.
+  try {
+    const role = String(authStore.user?.role || '').toLowerCase();
+    if (role === 'super_admin') {
+      await agencyStore.fetchAgencies();
+    } else {
+      await agencyStore.fetchUserAgencies();
+    }
+  } catch {
+    // ignore; best effort
+  }
+
+  // Default selection to current agency (or first available).
+  if (!selectedAgencyId.value) {
+    if (effectiveAgencyId.value) {
+      selectedAgencyId.value = String(effectiveAgencyId.value);
+    } else if ((agencyChoices.value || []).length > 0) {
+      selectedAgencyId.value = String(agencyChoices.value[0].id);
+    }
+  }
   await refresh();
 });
 </script>
