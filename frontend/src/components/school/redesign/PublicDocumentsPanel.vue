@@ -15,68 +15,70 @@
 
     <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
 
-    <div class="card" style="margin-top: 12px;">
-      <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
-        <h3 style="margin:0;">Add file</h3>
+    <div class="add-panels">
+      <div class="card">
+        <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
+          <h3 style="margin:0;">Add file</h3>
+        </div>
+        <div class="form-grid public-docs-form-grid">
+          <div class="form-group">
+            <label>Title</label>
+            <input v-model="newDoc.title" type="text" placeholder="e.g. 2026 District Calendar" :disabled="uploading" />
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select v-model="newDoc.categoryKey" :disabled="uploading">
+              <option value="">General</option>
+              <option value="district_calendar">District calendar</option>
+              <option value="school_calendar">School calendar</option>
+              <option value="bell_schedule">Bell schedule</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>File</label>
+            <input ref="newFileInput" type="file" @change="onPickNewFile" :disabled="uploading" />
+            <small class="form-help">PDF, JPG, PNG, DOCX, XLSX (max 15MB).</small>
+          </div>
+          <div class="form-group form-group-full" style="display:flex; gap: 8px; align-items:center;">
+            <button class="btn btn-primary btn-sm" type="button" @click="upload" :disabled="uploading || !newFile">
+              {{ uploading ? 'Uploading…' : 'Upload' }}
+            </button>
+            <div v-if="uploadError" class="error" style="margin:0;">{{ uploadError }}</div>
+          </div>
+        </div>
       </div>
-      <div class="form-grid" style="grid-template-columns: 1fr 220px; gap: 12px; margin-top: 10px;">
-        <div class="form-group">
-          <label>Title</label>
-          <input v-model="newDoc.title" type="text" placeholder="e.g. 2026 District Calendar" :disabled="uploading" />
-        </div>
-        <div class="form-group">
-          <label>Category</label>
-          <select v-model="newDoc.categoryKey" :disabled="uploading">
-            <option value="">General</option>
-            <option value="district_calendar">District calendar</option>
-            <option value="school_calendar">School calendar</option>
-            <option value="bell_schedule">Bell schedule</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
-        <div class="form-group form-group-full">
-          <label>File</label>
-          <input ref="newFileInput" type="file" @change="onPickNewFile" :disabled="uploading" />
-          <small class="form-help">PDF, JPG, PNG, DOCX, XLSX (max 15MB).</small>
-        </div>
-        <div class="form-group form-group-full" style="display:flex; gap: 8px; align-items:center;">
-          <button class="btn btn-primary btn-sm" type="button" @click="upload" :disabled="uploading || !newFile">
-            {{ uploading ? 'Uploading…' : 'Upload' }}
-          </button>
-          <div v-if="uploadError" class="error" style="margin:0;">{{ uploadError }}</div>
-        </div>
-      </div>
-    </div>
 
-    <div class="card" style="margin-top: 12px;">
-      <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
-        <h3 style="margin:0;">Add link</h3>
-      </div>
-      <div class="form-grid" style="grid-template-columns: 1fr 220px; gap: 12px; margin-top: 10px;">
-        <div class="form-group">
-          <label>Title</label>
-          <input v-model="newLink.title" type="text" placeholder="e.g. District calendar (web)" :disabled="linkSaving" />
+      <div class="card">
+        <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
+          <h3 style="margin:0;">Add link</h3>
         </div>
-        <div class="form-group">
-          <label>Category</label>
-          <select v-model="newLink.categoryKey" :disabled="linkSaving">
-            <option value="">General</option>
-            <option value="district_calendar">District calendar</option>
-            <option value="school_calendar">School calendar</option>
-            <option value="bell_schedule">Bell schedule</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
-        <div class="form-group form-group-full">
-          <label>URL</label>
-          <input v-model="newLink.linkUrl" type="url" placeholder="https://…" :disabled="linkSaving" />
-          <small class="form-help">Must be http(s). Consider using a share link.</small>
-        </div>
-        <div class="form-group form-group-full" style="display:flex; gap: 8px; align-items:center;">
-          <button class="btn btn-primary btn-sm" type="button" @click="createLink" :disabled="linkSaving || !newLink.linkUrl">
-            {{ linkSaving ? 'Saving…' : 'Add link' }}
-          </button>
-          <div v-if="linkError" class="error" style="margin:0;">{{ linkError }}</div>
+        <div class="form-grid public-docs-form-grid">
+          <div class="form-group">
+            <label>Title</label>
+            <input v-model="newLink.title" type="text" placeholder="e.g. District calendar (web)" :disabled="linkSaving" />
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select v-model="newLink.categoryKey" :disabled="linkSaving">
+              <option value="">General</option>
+              <option value="district_calendar">District calendar</option>
+              <option value="school_calendar">School calendar</option>
+              <option value="bell_schedule">Bell schedule</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>URL</label>
+            <input v-model="newLink.linkUrl" type="url" placeholder="https://…" :disabled="linkSaving" />
+            <small class="form-help">Must be http(s). Consider using a share link.</small>
+          </div>
+          <div class="form-group form-group-full" style="display:flex; gap: 8px; align-items:center;">
+            <button class="btn btn-primary btn-sm" type="button" @click="createLink" :disabled="linkSaving || !newLink.linkUrl">
+              {{ linkSaving ? 'Saving…' : 'Add link' }}
+            </button>
+            <div v-if="linkError" class="error" style="margin:0;">{{ linkError }}</div>
+          </div>
         </div>
       </div>
     </div>
@@ -105,7 +107,13 @@
             <tr v-for="d in docs" :key="d.id">
               <td>
                 <template v-if="editingId === d.id">
-                  <input v-model="editDraft.title" type="text" />
+                  <div class="edit-stack">
+                    <input v-model="editDraft.title" type="text" />
+                    <div v-if="String(d.kind || '').toLowerCase() === 'link'" class="edit-subrow">
+                      <div class="edit-subrow-label muted">URL</div>
+                      <input v-model="editDraft.linkUrl" type="url" placeholder="https://…" />
+                    </div>
+                  </div>
                 </template>
                 <template v-else>
                   <strong>{{ d.title || d.original_filename || `Document #${d.id}` }}</strong>
@@ -128,12 +136,6 @@
                 <template v-else>
                   <span class="muted">{{ formatCategory(d.category_key) }}</span>
                 </template>
-              </td>
-              <td v-if="editingId === d.id && String(d.kind || '').toLowerCase() === 'link'">
-                <div class="form-group" style="margin: 0;">
-                  <label class="muted" style="font-size: 12px;">URL</label>
-                  <input v-model="editDraft.linkUrl" type="url" placeholder="https://…" />
-                </div>
               </td>
               <td class="muted">{{ formatDate(d.updated_at) }}</td>
               <td class="right">
@@ -398,6 +400,37 @@ onMounted(load);
 </script>
 
 <style scoped>
+.public-docs {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.add-panels {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: start;
+}
+@media (min-width: 980px) {
+  .add-panels {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.public-docs-form-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 180px minmax(220px, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+@media (max-width: 980px) {
+  .public-docs-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .public-docs-header {
   display: flex;
   justify-content: space-between;
@@ -406,6 +439,103 @@ onMounted(load);
 }
 .muted {
   color: var(--text-secondary);
+}
+
+/* Make this panel compact (forms + table) without affecting the rest of the app */
+.public-docs :deep(.card) {
+  padding: 12px !important;
+}
+.public-docs :deep(.card-header) {
+  padding: 0 !important;
+  margin-bottom: 8px;
+}
+.public-docs :deep(.card-header h3) {
+  font-size: 14px;
+}
+
+.public-docs :deep(.form-grid) {
+  gap: 8px !important;
+  margin-top: 8px !important;
+}
+.public-docs :deep(.form-group) {
+  margin: 0 !important;
+}
+.public-docs :deep(.form-group label) {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.public-docs :deep(.form-help) {
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.public-docs :deep(input),
+.public-docs :deep(select),
+.public-docs :deep(textarea) {
+  font-size: 13px;
+  padding: 6px 10px;
+  min-height: 32px;
+}
+.public-docs :deep(textarea) {
+  min-height: 80px;
+}
+
+/* Compact the library table rows */
+.public-docs .table th,
+.public-docs .table td {
+  padding: 8px 10px;
+  line-height: 1.2;
+}
+.public-docs .table th {
+  font-size: 12px;
+}
+.public-docs .table td {
+  font-size: 13px;
+  vertical-align: top;
+}
+.public-docs .table strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+.public-docs .table .muted {
+  font-size: 11px !important;
+}
+
+.public-docs .table input,
+.public-docs .table select {
+  font-size: 13px;
+  padding: 6px 8px;
+  min-height: 30px;
+}
+
+.public-docs .btn.btn-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.public-docs td.right {
+  white-space: nowrap;
+}
+.public-docs td.right .btn {
+  margin-left: 6px;
+}
+.public-docs td.right .btn:first-child {
+  margin-left: 0;
+}
+
+.edit-stack {
+  display: grid;
+  gap: 6px;
+}
+.edit-subrow {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.edit-subrow-label {
+  font-size: 11px;
+  font-weight: 600;
 }
 </style>
 

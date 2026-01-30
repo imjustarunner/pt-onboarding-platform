@@ -118,10 +118,10 @@
                 </div>
                 <div v-if="!navCollapsed" class="org-title">
                   <div class="org-name">{{ org.name }}</div>
-                  <div class="org-slug">{{ org.slug }}</div>
+                  <div v-if="!isChildOrgRow(org)" class="org-slug">{{ org.slug }}</div>
                 </div>
               </div>
-              <div v-if="!navCollapsed" class="org-right">
+              <div v-if="!navCollapsed && !isChildOrgRow(org)" class="org-right">
                 <div class="org-badges">
                   <span class="badge badge-type">{{ String(org.organization_type || 'agency').toLowerCase() }}</span>
                   <span :class="['badge', org.is_active ? 'badge-success' : 'badge-secondary']">
@@ -5395,6 +5395,16 @@ onMounted(async () => {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.org-general-actions .btn,
+.detail-summary-actions .btn {
+  width: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .nav-pane {

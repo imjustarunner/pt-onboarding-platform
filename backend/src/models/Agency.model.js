@@ -653,6 +653,7 @@ class Agency {
       schoolPortalParentQrIconId,
       schoolPortalParentSignIconId,
       schoolPortalUploadPacketIconId,
+      schoolPortalPublicDocumentsIconId,
 
       // Tier system (agency-specific; optional columns)
       tierSystemEnabled,
@@ -854,9 +855,10 @@ class Agency {
     let hasParentQr = false;
     let hasParentSign = false;
     let hasUploadPacket = false;
+    let hasPublicDocs = false;
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id')"
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id','school_portal_public_documents_icon_id')"
       );
       const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
       hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
@@ -864,12 +866,14 @@ class Agency {
       hasParentQr = names.has('school_portal_parent_qr_icon_id');
       hasParentSign = names.has('school_portal_parent_sign_icon_id');
       hasUploadPacket = names.has('school_portal_upload_packet_icon_id');
+      hasPublicDocs = names.has('school_portal_public_documents_icon_id');
     } catch (e) {
       hasSchoolPortalIcons = false;
       hasSchoolPortalStaffIcon = false;
       hasParentQr = false;
       hasParentSign = false;
       hasUploadPacket = false;
+      hasPublicDocs = false;
     }
     if (schoolPortalSchoolStaffIconId !== undefined && !hasSchoolPortalStaffIcon) {
       const err = new Error(
@@ -899,6 +903,13 @@ class Agency {
       err.status = 409;
       throw err;
     }
+    if (schoolPortalPublicDocumentsIconId !== undefined && !hasPublicDocs) {
+      const err = new Error(
+        'Cannot save Documents icon: database missing agencies.school_portal_public_documents_icon_id. Run database/migrations/303_school_portal_public_documents_card_icon.sql.'
+      );
+      err.status = 409;
+      throw err;
+    }
     if (hasSchoolPortalIcons) {
       insertFields.push(
         'school_portal_providers_icon_id',
@@ -909,7 +920,8 @@ class Agency {
         ...(hasSchoolPortalStaffIcon ? ['school_portal_school_staff_icon_id'] : []),
         ...(hasParentQr ? ['school_portal_parent_qr_icon_id'] : []),
         ...(hasParentSign ? ['school_portal_parent_sign_icon_id'] : []),
-        ...(hasUploadPacket ? ['school_portal_upload_packet_icon_id'] : [])
+        ...(hasUploadPacket ? ['school_portal_upload_packet_icon_id'] : []),
+        ...(hasPublicDocs ? ['school_portal_public_documents_icon_id'] : [])
       );
       insertValues.push(
         schoolPortalProvidersIconId || null,
@@ -920,7 +932,8 @@ class Agency {
         ...(hasSchoolPortalStaffIcon ? [schoolPortalSchoolStaffIconId || null] : []),
         ...(hasParentQr ? [schoolPortalParentQrIconId || null] : []),
         ...(hasParentSign ? [schoolPortalParentSignIconId || null] : []),
-        ...(hasUploadPacket ? [schoolPortalUploadPacketIconId || null] : [])
+        ...(hasUploadPacket ? [schoolPortalUploadPacketIconId || null] : []),
+        ...(hasPublicDocs ? [schoolPortalPublicDocumentsIconId || null] : [])
       );
     }
     
@@ -935,6 +948,7 @@ class Agency {
   static async update(id, agencyData) {
     const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
+      schoolPortalPublicDocumentsIconId,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
     } = agencyData;
     

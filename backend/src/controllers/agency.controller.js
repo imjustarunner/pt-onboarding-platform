@@ -5,6 +5,43 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import pool from '../config/database.js';
 
+async function attachAffiliationMeta(orgs) {
+  const list = Array.isArray(orgs) ? orgs : [];
+  if (!list.length) return list;
+
+  // Best-effort: if the affiliation table is present, annotate orgs with their
+  // affiliated agency id (i.e., "this org is a child org of agency X").
+  // This lets UIs filter out affiliated orgs even when organization_type is missing/null.
+  try {
+    const [tables] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'organization_affiliations'"
+    );
+    const has = Number(tables?.[0]?.cnt || 0) > 0;
+    if (!has) return list;
+
+    const [rows] = await pool.execute(
+      `SELECT organization_id, agency_id
+       FROM organization_affiliations
+       WHERE is_active = TRUE
+       ORDER BY updated_at DESC, id DESC`
+    );
+    const byOrg = new Map();
+    for (const r of (rows || [])) {
+      const orgId = Number(r?.organization_id || 0);
+      if (!orgId || byOrg.has(orgId)) continue;
+      byOrg.set(orgId, Number(r?.agency_id || 0) || null);
+    }
+
+    for (const o of list) {
+      if (!o || !o.id) continue;
+      o.affiliated_agency_id = byOrg.get(Number(o.id)) || null;
+    }
+  } catch {
+    // ignore; best-effort only
+  }
+  return list;
+}
+
 export const getAllAgencies = async (req, res, next) => {
   try {
     const includeInactive = req.user.role === 'admin' || req.user.role === 'super_admin';
@@ -13,11 +50,13 @@ export const getAllAgencies = async (req, res, next) => {
     // Super admins see all agencies
     if (req.user.role === 'super_admin') {
       const agencies = await Agency.findAll(includeInactive, includeArchived);
+      await attachAffiliationMeta(agencies);
       return res.json(agencies);
     }
     
     // Regular admins and others see only their assigned agencies
     const userAgencies = await User.getAgencies(req.user.id);
+    await attachAffiliationMeta(userAgencies);
     res.json(userAgencies);
   } catch (error) {
     next(error);
@@ -374,6 +413,7 @@ export const updateAgency = async (req, res, next) => {
       schoolPortalParentQrIconId,
       schoolPortalParentSignIconId,
       schoolPortalUploadPacketIconId,
+      schoolPortalPublicDocumentsIconId,
       certificateTemplateUrl: certificateTemplateUrl || null,
       onboardingTeamEmail,
       phoneNumber,
