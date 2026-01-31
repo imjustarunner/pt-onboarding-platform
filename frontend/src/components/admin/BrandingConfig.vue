@@ -401,6 +401,54 @@
             <div class="icon-description">Icon for the "School Overview" action card</div>
           </div>
           <div class="icon-row">
+            <div class="icon-label">Program Overview Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.schoolOverviewIconId" />
+              <button
+                v-if="platformForm.schoolOverviewIconId"
+                @click="platformForm.schoolOverviewIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Program Overview" action card (uses the same icon field as School Overview)</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Provider Availability Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.companyProfileIconId" />
+              <button
+                v-if="platformForm.companyProfileIconId"
+                @click="platformForm.companyProfileIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Provider Availability" action card (uses the Company Profile icon field)</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Executive Report Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="platformForm.viewAllProgressIconId" />
+              <button
+                v-if="platformForm.viewAllProgressIconId"
+                @click="platformForm.viewAllProgressIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Executive Report" action card (uses the View All Progress icon field)</div>
+          </div>
+          <div class="icon-row">
             <div class="icon-label">Manage Modules Icon</div>
             <div class="icon-selector-cell">
               <IconSelector v-model="platformForm.manageModulesIconId" />
