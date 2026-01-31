@@ -607,6 +607,7 @@ export const listCandidateResumes = async (req, res, next) => {
         `SELECT d.*,
                 rp.status AS resume_parse_status,
                 rp.method AS resume_parse_method,
+                rp.error_text AS resume_parse_error_text,
                 rp.updated_at AS resume_parse_updated_at,
                 cb.first_name AS created_by_first_name,
                 cb.last_name AS created_by_last_name,
@@ -648,6 +649,7 @@ export const listCandidateResumes = async (req, res, next) => {
       mimeType: d.mime_type || null,
       resumeParseStatus: d.resume_parse_status || null,
       resumeParseMethod: d.resume_parse_method || null,
+      resumeParseErrorText: d.resume_parse_error_text || null,
       resumeParseUpdatedAt: d.resume_parse_updated_at || null
     }));
 

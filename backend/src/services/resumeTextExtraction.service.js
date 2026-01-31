@@ -18,11 +18,18 @@ export async function extractResumeTextFromUpload({ buffer, mimeType }) {
 
   if (mt === 'application/pdf') {
     try {
-      // pdf-parse is CommonJS; dynamic import works under ESM in Node 18.
+      // pdf-parse@2.x exports a PDFParse class (no default function).
       const mod = await import('pdf-parse');
-      const pdfParse = mod?.default || mod;
-      const data = await pdfParse(buffer);
-      const text = safeTruncate(data?.text || '', 200000);
+      const PDFParse = mod?.PDFParse;
+      if (typeof PDFParse !== 'function') {
+        return { status: 'failed', method: 'pdf_text', text: '', errorText: 'pdf-parse PDFParse export not found' };
+      }
+
+      const parser = new PDFParse({ data: buffer });
+      const result = await parser.getText();
+      await parser.destroy();
+
+      const text = safeTruncate(result?.text || '', 200000);
       return { status: text ? 'completed' : 'no_text', method: 'pdf_text', text, errorText: null };
     } catch (e) {
       return {

@@ -126,7 +126,12 @@
                       <div class="name">{{ r.title || 'Resume' }}</div>
                       <div class="resume-meta">
                         <span class="muted small">{{ r.originalName || '' }}</span>
-                        <span v-if="resumeParseLabel(r)" class="resume-badge" :class="resumeParseClass(r)">
+                        <span
+                          v-if="resumeParseLabel(r)"
+                          class="resume-badge"
+                          :class="resumeParseClass(r)"
+                          :title="resumeParseTitle(r)"
+                        >
                           {{ resumeParseLabel(r) }}
                         </span>
                       </div>
@@ -526,6 +531,17 @@ const resumeParseClass = (r) => {
   if (status === 'failed') return 'bad';
   if (status === 'pending') return 'muted';
   return 'muted';
+};
+
+const resumeParseTitle = (r) => {
+  const status = String(r?.resumeParseStatus || '').trim().toLowerCase();
+  const method = String(r?.resumeParseMethod || '').trim();
+  const err = String(r?.resumeParseErrorText || '').trim();
+  const parts = [];
+  if (status) parts.push(`status: ${status}`);
+  if (method) parts.push(`method: ${method}`);
+  if (err) parts.push(`error: ${err}`);
+  return parts.join('\n');
 };
 
 // Tasks
