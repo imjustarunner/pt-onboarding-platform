@@ -1652,6 +1652,24 @@ onUnmounted(() => {
 }
 
 /* Responsive: Hide desktop nav on small mobile, show hamburger */
+@media (max-width: 1200px) {
+  /* Prevent horizontal overflow on smaller laptops by allowing wrapping. */
+  .nav-content {
+    align-items: flex-start;
+  }
+
+  .nav-links {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+
+  .nav-availability {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
 @media (max-width: 768px) {
   .nav-links-wrapper {
     display: none;

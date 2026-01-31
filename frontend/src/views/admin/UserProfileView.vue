@@ -93,7 +93,7 @@
           <div class="account-layout">
             <div class="account-main">
               <form v-if="canEditUser" @submit.prevent="saveAccount" class="account-form">
-                <div class="form-actions form-actions--sticky">
+                <div class="form-actions-bar form-actions-bar--top">
                   <button v-if="!isEditingAccount" type="button" class="btn btn-secondary" @click="startEditAccount">
                     Edit
                   </button>
@@ -196,78 +196,6 @@
                   <input v-model="accountForm.homePostalCode" type="text" placeholder="ZIP" :disabled="!isEditingAccount" />
                 </div>
 
-                <div class="form-group form-group-full">
-                  <div class="section-divider" style="margin: 8px 0 6px;">
-                    <h3 style="margin: 0;">Med Cancel (contract)</h3>
-                  </div>
-                  <p class="hint" style="margin: 0 0 10px;">
-                    Controls whether the provider can submit “Missed Medicaid sessions (Med Cancel)”.
-                  </p>
-                </div>
-
-                <div class="form-group form-group-full">
-                  <label>Med Cancel schedule</label>
-                  <select v-model="accountForm.medcancelRateSchedule" :disabled="!isEditingAccount">
-                    <option value="none">Not eligible (None)</option>
-                    <option value="low">Low schedule ($5 / $7.50 / $10)</option>
-                    <option value="high">High schedule ($10 / $15 / $20)</option>
-                  </select>
-                  <small class="form-help">
-                    If set to “Low” or “High”, the provider will see Med Cancel in Submit → In-School Claims.
-                  </small>
-                </div>
-
-                <div class="form-group form-group-full">
-                  <div class="section-divider" style="margin: 12px 0 6px;">
-                    <h3 style="margin: 0;">Company Card (contract)</h3>
-                  </div>
-                  <p class="hint" style="margin: 0 0 10px;">
-                    Enables the “Submit Expense (Company Card)” option in Submit for this user.
-                  </p>
-                </div>
-
-                <div class="form-group form-group-full">
-                  <label class="toggle-label">
-                    <span>Company card enabled</span>
-                    <div class="toggle-switch">
-                      <input
-                        id="company-card-toggle"
-                        type="checkbox"
-                        v-model="accountForm.companyCardEnabled"
-                        :disabled="!isEditingAccount"
-                      />
-                      <span class="slider"></span>
-                    </div>
-                  </label>
-                  <small class="form-help">
-                    Only users with a company card should have this turned on.
-                  </small>
-                </div>
-
-                <div class="form-group form-group-full">
-                  <div class="section-divider" style="margin: 12px 0 6px;">
-                    <h3 style="margin: 0;">Skill Builders (program)</h3>
-                  </div>
-                  <p class="hint" style="margin: 0 0 10px;">
-                    If enabled, this provider must submit (or confirm) at least 6 hours/week via Submit → Additional Availability.
-                  </p>
-                </div>
-
-                <div class="form-group form-group-full">
-                  <label class="toggle-label">
-                    <span>Skill Builder eligible</span>
-                    <div class="toggle-switch">
-                      <input
-                        id="skill-builder-eligible-toggle"
-                        type="checkbox"
-                        v-model="accountForm.skillBuilderEligible"
-                        :disabled="!isEditingAccount"
-                      />
-                      <span class="slider"></span>
-                    </div>
-                  </label>
-                </div>
-
                 <div v-if="accountForm.externalBusyIcsUrl" class="form-group form-group-full">
                   <label>Legacy external busy calendar (deprecated)</label>
                   <input v-model="accountForm.externalBusyIcsUrl" type="url" disabled />
@@ -277,175 +205,20 @@
                 </div>
 
                 <div v-if="canEditExternalBusyIcsUrl" class="form-group form-group-full">
-                  <div class="section-divider" style="margin: 12px 0 6px;">
-                    <h3 style="margin: 0;">External calendars (ICS)</h3>
+                  <label>External calendars (ICS)</label>
+                  <div style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-secondary btn-sm" @click="openExternalCalendarsModal">
+                      Manage…
+                    </button>
+                    <span class="muted" style="font-size: 12px;">
+                      <template v-if="externalCalendarsLoading">Loading…</template>
+                      <template v-else-if="externalCalendars.length">{{ externalCalendars.length }} calendar{{ externalCalendars.length === 1 ? '' : 's' }}</template>
+                      <template v-else>None yet</template>
+                    </span>
                   </div>
-                  <p class="hint" style="margin: 0 0 10px;">
-                    Add one or more named calendars (e.g., “Bachelors EHR”). Each calendar can have multiple ICS feed URLs.
-                  </p>
-
-                  <div style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: white;">
-                    <div style="font-weight: 900;">EHR calendar (paste URL only)</div>
-                    <p class="hint" style="margin: 6px 0 10px;">
-                      Paste this user’s personal ICS feed URL from the EHR. You don’t need to create or name a calendar — we save it under this user automatically.
-                    </p>
-                    <div class="muted small" style="margin: -6px 0 10px;">
-                      If your EHR gives you a <strong>webcal://</strong> link, that’s OK — we’ll fetch it as <strong>https://</strong>.
-                    </div>
-                    <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
-                      <div style="flex: 1; min-width: 260px;">
-                        <label class="lbl">ICS URL</label>
-                        <input
-                          class="agency-select"
-                          v-model="ehrIcsUrl"
-                          type="url"
-                          placeholder="https://…/calendar.ics"
-                          :disabled="ehrIcsSaving || externalCalendarsSaving"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        class="btn btn-secondary btn-sm"
-                        @click="saveEhrIcsUrl"
-                        :disabled="ehrIcsSaving || externalCalendarsSaving"
-                      >
-                        {{ ehrIcsSaving ? 'Saving…' : 'Save' }}
-                      </button>
-                    </div>
-                    <div v-if="ehrIcsError" class="error" style="margin-top: 8px;">{{ ehrIcsError }}</div>
-                    <div class="muted small" style="margin-top: 8px;">
-                      Tip: pasting a new URL will automatically make it the only active EHR feed for this user.
-                    </div>
-                  </div>
-
-                  <div v-if="externalCalendarsError" class="error" style="margin-top: 8px;">{{ externalCalendarsError }}</div>
-                  <div v-if="externalCalendarsLoading" class="muted" style="margin-top: 8px;">Loading external calendars…</div>
-
-                  <div v-else>
-                    <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
-                      <div style="flex: 1; min-width: 240px;">
-                        <label class="lbl">New calendar label</label>
-                        <input class="agency-select" v-model="newExternalCalendarLabel" placeholder="e.g. Bachelors EHR" />
-                      </div>
-                      <button
-                        type="button"
-                        class="btn btn-secondary btn-sm"
-                        @click="createExternalCalendar"
-                        :disabled="externalCalendarsSaving || !newExternalCalendarLabel.trim()"
-                      >
-                        {{ externalCalendarsSaving ? 'Saving…' : 'Create calendar' }}
-                      </button>
-                      <button type="button" class="btn btn-secondary btn-sm" @click="loadExternalCalendars" :disabled="externalCalendarsSaving">
-                        Refresh
-                      </button>
-                    </div>
-
-                    <div v-if="externalCalendars.length === 0" class="muted" style="margin-top: 10px;">
-                      No external calendars yet.
-                    </div>
-
-                    <div v-else style="margin-top: 10px; display:flex; flex-direction: column; gap: 10px;">
-                      <div v-for="c in externalCalendars" :key="`ec-${c.id}`" style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg-alt);">
-                        <div style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
-                          <div style="display:flex; align-items: end; gap: 8px; flex-wrap: wrap;">
-                            <div style="min-width: 240px;">
-                              <label class="lbl">Calendar label</label>
-                              <input
-                                class="agency-select"
-                                :value="editExternalCalendarLabelById[c.id] ?? c.label"
-                                :disabled="externalCalendarsSaving"
-                                @input="editExternalCalendarLabelById = { ...(editExternalCalendarLabelById || {}), [c.id]: $event.target.value }"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              class="btn btn-secondary btn-sm"
-                              :disabled="externalCalendarsSaving"
-                              @click="saveExternalCalendarLabel(c)"
-                            >
-                              Save label
-                            </button>
-                          </div>
-                          <label class="toggle-label" style="margin:0;">
-                            <span style="font-size: 12px;">Active</span>
-                            <div class="toggle-switch">
-                              <input
-                                type="checkbox"
-                                :checked="!!c.isActive"
-                                :disabled="externalCalendarsSaving"
-                                @change="toggleExternalCalendar(c, $event.target.checked)"
-                              />
-                              <span class="slider"></span>
-                            </div>
-                          </label>
-                        </div>
-
-                        <div class="muted" style="margin-top: 6px;">Feeds</div>
-                        <div v-if="(c.feeds || []).length === 0" class="muted" style="margin-top: 4px;">No feeds yet.</div>
-                        <div v-else style="margin-top: 6px; display:flex; flex-direction: column; gap: 6px;">
-                          <div
-                            v-for="f in c.feeds"
-                            :key="`ecf-${f.id}`"
-                            style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;"
-                          >
-                            <div class="muted" style="max-width: 100%; overflow: hidden; text-overflow: ellipsis;">
-                              {{ f.icsUrl }}
-                            </div>
-                            <label class="toggle-label" style="margin:0;">
-                              <span style="font-size: 12px;">Active</span>
-                              <div class="toggle-switch">
-                                <input
-                                  type="checkbox"
-                                  :checked="!!f.isActive"
-                                  :disabled="externalCalendarsSaving"
-                                  @change="toggleExternalFeed(c, f, $event.target.checked)"
-                                />
-                                <span class="slider"></span>
-                              </div>
-                            </label>
-                          </div>
-                        </div>
-
-                        <div style="display:flex; gap: 8px; align-items: end; margin-top: 10px; flex-wrap: wrap;">
-                          <div style="flex: 1; min-width: 260px;">
-                            <label class="lbl">Add ICS URL</label>
-                            <input
-                              class="agency-select"
-                              v-model="newExternalFeedUrlByCalendarId[c.id]"
-                              placeholder="https://…/calendar.ics"
-                              :disabled="externalCalendarsSaving"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            class="btn btn-secondary btn-sm"
-                            @click="addExternalFeed(c)"
-                            :disabled="externalCalendarsSaving || !String(newExternalFeedUrlByCalendarId[c.id] || '').trim()"
-                          >
-                            Add feed
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <small class="form-help">This is usually set once per user.</small>
                 </div>
                 
-                <div v-if="canToggleSupervisorPrivileges" class="form-group form-group-full">
-                  <label class="toggle-label">
-                    <span>Supervisor Privileges</span>
-                    <div class="toggle-switch">
-                      <input 
-                        type="checkbox" 
-                        v-model="accountForm.hasSupervisorPrivileges" 
-                        :disabled="!isEditingAccount"
-                        id="supervisor-privileges-toggle"
-                      />
-                      <span class="slider"></span>
-                    </div>
-                  </label>
-                  <small class="form-help">Allows this user to be assigned as a supervisor while maintaining their primary role</small>
-                  <small v-if="!isEditingAccount" class="form-help" style="display: block; margin-top: 4px;">Click “Edit” to modify this field</small>
-                </div>
                 <div class="form-group form-group-full">
                   <label>Role</label>
                   <select v-model="accountForm.role" :disabled="!isEditingAccount || !canChangeRole">
@@ -477,16 +250,174 @@
                 </div>
                 </div>
                 
-                <div class="form-actions">
-                  <button v-if="!isEditingAccount" type="button" class="btn btn-secondary" @click="startEditAccount">
-                    Edit
-                  </button>
-                  <button v-else type="submit" class="btn btn-primary" :disabled="saving">
+                <div v-if="isEditingAccount" class="form-actions-bar form-actions-bar--bottom">
+                  <button type="submit" class="btn btn-primary" :disabled="saving">
                     {{ saving ? 'Saving...' : 'Save Changes' }}
                   </button>
-                  <button v-if="isEditingAccount" type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEditAccount">
+                  <button type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEditAccount">
                     Cancel
                   </button>
+                </div>
+
+                <div v-if="showExternalCalendarsModal" class="modal-overlay" @click.self="closeExternalCalendarsModal">
+                  <div class="modal-content" style="max-width: 980px;">
+                    <div style="display:flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                      <h3 style="margin: 0;">External calendars (ICS)</h3>
+                      <div style="display:flex; gap: 8px; align-items:center;">
+                        <button type="button" class="btn btn-secondary btn-sm" @click="loadExternalCalendars" :disabled="externalCalendarsSaving">
+                          Refresh
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" @click="closeExternalCalendarsModal">
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                    <p class="hint" style="margin: 8px 0 14px;">
+                      Add one or more named calendars (e.g., “Bachelors EHR”). Each calendar can have multiple ICS feed URLs.
+                    </p>
+
+                    <div style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: white;">
+                      <div style="font-weight: 900;">EHR calendar (paste URL only)</div>
+                      <p class="hint" style="margin: 6px 0 10px;">
+                        Paste this user’s personal ICS feed URL from the EHR. You don’t need to create or name a calendar — we save it under this user automatically.
+                      </p>
+                      <div class="muted small" style="margin: -6px 0 10px;">
+                        If your EHR gives you a <strong>webcal://</strong> link, that’s OK — we’ll fetch it as <strong>https://</strong>.
+                      </div>
+                      <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 260px;">
+                          <label class="lbl">ICS URL</label>
+                          <input
+                            class="agency-select"
+                            v-model="ehrIcsUrl"
+                            type="url"
+                            placeholder="https://…/calendar.ics"
+                            :disabled="ehrIcsSaving || externalCalendarsSaving"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          @click="saveEhrIcsUrl"
+                          :disabled="ehrIcsSaving || externalCalendarsSaving"
+                        >
+                          {{ ehrIcsSaving ? 'Saving…' : 'Save' }}
+                        </button>
+                      </div>
+                      <div v-if="ehrIcsError" class="error" style="margin-top: 8px;">{{ ehrIcsError }}</div>
+                      <div class="muted small" style="margin-top: 8px;">
+                        Tip: pasting a new URL will automatically make it the only active EHR feed for this user.
+                      </div>
+                    </div>
+
+                    <div v-if="externalCalendarsError" class="error" style="margin-top: 12px;">{{ externalCalendarsError }}</div>
+                    <div v-if="externalCalendarsLoading" class="muted" style="margin-top: 12px;">Loading external calendars…</div>
+
+                    <div v-else style="margin-top: 12px;">
+                      <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 240px;">
+                          <label class="lbl">New calendar label</label>
+                          <input class="agency-select" v-model="newExternalCalendarLabel" placeholder="e.g. Bachelors EHR" />
+                        </div>
+                        <button
+                          type="button"
+                          class="btn btn-secondary btn-sm"
+                          @click="createExternalCalendar"
+                          :disabled="externalCalendarsSaving || !newExternalCalendarLabel.trim()"
+                        >
+                          {{ externalCalendarsSaving ? 'Saving…' : 'Create calendar' }}
+                        </button>
+                      </div>
+
+                      <div v-if="externalCalendars.length === 0" class="muted" style="margin-top: 10px;">
+                        No external calendars yet.
+                      </div>
+
+                      <div v-else style="margin-top: 10px; display:flex; flex-direction: column; gap: 10px;">
+                        <div v-for="c in externalCalendars" :key="`ec-${c.id}`" style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg-alt);">
+                          <div style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <div style="display:flex; align-items: end; gap: 8px; flex-wrap: wrap;">
+                              <div style="min-width: 240px;">
+                                <label class="lbl">Calendar label</label>
+                                <input
+                                  class="agency-select"
+                                  :value="editExternalCalendarLabelById[c.id] ?? c.label"
+                                  :disabled="externalCalendarsSaving"
+                                  @input="editExternalCalendarLabelById = { ...(editExternalCalendarLabelById || {}), [c.id]: $event.target.value }"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                class="btn btn-secondary btn-sm"
+                                :disabled="externalCalendarsSaving"
+                                @click="saveExternalCalendarLabel(c)"
+                              >
+                                Save label
+                              </button>
+                            </div>
+                            <label class="toggle-label" style="margin:0;">
+                              <span style="font-size: 12px;">Active</span>
+                              <div class="toggle-switch">
+                                <input
+                                  type="checkbox"
+                                  :checked="!!c.isActive"
+                                  :disabled="externalCalendarsSaving"
+                                  @change="toggleExternalCalendar(c, $event.target.checked)"
+                                />
+                                <span class="slider"></span>
+                              </div>
+                            </label>
+                          </div>
+
+                          <div class="muted" style="margin-top: 6px;">Feeds</div>
+                          <div v-if="(c.feeds || []).length === 0" class="muted" style="margin-top: 4px;">No feeds yet.</div>
+                          <div v-else style="margin-top: 6px; display:flex; flex-direction: column; gap: 6px;">
+                            <div
+                              v-for="f in c.feeds"
+                              :key="`ecf-${f.id}`"
+                              style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;"
+                            >
+                              <div class="muted" style="max-width: 100%; overflow: hidden; text-overflow: ellipsis;">
+                                {{ f.icsUrl }}
+                              </div>
+                              <label class="toggle-label" style="margin:0;">
+                                <span style="font-size: 12px;">Active</span>
+                                <div class="toggle-switch">
+                                  <input
+                                    type="checkbox"
+                                    :checked="!!f.isActive"
+                                    :disabled="externalCalendarsSaving"
+                                    @change="toggleExternalFeed(c, f, $event.target.checked)"
+                                  />
+                                  <span class="slider"></span>
+                                </div>
+                              </label>
+                            </div>
+                          </div>
+
+                          <div style="display:flex; gap: 8px; align-items: end; margin-top: 10px; flex-wrap: wrap;">
+                            <div style="flex: 1; min-width: 260px;">
+                              <label class="lbl">Add ICS URL</label>
+                              <input
+                                class="agency-select"
+                                v-model="newExternalFeedUrlByCalendarId[c.id]"
+                                placeholder="https://…/calendar.ics"
+                                :disabled="externalCalendarsSaving"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-sm"
+                              @click="addExternalFeed(c)"
+                              :disabled="externalCalendarsSaving || !String(newExternalFeedUrlByCalendarId[c.id] || '').trim()"
+                            >
+                              Add feed
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </form>
               <div v-else class="view-only-notice">
@@ -495,6 +426,73 @@
             </div>
 
             <div class="account-sidebar">
+              <div class="account-flags-section">
+                <h3>Contracts &amp; flags</h3>
+
+                <div
+                  class="compact-row"
+                  title="Controls whether the provider can submit Med Cancel (Missed Medicaid sessions)."
+                >
+                  <div class="compact-meta">
+                    <div class="compact-title">Med Cancel</div>
+                  </div>
+                  <select v-model="accountForm.medcancelRateSchedule" class="compact-select" :disabled="!isEditingAccount">
+                    <option value="none">None</option>
+                    <option value="low">Low</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+
+                <label
+                  class="compact-toggle"
+                  title="Enables “Submit Expense (Company Card)” for this user."
+                >
+                  <span class="compact-title">Company card</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="company-card-toggle"
+                      type="checkbox"
+                      v-model="accountForm.companyCardEnabled"
+                      :disabled="!isEditingAccount"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+
+                <label
+                  class="compact-toggle"
+                  title="If enabled, this provider must submit (or confirm) at least 6 hours/week via Submit → Additional Availability."
+                >
+                  <span class="compact-title">Skill Builder eligible</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="skill-builder-eligible-toggle"
+                      type="checkbox"
+                      v-model="accountForm.skillBuilderEligible"
+                      :disabled="!isEditingAccount"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+
+                <label
+                  v-if="canToggleSupervisorPrivileges"
+                  class="compact-toggle"
+                  title="Allows this user to be assigned as a supervisor while maintaining their primary role."
+                >
+                  <span class="compact-title">Supervisor privileges</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="supervisor-privileges-toggle"
+                      type="checkbox"
+                      v-model="accountForm.hasSupervisorPrivileges"
+                      :disabled="!isEditingAccount"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+              </div>
+
               <div class="agency-assignments-section">
                 <h3>Agency Assignments</h3>
                 <div class="agency-assignments">
@@ -1975,6 +1973,7 @@ const externalCalendars = ref([]);
 const newExternalCalendarLabel = ref('');
 const newExternalFeedUrlByCalendarId = ref({});
 const editExternalCalendarLabelById = ref({});
+const showExternalCalendarsModal = ref(false);
 
 const EHR_DEFAULT_CALENDAR_LABEL = 'EHR';
 
@@ -2010,6 +2009,20 @@ const loadExternalCalendars = async () => {
   } finally {
     externalCalendarsLoading.value = false;
   }
+};
+
+const openExternalCalendarsModal = async () => {
+  showExternalCalendarsModal.value = true;
+  // Load calendars (if allowed). Keeps modal content fresh.
+  try {
+    await loadExternalCalendars();
+  } catch {
+    // loadExternalCalendars already sets an error message
+  }
+};
+
+const closeExternalCalendarsModal = () => {
+  showExternalCalendarsModal.value = false;
 };
 
 const saveEhrIcsUrl = async () => {
@@ -4093,7 +4106,8 @@ onMounted(() => {
 .account-layout {
   display: grid;
   grid-template-columns: minmax(520px, 2fr) minmax(320px, 1fr);
-  gap: 32px;
+  margin-top: 10px;
+  gap: 24px;
   align-items: start;
 }
 
@@ -4106,6 +4120,95 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+.account-flags-section {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: white;
+}
+
+.account-flags-section h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.compact-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.compact-row:last-child {
+  border-bottom: none;
+}
+
+.compact-meta {
+  min-width: 0;
+}
+
+.compact-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.compact-help {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.25;
+}
+
+.compact-select {
+  width: 140px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  background: white;
+}
+
+.compact-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.compact-toggle:last-of-type {
+  border-bottom: none;
+}
+
+.toggle-switch-sm {
+  width: 42px;
+  height: 20px;
+}
+
+.toggle-switch-sm .slider {
+  border-radius: 20px;
+}
+
+.toggle-switch-sm .slider:before {
+  width: 14px;
+  height: 14px;
+  left: 3px;
+  bottom: 3px;
+}
+
+.toggle-switch-sm input:checked + .slider:before {
+  transform: translateX(22px);
 }
 
 .admin-tools-section h3 {
@@ -4127,9 +4230,32 @@ onMounted(() => {
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  margin-bottom: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.form-grid .form-group label {
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.form-grid .form-group input,
+.form-grid .form-group select {
+  padding: 7px 9px;
+  font-size: 13px;
+}
+
+@media (min-width: 1200px) {
+  .form-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .form-group {
@@ -4216,31 +4342,17 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-.form-actions {
-  margin-top: 24px;
-}
-
-.form-actions--sticky {
-  position: sticky;
-  top: 78px; /* sits below the global top nav */
-  z-index: 50;
-  margin: 0 0 16px 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 10px 24px rgba(0,0,0,0.10);
-  backdrop-filter: blur(6px);
+.form-actions-bar {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  margin: 0 0 12px 0;
 }
 
-@media (max-width: 780px) {
-  .form-actions--sticky {
-    top: 66px;
-    justify-content: flex-start;
-  }
+.form-actions-bar--bottom {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 .section-divider {

@@ -218,14 +218,22 @@
             </div>
           </div>
 
-          <div class="users-table">
+          <div class="users-table" :class="{ 'users-table--expanded': userTableExpanded }">
+            <div class="users-table-toolbar">
+              <button type="button" class="btn btn-secondary btn-sm" @click="userTableExpanded = !userTableExpanded">
+                {{ userTableExpanded ? 'Collapse columns' : 'Expand columns' }}
+              </button>
+              <span class="muted users-table-toolbar-hint">
+                When expanded, scroll horizontally to see all columns.
+              </span>
+            </div>
             <table>
               <thead>
                 <tr>
                   <th class="sortable" @click="toggleTableSort('name')">
                     Name <span class="sort-indicator">{{ sortIndicator('name') }}</span>
                   </th>
-                  <th class="sortable" @click="toggleTableSort('email')">
+                  <th class="sortable col-email" @click="toggleTableSort('email')">
                     Email <span class="sort-indicator">{{ sortIndicator('email') }}</span>
                   </th>
                   <th class="sortable" @click="toggleTableSort('agency')">
@@ -234,13 +242,13 @@
                   <th class="sortable" @click="toggleTableSort('role')">
                     Role <span class="sort-indicator">{{ sortIndicator('role') }}</span>
                   </th>
-                  <th class="sortable" @click="toggleTableSort('credential')">
+                  <th class="sortable col-credential" @click="toggleTableSort('credential')">
                     Credential <span class="sort-indicator">{{ sortIndicator('credential') }}</span>
                   </th>
-                  <th class="sortable" @click="toggleTableSort('status')">
+                  <th class="sortable col-status" @click="toggleTableSort('status')">
                     Status <span class="sort-indicator">{{ sortIndicator('status') }}</span>
                   </th>
-                  <th class="sortable" @click="toggleTableSort('created')">
+                  <th class="sortable col-created" @click="toggleTableSort('created')">
                     Created <span class="sort-indicator">{{ sortIndicator('created') }}</span>
                   </th>
                   <th>Actions</th>
@@ -253,7 +261,7 @@
                 {{ user.first_name }} {{ user.last_name }}
               </router-link>
             </td>
-            <td>
+            <td class="col-email">
               <span class="table-truncate" :title="String(user.email || '')">{{ user.email }}</span>
             </td>
             <td class="user-affiliations-cell">
@@ -333,15 +341,15 @@
               <span v-if="user.has_provider_access && (user.role === 'staff' || user.role === 'support')" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Provider</span>
               <span v-if="user.has_staff_access && user.role === 'provider'" class="badge badge-secondary" style="margin-left: 4px; font-size: 10px;">+Staff</span>
             </td>
-            <td class="muted">
+            <td class="muted col-credential">
               {{ user.provider_credential || '—' }}
             </td>
-            <td>
+            <td class="col-status">
               <span :class="['badge', getStatusBadgeClassWrapper(user.status, user.is_active)]">
                 {{ getStatusLabelWrapper(user.status, user.is_active) }}
               </span>
             </td>
-            <td>{{ formatDate(user.created_at) }}</td>
+            <td class="col-created">{{ formatDate(user.created_at) }}</td>
             <td class="actions-cell">
               <div class="action-buttons">
                 <router-link :to="`/admin/users/${user.id}`" class="btn btn-primary btn-sm">View Profile</router-link>
@@ -1402,6 +1410,7 @@ const organizationSearch = ref('');
 
 const tableSortKey = ref('name');
 const tableSortDir = ref('asc'); // 'asc' | 'desc'
+const userTableExpanded = ref(false);
 
 const agencyOptions = computed(() => {
   const list = Array.isArray(agencies.value) ? agencies.value : [];
@@ -3624,6 +3633,19 @@ onMounted(async () => {
   -webkit-overflow-scrolling: touch;
 }
 
+.users-table-toolbar {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #dee2e6;
+  background: #f8f9fa;
+}
+
+.users-table-toolbar-hint {
+  font-size: 12px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -3735,6 +3757,33 @@ th, td {
   .filters-sidebar {
     position: relative;
     top: auto;
+  }
+
+  .users-table-toolbar {
+    display: flex;
+  }
+
+  /* Default collapsed view: show only the essentials */
+  .users-table:not(.users-table--expanded) .col-email,
+  .users-table:not(.users-table--expanded) .col-credential {
+    display: none;
+  }
+
+  /* When expanded on smaller screens, allow horizontal scrolling */
+  .users-table.users-table--expanded table {
+    min-width: 1120px;
+  }
+}
+
+@media (max-width: 900px) {
+  .users-table:not(.users-table--expanded) .col-created {
+    display: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .users-table:not(.users-table--expanded) .col-status {
+    display: none;
   }
 }
 
