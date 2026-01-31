@@ -952,9 +952,10 @@ onMounted(async () => {
 .hiring-root {
   padding-top: 16px;
   padding-bottom: 40px;
-  /* Keep Applicants from stretching too wide on large screens */
-  max-width: 1320px;
-  margin: 0 auto;
+  /* Fill the app content area (avoid centered gap next to sidebar). */
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
   padding-left: 16px;
   padding-right: 16px;
 }
@@ -986,6 +987,7 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 12px;
   min-height: 520px;
+  min-width: 0; /* allow grid children to shrink (prevents horizontal overflow) */
 }
 .list-controls {
   display: flex;
