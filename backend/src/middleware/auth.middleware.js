@@ -22,7 +22,7 @@ export const authenticate = (req, res, next) => {
     const decoded = jwt.verify(token, config.jwt.secret);
     
     // Handle approved employee tokens
-    if (decoded.type === 'approved_employee' || decoded.type === 'passwordless') {
+    if (decoded.type === 'approved_employee') {
       req.user = {
         email: decoded.email,
         role: 'approved_employee',
@@ -33,6 +33,22 @@ export const authenticate = (req, res, next) => {
       return next();
     }
     
+    // Backward compatibility: older passwordless tokens may include type='passwordless'.
+    // These are still normal users-table accounts and MUST retain decoded.id/role.
+    if (decoded.type === 'passwordless') {
+      if (!decoded.id) {
+        return res.status(401).json({ error: { message: 'Invalid token' } });
+      }
+      req.user = {
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+        type: 'passwordless',
+        agencyId: decoded.agencyId
+      };
+      return next();
+    }
+
     // Regular user tokens - support both email and username for login
     // The token contains email field which may be username or email
     req.user = {
@@ -59,13 +75,25 @@ export const authenticateOptional = (req, res, next) => {
     if (!token) return next();
 
     const decoded = jwt.verify(token, config.jwt.secret);
-    if (decoded.type === 'approved_employee' || decoded.type === 'passwordless') {
+    if (decoded.type === 'approved_employee') {
       req.user = {
         email: decoded.email,
         role: 'approved_employee',
         type: decoded.type || 'approved_employee',
         agencyId: decoded.agencyId,
         agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : [])
+      };
+      return next();
+    }
+
+    if (decoded.type === 'passwordless') {
+      if (!decoded.id) return next();
+      req.user = {
+        id: decoded.id,
+        email: decoded.email,
+        role: decoded.role,
+        type: 'passwordless',
+        agencyId: decoded.agencyId
       };
       return next();
     }
