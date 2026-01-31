@@ -152,32 +152,6 @@
         <div class="template-card" style="margin-top: 10px;">
           <div class="template-title">Hourly rate card (fallback)</div>
           <div class="muted" style="margin-top: 6px;">Used when no per-code rate override exists (unless provider is fee-for-service).</div>
-        <div v-if="canEditRates" class="card" style="margin-top: 10px;">
-          <h3 class="card-title" style="margin: 0 0 6px 0;">Other rate titles</h3>
-          <div class="muted">Defaults are set at the agency level; you can optionally override them for this provider.</div>
-          <div class="field-row" style="grid-template-columns: 1fr 1fr 1fr; margin-top: 10px;">
-            <div class="field">
-              <label>Other 1 title</label>
-              <input v-model="otherRateTitlesDraft.title1" type="text" placeholder="Leave blank to use agency default" :disabled="savingOtherRateTitles" />
-            </div>
-            <div class="field">
-              <label>Other 2 title</label>
-              <input v-model="otherRateTitlesDraft.title2" type="text" placeholder="Leave blank to use agency default" :disabled="savingOtherRateTitles" />
-            </div>
-            <div class="field">
-              <label>Other 3 title</label>
-              <input v-model="otherRateTitlesDraft.title3" type="text" placeholder="Leave blank to use agency default" :disabled="savingOtherRateTitles" />
-            </div>
-          </div>
-          <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
-            <button class="btn btn-secondary" type="button" @click="clearOtherRateTitlesOverride" :disabled="savingOtherRateTitles">
-              Use agency defaults
-            </button>
-            <button class="btn btn-primary" type="button" @click="saveOtherRateTitlesOverride" :disabled="savingOtherRateTitles">
-              {{ savingOtherRateTitles ? 'Saving…' : 'Save titles' }}
-            </button>
-          </div>
-        </div>
           <div class="table-wrap" style="margin-top: 10px;">
             <table class="table rate-card-table">
               <thead>
@@ -319,129 +293,186 @@
         </div>
       </div>
 
-      <div v-if="selectedAgencyId" class="comp-card">
-        <div class="comp-header">
-          <div>
-            <h3 class="comp-title">PTO (Sick Leave + Training PTO)</h3>
-            <div class="muted">Set employment type, eligibility, and starting balances “as of” a date. Provider balances are read-only in their dashboard.</div>
-          </div>
-          <div class="actions comp-toolbar">
-            <button class="btn btn-secondary" @click="loadPtoAccount" :disabled="ptoLoading || !selectedAgencyId">Refresh</button>
-            <button class="btn btn-primary" @click="savePtoAccount" :disabled="savingPto || !selectedAgencyId">Save</button>
-          </div>
-        </div>
-
-        <div v-if="ptoError" class="error-box" style="margin-top: 10px;">{{ ptoError }}</div>
-        <div v-if="ptoLoading" class="loading" style="margin-top: 10px;">Loading PTO…</div>
-
-        <div v-else class="fields-grid" style="margin-top: 10px;">
-          <div class="field-item">
-            <label>Employment type</label>
-            <select v-model="ptoForm.employmentType">
-              <option value="hourly">Hourly</option>
-              <option value="fee_for_service">Fee-for-service (credits)</option>
-              <option value="salaried">Salaried</option>
-            </select>
-            <div class="muted" style="margin-top: 6px;">
-              Determines accrual basis: Hourly uses payroll hours; Fee-for-service uses tier credits.
+      <div v-if="selectedAgencyId" class="settings-grid">
+        <!-- Other rate titles -->
+        <div v-if="canEditRates" class="settings-card">
+          <div class="settings-head">
+            <div>
+              <h3 class="card-title" style="margin: 0;">Other rate titles</h3>
+              <div class="muted" style="margin-top: 4px;">Make changes safely: Edit → Save.</div>
+            </div>
+            <div class="actions">
+              <button v-if="!editingOtherRateTitles" class="btn btn-secondary" type="button" @click="beginEditOtherRateTitles">
+                Edit
+              </button>
+              <template v-else>
+                <button class="btn btn-secondary" type="button" @click="cancelEditOtherRateTitles" :disabled="savingOtherRateTitles">
+                  Cancel
+                </button>
+                <button class="btn btn-primary" type="button" @click="saveOtherRateTitlesOverride" :disabled="savingOtherRateTitles">
+                  {{ savingOtherRateTitles ? 'Saving…' : 'Save' }}
+                </button>
+              </template>
             </div>
           </div>
 
-          <div class="field-item">
-            <label class="toggle-label" style="display: flex; justify-content: space-between; align-items: center;">
-              <span>Training PTO eligible</span>
-              <input type="checkbox" v-model="ptoForm.trainingEligible" :disabled="agencyPtoPolicy?.trainingPtoEnabled !== true" />
-            </label>
-            <div class="muted" style="margin-top: 6px;">
-              <span v-if="agencyPtoPolicy?.trainingPtoEnabled !== true">
-                Training PTO is disabled for this agency. Enable it in Agency → Edit Organization → Payroll → PTO Policy.
-              </span>
-              <span v-else>
-                If enabled, the provider can submit Training PTO requests and earn Training PTO accrual.
-              </span>
-            </div>
+          <div class="muted" style="margin-top: 8px;">
+            Current titles: <strong>{{ otherRateTitles.title1 }}</strong>, <strong>{{ otherRateTitles.title2 }}</strong>, <strong>{{ otherRateTitles.title3 }}</strong>
           </div>
 
-          <div class="field-item">
-            <label>Starting Sick Leave (hours)</label>
-            <input v-model="ptoForm.sickStartHours" type="number" step="0.01" min="0" />
+          <div class="field" style="margin-top: 10px;">
+            <label>Other 1 title</label>
+            <input v-model="otherRateTitlesDraft.title1" type="text" placeholder="Leave blank to use agency default" :disabled="!editingOtherRateTitles || savingOtherRateTitles" />
           </div>
-          <div class="field-item">
-            <label>Sick start effective date</label>
-            <input v-model="ptoForm.sickStartEffectiveDate" type="date" />
+          <div class="field">
+            <label>Other 2 title</label>
+            <input v-model="otherRateTitlesDraft.title2" type="text" placeholder="Leave blank to use agency default" :disabled="!editingOtherRateTitles || savingOtherRateTitles" />
           </div>
-
-          <div class="field-item">
-            <label>Starting Training PTO (hours)</label>
-            <input v-model="ptoForm.trainingStartHours" type="number" step="0.01" min="0" :disabled="agencyPtoPolicy?.trainingPtoEnabled !== true" />
-          </div>
-          <div class="field-item">
-            <label>Training start effective date</label>
-            <input v-model="ptoForm.trainingStartEffectiveDate" type="date" :disabled="agencyPtoPolicy?.trainingPtoEnabled !== true" />
+          <div class="field">
+            <label>Other 3 title</label>
+            <input v-model="otherRateTitlesDraft.title3" type="text" placeholder="Leave blank to use agency default" :disabled="!editingOtherRateTitles || savingOtherRateTitles" />
           </div>
 
-          <div class="field-item">
-            <label>Current Sick balance (hours)</label>
-            <input :value="fmtNum(Number(ptoAccount?.sick_balance_hours || 0))" type="text" disabled />
-          </div>
-          <div class="field-item">
-            <label>Current Training balance (hours)</label>
-            <input :value="(agencyPtoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Number(ptoAccount?.training_balance_hours || 0)) : '—'" type="text" disabled />
+          <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+            <button class="btn btn-secondary" type="button" @click="clearOtherRateTitlesOverride" :disabled="!editingOtherRateTitles || savingOtherRateTitles">
+              Use agency defaults
+            </button>
           </div>
         </div>
 
-        <div class="card" style="margin-top: 14px;">
-          <h3 class="card-title" style="margin: 0 0 6px 0;">Salary position (true salary)</h3>
-          <div class="muted">
-            Automatically applies salary pay each pay period, even if the provider has few sessions (admin duties).
-            Salary does not change unit totals; it changes pay math.
+        <!-- PTO -->
+        <div class="settings-card">
+          <div class="settings-head">
+            <div>
+              <h3 class="card-title" style="margin: 0;">PTO (Sick + Training)</h3>
+              <div class="muted" style="margin-top: 4px;">Starting balances + eligibility.</div>
+            </div>
+            <div class="actions">
+              <button class="btn btn-secondary" type="button" @click="loadPtoAccount" :disabled="ptoLoading || !selectedAgencyId">Refresh</button>
+              <button v-if="!editingPto" class="btn btn-secondary" type="button" @click="beginEditPto" :disabled="ptoLoading">Edit</button>
+              <template v-else>
+                <button class="btn btn-secondary" type="button" @click="cancelEditPto" :disabled="savingPto">Cancel</button>
+                <button class="btn btn-primary" type="button" @click="savePtoAccount" :disabled="savingPto || !selectedAgencyId">
+                  {{ savingPto ? 'Saving…' : 'Save' }}
+                </button>
+              </template>
+            </div>
           </div>
+
+          <div v-if="ptoError" class="error-box" style="margin-top: 10px;">{{ ptoError }}</div>
+          <div v-if="ptoLoading" class="loading" style="margin-top: 10px;">Loading PTO…</div>
+          <div v-else style="margin-top: 10px;">
+            <div class="field">
+              <label>Employment type</label>
+              <select v-model="ptoForm.employmentType" :disabled="!editingPto">
+                <option value="hourly">Hourly</option>
+                <option value="fee_for_service">Fee-for-service (credits)</option>
+                <option value="salaried">Salaried</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label class="toggle-label" style="display: flex; justify-content: space-between; align-items: center;">
+                <span>Training PTO eligible</span>
+                <input type="checkbox" v-model="ptoForm.trainingEligible" :disabled="!editingPto || agencyPtoPolicy?.trainingPtoEnabled !== true" />
+              </label>
+            </div>
+
+            <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+              <div class="field">
+                <label>Starting Sick (hours)</label>
+                <input v-model="ptoForm.sickStartHours" type="number" step="0.01" min="0" :disabled="!editingPto" />
+              </div>
+              <div class="field">
+                <label>Sick start date</label>
+                <input v-model="ptoForm.sickStartEffectiveDate" type="date" :disabled="!editingPto" />
+              </div>
+            </div>
+
+            <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+              <div class="field">
+                <label>Starting Training (hours)</label>
+                <input v-model="ptoForm.trainingStartHours" type="number" step="0.01" min="0" :disabled="!editingPto || agencyPtoPolicy?.trainingPtoEnabled !== true" />
+              </div>
+              <div class="field">
+                <label>Training start date</label>
+                <input v-model="ptoForm.trainingStartEffectiveDate" type="date" :disabled="!editingPto || agencyPtoPolicy?.trainingPtoEnabled !== true" />
+              </div>
+            </div>
+
+            <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+              <div class="field">
+                <label>Current Sick balance</label>
+                <input :value="fmtNum(Number(ptoAccount?.sick_balance_hours || 0))" type="text" disabled />
+              </div>
+              <div class="field">
+                <label>Current Training balance</label>
+                <input :value="(agencyPtoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Number(ptoAccount?.training_balance_hours || 0)) : '—'" type="text" disabled />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Salary -->
+        <div class="settings-card">
+          <div class="settings-head">
+            <div>
+              <h3 class="card-title" style="margin: 0;">Salary</h3>
+              <div class="muted" style="margin-top: 4px;">True salary paid each pay period.</div>
+            </div>
+            <div class="actions">
+              <button class="btn btn-secondary" type="button" @click="loadSalaryPositions" :disabled="salaryPositionsLoading || savingSalary">Reload</button>
+              <button v-if="!editingSalary" class="btn btn-secondary" type="button" @click="beginEditSalary" :disabled="salaryPositionsLoading">Edit</button>
+              <template v-else>
+                <button class="btn btn-secondary" type="button" @click="cancelEditSalary" :disabled="savingSalary">Cancel</button>
+                <button class="btn btn-danger" type="button" @click="deleteSalaryPosition" :disabled="savingSalary || !(salaryPositions && salaryPositions.length)">Delete</button>
+                <button class="btn btn-primary" type="button" @click="saveSalaryPosition" :disabled="savingSalary">
+                  {{ savingSalary ? 'Saving…' : 'Save' }}
+                </button>
+              </template>
+            </div>
+          </div>
+
           <div v-if="salaryPositionsError" class="error-box" style="margin-top: 10px;">{{ salaryPositionsError }}</div>
           <div v-if="salaryPositionsLoading" class="muted" style="margin-top: 10px;">Loading salary position…</div>
+          <div v-else style="margin-top: 10px;">
+            <div class="muted" v-if="!(salaryPositions && salaryPositions.length)" style="margin-bottom: 8px;">No salary position on file.</div>
 
-          <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
             <div class="field">
               <label>Salary per pay period ($)</label>
-              <input v-model="salaryDraft.salaryPerPayPeriod" type="number" step="0.01" min="0" />
+              <input v-model="salaryDraft.salaryPerPayPeriod" type="number" step="0.01" min="0" :disabled="!editingSalary" />
             </div>
+
             <div class="field">
               <label>Mode</label>
               <div class="muted" style="margin-top: 6px;">
                 <label style="display: inline-flex; gap: 8px; align-items: center;">
-                  <input v-model="salaryDraft.includeServicePay" type="checkbox" />
-                  Also pay per-session service pay (salary + services)
+                  <input v-model="salaryDraft.includeServicePay" type="checkbox" :disabled="!editingSalary" />
+                  Also pay per-session service pay
                 </label>
               </div>
               <div class="muted" style="margin-top: 6px;">
                 <label style="display: inline-flex; gap: 8px; align-items: center;">
-                  <input v-model="salaryDraft.prorateByDays" type="checkbox" />
-                  Prorate by active days when effective dates land mid-period
+                  <input v-model="salaryDraft.prorateByDays" type="checkbox" :disabled="!editingSalary" />
+                  Prorate by active days
                 </label>
               </div>
             </div>
-          </div>
 
-          <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
-            <div class="field">
-              <label>Effective start (optional)</label>
-              <input v-model="salaryDraft.effectiveStart" type="date" />
+            <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+              <div class="field">
+                <label>Effective start (optional)</label>
+                <input v-model="salaryDraft.effectiveStart" type="date" :disabled="!editingSalary" />
+              </div>
+              <div class="field">
+                <label>Effective end (optional)</label>
+                <input v-model="salaryDraft.effectiveEnd" type="date" :disabled="!editingSalary" />
+              </div>
             </div>
-            <div class="field">
-              <label>Effective end (optional)</label>
-              <input v-model="salaryDraft.effectiveEnd" type="date" />
+
+            <div class="muted" style="margin-top: 8px;" v-if="salaryPositions && salaryPositions.length">
+              Current record id #{{ salaryPositions[0].id }} • created {{ String(salaryPositions[0].created_at || '').slice(0, 19).replace('T',' ') }}
             </div>
-          </div>
-
-          <div class="actions" style="justify-content: flex-end;">
-            <button class="btn btn-secondary" @click="loadSalaryPositions" :disabled="salaryPositionsLoading || savingSalary">Reload</button>
-            <button class="btn btn-secondary" @click="deleteSalaryPosition" :disabled="savingSalary || !(salaryPositions && salaryPositions.length)">Delete</button>
-            <button class="btn btn-primary" @click="saveSalaryPosition" :disabled="savingSalary">
-              {{ savingSalary ? 'Saving…' : 'Save salary position' }}
-            </button>
-          </div>
-
-          <div class="muted" style="margin-top: 8px;" v-if="salaryPositions && salaryPositions.length">
-            Current record id #{{ salaryPositions[0].id }} • created {{ String(salaryPositions[0].created_at || '').slice(0, 19).replace('T',' ') }}
           </div>
         </div>
       </div>
@@ -548,6 +579,7 @@ const saveSalaryPosition = async () => {
       effectiveEnd: salaryDraft.value.effectiveEnd || null
     });
     await loadSalaryPositions();
+    editingSalary.value = false;
   } catch (e) {
     salaryPositionsError.value = e.response?.data?.error?.message || e.message || 'Failed to save salary position';
   } finally {
@@ -566,6 +598,7 @@ const deleteSalaryPosition = async () => {
     salaryPositionsError.value = '';
     await api.delete(`/payroll/users/${props.userId}/salary-positions/${cur.id}`, { params: { agencyId: selectedAgencyId.value } });
     await loadSalaryPositions();
+    editingSalary.value = false;
   } catch (e) {
     salaryPositionsError.value = e.response?.data?.error?.message || e.message || 'Failed to delete salary position';
   } finally {
@@ -603,6 +636,8 @@ const canEditRates = computed(() => {
 const otherRateTitles = ref({ title1: 'Other 1', title2: 'Other 2', title3: 'Other 3', source: 'default' });
 const otherRateTitlesDraft = ref({ title1: '', title2: '', title3: '' });
 const savingOtherRateTitles = ref(false);
+const editingOtherRateTitles = ref(false);
+const otherRateTitlesDraftBeforeEdit = ref({ title1: '', title2: '', title3: '' });
 const loadOtherRateTitles = async () => {
   if (!selectedAgencyId.value) return;
   try {
@@ -619,10 +654,27 @@ const loadOtherRateTitles = async () => {
       title2: t.userOverrideTitle2 || '',
       title3: t.userOverrideTitle3 || ''
     };
+    if (!editingOtherRateTitles.value) {
+      otherRateTitlesDraftBeforeEdit.value = { ...otherRateTitlesDraft.value };
+    }
   } catch {
     otherRateTitles.value = { title1: 'Other 1', title2: 'Other 2', title3: 'Other 3', source: 'default' };
     otherRateTitlesDraft.value = { title1: '', title2: '', title3: '' };
+    if (!editingOtherRateTitles.value) {
+      otherRateTitlesDraftBeforeEdit.value = { ...otherRateTitlesDraft.value };
+    }
   }
+};
+
+const beginEditOtherRateTitles = () => {
+  if (!canEditRates.value) return;
+  editingOtherRateTitles.value = true;
+  otherRateTitlesDraftBeforeEdit.value = { ...otherRateTitlesDraft.value };
+};
+
+const cancelEditOtherRateTitles = () => {
+  otherRateTitlesDraft.value = { ...otherRateTitlesDraftBeforeEdit.value };
+  editingOtherRateTitles.value = false;
 };
 
 const saveOtherRateTitlesOverride = async () => {
@@ -636,6 +688,7 @@ const saveOtherRateTitlesOverride = async () => {
       title3: String(otherRateTitlesDraft.value.title3 || '').trim() || null
     });
     await loadOtherRateTitles();
+    editingOtherRateTitles.value = false;
   } finally {
     savingOtherRateTitles.value = false;
   }
@@ -644,6 +697,28 @@ const saveOtherRateTitlesOverride = async () => {
 const clearOtherRateTitlesOverride = async () => {
   otherRateTitlesDraft.value = { title1: '', title2: '', title3: '' };
   await saveOtherRateTitlesOverride();
+};
+
+const editingPto = ref(false);
+const ptoFormBeforeEdit = ref(null);
+const beginEditPto = () => {
+  editingPto.value = true;
+  ptoFormBeforeEdit.value = { ...(ptoForm.value || {}) };
+};
+const cancelEditPto = () => {
+  if (ptoFormBeforeEdit.value) ptoForm.value = { ...(ptoFormBeforeEdit.value || {}) };
+  editingPto.value = false;
+};
+
+const editingSalary = ref(false);
+const salaryDraftBeforeEdit = ref(null);
+const beginEditSalary = () => {
+  editingSalary.value = true;
+  salaryDraftBeforeEdit.value = { ...(salaryDraft.value || {}) };
+};
+const cancelEditSalary = () => {
+  if (salaryDraftBeforeEdit.value) salaryDraft.value = { ...(salaryDraftBeforeEdit.value || {}) };
+  editingSalary.value = false;
 };
 
 const editingRates = ref(false);
@@ -851,6 +926,7 @@ const loadPtoAccount = async () => {
 const savePtoAccount = async () => {
   if (!selectedAgencyId.value) return;
   try {
+    if (!editingPto.value) return;
     savingPto.value = true;
     ptoError.value = '';
     await api.put(`/payroll/users/${props.userId}/pto-account`, {
@@ -863,6 +939,7 @@ const savePtoAccount = async () => {
       trainingStartEffectiveDate: ptoForm.value.trainingStartEffectiveDate || null
     });
     await loadPtoAccount();
+    editingPto.value = false;
   } catch (e) {
     ptoError.value = e.response?.data?.error?.message || e.message || 'Failed to save PTO account';
   } finally {
@@ -1377,6 +1454,35 @@ select option {
   flex: 0 0 auto;
   width: auto;
   white-space: nowrap;
+}
+
+.settings-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 980px) {
+  .settings-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+.settings-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+}
+
+.settings-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .btn {
   padding: 6px 10px;

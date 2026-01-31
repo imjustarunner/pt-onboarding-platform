@@ -93,6 +93,17 @@
           <div class="account-layout">
             <div class="account-main">
               <form v-if="canEditUser" @submit.prevent="saveAccount" class="account-form">
+                <div class="form-actions form-actions--sticky">
+                  <button v-if="!isEditingAccount" type="button" class="btn btn-secondary" @click="startEditAccount">
+                    Edit
+                  </button>
+                  <button v-else type="submit" class="btn btn-primary" :disabled="saving">
+                    {{ saving ? 'Saving...' : 'Save Changes' }}
+                  </button>
+                  <button v-if="isEditingAccount" type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEditAccount">
+                    Cancel
+                  </button>
+                </div>
                 <div class="form-grid">
                 <div class="form-group">
                   <label>First Name</label>
@@ -4001,6 +4012,29 @@ onMounted(() => {
 
 .form-actions {
   margin-top: 24px;
+}
+
+.form-actions--sticky {
+  position: sticky;
+  top: 78px; /* sits below the global top nav */
+  z-index: 50;
+  margin: 0 0 16px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.10);
+  backdrop-filter: blur(6px);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 780px) {
+  .form-actions--sticky {
+    top: 66px;
+    justify-content: flex-start;
+  }
 }
 
 .section-divider {
