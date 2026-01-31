@@ -192,18 +192,27 @@ class Agency {
       let hasExternalCalendarAuditIcon = false;
       let hasSkillBuildersAvailabilityIcon = false;
       let hasSchoolOverviewIcon = false;
+      let hasProgramOverviewIcon = false;
+      let hasProviderAvailabilityDashboardIcon = false;
+      let hasExecutiveReportIcon = false;
       try {
         const [cols] = await pool.execute(
-          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('external_calendar_audit_icon_id','skill_builders_availability_icon_id','school_overview_icon_id')"
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('external_calendar_audit_icon_id','skill_builders_availability_icon_id','school_overview_icon_id','program_overview_icon_id','provider_availability_dashboard_icon_id','executive_report_icon_id')"
         );
         const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
         hasExternalCalendarAuditIcon = names.has('external_calendar_audit_icon_id');
         hasSkillBuildersAvailabilityIcon = names.has('skill_builders_availability_icon_id');
         hasSchoolOverviewIcon = names.has('school_overview_icon_id');
+        hasProgramOverviewIcon = names.has('program_overview_icon_id');
+        hasProviderAvailabilityDashboardIcon = names.has('provider_availability_dashboard_icon_id');
+        hasExecutiveReportIcon = names.has('executive_report_icon_id');
       } catch (e) {
         hasExternalCalendarAuditIcon = false;
         hasSkillBuildersAvailabilityIcon = false;
         hasSchoolOverviewIcon = false;
+        hasProgramOverviewIcon = false;
+        hasProviderAvailabilityDashboardIcon = false;
+        hasExecutiveReportIcon = false;
       }
 
       const schoolOverviewSelects = hasSchoolOverviewIcon
@@ -214,6 +223,36 @@ class Agency {
       const schoolOverviewJoins = hasSchoolOverviewIcon
         ? `
         LEFT JOIN icons sov_i ON a.school_overview_icon_id = sov_i.id`
+        : '';
+
+      const programOverviewSelects = hasProgramOverviewIcon
+        ? `,
+        pov_i.file_path as program_overview_icon_path, pov_i.name as program_overview_icon_name`
+        : '';
+
+      const programOverviewJoins = hasProgramOverviewIcon
+        ? `
+        LEFT JOIN icons pov_i ON a.program_overview_icon_id = pov_i.id`
+        : '';
+
+      const providerAvailabilitySelects = hasProviderAvailabilityDashboardIcon
+        ? `,
+        pad_i.file_path as provider_availability_dashboard_icon_path, pad_i.name as provider_availability_dashboard_icon_name`
+        : '';
+
+      const providerAvailabilityJoins = hasProviderAvailabilityDashboardIcon
+        ? `
+        LEFT JOIN icons pad_i ON a.provider_availability_dashboard_icon_id = pad_i.id`
+        : '';
+
+      const executiveReportSelects = hasExecutiveReportIcon
+        ? `,
+        er_i.file_path as executive_report_icon_path, er_i.name as executive_report_icon_name`
+        : '';
+
+      const executiveReportJoins = hasExecutiveReportIcon
+        ? `
+        LEFT JOIN icons er_i ON a.executive_report_icon_id = er_i.id`
         : '';
 
       const extraDashSelects = hasExtraDashboardQuickActionIcons
@@ -332,7 +371,7 @@ class Agency {
         ps_i.file_path as platform_settings_icon_path, ps_i.name as platform_settings_icon_name,
         vap_i.file_path as view_all_progress_icon_path, vap_i.name as view_all_progress_icon_name,
         pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
-        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${extCalSelects}${schoolOverviewSelects}${skillBuildersSelects}${myDashSelects}${schoolPortalSelects}
+        s_i.file_path as settings_icon_path, s_i.name as settings_icon_name${extraDashSelects}${extCalSelects}${schoolOverviewSelects}${programOverviewSelects}${providerAvailabilitySelects}${executiveReportSelects}${skillBuildersSelects}${myDashSelects}${schoolPortalSelects}
         FROM agencies a
         ${hasIconId ? 'LEFT JOIN icons master_i ON a.icon_id = master_i.id' : ''}
         ${hasChatIconId ? 'LEFT JOIN icons chat_i ON a.chat_icon_id = chat_i.id' : ''}
@@ -344,7 +383,7 @@ class Agency {
         LEFT JOIN icons ps_i ON a.platform_settings_icon_id = ps_i.id
         LEFT JOIN icons vap_i ON a.view_all_progress_icon_id = vap_i.id
         LEFT JOIN icons pd_i ON a.progress_dashboard_icon_id = pd_i.id
-        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${extCalJoins}${schoolOverviewJoins}${skillBuildersJoins}${myDashJoins}${schoolPortalJoins}
+        LEFT JOIN icons s_i ON a.settings_icon_id = s_i.id${extraDashJoins}${extCalJoins}${schoolOverviewJoins}${programOverviewJoins}${providerAvailabilityJoins}${executiveReportJoins}${skillBuildersJoins}${myDashJoins}${schoolPortalJoins}
         WHERE a.id = ?`;
     } else {
       // Even without dashboard icons, join for master icon if column exists
@@ -1275,6 +1314,66 @@ class Agency {
             values.push(agencyData.schoolOverviewIconId || null);
           }
         } catch {
+          // ignore
+        }
+      }
+      if (agencyData.programOverviewIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'program_overview_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            updates.push('program_overview_icon_id = ?');
+            values.push(agencyData.programOverviewIconId || null);
+          } else {
+            const err = new Error(
+              'Cannot save Program Overview icon: database missing agencies.program_overview_icon_id. Run database/migrations/313_dashboard_action_icons_program_overview_provider_availability_executive_report.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
+        } catch (e) {
+          if (e?.status) throw e;
+          // ignore
+        }
+      }
+      if (agencyData.providerAvailabilityDashboardIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'provider_availability_dashboard_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            updates.push('provider_availability_dashboard_icon_id = ?');
+            values.push(agencyData.providerAvailabilityDashboardIconId || null);
+          } else {
+            const err = new Error(
+              'Cannot save Provider Availability icon: database missing agencies.provider_availability_dashboard_icon_id. Run database/migrations/313_dashboard_action_icons_program_overview_provider_availability_executive_report.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
+        } catch (e) {
+          if (e?.status) throw e;
+          // ignore
+        }
+      }
+      if (agencyData.executiveReportIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'executive_report_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            updates.push('executive_report_icon_id = ?');
+            values.push(agencyData.executiveReportIconId || null);
+          } else {
+            const err = new Error(
+              'Cannot save Executive Report icon: database missing agencies.executive_report_icon_id. Run database/migrations/313_dashboard_action_icons_program_overview_provider_availability_executive_report.sql.'
+            );
+            err.status = 409;
+            throw err;
+          }
+        } catch (e) {
+          if (e?.status) throw e;
           // ignore
         }
       }

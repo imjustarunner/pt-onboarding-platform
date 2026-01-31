@@ -7843,12 +7843,30 @@ export const updateMyHomeAddress = async (req, res, next) => {
     const homeState = body.homeState ? String(body.homeState).slice(0, 64) : null;
     const homePostalCode = body.homePostalCode ? String(body.homePostalCode).slice(0, 32) : null;
 
-    await pool.execute(
-      `UPDATE users
-       SET home_street_address = ?, home_address_line2 = ?, home_city = ?, home_state = ?, home_postal_code = ?
-       WHERE id = ?`,
-      [homeStreetAddress, homeAddressLine2, homeCity, homeState, homePostalCode, userId]
-    );
+    // When the home address is updated, clear cached geocode coordinates (used by weather).
+    // Best-effort fallback for older DBs without the new columns.
+    try {
+      await pool.execute(
+        `UPDATE users
+         SET home_street_address = ?,
+             home_address_line2 = ?,
+             home_city = ?,
+             home_state = ?,
+             home_postal_code = ?,
+             home_lat = NULL,
+             home_lng = NULL,
+             home_geocoded_at = NULL
+         WHERE id = ?`,
+        [homeStreetAddress, homeAddressLine2, homeCity, homeState, homePostalCode, userId]
+      );
+    } catch (e) {
+      await pool.execute(
+        `UPDATE users
+         SET home_street_address = ?, home_address_line2 = ?, home_city = ?, home_state = ?, home_postal_code = ?
+         WHERE id = ?`,
+        [homeStreetAddress, homeAddressLine2, homeCity, homeState, homePostalCode, userId]
+      );
+    }
     res.json({ ok: true });
   } catch (e) {
     next(e);

@@ -1009,6 +1009,20 @@
                     {{ o.name }} <span v-if="o.organization_type">({{ o.organization_type }})</span>
                   </option>
                 </select>
+                <div style="margin-top: 8px; display:flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    :disabled="!selectedSchoolAffiliationSlug"
+                    :title="selectedSchoolAffiliationSlug ? 'Open this provider inside the school portal' : 'This affiliation has no slug (cannot deep-link)'"
+                    @click="openProviderInSelectedSchoolPortal"
+                  >
+                    Open in School Portal
+                  </button>
+                  <span class="hint" style="margin: 0;" v-if="selectedSchoolAffiliationSlug">
+                    Jumps to the provider’s school profile for faster editing.
+                  </span>
+                </div>
               </div>
               <div class="form-group">
                 <label class="toggle-label">
@@ -1767,6 +1781,10 @@ const selectedSchoolAffiliation = computed(() => {
   const list = Array.isArray(schoolAffiliations.value) ? schoolAffiliations.value : [];
   return list.find((o) => Number(o?.id) === id) || null;
 });
+const selectedSchoolAffiliationSlug = computed(() => {
+  const slug = String(selectedSchoolAffiliation.value?.slug || '').trim();
+  return slug || '';
+});
 const selectedSchoolIsSchool = computed(() => {
   const t = String(selectedSchoolAffiliation.value?.organization_type || '').toLowerCase();
   return t === 'school';
@@ -2109,6 +2127,13 @@ const loadSchoolAffiliations = async () => {
   } finally {
     schoolAffiliationsLoading.value = false;
   }
+};
+
+const openProviderInSelectedSchoolPortal = () => {
+  const slug = selectedSchoolAffiliationSlug.value;
+  const pid = Number(userId.value || 0);
+  if (!slug || !pid) return;
+  router.push(`/${slug}/providers/${pid}`);
 };
 
 const loadSchoolAssignments = async () => {

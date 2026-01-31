@@ -100,6 +100,24 @@ class PlatformBranding {
         hasSchoolOverviewIcon = false;
       }
 
+      // Check if additional dashboard action icon overrides exist (optional)
+      let hasProgramOverviewIcon = false;
+      let hasProviderAvailabilityDashboardIcon = false;
+      let hasExecutiveReportIcon = false;
+      try {
+        const [cols] = await pool.execute(
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME IN ('program_overview_icon_id','provider_availability_dashboard_icon_id','executive_report_icon_id')"
+        );
+        const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+        hasProgramOverviewIcon = names.has('program_overview_icon_id');
+        hasProviderAvailabilityDashboardIcon = names.has('provider_availability_dashboard_icon_id');
+        hasExecutiveReportIcon = names.has('executive_report_icon_id');
+      } catch (e) {
+        hasProgramOverviewIcon = false;
+        hasProviderAvailabilityDashboardIcon = false;
+        hasExecutiveReportIcon = false;
+      }
+
       // Check if School Portal dashboard card icon columns exist (optional)
       let hasSchoolPortalIcons = false;
       try {
@@ -262,6 +280,36 @@ class PlatformBranding {
           LEFT JOIN icons so_i ON pb.school_overview_icon_id = so_i.id`
           : '';
 
+        const programOverviewSelects = hasProgramOverviewIcon
+          ? `,
+          pov_i.file_path as program_overview_icon_path, pov_i.name as program_overview_icon_name`
+          : '';
+
+        const programOverviewJoins = hasProgramOverviewIcon
+          ? `
+          LEFT JOIN icons pov_i ON pb.program_overview_icon_id = pov_i.id`
+          : '';
+
+        const providerAvailabilitySelects = hasProviderAvailabilityDashboardIcon
+          ? `,
+          pad_i.file_path as provider_availability_dashboard_icon_path, pad_i.name as provider_availability_dashboard_icon_name`
+          : '';
+
+        const providerAvailabilityJoins = hasProviderAvailabilityDashboardIcon
+          ? `
+          LEFT JOIN icons pad_i ON pb.provider_availability_dashboard_icon_id = pad_i.id`
+          : '';
+
+        const executiveReportSelects = hasExecutiveReportIcon
+          ? `,
+          er_i.file_path as executive_report_icon_path, er_i.name as executive_report_icon_name`
+          : '';
+
+        const executiveReportJoins = hasExecutiveReportIcon
+          ? `
+          LEFT JOIN icons er_i ON pb.executive_report_icon_id = er_i.id`
+          : '';
+
         // School Portal home card icons (optional; handle partial schemas safely)
         let schoolPortalSelects = '';
         let schoolPortalJoins = '';
@@ -311,7 +359,7 @@ class PlatformBranding {
           pd_i.file_path as progress_dashboard_icon_path, pd_i.name as progress_dashboard_icon_name,
           s_i.file_path as settings_icon_path, s_i.name as settings_icon_name,
           mb_i.file_path as master_brand_icon_path, mb_i.name as master_brand_icon_name,
-          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${extraDashSelects}${extCalSelects}${skillBuildersSelects}${schoolOverviewSelects}${schoolPortalSelects}${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
+          aan_i.file_path as all_agencies_notifications_icon_path, aan_i.name as all_agencies_notifications_icon_name${extraDashSelects}${extCalSelects}${skillBuildersSelects}${schoolOverviewSelects}${programOverviewSelects}${providerAvailabilitySelects}${executiveReportSelects}${schoolPortalSelects}${fontSelects}${orgSelects}${settingsIconSelects}${myDashboardIconSelects}
           FROM platform_branding pb
           ${hasManageClientsIcon ? 'LEFT JOIN icons mc_i ON pb.manage_clients_icon_id = mc_i.id' : ''}
           LEFT JOIN icons ma_i ON pb.manage_agencies_icon_id = ma_i.id
@@ -323,7 +371,7 @@ class PlatformBranding {
           LEFT JOIN icons pd_i ON pb.progress_dashboard_icon_id = pd_i.id
           LEFT JOIN icons s_i ON pb.settings_icon_id = s_i.id
           LEFT JOIN icons mb_i ON pb.master_brand_icon_id = mb_i.id
-          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${extraDashJoins}${extCalJoins}${skillBuildersJoins}${schoolOverviewJoins}${schoolPortalJoins}${orgJoins}${fontJoins}${settingsIconJoins}${myDashboardIconJoins}
+          LEFT JOIN icons aan_i ON pb.all_agencies_notifications_icon_id = aan_i.id${extraDashJoins}${extCalJoins}${skillBuildersJoins}${schoolOverviewJoins}${programOverviewJoins}${providerAvailabilityJoins}${executiveReportJoins}${schoolPortalJoins}${orgJoins}${fontJoins}${settingsIconJoins}${myDashboardIconJoins}
           ORDER BY pb.id DESC LIMIT 1`;
       } else {
         // Even if dashboard icons don't exist, try to include master brand icon if column exists
@@ -509,6 +557,9 @@ class PlatformBranding {
       manageClientsIconId,
       manageAgenciesIconId,
       schoolOverviewIconId,
+      programOverviewIconId,
+      providerAvailabilityDashboardIconId,
+      executiveReportIconId,
       manageModulesIconId,
       manageDocumentsIconId,
       manageUsersIconId,
@@ -721,6 +772,69 @@ class PlatformBranding {
           } catch (e) {
             if (e?.status) throw e;
             console.warn('PlatformBranding.update: Error checking for school_overview_icon_id column:', e.message);
+          }
+        }
+
+        if (programOverviewIconId !== undefined) {
+          try {
+            const [cols] = await pool.execute(
+              "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'program_overview_icon_id'"
+            );
+            if ((cols || []).length > 0) {
+              updates.push('program_overview_icon_id = ?');
+              values.push(programOverviewIconId ?? null);
+            } else {
+              const err = new Error(
+                'Cannot save Program Overview icon: database missing platform_branding.program_overview_icon_id. Run database/migrations/313_dashboard_action_icons_program_overview_provider_availability_executive_report.sql.'
+              );
+              err.status = 409;
+              throw err;
+            }
+          } catch (e) {
+            if (e?.status) throw e;
+            console.warn('PlatformBranding.update: Error checking for program_overview_icon_id column:', e.message);
+          }
+        }
+
+        if (providerAvailabilityDashboardIconId !== undefined) {
+          try {
+            const [cols] = await pool.execute(
+              "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'provider_availability_dashboard_icon_id'"
+            );
+            if ((cols || []).length > 0) {
+              updates.push('provider_availability_dashboard_icon_id = ?');
+              values.push(providerAvailabilityDashboardIconId ?? null);
+            } else {
+              const err = new Error(
+                'Cannot save Provider Availability icon: database missing platform_branding.provider_availability_dashboard_icon_id. Run database/migrations/313_dashboard_action_icons_program_overview_provider_availability_executive_report.sql.'
+              );
+              err.status = 409;
+              throw err;
+            }
+          } catch (e) {
+            if (e?.status) throw e;
+            console.warn('PlatformBranding.update: Error checking for provider_availability_dashboard_icon_id column:', e.message);
+          }
+        }
+
+        if (executiveReportIconId !== undefined) {
+          try {
+            const [cols] = await pool.execute(
+              "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'executive_report_icon_id'"
+            );
+            if ((cols || []).length > 0) {
+              updates.push('executive_report_icon_id = ?');
+              values.push(executiveReportIconId ?? null);
+            } else {
+              const err = new Error(
+                'Cannot save Executive Report icon: database missing platform_branding.executive_report_icon_id. Run database/migrations/313_dashboard_action_icons_program_overview_provider_availability_executive_report.sql.'
+              );
+              err.status = 409;
+              throw err;
+            }
+          } catch (e) {
+            if (e?.status) throw e;
+            console.warn('PlatformBranding.update: Error checking for executive_report_icon_id column:', e.message);
           }
         }
 
@@ -1395,6 +1509,51 @@ class PlatformBranding {
           if ((cols || []).length > 0) {
             insertFields.push('school_overview_icon_id');
             insertValues.push(schoolOverviewIconId || null);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Program Overview quick-action icon (optional) - for INSERT
+      if (programOverviewIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'program_overview_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            insertFields.push('program_overview_icon_id');
+            insertValues.push(programOverviewIconId || null);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Provider Availability quick-action icon (optional) - for INSERT
+      if (providerAvailabilityDashboardIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'provider_availability_dashboard_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            insertFields.push('provider_availability_dashboard_icon_id');
+            insertValues.push(providerAvailabilityDashboardIconId || null);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Executive Report quick-action icon (optional) - for INSERT
+      if (executiveReportIconId !== undefined) {
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'executive_report_icon_id'"
+          );
+          if ((cols || []).length > 0) {
+            insertFields.push('executive_report_icon_id');
+            insertValues.push(executiveReportIconId || null);
           }
         } catch {
           // ignore

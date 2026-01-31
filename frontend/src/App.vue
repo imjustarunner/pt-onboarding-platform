@@ -203,6 +203,7 @@
               >
                 Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
               </button>
+              <WeatherChip />
               <router-link
                 v-if="canShowSettingsIcon"
                 :to="orgTo('/admin/settings')"
@@ -352,6 +353,7 @@ import BrandingProvider from './components/BrandingProvider.vue';
 import BrandingLogo from './components/BrandingLogo.vue';
 import PoweredByFooter from './components/PoweredByFooter.vue';
 import TourManager from './components/TourManager.vue';
+import WeatherChip from './components/WeatherChip.vue';
 import { toUploadsUrl } from './utils/uploadsUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 

@@ -216,6 +216,7 @@ export const listProviderAffiliations = async (req, res, next) => {
       .map((o) => ({
         id: o.id,
         name: o.name,
+        slug: o.slug || null,
         organization_type: o.organization_type || 'agency',
         icon_file_path: o.icon_file_path || null,
         icon_name: o.icon_name || null

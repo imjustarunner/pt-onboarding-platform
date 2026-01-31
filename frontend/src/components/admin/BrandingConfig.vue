@@ -403,10 +403,10 @@
           <div class="icon-row">
             <div class="icon-label">Program Overview Icon</div>
             <div class="icon-selector-cell">
-              <IconSelector v-model="platformForm.schoolOverviewIconId" />
+              <IconSelector v-model="platformForm.programOverviewIconId" />
               <button
-                v-if="platformForm.schoolOverviewIconId"
-                @click="platformForm.schoolOverviewIconId = null"
+                v-if="platformForm.programOverviewIconId"
+                @click="platformForm.programOverviewIconId = null"
                 class="btn btn-sm btn-danger"
                 type="button"
                 title="Remove icon"
@@ -414,15 +414,15 @@
                 Clear
               </button>
             </div>
-            <div class="icon-description">Icon for the "Program Overview" action card (uses the same icon field as School Overview)</div>
+            <div class="icon-description">Icon for the "Program Overview" action card</div>
           </div>
           <div class="icon-row">
             <div class="icon-label">Provider Availability Icon</div>
             <div class="icon-selector-cell">
-              <IconSelector v-model="platformForm.companyProfileIconId" />
+              <IconSelector v-model="platformForm.providerAvailabilityDashboardIconId" />
               <button
-                v-if="platformForm.companyProfileIconId"
-                @click="platformForm.companyProfileIconId = null"
+                v-if="platformForm.providerAvailabilityDashboardIconId"
+                @click="platformForm.providerAvailabilityDashboardIconId = null"
                 class="btn btn-sm btn-danger"
                 type="button"
                 title="Remove icon"
@@ -430,15 +430,15 @@
                 Clear
               </button>
             </div>
-            <div class="icon-description">Icon for the "Provider Availability" action card (uses the Company Profile icon field)</div>
+            <div class="icon-description">Icon for the "Provider Availability" action card</div>
           </div>
           <div class="icon-row">
             <div class="icon-label">Executive Report Icon</div>
             <div class="icon-selector-cell">
-              <IconSelector v-model="platformForm.viewAllProgressIconId" />
+              <IconSelector v-model="platformForm.executiveReportIconId" />
               <button
-                v-if="platformForm.viewAllProgressIconId"
-                @click="platformForm.viewAllProgressIconId = null"
+                v-if="platformForm.executiveReportIconId"
+                @click="platformForm.executiveReportIconId = null"
                 class="btn btn-sm btn-danger"
                 type="button"
                 title="Remove icon"
@@ -446,7 +446,7 @@
                 Clear
               </button>
             </div>
-            <div class="icon-description">Icon for the "Executive Report" action card (uses the View All Progress icon field)</div>
+            <div class="icon-description">Icon for the "Executive Report" action card</div>
           </div>
           <div class="icon-row">
             <div class="icon-label">Manage Modules Icon</div>
@@ -1151,6 +1151,54 @@
               <div class="icon-description">Icon for the "Progress Dashboard" action card</div>
             </div>
             <div class="icon-row">
+              <div class="icon-label">Program Overview Icon</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.programOverviewIconId" />
+                <button
+                  v-if="agencyBrandingForm.programOverviewIconId"
+                  @click="agencyBrandingForm.programOverviewIconId = null"
+                  class="btn btn-sm btn-danger"
+                  type="button"
+                  title="Remove icon"
+                >
+                  Clear
+                </button>
+              </div>
+              <div class="icon-description">Icon for the "Program Overview" action card</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Provider Availability Icon</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.providerAvailabilityDashboardIconId" />
+                <button
+                  v-if="agencyBrandingForm.providerAvailabilityDashboardIconId"
+                  @click="agencyBrandingForm.providerAvailabilityDashboardIconId = null"
+                  class="btn btn-sm btn-danger"
+                  type="button"
+                  title="Remove icon"
+                >
+                  Clear
+                </button>
+              </div>
+              <div class="icon-description">Icon for the "Provider Availability" action card</div>
+            </div>
+            <div class="icon-row">
+              <div class="icon-label">Executive Report Icon</div>
+              <div class="icon-selector-cell">
+                <IconSelector v-model="agencyBrandingForm.executiveReportIconId" />
+                <button
+                  v-if="agencyBrandingForm.executiveReportIconId"
+                  @click="agencyBrandingForm.executiveReportIconId = null"
+                  class="btn btn-sm btn-danger"
+                  type="button"
+                  title="Remove icon"
+                >
+                  Clear
+                </button>
+              </div>
+              <div class="icon-description">Icon for the "Executive Report" action card</div>
+            </div>
+            <div class="icon-row">
               <div class="icon-label">Manage Modules Icon</div>
               <div class="icon-selector-cell">
                 <IconSelector v-model="agencyBrandingForm.manageModulesIconId" />
@@ -1565,6 +1613,54 @@
             <div class="icon-description">Icon for the "Progress Dashboard" action card</div>
           </div>
           <div class="icon-row">
+            <div class="icon-label">Program Overview Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.programOverviewIconId" />
+              <button
+                v-if="brandingForm.programOverviewIconId"
+                @click="brandingForm.programOverviewIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Program Overview" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Provider Availability Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.providerAvailabilityDashboardIconId" />
+              <button
+                v-if="brandingForm.providerAvailabilityDashboardIconId"
+                @click="brandingForm.providerAvailabilityDashboardIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Provider Availability" action card</div>
+          </div>
+          <div class="icon-row">
+            <div class="icon-label">Executive Report Icon</div>
+            <div class="icon-selector-cell">
+              <IconSelector v-model="brandingForm.executiveReportIconId" />
+              <button
+                v-if="brandingForm.executiveReportIconId"
+                @click="brandingForm.executiveReportIconId = null"
+                class="btn btn-sm btn-danger"
+                type="button"
+                title="Remove icon"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="icon-description">Icon for the "Executive Report" action card</div>
+          </div>
+          <div class="icon-row">
             <div class="icon-label">Manage Modules Icon</div>
             <div class="icon-selector-cell">
               <IconSelector v-model="brandingForm.manageModulesIconId" />
@@ -1967,6 +2063,9 @@ const platformForm = ref({
   manageAgenciesIconId: null,
   manageClientsIconId: null,
   schoolOverviewIconId: null,
+  programOverviewIconId: null,
+  providerAvailabilityDashboardIconId: null,
+  executiveReportIconId: null,
   manageModulesIconId: null,
   manageDocumentsIconId: null,
   manageUsersIconId: null,
@@ -2007,6 +2106,9 @@ const agencyBrandingForm = ref({
   accentColor: '#f97316',
   certificateTemplateUrl: '',
   masterIconId: null,
+  programOverviewIconId: null,
+  providerAvailabilityDashboardIconId: null,
+  executiveReportIconId: null,
   trainingFocusDefaultIconId: null,
   moduleDefaultIconId: null,
   userDefaultIconId: null,
@@ -2068,6 +2170,9 @@ const brandingForm = ref({
   userDefaultIconId: null,
   documentDefaultIconId: null,
   progressDashboardIconId: null,
+  programOverviewIconId: null,
+  providerAvailabilityDashboardIconId: null,
+  executiveReportIconId: null,
   manageClientsIconId: null,
   manageModulesIconId: null,
   manageDocumentsIconId: null,
@@ -2147,6 +2252,9 @@ watch(currentAgency, async (agency) => {
         userDefaultIconId: freshAgency.user_default_icon_id ?? null,
         documentDefaultIconId: freshAgency.document_default_icon_id ?? null,
         progressDashboardIconId: freshAgency.progress_dashboard_icon_id ?? null,
+        programOverviewIconId: freshAgency.program_overview_icon_id ?? null,
+        providerAvailabilityDashboardIconId: freshAgency.provider_availability_dashboard_icon_id ?? null,
+        executiveReportIconId: freshAgency.executive_report_icon_id ?? null,
         manageModulesIconId: freshAgency.manage_modules_icon_id ?? null,
         manageDocumentsIconId: freshAgency.manage_documents_icon_id ?? null,
         manageUsersIconId: freshAgency.manage_users_icon_id ?? null,
@@ -2185,6 +2293,9 @@ watch(currentAgency, async (agency) => {
         userDefaultIconId: agency.user_default_icon_id ?? null,
         documentDefaultIconId: agency.document_default_icon_id ?? null,
         progressDashboardIconId: agency.progress_dashboard_icon_id ?? null,
+        programOverviewIconId: agency.program_overview_icon_id ?? null,
+        providerAvailabilityDashboardIconId: agency.provider_availability_dashboard_icon_id ?? null,
+        executiveReportIconId: agency.executive_report_icon_id ?? null,
         manageClientsIconId: agency.manage_clients_icon_id ?? null,
         manageModulesIconId: agency.manage_modules_icon_id ?? null,
         manageDocumentsIconId: agency.manage_documents_icon_id ?? null,
@@ -2309,6 +2420,9 @@ const saveAgencyBrandingForSuperAdmin = async () => {
       userDefaultIconId: agencyBrandingForm.value.userDefaultIconId ?? null,
       documentDefaultIconId: agencyBrandingForm.value.documentDefaultIconId ?? null,
       progressDashboardIconId: agencyBrandingForm.value.progressDashboardIconId ?? null,
+      programOverviewIconId: agencyBrandingForm.value.programOverviewIconId ?? null,
+      providerAvailabilityDashboardIconId: agencyBrandingForm.value.providerAvailabilityDashboardIconId ?? null,
+      executiveReportIconId: agencyBrandingForm.value.executiveReportIconId ?? null,
       manageClientsIconId: agencyBrandingForm.value.manageClientsIconId ?? null,
       manageModulesIconId: agencyBrandingForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: agencyBrandingForm.value.manageDocumentsIconId ?? null,
@@ -2368,6 +2482,9 @@ const saveAgencyBrandingForSuperAdmin = async () => {
           userDefaultIconId: freshAgency.user_default_icon_id ?? null,
           documentDefaultIconId: freshAgency.document_default_icon_id ?? null,
           progressDashboardIconId: freshAgency.progress_dashboard_icon_id ?? null,
+          programOverviewIconId: freshAgency.program_overview_icon_id ?? null,
+          providerAvailabilityDashboardIconId: freshAgency.provider_availability_dashboard_icon_id ?? null,
+          executiveReportIconId: freshAgency.executive_report_icon_id ?? null,
           manageClientsIconId: freshAgency.manage_clients_icon_id ?? null,
           manageModulesIconId: freshAgency.manage_modules_icon_id ?? null,
           manageDocumentsIconId: freshAgency.manage_documents_icon_id ?? null,
@@ -2431,6 +2548,9 @@ const saveBranding = async () => {
       userDefaultIconId: brandingForm.value.userDefaultIconId ?? null,
       documentDefaultIconId: brandingForm.value.documentDefaultIconId ?? null,
       progressDashboardIconId: brandingForm.value.progressDashboardIconId ?? null,
+      programOverviewIconId: brandingForm.value.programOverviewIconId ?? null,
+      providerAvailabilityDashboardIconId: brandingForm.value.providerAvailabilityDashboardIconId ?? null,
+      executiveReportIconId: brandingForm.value.executiveReportIconId ?? null,
       manageClientsIconId: brandingForm.value.manageClientsIconId ?? null,
       manageModulesIconId: brandingForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: brandingForm.value.manageDocumentsIconId ?? null,
@@ -2802,6 +2922,9 @@ const applySelectedTemplate = async (event) => {
           manageAgenciesIconId: brandingStore.platformBranding.manage_agencies_icon_id ?? null,
           manageClientsIconId: brandingStore.platformBranding.manage_clients_icon_id ?? null,
           schoolOverviewIconId: brandingStore.platformBranding.school_overview_icon_id ?? null,
+          programOverviewIconId: brandingStore.platformBranding.program_overview_icon_id ?? null,
+          providerAvailabilityDashboardIconId: brandingStore.platformBranding.provider_availability_dashboard_icon_id ?? null,
+          executiveReportIconId: brandingStore.platformBranding.executive_report_icon_id ?? null,
           manageModulesIconId: brandingStore.platformBranding.manage_modules_icon_id ?? null,
           manageDocumentsIconId: brandingStore.platformBranding.manage_documents_icon_id ?? null,
           manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,
@@ -3153,6 +3276,9 @@ const onPlatformRestoreFileSelected = async (event) => {
       platformForm.value.manageAgenciesIconId = brandingStore.platformBranding.manage_agencies_icon_id ?? null;
       platformForm.value.manageClientsIconId = brandingStore.platformBranding.manage_clients_icon_id ?? null;
       platformForm.value.schoolOverviewIconId = brandingStore.platformBranding.school_overview_icon_id ?? null;
+      platformForm.value.programOverviewIconId = brandingStore.platformBranding.program_overview_icon_id ?? null;
+      platformForm.value.providerAvailabilityDashboardIconId = brandingStore.platformBranding.provider_availability_dashboard_icon_id ?? null;
+      platformForm.value.executiveReportIconId = brandingStore.platformBranding.executive_report_icon_id ?? null;
       platformForm.value.manageModulesIconId = brandingStore.platformBranding.manage_modules_icon_id ?? null;
       platformForm.value.manageDocumentsIconId = brandingStore.platformBranding.manage_documents_icon_id ?? null;
       platformForm.value.manageUsersIconId = brandingStore.platformBranding.manage_users_icon_id ?? null;
@@ -3213,6 +3339,9 @@ const savePlatformBranding = async () => {
       manageAgenciesIconId: platformForm.value.manageAgenciesIconId ?? null,
       manageClientsIconId: platformForm.value.manageClientsIconId ?? null,
       schoolOverviewIconId: platformForm.value.schoolOverviewIconId ?? null,
+      programOverviewIconId: platformForm.value.programOverviewIconId ?? null,
+      providerAvailabilityDashboardIconId: platformForm.value.providerAvailabilityDashboardIconId ?? null,
+      executiveReportIconId: platformForm.value.executiveReportIconId ?? null,
       manageModulesIconId: platformForm.value.manageModulesIconId ?? null,
       manageDocumentsIconId: platformForm.value.manageDocumentsIconId ?? null,
       manageUsersIconId: platformForm.value.manageUsersIconId ?? null,
@@ -3382,6 +3511,9 @@ const savePlatformBranding = async () => {
       platformForm.value.manageAgenciesIconId = response.data.manage_agencies_icon_id ?? platformForm.value.manageAgenciesIconId ?? null;
       platformForm.value.manageClientsIconId = response.data.manage_clients_icon_id ?? platformForm.value.manageClientsIconId ?? null;
       platformForm.value.schoolOverviewIconId = response.data.school_overview_icon_id ?? platformForm.value.schoolOverviewIconId ?? null;
+      platformForm.value.programOverviewIconId = response.data.program_overview_icon_id ?? platformForm.value.programOverviewIconId ?? null;
+      platformForm.value.providerAvailabilityDashboardIconId = response.data.provider_availability_dashboard_icon_id ?? platformForm.value.providerAvailabilityDashboardIconId ?? null;
+      platformForm.value.executiveReportIconId = response.data.executive_report_icon_id ?? platformForm.value.executiveReportIconId ?? null;
       platformForm.value.manageModulesIconId = response.data.manage_modules_icon_id ?? platformForm.value.manageModulesIconId ?? null;
       platformForm.value.manageDocumentsIconId = response.data.manage_documents_icon_id ?? platformForm.value.manageDocumentsIconId ?? null;
       platformForm.value.manageUsersIconId = response.data.manage_users_icon_id ?? platformForm.value.manageUsersIconId ?? null;
@@ -3428,6 +3560,9 @@ const savePlatformBranding = async () => {
       platformForm.value.manageAgenciesIconId = brandingStore.platformBranding.manage_agencies_icon_id ?? null;
       platformForm.value.manageClientsIconId = brandingStore.platformBranding.manage_clients_icon_id ?? null;
       platformForm.value.schoolOverviewIconId = brandingStore.platformBranding.school_overview_icon_id ?? null;
+      platformForm.value.programOverviewIconId = brandingStore.platformBranding.program_overview_icon_id ?? null;
+      platformForm.value.providerAvailabilityDashboardIconId = brandingStore.platformBranding.provider_availability_dashboard_icon_id ?? null;
+      platformForm.value.executiveReportIconId = brandingStore.platformBranding.executive_report_icon_id ?? null;
       platformForm.value.manageModulesIconId = brandingStore.platformBranding.manage_modules_icon_id ?? null;
       platformForm.value.manageDocumentsIconId = brandingStore.platformBranding.manage_documents_icon_id ?? null;
       platformForm.value.manageUsersIconId = brandingStore.platformBranding.manage_users_icon_id ?? null;
@@ -3501,6 +3636,9 @@ onMounted(async () => {
         manageAgenciesIconId: brandingStore.platformBranding.manage_agencies_icon_id ?? null,
         manageClientsIconId: brandingStore.platformBranding.manage_clients_icon_id ?? null,
         schoolOverviewIconId: brandingStore.platformBranding.school_overview_icon_id ?? null,
+        programOverviewIconId: brandingStore.platformBranding.program_overview_icon_id ?? null,
+        providerAvailabilityDashboardIconId: brandingStore.platformBranding.provider_availability_dashboard_icon_id ?? null,
+        executiveReportIconId: brandingStore.platformBranding.executive_report_icon_id ?? null,
         manageModulesIconId: brandingStore.platformBranding.manage_modules_icon_id ?? null,
         manageDocumentsIconId: brandingStore.platformBranding.manage_documents_icon_id ?? null,
         manageUsersIconId: brandingStore.platformBranding.manage_users_icon_id ?? null,
