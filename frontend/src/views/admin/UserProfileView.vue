@@ -1112,15 +1112,18 @@
                   </option>
                 </select>
                 <div style="margin-top: 8px; display:flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                  <button
+                  <a
                     class="btn btn-secondary btn-sm"
-                    type="button"
-                    :disabled="!selectedSchoolAffiliationSlug"
-                    :title="selectedSchoolAffiliationSlug ? 'Open this provider inside the school portal' : 'This affiliation has no slug (cannot deep-link)'"
-                    @click="openProviderInSelectedSchoolPortal"
+                    :class="{ disabled: !providerSchoolPortalHref }"
+                    :href="providerSchoolPortalHref || undefined"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    :aria-disabled="!providerSchoolPortalHref"
+                    :title="providerSchoolPortalHref ? 'Open this provider inside the school portal (new tab)' : 'This affiliation has no slug (cannot deep-link)'"
+                    @click="(e) => { if (!providerSchoolPortalHref) e.preventDefault(); }"
                   >
                     Open in School Portal
-                  </button>
+                  </a>
                   <span class="hint" style="margin: 0;" v-if="selectedSchoolAffiliationSlug">
                     Jumps to the provider’s school profile for faster editing.
                   </span>
@@ -1887,6 +1890,14 @@ const selectedSchoolAffiliationSlug = computed(() => {
   const slug = String(selectedSchoolAffiliation.value?.slug || '').trim();
   return slug || '';
 });
+
+const providerSchoolPortalHref = computed(() => {
+  const slug = selectedSchoolAffiliationSlug.value;
+  const pid = Number(userId.value || 0);
+  if (!slug || !pid) return '';
+  // Use router.resolve so this respects the app's base URL if configured.
+  return router.resolve({ path: `/${slug}/providers/${pid}` }).href;
+});
 const selectedSchoolIsSchool = computed(() => {
   const t = String(selectedSchoolAffiliation.value?.organization_type || '').toLowerCase();
   return t === 'school';
@@ -2229,13 +2240,6 @@ const loadSchoolAffiliations = async () => {
   } finally {
     schoolAffiliationsLoading.value = false;
   }
-};
-
-const openProviderInSelectedSchoolPortal = () => {
-  const slug = selectedSchoolAffiliationSlug.value;
-  const pid = Number(userId.value || 0);
-  if (!slug || !pid) return;
-  router.push(`/${slug}/providers/${pid}`);
 };
 
 const loadSchoolAssignments = async () => {
