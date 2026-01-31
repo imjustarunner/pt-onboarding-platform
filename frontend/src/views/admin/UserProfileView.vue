@@ -2140,7 +2140,9 @@ const repairProviderSlots = async () => {
   try {
     repairingProviderSlots.value = true;
     schoolAssignmentsError.value = '';
-    await api.post(`/provider-self/affiliations/${selectedSchoolAffiliationId.value}/repair-slots`, null, {
+    // IMPORTANT: Express's JSON parser (strict mode) rejects JSON primitives like `null`,
+    // returning 400 with "Unexpected token n in JSON at position 0". Send an object body instead.
+    await api.post(`/provider-self/affiliations/${selectedSchoolAffiliationId.value}/repair-slots`, {}, {
       params: { providerUserId: userId.value }
     });
     await loadSchoolAssignments();
