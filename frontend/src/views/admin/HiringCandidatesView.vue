@@ -977,7 +977,7 @@ onMounted(async () => {
 }
 .grid {
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 360px minmax(0, 1fr); /* prevent content from widening the grid */
   gap: 16px;
   max-width: 100%;
 }
@@ -988,6 +988,9 @@ onMounted(async () => {
   padding: 12px;
   min-height: 520px;
   min-width: 0; /* allow grid children to shrink (prevents horizontal overflow) */
+}
+.detail-panel {
+  min-width: 0;
 }
 .list-controls {
   display: flex;
@@ -1263,10 +1266,13 @@ onMounted(async () => {
   overflow: auto;
 }
 .markdown :deep(table) {
+  display: block; /* allow horizontal scrolling without affecting layout */
+  max-width: 100%;
   width: 100%;
   border-collapse: collapse;
   margin: 10px 0;
   table-layout: fixed;
+  overflow-x: auto;
 }
 .markdown :deep(th),
 .markdown :deep(td) {
@@ -1274,6 +1280,18 @@ onMounted(async () => {
   padding: 8px;
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.search-suggestions {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.search-suggestions :deep(*) {
+  max-width: 100%;
+}
+.search-suggestions :deep(a) {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
