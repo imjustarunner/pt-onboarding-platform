@@ -1,6 +1,12 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 
+function getCloudTraceId(req) {
+  // Cloud Run: "TRACE_ID/SPAN_ID;o=TRACE_TRUE"
+  const v = String(req.get?.('x-cloud-trace-context') || '');
+  return v ? v.split('/')[0] : null;
+}
+
 function shouldDebug() {
   const v = String(process.env.ACCESS_DEBUG || '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
@@ -71,6 +77,8 @@ export function accessDebugMiddleware(req, res, next) {
         const userId = req.user?.id ? Number(req.user.id) : null;
         const role = req.user?.role || null;
         const email = req.user?.email || null;
+        const type = req.user?.type || null;
+        const tokenAgencyId = req.user?.agencyId ? Number(req.user.agencyId) : null;
         const agencyIdFromQuery = req.query?.agencyId ? Number(req.query.agencyId) : null;
         const agencyIdFromBody = req.body?.agencyId ? Number(req.body.agencyId) : null;
         const agencyIdFromParams = req.params?.agencyId ? Number(req.params.agencyId) : null;
@@ -88,14 +96,21 @@ export function accessDebugMiddleware(req, res, next) {
 
         const membership = await safeAgencyMembershipFacts({ userId, agencyId });
 
-        console.warn('[ACCESS_DEBUG] 403', {
+        const payload = {
+          at: new Date().toISOString(),
           path: requestPath,
           method: req.method,
-          user: { id: userId, role, email },
+          traceId: getCloudTraceId(req),
+          origin: req.get?.('origin') || null,
+          referer: req.get?.('referer') || null,
+          user: { id: userId, role, email, type, tokenAgencyId },
           agencyId,
           agenciesCount,
           membership
-        });
+        };
+
+        // Cloud Run logging can truncate structured objects; emit one-line JSON.
+        console.warn(`[ACCESS_DEBUG] 403 ${JSON.stringify(payload)}`);
       } catch (e) {
         console.warn('[ACCESS_DEBUG] 403 logging failed:', String(e?.message || e));
       }
