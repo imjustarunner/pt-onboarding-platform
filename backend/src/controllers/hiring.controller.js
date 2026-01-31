@@ -329,13 +329,13 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
         // Common in some environments: Cloud Run service account not permitted for Vertex Search grounding (403),
         // or Vertex project/env not configured yet (503). Fall back to GEMINI_API_KEY so the feature remains usable.
         const status = e?.status;
-        const canFallback = status === 403 || status === 401 || status === 503;
-        if (!canFallback) throw e;
-        ai = await generatePreScreenReportWithGeminiApiKey({
-          candidateName,
-          resumeText,
-          linkedInUrl
-        });
+        const canFallbackStatus = status === 403 || status === 401 || status === 503;
+        const hasApiKey = !!String(process.env.GEMINI_API_KEY || '').trim();
+
+        // Only fall back if the key is actually configured; otherwise return the real Vertex error.
+        if (!canFallbackStatus || !hasApiKey) throw e;
+
+        ai = await generatePreScreenReportWithGeminiApiKey({ candidateName, resumeText, linkedInUrl });
       }
     } catch (e) {
       await createFailedAiReport({ candidateUserId, createdByUserId: req.user.id, error: e });
