@@ -5032,7 +5032,18 @@ const saveAgency = async () => {
         tier2MinWeekly: Number(agencyForm.value.tierThresholds?.tier2MinWeekly ?? 13),
         tier3MinWeekly: Number(agencyForm.value.tierThresholds?.tier3MinWeekly ?? 25)
       },
-      ...(requiresAffiliatedAgency.value ? { affiliatedAgencyId: parseInt(agencyForm.value.affiliatedAgencyId, 10) } : {}),
+      // Only include affiliation in payload when it is allowed/meaningful:
+      // - Creating child orgs: required (admins can set at creation time)
+      // - Editing existing orgs: only super_admin can re-affiliate (backend enforces)
+      ...(requiresAffiliatedAgency.value
+        ? (() => {
+            const raw = parseInt(agencyForm.value.affiliatedAgencyId, 10);
+            const ok = Number.isFinite(raw) && raw > 0;
+            if (!ok) return {};
+            if (editingAgency.value && userRole.value !== 'super_admin') return {};
+            return { affiliatedAgencyId: raw };
+          })()
+        : {}),
       themeSettings: Object.keys(themeSettings).length > 0 ? themeSettings : null,
       customParameters: Object.keys(customParams).length > 0 ? customParams : null,
       featureFlags:
