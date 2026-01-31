@@ -1019,6 +1019,13 @@
           <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);">
             <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Address</h4>
             <small class="hint">Used for mileage calculations (schools use this as their school address).</small>
+            <div
+              v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+              class="hint"
+              style="margin-top: 6px;"
+            >
+              Need office/site addresses for mileage? Manage them under the <button type="button" class="link-btn" @click="activeTab = 'sites'">Sites</button> tab.
+            </div>
           </div>
 
           <div class="form-group">
@@ -1200,16 +1207,16 @@
           </div>
 
           <div
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            v-if="activeTab === 'sites' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             class="form-section-divider"
             style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
           >
-            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Sites / Office Locations</h4>
-            <small class="hint">Manage multiple site addresses for this agency (used for School Mileage office selection).</small>
+            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Office locations (Sites)</h4>
+            <small class="hint">Used for Buildings and School Mileage office selection.</small>
           </div>
 
           <div
-            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            v-if="activeTab === 'sites' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
             class="form-group"
           >
             <div v-if="officeLocationsError" class="error-modal">
@@ -2558,6 +2565,7 @@ const mileageRatesLoading = ref(false);
 const savingMileageRates = ref(false);
 const mileageRatesError = ref('');
 const mileageRatesDraft = ref({ tier1: 0, tier2: 0, tier3: 0 });
+const mileageRatesLoadedAgencyId = ref(null);
 
 // PTO policy (agency-only)
 const ptoPolicyLoading = ref(false);
@@ -2646,6 +2654,7 @@ const saveAgencyAnnouncements = async () => {
 const officeLocations = ref([]);
 const officeLocationsLoading = ref(false);
 const officeLocationsError = ref('');
+const officeLocationsLoadedAgencyId = ref(null);
 const officeLocationEdits = ref({});
 const savingOfficeLocationId = ref(null);
 const newOfficeLocationName = ref('');
@@ -2910,6 +2919,7 @@ const loadMileageRates = async () => {
       tier2: byTier.get(2) || 0,
       tier3: byTier.get(3) || 0
     };
+    mileageRatesLoadedAgencyId.value = Number(editingAgency.value.id) || null;
   } catch (e) {
     mileageRatesError.value = e.response?.data?.error?.message || e.message || 'Failed to load mileage rates';
   } finally {
@@ -2967,6 +2977,7 @@ const loadOfficeLocations = async () => {
     // Set edits first, then rows, to avoid a render race where rows exist but edits don't.
     officeLocationEdits.value = nextEdits;
     officeLocations.value = rows;
+    officeLocationsLoadedAgencyId.value = Number(editingAgency.value.id) || null;
   } catch (e) {
     officeLocationsError.value = e.response?.data?.error?.message || e.message || 'Failed to load office locations';
     officeLocations.value = [];
@@ -4510,11 +4521,24 @@ const editAgency = async (agency) => {
 
   // Load sites for agencies in the main Settings tab (not Payroll tab).
   if (String(agency?.organization_type || 'agency').toLowerCase() === 'agency') {
-    loadOfficeLocations();
-    loadMileageRates();
     loadNotificationTriggers();
     // Load announcements so the tab is instantly ready when clicked.
     loadAgencyAnnouncements();
+  }
+
+  // Reset lazy-loaded tab caches when switching agencies.
+  mileageRatesLoadedAgencyId.value = null;
+  officeLocationsLoadedAgencyId.value = null;
+  mileageRatesError.value = '';
+  officeLocationsError.value = '';
+  mileageRatesDraft.value = { tier1: 0, tier2: 0, tier3: 0 };
+  officeLocations.value = [];
+  officeLocationEdits.value = {};
+
+  // If you're already on the Sites tab, load immediately (watch won't fire).
+  if (String(activeTab.value || '') === 'sites' && String(agency?.organization_type || 'agency').toLowerCase() === 'agency') {
+    loadOfficeLocations();
+    loadMileageRates();
   }
 
   // Helpful on smaller screens where the detail pane stacks below the list:
@@ -4537,6 +4561,25 @@ watch(
     if (!agencyId) return;
     if (announcementsLoadedAgencyId.value !== agencyId) {
       loadAgencyAnnouncements();
+    }
+  }
+);
+
+watch(
+  () => activeTab.value,
+  (next) => {
+    if (String(next || '') !== 'sites') return;
+    if (!editingAgency.value?.id) return;
+    if (String(editingAgency.value.organization_type || 'agency').toLowerCase() !== 'agency') return;
+    const agencyId = Number(editingAgency.value.id);
+    if (!agencyId) return;
+
+    // Load sites data lazily so it doesn't run on every tab.
+    if (!officeLocationsLoading.value && officeLocationsLoadedAgencyId.value !== agencyId) {
+      loadOfficeLocations();
+    }
+    if (!mileageRatesLoading.value && mileageRatesLoadedAgencyId.value !== agencyId) {
+      loadMileageRates();
     }
   }
 );
@@ -5456,6 +5499,22 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--primary);
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+.link-btn:hover {
+  opacity: 0.9;
+}
+
 .master-detail {
   display: grid;
   grid-template-columns: 420px 1fr;

@@ -2,12 +2,12 @@
   <div class="container office-shell">
     <div class="header">
       <div>
-        <h2>Buildings</h2>
-        <p class="subtitle">Scheduling, kiosk, and building settings.</p>
+        <h2>Office locations</h2>
+        <p class="subtitle">Scheduling, kiosk, and office location settings.</p>
       </div>
       <div class="actions">
         <select v-model="selectedOfficeId" @change="onOfficeChanged" :disabled="loading">
-          <option value="">Select a building…</option>
+          <option value="">Select an office location…</option>
           <option v-for="o in offices" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
         </select>
       </div>

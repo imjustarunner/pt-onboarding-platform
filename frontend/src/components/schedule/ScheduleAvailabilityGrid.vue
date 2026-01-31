@@ -255,7 +255,7 @@
         <div class="modal-body">
           <div class="field-grid">
             <div>
-              <label class="lbl">Building</label>
+              <label class="lbl">Office location</label>
               <select v-model.number="officeAssignBuildingId" class="input" :disabled="officeAssignLoading">
                 <option :value="0">Select…</option>
                 <option v-for="o in officeLocations" :key="`bld-${o.id}`" :value="Number(o.id)">{{ o.name }}</option>
@@ -1065,7 +1065,7 @@ const officeTitle = (dayName, hour) => {
   const top = hits.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0];
   if (!top) return `Office — ${dayName} ${hourLabel(hour)}`;
   const room = top.roomLabel || 'Office';
-  const bld = top.buildingName || 'Building';
+  const bld = top.buildingName || 'Office location';
   const st = String(top.slotState || '').toUpperCase();
   const label = st === 'ASSIGNED_BOOKED' ? 'Booked' : st === 'ASSIGNED_TEMPORARY' ? 'Temporary' : 'Assigned';
   const ids = agenciesInCell('office', dayName, hour);

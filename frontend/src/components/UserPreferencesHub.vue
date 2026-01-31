@@ -290,7 +290,7 @@
             </div>
 
             <div class="field">
-              <label>Preferred building(s)</label>
+              <label>Preferred office location(s)</label>
               <select
                 v-model="schedulingPrefs.preferred_location_ids"
                 multiple

@@ -135,7 +135,7 @@ export const archiveOffice = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const loc = await OfficeLocation.findById(officeId);
-    if (!loc) return res.status(404).json({ error: { message: 'Building not found' } });
+    if (!loc) return res.status(404).json({ error: { message: 'Office location not found' } });
 
     const updated = await OfficeLocation.update(officeId, { is_active: false });
     res.json({ ok: true, office: updated });
@@ -153,7 +153,7 @@ export const restoreOffice = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const loc = await OfficeLocation.findById(officeId);
-    if (!loc) return res.status(404).json({ error: { message: 'Building not found' } });
+    if (!loc) return res.status(404).json({ error: { message: 'Office location not found' } });
 
     const updated = await OfficeLocation.update(officeId, { is_active: true });
     res.json({ ok: true, office: updated });
@@ -190,9 +190,9 @@ export const deleteOffice = async (req, res, next) => {
     if (!officeId) return res.status(400).json({ error: { message: 'Invalid officeId' } });
 
     const loc = await OfficeLocation.findById(officeId);
-    if (!loc) return res.status(404).json({ error: { message: 'Building not found' } });
+    if (!loc) return res.status(404).json({ error: { message: 'Office location not found' } });
     if (loc.is_active === 1 || loc.is_active === true) {
-      return res.status(400).json({ error: { message: 'Building must be archived before it can be permanently deleted' } });
+      return res.status(400).json({ error: { message: 'Office location must be archived before it can be permanently deleted' } });
     }
 
     // Cascades via FK: rooms, events, assignments, join table, etc.
