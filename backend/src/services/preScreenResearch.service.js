@@ -1,4 +1,5 @@
 import { GoogleAuth } from 'google-auth-library';
+import { parseGoogleWorkspaceServiceAccountFromEnv } from './googleWorkspaceAuth.service.js';
 
 function sanitizeText(v, { maxLen }) {
   const s = String(v ?? '')
@@ -111,9 +112,19 @@ export async function generatePreScreenReportWithGeminiApiKey({ candidateName, r
 }
 
 async function getAccessToken() {
-  const auth = new GoogleAuth({
-    scopes: ['https://www.googleapis.com/auth/cloud-platform']
-  });
+  const scopes = ['https://www.googleapis.com/auth/cloud-platform'];
+
+  // Optional: reuse the same Workspace service account JSON used for Calendar/Gmail.
+  // This makes Vertex calls use the same Google identity "that we know is working",
+  // as long as that service account is also granted the required GCP IAM roles.
+  const authSource = String(process.env.VERTEX_AUTH_SOURCE || '').trim().toLowerCase(); // 'workspace_service_account' | ''
+  const workspaceSa =
+    authSource === 'workspace_service_account' ? parseGoogleWorkspaceServiceAccountFromEnv() : null;
+
+  const auth = workspaceSa
+    ? new GoogleAuth({ credentials: workspaceSa, scopes })
+    : new GoogleAuth({ scopes });
+
   const client = await auth.getClient();
   const tokenResponse = await client.getAccessToken();
   const token = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
