@@ -124,6 +124,35 @@ class HiringResumeParse {
     );
     return rows[0] || null;
   }
+
+  static async findLatestStructuredByCandidateUserId(candidateUserId) {
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM hiring_resume_parses
+       WHERE candidate_user_id = ?
+         AND extracted_json IS NOT NULL
+       ORDER BY updated_at DESC, id DESC
+       LIMIT 1`,
+      [candidateUserId]
+    );
+    return rows[0] || null;
+  }
+
+  static async updateExtractedJsonByResumeDocId(resumeDocId, extractedJson) {
+    await pool.execute(
+      `UPDATE hiring_resume_parses
+       SET extracted_json = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE resume_doc_id = ?
+       LIMIT 1`,
+      [extractedJson ? JSON.stringify(extractedJson) : null, resumeDocId]
+    );
+
+    const [rows] = await pool.execute(
+      `SELECT * FROM hiring_resume_parses WHERE resume_doc_id = ? LIMIT 1`,
+      [resumeDocId]
+    );
+    return rows[0] || null;
+  }
 }
 
 export default HiringResumeParse;

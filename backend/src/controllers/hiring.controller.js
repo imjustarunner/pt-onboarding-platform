@@ -13,6 +13,7 @@ import {
   generatePreScreenReportWithVertexNoSearch
 } from '../services/preScreenResearch.service.js';
 import { extractResumeTextFromUpload } from '../services/resumeTextExtraction.service.js';
+import { generateResumeSummaryJson } from '../services/resumeStructuring.service.js';
 import config from '../config/config.js';
 
 function parseIntParam(v) {
@@ -798,6 +799,81 @@ export const deleteCandidateResume = async (req, res, next) => {
 
     res.json({ ok: true });
   } catch (e) {
+    next(e);
+  }
+};
+
+export const getCandidateResumeSummary = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const latestText = await HiringResumeParse.findLatestCompletedTextByCandidateUserId(candidateUserId);
+    const latestStructured = await HiringResumeParse.findLatestStructuredByCandidateUserId(candidateUserId);
+
+    res.json({
+      latestResumeDocId: latestText?.resume_doc_id || null,
+      hasExtractedText: !!(latestText?.extracted_text && String(latestText.extracted_text).trim()),
+      summary: latestStructured?.extracted_json || null,
+      summaryUpdatedAt: latestStructured?.updated_at || null
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const generateCandidateResumeSummary = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.body?.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const user = await User.findById(candidateUserId);
+    if (!user) return res.status(404).json({ error: { message: 'Candidate not found' } });
+
+    const latest = await HiringResumeParse.findLatestCompletedTextByCandidateUserId(candidateUserId);
+    const resumeText = String(latest?.extracted_text || '').trim();
+    if (!resumeText || !latest?.resume_doc_id) {
+      return res.status(400).json({
+        error: {
+          message:
+            'No extracted resume text available yet. Upload a resume PDF (with selectable text) to generate a resume summary.'
+        }
+      });
+    }
+
+    const candidateName = `${user.first_name || ''} ${user.last_name || ''}`.trim();
+    const ai = await generateResumeSummaryJson({ candidateName, resumeText });
+
+    const extractedJson = {
+      kind: 'resume_structured_v1',
+      model: ai.modelId,
+      latencyMs: ai.latencyMs,
+      generatedAt: new Date().toISOString(),
+      summary: ai.summary
+    };
+
+    const updated = await HiringResumeParse.updateExtractedJsonByResumeDocId(latest.resume_doc_id, extractedJson);
+
+    res.status(201).json({
+      resumeDocId: latest.resume_doc_id,
+      summary: updated?.extracted_json || extractedJson
+    });
+  } catch (e) {
+    if (e?.status) {
+      return res.status(e.status).json({ error: { message: e.message || 'Resume summary failed', ...(e.details ? { details: e.details } : null) } });
+    }
     next(e);
   }
 };

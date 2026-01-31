@@ -82,6 +82,7 @@
             <div class="tabs">
               <button class="tab" :class="{ active: tab === 'profile' }" @click="tab = 'profile'">Profile</button>
               <button class="tab" :class="{ active: tab === 'resume' }" @click="tab = 'resume'">Resume</button>
+              <button class="tab" :class="{ active: tab === 'resumeSummary' }" @click="tab = 'resumeSummary'">Resume Summary</button>
               <button class="tab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Notes</button>
               <button class="tab" :class="{ active: tab === 'tasks' }" @click="tab = 'tasks'">Tasks</button>
               <button class="tab" :class="{ active: tab === 'prescreen' }" @click="tab = 'prescreen'">Pre-Screen</button>
@@ -141,6 +142,95 @@
                       <button class="btn btn-danger" @click="deleteResume(r)">Delete</button>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Resume Summary -->
+            <div v-if="tab === 'resumeSummary'" class="tab-body">
+              <div class="info-banner">
+                <strong>Internal-only.</strong> This is an AI-structured summary from the uploaded resume text. Verify against the source PDF.
+              </div>
+              <div class="row-actions" style="margin-bottom:10px;">
+                <button class="btn btn-primary" @click="generateResumeSummary" :disabled="resumeSummaryGenerating">
+                  {{ resumeSummaryGenerating ? 'Generating…' : 'Generate from resume' }}
+                </button>
+              </div>
+              <div v-if="resumeSummaryError" class="error-banner">{{ resumeSummaryError }}</div>
+              <div v-if="resumeSummaryLoading" class="loading">Loading…</div>
+              <div v-else-if="!resumeSummary" class="empty">
+                No resume summary yet. Upload a resume (text-based PDF) and click “Generate from resume”.
+              </div>
+              <div v-else class="summary-grid">
+                <div class="summary-card">
+                  <div class="summary-title">Credentialing hints</div>
+                  <div class="muted small">Suggested only; verify.</div>
+                  <div class="kv">
+                    <div class="k">Likely licensure status</div>
+                    <div class="v">{{ resumeSummary?.summary?.credentialingHints?.likelyLicensureStatus || 'unknown' }}</div>
+                  </div>
+                  <div class="kv">
+                    <div class="k">States mentioned</div>
+                    <div class="v">{{ (resumeSummary?.summary?.credentialingHints?.statesMentioned || []).join(', ') || '—' }}</div>
+                  </div>
+                  <div class="kv">
+                    <div class="k">Needs supervision</div>
+                    <div class="v">
+                      {{ resumeSummary?.summary?.credentialingHints?.needsSupervision === null || resumeSummary?.summary?.credentialingHints?.needsSupervision === undefined
+                        ? '—'
+                        : (resumeSummary?.summary?.credentialingHints?.needsSupervision ? 'Yes' : 'No') }}
+                    </div>
+                  </div>
+                  <div v-if="resumeSummary?.summary?.credentialingHints?.notesForCredentialingTeam" class="muted small" style="margin-top:6px;">
+                    {{ resumeSummary.summary.credentialingHints.notesForCredentialingTeam }}
+                  </div>
+                </div>
+
+                <div class="summary-card">
+                  <div class="summary-title">Work history</div>
+                  <div v-if="(resumeSummary?.summary?.workHistory || []).length === 0" class="empty">No work history extracted.</div>
+                  <div v-else class="summary-list">
+                    <div v-for="(w, idx) in resumeSummary.summary.workHistory" :key="idx" class="summary-item">
+                      <div class="name">{{ w.title || 'Role' }} <span class="muted small">at</span> {{ w.employer || '—' }}</div>
+                      <div class="muted small">{{ [w.startDate, w.endDate].filter(Boolean).join(' – ') || '—' }} <span v-if="w.location">• {{ w.location }}</span></div>
+                      <div v-if="w.summary" class="small">{{ w.summary }}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="summary-card">
+                  <div class="summary-title">Education</div>
+                  <div v-if="(resumeSummary?.summary?.education || []).length === 0" class="empty">No education extracted.</div>
+                  <div v-else class="summary-list">
+                    <div v-for="(ed, idx) in resumeSummary.summary.education" :key="idx" class="summary-item">
+                      <div class="name">{{ ed.school || '—' }}</div>
+                      <div class="muted small">{{ [ed.degree, ed.field].filter(Boolean).join(' • ') || '—' }}</div>
+                      <div class="muted small">{{ [ed.startDate, ed.endDate].filter(Boolean).join(' – ') || '—' }}</div>
+                      <div v-if="ed.notes" class="small">{{ ed.notes }}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="summary-card">
+                  <div class="summary-title">Licenses & certifications</div>
+                  <div v-if="(resumeSummary?.summary?.licensesAndCertifications || []).length === 0" class="empty">No licenses/certs extracted.</div>
+                  <div v-else class="summary-list">
+                    <div v-for="(lic, idx) in resumeSummary.summary.licensesAndCertifications" :key="idx" class="summary-item">
+                      <div class="name">{{ lic.name || '—' }}</div>
+                      <div class="muted small">
+                        {{ [lic.state, lic.status].filter(Boolean).join(' • ') || '—' }}
+                        <span v-if="lic.licenseNumber">• #{{ lic.licenseNumber }}</span>
+                      </div>
+                      <div class="muted small">
+                        {{ [lic.issuedDate ? ('Issued: ' + lic.issuedDate) : null, lic.expirationDate ? ('Expires: ' + lic.expirationDate) : null].filter(Boolean).join(' • ') || '—' }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="summary-card">
+                  <div class="summary-title">Skills</div>
+                  <div class="small">{{ (resumeSummary?.summary?.skills || []).join(', ') || '—' }}</div>
                 </div>
               </div>
             </div>
@@ -231,7 +321,8 @@
               </div>
 
               <div class="research-box">
-                <pre class="pre">{{ detail.latestPreScreen?.report_text || 'No pre-screen report yet. Click “Generate Pre-Screen Report”.' }}</pre>
+                <div v-if="preScreenHtml" class="markdown" v-html="preScreenHtml"></div>
+                <div v-else class="muted small">No pre-screen report yet. Click “Generate Pre-Screen Report”.</div>
               </div>
             </div>
           </template>
@@ -270,6 +361,8 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -346,6 +439,14 @@ const candidateName = computed(() => {
   return `${u.first_name || ''} ${u.last_name || ''}`.trim();
 });
 
+marked.setOptions({ gfm: true, breaks: true });
+const preScreenHtml = computed(() => {
+  const md = String(detail.value?.latestPreScreen?.report_text || '').trim();
+  if (!md) return '';
+  const raw = marked.parse(md);
+  return DOMPurify.sanitize(String(raw || ''));
+});
+
 const refresh = async () => {
   if (!effectiveAgencyId.value) {
     error.value = 'No agency selected. Please pick an agency in the header selector, then refresh.';
@@ -378,6 +479,7 @@ const selectCandidate = async (id) => {
   preScreenLinkedInUrl.value = '';
   await loadDetail();
   await loadResumes();
+  await loadResumeSummary();
   await loadAssignees();
   await loadTasks();
 };
@@ -392,6 +494,43 @@ const loadDetail = async () => {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load candidate';
   } finally {
     detailLoading.value = false;
+  }
+};
+
+// Resume summary (structured)
+const resumeSummaryLoading = ref(false);
+const resumeSummaryGenerating = ref(false);
+const resumeSummaryError = ref('');
+const resumeSummary = ref(null);
+
+const loadResumeSummary = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  try {
+    resumeSummaryLoading.value = true;
+    resumeSummaryError.value = '';
+    const r = await api.get(`/hiring/candidates/${selectedId.value}/resume-summary`, { params: { agencyId: effectiveAgencyId.value } });
+    resumeSummary.value = r.data?.summary || null;
+  } catch (e) {
+    resumeSummaryError.value = e.response?.data?.error?.message || 'Failed to load resume summary';
+    resumeSummary.value = null;
+  } finally {
+    resumeSummaryLoading.value = false;
+  }
+};
+
+const generateResumeSummary = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  try {
+    resumeSummaryGenerating.value = true;
+    resumeSummaryError.value = '';
+    const r = await api.post(`/hiring/candidates/${selectedId.value}/resume-summary`, {}, { params: { agencyId: effectiveAgencyId.value } });
+    resumeSummary.value = r.data?.summary || null;
+    tab.value = 'resumeSummary';
+  } catch (e) {
+    resumeSummaryError.value = e.response?.data?.error?.message || 'Failed to generate resume summary';
+    alert(resumeSummaryError.value);
+  } finally {
+    resumeSummaryGenerating.value = false;
   }
 };
 
@@ -1011,15 +1150,87 @@ onMounted(async () => {
   margin-top: 10px;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
-  background: #0b1020;
-  color: #e5e7eb;
+  background: #ffffff;
+  color: #111827;
   padding: 10px;
 }
-.pre {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 12px;
+.markdown {
+  font-size: 14px;
+  line-height: 1.55;
+  color: #111827;
+}
+.markdown :deep(h2) {
+  font-size: 16px;
+  margin: 14px 0 8px;
+}
+.markdown :deep(h3) {
+  font-size: 15px;
+  margin: 12px 0 6px;
+}
+.markdown :deep(p) {
+  margin: 8px 0;
+}
+.markdown :deep(ul),
+.markdown :deep(ol) {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+.markdown :deep(code) {
+  background: #f3f4f6;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 0.95em;
+}
+.markdown :deep(pre) {
+  background: #f3f4f6;
+  border-radius: 10px;
+  padding: 10px;
+  overflow: auto;
+}
+.markdown :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+}
+.markdown :deep(th),
+.markdown :deep(td) {
+  border: 1px solid #e5e7eb;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown :deep(a) {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.summary-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+  background: #ffffff;
+}
+.summary-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.summary-item {
+  border-top: 1px solid #f3f4f6;
+  padding-top: 10px;
+}
+.summary-item:first-child {
+  border-top: none;
+  padding-top: 0;
 }
 .loading {
   color: #6b7280;
