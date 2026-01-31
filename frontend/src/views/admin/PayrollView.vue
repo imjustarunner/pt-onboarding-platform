@@ -123,6 +123,7 @@
                       <th style="width: 90px;">Done</th>
                       <th>To‑Do</th>
                       <th style="width: 220px;">Scope</th>
+                      <th style="width: 160px;"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -136,12 +137,68 @@
                         />
                       </td>
                       <td>
-                        <div><strong>{{ t.title }}</strong></div>
-                        <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
+                        <div v-if="editingPeriodTodoId !== t.id">
+                          <div><strong>{{ t.title }}</strong></div>
+                          <div v-if="t.description" class="muted" style="margin-top: 4px;">{{ t.description }}</div>
+                        </div>
+                        <div v-else>
+                          <div class="field">
+                            <label style="margin-bottom: 4px;">Title</label>
+                            <input v-model="editPeriodTodoDraft.title" type="text" />
+                          </div>
+                          <div class="field" style="margin-top: 8px;">
+                            <label style="margin-bottom: 4px;">Description</label>
+                            <textarea v-model="editPeriodTodoDraft.description" rows="2" />
+                          </div>
+                        </div>
                       </td>
                       <td class="muted">
-                        <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
-                        <span v-else>Agency-wide</span>
+                        <div v-if="editingPeriodTodoId !== t.id">
+                          <span v-if="String(t.scope||'agency')==='provider'">Provider: {{ nameForUserId(Number(t.target_user_id || 0)) }}</span>
+                          <span v-else>Agency-wide</span>
+                        </div>
+                        <div v-else>
+                          <div class="field">
+                            <label style="margin-bottom: 4px;">Scope</label>
+                            <select v-model="editPeriodTodoDraft.scope">
+                              <option value="agency">Agency-wide</option>
+                              <option value="provider">Per-provider</option>
+                            </select>
+                          </div>
+                          <div class="field" style="margin-top: 8px;" v-if="editPeriodTodoDraft.scope === 'provider'">
+                            <label style="margin-bottom: 4px;">Provider</label>
+                            <select v-model="editPeriodTodoDraft.targetUserId">
+                              <option :value="null">Select provider…</option>
+                              <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+                            </select>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="right">
+                        <div v-if="editingPeriodTodoId !== t.id">
+                          <button class="btn btn-secondary btn-sm" type="button" @click="beginEditPeriodTodo(t)" :disabled="updatingPayrollTodoId === t.id">
+                            Edit
+                          </button>
+                          <button
+                            v-if="!t.template_id"
+                            class="btn btn-danger btn-sm"
+                            type="button"
+                            style="margin-left: 8px;"
+                            @click="deletePeriodTodo(t)"
+                            :disabled="updatingPayrollTodoId === t.id"
+                            title="Deletes only ad-hoc To-Dos (recurring template items cannot be deleted here)."
+                          >
+                            Delete
+                          </button>
+                        </div>
+                        <div v-else>
+                          <button class="btn btn-secondary btn-sm" type="button" @click="cancelEditPeriodTodo" :disabled="savingPeriodTodoEdits">
+                            Cancel
+                          </button>
+                          <button class="btn btn-primary btn-sm" type="button" @click="savePeriodTodoEdits" :disabled="savingPeriodTodoEdits">
+                            {{ savingPeriodTodoEdits ? 'Saving…' : 'Save' }}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   </tbody>
@@ -238,6 +295,9 @@
                         <span v-else>Immediately</span>
                       </td>
                       <td class="right">
+                        <button class="btn btn-secondary btn-sm" type="button" @click="openEditTodoTemplate(t)" :disabled="deletingTodoTemplateId === t.id">
+                          Edit
+                        </button>
                         <button class="btn btn-danger btn-sm" type="button" :disabled="deletingTodoTemplateId === t.id" @click="deleteTodoTemplate(t)">
                           {{ deletingTodoTemplateId === t.id ? 'Deleting…' : 'Delete' }}
                         </button>
@@ -247,6 +307,75 @@
                 </table>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </teleport>
+
+    <teleport to="body">
+      <div v-if="editTodoTemplateOpen" class="modal-backdrop" @click.self="closeEditTodoTemplate">
+        <div class="modal" style="width: min(760px, 100%);">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">Edit recurring To‑Do template</div>
+              <div class="hint">Edits affect future pay periods. Existing period To‑Dos are unchanged.</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" type="button" @click="closeEditTodoTemplate">Close</button>
+          </div>
+
+          <div v-if="editTodoTemplateError" class="warn-box" style="margin-top: 10px;">{{ editTodoTemplateError }}</div>
+
+          <div class="field-row" style="grid-template-columns: 180px 1fr; margin-top: 10px;">
+            <div class="field">
+              <label>Scope</label>
+              <select v-model="editTodoTemplateDraft.scope">
+                <option value="agency">Agency-wide</option>
+                <option value="provider">Per-provider</option>
+              </select>
+            </div>
+            <div v-if="editTodoTemplateDraft.scope === 'provider'" class="field">
+              <label>Provider</label>
+              <select v-model="editTodoTemplateDraft.targetUserId">
+                <option :value="null">Select provider…</option>
+                <option v-for="u in sortedAgencyUsers" :key="u.id" :value="u.id">{{ u.last_name }}, {{ u.first_name }}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
+            <div class="field">
+              <label>Start at pay period</label>
+              <select v-model="editTodoTemplateDraft.startPayrollPeriodId">
+                <option :value="null">Start immediately</option>
+                <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Active</label>
+              <select v-model="editTodoTemplateDraft.isActive">
+                <option :value="true">Active</option>
+                <option :value="false">Inactive</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field" style="margin-top: 10px;">
+            <label>Title</label>
+            <input v-model="editTodoTemplateDraft.title" type="text" />
+          </div>
+
+          <div class="field" style="margin-top: 10px;">
+            <label>Description (optional)</label>
+            <textarea v-model="editTodoTemplateDraft.description" rows="3" />
+          </div>
+
+          <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
+            <button class="btn btn-secondary" type="button" @click="closeEditTodoTemplate" :disabled="savingEditTodoTemplate">
+              Cancel
+            </button>
+            <button class="btn btn-primary" type="button" @click="saveEditTodoTemplate" :disabled="savingEditTodoTemplate || !String(editTodoTemplateDraft.title||'').trim()">
+              {{ savingEditTodoTemplate ? 'Saving…' : 'Save changes' }}
+            </button>
           </div>
         </div>
       </div>
@@ -4691,6 +4820,74 @@ const payrollTodosLoading = ref(false);
 const payrollTodosError = ref('');
 const payrollTodos = ref([]);
 const updatingPayrollTodoId = ref(null);
+const editingPeriodTodoId = ref(null);
+const savingPeriodTodoEdits = ref(false);
+const editPeriodTodoDraft = ref({ title: '', description: '', scope: 'agency', targetUserId: null });
+const editPeriodTodoDraftBefore = ref({ title: '', description: '', scope: 'agency', targetUserId: null });
+
+const beginEditPeriodTodo = (t) => {
+  if (!t?.id) return;
+  editingPeriodTodoId.value = t.id;
+  editPeriodTodoDraft.value = {
+    title: String(t.title || ''),
+    description: String(t.description || ''),
+    scope: String(t.scope || 'agency') === 'provider' ? 'provider' : 'agency',
+    targetUserId: Number(t.target_user_id || 0) || null
+  };
+  editPeriodTodoDraftBefore.value = { ...editPeriodTodoDraft.value };
+};
+
+const cancelEditPeriodTodo = () => {
+  editPeriodTodoDraft.value = { ...editPeriodTodoDraftBefore.value };
+  editingPeriodTodoId.value = null;
+};
+
+const savePeriodTodoEdits = async () => {
+  if (!selectedPeriodId.value || !editingPeriodTodoId.value) return;
+  const todoId = editingPeriodTodoId.value;
+  const title = String(editPeriodTodoDraft.value?.title || '').trim();
+  const description = String(editPeriodTodoDraft.value?.description || '').trim();
+  const scope = String(editPeriodTodoDraft.value?.scope || 'agency') === 'provider' ? 'provider' : 'agency';
+  const targetUserId = Number(editPeriodTodoDraft.value?.targetUserId || 0);
+  if (!title) return;
+  if (scope === 'provider' && !(targetUserId > 0)) return;
+  try {
+    savingPeriodTodoEdits.value = true;
+    payrollTodosError.value = '';
+    await api.patch(`/payroll/periods/${selectedPeriodId.value}/todos/${todoId}`, {
+      title,
+      description: description || null,
+      scope,
+      targetUserId: scope === 'provider' ? targetUserId : 0
+    });
+    editingPeriodTodoId.value = null;
+    await loadPayrollTodos();
+  } catch (e) {
+    payrollTodosError.value = e.response?.data?.error?.message || e.message || 'Failed to update To‑Do';
+  } finally {
+    savingPeriodTodoEdits.value = false;
+  }
+};
+
+const deletePeriodTodo = async (t) => {
+  if (!selectedPeriodId.value || !t?.id) return;
+  if (t.template_id) {
+    alert('This To‑Do comes from a recurring template. Edit or delete the template instead.');
+    return;
+  }
+  const ok = window.confirm('Delete this To‑Do for this pay period?');
+  if (!ok) return;
+  try {
+    updatingPayrollTodoId.value = t.id;
+    payrollTodosError.value = '';
+    await api.delete(`/payroll/periods/${selectedPeriodId.value}/todos/${t.id}`);
+    await loadPayrollTodos();
+  } catch (e) {
+    payrollTodosError.value = e.response?.data?.error?.message || e.message || 'Failed to delete To‑Do';
+  } finally {
+    updatingPayrollTodoId.value = null;
+  }
+};
 
 const loadPayrollTodos = async () => {
   if (!selectedPeriodId.value) return;
@@ -4728,6 +4925,65 @@ const todoTemplatesError = ref('');
 const todoTemplates = ref([]);
 const savingTodoTemplate = ref(false);
 const deletingTodoTemplateId = ref(null);
+
+const editTodoTemplateOpen = ref(false);
+const editTodoTemplateError = ref('');
+const savingEditTodoTemplate = ref(false);
+const editTodoTemplateId = ref(null);
+const editTodoTemplateDraft = ref({ scope: 'agency', targetUserId: null, startPayrollPeriodId: null, title: '', description: '', isActive: true });
+
+const openEditTodoTemplate = (t) => {
+  if (!t?.id) return;
+  editTodoTemplateError.value = '';
+  editTodoTemplateOpen.value = true;
+  editTodoTemplateId.value = t.id;
+  editTodoTemplateDraft.value = {
+    scope: String(t.scope || 'agency') === 'provider' ? 'provider' : 'agency',
+    targetUserId: Number(t.target_user_id || 0) || null,
+    startPayrollPeriodId: Number(t.start_payroll_period_id || 0) > 0 ? Number(t.start_payroll_period_id) : null,
+    title: String(t.title || ''),
+    description: String(t.description || ''),
+    isActive: Number(t.is_active) === 1
+  };
+};
+
+const closeEditTodoTemplate = () => {
+  editTodoTemplateOpen.value = false;
+  editTodoTemplateId.value = null;
+  editTodoTemplateError.value = '';
+};
+
+const saveEditTodoTemplate = async () => {
+  if (!agencyId.value || !editTodoTemplateId.value) return;
+  const id = editTodoTemplateId.value;
+  const title = String(editTodoTemplateDraft.value?.title || '').trim();
+  const description = String(editTodoTemplateDraft.value?.description || '').trim();
+  const scope = String(editTodoTemplateDraft.value?.scope || 'agency') === 'provider' ? 'provider' : 'agency';
+  const targetUserId = Number(editTodoTemplateDraft.value?.targetUserId || 0);
+  const startPayrollPeriodId = Number(editTodoTemplateDraft.value?.startPayrollPeriodId || 0);
+  const isActive = !!editTodoTemplateDraft.value?.isActive;
+  if (!title) return;
+  if (scope === 'provider' && !(targetUserId > 0)) return;
+  try {
+    savingEditTodoTemplate.value = true;
+    editTodoTemplateError.value = '';
+    await api.patch(`/payroll/todo-templates/${id}`, {
+      agencyId: agencyId.value,
+      title,
+      description: description || null,
+      scope,
+      targetUserId: scope === 'provider' ? targetUserId : 0,
+      startPayrollPeriodId: startPayrollPeriodId || 0,
+      isActive
+    });
+    await loadTodoTemplates();
+    closeEditTodoTemplate();
+  } catch (e) {
+    editTodoTemplateError.value = e.response?.data?.error?.message || e.message || 'Failed to update template';
+  } finally {
+    savingEditTodoTemplate.value = false;
+  }
+};
 
 const newTodoDraft = ref({ scope: 'agency', targetUserId: null, title: '', description: '' });
 const templateDraft = ref({ scope: 'agency', targetUserId: null, startPayrollPeriodId: null, title: '', description: '', isActive: true });

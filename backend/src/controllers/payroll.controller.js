@@ -4975,21 +4975,76 @@ export const patchPayrollPeriodTodo = async (req, res, next) => {
     if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
     if (!todoId) return res.status(400).json({ error: { message: 'todoId is required' } });
 
-    const statusRaw = String(req.body?.status || '').trim().toLowerCase();
-    if (!(statusRaw === 'done' || statusRaw === 'pending')) {
-      return res.status(400).json({ error: { message: 'status must be done or pending' } });
+    const hasStatus = req.body?.status !== undefined && req.body?.status !== null;
+    if (hasStatus) {
+      const statusRaw = String(req.body?.status || '').trim().toLowerCase();
+      if (!(statusRaw === 'done' || statusRaw === 'pending')) {
+        return res.status(400).json({ error: { message: 'status must be done or pending' } });
+      }
+      await PayrollPeriodTodo.setStatus({
+        todoId,
+        payrollPeriodId,
+        agencyId: period.agency_id,
+        status: statusRaw,
+        doneByUserId: req.user.id
+      });
     }
-    await PayrollPeriodTodo.setStatus({
-      todoId,
-      payrollPeriodId,
-      agencyId: period.agency_id,
-      status: statusRaw,
-      doneByUserId: req.user.id
-    });
+
+    const wantsEdit =
+      req.body?.title !== undefined ||
+      req.body?.description !== undefined ||
+      req.body?.scope !== undefined ||
+      req.body?.targetUserId !== undefined;
+
+    if (wantsEdit) {
+      const title = String(req.body?.title || '').trim().slice(0, 180);
+      const description = req.body?.description === null || req.body?.description === undefined ? null : String(req.body.description);
+      const scopeRaw = String(req.body?.scope || 'agency').trim().toLowerCase();
+      const scope = scopeRaw === 'provider' ? 'provider' : 'agency';
+      const targetUserId = req.body?.targetUserId ? parseInt(req.body.targetUserId, 10) : 0;
+
+      if (!title) return res.status(400).json({ error: { message: 'title is required' } });
+      if (scope === 'provider' && !(targetUserId > 0)) {
+        return res.status(400).json({ error: { message: 'targetUserId is required for provider-scoped To-Dos' } });
+      }
+
+      await PayrollPeriodTodo.update({
+        todoId,
+        payrollPeriodId,
+        agencyId: period.agency_id,
+        title,
+        description,
+        scope,
+        targetUserId: scope === 'provider' ? targetUserId : 0
+      });
+    }
 
     res.json({ ok: true });
   } catch (e) {
     if (e?.code === 'ER_NO_SUCH_TABLE') return res.status(409).json({ error: { message: 'Payroll To-Do tables are not available yet (run database migrations first).' } });
+    next(e);
+  }
+};
+
+export const deletePayrollPeriodTodo = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    const todoId = parseInt(req.params.todoId, 10);
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+    if (!todoId) return res.status(400).json({ error: { message: 'todoId is required' } });
+
+    // Only ad-hoc rows can be deleted safely (template-backed rows will re-materialize).
+    await PayrollPeriodTodo.deleteAdHoc({
+      todoId,
+      payrollPeriodId,
+      agencyId: period.agency_id
+    });
+
+    res.json({ ok: true });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true });
     next(e);
   }
 };

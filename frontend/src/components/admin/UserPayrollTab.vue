@@ -10,7 +10,7 @@
       <div class="field">
         <label>Agency</label>
         <select v-model="selectedAgencyId">
-          <option v-for="a in userAgencies" :key="a.id" :value="a.id">{{ a.name }}</option>
+          <option v-for="a in payrollAgencyOptions" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
       </div>
 
@@ -494,6 +494,11 @@ const authStore = useAuthStore();
 const myRole = computed(() => String(authStore.user?.role || '').trim());
 
 const selectedAgencyId = ref(null);
+const payrollAgencyOptions = computed(() => {
+  const list = Array.isArray(props.userAgencies) ? props.userAgencies : [];
+  // Payroll runs at the agency organization level only.
+  return list.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+});
 const loading = ref(false);
 const error = ref('');
 const periods = ref([]);
@@ -1190,14 +1195,15 @@ const toggleOpen = (p) => {
 watch(
   () => props.userAgencies,
   (agencies) => {
-    if (!Array.isArray(agencies) || !agencies.length) {
+    const nextAgencies = payrollAgencyOptions.value;
+    if (!Array.isArray(nextAgencies) || !nextAgencies.length) {
       selectedAgencyId.value = null;
       return;
     }
-    const validIds = new Set(agencies.map((a) => a?.id).filter(Boolean));
+    const validIds = new Set(nextAgencies.map((a) => a?.id).filter(Boolean));
     // If nothing selected yet, or the current agency isn't valid for this user, pick the first available.
     if (!selectedAgencyId.value || !validIds.has(selectedAgencyId.value)) {
-      selectedAgencyId.value = agencies[0].id;
+      selectedAgencyId.value = nextAgencies[0].id;
     }
   },
   { immediate: true }
@@ -1207,7 +1213,7 @@ watch(
 watch(
   () => props.userId,
   async () => {
-    const agencies = Array.isArray(props.userAgencies) ? props.userAgencies : [];
+    const agencies = payrollAgencyOptions.value;
     const validIds = new Set(agencies.map((a) => a?.id).filter(Boolean));
     if (agencies.length && (!selectedAgencyId.value || !validIds.has(selectedAgencyId.value))) {
       // This will trigger the selectedAgencyId watcher which loads everything.

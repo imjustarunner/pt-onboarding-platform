@@ -49,6 +49,48 @@ class PayrollPeriodTodo {
     );
   }
 
+  static async update({
+    todoId,
+    payrollPeriodId,
+    agencyId,
+    title,
+    description = null,
+    scope = 'agency',
+    targetUserId = 0
+  }) {
+    await pool.execute(
+      `UPDATE payroll_period_todos
+       SET title = ?,
+           description = ?,
+           scope = ?,
+           target_user_id = ?
+       WHERE id = ? AND payroll_period_id = ? AND agency_id = ?
+       LIMIT 1`,
+      [
+        String(title || '').slice(0, 180),
+        description,
+        scope,
+        Number(targetUserId || 0),
+        todoId,
+        payrollPeriodId,
+        agencyId
+      ]
+    );
+  }
+
+  static async deleteAdHoc({ todoId, payrollPeriodId, agencyId }) {
+    // Only allow deleting ad-hoc rows. Template-backed rows will re-materialize.
+    await pool.execute(
+      `DELETE FROM payroll_period_todos
+       WHERE id = ?
+         AND payroll_period_id = ?
+         AND agency_id = ?
+         AND (template_id IS NULL OR template_id = 0)
+       LIMIT 1`,
+      [todoId, payrollPeriodId, agencyId]
+    );
+  }
+
   static async countPendingForPeriod({ payrollPeriodId, agencyId }) {
     const [rows] = await pool.execute(
       `SELECT COUNT(1) AS c

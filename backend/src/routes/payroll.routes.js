@@ -119,6 +119,7 @@ import {
   ,listPayrollPeriodTodos
   ,createPayrollPeriodTodo
   ,patchPayrollPeriodTodo
+  ,deletePayrollPeriodTodo
   ,getPayrollWizardProgress
   ,putPayrollWizardProgress
   ,getAgencyPayrollScheduleSettings
@@ -221,6 +222,7 @@ router.delete('/todo-templates/:templateId', deletePayrollTodoTemplate);
 router.get('/periods/:id/todos', listPayrollPeriodTodos);
 router.post('/periods/:id/todos', createPayrollPeriodTodo);
 router.patch('/periods/:id/todos/:todoId', patchPayrollPeriodTodo);
+router.delete('/periods/:id/todos/:todoId', deletePayrollPeriodTodo);
 router.get('/periods/:id/wizard-progress', getPayrollWizardProgress);
 router.put('/periods/:id/wizard-progress', putPayrollWizardProgress);
 router.get('/schedule-settings', getAgencyPayrollScheduleSettings);
