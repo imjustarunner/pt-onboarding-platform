@@ -22,3 +22,12 @@ export const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+export const noteAidLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: isDevelopment ? 60 : 12, // higher in dev; conservative in prod
+  message: { error: { message: 'Too many Note Aid requests, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `note-aid:${req.user?.id || req.ip}`,
+});
+

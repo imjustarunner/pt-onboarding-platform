@@ -80,7 +80,10 @@ class ActivityLogService {
       'module_start',
       'module_end',
       'module_complete',
-      'password_change'
+      'password_change',
+
+      // AI / helper tools (do NOT log sensitive content in metadata)
+      'note_aid_execute'
     ];
     
     if (data.actionType && !allowedActionTypes.includes(data.actionType)) {

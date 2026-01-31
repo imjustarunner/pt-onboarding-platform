@@ -701,6 +701,12 @@
             </div>
             <small class="hint">Enables the “AI Generate Filters” box in Provider Directory. Requires GEMINI_API_KEY in backend.</small>
 
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Note Aid (Gemini tools)</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.noteAidEnabled" compact />
+            </div>
+            <small class="hint">Enables the Note Aid page (AI note helpers). Requires GEMINI_API_KEY in backend.</small>
+
             <div class="toggle-row" style="margin-top: 14px;">
               <span>Enable Google Workspace login rules</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.googleSsoEnabled" compact />
@@ -3351,6 +3357,9 @@ const defaultAgencyForm = () => ({
     // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
     aiProviderSearchEnabled: false,
 
+    // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
+    noteAidEnabled: false,
+
     // Google Workspace SSO gate (off by default)
     googleSsoEnabled: false,
     googleSsoRequiredRoles: ['staff', 'admin', 'provider', 'clinical_practice_assistant'],
@@ -4463,6 +4472,7 @@ const editAgency = async (agency) => {
       inSchoolSubmissionsEnabled: featureFlags.inSchoolSubmissionsEnabled !== false,
       medcancelEnabled: featureFlags.medcancelEnabled !== false,
       aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true,
+      noteAidEnabled: featureFlags.noteAidEnabled === true,
 
       googleSsoEnabled: featureFlags.googleSsoEnabled === true,
       googleSsoRequiredRoles: Array.isArray(featureFlags.googleSsoRequiredRoles)

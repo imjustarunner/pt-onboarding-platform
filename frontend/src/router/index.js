@@ -614,6 +614,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin'] }
   },
   {
+    path: '/admin/note-aid',
+    name: 'NoteAid',
+    component: () => import('../views/admin/NoteAidView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin'] }
+  },
+  {
     path: '/admin/schools/import',
     name: 'SchoolContactsImport',
     component: () => import('../views/admin/SchoolContactsImportView.vue'),

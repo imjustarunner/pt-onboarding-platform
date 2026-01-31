@@ -131,6 +131,7 @@
 
                     <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Users</router-link>
                     <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeAllNavMenus">Clients</router-link>
+                    <router-link :to="orgTo('/admin/note-aid')" v-if="noteAidEnabled && (isAdmin || user?.role === 'provider' || user?.role === 'staff')" @click="closeAllNavMenus">Note Aid</router-link>
                     <router-link :to="orgTo('/admin/credentialing')" v-if="isAdmin || user?.role === 'support' || user?.role === 'staff'" @click="closeAllNavMenus">Credentialing</router-link>
 
                     <div class="nav-dropdown-sep" />
@@ -267,6 +268,7 @@
               >Documents</router-link>
               <router-link :to="orgTo('/admin/users')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Users</router-link>
               <router-link :to="orgTo('/admin/clients')" v-if="isAdmin || user?.role === 'provider'" @click="closeMobileMenu" class="mobile-nav-link">Clients</router-link>
+              <router-link :to="orgTo('/admin/note-aid')" v-if="noteAidEnabled && (isAdmin || user?.role === 'provider' || user?.role === 'staff')" @click="closeMobileMenu" class="mobile-nav-link">Note Aid</router-link>
               <router-link
                 :to="orgTo('/admin/communications')"
                 v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
@@ -644,6 +646,32 @@ const isAdmin = computed(() => {
   const role = user.value?.role;
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
+
+const parseFeatureFlags = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) || {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+};
+
+const isTruthyFlag = (v) => {
+  if (v === true || v === 1) return true;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+};
+
+const currentAgencyFeatureFlags = computed(() => {
+  const a = agencyStore.currentAgency;
+  return parseFeatureFlags(a?.feature_flags);
+});
+
+const noteAidEnabled = computed(() => isTruthyFlag(currentAgencyFeatureFlags.value?.noteAidEnabled));
 
 const showAvailabilityHint = ref(false);
 const savingAvailability = ref(false);
