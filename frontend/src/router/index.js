@@ -409,6 +409,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/expenses',
+    name: 'OrganizationExpenses',
+    component: () => import('../views/admin/ExpensesView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/providers',
     name: 'OrganizationProviderDirectory',
     component: () => import('../views/admin/ProviderDirectoryView.vue'),
@@ -748,6 +754,12 @@ const routes = [
     path: '/admin/payroll',
     name: 'Payroll',
     component: () => import('../views/admin/PayrollView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
+  },
+  {
+    path: '/admin/expenses',
+    name: 'Expenses',
+    component: () => import('../views/admin/ExpensesView.vue'),
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll' }
   },
   {

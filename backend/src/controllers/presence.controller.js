@@ -45,8 +45,37 @@ function computePresenceStatus(row, viewerRole) {
 
 async function assertAgencyAccess(reqUser, agencyId) {
   if (reqUser.role === 'super_admin') return true;
-  const agencies = await User.getAgencies(reqUser.id);
-  const ok = (agencies || []).some((a) => a.id === agencyId);
+  const aId = agencyId ? parseInt(agencyId, 10) : null;
+  if (!aId) return true;
+
+  // Direct membership check
+  const [direct] = await pool.execute(
+    'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+    [reqUser.id, aId]
+  );
+  let ok = !!(direct && direct.length > 0);
+
+  // Affiliation membership check (child org -> parent agency)
+  if (!ok) {
+    try {
+      const [aff] = await pool.execute(
+        `SELECT 1
+         FROM user_agencies ua
+         INNER JOIN organization_affiliations oa
+           ON oa.organization_id = ua.agency_id
+          AND oa.agency_id = ?
+          AND oa.is_active = TRUE
+         WHERE ua.user_id = ?
+         LIMIT 1`,
+        [aId, reqUser.id]
+      );
+      ok = !!(aff && aff.length > 0);
+    } catch (e) {
+      // Backward compatible: if the table doesn't exist, just rely on direct membership.
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+  }
+
   if (!ok) {
     const err = new Error('Access denied to this agency');
     err.status = 403;

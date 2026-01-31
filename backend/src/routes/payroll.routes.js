@@ -85,6 +85,9 @@ import {
   ,deleteMyCompanyCardExpense
   ,listCompanyCardExpenses
   ,patchCompanyCardExpense
+  ,listExpenses
+  ,downloadExpensesCsv
+  ,uploadExpenseReceiptToDrive
   ,createMyTimeClaim
   ,createUserTimeClaim
   ,listMyTimeClaims
@@ -254,6 +257,9 @@ router.get('/reimbursement-claims', listReimbursementClaims);
 router.patch('/reimbursement-claims/:id', patchReimbursementClaim);
 router.get('/company-card-expenses', listCompanyCardExpenses);
 router.patch('/company-card-expenses/:id', patchCompanyCardExpense);
+router.get('/expenses', listExpenses);
+router.get('/expenses/export.csv', downloadExpensesCsv);
+router.post('/expenses/:type/:id/drive', uploadExpenseReceiptToDrive);
 router.get('/time-claims', listTimeClaims);
 router.patch('/time-claims/:id', patchTimeClaim);
 router.get('/pto-policy', getPtoPolicy);

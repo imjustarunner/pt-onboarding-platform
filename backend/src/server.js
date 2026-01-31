@@ -244,6 +244,21 @@ app.use('/uploads', async (req, res, next) => {
     if (!exists) {
       const fallbackKeys = [];
 
+      // Common historical receipts bug:
+      // Some rows stored only the basename (e.g. "reimbursement-...png") and the frontend
+      // requested "/uploads/<basename>", but the actual objects live under:
+      // - uploads/reimbursements/<basename>
+      // - uploads/company_card_expenses/<basename>
+      // - uploads/pto_proofs/<basename>
+      if (filePath.startsWith('uploads/')) {
+        const tail = filePath.substring('uploads/'.length);
+        if (tail && !tail.includes('/')) {
+          fallbackKeys.push(`uploads/reimbursements/${tail}`);
+          fallbackKeys.push(`uploads/company_card_expenses/${tail}`);
+          fallbackKeys.push(`uploads/pto_proofs/${tail}`);
+        }
+      }
+
       // Strip leading "uploads/" (e.g. uploads/icons/x.svg -> icons/x.svg)
       if (filePath.startsWith('uploads/')) {
         fallbackKeys.push(filePath.substring('uploads/'.length));

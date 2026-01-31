@@ -5,7 +5,10 @@ export const GOOGLE_WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/calendar',
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/gmail.compose'
+  'https://www.googleapis.com/auth/gmail.compose',
+  // Needed for uploading receipts to a Drive folder from the app.
+  // Note: requires Google Admin Console DWD scope update to include Drive.
+  'https://www.googleapis.com/auth/drive'
 ];
 
 export function parseGoogleWorkspaceServiceAccountFromEnv() {
@@ -74,6 +77,7 @@ export async function getWorkspaceClientsForEmployee({ subjectEmail } = {}) {
   const auth = await buildImpersonatedJwtClient({ subjectEmail });
   const calendar = google.calendar({ version: 'v3', auth });
   const gmail = google.gmail({ version: 'v1', auth });
-  return { auth, calendar, gmail };
+  const drive = google.drive({ version: 'v3', auth });
+  return { auth, calendar, gmail, drive };
 }
 

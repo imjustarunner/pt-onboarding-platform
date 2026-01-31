@@ -60,10 +60,14 @@ class PayrollCompanyCardExpense {
   static async findById(id) {
     const [rows] = await pool.execute(
       `SELECT c.*,
+              u.first_name AS user_first_name,
+              u.last_name AS user_last_name,
+              u.email AS user_email,
               sb.first_name AS submitted_by_first_name,
               sb.last_name AS submitted_by_last_name,
               sb.email AS submitted_by_email
        FROM payroll_company_card_expenses c
+       LEFT JOIN users u ON u.id = c.user_id
        LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
        WHERE c.id = ?
        LIMIT 1`,
@@ -83,10 +87,14 @@ class PayrollCompanyCardExpense {
     }
     const [rows] = await pool.execute(
       `SELECT c.*,
+              u.first_name AS user_first_name,
+              u.last_name AS user_last_name,
+              u.email AS user_email,
               sb.first_name AS submitted_by_first_name,
               sb.last_name AS submitted_by_last_name,
               sb.email AS submitted_by_email
        FROM payroll_company_card_expenses c
+       LEFT JOIN users u ON u.id = c.user_id
        LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
        WHERE ${where}
        ORDER BY c.expense_date DESC, c.id DESC
@@ -129,10 +137,14 @@ class PayrollCompanyCardExpense {
 
     const [rows] = await pool.execute(
       `SELECT c.*,
+              u.first_name AS user_first_name,
+              u.last_name AS user_last_name,
+              u.email AS user_email,
               sb.first_name AS submitted_by_first_name,
               sb.last_name AS submitted_by_last_name,
               sb.email AS submitted_by_email
        FROM payroll_company_card_expenses c
+       LEFT JOIN users u ON u.id = c.user_id
        LEFT JOIN users sb ON sb.id = c.submitted_by_user_id
        WHERE ${conds.join(' AND ')}
        ORDER BY c.status ASC, c.expense_date DESC, c.id DESC

@@ -5281,6 +5281,9 @@ const receiptUrl = (c) => {
   if (!raw) return '';
   if (raw.startsWith('/uploads/')) return raw;
   if (raw.startsWith('uploads/')) return `/uploads/${raw.substring('uploads/'.length)}`;
+  // Legacy: some rows stored only the basename (no folder prefix)
+  if (raw.startsWith('reimbursement-')) return `/uploads/reimbursements/${raw}`;
+  if (raw.startsWith('company-card-expense-')) return `/uploads/company_card_expenses/${raw}`;
   return `/uploads/${raw}`;
 };
 

@@ -136,6 +136,7 @@
                     <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Executive Report</router-link>
                     <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Payroll</router-link>
                     <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Receivables</router-link>
+                    <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Expense/Reimbursements</router-link>
                     <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Revenue</router-link>
 
                     <div class="nav-dropdown-sep" />
@@ -295,6 +296,7 @@
               >Chats</router-link>
               <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
               <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Receivables</router-link>
+              <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Expense/Reimbursements</router-link>
               <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link">Revenue</router-link>
 
               <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>

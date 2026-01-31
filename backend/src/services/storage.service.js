@@ -903,6 +903,34 @@ class StorageService {
   }
 
   /**
+   * Read any object from GCS by key.
+   * Intended for internal server-side use (e.g. uploading an existing receipt to Drive).
+   */
+  static async readObject(key) {
+    const k = String(key || '').trim();
+    if (!k) throw new Error('Missing storage key');
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(k);
+    const [exists] = await file.exists();
+    if (!exists) throw new Error(`File not found in GCS: ${k}`);
+    const [buffer] = await file.download();
+    return buffer;
+  }
+
+  static async objectExists(key) {
+    try {
+      const k = String(key || '').trim();
+      if (!k) return false;
+      const bucket = await this.getGCSBucket();
+      const file = bucket.file(k);
+      const [exists] = await file.exists();
+      return !!exists;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Save a PTO proof document to GCS under uploads/ so it can be served via /uploads/*.
    * Intended for Training PTO proof uploads.
    */

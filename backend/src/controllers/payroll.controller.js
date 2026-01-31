@@ -2,6 +2,7 @@ import multer from 'multer';
 import { parse } from 'csv-parse/sync';
 import XLSX from 'xlsx';
 import crypto from 'crypto';
+import path from 'path';
 import config from '../config/config.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import User from '../models/User.model.js';
@@ -46,6 +47,7 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import pool from '../config/database.js';
 import AdpPayrollService from '../services/adpPayroll.service.js';
 import StorageService from '../services/storage.service.js';
+import { GoogleDriveService } from '../services/googleDrive.service.js';
 import { accruePrelicensedSupervisionFromPayroll } from '../services/supervision.service.js';
 import { getUserCompensationForAgency } from '../models/PayrollCompensation.service.js';
 import { payrollDefaultsForCode } from '../services/payrollServiceCodeDefaults.js';
@@ -88,6 +90,13 @@ const DEFAULT_TIER_THRESHOLDS = {
 function coerceDate(v) {
   const d = v instanceof Date ? v : new Date(v || Date.now());
   return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
+function ymdStr(v) {
+  if (!v) return '';
+  // MySQL drivers sometimes return DATE/DATETIME columns as JS Date objects.
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString().slice(0, 10);
+  return String(v).trim().slice(0, 10);
 }
 
 function parseBool(v) {
@@ -147,7 +156,7 @@ async function enforceTargetPeriodDeadline({
 
   const win = await computeSubmissionWindow({
     agencyId,
-    effectiveDateYmd: String(effectiveDateYmd || '').slice(0, 10),
+    effectiveDateYmd: ymdStr(effectiveDateYmd),
     submittedAt: coerceDate(submittedAt),
     timeZone,
     hardStopPolicy
@@ -157,8 +166,8 @@ async function enforceTargetPeriodDeadline({
     return { ok: false };
   }
 
-  const minStart = String(win.eligibleMinPeriod?.period_start || '').slice(0, 10);
-  const targetStart = String(target.period_start || '').slice(0, 10);
+  const minStart = ymdStr(win.eligibleMinPeriod?.period_start);
+  const targetStart = ymdStr(target.period_start);
   if (minStart && targetStart && targetStart < minStart) {
     res.status(409).json({ error: { message: 'This claim was submitted after the deadline and cannot be added to an earlier pay period.' } });
     return { ok: false };
@@ -465,6 +474,42 @@ async function resolvePayrollAgencyId(agencyIdOrOrgId) {
     return parent ? parseInt(parent, 10) : null;
   } catch {
     return id; // fallback best-effort (older DBs)
+  }
+}
+
+async function userHasAgencyAccess({ userId, agencyId }) {
+  const uId = userId ? parseInt(userId, 10) : null;
+  const aId = agencyId ? parseInt(agencyId, 10) : null;
+  if (!uId || !aId) return false;
+
+  // Direct membership: user is assigned to the agency/org id itself.
+  const [direct] = await pool.execute(
+    'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+    [uId, aId]
+  );
+  if (direct && direct.length > 0) return true;
+
+  // Affiliation membership: user is assigned to a child org (school/program/etc)
+  // whose active parent agency is this agencyId.
+  // This is important because many accounts are assigned to schools/programs but
+  // should still be able to access agency-scoped "my payroll" endpoints.
+  try {
+    const [aff] = await pool.execute(
+      `SELECT 1
+       FROM user_agencies ua
+       INNER JOIN organization_affiliations oa
+         ON oa.organization_id = ua.agency_id
+        AND oa.agency_id = ?
+        AND oa.is_active = TRUE
+       WHERE ua.user_id = ?
+       LIMIT 1`,
+      [aId, uId]
+    );
+    return !!(aff && aff.length > 0);
+  } catch (e) {
+    // Backward compatibility (older DBs without organization_affiliations).
+    if (e?.code === 'ER_NO_SUCH_TABLE') return false;
+    throw e;
   }
 }
 
@@ -8469,11 +8514,8 @@ export const listMyReimbursementClaims = async (req, res, next) => {
 
     // Ensure membership for non-admins.
     if (!isAdminRole(req.user.role)) {
-      const [rows] = await pool.execute(
-        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-        [userId, agencyId]
-      );
-      if (!rows || rows.length === 0) {
+      const ok = await userHasAgencyAccess({ userId, agencyId });
+      if (!ok) {
         return res.status(403).json({ error: { message: 'Access denied' } });
       }
     }
@@ -9356,6 +9398,315 @@ export const listReimbursementClaims = async (req, res, next) => {
   }
 };
 
+function normalizeExpenseRow({ type, row }) {
+  const t = String(type || '').toLowerCase();
+  const c = row || {};
+  if (t === 'company_card') {
+    return {
+      expense_type: 'company_card',
+      id: c.id,
+      agency_id: c.agency_id,
+      user_id: c.user_id,
+      user_first_name: c.user_first_name,
+      user_last_name: c.user_last_name,
+      user_email: c.user_email,
+      status: c.status,
+      expense_date: c.expense_date,
+      amount: c.amount,
+      applied_amount: c.applied_amount,
+      payment_method: c.payment_method,
+      vendor: c.vendor,
+      supervisor_name: c.supervisor_name,
+      project_ref: c.project_ref,
+      purpose: c.purpose,
+      reason: null,
+      purchase_approved_by: null,
+      purchase_preapproved: null,
+      category: c.category,
+      splits_json: c.splits_json,
+      notes: c.notes,
+      receipt_file_path: c.receipt_file_path,
+      receipt_original_name: c.receipt_original_name,
+      receipt_mime_type: c.receipt_mime_type,
+      created_at: c.created_at,
+      submitted_by_user_id: c.submitted_by_user_id,
+      submitted_by_first_name: c.submitted_by_first_name,
+      submitted_by_last_name: c.submitted_by_last_name,
+      submitted_by_email: c.submitted_by_email,
+      suggested_payroll_period_id: c.suggested_payroll_period_id,
+      target_payroll_period_id: c.target_payroll_period_id
+    };
+  }
+
+  // reimbursement
+  return {
+    expense_type: 'reimbursement',
+    id: c.id,
+    agency_id: c.agency_id,
+    user_id: c.user_id,
+    user_first_name: c.user_first_name,
+    user_last_name: c.user_last_name,
+    user_email: c.user_email,
+    status: c.status,
+    expense_date: c.expense_date,
+    amount: c.amount,
+    applied_amount: c.applied_amount,
+    payment_method: c.payment_method,
+    vendor: c.vendor,
+    supervisor_name: null,
+    project_ref: c.project_ref,
+    purpose: null,
+    reason: c.reason,
+    purchase_approved_by: c.purchase_approved_by,
+    purchase_preapproved: c.purchase_preapproved,
+    category: c.category,
+    splits_json: c.splits_json,
+    notes: c.notes,
+    receipt_file_path: c.receipt_file_path,
+    receipt_original_name: c.receipt_original_name,
+    receipt_mime_type: c.receipt_mime_type,
+    created_at: c.created_at,
+    submitted_by_user_id: c.submitted_by_user_id,
+    submitted_by_first_name: c.submitted_by_first_name,
+    submitted_by_last_name: c.submitted_by_last_name,
+    submitted_by_email: c.submitted_by_email,
+    suggested_payroll_period_id: c.suggested_payroll_period_id,
+    target_payroll_period_id: c.target_payroll_period_id
+  };
+}
+
+function expenseMatchesQuery(e, q) {
+  const query = String(q || '').trim().toLowerCase();
+  if (!query) return true;
+  const hay = [
+    e?.expense_type,
+    e?.id,
+    e?.user_first_name,
+    e?.user_last_name,
+    e?.user_email,
+    e?.vendor,
+    e?.project_ref,
+    e?.purpose,
+    e?.reason,
+    e?.purchase_approved_by,
+    e?.supervisor_name,
+    e?.notes,
+    e?.receipt_original_name
+  ].map((v) => String(v || '').toLowerCase()).join(' | ');
+  return hay.includes(query);
+}
+
+export const listExpenses = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const status = req.query.status ? String(req.query.status) : null;
+    const q = req.query.q ? String(req.query.q) : '';
+    const type = req.query.type ? String(req.query.type).toLowerCase() : 'all';
+    const sort = req.query.sort ? String(req.query.sort).toLowerCase() : 'expense_date_desc';
+    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 500;
+    const offset = req.query.offset ? parseInt(req.query.offset, 10) : 0;
+
+    const [reims, cards] = await Promise.all([
+      (type === 'all' || type === 'reimbursement')
+        ? PayrollReimbursementClaim.listForAgency({ agencyId, status, limit, offset: 0 })
+        : Promise.resolve([]),
+      (type === 'all' || type === 'company_card')
+        ? PayrollCompanyCardExpense.listForAgency({ agencyId, status, limit, offset: 0 })
+        : Promise.resolve([])
+    ]);
+
+    let items = [
+      ...(reims || []).map((r) => normalizeExpenseRow({ type: 'reimbursement', row: r })),
+      ...(cards || []).map((c) => normalizeExpenseRow({ type: 'company_card', row: c }))
+    ];
+
+    items = items.filter((e) => expenseMatchesQuery(e, q));
+
+    const cmpDateDesc = (a, b) => {
+      const ad = ymdStr(a?.expense_date);
+      const bd = ymdStr(b?.expense_date);
+      if (ad !== bd) return bd.localeCompare(ad);
+      return Number(b?.id || 0) - Number(a?.id || 0);
+    };
+    const cmpDateAsc = (a, b) => {
+      const ad = ymdStr(a?.expense_date);
+      const bd = ymdStr(b?.expense_date);
+      if (ad !== bd) return ad.localeCompare(bd);
+      return Number(a?.id || 0) - Number(b?.id || 0);
+    };
+
+    if (sort === 'expense_date_asc') items.sort(cmpDateAsc);
+    else items.sort(cmpDateDesc);
+
+    // Apply pagination after union + search + sort.
+    const off = Math.max(0, Number(offset || 0));
+    const lim = Math.max(1, Math.min(1000, Number(limit || 500)));
+    const paged = items.slice(off, off + lim);
+    return res.json({ total: items.length, items: paged });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const downloadExpensesCsv = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    // Reuse list logic (but without pagination so export is complete).
+    const q = req.query.q ? String(req.query.q) : '';
+    const type = req.query.type ? String(req.query.type).toLowerCase() : 'all';
+    const status = req.query.status ? String(req.query.status) : null;
+
+    const [reims, cards] = await Promise.all([
+      (type === 'all' || type === 'reimbursement')
+        ? PayrollReimbursementClaim.listForAgency({ agencyId, status, limit: 1000, offset: 0 })
+        : Promise.resolve([]),
+      (type === 'all' || type === 'company_card')
+        ? PayrollCompanyCardExpense.listForAgency({ agencyId, status, limit: 1000, offset: 0 })
+        : Promise.resolve([])
+    ]);
+
+    let items = [
+      ...(reims || []).map((r) => normalizeExpenseRow({ type: 'reimbursement', row: r })),
+      ...(cards || []).map((c) => normalizeExpenseRow({ type: 'company_card', row: c }))
+    ].filter((e) => expenseMatchesQuery(e, q));
+
+    items.sort((a, b) => {
+      const ad = ymdStr(a?.expense_date);
+      const bd = ymdStr(b?.expense_date);
+      if (ad !== bd) return bd.localeCompare(ad);
+      return Number(b?.id || 0) - Number(a?.id || 0);
+    });
+
+    const headers = [
+      'expense_type',
+      'id',
+      'status',
+      'expense_date',
+      'amount',
+      'user_email',
+      'user_first_name',
+      'user_last_name',
+      'vendor',
+      'project_ref',
+      'purpose',
+      'reason',
+      'purchase_approved_by',
+      'supervisor_name',
+      'payment_method',
+      'category',
+      'receipt_file_path',
+      'receipt_original_name',
+      'created_at'
+    ];
+
+    const lines = [];
+    lines.push(headers.join(','));
+    for (const e of items) {
+      const row = [
+        e.expense_type,
+        e.id,
+        e.status,
+        ymdStr(e.expense_date),
+        e.amount,
+        e.user_email,
+        e.user_first_name,
+        e.user_last_name,
+        e.vendor,
+        e.project_ref,
+        e.purpose,
+        e.reason,
+        e.purchase_approved_by,
+        e.supervisor_name,
+        e.payment_method,
+        e.category,
+        e.receipt_file_path,
+        e.receipt_original_name,
+        e.created_at
+      ].map(csvEscape);
+      lines.push(row.join(','));
+    }
+
+    const fname = `expenses-${agencyId}-${ymdStr(new Date())}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${fname}"`);
+    return res.send(lines.join('\n'));
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const uploadExpenseReceiptToDrive = async (req, res, next) => {
+  try {
+    const expenseType = String(req.params.type || '').trim().toLowerCase();
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'id is required' } });
+    if (!['reimbursement', 'company_card'].includes(expenseType)) {
+      return res.status(400).json({ error: { message: 'type must be reimbursement or company_card' } });
+    }
+
+    const subjectEmail =
+      process.env.GOOGLE_WORKSPACE_DRIVE_IMPERSONATE_USER ||
+      process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER ||
+      '';
+    if (!String(subjectEmail).trim()) {
+      return res.status(409).json({ error: { message: 'Google Drive is not configured (missing GOOGLE_WORKSPACE_IMPERSONATE_USER)' } });
+    }
+
+    const folderId = String(req.body?.folderId || process.env.EXPENSE_RECEIPTS_DRIVE_FOLDER_ID || '').trim();
+    if (!folderId) {
+      return res.status(409).json({ error: { message: 'Missing Drive folder id (set EXPENSE_RECEIPTS_DRIVE_FOLDER_ID or pass folderId)' } });
+    }
+
+    const claim =
+      expenseType === 'reimbursement'
+        ? await PayrollReimbursementClaim.findById(id)
+        : await PayrollCompanyCardExpense.findById(id);
+    if (!claim) return res.status(404).json({ error: { message: 'Expense not found' } });
+    if (!(await requirePayrollAccess(req, res, claim.agency_id))) return;
+
+    // Resolve receipt storage key, including legacy basename rows.
+    const rawKey = String(claim.receipt_file_path || '').trim();
+    if (!rawKey) return res.status(409).json({ error: { message: 'This expense has no receipt file' } });
+
+    let storageKey = rawKey;
+    if (!storageKey.startsWith('uploads/') && !storageKey.startsWith('fonts/') && !storageKey.startsWith('templates/') && !storageKey.startsWith('signed/')) {
+      storageKey = `uploads/${storageKey.replace(/^\//, '')}`;
+    }
+    if (!(await StorageService.objectExists(storageKey))) {
+      const base = path.basename(rawKey);
+      if (expenseType === 'reimbursement') {
+        const alt = `uploads/reimbursements/${base}`;
+        if (await StorageService.objectExists(alt)) storageKey = alt;
+      } else {
+        const alt = `uploads/company_card_expenses/${base}`;
+        if (await StorageService.objectExists(alt)) storageKey = alt;
+      }
+    }
+
+    const buffer = await StorageService.readObject(storageKey);
+    const filename = String(claim.receipt_original_name || '').trim() || path.basename(storageKey) || `receipt-${expenseType}-${id}`;
+    const mimeType = String(claim.receipt_mime_type || '').trim() || 'application/octet-stream';
+
+    const uploaded = await GoogleDriveService.uploadBufferToFolder({
+      subjectEmail,
+      folderId,
+      filename,
+      mimeType,
+      buffer
+    });
+
+    return res.json({ ok: true, drive: uploaded });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const patchReimbursementClaim = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -9692,11 +10043,8 @@ export const listMyTimeClaims = async (req, res, next) => {
 
     // Ensure membership for non-admins.
     if (!isAdminRole(req.user.role)) {
-      const [rows] = await pool.execute(
-        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-        [userId, agencyId]
-      );
-      if (!rows || rows.length === 0) {
+      const ok = await userHasAgencyAccess({ userId, agencyId });
+      if (!ok) {
         return res.status(403).json({ error: { message: 'Access denied' } });
       }
     }
@@ -10001,11 +10349,8 @@ export const listMyMedcancelClaims = async (req, res, next) => {
 
     // Ensure membership for non-admins.
     if (!isAdminRole(req.user.role)) {
-      const [rows] = await pool.execute(
-        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-        [userId, agencyId]
-      );
-      if (!rows || rows.length === 0) {
+      const ok = await userHasAgencyAccess({ userId, agencyId });
+      if (!ok) {
         return res.status(403).json({ error: { message: 'Access denied' } });
       }
     }
@@ -10467,11 +10812,8 @@ export const getMyPtoBalances = async (req, res, next) => {
 
     // Ensure membership for non-admins.
     if (!isAdminRole(req.user.role)) {
-      const [rows] = await pool.execute(
-        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-        [userId, agencyId]
-      );
-      if (!rows || rows.length === 0) {
+      const ok = await userHasAgencyAccess({ userId, agencyId });
+      if (!ok) {
         return res.status(403).json({ error: { message: 'Access denied' } });
       }
     }
@@ -10644,11 +10986,8 @@ export const listMyPtoRequests = async (req, res, next) => {
 
     // Ensure membership for non-admins.
     if (!isAdminRole(req.user.role)) {
-      const [rows] = await pool.execute(
-        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-        [userId, agencyId]
-      );
-      if (!rows || rows.length === 0) {
+      const ok = await userHasAgencyAccess({ userId, agencyId });
+      if (!ok) {
         return res.status(403).json({ error: { message: 'Access denied' } });
       }
     }
