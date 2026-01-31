@@ -343,9 +343,9 @@
                 <div class="v">{{ detail.latestPreScreen?.created_at ? formatTime(detail.latestPreScreen.created_at) : '—' }}</div>
               </div>
 
-              <div v-if="detail.latestPreScreen?.report_json?.grounding?.searchEntryPoint?.renderedContent" class="search-suggestions">
+              <div v-if="searchSuggestionsHtml" class="search-suggestions">
                 <div class="muted small" style="margin-bottom:6px;">Search suggestions (from Google Search grounding):</div>
-                <div v-html="detail.latestPreScreen.report_json.grounding.searchEntryPoint.renderedContent"></div>
+                <div v-html="searchSuggestionsHtml"></div>
               </div>
 
               <div class="research-box">
@@ -506,7 +506,22 @@ const preScreenHtml = computed(() => {
   const md = String(detail.value?.latestPreScreen?.report_text || '').trim();
   if (!md) return '';
   const raw = marked.parse(md);
-  return DOMPurify.sanitize(String(raw || ''));
+  return DOMPurify.sanitize(String(raw || ''), {
+    FORBID_TAGS: ['style', 'script', 'iframe', 'object'],
+    FORBID_ATTR: ['style', 'onerror', 'onclick', 'onload']
+  });
+});
+
+const searchSuggestionsHtml = computed(() => {
+  const raw = detail.value?.latestPreScreen?.report_json?.grounding?.searchEntryPoint?.renderedContent;
+  const html = String(raw || '').trim();
+  if (!html) return '';
+  // IMPORTANT: renderedContent can include CSS that impacts the whole page.
+  // Sanitize aggressively to prevent global style/layout shifts.
+  return DOMPurify.sanitize(html, {
+    FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'link', 'meta'],
+    FORBID_ATTR: ['style', 'onerror', 'onclick', 'onload']
+  });
 });
 
 const refresh = async () => {
