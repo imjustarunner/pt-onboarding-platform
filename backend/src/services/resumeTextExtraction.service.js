@@ -18,6 +18,16 @@ export async function extractResumeTextFromUpload({ buffer, mimeType }) {
 
   if (mt === 'application/pdf') {
     try {
+      // pdfjs-dist expects DOMMatrix in some environments (Cloud Run / Node).
+      // Provide a lightweight polyfill so PDF parsing can run server-side.
+      if (typeof globalThis.DOMMatrix === 'undefined') {
+        const dm = await import('dommatrix');
+        const CSSMatrix = dm?.default;
+        if (typeof CSSMatrix === 'function') {
+          globalThis.DOMMatrix = CSSMatrix;
+        }
+      }
+
       // pdf-parse@2.x exports a PDFParse class (no default function).
       const mod = await import('pdf-parse');
       const PDFParse = mod?.PDFParse;

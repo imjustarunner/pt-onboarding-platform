@@ -767,3 +767,38 @@ export const viewCandidateResume = async (req, res, next) => {
   }
 };
 
+export const deleteCandidateResume = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    const docId = parseIntParam(req.params.docId);
+    if (!candidateUserId || !docId) return res.status(400).json({ error: { message: 'Invalid userId or docId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const [rows] = await pool.execute(
+      `SELECT * FROM user_admin_docs
+       WHERE id = ? AND user_id = ? AND doc_type = 'resume'
+       LIMIT 1`,
+      [docId, candidateUserId]
+    );
+    const doc = rows[0] || null;
+    if (!doc) return res.status(404).json({ error: { message: 'Resume not found' } });
+
+    // Best-effort delete file from storage first.
+    if (doc.storage_path) {
+      await StorageService.deleteAdminDoc(doc.storage_path);
+    }
+
+    // Deleting the doc will cascade-delete hiring_resume_parses via FK (if migrated).
+    await pool.execute(`DELETE FROM user_admin_docs WHERE id = ? LIMIT 1`, [docId]);
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+

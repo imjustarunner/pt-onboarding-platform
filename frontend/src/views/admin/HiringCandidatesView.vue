@@ -138,6 +138,7 @@
                     </div>
                     <div class="row-actions">
                       <button class="btn btn-secondary" @click="viewResume(r)">View</button>
+                      <button class="btn btn-danger" @click="deleteResume(r)">Delete</button>
                     </div>
                   </div>
                 </div>
@@ -511,6 +512,20 @@ const viewResume = async (r) => {
     else alert('No URL returned');
   } catch (e) {
     alert(e.response?.data?.error?.message || 'Failed to open resume');
+  }
+};
+
+const deleteResume = async (r) => {
+  if (!selectedId.value || !effectiveAgencyId.value || !r?.id) return;
+  const name = r?.title || r?.originalName || 'this resume';
+  // eslint-disable-next-line no-alert
+  const ok = confirm(`Delete ${name}? This will remove the file and cannot be undone.`);
+  if (!ok) return;
+  try {
+    await api.delete(`/hiring/candidates/${selectedId.value}/resumes/${r.id}`, { params: { agencyId: effectiveAgencyId.value } });
+    await loadResumes();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to delete resume');
   }
 };
 

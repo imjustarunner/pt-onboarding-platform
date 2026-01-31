@@ -10,6 +10,7 @@ import {
   listCandidateResumes,
   uploadCandidateResume,
   viewCandidateResume,
+  deleteCandidateResume,
   requestCandidateResearch,
   generateCandidatePreScreenReport,
   promoteCandidateToPendingSetup,
@@ -50,6 +51,7 @@ router.post('/candidates/:userId/tasks', createCandidateTask);
 router.get('/candidates/:userId/resumes', listCandidateResumes);
 router.post('/candidates/:userId/resumes/upload', upload.single('file'), uploadCandidateResume);
 router.get('/candidates/:userId/resumes/:docId/view', viewCandidateResume);
+router.delete('/candidates/:userId/resumes/:docId', deleteCandidateResume);
 router.post('/candidates/:userId/research', requestCandidateResearch);
 router.post('/candidates/:userId/prescreen', generateCandidatePreScreenReport);
 router.post('/candidates/:userId/promote', promoteCandidateToPendingSetup);
