@@ -63,14 +63,28 @@ export const useAuthStore = defineStore('auth', () => {
         }
 
         if (regularLoginError.response?.status === 401) {
-          console.log('Regular login failed, trying approved employee login...');
-          try {
-            response = await api.post('/auth/approved-employee-login', { email, password });
-          } catch (approvedEmployeeError) {
-            // Both failed, return the approved employee error (more specific)
-            const errorMessage = approvedEmployeeError.response?.data?.error?.message || approvedEmployeeError.message || 'Login failed. Please check your credentials and try again.';
-            return { 
-              success: false, 
+          // Only fall back to approved employee login when the user truly does not exist in the users table.
+          // IMPORTANT: If the user *does* exist but typed the wrong password, falling back can accidentally
+          // log them in as an approved_employee and then most of the app 403s (no users-table id).
+          const msg = String(regularLoginError.response?.data?.error?.message || '').toLowerCase();
+          const looksLikeUserNotFound = msg.includes('user not found');
+          if (looksLikeUserNotFound) {
+            console.log('Regular login user not found, trying approved employee login...');
+            try {
+              response = await api.post('/auth/approved-employee-login', { email, password });
+            } catch (approvedEmployeeError) {
+              // Both failed, return the approved employee error (more specific)
+              const errorMessage = approvedEmployeeError.response?.data?.error?.message || approvedEmployeeError.message || 'Login failed. Please check your credentials and try again.';
+              return { 
+                success: false, 
+                error: errorMessage
+              };
+            }
+          } else {
+            // If it wasn't a "user not found" case, surface the regular login error (bad password, etc).
+            const errorMessage = regularLoginError.response?.data?.error?.message || regularLoginError.message || 'Login failed. Please check your credentials and try again.';
+            return {
+              success: false,
               error: errorMessage
             };
           }
