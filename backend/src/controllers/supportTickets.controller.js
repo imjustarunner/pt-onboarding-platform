@@ -153,10 +153,10 @@ export const createSupportTicket = async (req, res, next) => {
     const access = await ensureOrgAccess(req, schoolOrganizationId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    // Only school_staff can create tickets from the school portal UX.
+    // School Portal: allow school_staff and providers to create tickets to admin/staff/support.
     const role = String(req.user?.role || '').toLowerCase();
-    if (role !== 'school_staff') {
-      return res.status(403).json({ error: { message: 'Only school staff can submit support tickets here' } });
+    if (role !== 'school_staff' && role !== 'provider') {
+      return res.status(403).json({ error: { message: 'Only school staff and providers can submit support tickets here' } });
     }
 
     const agencyId = await resolveActiveAgencyIdForOrg(schoolOrganizationId);
