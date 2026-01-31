@@ -7,6 +7,33 @@ function getCloudTraceId(req) {
   return v ? v.split('/')[0] : null;
 }
 
+function install403Tracer(req, res) {
+  // Capture the first stack trace that sets status(403) (best-effort).
+  // This is intentionally lightweight and only enabled when ACCESS_DEBUG=1.
+  if (req._accessDebugTracerInstalled) return;
+  req._accessDebugTracerInstalled = true;
+
+  const originalStatus = res.status?.bind(res);
+  if (typeof originalStatus === 'function') {
+    res.status = (code) => {
+      if (Number(code) === 403 && !req._accessDebug403Stack) {
+        req._accessDebug403Stack = new Error('[ACCESS_DEBUG] status(403) called').stack || null;
+      }
+      return originalStatus(code);
+    };
+  }
+
+  const originalSendStatus = res.sendStatus?.bind(res);
+  if (typeof originalSendStatus === 'function') {
+    res.sendStatus = (code) => {
+      if (Number(code) === 403 && !req._accessDebug403Stack) {
+        req._accessDebug403Stack = new Error('[ACCESS_DEBUG] sendStatus(403) called').stack || null;
+      }
+      return originalSendStatus(code);
+    };
+  }
+}
+
 function shouldDebug() {
   const v = String(process.env.ACCESS_DEBUG || '').trim().toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
@@ -68,6 +95,8 @@ export function accessDebugMiddleware(req, res, next) {
   const requestPath = String(req.originalUrl || req.path || '');
   if (!shouldInspectPath(requestPath)) return next();
 
+  install403Tracer(req, res);
+
   res.on('finish', () => {
     if (res.statusCode !== 403) return;
 
@@ -106,7 +135,8 @@ export function accessDebugMiddleware(req, res, next) {
           user: { id: userId, role, email, type, tokenAgencyId },
           agencyId,
           agenciesCount,
-          membership
+          membership,
+          stack: req._accessDebug403Stack || null
         };
 
         // Cloud Run logging can truncate structured objects; emit one-line JSON.
