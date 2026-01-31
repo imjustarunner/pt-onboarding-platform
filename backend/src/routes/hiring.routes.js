@@ -11,6 +11,7 @@ import {
   uploadCandidateResume,
   viewCandidateResume,
   requestCandidateResearch,
+  generateCandidatePreScreenReport,
   promoteCandidateToPendingSetup,
   listCandidateTasks,
   createCandidateTask
@@ -50,6 +51,7 @@ router.get('/candidates/:userId/resumes', listCandidateResumes);
 router.post('/candidates/:userId/resumes/upload', upload.single('file'), uploadCandidateResume);
 router.get('/candidates/:userId/resumes/:docId/view', viewCandidateResume);
 router.post('/candidates/:userId/research', requestCandidateResearch);
+router.post('/candidates/:userId/prescreen', generateCandidatePreScreenReport);
 router.post('/candidates/:userId/promote', promoteCandidateToPendingSetup);
 
 export default router;

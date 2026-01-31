@@ -93,6 +93,7 @@ import officeSlotActionsRoutes from './routes/officeSlotActions.routes.js';
 import officeReviewRoutes from './routes/officeReview.routes.js';
 import availabilityRoutes from './routes/availability.routes.js';
 import hiringRoutes from './routes/hiring.routes.js';
+import researchCandidateRoutes from './routes/researchCandidate.routes.js';
 import publicProviderAvailabilityRoutes from './routes/publicProviderAvailability.routes.js';
 import publicSchoolsRoutes from './routes/publicSchools.routes.js';
 
@@ -489,6 +490,7 @@ app.use('/api/office-slots', officeSlotActionsRoutes);
 app.use('/api/office-review', officeReviewRoutes);
 app.use('/api/availability', availabilityRoutes);
 app.use('/api/hiring', hiringRoutes);
+app.use('/api', researchCandidateRoutes);
 app.use('/api/twilio', twilioRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/presence', presenceRoutes);

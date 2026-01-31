@@ -6,6 +6,7 @@ import HiringResearchReport from '../models/HiringResearchReport.model.js';
 import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import StorageService from '../services/storage.service.js';
+import { generatePreScreenReportWithGoogleSearch } from '../services/preScreenResearch.service.js';
 import config from '../config/config.js';
 
 function parseIntParam(v) {
@@ -182,8 +183,9 @@ export const getCandidate = async (req, res, next) => {
     const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
     const notes = await HiringNote.listByCandidateUserId(candidateUserId, { limit: 200 });
     const latestResearch = await HiringResearchReport.findLatestByCandidateUserId(candidateUserId);
+    const latestPreScreen = await HiringResearchReport.findLatestAiByCandidateUserId(candidateUserId);
 
-    res.json({ user, profile, notes, latestResearch });
+    res.json({ user, profile, notes, latestResearch, latestPreScreen });
   } catch (e) {
     next(e);
   }
@@ -243,6 +245,111 @@ export const requestCandidateResearch = async (req, res, next) => {
 
     res.status(201).json(report);
   } catch (e) {
+    next(e);
+  }
+};
+
+async function createFailedAiReport({ candidateUserId, createdByUserId, error }) {
+  const safeMessage = String(error?.message || 'AI research failed').slice(0, 400);
+  const safeDetails = error?.details ? String(error.details).slice(0, 1800) : null;
+  try {
+    return await HiringResearchReport.create({
+      candidateUserId,
+      status: 'failed',
+      reportText: `AI pre-screen report failed: ${safeMessage}`,
+      reportJson: {
+        kind: 'prescreen',
+        error: {
+          message: safeMessage,
+          status: error?.status || null,
+          details: safeDetails
+        }
+      },
+      createdByUserId,
+      isAiGenerated: true
+    });
+  } catch {
+    return null;
+  }
+}
+
+export const generateCandidatePreScreenReport = async (req, res, next) => {
+  let candidateUserId = null;
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.body?.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const user = await User.findById(candidateUserId);
+    if (!user) return res.status(404).json({ error: { message: 'Candidate not found' } });
+
+    const candidateNameFromDb = `${user.first_name || ''} ${user.last_name || ''}`.trim();
+    const candidateName = String(req.body?.candidateName || candidateNameFromDb || '').trim();
+    const resumeText = String(req.body?.resumeText || '').trim().slice(0, 20000);
+    const linkedInUrl = String(req.body?.linkedInUrl || '').trim().slice(0, 800);
+
+    const started = Date.now();
+    let ai;
+    try {
+      ai = await generatePreScreenReportWithGoogleSearch({
+        candidateName,
+        resumeText,
+        linkedInUrl
+      });
+    } catch (e) {
+      await createFailedAiReport({ candidateUserId, createdByUserId: req.user.id, error: e });
+      if (e?.status) {
+        return res.status(e.status).json({ error: { message: e.message || 'AI research failed', ...(e.details ? { details: e.details } : null) } });
+      }
+      throw e;
+    }
+
+    const warnings = [];
+    if (!ai.isGrounded) {
+      warnings.push('No source links were returned by Google Search grounding. Treat this output as unverified and review manually.');
+    }
+
+    const reportText = [
+      warnings.length ? `## Warnings\n- ${warnings.join('\n- ')}\n` : '',
+      ai.text
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+      .trim()
+      .slice(0, 50000);
+
+    const report = await HiringResearchReport.create({
+      candidateUserId,
+      status: 'completed',
+      reportText,
+      reportJson: {
+        kind: 'prescreen',
+        model: ai.modelId,
+        latencyMs: ai.latencyMs,
+        totalMs: Date.now() - started,
+        isGrounded: ai.isGrounded,
+        input: {
+          candidateName: String(candidateName || '').slice(0, 180) || null,
+          linkedInUrl: linkedInUrl || null,
+          resumeTextLength: resumeText.length
+        },
+        grounding: ai.groundingMetadata || null
+      },
+      createdByUserId: req.user.id,
+      isAiGenerated: true
+    });
+
+    res.status(201).json(report);
+  } catch (e) {
+    // Best-effort: if we got far enough to identify a candidate, write a failed record.
+    if (candidateUserId && req.user?.id) {
+      await createFailedAiReport({ candidateUserId, createdByUserId: req.user.id, error: e });
+    }
     next(e);
   }
 };

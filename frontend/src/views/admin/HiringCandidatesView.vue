@@ -67,6 +67,10 @@
                 <button class="btn btn-secondary" @click="doResearch" :disabled="researching || !selectedId">
                   {{ researching ? 'Requesting…' : 'Do research' }}
                 </button>
+                <button class="btn btn-secondary" @click="generatePreScreenReport" :disabled="generatingPreScreen || !selectedId">
+                  <span v-if="generatingPreScreen" class="spinner" aria-hidden="true"></span>
+                  {{ generatingPreScreen ? 'Generating…' : 'Generate Pre-Screen Report' }}
+                </button>
                 <button class="btn btn-primary" @click="promote" :disabled="promoting || !selectedId">
                   {{ promoting ? 'Promoting…' : 'Mark hired (start setup)' }}
                 </button>
@@ -84,6 +88,7 @@
               <button class="tab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Notes</button>
               <button class="tab" :class="{ active: tab === 'tasks' }" @click="tab = 'tasks'">Tasks</button>
               <button class="tab" :class="{ active: tab === 'research' }" @click="tab = 'research'">Research</button>
+              <button class="tab" :class="{ active: tab === 'prescreen' }" @click="tab = 'prescreen'">Pre-Screen</button>
             </div>
 
             <!-- Profile -->
@@ -197,6 +202,50 @@
                 <pre class="pre">{{ detail.latestResearch?.report_text || 'No research report yet. Click “Do research”.' }}</pre>
               </div>
             </div>
+
+            <!-- Pre-Screen -->
+            <div v-if="tab === 'prescreen'" class="tab-body">
+              <div class="info-banner">
+                <strong>AI-Generated Summary.</strong> Information may be inaccurate. Verify all details manually. Do not use as the sole basis for employment decisions.
+              </div>
+
+              <div class="kv">
+                <div class="k">LinkedIn URL</div>
+                <div class="v">
+                  <input v-model="preScreenLinkedInUrl" class="input" placeholder="https://www.linkedin.com/in/..." />
+                </div>
+              </div>
+              <div class="kv">
+                <div class="k">Resume text</div>
+                <div class="v">
+                  <textarea
+                    v-model="preScreenResumeText"
+                    class="textarea"
+                    rows="6"
+                    placeholder="Paste resume text here (optional, but improves discrepancy checks)…"
+                  />
+                  <div class="muted small">We store only metadata about this input (length), not the full pasted text.</div>
+                </div>
+              </div>
+
+              <div class="kv">
+                <div class="k">Latest status</div>
+                <div class="v">{{ detail.latestPreScreen?.status || '—' }}</div>
+              </div>
+              <div class="kv">
+                <div class="k">Created</div>
+                <div class="v">{{ detail.latestPreScreen?.created_at ? formatTime(detail.latestPreScreen.created_at) : '—' }}</div>
+              </div>
+
+              <div v-if="detail.latestPreScreen?.report_json?.grounding?.searchEntryPoint?.renderedContent" class="search-suggestions">
+                <div class="muted small" style="margin-bottom:6px;">Search suggestions (from Google Search grounding):</div>
+                <div v-html="detail.latestPreScreen.report_json.grounding.searchEntryPoint.renderedContent"></div>
+              </div>
+
+              <div class="research-box">
+                <pre class="pre">{{ detail.latestPreScreen?.report_text || 'No pre-screen report yet. Click “Generate Pre-Screen Report”.' }}</pre>
+              </div>
+            </div>
           </template>
         </div>
       </div>
@@ -247,7 +296,7 @@ const q = ref('');
 
 const selectedId = ref(null);
 const detailLoading = ref(false);
-const detail = ref({ user: null, profile: null, notes: [], latestResearch: null });
+const detail = ref({ user: null, profile: null, notes: [], latestResearch: null, latestPreScreen: null });
 
 const tab = ref('profile');
 
@@ -324,6 +373,8 @@ const selectCandidate = async (id) => {
   selectedId.value = id;
   tab.value = 'profile';
   promoteResult.value = null;
+  preScreenLinkedInUrl.value = '';
+  preScreenResumeText.value = '';
   await loadDetail();
   await loadResumes();
   await loadAssignees();
@@ -335,7 +386,7 @@ const loadDetail = async () => {
   try {
     detailLoading.value = true;
     const r = await api.get(`/hiring/candidates/${selectedId.value}`, { params: { agencyId: effectiveAgencyId.value } });
-    detail.value = r.data || { user: null, profile: null, notes: [], latestResearch: null };
+    detail.value = r.data || { user: null, profile: null, notes: [], latestResearch: null, latestPreScreen: null };
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load candidate';
   } finally {
@@ -375,6 +426,31 @@ const doResearch = async () => {
     alert(e.response?.data?.error?.message || 'Failed to request research');
   } finally {
     researching.value = false;
+  }
+};
+
+// Pre-Screen (AI research)
+const generatingPreScreen = ref(false);
+const preScreenLinkedInUrl = ref('');
+const preScreenResumeText = ref('');
+const generatePreScreenReport = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  try {
+    generatingPreScreen.value = true;
+    const body = {
+      candidateName: candidateName.value,
+      resumeText: String(preScreenResumeText.value || '').trim().slice(0, 20000),
+      linkedInUrl: String(preScreenLinkedInUrl.value || '').trim().slice(0, 800)
+    };
+    const r = await api.post(`/hiring/candidates/${selectedId.value}/prescreen`, body, { params: { agencyId: effectiveAgencyId.value } });
+    // Optimistic update + refresh for canonical latest report.
+    detail.value.latestPreScreen = r.data || null;
+    await loadDetail();
+    tab.value = 'prescreen';
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to generate pre-screen report');
+  } finally {
+    generatingPreScreen.value = false;
   }
 };
 
@@ -605,7 +681,7 @@ watch(effectiveAgencyId, async (next) => {
   if (!next) return;
   await refresh();
   selectedId.value = null;
-  detail.value = { user: null, profile: null, notes: [], latestResearch: null };
+  detail.value = { user: null, profile: null, notes: [], latestResearch: null, latestPreScreen: null };
 });
 
 onMounted(async () => {
@@ -895,6 +971,27 @@ onMounted(async () => {
   padding: 10px 12px;
   border-radius: 10px;
   margin-bottom: 12px;
+}
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(107, 114, 128, 0.35);
+  border-top-color: rgba(107, 114, 128, 0.9);
+  border-radius: 999px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.search-suggestions {
+  margin-top: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px;
 }
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
