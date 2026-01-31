@@ -124,7 +124,12 @@
                   <div v-for="r in resumes" :key="r.id" class="resume-row">
                     <div>
                       <div class="name">{{ r.title || 'Resume' }}</div>
-                      <div class="muted small">{{ r.originalName || '' }}</div>
+                      <div class="resume-meta">
+                        <span class="muted small">{{ r.originalName || '' }}</span>
+                        <span v-if="resumeParseLabel(r)" class="resume-badge" :class="resumeParseClass(r)">
+                          {{ resumeParseLabel(r) }}
+                        </span>
+                      </div>
                     </div>
                     <div class="row-actions">
                       <button class="btn btn-secondary" @click="viewResume(r)">View</button>
@@ -504,6 +509,25 @@ const viewResume = async (r) => {
   }
 };
 
+const resumeParseLabel = (r) => {
+  const status = String(r?.resumeParseStatus || '').trim().toLowerCase();
+  if (!status) return null;
+  if (status === 'completed') return 'Text extracted';
+  if (status === 'no_text') return 'No text (needs OCR)';
+  if (status === 'failed') return 'Extract failed';
+  if (status === 'pending') return 'Extracting…';
+  return 'Extract status: ' + status;
+};
+
+const resumeParseClass = (r) => {
+  const status = String(r?.resumeParseStatus || '').trim().toLowerCase();
+  if (status === 'completed') return 'ok';
+  if (status === 'no_text') return 'warn';
+  if (status === 'failed') return 'bad';
+  if (status === 'pending') return 'muted';
+  return 'muted';
+};
+
 // Tasks
 const assignees = ref([]);
 const tasks = ref([]);
@@ -779,6 +803,41 @@ onMounted(async () => {
   background: #e5e7eb;
   font-size: 12px;
   color: #374151;
+}
+.resume-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.resume-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid transparent;
+}
+.resume-badge.ok {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
+}
+.resume-badge.warn {
+  background: #ffedd5;
+  color: #9a3412;
+  border-color: #fdba74;
+}
+.resume-badge.bad {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+.resume-badge.muted {
+  background: #f3f4f6;
+  color: #374151;
+  border-color: #e5e7eb;
 }
 .detail-header {
   display: flex;

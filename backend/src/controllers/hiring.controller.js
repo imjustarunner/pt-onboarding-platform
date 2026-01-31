@@ -599,21 +599,41 @@ export const listCandidateResumes = async (req, res, next) => {
     const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
     if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
 
-    const [rows] = await pool.execute(
-      `SELECT d.*,
-              rp.status AS resume_parse_status,
-              rp.method AS resume_parse_method,
-              rp.updated_at AS resume_parse_updated_at,
-              cb.first_name AS created_by_first_name,
-              cb.last_name AS created_by_last_name,
-              cb.email AS created_by_email
-       FROM user_admin_docs d
-       LEFT JOIN hiring_resume_parses rp ON rp.resume_doc_id = d.id
-       LEFT JOIN users cb ON cb.id = d.created_by_user_id
-       WHERE d.user_id = ? AND d.doc_type = 'resume'
-       ORDER BY d.created_at DESC`,
-      [candidateUserId]
-    );
+    // Migration safety: if hiring_resume_parses is not present yet, fall back to
+    // listing resumes without parse status instead of failing the page.
+    let rows = [];
+    try {
+      const [withParse] = await pool.execute(
+        `SELECT d.*,
+                rp.status AS resume_parse_status,
+                rp.method AS resume_parse_method,
+                rp.updated_at AS resume_parse_updated_at,
+                cb.first_name AS created_by_first_name,
+                cb.last_name AS created_by_last_name,
+                cb.email AS created_by_email
+         FROM user_admin_docs d
+         LEFT JOIN hiring_resume_parses rp ON rp.resume_doc_id = d.id
+         LEFT JOIN users cb ON cb.id = d.created_by_user_id
+         WHERE d.user_id = ? AND d.doc_type = 'resume'
+         ORDER BY d.created_at DESC`,
+        [candidateUserId]
+      );
+      rows = withParse || [];
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      const [basic] = await pool.execute(
+        `SELECT d.*,
+                cb.first_name AS created_by_first_name,
+                cb.last_name AS created_by_last_name,
+                cb.email AS created_by_email
+         FROM user_admin_docs d
+         LEFT JOIN users cb ON cb.id = d.created_by_user_id
+         WHERE d.user_id = ? AND d.doc_type = 'resume'
+         ORDER BY d.created_at DESC`,
+        [candidateUserId]
+      );
+      rows = basic || [];
+    }
 
     const out = (rows || []).map((d) => ({
       id: d.id,
