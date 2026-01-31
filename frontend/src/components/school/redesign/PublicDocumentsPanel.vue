@@ -157,6 +157,18 @@
                 >
                   View
                 </a>
+                <button class="btn btn-secondary btn-sm" type="button" @click="printItem(d)">
+                  Print
+                </button>
+                <a
+                  v-if="String(d.kind || '').toLowerCase() !== 'link' && d.file_path"
+                  class="btn btn-secondary btn-sm"
+                  :href="toUploadsUrl(d.file_path)"
+                  download
+                  rel="noreferrer"
+                >
+                  Download
+                </a>
                 <button
                   v-if="editingId !== d.id"
                   class="btn btn-secondary btn-sm"
@@ -261,6 +273,58 @@ const formatCategory = (k) => {
   if (v === 'school_calendar') return 'School calendar';
   if (v === 'bell_schedule') return 'Bell schedule';
   return v;
+};
+
+const openPrintWindow = ({ url, title }) => {
+  const href = String(url || '').trim();
+  if (!href) return;
+
+  // Same-origin wrapper so users can print PDFs/images reliably.
+  // For cross-origin links that block iframes, the user can still click Open.
+  const w = window.open('', '_blank', 'noopener,noreferrer');
+  if (!w) return;
+
+  const safeTitle = String(title || 'Document')
+    .replace(/[<>]/g, '')
+    .slice(0, 140);
+  const safeUrl = href.replace(/"/g, '&quot;');
+
+  w.document.open();
+  w.document.write(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${safeTitle}</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      .bar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+      .bar .title { font-weight: 700; font-size: 14px; color: #111827; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .bar a, .bar button { font-size: 13px; padding: 6px 10px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; color: #111827; text-decoration: none; cursor: pointer; }
+      .note { padding: 10px 12px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; font-size: 12px; color: #6b7280; border-bottom: 1px solid #f3f4f6; }
+      .frame { width: 100%; height: calc(100% - 92px); border: 0; }
+      @media print { .bar, .note { display: none; } .frame { height: 100%; } }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <div class="title">${safeTitle}</div>
+      <a href="${safeUrl}" target="_blank" rel="noreferrer">Open</a>
+      <a href="${safeUrl}" target="_blank" rel="noreferrer" download>Download</a>
+      <button onclick="window.print()">Print</button>
+    </div>
+    <div class="note">If this content does not display below, the source site may block embedding. Use “Open” then print from your browser.</div>
+    <iframe class="frame" src="${safeUrl}" title="${safeTitle}"></iframe>
+  </body>
+</html>`);
+  w.document.close();
+};
+
+const printItem = (d) => {
+  const kind = String(d?.kind || '').toLowerCase();
+  const title = d?.title || d?.original_filename || `Document #${d?.id || ''}`;
+  const url = kind === 'link' ? d?.link_url : toUploadsUrl(d?.file_path);
+  openPrintWindow({ url, title });
 };
 
 const load = async () => {

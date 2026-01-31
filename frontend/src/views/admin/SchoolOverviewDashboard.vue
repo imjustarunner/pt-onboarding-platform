@@ -511,8 +511,8 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border: none;
   background: transparent;
@@ -523,13 +523,13 @@ onMounted(async () => {
   background: rgba(0, 0, 0, 0.05);
 }
 .sg-icon-img {
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   display: block;
 }
 .sg-icon-fallback {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   color: var(--text-secondary);
 }
