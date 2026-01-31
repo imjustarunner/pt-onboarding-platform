@@ -1,7 +1,7 @@
 -- Migration: Add PROSPECTIVE user status
 -- Description: Introduce PROSPECTIVE as an internal-only applicant stage before prehire/onboarding.
 
--- MySQL ENUM changes require rebuilding the column; use a temp column for safety.
+-- MySQL ENUM changes require rebuilding the column - use a temp column for safety (avoid semicolons in comments for migration runner).
 ALTER TABLE users
 ADD COLUMN status_new ENUM(
   'PROSPECTIVE',
