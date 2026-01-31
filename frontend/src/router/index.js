@@ -635,13 +635,13 @@ const routes = [
     path: '/admin/communications',
     name: 'CommunicationsFeed',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['schedule_manager', 'provider', 'staff', 'school_staff'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'] }
   },
   {
     path: '/admin/communications/chats',
     name: 'PlatformChats',
     component: () => import('../views/admin/PlatformChatsView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['schedule_manager', 'provider', 'staff', 'school_staff'] }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'] }
   },
   {
     path: '/admin/communications/thread/:userId/:clientId',

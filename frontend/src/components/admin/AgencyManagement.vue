@@ -863,9 +863,11 @@
                     <td><input v-model="newSchoolContact.notes" type="text" placeholder="Optional notes" :disabled="addingSchoolContact" /></td>
                     <td style="color: var(--text-secondary); font-size: 12px;">—</td>
                     <td class="right">
-                      <button type="button" class="btn btn-primary btn-sm" @click="addSchoolContact" :disabled="addingSchoolContact || !editingAgency?.id">
-                        {{ addingSchoolContact ? 'Adding…' : 'Add' }}
-                      </button>
+                      <div class="contact-actions">
+                        <button type="button" class="btn btn-primary btn-sm" @click="addSchoolContact" :disabled="addingSchoolContact || !editingAgency?.id">
+                          {{ addingSchoolContact ? 'Adding…' : 'Add' }}
+                        </button>
+                      </div>
                     </td>
                   </tr>
 
@@ -892,12 +894,14 @@
                         <span v-else>—</span>
                       </td>
                       <td class="right">
-                        <button type="button" class="btn btn-primary btn-sm" @click="saveSchoolContact(c.id)" :disabled="savingSchoolContactId === c.id">
-                          {{ savingSchoolContactId === c.id ? 'Saving…' : 'Save' }}
-                        </button>
-                        <button type="button" class="btn btn-secondary btn-sm" @click="cancelEditSchoolContact(c.id)" :disabled="savingSchoolContactId === c.id">
-                          Cancel
-                        </button>
+                        <div class="contact-actions">
+                          <button type="button" class="btn btn-primary btn-sm" @click="saveSchoolContact(c.id)" :disabled="savingSchoolContactId === c.id">
+                            {{ savingSchoolContactId === c.id ? 'Saving…' : 'Save' }}
+                          </button>
+                          <button type="button" class="btn btn-secondary btn-sm" @click="cancelEditSchoolContact(c.id)" :disabled="savingSchoolContactId === c.id">
+                            Cancel
+                          </button>
+                        </div>
                       </td>
                     </template>
                     <template v-else>
@@ -923,35 +927,37 @@
                         </template>
                       </td>
                       <td class="right">
-                        <button type="button" class="btn btn-secondary btn-sm" @click="startEditSchoolContact(c)">
-                          Edit
-                        </button>
-                        <button
-                          v-if="c.email && !schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()]"
-                          type="button"
-                          class="btn btn-primary btn-sm"
-                          @click="createSchoolStaffUserForContact(c)"
-                          :disabled="creatingSchoolStaffUserContactId === c.id"
-                        >
-                          {{ creatingSchoolStaffUserContactId === c.id ? 'Creating…' : 'Create user' }}
-                        </button>
-                        <button
-                          v-else-if="c.email && schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()]"
-                          type="button"
-                          class="btn btn-secondary btn-sm"
-                          @click="revokeSchoolStaffAccess(schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()])"
-                          :disabled="revokingSchoolStaffUserId === schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()].id"
-                        >
-                          {{ revokingSchoolStaffUserId === schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()].id ? 'Revoking…' : 'Revoke access' }}
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn-danger btn-sm"
-                          @click="deleteSchoolContact(c)"
-                          :disabled="deletingSchoolContactId === c.id"
-                        >
-                          {{ deletingSchoolContactId === c.id ? 'Deleting…' : 'Delete' }}
-                        </button>
+                        <div class="contact-actions">
+                          <button type="button" class="btn btn-secondary btn-sm" @click="startEditSchoolContact(c)">
+                            Edit
+                          </button>
+                          <button
+                            v-if="c.email && !schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()]"
+                            type="button"
+                            class="btn btn-primary btn-sm"
+                            @click="createSchoolStaffUserForContact(c)"
+                            :disabled="creatingSchoolStaffUserContactId === c.id"
+                          >
+                            {{ creatingSchoolStaffUserContactId === c.id ? 'Creating…' : 'Create user' }}
+                          </button>
+                          <button
+                            v-else-if="c.email && schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()]"
+                            type="button"
+                            class="btn btn-secondary btn-sm"
+                            @click="revokeSchoolStaffAccess(schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()])"
+                            :disabled="revokingSchoolStaffUserId === schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()].id"
+                          >
+                            {{ revokingSchoolStaffUserId === schoolStaffUsersByEmail[String(c.email || '').trim().toLowerCase()].id ? 'Revoking…' : 'Revoke access' }}
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-danger btn-sm"
+                            @click="deleteSchoolContact(c)"
+                            :disabled="deletingSchoolContactId === c.id"
+                          >
+                            {{ deletingSchoolContactId === c.id ? 'Deleting…' : 'Delete' }}
+                          </button>
+                        </div>
                       </td>
                     </template>
                   </tr>
@@ -5812,6 +5818,18 @@ onMounted(async () => {
   font-size: 12px;
   width: auto;
   flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.contact-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.contact-actions .btn {
   white-space: nowrap;
 }
 

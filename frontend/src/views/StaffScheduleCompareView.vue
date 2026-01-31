@@ -146,12 +146,13 @@ const shiftWeek = (deltaDays) => {
 const effectiveAgencyId = computed(() => {
   const fromStore = Number(agencyStore.currentAgency?.id || 0);
   if (fromStore) return fromStore;
-  const first = Number(authStore.user?.agencies?.find((a) => String(a?.organization_type || '').toLowerCase() === 'agency')?.id || 0);
+  const first = Number(availableAgencies.value?.[0]?.id || 0);
   return first || 0;
 });
-const availableAgencies = computed(() =>
-  (authStore.user?.agencies || []).filter((a) => String(a?.organization_type || '').toLowerCase() === 'agency')
-);
+const availableAgencies = computed(() => {
+  const list = Array.isArray(agencyStore.userAgencies?.value) ? agencyStore.userAgencies.value : [];
+  return list.filter((a) => String(a?.organization_type || '').toLowerCase() === 'agency');
+});
 const selectedAgencyIds = ref([]);
 const selectAllAgencies = () => {
   selectedAgencyIds.value = (availableAgencies.value || []).map((a) => Number(a.id)).filter((n) => Number.isFinite(n) && n > 0);
@@ -172,7 +173,7 @@ const agencyIdsForSchedule = computed(() => {
 });
 const agencyLabelById = computed(() => {
   const m = {};
-  const list = authStore.user?.agencies || [];
+  const list = availableAgencies.value || [];
   for (const a of list) {
     const id = Number(a?.id || 0);
     if (!id) continue;
@@ -268,6 +269,12 @@ const loadUsers = async () => {
 onMounted(async () => {
   // If organizationSlug exists, this route is org-prefixed; still safe to load the same endpoint.
   void route.params.organizationSlug;
+  // Ensure we have a real agency list for the picker (authStore.user.agencies is often empty).
+  try {
+    await agencyStore.fetchUserAgencies();
+  } catch {
+    // ignore; best-effort
+  }
   await loadUsers();
 
   // Default agency filter to all agencies (best for multi-agency providers) or fall back to current.

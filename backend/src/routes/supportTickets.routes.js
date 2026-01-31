@@ -4,7 +4,9 @@ import {
   listMySupportTickets,
   listSupportTicketsQueue,
   createSupportTicket,
-  answerSupportTicket
+  answerSupportTicket,
+  claimSupportTicket,
+  unclaimSupportTicket
 } from '../controllers/supportTickets.controller.js';
 
 const router = express.Router();
@@ -21,6 +23,12 @@ router.post('/', createSupportTicket);
 
 // Admin/support: answer ticket
 router.post('/:id/answer', answerSupportTicket);
+
+// Admin/support/staff: claim ticket (ownership)
+router.post('/:id/claim', claimSupportTicket);
+
+// Admin/support/staff: unclaim ticket (return to queue)
+router.post('/:id/unclaim', unclaimSupportTicket);
 
 export default router;
 

@@ -859,7 +859,7 @@
       </div>
     </div>
 
-    <div class="card" v-if="agencyId" style="margin-bottom: 12px;">
+    <div ref="processChangesCard" class="card" v-if="agencyId" style="margin-bottom: 12px;">
       <h2 class="card-title">Process Changes</h2>
       <div class="hint">
         Use this when you re-run a <strong>prior</strong> pay period report to catch late notes. The system will auto-detect which prior pay period the upload belongs to, compare “then vs now”, and let you add only the differences into the <strong>present</strong> pay period.
@@ -948,6 +948,63 @@
         </div>
       </div>
 
+    </div>
+
+    <!-- Cross-agency aggregate for Process Changes / carryover -->
+    <div class="card" v-if="(processChangesAggregate || []).length" style="margin-bottom: 12px;">
+      <div class="actions" style="justify-content: space-between;">
+        <div>
+          <h2 class="card-title" style="margin-bottom: 4px;">Process Changes Aggregate</h2>
+          <div class="hint">
+            Tracks carryover you’ve applied across agencies so you can switch orgs and still see the total.
+          </div>
+        </div>
+        <div class="actions" style="margin: 0;">
+          <button class="btn btn-secondary" type="button" @click="clearProcessChangesAggregate">
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <div class="field-row" style="grid-template-columns: repeat(3, 1fr); margin-top: 10px;">
+        <div class="card" style="padding: 10px;">
+          <div class="hint muted">Agencies</div>
+          <div style="font-size: 18px;"><strong>{{ processChangesAggregateTotals.agencyCount }}</strong></div>
+        </div>
+        <div class="card" style="padding: 10px;">
+          <div class="hint muted">Total units applied</div>
+          <div style="font-size: 18px;"><strong>{{ fmtNum(processChangesAggregateTotals.unitsAppliedTotal) }}</strong></div>
+        </div>
+        <div class="card" style="padding: 10px;">
+          <div class="hint muted">Rows inserted</div>
+          <div style="font-size: 18px;"><strong>{{ fmtInt(processChangesAggregateTotals.rowsInsertedTotal) }}</strong></div>
+        </div>
+      </div>
+
+      <div class="table-wrap" style="margin-top: 10px;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Agency</th>
+              <th>Prior period</th>
+              <th>Destination period</th>
+              <th class="right">Units applied</th>
+              <th class="right">Rows inserted</th>
+              <th>Applied</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in (processChangesAggregate || [])" :key="r.key">
+              <td><strong>{{ r.agencyName || `Agency #${r.agencyId}` }}</strong></td>
+              <td>{{ r.priorPeriodLabel || (r.priorPeriodId ? `Period #${r.priorPeriodId}` : '—') }}</td>
+              <td>{{ r.destinationPeriodLabel || (r.destinationPeriodId ? `Period #${r.destinationPeriodId}` : '—') }}</td>
+              <td class="right"><strong>{{ fmtNum(r.unitsApplied || 0) }}</strong></td>
+              <td class="right">{{ fmtInt(r.rowsInserted || 0) }}</td>
+              <td class="muted">{{ String(r.appliedAt || '').slice(0, 19) || '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div class="card" v-if="agencyId" style="margin-bottom: 12px;">
@@ -3779,25 +3836,26 @@
               <div class="card" style="margin-top: 12px;">
                 <h3 class="card-title" style="margin: 0 0 6px 0;">Current step actions</h3>
 
-                <div v-if="wizardStep?.key === 'prior'" class="hint">
-                  Submit/complete the prior payroll cycle before continuing (skipped automatically on first payroll).
+              <div v-if="wizardStep?.key === 'prior'" class="hint">
+                Post the <strong>prior</strong> pay period first so you can properly process late notes/changes.
+                Then use <strong>Process Changes</strong> to re-run the prior report and compare “then → now”.
                   <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
-                    <button class="btn btn-secondary" type="button" @click="openPreviewPostModalV2" :disabled="!selectedPeriodId">Open Preview Post</button>
+                  <button class="btn btn-secondary" type="button" @click="wizardGoToProcessChanges" :disabled="!selectedPeriodId">Go to Process Changes</button>
                   </div>
                 </div>
 
-                <div v-else-if="wizardStep?.key === 'review'" class="hint">
-                  Review changes between runs (No-note/Draft Unpaid workflow).
+              <div v-else-if="wizardStep?.key === 'apply'" class="hint">
+                Post the <strong>differences</strong> into the current pay period (carryover), then continue.
                   <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
-                    <button class="btn btn-secondary" type="button" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">Open No-note/Draft Unpaid</button>
+                  <button class="btn btn-secondary" type="button" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">Open carryover tool</button>
+                  <button class="btn btn-secondary" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId" style="margin-left: 8px;">Open Payroll Stage</button>
                   </div>
                 </div>
 
-                <div v-else-if="wizardStep?.key === 'apply'" class="hint">
-                  Apply changes (carryover) into the current pay period, then continue.
+              <div v-else-if="wizardStep?.key === 'review'" class="hint">
+                Review what changed (No-note/Draft unpaid → Old Done Notes) before running payroll.
                   <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
-                    <button class="btn btn-secondary" type="button" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">Open carryover tool</button>
-                    <button class="btn btn-secondary" type="button" @click="showStageModal = true" :disabled="!selectedPeriodId" style="margin-left: 8px;">Open Payroll Stage</button>
+                  <button class="btn btn-secondary" type="button" @click="openCarryoverModal" :disabled="!selectedPeriodId || isPeriodPosted">Open No-note/Draft Unpaid</button>
                   </div>
                 </div>
 
@@ -4794,11 +4852,11 @@ const wizardSteps = computed(() => {
   const hasAnyPosted = (periods.value || []).some((p) => ['posted', 'finalized'].includes(String(p?.status || '').toLowerCase()));
   const steps = [];
   if (hasAnyPosted) {
-    steps.push({ key: 'prior', title: 'Submit old payroll' });
+    steps.push({ key: 'prior', title: 'Post prior period (process changes)' });
   }
   steps.push(
-    { key: 'review', title: 'Review changes' },
-    { key: 'apply', title: 'Apply changes to current' },
+    { key: 'apply', title: 'Post differences to current payroll' },
+    { key: 'review', title: 'Review differences' },
     { key: 'drafts', title: 'Raw import: Draft audit' },
     { key: 'h0031', title: 'Process H0031' },
     { key: 'h0032', title: 'Process H0032' },
@@ -4820,7 +4878,12 @@ const loadPayrollWizardProgress = async () => {
     const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/wizard-progress`);
     const state = resp.data?.state || null;
     wizardState.value = state && typeof state === 'object' ? state : null;
-    const idx = Number(wizardState.value?.stepIdx || 0);
+    let idx = Number(wizardState.value?.stepIdx || 0);
+    const key = String(wizardState.value?.stepKey || '').trim();
+    if (key) {
+      const byKey = wizardSteps.value.findIndex((s) => s?.key === key);
+      if (byKey >= 0) idx = byKey;
+    }
     wizardStepIdx.value = Number.isFinite(idx) && idx >= 0 ? Math.min(idx, Math.max(0, wizardSteps.value.length - 1)) : 0;
   } catch (e) {
     wizardError.value = e.response?.data?.error?.message || e.message || 'Failed to load wizard progress';
@@ -4828,6 +4891,18 @@ const loadPayrollWizardProgress = async () => {
     wizardStepIdx.value = 0;
   } finally {
     wizardLoading.value = false;
+  }
+};
+
+const processChangesCard = ref(null);
+const wizardGoToProcessChanges = async () => {
+  // Wizard is a modal; close it then scroll to the Process Changes section.
+  showPayrollWizardModal.value = false;
+  await nextTick();
+  try {
+    processChangesCard.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  } catch {
+    // ignore
   }
 };
 
@@ -7134,6 +7209,81 @@ const suggestedCurrentPeriodRange = computed(() => {
 
 const LS_LAST_ORG_ID = 'payroll:lastOrgId';
 const lsLastPeriodKey = (agencyIdVal) => `payroll:lastPeriodId:${agencyIdVal}`;
+const LS_PROCESS_CHANGES_AGGREGATE = 'payroll:processChangesAggregate:v1';
+
+const safeJsonParse = (raw, fallback) => {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+};
+
+// ---- Process Changes aggregate (cross-agency) ----
+// Persisted so super admins can switch orgs while processing and still see totals.
+const processChangesAggregate = ref(
+  safeJsonParse(localStorage.getItem(LS_PROCESS_CHANGES_AGGREGATE) || '[]', [])
+);
+
+const persistProcessChangesAggregate = () => {
+  try {
+    localStorage.setItem(LS_PROCESS_CHANGES_AGGREGATE, JSON.stringify(processChangesAggregate.value || []));
+  } catch {
+    // ignore
+  }
+};
+
+const clearProcessChangesAggregate = () => {
+  processChangesAggregate.value = [];
+  try {
+    localStorage.removeItem(LS_PROCESS_CHANGES_AGGREGATE);
+  } catch {
+    // ignore
+  }
+};
+
+const recordProcessChangesAggregateEntry = (entry) => {
+  const e = entry || {};
+  const agencyIdVal = Number(e.agencyId || 0) || null;
+  if (!agencyIdVal) return;
+  const next = Array.isArray(processChangesAggregate.value) ? processChangesAggregate.value.slice() : [];
+  // De-dupe: same agency + destination + prior => update, else append.
+  const key = `${agencyIdVal}:${Number(e.destinationPeriodId || 0) || 0}:${Number(e.priorPeriodId || 0) || 0}`;
+  const idx = next.findIndex((x) => String(x?.key || '') === key);
+  const row = {
+    key,
+    agencyId: agencyIdVal,
+    agencyName: String(e.agencyName || '').trim() || `Agency #${agencyIdVal}`,
+    destinationPeriodId: Number(e.destinationPeriodId || 0) || null,
+    destinationPeriodLabel: String(e.destinationPeriodLabel || '').trim() || '',
+    priorPeriodId: Number(e.priorPeriodId || 0) || null,
+    priorPeriodLabel: String(e.priorPeriodLabel || '').trim() || '',
+    unitsApplied: Number(e.unitsApplied || 0) || 0,
+    rowsInserted: Number(e.rowsInserted || 0) || 0,
+    appliedAt: String(e.appliedAt || new Date().toISOString())
+  };
+  if (idx >= 0) next[idx] = row;
+  else next.unshift(row);
+  processChangesAggregate.value = next;
+  persistProcessChangesAggregate();
+};
+
+const processChangesAggregateTotals = computed(() => {
+  const rows = Array.isArray(processChangesAggregate.value) ? processChangesAggregate.value : [];
+  let units = 0;
+  let inserted = 0;
+  const agencies = new Set();
+  for (const r of rows) {
+    agencies.add(Number(r?.agencyId || 0));
+    units += Number(r?.unitsApplied || 0) || 0;
+    inserted += Number(r?.rowsInserted || 0) || 0;
+  }
+  return {
+    agencyCount: Array.from(agencies).filter((x) => x > 0).length,
+    unitsAppliedTotal: Number(units.toFixed(2)),
+    rowsInsertedTotal: inserted
+  };
+});
 
 const showOffSchedulePeriods = ref(false);
 
@@ -7735,6 +7885,8 @@ const applyCarryover = async () => {
       }))
       .filter((r) => !!r.userId && !!r.serviceCode && Number(r.carryoverFinalizedUnits || 0) > 0);
 
+    const unitsApplied = (rows || []).reduce((acc, r) => acc + (Number(r?.carryoverFinalizedUnits || 0) || 0), 0);
+
     const doApply = async (params) => {
       const resp = await api.post(`/payroll/periods/${selectedPeriodId.value}/carryover/apply`, { rows }, { params });
       return resp?.data || null;
@@ -7770,6 +7922,28 @@ const applyCarryover = async () => {
         throw e;
       }
     }
+
+    // Record cross-agency aggregate so users can switch agencies and still see totals.
+    try {
+      const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+      const agencyName = String(a?.name || '').trim();
+      const destLabel = selectedPeriodForUi.value ? periodRangeLabel(selectedPeriodForUi.value) : '';
+      const prior = (periods.value || []).find((p) => Number(p?.id) === Number(carryoverPriorPeriodId.value)) || null;
+      const priorLabel = prior ? periodRangeLabel(prior) : (carryoverPriorPeriodId.value ? `Period #${carryoverPriorPeriodId.value}` : '');
+      recordProcessChangesAggregateEntry({
+        agencyId: agencyId.value,
+        agencyName: agencyName || undefined,
+        destinationPeriodId: selectedPeriodId.value,
+        destinationPeriodLabel: destLabel || undefined,
+        priorPeriodId: carryoverPriorPeriodId.value,
+        priorPeriodLabel: priorLabel || undefined,
+        unitsApplied: Number(unitsApplied.toFixed(2)),
+        rowsInserted: Number(carryoverApplyResult.value?.inserted || 0) || rows.length
+      });
+    } catch {
+      // ignore (best-effort)
+    }
+
     await loadStaging();
   } catch (e) {
     carryoverError.value = e.response?.data?.error?.message || e.message || 'Failed to apply differences';

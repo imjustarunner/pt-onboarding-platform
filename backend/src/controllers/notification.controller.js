@@ -19,7 +19,8 @@ function viewerAudienceKey(role) {
   const r = String(role || '').trim().toLowerCase();
   if (r === 'supervisor') return 'supervisor';
   if (r === 'clinical_practice_assistant') return 'clinicalPracticeAssistant';
-  if (r === 'admin' || r === 'super_admin' || r === 'support') return 'admin';
+  // Treat internal staff as admin-like for notification audiences.
+  if (r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff') return 'admin';
   return 'provider';
 }
 

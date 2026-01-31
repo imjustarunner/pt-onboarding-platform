@@ -30,6 +30,8 @@ class Notification {
     'client_note',
     // Platform chat (internal DM)
     'chat_message',
+    // School portal ticketing
+    'support_ticket_created',
     // Client pipeline automation
     'paperwork_received',
     'client_became_current',

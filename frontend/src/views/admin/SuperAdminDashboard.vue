@@ -15,10 +15,40 @@
     
     <div v-else class="dashboard-content">
       <div class="dashboard-grid">
-        <router-link to="/admin/settings?tab=agencies" class="stat-card">
-          <h3>Total Agencies</h3>
-          <p class="stat-value">{{ stats.totalAgencies }}</p>
-        </router-link>
+        <div class="stat-card">
+          <router-link to="/admin/settings?tab=agencies" class="stat-card-link">
+            <h3>Total Agencies</h3>
+            <p class="stat-value">{{ stats.totalAgencies }}</p>
+          </router-link>
+
+          <button
+            class="stat-details-toggle"
+            type="button"
+            @click.stop.prevent="showOrgBreakdown = !showOrgBreakdown"
+            :aria-expanded="showOrgBreakdown ? 'true' : 'false'"
+          >
+            {{ showOrgBreakdown ? 'Hide breakdown' : 'Show breakdown' }}
+          </button>
+
+          <div v-if="showOrgBreakdown" class="stat-details" @click.stop>
+            <div class="stat-details-row">
+              <span class="k">Total schools</span>
+              <span class="v">{{ orgTypeCounts.school }}</span>
+            </div>
+            <div class="stat-details-row">
+              <span class="k">Total programs</span>
+              <span class="v">{{ orgTypeCounts.program }}</span>
+            </div>
+            <div class="stat-details-row">
+              <span class="k">Total learning</span>
+              <span class="v">{{ orgTypeCounts.learning }}</span>
+            </div>
+            <div class="stat-details-row">
+              <span class="k">Total organizations</span>
+              <span class="v">{{ orgTypeCounts.total }}</span>
+            </div>
+          </div>
+        </div>
         
         <router-link to="/admin/users" class="stat-card">
           <h3>Active Users</h3>
@@ -82,6 +112,8 @@ const stats = ref({
   trainingFocusTemplates: 0,
   totalModules: 0
 });
+const orgTypeCounts = ref({ total: 0, agency: 0, school: 0, program: 0, learning: 0, other: 0 });
+const showOrgBreakdown = ref(false);
 const agencies = ref([]);
 const selectedOrgId = ref(null);
 const orgOverviewSummary = ref({ counts: { school: 0, program: 0, learning: 0, other: 0 } });
@@ -107,9 +139,20 @@ const fetchStats = async () => {
 
     const rawOrgs = Array.isArray(agenciesRes.data) ? agenciesRes.data : [];
     const primaryAgencies = rawOrgs.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+
+    const counts = { total: rawOrgs.length, agency: 0, school: 0, program: 0, learning: 0, other: 0 };
+    for (const o of rawOrgs) {
+      const t = String(o?.organization_type || '').trim().toLowerCase();
+      if (t === 'agency') counts.agency += 1;
+      else if (t === 'school') counts.school += 1;
+      else if (t === 'program') counts.program += 1;
+      else if (t === 'learning') counts.learning += 1;
+      else counts.other += 1;
+    }
+    orgTypeCounts.value = counts;
     
     stats.value = {
-      totalAgencies: rawOrgs.length,
+      totalAgencies: primaryAgencies.length,
       activeUsers: (usersRes.data || []).filter((u) => String(u?.status || '').toUpperCase() === 'ACTIVE_EMPLOYEE').length,
       trainingFocusTemplates: templatesRes.data.length,
       totalModules: modulesRes.data.length
@@ -488,12 +531,62 @@ onMounted(async () => {
   text-decoration: none;
   color: inherit;
   cursor: pointer;
+  position: relative;
 }
 
 .stat-card:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
   border-color: var(--primary);
+}
+
+.stat-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
+.stat-details-toggle {
+  margin-top: 14px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 700;
+  width: 100%;
+}
+
+.stat-details-toggle:hover {
+  border-color: var(--primary);
+}
+
+.stat-details {
+  margin-top: 12px;
+  text-align: left;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.stat-details-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.stat-details-row .k {
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.stat-details-row .v {
+  color: var(--text-primary);
+  font-weight: 900;
 }
 
 .stat-card h3 {

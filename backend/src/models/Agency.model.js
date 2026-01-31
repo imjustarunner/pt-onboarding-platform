@@ -629,6 +629,7 @@ class Agency {
       firstLoginIconId,
       firstLoginPendingIconId,
       passwordChangedIconId,
+      supportTicketCreatedIconId,
 
       // "My Dashboard" card icon overrides (optional columns)
       myDashboardChecklistIconId,
@@ -657,7 +658,10 @@ class Agency {
 
       // Tier system (agency-specific; optional columns)
       tierSystemEnabled,
-      tierThresholds
+      tierThresholds,
+
+      // Ticketing notifications (optional columns)
+      ticketingNotificationOrgTypes
     } = agencyData;
     
     // Check if icon_id column exists
@@ -794,20 +798,81 @@ class Agency {
       insertValues.push(onboardingTeamEmail || null, phoneNumber || null, phoneExtension || null, portalUrl ? portalUrl.toLowerCase() : null, themeSettings ? JSON.stringify(themeSettings) : null);
     }
     
-    // Check if notification icon columns exist
+    // Check which notification icon columns exist (optional, best-effort)
     let hasNotificationIcons = false;
+    let hasSupportTicketCreatedIcon = false;
     try {
-      const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'status_expired_icon_id'"
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('status_expired_icon_id','support_ticket_created_icon_id')"
       );
-      hasNotificationIcons = columns.length > 0;
+      const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+      hasNotificationIcons = names.has('status_expired_icon_id');
+      hasSupportTicketCreatedIcon = names.has('support_ticket_created_icon_id');
     } catch (e) {
       hasNotificationIcons = false;
+      hasSupportTicketCreatedIcon = false;
     }
-    
+
+    if (supportTicketCreatedIconId !== undefined && !hasSupportTicketCreatedIcon) {
+      const err = new Error(
+        'Cannot save Support ticket notification icon: database missing agencies.support_ticket_created_icon_id. Run database/migrations/308_support_ticket_notifications.sql.'
+      );
+      err.status = 409;
+      throw err;
+    }
+
     if (hasNotificationIcons) {
-      insertFields.push('status_expired_icon_id', 'temp_password_expired_icon_id', 'task_overdue_icon_id', 'onboarding_completed_icon_id', 'invitation_expired_icon_id', 'first_login_icon_id', 'first_login_pending_icon_id', 'password_changed_icon_id');
-      insertValues.push(statusExpiredIconId || null, tempPasswordExpiredIconId || null, taskOverdueIconId || null, onboardingCompletedIconId || null, invitationExpiredIconId || null, firstLoginIconId || null, firstLoginPendingIconId || null, passwordChangedIconId || null);
+      insertFields.push(
+        'status_expired_icon_id',
+        'temp_password_expired_icon_id',
+        'task_overdue_icon_id',
+        'onboarding_completed_icon_id',
+        'invitation_expired_icon_id',
+        'first_login_icon_id',
+        'first_login_pending_icon_id',
+        'password_changed_icon_id'
+      );
+      insertValues.push(
+        statusExpiredIconId || null,
+        tempPasswordExpiredIconId || null,
+        taskOverdueIconId || null,
+        onboardingCompletedIconId || null,
+        invitationExpiredIconId || null,
+        firstLoginIconId || null,
+        firstLoginPendingIconId || null,
+        passwordChangedIconId || null
+      );
+    }
+
+    if (hasSupportTicketCreatedIcon) {
+      insertFields.push('support_ticket_created_icon_id');
+      insertValues.push(supportTicketCreatedIconId || null);
+    }
+
+    // Ticketing notification org-type scope (optional)
+    let hasTicketingOrgTypes = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'ticketing_notification_org_types_json'"
+      );
+      hasTicketingOrgTypes = (cols || []).length > 0;
+    } catch {
+      hasTicketingOrgTypes = false;
+    }
+    if (ticketingNotificationOrgTypes !== undefined && !hasTicketingOrgTypes) {
+      const err = new Error(
+        'Cannot save ticketing notification scope: database missing agencies.ticketing_notification_org_types_json. Run database/migrations/308_support_ticket_notifications.sql.'
+      );
+      err.status = 409;
+      throw err;
+    }
+    if (hasTicketingOrgTypes) {
+      insertFields.push('ticketing_notification_org_types_json');
+      insertValues.push(
+        ticketingNotificationOrgTypes === null || ticketingNotificationOrgTypes === undefined
+          ? null
+          : JSON.stringify(ticketingNotificationOrgTypes)
+      );
     }
 
     // "My Dashboard" icon overrides (optional)
@@ -946,7 +1011,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
@@ -1561,17 +1626,39 @@ class Agency {
       values.push(organizationType);
     }
     
-    // Check if notification icon columns exist
+    // Notification icon overrides (optional columns; some DBs may be partially migrated).
     let hasNotificationIcons = false;
+    let hasSupportTicketCreatedIcon = false;
+    let hasTicketingOrgTypes = false;
     try {
-      const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'status_expired_icon_id'"
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('status_expired_icon_id','support_ticket_created_icon_id','ticketing_notification_org_types_json')"
       );
-      hasNotificationIcons = columns.length > 0;
+      const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+      hasNotificationIcons = names.has('status_expired_icon_id');
+      hasSupportTicketCreatedIcon = names.has('support_ticket_created_icon_id');
+      hasTicketingOrgTypes = names.has('ticketing_notification_org_types_json');
     } catch (e) {
       hasNotificationIcons = false;
+      hasSupportTicketCreatedIcon = false;
+      hasTicketingOrgTypes = false;
     }
-    
+
+    if (supportTicketCreatedIconId !== undefined && !hasSupportTicketCreatedIcon) {
+      const err = new Error(
+        'Cannot save Support ticket notification icon: database missing agencies.support_ticket_created_icon_id. Run database/migrations/308_support_ticket_notifications.sql.'
+      );
+      err.status = 409;
+      throw err;
+    }
+    if (ticketingNotificationOrgTypes !== undefined && !hasTicketingOrgTypes) {
+      const err = new Error(
+        'Cannot save ticketing notification scope: database missing agencies.ticketing_notification_org_types_json. Run database/migrations/308_support_ticket_notifications.sql.'
+      );
+      err.status = 409;
+      throw err;
+    }
+
     if (hasNotificationIcons) {
       if (statusExpiredIconId !== undefined) {
         updates.push('status_expired_icon_id = ?');
@@ -1605,6 +1692,20 @@ class Agency {
         updates.push('password_changed_icon_id = ?');
         values.push(passwordChangedIconId || null);
       }
+    }
+
+    if (hasSupportTicketCreatedIcon && supportTicketCreatedIconId !== undefined) {
+      updates.push('support_ticket_created_icon_id = ?');
+      values.push(supportTicketCreatedIconId || null);
+    }
+
+    if (hasTicketingOrgTypes && ticketingNotificationOrgTypes !== undefined) {
+      updates.push('ticketing_notification_org_types_json = ?');
+      values.push(
+        ticketingNotificationOrgTypes === null || ticketingNotificationOrgTypes === undefined
+          ? null
+          : JSON.stringify(ticketingNotificationOrgTypes)
+      );
     }
     
     // Check if portal config columns exist

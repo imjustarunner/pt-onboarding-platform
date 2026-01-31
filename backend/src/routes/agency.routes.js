@@ -69,6 +69,14 @@ const validateCreateAgency = [
   validateIconId('schoolPortalParentQrIconId'),
   validateIconId('schoolPortalParentSignIconId'),
   validateIconId('schoolPortalUploadPacketIconId'),
+  validateIconId('supportTicketCreatedIconId'),
+  body('ticketingNotificationOrgTypes').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    const parsed = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return null; } })() : value;
+    if (!Array.isArray(parsed)) return false;
+    const allowed = new Set(['school', 'program', 'learning']);
+    return parsed.every((t) => allowed.has(String(t || '').trim().toLowerCase()));
+  }).withMessage('ticketingNotificationOrgTypes must be an array containing only: school, program, learning'),
   body('certificateTemplateUrl').optional().isURL().withMessage('Certificate template URL must be a valid URL'),
   body('onboardingTeamEmail').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (!value || value === null || value === '' || value === undefined) return true;
@@ -181,6 +189,14 @@ const validateUpdateAgency = [
   validateIconId('schoolPortalParentQrIconId'),
   validateIconId('schoolPortalParentSignIconId'),
   validateIconId('schoolPortalUploadPacketIconId'),
+  validateIconId('supportTicketCreatedIconId'),
+  body('ticketingNotificationOrgTypes').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    const parsed = typeof value === 'string' ? (() => { try { return JSON.parse(value); } catch { return null; } })() : value;
+    if (!Array.isArray(parsed)) return false;
+    const allowed = new Set(['school', 'program', 'learning']);
+    return parsed.every((t) => allowed.has(String(t || '').trim().toLowerCase()));
+  }).withMessage('ticketingNotificationOrgTypes must be an array containing only: school, program, learning'),
   body('certificateTemplateUrl').optional().custom((value) => {
     // Allow null, undefined, or empty string
     if (!value || value === null || value === '' || value === undefined) return true;

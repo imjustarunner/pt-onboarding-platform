@@ -27,6 +27,7 @@
           <option value="first_login">First Login</option>
           <option value="first_login_pending">First Login (Pending)</option>
           <option value="password_changed">Password Changed</option>
+          <option value="support_ticket_created">Support Tickets</option>
         </select>
       </div>
       <div class="filter-group">
@@ -294,7 +295,8 @@ const getTypeLabel = (type) => {
     invitation_expired: 'Invitation Expirations',
     first_login: 'First Login',
     first_login_pending: 'First Login (Pending)',
-    password_changed: 'Password Changed'
+    password_changed: 'Password Changed',
+    support_ticket_created: 'Support Tickets'
   };
   return labels[type] || type;
 };
@@ -443,6 +445,9 @@ const getNotificationNavigationPath = async (notification) => {
   } else if (notification.type === 'pending_completed' && notification.user_id) {
     // For pending completed, navigate to user's profile
     return `/admin/users/${notification.user_id}`;
+  } else if (notification.type === 'support_ticket_created' && notification.related_entity_type === 'support_ticket' && notification.related_entity_id) {
+    // Ticketing: open the support ticket queue and auto-open the ticket.
+    return `/admin/support-tickets?status=open&ticketId=${encodeURIComponent(String(notification.related_entity_id))}`;
   } else if (notification.related_entity_type === 'chat_thread' && notification.related_entity_id) {
     // Platform chat deeplink
     try {

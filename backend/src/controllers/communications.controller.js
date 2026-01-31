@@ -7,6 +7,11 @@ const canViewSms = (role) => {
   return r === 'support' || r === 'admin' || r === 'super_admin' || r === 'clinical_practice_assistant';
 };
 
+const canViewTickets = (role) => {
+  const r = String(role || '').toLowerCase();
+  return r === 'support' || r === 'admin' || r === 'super_admin' || r === 'clinical_practice_assistant' || r === 'staff';
+};
+
 async function getAgencyIdsForUser(userId, role, forcedAgencyId) {
   const reqAgency = forcedAgencyId ? Number(forcedAgencyId) : null;
   if (reqAgency) {
@@ -181,8 +186,52 @@ export const getCommunicationsFeed = async (req, res, next) => {
       }));
     }
 
+    // Ticket feed: only for admin-like roles.
+    let ticketItems = [];
+    if (canViewTickets(role)) {
+      try {
+        const placeholders = agencyIds.map(() => '?').join(',');
+        const whereOrg = organizationId ? ' AND t.school_organization_id = ?' : '';
+        const params = organizationId ? [...agencyIds, organizationId, limit] : [...agencyIds, limit];
+        const [rows] = await pool.execute(
+          `SELECT t.id,
+                  t.agency_id,
+                  t.school_organization_id,
+                  t.subject,
+                  t.question,
+                  t.status,
+                  t.created_at,
+                  t.answered_at,
+                  s.name AS school_name
+           FROM support_tickets t
+           LEFT JOIN agencies s ON s.id = t.school_organization_id
+           WHERE t.agency_id IN (${placeholders})${whereOrg}
+           ORDER BY t.created_at DESC
+           LIMIT ?`,
+          params
+        );
+        ticketItems = (rows || []).map((t) => {
+          const subj = String(t.subject || 'Support ticket').trim();
+          const q = String(t.question || '').trim();
+          const preview = q ? `${subj}: ${q}` : subj;
+          return {
+            kind: 'ticket',
+            id: Number(t.id),
+            agency_id: Number(t.agency_id),
+            school_organization_id: t.school_organization_id ? Number(t.school_organization_id) : null,
+            school_name: t.school_name || null,
+            status: t.status || null,
+            preview: preview.length > 500 ? preview.slice(0, 497) + '...' : preview,
+            created_at: t.answered_at || t.created_at
+          };
+        });
+      } catch {
+        ticketItems = [];
+      }
+    }
+
     // Merge + sort newest first.
-    const merged = [...chatItems, ...smsItems].sort((a, b) => {
+    const merged = [...chatItems, ...smsItems, ...ticketItems].sort((a, b) => {
       const at = a.kind === 'chat' ? new Date(a.last_message_at || 0).getTime() : new Date(a.created_at || 0).getTime();
       const bt = b.kind === 'chat' ? new Date(b.last_message_at || 0).getTime() : new Date(b.created_at || 0).getTime();
       return bt - at;

@@ -642,31 +642,46 @@ export const useBrandingStore = defineStore('branding', () => {
   // Get notification icon URL for a specific notification type
   // Priority: Agency-level icon > Platform-level icon > null (fallback to emoji)
   const getNotificationIconUrl = (notificationType, agencyId = null) => {
-    const iconFieldMap = {
-      status_expired: 'status_expired_icon_path',
-      temp_password_expired: 'temp_password_expired_icon_path',
-      task_overdue: 'task_overdue_icon_path',
-      onboarding_completed: 'onboarding_completed_icon_path',
-      invitation_expired: 'invitation_expired_icon_path',
-      first_login: 'first_login_icon_path',
-      first_login_pending: 'first_login_pending_icon_path',
-      password_changed: 'password_changed_icon_path'
+    const iconFieldBaseMap = {
+      status_expired: 'status_expired_icon',
+      temp_password_expired: 'temp_password_expired_icon',
+      task_overdue: 'task_overdue_icon',
+      onboarding_completed: 'onboarding_completed_icon',
+      invitation_expired: 'invitation_expired_icon',
+      first_login: 'first_login_icon',
+      first_login_pending: 'first_login_pending_icon',
+      password_changed: 'password_changed_icon',
+      // Ticketing / school staff help desk
+      support_ticket_created: 'support_ticket_created_icon'
     };
 
-    const iconPathField = iconFieldMap[notificationType];
-    if (!iconPathField) return null;
+    const base = iconFieldBaseMap[notificationType];
+    if (!base) return null;
+
+    const iconPathField = `${base}_path`;
+    const iconIdField = `${base}_id`;
+
+    const resolveFromOrg = (org) => {
+      if (!org) return null;
+      if (org?.[iconPathField]) return toUploadsUrl(org[iconPathField]);
+      if (org?.[iconIdField]) {
+        const url = iconUrlById(org[iconIdField]);
+        if (url) return url;
+        // Best-effort: fetch icon path lazily so the UI can re-render with the icon.
+        prefetchIconIds([org[iconIdField]]).catch(() => {});
+      }
+      return null;
+    };
 
     // Priority 1: Agency-level icon (if agency is specified)
     if (agencyId !== null) {
       const agency = agencyStore.agencies?.find(a => a.id === agencyId);
-      if (agency?.[iconPathField]) return toUploadsUrl(agency[iconPathField]);
+      const url = resolveFromOrg(agency);
+      if (url) return url;
     }
 
     // Priority 2: Platform-level icon
-    const pb = platformBranding.value;
-    if (pb?.[iconPathField]) return toUploadsUrl(pb[iconPathField]);
-
-    return null;
+    return resolveFromOrg(platformBranding.value);
   };
 
   // Get icon URL for a specific "My Dashboard" card

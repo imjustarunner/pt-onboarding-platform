@@ -105,7 +105,7 @@ export const createAgency = async (req, res, next) => {
       return res.status(400).json({ error: { message: `Validation failed: ${errorMessages}`, errors: errors.array() } });
     }
 
-    const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, tierSystemEnabled, tierThresholds } = req.body;
+    const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, tierSystemEnabled, tierThresholds } = req.body;
 
     // Only super admins can create "agency" organizations. Admins can create school/program/learning.
     const requestedType = (organizationType || 'agency').toLowerCase();
@@ -208,6 +208,8 @@ export const createAgency = async (req, res, next) => {
       firstLoginIconId,
       firstLoginPendingIconId,
       passwordChangedIconId,
+      supportTicketCreatedIconId,
+      ticketingNotificationOrgTypes,
       myDashboardChecklistIconId,
       myDashboardTrainingIconId,
       myDashboardDocumentsIconId,
@@ -281,7 +283,7 @@ export const updateAgency = async (req, res, next) => {
     }
 
     const { id } = req.params;
-    const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageClientsIconId, schoolOverviewIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, dashboardNotificationsIconId, dashboardCommunicationsIconId, dashboardChatsIconId, dashboardPayrollIconId, dashboardBillingIconId, externalCalendarAuditIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, slug, officialName, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, manageAgenciesIconId, manageClientsIconId, schoolOverviewIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, dashboardNotificationsIconId, dashboardCommunicationsIconId, dashboardChatsIconId, dashboardPayrollIconId, dashboardBillingIconId, externalCalendarAuditIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, affiliatedAgencyId, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId, schoolPortalPublicDocumentsIconId, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
     } = req.body;
     
@@ -433,7 +435,9 @@ export const updateAgency = async (req, res, next) => {
       invitationExpiredIconId,
       firstLoginIconId,
       firstLoginPendingIconId,
-      passwordChangedIconId
+      passwordChangedIconId,
+      supportTicketCreatedIconId,
+      ticketingNotificationOrgTypes
       ,companyProfileIconId
       ,teamRolesIconId
       ,billingIconId
@@ -472,8 +476,10 @@ export const updateAgency = async (req, res, next) => {
         const primaryContactEmail = sp.primaryContactEmail !== undefined ? String(sp.primaryContactEmail || '').trim() : '';
         const primaryContactRole = sp.primaryContactRole !== undefined ? String(sp.primaryContactRole || '').trim() : '';
         const secondaryContactText = sp.secondaryContactText !== undefined ? String(sp.secondaryContactText || '').trim() : '';
-        const bellScheduleStartTime = sp.bellScheduleStartTime !== undefined ? normalizeTime(sp.bellScheduleStartTime) : undefined;
-        const bellScheduleEndTime = sp.bellScheduleEndTime !== undefined ? normalizeTime(sp.bellScheduleEndTime) : undefined;
+        const hasBellScheduleStartTime = sp.bellScheduleStartTime !== undefined;
+        const hasBellScheduleEndTime = sp.bellScheduleEndTime !== undefined;
+        const bellScheduleStartTime = hasBellScheduleStartTime ? normalizeTime(sp.bellScheduleStartTime) : undefined;
+        const bellScheduleEndTime = hasBellScheduleEndTime ? normalizeTime(sp.bellScheduleEndTime) : undefined;
 
         try {
           await pool.execute(
@@ -491,8 +497,10 @@ export const updateAgency = async (req, res, next) => {
                primary_contact_email = COALESCE(VALUES(primary_contact_email), primary_contact_email),
                primary_contact_role = COALESCE(VALUES(primary_contact_role), primary_contact_role),
                secondary_contact_text = COALESCE(VALUES(secondary_contact_text), secondary_contact_text),
-               bell_schedule_start_time = COALESCE(VALUES(bell_schedule_start_time), bell_schedule_start_time),
-               bell_schedule_end_time = COALESCE(VALUES(bell_schedule_end_time), bell_schedule_end_time)`,
+               -- Allow explicit clears (NULL) when the field is provided, but preserve existing
+               -- values when the field is omitted from the request body.
+               bell_schedule_start_time = CASE WHEN ? THEN VALUES(bell_schedule_start_time) ELSE bell_schedule_start_time END,
+               bell_schedule_end_time = CASE WHEN ? THEN VALUES(bell_schedule_end_time) ELSE bell_schedule_end_time END`,
             [
               parseInt(id, 10),
               districtName || null,
@@ -504,7 +512,9 @@ export const updateAgency = async (req, res, next) => {
               primaryContactRole || null,
               secondaryContactText || null,
               bellScheduleStartTime === undefined ? null : bellScheduleStartTime,
-              bellScheduleEndTime === undefined ? null : bellScheduleEndTime
+              bellScheduleEndTime === undefined ? null : bellScheduleEndTime,
+              hasBellScheduleStartTime ? 1 : 0,
+              hasBellScheduleEndTime ? 1 : 0
             ]
           );
         } catch (e) {
@@ -575,7 +585,10 @@ export const updateAgency = async (req, res, next) => {
       await OrganizationAffiliation.upsert({ agencyId: newAffId, organizationId: agency.id, isActive: true });
     }
 
-    res.json(agency);
+    // IMPORTANT: return a refreshed org record so callers immediately see any attached
+    // `school_profile` updates (including bell schedule start/end times).
+    const refreshedAgency = await Agency.findById(id);
+    res.json(refreshedAgency || agency);
   } catch (error) {
     next(error);
   }

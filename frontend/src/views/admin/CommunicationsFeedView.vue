@@ -26,17 +26,26 @@
         >
           <div class="left">
             <div class="top">
-              <span class="badge" :class="item.kind === 'chat' ? 'chat' : (item.direction === 'INBOUND' ? 'in' : 'out')">
-                {{ item.kind === 'chat' ? 'CHAT' : item.direction }}
+              <span
+                class="badge"
+                :class="item.kind === 'chat' ? 'chat' : (item.kind === 'ticket' ? 'ticket' : (item.direction === 'INBOUND' ? 'in' : 'out'))"
+              >
+                {{ item.kind === 'chat' ? 'CHAT' : (item.kind === 'ticket' ? 'TICKET' : item.direction) }}
               </span>
               <span v-if="item.kind === 'chat'" class="client">
                 {{ chatLabel(item) }}
+              </span>
+              <span v-else-if="item.kind === 'ticket'" class="client">
+                School: {{ item.school_name || (item.school_organization_id ? `#${item.school_organization_id}` : '—') }}
               </span>
               <span v-else class="client">
                 Client: {{ item.client_initials || '—' }}
               </span>
               <span v-if="item.kind === 'chat' && item.last_sender_role" class="owner">
                 From: {{ formatRole(item.last_sender_role) }}
+              </span>
+              <span v-else-if="item.kind === 'ticket'" class="owner">
+                Status: {{ String(item.status || 'open').toUpperCase() }}
               </span>
               <span v-else-if="item.kind === 'sms'" class="owner">
                 Owner: {{ formatOwner(item) }}
@@ -48,6 +57,9 @@
             <div class="time">{{ formatTime(itemTime(item)) }}</div>
             <div v-if="item.kind === 'chat' && Number(item.unread_count || 0) > 0" class="pill">
               {{ Number(item.unread_count) }}
+            </div>
+            <div v-else-if="item.kind === 'ticket' && String(item.status || '').toLowerCase() === 'open'" class="pill">
+              NEW
             </div>
           </div>
         </button>
@@ -102,7 +114,11 @@ const load = async () => {
   }
 };
 
-const itemKey = (i) => (i.kind === 'chat' ? `chat-${i.thread_id}` : `sms-${i.id}`);
+const itemKey = (i) => {
+  if (i.kind === 'chat') return `chat-${i.thread_id}`;
+  if (i.kind === 'ticket') return `ticket-${i.id}`;
+  return `sms-${i.id}`;
+};
 
 const itemTime = (i) => (i.kind === 'chat' ? (i.last_message_at || i.updated_at) : i.created_at);
 
@@ -119,6 +135,14 @@ const chatLabel = (i) => {
 };
 
 const openItem = async (i) => {
+  if (i.kind === 'ticket') {
+    const q = {};
+    if (i.school_organization_id) q.schoolOrganizationId = String(i.school_organization_id);
+    q.status = 'open';
+    if (i.id) q.ticketId = String(i.id);
+    router.push({ path: '/admin/support-tickets', query: q });
+    return;
+  }
   if (i.kind === 'sms') {
     if (!i.user_id || !i.client_id) return;
     router.push(`/admin/communications/thread/${i.user_id}/${i.client_id}`);
@@ -196,6 +220,7 @@ onMounted(async () => {
 }
 .badge.in { background: rgba(253,176,34,0.15); }
 .badge.out { background: rgba(23,178,106,0.15); }
+.badge.ticket { background: rgba(108,117,125,0.12); }
 .body {
   margin-top: 6px;
   color: var(--text-primary);

@@ -83,7 +83,8 @@ const categories = computed(() => {
     { type: 'invitation_expired', label: 'Invitation Expired' },
     { type: 'first_login', label: 'First Login' },
     { type: 'first_login_pending', label: 'First Login (Pending)' },
-    { type: 'password_changed', label: 'Password Changed' }
+    { type: 'password_changed', label: 'Password Changed' },
+    { type: 'support_ticket_created', label: 'Support Tickets' }
   ];
 
   return categoryTypes.map(cat => ({
@@ -112,7 +113,8 @@ const getCategoryIcon = (type) => {
     invitation_expired: '📧',
     first_login: '👋',
     first_login_pending: '⏳',
-    password_changed: '🔐'
+    password_changed: '🔐',
+    support_ticket_created: '🎟️'
   };
   return icons[type] || '📢';
 };
@@ -151,7 +153,8 @@ const fetchCategoryCounts = async () => {
       invitation_expired: 0,
       first_login: 0,
       first_login_pending: 0,
-      password_changed: 0
+      password_changed: 0,
+      support_ticket_created: 0
     };
 
     response.data.forEach(notification => {
