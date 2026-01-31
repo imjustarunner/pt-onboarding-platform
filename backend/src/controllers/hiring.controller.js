@@ -62,13 +62,35 @@ export const listCandidates = async (req, res, next) => {
     await ensureAgencyAccess(req, agencyId);
 
     const status = req.query.status ? String(req.query.status).trim() : 'PROSPECTIVE';
+    const statusNorm = String(status || '').trim().toUpperCase();
     const q = String(req.query.q || '').trim();
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 200, 1), 500);
 
-    const params = [agencyId, status];
-    let whereQ = '';
+    // IMPORTANT:
+    // - Primary intent is "prospective applicants".
+    // - Some DBs may not yet support users.status='PROSPECTIVE' (enum not migrated),
+    //   and our User.create() will normalize to a fallback status.
+    // To prevent "created then disappeared" behavior, we include any record that has a
+    // hiring_profile and is not marked hired, when the caller asks for PROSPECTIVE.
+    const params = [agencyId];
+    let whereSql = '';
+    if (statusNorm === 'PROSPECTIVE') {
+      whereSql = `
+        WHERE (
+          u.status = 'PROSPECTIVE'
+          OR (
+            hp.candidate_user_id IS NOT NULL
+            AND LOWER(COALESCE(hp.stage, 'applied')) != 'hired'
+          )
+        )
+      `;
+    } else {
+      whereSql = `WHERE u.status = ?`;
+      params.push(status);
+    }
+
     if (q) {
-      whereQ = ` AND (
+      whereSql += ` AND (
         u.first_name LIKE ?
         OR u.last_name LIKE ?
         OR u.email LIKE ?
@@ -96,7 +118,7 @@ export const listCandidates = async (req, res, next) => {
       FROM users u
       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
       LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
-      WHERE u.status = ?${whereQ}
+      ${whereSql}
       -- Note: users table does not consistently have updated_at; prefer created_at for stable ordering.
       ORDER BY COALESCE(hp.updated_at, hp.created_at, u.created_at) DESC, u.id DESC
       LIMIT ${limit}`,
@@ -370,6 +392,19 @@ export const promoteCandidateToPendingSetup = async (req, res, next) => {
 
     // Move candidate into the existing onboarding pipeline entry point.
     const updated = await User.updateStatus(candidateUserId, 'PENDING_SETUP', req.user.id);
+
+    // Best-effort: mark the hiring profile as hired so it no longer appears in the PROSPECTIVE list.
+    try {
+      const existing = await HiringProfile.findByCandidateUserId(candidateUserId);
+      await HiringProfile.upsert({
+        candidateUserId,
+        stage: 'hired',
+        appliedRole: existing?.applied_role || existing?.appliedRole || null,
+        source: existing?.source || null
+      });
+    } catch {
+      // ignore (older DBs or missing table)
+    }
 
     // Generate a passwordless token for initial setup (7 days).
     const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24);

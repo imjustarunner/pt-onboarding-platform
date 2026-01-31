@@ -314,6 +314,7 @@ const agencyChoices = computed(() => {
 
 const canChooseAgency = computed(() => (agencyChoices.value || []).length > 1);
 const selectedAgencyId = ref('');
+const agencyStorageKey = computed(() => `hiring_selected_agency_v1_${authStore.user?.id || 'anon'}`);
 
 const effectiveAgencyId = computed(() => {
   // First: explicit selection on this page.
@@ -337,6 +338,19 @@ const effectiveAgencyId = computed(() => {
 
   return null;
 });
+
+watch(
+  () => selectedAgencyId.value,
+  (v) => {
+    try {
+      const raw = String(v || '').trim();
+      if (!raw) return;
+      localStorage.setItem(agencyStorageKey.value, raw);
+    } catch {
+      // ignore
+    }
+  }
+);
 
 const candidateName = computed(() => {
   const u = detail.value.user;
@@ -695,6 +709,17 @@ onMounted(async () => {
     }
   } catch {
     // ignore; best effort
+  }
+
+  // Restore last selected agency for this user (prevents “I came back and it’s gone” confusion).
+  try {
+    const raw = localStorage.getItem(agencyStorageKey.value);
+    const restored = raw ? parseInt(String(raw), 10) : null;
+    if (restored && (agencyChoices.value || []).some((a) => Number(a?.id) === restored)) {
+      selectedAgencyId.value = String(restored);
+    }
+  } catch {
+    // ignore
   }
 
   // Default selection to current agency (or first available).
