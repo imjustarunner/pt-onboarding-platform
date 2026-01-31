@@ -952,6 +952,11 @@ onMounted(async () => {
 .hiring-root {
   padding-top: 16px;
   padding-bottom: 40px;
+  /* Keep Applicants from stretching too wide on large screens */
+  max-width: 1320px;
+  margin: 0 auto;
+  padding-left: 16px;
+  padding-right: 16px;
 }
 .header {
   display: flex;
@@ -973,6 +978,7 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 360px 1fr;
   gap: 16px;
+  max-width: 100%;
 }
 .panel {
   background: white;
@@ -1215,11 +1221,16 @@ onMounted(async () => {
   background: #ffffff;
   color: #111827;
   padding: 10px;
+  max-width: 100%;
 }
 .markdown {
   font-size: 14px;
   line-height: 1.55;
   color: #111827;
+  max-width: 100%;
+  overflow-x: auto; /* contain wide tables/links inside the box */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .markdown :deep(h2) {
   font-size: 16px;
@@ -1253,6 +1264,7 @@ onMounted(async () => {
   width: 100%;
   border-collapse: collapse;
   margin: 10px 0;
+  table-layout: fixed;
 }
 .markdown :deep(th),
 .markdown :deep(td) {
@@ -1260,6 +1272,8 @@ onMounted(async () => {
   padding: 8px;
   text-align: left;
   vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .markdown :deep(a) {
   color: #2563eb;
