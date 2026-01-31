@@ -71,6 +71,12 @@
                 <button class="btn btn-primary" @click="promote" :disabled="promoting || !selectedId">
                   {{ promoting ? 'Promoting…' : 'Mark hired (start setup)' }}
                 </button>
+                <button class="btn btn-danger" @click="archiveApplicant" :disabled="archivingApplicant || !selectedId">
+                  {{ archivingApplicant ? 'Archiving…' : 'Archive' }}
+                </button>
+                <button v-if="canHardDeleteApplicant" class="btn btn-danger" @click="deleteApplicant" :disabled="deletingApplicant || !selectedId">
+                  {{ deletingApplicant ? 'Deleting…' : 'Delete' }}
+                </button>
               </div>
             </div>
 
@@ -498,6 +504,44 @@ const transferAgency = async () => {
     alert(e.response?.data?.error?.message || 'Failed to move applicant');
   } finally {
     transferringAgency.value = false;
+  }
+};
+
+const canHardDeleteApplicant = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
+const archivingApplicant = ref(false);
+const deletingApplicant = ref(false);
+
+const archiveApplicant = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  // eslint-disable-next-line no-alert
+  const ok = confirm('Archive this applicant? They will be removed from the Applicants list.');
+  if (!ok) return;
+  try {
+    archivingApplicant.value = true;
+    await api.post(`/hiring/candidates/${selectedId.value}/archive`, {}, { params: { agencyId: effectiveAgencyId.value } });
+    selectedId.value = null;
+    await refresh();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to archive applicant');
+  } finally {
+    archivingApplicant.value = false;
+  }
+};
+
+const deleteApplicant = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  // eslint-disable-next-line no-alert
+  const ok = confirm('Permanently delete this applicant? This cannot be undone.');
+  if (!ok) return;
+  try {
+    deletingApplicant.value = true;
+    await api.delete(`/hiring/candidates/${selectedId.value}`, { params: { agencyId: effectiveAgencyId.value } });
+    selectedId.value = null;
+    await refresh();
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to delete applicant');
+  } finally {
+    deletingApplicant.value = false;
   }
 };
 

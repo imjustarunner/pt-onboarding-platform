@@ -83,7 +83,8 @@ export const listCandidates = async (req, res, next) => {
     let whereSql = '';
     if (statusNorm === 'PROSPECTIVE') {
       whereSql = `
-        WHERE (
+        WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL))
+          AND (
           u.status = 'PROSPECTIVE'
           OR (
             hp.candidate_user_id IS NOT NULL
@@ -92,7 +93,7 @@ export const listCandidates = async (req, res, next) => {
         )
       `;
     } else {
-      whereSql = `WHERE u.status = ?`;
+      whereSql = `WHERE (u.status != 'ARCHIVED' AND (u.is_archived = FALSE OR u.is_archived IS NULL)) AND u.status = ?`;
       params.push(status);
     }
 
@@ -930,6 +931,135 @@ export const transferCandidateAgency = async (req, res, next) => {
       } catch {
         // ignore
       }
+    }
+    next(e);
+  } finally {
+    if (conn) {
+      try {
+        conn.release();
+      } catch {
+        // ignore
+      }
+    }
+  }
+};
+
+function ensureCanArchiveOrDelete(req) {
+  const role = String(req.user?.role || '').toLowerCase();
+  // Hiring helpers/providers can view/manage hiring, but should not archive/delete users.
+  if (role !== 'admin' && role !== 'super_admin' && role !== 'support') {
+    const err = new Error('Insufficient permissions to archive/delete applicants');
+    err.status = 403;
+    throw err;
+  }
+}
+
+export const archiveCandidate = async (req, res, next) => {
+  try {
+    ensureCanArchiveOrDelete(req);
+
+    const agencyId = parseIntParam(req.query.agencyId || req.body?.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const ok = await User.archive(candidateUserId, req.user.id, agencyId);
+    if (!ok) return res.status(404).json({ error: { message: 'Candidate not found' } });
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteCandidate = async (req, res, next) => {
+  let conn = null;
+  try {
+    // Hard delete is super_admin only (too risky otherwise).
+    const role = String(req.user?.role || '').toLowerCase();
+    if (role !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Only super_admin can permanently delete applicants' } });
+    }
+
+    const agencyId = parseIntParam(req.query.agencyId || req.body?.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    // Delete resume files + rows (best effort on storage; DB is source of truth).
+    const [docs] = await conn.execute(
+      `SELECT id, storage_path
+       FROM user_admin_docs
+       WHERE user_id = ? AND doc_type = 'resume'`,
+      [candidateUserId]
+    );
+
+    for (const d of docs || []) {
+      if (d?.storage_path) {
+        try {
+          await StorageService.deleteAdminDoc(d.storage_path);
+        } catch {
+          // best effort
+        }
+      }
+    }
+
+    // Delete docs (will cascade delete hiring_resume_parses if migration 312 exists).
+    await conn.execute(`DELETE FROM user_admin_docs WHERE user_id = ? AND doc_type = 'resume'`, [candidateUserId]);
+
+    // Delete hiring records (best effort if tables not present).
+    try {
+      await conn.execute(`DELETE FROM hiring_notes WHERE candidate_user_id = ?`, [candidateUserId]);
+      await conn.execute(`DELETE FROM hiring_research_reports WHERE candidate_user_id = ?`, [candidateUserId]);
+      await conn.execute(`DELETE FROM hiring_profiles WHERE candidate_user_id = ?`, [candidateUserId]);
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
+    // Delete hiring tasks for this candidate.
+    await conn.execute(
+      `DELETE FROM tasks
+       WHERE task_type = 'hiring'
+         AND CAST(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.candidateUserId')) AS UNSIGNED) = ?`,
+      [candidateUserId]
+    );
+
+    // Remove agency memberships.
+    await conn.execute(`DELETE FROM user_agencies WHERE user_id = ?`, [candidateUserId]);
+
+    // Finally delete the user row.
+    await conn.execute(`DELETE FROM users WHERE id = ? LIMIT 1`, [candidateUserId]);
+
+    await conn.commit();
+    res.json({ ok: true });
+  } catch (e) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore
+      }
+    }
+    const msg = String(e?.message || '');
+    const fk = msg.toLowerCase().includes('foreign key') || e?.code === 'ER_ROW_IS_REFERENCED_2';
+    if (fk) {
+      return res.status(409).json({
+        error: {
+          message:
+            'This applicant cannot be permanently deleted because other records reference them. Archive instead.'
+        }
+      });
     }
     next(e);
   } finally {
