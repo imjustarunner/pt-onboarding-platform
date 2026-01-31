@@ -94,6 +94,34 @@
                 <div class="k">Stage</div>
                 <div class="v">{{ detail.profile?.stage || 'applied' }}</div>
               </div>
+              <div v-if="canChooseAgency" class="kv">
+                <div class="k">Agency</div>
+                <div class="v">
+                  <div class="row-actions">
+                    <select v-model="transferToAgencyId" class="input">
+                      <option value="">Move to…</option>
+                      <option
+                        v-for="a in agencyChoices"
+                        :key="a.id"
+                        :value="String(a.id)"
+                        :disabled="Number(a.id) === Number(effectiveAgencyId)"
+                      >
+                        {{ a.name }}
+                      </option>
+                    </select>
+                    <button
+                      class="btn btn-secondary"
+                      @click="transferAgency"
+                      :disabled="transferringAgency || !transferToAgencyId"
+                    >
+                      {{ transferringAgency ? 'Moving…' : 'Move' }}
+                    </button>
+                  </div>
+                  <div class="muted small" style="margin-top:6px;">
+                    Moves this applicant to another agency and reassigns their hiring tasks to that agency.
+                  </div>
+                </div>
+              </div>
               <div class="kv">
                 <div class="k">Applied role</div>
                 <div class="v">{{ detail.profile?.applied_role || '—' }}</div>
@@ -438,6 +466,40 @@ const candidateName = computed(() => {
   if (!u) return '';
   return `${u.first_name || ''} ${u.last_name || ''}`.trim();
 });
+
+const transferToAgencyId = ref('');
+const transferringAgency = ref(false);
+const transferAgency = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  const toId = transferToAgencyId.value ? parseInt(String(transferToAgencyId.value), 10) : null;
+  if (!toId) return;
+  if (Number(toId) === Number(effectiveAgencyId.value)) return;
+
+  const toAgency = (agencyChoices.value || []).find((a) => Number(a?.id) === Number(toId));
+  const name = toAgency?.name || `Agency ${toId}`;
+  // eslint-disable-next-line no-alert
+  const ok = confirm(`Move this applicant to ${name}? This will also move their hiring tasks to the new agency.`);
+  if (!ok) return;
+
+  try {
+    transferringAgency.value = true;
+    await api.post(
+      `/hiring/candidates/${selectedId.value}/transfer-agency`,
+      { toAgencyId: toId },
+      { params: { agencyId: effectiveAgencyId.value } }
+    );
+
+    // Switch the page context to the new agency so the applicant remains visible.
+    selectedAgencyId.value = String(toId);
+    transferToAgencyId.value = '';
+    await refresh();
+    await selectCandidate(Number(selectedId.value));
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to move applicant');
+  } finally {
+    transferringAgency.value = false;
+  }
+};
 
 marked.setOptions({ gfm: true, breaks: true });
 const preScreenHtml = computed(() => {

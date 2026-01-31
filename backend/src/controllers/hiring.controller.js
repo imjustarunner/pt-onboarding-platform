@@ -878,3 +878,68 @@ export const generateCandidateResumeSummary = async (req, res, next) => {
   }
 };
 
+export const transferCandidateAgency = async (req, res, next) => {
+  let conn = null;
+  try {
+    const fromAgencyId = parseIntParam(req.query.agencyId || req.body?.fromAgencyId || req.user?.agencyId);
+    const toAgencyId = parseIntParam(req.body?.toAgencyId || req.body?.agencyId);
+    if (!fromAgencyId) return res.status(400).json({ error: { message: 'from agencyId is required' } });
+    if (!toAgencyId) return res.status(400).json({ error: { message: 'toAgencyId is required' } });
+    if (Number(fromAgencyId) === Number(toAgencyId)) {
+      return res.status(400).json({ error: { message: 'Applicant is already in that agency' } });
+    }
+
+    await ensureAgencyAccess(req, fromAgencyId);
+    await ensureAgencyAccess(req, toAgencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inFromAgency = await ensureCandidateInAgency(candidateUserId, fromAgencyId);
+    if (!inFromAgency) {
+      return res.status(404).json({ error: { message: 'Candidate not found in the source agency' } });
+    }
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    // Move membership (remove from source, add to target).
+    await conn.execute('DELETE FROM user_agencies WHERE user_id = ? AND agency_id = ?', [candidateUserId, fromAgencyId]);
+    await conn.execute(
+      'INSERT INTO user_agencies (user_id, agency_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE user_id = user_id',
+      [candidateUserId, toAgencyId]
+    );
+
+    // Keep hiring tasks visible after transfer by moving agency-scoped assignments.
+    await conn.execute(
+      `UPDATE tasks
+       SET assigned_to_agency_id = ?
+       WHERE task_type = 'hiring'
+         AND assigned_to_agency_id = ?
+         AND CAST(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.candidateUserId')) AS UNSIGNED) = ?`,
+      [toAgencyId, fromAgencyId, candidateUserId]
+    );
+
+    await conn.commit();
+
+    res.json({ ok: true, candidateUserId, fromAgencyId, toAgencyId });
+  } catch (e) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore
+      }
+    }
+    next(e);
+  } finally {
+    if (conn) {
+      try {
+        conn.release();
+      } catch {
+        // ignore
+      }
+    }
+  }
+};
+

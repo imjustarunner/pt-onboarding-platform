@@ -13,6 +13,7 @@ import {
   deleteCandidateResume,
   getCandidateResumeSummary,
   generateCandidateResumeSummary,
+  transferCandidateAgency,
   requestCandidateResearch,
   generateCandidatePreScreenReport,
   promoteCandidateToPendingSetup,
@@ -56,6 +57,7 @@ router.get('/candidates/:userId/resumes/:docId/view', viewCandidateResume);
 router.delete('/candidates/:userId/resumes/:docId', deleteCandidateResume);
 router.get('/candidates/:userId/resume-summary', getCandidateResumeSummary);
 router.post('/candidates/:userId/resume-summary', generateCandidateResumeSummary);
+router.post('/candidates/:userId/transfer-agency', transferCandidateAgency);
 router.post('/candidates/:userId/research', requestCandidateResearch);
 router.post('/candidates/:userId/prescreen', generateCandidatePreScreenReport);
 router.post('/candidates/:userId/promote', promoteCandidateToPendingSetup);
