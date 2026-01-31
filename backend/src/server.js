@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import config from './config/config.js';
 import requestLoggingMiddleware from './middleware/requestLogging.middleware.js';
+import { accessDebugMiddleware } from './middleware/accessDebug.middleware.js';
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 import moduleRoutes from './routes/module.routes.js';
@@ -140,6 +141,10 @@ app.use('/api', (req, res, next) => {
   res.setHeader('Expires', '0');
   next();
 });
+
+// Temporary diagnostics: logs high-signal details for unexpected 403s on key endpoints.
+// Enable by setting ACCESS_DEBUG=1 in the environment (Cloud Run).
+app.use(accessDebugMiddleware);
 
 // File serving for GCS - redirects to signed URLs
 // 
