@@ -4810,6 +4810,7 @@ const saveAgency = async () => {
   try {
     saving.value = true;
     error.value = ''; // Clear previous errors
+    const wasEditingExisting = !!editingAgency.value;
 
     const orgType = String(agencyForm.value.organizationType || 'agency').toLowerCase();
     if (orgType === 'office') {
@@ -5104,22 +5105,28 @@ const saveAgency = async () => {
         agencyStore.userAgencies[userAgencyIndex] = updatedAgency;
       }
     } else {
-      await api.post('/agencies', data);
+      const response = await api.post('/agencies', data);
+      updatedAgency = response.data;
     }
 
     // IMPORTANT: In embedded single-org contexts (School Portal settings / embedded org editor),
     // saving should not "exit" the editor. Keep the modal/editor open so users can continue.
-    if (!embeddedSingleOrg.value) {
+    //
+    // ALSO: For normal (non-embedded) edits, do NOT bounce the user back to the org picker.
+    // If they clicked "Save" while editing a school, keep them on the same org after save.
+    if (!wasEditingExisting && !embeddedSingleOrg.value) {
+      // Creating new orgs can still close the modal.
       closeModal();
-    } else {
-      // Mark current form as the new baseline (no unsaved-changes prompt).
-      originalAgencyFormSnapshot.value = JSON.stringify(agencyForm.value);
-      // Keep editor state pointing at the updated agency record.
-      if (updatedAgency) {
-        editingAgency.value = updatedAgency;
-      }
     }
-    fetchAgencies();
+
+    // Mark current form as the new baseline (no unsaved-changes prompt).
+    originalAgencyFormSnapshot.value = JSON.stringify(agencyForm.value);
+    // Keep editor state pointing at the updated agency record.
+    if (updatedAgency) {
+      editingAgency.value = updatedAgency;
+    }
+
+    await fetchAgencies();
   } catch (err) {
     console.error('Agency save error:', err);
     console.error('Error response:', err.response);
