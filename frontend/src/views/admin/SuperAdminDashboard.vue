@@ -389,6 +389,7 @@ const quickActions = computed(() => {
     description: 'Snapshot + trends for meetings',
     to: '/admin/executive-report',
     emoji: '📈',
+    iconKey: 'executive_report',
     category: 'Management',
     roles: ['super_admin'],
     capabilities: ['canAccessPlatform']

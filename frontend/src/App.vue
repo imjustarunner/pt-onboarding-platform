@@ -56,6 +56,17 @@
               <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu">
                 {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
               </router-link>
+              <router-link
+                v-if="canShowAdminDashboardIcon"
+                :to="orgTo('/admin')"
+                class="nav-icon-btn"
+                title="Admin dashboard"
+                aria-label="Admin dashboard"
+                @click="closeAllNavMenus"
+              >
+                <img v-if="adminDashboardIconUrl" :src="adminDashboardIconUrl" alt="" class="nav-icon-img" />
+                <span v-else aria-hidden="true">🏢</span>
+              </router-link>
 
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
               <template v-if="canSeePortalNav">
@@ -762,6 +773,25 @@ const settingsIconUrl = computed(() => {
   } catch {
     return null;
   }
+});
+
+const canShowAdminDashboardIcon = computed(() => {
+  const u = authStore.user;
+  if (!u) return false;
+  // Mirror Admin Dashboard link gating.
+  return isAdmin.value || isSupervisor(u) || u?.role === 'clinical_practice_assistant';
+});
+
+const adminDashboardIconUrl = computed(() => {
+  try {
+    // Prefer configured Company Profile icon (or fallbacks) so this stays consistent with Settings icons.
+    const u = brandingStore.getAdminQuickActionIconUrl('admin_dashboard', agencyStore.currentAgency || null);
+    if (u) return u;
+  } catch {
+    // ignore
+  }
+  // Fallback: organization logo icon (if configured) or branded logo.
+  return brandingStore.displayLogoUrl || null;
 });
 
 const activeOrganizationSlug = computed(() => {
