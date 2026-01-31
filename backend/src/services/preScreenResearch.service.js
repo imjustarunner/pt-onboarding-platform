@@ -47,6 +47,69 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export async function generatePreScreenReportWithGeminiApiKey({ candidateName, resumeText, linkedInUrl }) {
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  if (!apiKey) {
+    const err = new Error('GEMINI_API_KEY is not configured');
+    err.status = 503;
+    throw err;
+  }
+
+  const modelName = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+  const maxOutputTokens = Math.min(
+    Math.max(parseInt(process.env.GEMINI_PRESCREEN_MAX_OUTPUT_TOKENS || '1800', 10) || 1800, 300),
+    4096
+  );
+
+  const { systemPrompt, userPrompt, normalized } = buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl });
+
+  const prompt = [systemPrompt, '', userPrompt].filter(Boolean).join('\n');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    modelName
+  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const started = Date.now();
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.2, maxOutputTokens }
+    })
+  });
+
+  const latencyMs = Date.now() - started;
+
+  if (!resp.ok) {
+    const t = await resp.text();
+    const err = new Error('Gemini pre-screen request failed');
+    err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
+    err.details = String(t || '').slice(0, 2000);
+    err.latencyMs = latencyMs;
+    throw err;
+  }
+
+  const data = await resp.json();
+  const parts = data?.candidates?.[0]?.content?.parts;
+  const text = Array.isArray(parts) ? parts.map((p) => p?.text || '').filter(Boolean).join('') : '';
+
+  if (!text) {
+    const err = new Error('Model returned empty response');
+    err.status = 502;
+    err.latencyMs = latencyMs;
+    throw err;
+  }
+
+  return {
+    text: String(text).trim(),
+    latencyMs,
+    modelId: modelName,
+    isGrounded: false,
+    normalizedInput: normalized,
+    groundingMetadata: null
+  };
+}
+
 async function getAccessToken() {
   const auth = new GoogleAuth({
     scopes: ['https://www.googleapis.com/auth/cloud-platform']

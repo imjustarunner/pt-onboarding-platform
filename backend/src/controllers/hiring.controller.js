@@ -6,7 +6,7 @@ import HiringResearchReport from '../models/HiringResearchReport.model.js';
 import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import StorageService from '../services/storage.service.js';
-import { generatePreScreenReportWithGoogleSearch } from '../services/preScreenResearch.service.js';
+import { generatePreScreenReportWithGeminiApiKey, generatePreScreenReportWithGoogleSearch } from '../services/preScreenResearch.service.js';
 import config from '../config/config.js';
 
 function parseIntParam(v) {
@@ -318,11 +318,25 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
     const started = Date.now();
     let ai;
     try {
-      ai = await generatePreScreenReportWithGoogleSearch({
-        candidateName,
-        resumeText,
-        linkedInUrl
-      });
+      try {
+        // Preferred (grounded) path: Vertex AI with Google Search tool.
+        ai = await generatePreScreenReportWithGoogleSearch({
+          candidateName,
+          resumeText,
+          linkedInUrl
+        });
+      } catch (e) {
+        // Common in some environments: Cloud Run service account not permitted for Vertex Search grounding (403),
+        // or Vertex project/env not configured yet (503). Fall back to GEMINI_API_KEY so the feature remains usable.
+        const status = e?.status;
+        const canFallback = status === 403 || status === 401 || status === 503;
+        if (!canFallback) throw e;
+        ai = await generatePreScreenReportWithGeminiApiKey({
+          candidateName,
+          resumeText,
+          linkedInUrl
+        });
+      }
     } catch (e) {
       await createFailedAiReport({ candidateUserId, createdByUserId: req.user.id, error: e });
       if (e?.status) {

@@ -64,9 +64,6 @@
                 </div>
               </div>
               <div class="detail-actions">
-                <button class="btn btn-secondary" @click="doResearch" :disabled="researching || !selectedId">
-                  {{ researching ? 'Requesting…' : 'Do research' }}
-                </button>
                 <button class="btn btn-secondary" @click="generatePreScreenReport" :disabled="generatingPreScreen || !selectedId">
                   <span v-if="generatingPreScreen" class="spinner" aria-hidden="true"></span>
                   {{ generatingPreScreen ? 'Generating…' : 'Generate Pre-Screen Report' }}
@@ -87,7 +84,6 @@
               <button class="tab" :class="{ active: tab === 'resume' }" @click="tab = 'resume'">Resume</button>
               <button class="tab" :class="{ active: tab === 'notes' }" @click="tab = 'notes'">Notes</button>
               <button class="tab" :class="{ active: tab === 'tasks' }" @click="tab = 'tasks'">Tasks</button>
-              <button class="tab" :class="{ active: tab === 'research' }" @click="tab = 'research'">Research</button>
               <button class="tab" :class="{ active: tab === 'prescreen' }" @click="tab = 'prescreen'">Pre-Screen</button>
             </div>
 
@@ -185,21 +181,6 @@
                   <div class="muted small">Due: {{ t.due_date ? formatDate(t.due_date) : '—' }}</div>
                 </div>
                 <div v-if="tasks.length === 0" class="empty">No hiring tasks yet.</div>
-              </div>
-            </div>
-
-            <!-- Research -->
-            <div v-if="tab === 'research'" class="tab-body">
-              <div class="kv">
-                <div class="k">Latest status</div>
-                <div class="v">{{ detail.latestResearch?.status || '—' }}</div>
-              </div>
-              <div class="kv">
-                <div class="k">Created</div>
-                <div class="v">{{ detail.latestResearch?.created_at ? formatTime(detail.latestResearch.created_at) : '—' }}</div>
-              </div>
-              <div class="research-box">
-                <pre class="pre">{{ detail.latestResearch?.report_text || 'No research report yet. Click “Do research”.' }}</pre>
               </div>
             </div>
 
@@ -424,22 +405,6 @@ const addNote = async () => {
     alert(e.response?.data?.error?.message || 'Failed to add note');
   } finally {
     noteSaving.value = false;
-  }
-};
-
-// Research
-const researching = ref(false);
-const doResearch = async () => {
-  if (!selectedId.value || !effectiveAgencyId.value) return;
-  try {
-    researching.value = true;
-    await api.post(`/hiring/candidates/${selectedId.value}/research`, {}, { params: { agencyId: effectiveAgencyId.value } });
-    await loadDetail();
-    tab.value = 'research';
-  } catch (e) {
-    alert(e.response?.data?.error?.message || 'Failed to request research');
-  } finally {
-    researching.value = false;
   }
 };
 
