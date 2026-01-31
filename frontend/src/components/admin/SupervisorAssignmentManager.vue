@@ -32,6 +32,7 @@
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Supervisor</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Supervisee</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Agency</th>
+                <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Primary</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Assigned</th>
                 <th style="padding: 12px; text-align: left; border-bottom: 2px solid var(--border);">Actions</th>
               </tr>
@@ -49,6 +50,17 @@
                   <small style="color: var(--text-secondary);">{{ assignment.supervisee_email }}</small>
                 </td>
                 <td style="padding: 12px;">{{ assignment.agency_name }}</td>
+                <td style="padding: 12px;">
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    :disabled="settingPrimary"
+                    @click="setPrimary(assignment)"
+                    :title="assignment.is_primary ? 'Primary supervisor' : 'Set as primary supervisor'"
+                  >
+                    {{ assignment.is_primary ? 'Primary' : 'Set primary' }}
+                  </button>
+                </td>
                 <td style="padding: 12px;">{{ formatDate(assignment.created_at) }}</td>
                 <td style="padding: 12px;">
                   <button 
@@ -153,6 +165,7 @@ const availableUsers = ref([]);
 const selectedAgencyId = ref(props.agencyId || '');
 const creating = ref(false);
 const removing = ref(false);
+const settingPrimary = ref(false);
 
 const newAssignment = ref({
   supervisorId: props.supervisorId || '',
@@ -294,6 +307,23 @@ const fetchAssignments = async () => {
   }
 };
 
+const setPrimary = async (assignment) => {
+  if (!assignment?.supervisor_id || !assignment?.supervisee_id || !assignment?.agency_id) return;
+  try {
+    settingPrimary.value = true;
+    await api.post('/supervisor-assignments/primary', {
+      supervisorId: Number(assignment.supervisor_id),
+      superviseeId: Number(assignment.supervisee_id),
+      agencyId: Number(assignment.agency_id)
+    });
+    await fetchAssignments();
+  } catch (err) {
+    alert(err.response?.data?.error?.message || 'Failed to set primary supervisor');
+  } finally {
+    settingPrimary.value = false;
+  }
+};
+
 const createAssignment = async () => {
   if (!canCreateAssignment.value) {
     alert('Please fill in all fields');
@@ -305,7 +335,8 @@ const createAssignment = async () => {
     await api.post('/supervisor-assignments', {
       supervisorId: parseInt(newAssignment.value.supervisorId),
       superviseeId: parseInt(newAssignment.value.superviseeId),
-      agencyId: parseInt(newAssignment.value.agencyId)
+      agencyId: parseInt(newAssignment.value.agencyId),
+      isPrimary: false
     });
     
     // Reset form

@@ -4,14 +4,40 @@ class SupervisorAssignment {
   /**
    * Create a new supervisor assignment
    */
-  static async create(supervisorId, superviseeId, agencyId, createdByUserId = null) {
+  static async create(supervisorId, superviseeId, agencyId, createdByUserId = null, { isPrimary = false } = {}) {
     const [result] = await pool.execute(
-      `INSERT INTO supervisor_assignments (supervisor_id, supervisee_id, agency_id, created_by_user_id)
-       VALUES (?, ?, ?, ?)`,
-      [supervisorId, superviseeId, agencyId, createdByUserId]
+      `INSERT INTO supervisor_assignments (supervisor_id, supervisee_id, agency_id, is_primary, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [supervisorId, superviseeId, agencyId, isPrimary ? 1 : 0, createdByUserId]
     );
 
     return this.findById(result.insertId);
+  }
+
+  /**
+   * Clear primary flag for a supervisee within an agency
+   */
+  static async clearPrimary(superviseeId, agencyId) {
+    await pool.execute(
+      `UPDATE supervisor_assignments
+       SET is_primary = 0
+       WHERE supervisee_id = ? AND agency_id = ?`,
+      [superviseeId, agencyId]
+    );
+    return true;
+  }
+
+  /**
+   * Set primary supervisor for a supervisee within an agency
+   */
+  static async setPrimary(supervisorId, superviseeId, agencyId) {
+    await pool.execute(
+      `UPDATE supervisor_assignments
+       SET is_primary = CASE WHEN supervisor_id = ? THEN 1 ELSE 0 END
+       WHERE supervisee_id = ? AND agency_id = ?`,
+      [supervisorId, superviseeId, agencyId]
+    );
+    return true;
   }
 
   /**

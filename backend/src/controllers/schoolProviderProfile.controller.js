@@ -115,8 +115,8 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       credential = null;
     }
 
-    // Optional: supervisor (best-effort; show the most recent assignment under the school's affiliated agency)
-    let supervisor = null;
+    // Optional: supervisors (best-effort; all assignments under the school's affiliated agency)
+    let supervisors = [];
     try {
       const schoolOrgId = parseInt(schoolId, 10);
       const activeAgencyId =
@@ -124,35 +124,60 @@ export const getProviderSchoolProfile = async (req, res, next) => {
         (await AgencySchool.getActiveAgencyIdForSchool(schoolOrgId)) ||
         null;
       if (activeAgencyId) {
-        const [rows] = await pool.execute(
-          `SELECT
-             sa.supervisor_id,
-             u.first_name,
-             u.last_name,
-             u.email,
-             u.profile_photo_path
-           FROM supervisor_assignments sa
-           JOIN users u ON u.id = sa.supervisor_id
-           WHERE sa.supervisee_id = ? AND sa.agency_id = ?
-           ORDER BY sa.created_at DESC, sa.id DESC
-           LIMIT 1`,
-          [providerUserId, parseInt(activeAgencyId, 10)]
-        );
-        const s = rows?.[0] || null;
-        if (s?.supervisor_id) {
-          let supervisorCredential = null;
+        // Try to include is_primary (newer DBs), fall back if column missing.
+        let rows = [];
+        try {
+          const [r] = await pool.execute(
+            `SELECT
+               sa.supervisor_id,
+               sa.is_primary,
+               u.first_name,
+               u.last_name,
+               u.email,
+               u.profile_photo_path
+             FROM supervisor_assignments sa
+             JOIN users u ON u.id = sa.supervisor_id
+             WHERE sa.supervisee_id = ? AND sa.agency_id = ?
+             ORDER BY sa.is_primary DESC, sa.created_at DESC, sa.id DESC`,
+            [providerUserId, parseInt(activeAgencyId, 10)]
+          );
+          rows = r || [];
+        } catch (e) {
+          const msg = String(e?.message || '');
+          const missing = msg.includes('Unknown column') || msg.includes('ER_BAD_FIELD_ERROR');
+          if (!missing) throw e;
+          const [r] = await pool.execute(
+            `SELECT
+               sa.supervisor_id,
+               u.first_name,
+               u.last_name,
+               u.email,
+               u.profile_photo_path
+             FROM supervisor_assignments sa
+             JOIN users u ON u.id = sa.supervisor_id
+             WHERE sa.supervisee_id = ? AND sa.agency_id = ?
+             ORDER BY sa.created_at DESC, sa.id DESC`,
+            [providerUserId, parseInt(activeAgencyId, 10)]
+          );
+          rows = r || [];
+        }
+
+        // Pull credentials in one query (best-effort; field may not exist)
+        const ids = rows.map((x) => Number(x?.supervisor_id)).filter(Boolean);
+        let credByUserId = new Map();
+        if (ids.length) {
           try {
-            const [c2] = await pool.execute(
-              `SELECT uiv.value
+            const placeholders = ids.map(() => '?').join(',');
+            const [crows] = await pool.execute(
+              `SELECT uiv.user_id, uiv.value
                FROM user_info_values uiv
                JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
-               WHERE uiv.user_id = ?
+               WHERE uiv.user_id IN (${placeholders})
                  AND uifd.field_key = 'provider_credential'
-               ORDER BY uiv.updated_at DESC, uiv.id DESC
-               LIMIT 1`,
-              [Number(s.supervisor_id)]
+               ORDER BY uiv.updated_at DESC, uiv.id DESC`,
+              ids
             );
-            supervisorCredential = c2?.[0]?.value ?? null;
+            credByUserId = new Map((crows || []).map((r) => [Number(r.user_id), r.value]));
           } catch (e) {
             const msg = String(e?.message || '');
             const missing =
@@ -161,18 +186,18 @@ export const getProviderSchoolProfile = async (req, res, next) => {
               msg.includes('Unknown column') ||
               msg.includes('ER_BAD_FIELD_ERROR');
             if (!missing) throw e;
-            supervisorCredential = null;
           }
-
-          supervisor = {
-            id: Number(s.supervisor_id),
-            first_name: s.first_name || null,
-            last_name: s.last_name || null,
-            email: s.email || null,
-            credential: supervisorCredential ? String(supervisorCredential) : null,
-            profile_photo_url: publicUploadsUrlFromStoredPath(s.profile_photo_path || null)
-          };
         }
+
+        supervisors = rows.map((s) => ({
+          id: Number(s.supervisor_id),
+          first_name: s.first_name || null,
+          last_name: s.last_name || null,
+          email: s.email || null,
+          credential: credByUserId.has(Number(s.supervisor_id)) ? String(credByUserId.get(Number(s.supervisor_id)) || '') : null,
+          profile_photo_url: publicUploadsUrlFromStoredPath(s.profile_photo_path || null),
+          is_primary: s.is_primary === 1 || s.is_primary === true
+        }));
       }
     } catch (e) {
       const msg = String(e?.message || '');
@@ -182,7 +207,7 @@ export const getProviderSchoolProfile = async (req, res, next) => {
         msg.includes('Unknown column') ||
         msg.includes('ER_BAD_FIELD_ERROR');
       if (!missing) throw e;
-      supervisor = null;
+      supervisors = [];
     }
 
     res.json({
@@ -199,7 +224,8 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       work_phone_extension: u.work_phone_extension || null,
       profile_photo_url: publicUploadsUrlFromStoredPath(u.profile_photo_path || null),
       school_info_blurb: schoolInfoBlurb,
-      supervisor
+      supervisors,
+      primary_supervisor_id: (supervisors.find((s) => s.is_primary)?.id) || (supervisors[0]?.id || null)
     });
   } catch (e) {
     next(e);

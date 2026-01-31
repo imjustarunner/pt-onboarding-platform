@@ -91,8 +91,9 @@
         <div v-if="activeTab === 'account'" class="tab-panel">
           <h2>Account Information</h2>
           <div class="account-layout">
-            <form v-if="canEditUser" @submit.prevent="saveAccount" class="account-form">
-              <div class="form-grid">
+            <div class="account-main">
+              <form v-if="canEditUser" @submit.prevent="saveAccount" class="account-form">
+                <div class="form-grid">
                 <div class="form-group">
                   <label>First Name</label>
                   <input v-model="accountForm.firstName" type="text" :disabled="!isEditingAccount" />
@@ -463,154 +464,311 @@
                     Used for classification/display. This does not change permissions.
                   </small>
                 </div>
-              </div>
-              
-              <div class="form-actions">
-                <button v-if="!isEditingAccount" type="button" class="btn btn-secondary" @click="startEditAccount">
-                  Edit
-                </button>
-                <button v-else type="submit" class="btn btn-primary" :disabled="saving">
-                  {{ saving ? 'Saving...' : 'Save Changes' }}
-                </button>
-                <button v-if="isEditingAccount" type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEditAccount">
-                  Cancel
-                </button>
-              </div>
-            </form>
-            <div v-else class="view-only-notice">
-              <p><strong>View Only:</strong> Clinical Practice Assistants and Supervisors have view-only access to user profiles. Contact an administrator to make changes.</p>
-            </div>
-            
-            <div class="agency-assignments-section">
-              <h3>Agency Assignments</h3>
-              <div class="agency-assignments">
-                <div v-if="userAgencies.length === 0" class="no-agencies">
-                  <p>No agencies assigned</p>
-                </div>
-                <div v-else class="agencies-list">
-                  <div v-for="agency in userAgencies" :key="agency.id" class="agency-item">
-                    <div style="display:flex; align-items:center; gap: 10px; flex-wrap: wrap;">
-                      <span class="agency-name">{{ agency.name }}</span>
-                      <span v-if="agency.organization_type" class="muted" style="font-size: 12px; font-weight: 800;">
-                        ({{ agency.organization_type }})
-                      </span>
-
-                      <div v-if="isSchoolOrProgramOrg(agency)" style="display:flex; align-items:center; gap: 8px; flex-wrap: wrap;">
-                        <button class="btn btn-secondary btn-sm" type="button" @click="openSchoolSchedulingFromAgencyRow(agency)">
-                          Days &amp; slots
-                        </button>
-                        <span class="muted" style="font-size: 12px;">
-                          (Set the day, 08:00–15:00 default, and slots)
-                        </span>
-                      </div>
-
-                      <div
-                        v-if="canEditUser && isAgencyOrg(agency)"
-                        style="display:flex; align-items:center; gap: 6px;"
-                        title="Optional per-organization login email alias. This email can be used to log into the same account under this organization."
-                      >
-                        <span class="muted" style="font-size: 12px; font-weight: 700;">Login Email</span>
-                        <input
-                          class="agency-select"
-                          style="min-width: 240px;"
-                          :value="aliasForAgency(agency.id)"
-                          :disabled="savingAgencyAliasId === agency.id"
-                          placeholder="alias@domain.com"
-                          @change="saveAliasForAgency(agency.id, $event.target.value)"
-                        />
-                      </div>
-
-                      <div
-                        v-if="canEditUser && canShowH0032Mode && isAgencyOrg(agency)"
-                        style="display:flex; align-items:center; gap: 6px;"
-                        title="H0032 mode is per-organization. Cat1 Hour means H0032 rows require manual minutes entry and will appear in Payroll → Raw Import → Process H0032. Cat2 Flat means H0032 defaults to 30 minutes and will not appear in that queue."
-                      >
-                        <span class="muted" style="font-size: 12px; font-weight: 700;">H0032</span>
-                        <select
-                          :value="h0032ModeForAgency(agency)"
-                          class="agency-select"
-                          style="min-width: 170px;"
-                          :disabled="updatingH0032AgencyId === agency.id"
-                          @change="setH0032Mode(agency.id, $event.target.value)"
-                        >
-                          <option value="cat1_hour">Cat1 Hour (manual minutes)</option>
-                          <option value="cat2_flat">Cat2 Flat (auto 30 min)</option>
-                        </select>
-                      </div>
-
-                      <div
-                        v-if="canEditUser && canShowPrelicensedSupervision && isAgencyOrg(agency)"
-                        style="display:flex; align-items:center; gap: 8px; flex-wrap: wrap;"
-                        title="Prelicensed supervision tracking is per-organization. Baseline hours are added to accrued payroll supervision hours (99414/99416). Pay for 99414/99416 is $0 until the user has already reached ≥50 individual and ≥100 total hours in prior pay periods."
-                      >
-                        <span class="muted" style="font-size: 12px; font-weight: 700;">Prelicensed</span>
-                        <label class="muted" style="display:flex; align-items:center; gap: 6px;">
-                          <input
-                            type="checkbox"
-                            :checked="isPrelicensedForAgency(agency)"
-                            :disabled="updatingPrelicensedAgencyId === agency.id"
-                            @change="savePrelicensedSettings(agency, { isPrelicensed: $event.target.checked })"
-                          />
-                          <span>{{ isPrelicensedForAgency(agency) ? 'On' : 'Off' }}</span>
-                        </label>
-                        <input
-                          v-if="isPrelicensedForAgency(agency)"
-                          type="date"
-                          class="agency-select"
-                          style="min-width: 155px;"
-                          :value="prelicensedStartDateForAgency(agency)"
-                          :disabled="updatingPrelicensedAgencyId === agency.id"
-                          @change="savePrelicensedSettings(agency, { startDate: $event.target.value })"
-                        />
-                        <input
-                          v-if="isPrelicensedForAgency(agency)"
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          class="agency-select"
-                          style="min-width: 130px;"
-                          placeholder="Ind start"
-                          :value="prelicensedStartIndHoursForAgency(agency)"
-                          :disabled="updatingPrelicensedAgencyId === agency.id"
-                          @change="savePrelicensedSettings(agency, { startIndividualHours: $event.target.value })"
-                        />
-                        <input
-                          v-if="isPrelicensedForAgency(agency)"
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          class="agency-select"
-                          style="min-width: 130px;"
-                          placeholder="Grp start"
-                          :value="prelicensedStartGrpHoursForAgency(agency)"
-                          :disabled="updatingPrelicensedAgencyId === agency.id"
-                          @change="savePrelicensedSettings(agency, { startGroupHours: $event.target.value })"
-                        />
-                      </div>
-                    </div>
-                    <button @click="removeAgency(agency.id)" class="btn btn-danger btn-sm">Remove</button>
-                  </div>
                 </div>
                 
-                <div class="add-agency-section">
-                  <select v-model="selectedAgencyId" class="agency-select">
-                    <option value="">Select an organization...</option>
-                    <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
-                      {{ agency.name }}
-                      <span v-if="agency.organization_type">({{ agency.organization_type }})</span>
-                    </option>
-                  </select>
-                  <input
-                    v-if="selectedAgencyAllowsAlias"
-                    v-model="newAgencyLoginEmail"
-                    class="agency-select"
-                    style="min-width: 260px;"
-                    placeholder="Optional login email alias (agencies only)"
-                    :disabled="!selectedAgencyId || assigningAgency"
-                  />
-                  <button @click="addAgency" class="btn btn-primary btn-sm" :disabled="!selectedAgencyId || assigningAgency">
-                    {{ assigningAgency ? 'Assigning...' : 'Assign' }}
+                <div class="form-actions">
+                  <button v-if="!isEditingAccount" type="button" class="btn btn-secondary" @click="startEditAccount">
+                    Edit
                   </button>
+                  <button v-else type="submit" class="btn btn-primary" :disabled="saving">
+                    {{ saving ? 'Saving...' : 'Save Changes' }}
+                  </button>
+                  <button v-if="isEditingAccount" type="button" class="btn btn-secondary" :disabled="saving" @click="cancelEditAccount">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+              <div v-else class="view-only-notice">
+                <p><strong>View Only:</strong> Clinical Practice Assistants and Supervisors have view-only access to user profiles. Contact an administrator to make changes.</p>
+              </div>
+            </div>
+
+            <div class="account-sidebar">
+              <div class="agency-assignments-section">
+                <h3>Agency Assignments</h3>
+                <div class="agency-assignments">
+                  <div v-if="userAgencies.length === 0" class="no-agencies">
+                    <p>No agencies assigned</p>
+                  </div>
+                  <div v-else class="agencies-list">
+                    <div v-for="agency in userAgencies" :key="agency.id" class="agency-item">
+                      <div style="display:flex; align-items:center; gap: 10px; flex-wrap: wrap;">
+                        <span class="agency-name">{{ agency.name }}</span>
+                        <span v-if="agency.organization_type" class="muted" style="font-size: 12px; font-weight: 800;">
+                          ({{ agency.organization_type }})
+                        </span>
+
+                        <div v-if="isSchoolOrProgramOrg(agency)" style="display:flex; align-items:center; gap: 8px; flex-wrap: wrap;">
+                          <button class="btn btn-secondary btn-sm" type="button" @click="openSchoolSchedulingFromAgencyRow(agency)">
+                            Days &amp; slots
+                          </button>
+                          <span class="muted" style="font-size: 12px;">
+                            (Set the day, 08:00–15:00 default, and slots)
+                          </span>
+                        </div>
+
+                        <div
+                          v-if="canEditUser && isAgencyOrg(agency)"
+                          style="display:flex; align-items:center; gap: 6px;"
+                          title="Optional per-organization login email alias. This email can be used to log into the same account under this organization."
+                        >
+                          <span class="muted" style="font-size: 12px; font-weight: 700;">Login Email</span>
+                          <input
+                            class="agency-select"
+                            style="min-width: 240px;"
+                            :value="aliasForAgency(agency.id)"
+                            :disabled="savingAgencyAliasId === agency.id"
+                            placeholder="alias@domain.com"
+                            @change="saveAliasForAgency(agency.id, $event.target.value)"
+                          />
+                        </div>
+
+                        <div
+                          v-if="canEditUser && canShowH0032Mode && isAgencyOrg(agency)"
+                          style="display:flex; align-items:center; gap: 6px;"
+                          title="H0032 mode is per-organization. Cat1 Hour means H0032 rows require manual minutes entry and will appear in Payroll → Raw Import → Process H0032. Cat2 Flat means H0032 defaults to 30 minutes and will not appear in that queue."
+                        >
+                          <span class="muted" style="font-size: 12px; font-weight: 700;">H0032</span>
+                          <select
+                            :value="h0032ModeForAgency(agency)"
+                            class="agency-select"
+                            style="min-width: 170px;"
+                            :disabled="updatingH0032AgencyId === agency.id"
+                            @change="setH0032Mode(agency.id, $event.target.value)"
+                          >
+                            <option value="cat1_hour">Cat1 Hour (manual minutes)</option>
+                            <option value="cat2_flat">Cat2 Flat (auto 30 min)</option>
+                          </select>
+                        </div>
+
+                        <div
+                          v-if="canEditUser && canShowPrelicensedSupervision && isAgencyOrg(agency)"
+                          style="display:flex; align-items:center; gap: 8px; flex-wrap: wrap;"
+                          title="Prelicensed supervision tracking is per-organization. Baseline hours are added to accrued payroll supervision hours (99414/99416). Pay for 99414/99416 is $0 until the user has already reached ≥50 individual and ≥100 total hours in prior pay periods."
+                        >
+                          <span class="muted" style="font-size: 12px; font-weight: 700;">Prelicensed</span>
+                          <label class="muted" style="display:flex; align-items:center; gap: 6px;">
+                            <input
+                              type="checkbox"
+                              :checked="isPrelicensedForAgency(agency)"
+                              :disabled="updatingPrelicensedAgencyId === agency.id"
+                              @change="savePrelicensedSettings(agency, { isPrelicensed: $event.target.checked })"
+                            />
+                            <span>{{ isPrelicensedForAgency(agency) ? 'On' : 'Off' }}</span>
+                          </label>
+                          <input
+                            v-if="isPrelicensedForAgency(agency)"
+                            type="date"
+                            class="agency-select"
+                            style="min-width: 155px;"
+                            :value="prelicensedStartDateForAgency(agency)"
+                            :disabled="updatingPrelicensedAgencyId === agency.id"
+                            @change="savePrelicensedSettings(agency, { startDate: $event.target.value })"
+                          />
+                          <input
+                            v-if="isPrelicensedForAgency(agency)"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            class="agency-select"
+                            style="min-width: 130px;"
+                            placeholder="Ind start"
+                            :value="prelicensedStartIndHoursForAgency(agency)"
+                            :disabled="updatingPrelicensedAgencyId === agency.id"
+                            @change="savePrelicensedSettings(agency, { startIndividualHours: $event.target.value })"
+                          />
+                          <input
+                            v-if="isPrelicensedForAgency(agency)"
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            class="agency-select"
+                            style="min-width: 130px;"
+                            placeholder="Grp start"
+                            :value="prelicensedStartGrpHoursForAgency(agency)"
+                            :disabled="updatingPrelicensedAgencyId === agency.id"
+                            @change="savePrelicensedSettings(agency, { startGroupHours: $event.target.value })"
+                          />
+                        </div>
+                      </div>
+                      <button v-if="canEditUser" @click="removeAgency(agency.id)" class="btn btn-danger btn-sm">Remove</button>
+                    </div>
+                  </div>
+                  
+                  <div v-if="canEditUser" class="add-agency-section">
+                    <select v-model="selectedAgencyId" class="agency-select">
+                      <option value="">Select an organization...</option>
+                      <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
+                        {{ agency.name }}
+                        <span v-if="agency.organization_type">({{ agency.organization_type }})</span>
+                      </option>
+                    </select>
+                    <input
+                      v-if="selectedAgencyAllowsAlias"
+                      v-model="newAgencyLoginEmail"
+                      class="agency-select"
+                      style="min-width: 260px;"
+                      placeholder="Optional login email alias (agencies only)"
+                      :disabled="!selectedAgencyId || assigningAgency"
+                    />
+                    <button @click="addAgency" class="btn btn-primary btn-sm" :disabled="!selectedAgencyId || assigningAgency">
+                      {{ assigningAgency ? 'Assigning...' : 'Assign' }}
+                    </button>
+                  </div>
+                  <div v-else class="muted" style="font-size: 12px;">
+                    Only admins can change agency assignments.
+                  </div>
+                </div>
+              </div>
+
+              <div class="admin-tools-section">
+                <h3>Admin Tools</h3>
+                <div class="additional-account-info">
+                  <div v-if="accountInfoLoading" class="loading">Loading account information...</div>
+                  <div v-else-if="accountInfoError" class="error">{{ accountInfoError }}</div>
+                  <div v-else>
+                    <!-- Supervisor Information Section -->
+                    <div v-if="accountInfo.supervisors && accountInfo.supervisors.length > 0" class="supervisors-section" style="margin-top: 24px;">
+                      <h4 style="margin-top: 0; margin-bottom: 15px;">Supervisor Information</h4>
+                      <div class="supervisors-list">
+                        <div v-for="supervisor in accountInfo.supervisors" :key="supervisor.id" class="supervisor-item">
+                          <div class="supervisor-name">
+                            <strong>{{ supervisor.firstName }} {{ supervisor.lastName }}</strong>
+                            <span v-if="supervisor.agencyName" class="supervisor-agency">({{ supervisor.agencyName }})</span>
+                          </div>
+                          <div v-if="supervisor.workPhone" class="supervisor-contact">
+                            <span>Work Phone: {{ supervisor.workPhone }}</span>
+                            <span v-if="supervisor.workPhoneExtension"> ext. {{ supervisor.workPhoneExtension }}</span>
+                          </div>
+                          <div v-if="supervisor.email" class="supervisor-contact">
+                            <span>Email: {{ supervisor.email }}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <!-- Pending User Login Link Section -->
+                    <div v-if="user?.status === 'pending' && accountInfo.passwordlessLoginLink" class="passwordless-link-section" style="margin-top: 24px; padding: 20px; background: #e7f3ff; border-radius: 8px; border: 1px solid #007bff;">
+                      <h4 style="margin-top: 0; margin-bottom: 15px;">Direct Login Link</h4>
+                      <p style="margin: 0 0 15px 0; color: #666; font-size: 14px; line-height: 1.6;">
+                        Use this link to access the account. The user will be asked to verify their last name when they click the link.
+                      </p>
+                      
+                      <!-- Token Status -->
+                      <div v-if="accountInfo.passwordlessTokenExpiresAt" style="margin-bottom: 15px; padding: 10px; background: white; border-radius: 6px; border: 1px solid #ddd;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                          <div>
+                            <strong>Link Status:</strong>
+                            <span :style="{ color: accountInfo.passwordlessTokenIsExpired ? '#dc3545' : '#28a745', marginLeft: '8px' }">
+                              {{ accountInfo.passwordlessTokenIsExpired ? '❌ Expired' : '✅ Valid' }}
+                            </span>
+                          </div>
+                          <div style="text-align: right;">
+                            <div><strong>Expires:</strong> {{ formatTokenExpiration(accountInfo.passwordlessTokenExpiresAt) }}</div>
+                            <div v-if="!accountInfo.passwordlessTokenIsExpired && accountInfo.passwordlessTokenExpiresInHours" style="font-size: 12px; color: #666;">
+                              ({{ formatTimeUntilExpiry(accountInfo.passwordlessTokenExpiresInHours) }})
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                        <input 
+                          type="text" 
+                          :value="accountInfo.passwordlessLoginLink" 
+                          readonly 
+                          style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: monospace; background: white; cursor: text;"
+                          @click="$event.target.select()"
+                        />
+                        <button 
+                          @click="copyPasswordlessLink" 
+                          class="btn btn-primary btn-sm"
+                        >
+                          Copy Link
+                        </button>
+                      </div>
+                      <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
+                        <button 
+                          @click="showResetTokenModal = true" 
+                          class="btn btn-secondary btn-sm"
+                          :disabled="resettingToken"
+                        >
+                          {{ resettingToken ? 'Resetting...' : 'Reset Link (New Token)' }}
+                        </button>
+                        <div v-if="showResetTokenModal" style="display: flex; gap: 10px; align-items: center; margin-left: 10px;">
+                          <label style="font-size: 12px;">Expires in:</label>
+                          <input 
+                            type="number" 
+                            v-model="tokenExpirationDays" 
+                            min="1" 
+                            max="30"
+                            style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
+                          />
+                          <span style="font-size: 12px;">days</span>
+                          <button 
+                            @click="confirmResetToken" 
+                            class="btn btn-success btn-sm"
+                            :disabled="resettingToken"
+                          >
+                            Confirm
+                          </button>
+                          <button 
+                            @click="showResetTokenModal = false" 
+                            class="btn btn-secondary btn-sm"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                      <small style="display: block; color: #666; font-size: 12px; font-style: italic; margin-top: 10px;">
+                        Click the link above to select it, or use the copy button. Use "Reset Link" to generate a new token with custom expiration.
+                      </small>
+                    </div>
+                    
+                    <div class="download-section">
+                      <h4>Download Completion Package</h4>
+                      <p class="download-description">
+                        Download a complete package of all completed items for this user, including signed documents, 
+                        certificates, completion confirmations, and quiz scores.
+                      </p>
+                      <button 
+                        @click="downloadCompletionPackage" 
+                        class="btn btn-primary btn-sm"
+                        :disabled="downloadingPackage"
+                      >
+                        {{ downloadingPackage ? 'Generating...' : 'Download' }}
+                      </button>
+                    </div>
+                    
+                    <div v-if="canEditUser" class="account-management-section">
+                      <h4>Account Management</h4>
+                      <div class="account-management-content" :class="{ 'activate-section': !user?.is_active }">
+                        <p v-if="user?.is_active">
+                          Deactivate this user account. This will prevent them from logging in. 
+                          Note: This user may need to be marked as completed or terminated instead.
+                        </p>
+                        <p v-else>
+                          Activate this user account. This will restore their access to the system.
+                        </p>
+                        <button 
+                          v-if="user?.is_active"
+                          @click="deactivateUser" 
+                          class="btn btn-warning btn-sm"
+                          :disabled="deactivatingUser"
+                        >
+                          {{ deactivatingUser ? 'Deactivating...' : 'Deactivate' }}
+                        </button>
+                        <button 
+                          v-else
+                          @click="activateUser" 
+                          class="btn btn-success btn-sm"
+                          :disabled="activatingUser"
+                        >
+                          {{ activatingUser ? 'Activating...' : 'Activate' }}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -761,158 +919,6 @@
                 </div>
               </div>
             </div>
-          
-          <div class="section-divider">
-            <h3>Admin Tools</h3>
-          </div>
-          
-          <div class="additional-account-info">
-            <div v-if="accountInfoLoading" class="loading">Loading account information...</div>
-            <div v-else-if="accountInfoError" class="error">{{ accountInfoError }}</div>
-            <div v-else>
-              <!-- Supervisor Information Section -->
-              <div v-if="accountInfo.supervisors && accountInfo.supervisors.length > 0" class="supervisors-section" style="margin-top: 24px;">
-                <h4 style="margin-top: 0; margin-bottom: 15px;">Supervisor Information</h4>
-                <div class="supervisors-list">
-                  <div v-for="supervisor in accountInfo.supervisors" :key="supervisor.id" class="supervisor-item">
-                    <div class="supervisor-name">
-                      <strong>{{ supervisor.firstName }} {{ supervisor.lastName }}</strong>
-                      <span v-if="supervisor.agencyName" class="supervisor-agency">({{ supervisor.agencyName }})</span>
-                    </div>
-                    <div v-if="supervisor.workPhone" class="supervisor-contact">
-                      <span>Work Phone: {{ supervisor.workPhone }}</span>
-                      <span v-if="supervisor.workPhoneExtension"> ext. {{ supervisor.workPhoneExtension }}</span>
-                    </div>
-                    <div v-if="supervisor.email" class="supervisor-contact">
-                      <span>Email: {{ supervisor.email }}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <!-- Pending User Login Link Section -->
-              <div v-if="user?.status === 'pending' && accountInfo.passwordlessLoginLink" class="passwordless-link-section" style="margin-top: 24px; padding: 20px; background: #e7f3ff; border-radius: 8px; border: 1px solid #007bff;">
-                <h4 style="margin-top: 0; margin-bottom: 15px;">Direct Login Link</h4>
-                <p style="margin: 0 0 15px 0; color: #666; font-size: 14px; line-height: 1.6;">
-                  Use this link to access the account. The user will be asked to verify their last name when they click the link.
-                </p>
-                
-                <!-- Token Status -->
-                <div v-if="accountInfo.passwordlessTokenExpiresAt" style="margin-bottom: 15px; padding: 10px; background: white; border-radius: 6px; border: 1px solid #ddd;">
-                  <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                      <strong>Link Status:</strong>
-                      <span :style="{ color: accountInfo.passwordlessTokenIsExpired ? '#dc3545' : '#28a745', marginLeft: '8px' }">
-                        {{ accountInfo.passwordlessTokenIsExpired ? '❌ Expired' : '✅ Valid' }}
-                      </span>
-                    </div>
-                    <div style="text-align: right;">
-                      <div><strong>Expires:</strong> {{ formatTokenExpiration(accountInfo.passwordlessTokenExpiresAt) }}</div>
-                      <div v-if="!accountInfo.passwordlessTokenIsExpired && accountInfo.passwordlessTokenExpiresInHours" style="font-size: 12px; color: #666;">
-                        ({{ formatTimeUntilExpiry(accountInfo.passwordlessTokenExpiresInHours) }})
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                  <input 
-                    type="text" 
-                    :value="accountInfo.passwordlessLoginLink" 
-                    readonly 
-                    style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: monospace; background: white; cursor: text;"
-                    @click="$event.target.select()"
-                  />
-                  <button 
-                    @click="copyPasswordlessLink" 
-                    class="btn btn-primary btn-sm"
-                  >
-                    Copy Link
-                  </button>
-                </div>
-                <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center;">
-                  <button 
-                    @click="showResetTokenModal = true" 
-                    class="btn btn-secondary btn-sm"
-                    :disabled="resettingToken"
-                  >
-                    {{ resettingToken ? 'Resetting...' : 'Reset Link (New Token)' }}
-                  </button>
-                  <div v-if="showResetTokenModal" style="display: flex; gap: 10px; align-items: center; margin-left: 10px;">
-                    <label style="font-size: 12px;">Expires in:</label>
-                    <input 
-                      type="number" 
-                      v-model="tokenExpirationDays" 
-                      min="1" 
-                      max="30"
-                      style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
-                    />
-                    <span style="font-size: 12px;">days</span>
-                    <button 
-                      @click="confirmResetToken" 
-                      class="btn btn-success btn-sm"
-                      :disabled="resettingToken"
-                    >
-                      Confirm
-                    </button>
-                    <button 
-                      @click="showResetTokenModal = false" 
-                      class="btn btn-secondary btn-sm"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-                <small style="display: block; color: #666; font-size: 12px; font-style: italic; margin-top: 10px;">
-                  Click the link above to select it, or use the copy button. Use "Reset Link" to generate a new token with custom expiration.
-                </small>
-              </div>
-              
-              <div class="download-section">
-                <h4>Download Completion Package</h4>
-                <p class="download-description">
-                  Download a complete package of all completed items for this user, including signed documents, 
-                  certificates, completion confirmations, and quiz scores.
-                </p>
-                <button 
-                  @click="downloadCompletionPackage" 
-                  class="btn btn-primary btn-sm"
-                  :disabled="downloadingPackage"
-                >
-                  {{ downloadingPackage ? 'Generating...' : 'Download' }}
-                </button>
-              </div>
-              
-              <div v-if="canEditUser" class="account-management-section">
-                <h4>Account Management</h4>
-                <div class="account-management-content" :class="{ 'activate-section': !user?.is_active }">
-                  <p v-if="user?.is_active">
-                    Deactivate this user account. This will prevent them from logging in. 
-                    Note: This user may need to be marked as completed or terminated instead.
-                  </p>
-                  <p v-else>
-                    Activate this user account. This will restore their access to the system.
-                  </p>
-                  <button 
-                    v-if="user?.is_active"
-                    @click="deactivateUser" 
-                    class="btn btn-warning btn-sm"
-                    :disabled="deactivatingUser"
-                  >
-                    {{ deactivatingUser ? 'Deactivating...' : 'Deactivate' }}
-                  </button>
-                  <button 
-                    v-else
-                    @click="activateUser" 
-                    class="btn btn-success btn-sm"
-                    :disabled="activatingUser"
-                  >
-                    {{ activatingUser ? 'Activating...' : 'Activate' }}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div v-if="activeTab === 'additional'" class="tab-panel">
@@ -951,7 +957,10 @@
               </div>
               <div v-else class="supervisors-list">
                 <div v-for="supervisor in supervisors" :key="supervisor.id" class="supervisor-item">
-                  <span>{{ supervisor.supervisor_first_name }} {{ supervisor.supervisor_last_name }}</span>
+                  <span>
+                    {{ supervisor.supervisor_first_name }} {{ supervisor.supervisor_last_name }}
+                    <span v-if="supervisor.is_primary" class="primary-pill">Primary</span>
+                  </span>
                   <small style="color: var(--text-secondary);">{{ supervisor.supervisor_email }}</small>
                 </div>
               </div>
@@ -3657,6 +3666,18 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.primary-pill {
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #065f46;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.12);
+}
 .page-header {
   margin-bottom: 32px;
 }
@@ -3854,9 +3875,33 @@ onMounted(() => {
 
 .account-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(520px, 2fr) minmax(320px, 1fr);
   gap: 32px;
   align-items: start;
+}
+
+.account-main {
+  min-width: 0;
+}
+
+.account-sidebar {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.admin-tools-section h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+@media (max-width: 980px) {
+  .account-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 .account-form {

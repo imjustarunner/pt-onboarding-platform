@@ -5,7 +5,8 @@ import {
   deleteAssignment,
   getSupervisees,
   getSupervisors,
-  getAgencyAssignments
+  getAgencyAssignments,
+  setPrimarySupervisor
 } from '../controllers/supervisorAssignment.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
@@ -20,9 +21,21 @@ router.post(
   [
     body('supervisorId').isInt().withMessage('supervisorId must be an integer'),
     body('superviseeId').isInt().withMessage('superviseeId must be an integer'),
-    body('agencyId').isInt().withMessage('agencyId must be an integer')
+    body('agencyId').isInt().withMessage('agencyId must be an integer'),
+    body('isPrimary').optional().isBoolean().withMessage('isPrimary must be a boolean')
   ],
   createAssignment
+);
+
+// Set primary supervisor
+router.post(
+  '/primary',
+  [
+    body('supervisorId').isInt().withMessage('supervisorId must be an integer'),
+    body('superviseeId').isInt().withMessage('superviseeId must be an integer'),
+    body('agencyId').isInt().withMessage('agencyId must be an integer')
+  ],
+  setPrimarySupervisor
 );
 
 // Delete assignment

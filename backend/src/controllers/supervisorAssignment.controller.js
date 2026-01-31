@@ -17,7 +17,7 @@ export const createAssignment = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only admins, super admins, and support can create supervisor assignments' } });
     }
 
-    const { supervisorId, superviseeId, agencyId } = req.body;
+    const { supervisorId, superviseeId, agencyId, isPrimary } = req.body;
 
     if (!supervisorId || !superviseeId || !agencyId) {
       return res.status(400).json({ error: { message: 'supervisorId, superviseeId, and agencyId are required' } });
@@ -62,15 +62,52 @@ export const createAssignment = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Assignment already exists' } });
     }
 
+    // If marking as primary, clear previous primary first (best-effort; column may not exist yet)
+    if (isPrimary === true) {
+      try {
+        await SupervisorAssignment.clearPrimary(superviseeId, agencyId);
+      } catch {
+        // ignore (migration may not be applied yet)
+      }
+    }
+
     // Create assignment
-    const assignment = await SupervisorAssignment.create(
-      supervisorId,
-      superviseeId,
-      agencyId,
-      req.user.id
-    );
+    const assignment = await SupervisorAssignment.create(supervisorId, superviseeId, agencyId, req.user.id, {
+      isPrimary: isPrimary === true
+    });
 
     res.status(201).json(assignment);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Set a primary supervisor for a supervisee within an agency.
+ * POST /api/supervisor-assignments/primary
+ */
+export const setPrimarySupervisor = async (req, res, next) => {
+  try {
+    // Only admins, super_admins, and support can set primary
+    if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+      return res.status(403).json({ error: { message: 'Only admins, super admins, and support can set primary supervisors' } });
+    }
+
+    const supervisorId = parseInt(String(req.body?.supervisorId || ''), 10);
+    const superviseeId = parseInt(String(req.body?.superviseeId || ''), 10);
+    const agencyId = parseInt(String(req.body?.agencyId || ''), 10);
+    if (!supervisorId || !superviseeId || !agencyId) {
+      return res.status(400).json({ error: { message: 'supervisorId, superviseeId, and agencyId are required' } });
+    }
+
+    // Ensure the assignment exists
+    const exists = await SupervisorAssignment.isAssigned(supervisorId, superviseeId, agencyId);
+    if (!exists) {
+      return res.status(404).json({ error: { message: 'Assignment not found for this supervisor/supervisee/agency' } });
+    }
+
+    await SupervisorAssignment.setPrimary(supervisorId, superviseeId, agencyId);
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }

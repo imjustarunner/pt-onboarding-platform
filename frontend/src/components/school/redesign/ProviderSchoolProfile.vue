@@ -56,24 +56,32 @@
               <div v-if="profile?.credential" class="sub">{{ profile.credential }}</div>
               <div v-if="profile?.service_focus" class="sub">{{ profile.service_focus }}</div>
               <div v-if="providerContactLine" class="sub">{{ providerContactLine }}</div>
-              <div v-if="profile?.supervisor?.id" class="supervisor-row">
-                <div class="supervisor-label">Supervisor</div>
-                <div class="supervisor-pill">
-                  <div class="supervisor-avatar" aria-hidden="true">
-                    <img
-                      v-if="profile.supervisor.profile_photo_url"
-                      :src="toUploadsUrl(profile.supervisor.profile_photo_url)"
-                      alt=""
-                      class="supervisor-avatar-img"
-                    />
-                    <span v-else class="supervisor-avatar-fallback">{{ initialsFor(profile.supervisor) }}</span>
-                  </div>
-                  <div class="supervisor-meta">
-                    <div class="supervisor-name">
-                      {{ profile.supervisor.first_name }} {{ profile.supervisor.last_name }}
+              <div v-if="normalizedSupervisors.length" class="supervisor-row">
+                <div class="supervisor-label">Supervisors</div>
+                <div class="supervisor-list">
+                  <div
+                    v-for="s in normalizedSupervisors"
+                    :key="`sup-${s.id}`"
+                    class="supervisor-pill"
+                    :title="s.is_primary ? 'Primary supervisor' : 'Supervisor'"
+                  >
+                    <div class="supervisor-avatar" aria-hidden="true">
+                      <img
+                        v-if="s.profile_photo_url"
+                        :src="toUploadsUrl(s.profile_photo_url)"
+                        alt=""
+                        class="supervisor-avatar-img"
+                      />
+                      <span v-else class="supervisor-avatar-fallback">{{ initialsFor(s) }}</span>
                     </div>
-                    <div v-if="profile.supervisor.credential" class="supervisor-cred">
-                      {{ profile.supervisor.credential }}
+                    <div class="supervisor-meta">
+                      <div class="supervisor-name">
+                        {{ s.first_name }} {{ s.last_name }}
+                        <span v-if="s.is_primary" class="primary-tag">Primary</span>
+                      </div>
+                      <div v-if="s.credential" class="supervisor-cred">
+                        {{ s.credential }}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -381,6 +389,14 @@ const initialsFor = (p) => {
   return `${a}${b}`.toUpperCase() || 'P';
 };
 
+const normalizedSupervisors = computed(() => {
+  const list = Array.isArray(profile.value?.supervisors) ? profile.value.supervisors : [];
+  if (list.length) return list;
+  const one = profile.value?.supervisor;
+  if (one?.id) return [{ ...one, is_primary: true }];
+  return [];
+});
+
 const load = async () => {
   try {
     loading.value = true;
@@ -651,6 +667,11 @@ watch(
   display: grid;
   gap: 6px;
 }
+.supervisor-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .supervisor-label {
   font-size: 12px;
   font-weight: 800;
@@ -699,6 +720,16 @@ watch(
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.primary-tag {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 900;
+  color: #065f46;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  padding: 2px 8px;
+  border-radius: 999px;
 }
 .supervisor-cred {
   font-size: 12px;
