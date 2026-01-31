@@ -115,14 +115,35 @@ class ProviderSearchIndex {
     const aid = Number(agencyId);
     if (!aid) return { ok: false };
 
-    // Determine providers to index: any user assigned to this agency.
-    const [users] = await pool.execute(
-      `SELECT DISTINCT u.id
-       FROM users u
-       JOIN user_agencies ua ON ua.user_id = u.id
-       WHERE ua.agency_id = ?`,
-      [aid]
-    );
+    // Determine providers to index (exclude applicants/prospectives).
+    // Keep this query defensive across older DBs.
+    let users = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT u.id
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ?
+           AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+           AND (u.is_active IS NULL OR u.is_active = TRUE)
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
+           AND (u.role IN ('provider') OR u.has_provider_access = TRUE)`,
+        [aid]
+      );
+      users = rows || [];
+    } catch (e) {
+      const msg = String(e?.message || '');
+      if (!msg.includes('Unknown column')) throw e;
+      const [rows] = await pool.execute(
+        `SELECT DISTINCT u.id
+         FROM users u
+         JOIN user_agencies ua ON ua.user_id = u.id
+         WHERE ua.agency_id = ?
+           AND (u.role IN ('provider'))`,
+        [aid]
+      );
+      users = rows || [];
+    }
 
     for (const u of users || []) {
       await this.upsertForUserInAgency({ userId: u.id, agencyId: aid });
@@ -198,12 +219,25 @@ class ProviderSearchIndex {
 
     let whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
+    // Base scope: real providers in this agency (exclude applicants/prospectives).
+    // We append any optional clauses via whereSql.
+    const baseClauses = [
+      `ua.agency_id = ?`,
+      `(u.is_archived IS NULL OR u.is_archived = FALSE)`,
+      `(u.is_active IS NULL OR u.is_active = TRUE)`,
+      `(u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))`,
+      `(u.role IN ('provider') OR u.has_provider_access = TRUE)`
+    ];
+
     let baseUserIdsSql = `SELECT DISTINCT u.id
       FROM users u
       JOIN user_agencies ua ON ua.user_id = u.id
-      ${whereSql}
-      AND ua.agency_id = ?`;
+      WHERE ${baseClauses.join(' AND ')}`;
     params.push(aid);
+
+    if (clauses.length) {
+      baseUserIdsSql += ` AND ${clauses.join(' AND ')}`;
+    }
 
     if (subqueries.length) {
       const union = subqueries.join('\nUNION ALL\n');

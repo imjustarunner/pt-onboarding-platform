@@ -36,7 +36,7 @@ export const listProvidersForScheduling = async (req, res, next) => {
          WHERE ua.agency_id = ?
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
            AND (
              u.role IN ('provider')
              OR (u.has_provider_access = TRUE)
@@ -55,7 +55,7 @@ export const listProvidersForScheduling = async (req, res, next) => {
          WHERE ua.agency_id = ?
            AND (u.is_active IS NULL OR u.is_active = TRUE)
            AND (u.is_archived IS NULL OR u.is_archived = FALSE)
-           AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+           AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE'))
            AND (
              u.role IN ('provider')
              OR (u.has_provider_access = TRUE)
