@@ -3,6 +3,7 @@ import User from '../models/User.model.js';
 import HiringProfile from '../models/HiringProfile.model.js';
 import HiringNote from '../models/HiringNote.model.js';
 import HiringResearchReport from '../models/HiringResearchReport.model.js';
+import HiringResumeParse from '../models/HiringResumeParse.model.js';
 import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import StorageService from '../services/storage.service.js';
@@ -11,6 +12,7 @@ import {
   generatePreScreenReportWithGoogleSearch,
   generatePreScreenReportWithVertexNoSearch
 } from '../services/preScreenResearch.service.js';
+import { extractResumeTextFromUpload } from '../services/resumeTextExtraction.service.js';
 import config from '../config/config.js';
 
 function parseIntParam(v) {
@@ -316,8 +318,29 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
 
     const candidateNameFromDb = `${user.first_name || ''} ${user.last_name || ''}`.trim();
     const candidateName = String(req.body?.candidateName || candidateNameFromDb || '').trim();
-    const resumeText = String(req.body?.resumeText || '').trim().slice(0, 20000);
+    // Prefer extracted resume text from uploaded resume(s).
+    // Allow manual override via req.body.resumeText, but default should “just work” after upload.
+    let resumeText = String(req.body?.resumeText || '').trim();
+    if (!resumeText) {
+      try {
+        const latest = await HiringResumeParse.findLatestCompletedTextByCandidateUserId(candidateUserId);
+        resumeText = String(latest?.extracted_text || '').trim();
+      } catch (e) {
+        // If the table isn't migrated yet, fall back to requiring manual paste.
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+    }
+    resumeText = resumeText.slice(0, 20000);
     const linkedInUrl = String(req.body?.linkedInUrl || '').trim().slice(0, 800);
+
+    if (!resumeText) {
+      return res.status(400).json({
+        error: {
+          message:
+            'No resume text available yet. Upload a resume PDF (with selectable text) so we can extract it, or paste resume text manually.'
+        }
+      });
+    }
 
     const started = Date.now();
     let ai;
@@ -578,10 +601,14 @@ export const listCandidateResumes = async (req, res, next) => {
 
     const [rows] = await pool.execute(
       `SELECT d.*,
+              rp.status AS resume_parse_status,
+              rp.method AS resume_parse_method,
+              rp.updated_at AS resume_parse_updated_at,
               cb.first_name AS created_by_first_name,
               cb.last_name AS created_by_last_name,
               cb.email AS created_by_email
        FROM user_admin_docs d
+       LEFT JOIN hiring_resume_parses rp ON rp.resume_doc_id = d.id
        LEFT JOIN users cb ON cb.id = d.created_by_user_id
        WHERE d.user_id = ? AND d.doc_type = 'resume'
        ORDER BY d.created_at DESC`,
@@ -598,7 +625,10 @@ export const listCandidateResumes = async (req, res, next) => {
       createdByName: [d.created_by_first_name, d.created_by_last_name].filter(Boolean).join(' ') || d.created_by_email || `User ${d.created_by_user_id}`,
       hasFile: !!d.storage_path,
       originalName: d.original_name || null,
-      mimeType: d.mime_type || null
+      mimeType: d.mime_type || null,
+      resumeParseStatus: d.resume_parse_status || null,
+      resumeParseMethod: d.resume_parse_method || null,
+      resumeParseUpdatedAt: d.resume_parse_updated_at || null
     }));
 
     res.json(out);
@@ -649,6 +679,24 @@ export const uploadCandidateResume = async (req, res, next) => {
         req.user.id
       ]
     );
+
+    // Extract resume text (cheapest path: PDF selectable text or plain text).
+    // Best-effort: if hiring_resume_parses table isn't present yet, skip silently.
+    try {
+      const extraction = await extractResumeTextFromUpload({ buffer: fileBuffer, mimeType });
+      await HiringResumeParse.upsertByResumeDocId({
+        candidateUserId,
+        resumeDocId: result.insertId,
+        method: extraction.method,
+        status: extraction.status,
+        extractedText: extraction.text || null,
+        extractedJson: null,
+        errorText: extraction.errorText || null,
+        createdByUserId: req.user.id
+      });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
 
     const [rows] = await pool.execute(
       `SELECT * FROM user_admin_docs WHERE id = ? LIMIT 1`,

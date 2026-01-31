@@ -199,13 +199,9 @@
               <div class="kv">
                 <div class="k">Resume text</div>
                 <div class="v">
-                  <textarea
-                    v-model="preScreenResumeText"
-                    class="textarea"
-                    rows="6"
-                    placeholder="Paste resume text here (optional, but improves discrepancy checks)…"
-                  />
-                  <div class="muted small">We store only metadata about this input (length), not the full pasted text.</div>
+                  <div class="muted small">
+                    Uses the latest uploaded resume (text is extracted server-side). If the resume is a scanned PDF/image, extraction may be empty until we add OCR.
+                  </div>
                 </div>
               </div>
 
@@ -369,7 +365,6 @@ const selectCandidate = async (id) => {
   tab.value = 'profile';
   promoteResult.value = null;
   preScreenLinkedInUrl.value = '';
-  preScreenResumeText.value = '';
   await loadDetail();
   await loadResumes();
   await loadAssignees();
@@ -411,14 +406,12 @@ const addNote = async () => {
 // Pre-Screen (AI research)
 const generatingPreScreen = ref(false);
 const preScreenLinkedInUrl = ref('');
-const preScreenResumeText = ref('');
 const generatePreScreenReport = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
   try {
     generatingPreScreen.value = true;
     const body = {
       candidateName: candidateName.value,
-      resumeText: String(preScreenResumeText.value || '').trim().slice(0, 20000),
       linkedInUrl: String(preScreenLinkedInUrl.value || '').trim().slice(0, 800)
     };
     const r = await api.post(`/hiring/candidates/${selectedId.value}/prescreen`, body, { params: { agencyId: effectiveAgencyId.value } });
