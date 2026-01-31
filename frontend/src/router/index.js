@@ -350,6 +350,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: 'schedule_manager', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/provider-availability',
+    name: 'OrganizationProviderAvailabilityDashboard',
+    component: () => import('../views/admin/ProviderAvailabilityDashboardView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant', 'schedule_manager'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/documents',
     name: 'OrganizationDocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
@@ -660,6 +666,12 @@ const routes = [
     name: 'ExternalCalendarAudit',
     component: () => import('../views/admin/ExternalCalendarAuditView.vue'),
     meta: { requiresAuth: true, requiresRole: 'schedule_manager' }
+  },
+  {
+    path: '/admin/provider-availability',
+    name: 'ProviderAvailabilityDashboard',
+    component: () => import('../views/admin/ProviderAvailabilityDashboardView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'clinical_practice_assistant', 'schedule_manager'] }
   },
   {
     path: '/admin/skill-builders-availability',

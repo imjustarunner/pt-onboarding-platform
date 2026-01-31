@@ -81,6 +81,24 @@ const WEEKDAY_SET = new Set(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
 const WEEKEND_SET = new Set(['Saturday', 'Sunday']);
 const SKILL_BUILDER_MINUTES_PER_WEEK = 6 * 60;
 
+function canViewAvailabilityDashboard(role) {
+  const r = String(role || '').toLowerCase();
+  return canManageAvailability(r) || r === 'schedule_manager' || r === 'supervisor';
+}
+
+function weekdayIntFromDayName(dayName) {
+  const d = normalizeDayName(dayName);
+  if (!d) return null;
+  const idx = DAY_NAMES.indexOf(d);
+  return idx >= 0 ? idx : null;
+}
+
+function dayNameFromWeekdayInt(weekday) {
+  const n = Number(weekday);
+  if (!Number.isInteger(n) || n < 0 || n > 6) return null;
+  return DAY_NAMES[n] || null;
+}
+
 function minutesBetween(startHHMMSS, endHHMMSS) {
   const s = String(startHHMMSS || '');
   const e = String(endHHMMSS || '');
@@ -1407,6 +1425,260 @@ export const listProvidersForAvailability = async (req, res, next) => {
       [agencyId]
     );
     res.json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const providerAvailabilityDashboard = async (req, res, next) => {
+  try {
+    const agencyId = await resolveAgencyId(req);
+    if (!(await requireAgencyMembership(req, res, agencyId))) return;
+    if (!canViewAvailabilityDashboard(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const providerId = req.query.providerId ? parseIntSafe(req.query.providerId) : null;
+    const schoolOrganizationId = req.query.schoolOrganizationId ? parseIntSafe(req.query.schoolOrganizationId) : null;
+    const officeLocationId = req.query.officeLocationId ? parseIntSafe(req.query.officeLocationId) : null;
+    const dayOfWeek = req.query.dayOfWeek ? normalizeDayName(req.query.dayOfWeek) : null; // Monday..Sunday
+    const weekday =
+      req.query.weekday !== undefined && req.query.weekday !== null && req.query.weekday !== ''
+        ? parseIntSafe(req.query.weekday)
+        : null; // 0..6
+    const hour =
+      req.query.hour !== undefined && req.query.hour !== null && req.query.hour !== ''
+        ? parseIntSafe(req.query.hour)
+        : null; // 0..23
+    const includeInactive = String(req.query.includeInactive || 'false').toLowerCase() === 'true';
+
+    // Providers list (for filter dropdowns)
+    const [providers] = await pool.execute(
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
+       WHERE (u.role IN ('provider') OR u.has_provider_access = TRUE)
+         AND (u.is_archived IS NULL OR u.is_archived = FALSE)
+         AND (u.is_active IS NULL OR u.is_active = TRUE)
+         AND (u.status IS NULL OR UPPER(u.status) <> 'ARCHIVED')
+       ORDER BY u.last_name ASC, u.first_name ASC, u.id ASC`,
+      [agencyId]
+    );
+
+    // Affiliated orgs (schools/programs/learning), for school filter dropdown.
+    const [organizations] = await pool.execute(
+      `SELECT a.id, a.name, a.organization_type
+       FROM agencies a
+       JOIN organization_affiliations oa ON oa.organization_id = a.id
+       WHERE oa.agency_id = ? AND oa.is_active = TRUE
+       ORDER BY a.name ASC`,
+      [agencyId]
+    );
+
+    // Offices accessible by this agency (multi-agency join table).
+    const [offices] = await pool.execute(
+      `SELECT ol.id, ol.name, ol.timezone, ol.is_active
+       FROM office_locations ol
+       JOIN office_location_agencies ola ON ola.office_location_id = ol.id
+       WHERE ola.agency_id = ?
+       ORDER BY ol.name ASC`,
+      [agencyId]
+    );
+
+    // ---- School slots/assignments
+    const schoolWhere = ['oa.agency_id = ?', includeInactive ? '1=1' : 'psa.is_active = TRUE'];
+    const schoolParams = [agencyId];
+    if (providerId) {
+      schoolWhere.push('psa.provider_user_id = ?');
+      schoolParams.push(providerId);
+    }
+    if (schoolOrganizationId) {
+      schoolWhere.push('psa.school_organization_id = ?');
+      schoolParams.push(schoolOrganizationId);
+    }
+    if (dayOfWeek) {
+      schoolWhere.push('psa.day_of_week = ?');
+      schoolParams.push(dayOfWeek);
+    }
+
+    const [schoolRows] = await pool.execute(
+      `SELECT
+         psa.id,
+         psa.provider_user_id,
+         u.first_name AS provider_first_name,
+         u.last_name AS provider_last_name,
+         psa.school_organization_id,
+         s.name AS school_name,
+         psa.day_of_week,
+         psa.start_time,
+         psa.end_time,
+         psa.slots_total,
+         psa.slots_available,
+         psa.is_active,
+         psa.accepting_new_clients_override
+       FROM provider_school_assignments psa
+       JOIN agencies s ON s.id = psa.school_organization_id
+       JOIN users u ON u.id = psa.provider_user_id
+       JOIN organization_affiliations oa ON oa.organization_id = psa.school_organization_id AND oa.is_active = TRUE
+       WHERE ${schoolWhere.join(' AND ')}
+       ORDER BY s.name ASC,
+                FIELD(psa.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday') ASC,
+                u.last_name ASC, u.first_name ASC`,
+      schoolParams
+    );
+
+    const schoolSlots = (schoolRows || []).map((r) => ({
+      id: r.id,
+      schoolOrganizationId: r.school_organization_id,
+      schoolName: r.school_name || '',
+      providerId: r.provider_user_id,
+      providerName: `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim(),
+      dayOfWeek: r.day_of_week,
+      startTime: r.start_time ? String(r.start_time).slice(0, 5) : '',
+      endTime: r.end_time ? String(r.end_time).slice(0, 5) : '',
+      slotsTotal: Number(r.slots_total || 0),
+      slotsAvailable: Number(r.slots_available || 0),
+      isActive: !!r.is_active,
+      acceptingNewClientsOverride: r.accepting_new_clients_override === null ? null : !!r.accepting_new_clients_override
+    }));
+
+    // ---- Office standing assignments (repeating office availability)
+    const officeWhere = ['ola.agency_id = ?', includeInactive ? '1=1' : 'osa.is_active = TRUE'];
+    const officeParams = [agencyId];
+    if (providerId) {
+      officeWhere.push('osa.provider_id = ?');
+      officeParams.push(providerId);
+    }
+    if (officeLocationId) {
+      officeWhere.push('osa.office_location_id = ?');
+      officeParams.push(officeLocationId);
+    }
+    const effectiveWeekday = Number.isInteger(weekday) ? weekday : (dayOfWeek ? weekdayIntFromDayName(dayOfWeek) : null);
+    if (Number.isInteger(effectiveWeekday)) {
+      officeWhere.push('osa.weekday = ?');
+      officeParams.push(effectiveWeekday);
+    }
+    if (Number.isInteger(hour)) {
+      officeWhere.push('osa.hour = ?');
+      officeParams.push(hour);
+    }
+
+    const [officeRows] = await pool.execute(
+      `SELECT
+         osa.id,
+         osa.office_location_id,
+         ol.name AS office_name,
+         ol.timezone AS office_timezone,
+         osa.room_id,
+         r.name AS room_name,
+         r.room_number AS room_number,
+         r.label AS room_label,
+         osa.provider_id,
+         u.first_name AS provider_first_name,
+         u.last_name AS provider_last_name,
+         osa.weekday,
+         osa.hour,
+         osa.assigned_frequency,
+         osa.availability_mode,
+         osa.temporary_until_date,
+         osa.available_since_date,
+         osa.is_active
+       FROM office_standing_assignments osa
+       JOIN office_locations ol ON ol.id = osa.office_location_id
+       JOIN office_location_agencies ola ON ola.office_location_id = ol.id
+       JOIN office_rooms r ON r.id = osa.room_id
+       JOIN users u ON u.id = osa.provider_id
+       WHERE ${officeWhere.join(' AND ')}
+       ORDER BY ol.name ASC, u.last_name ASC, u.first_name ASC, osa.weekday ASC, osa.hour ASC`,
+      officeParams
+    );
+
+    const officeAvailability = (officeRows || []).map((r) => {
+      const dayName = dayNameFromWeekdayInt(r.weekday) || '';
+      const h = Number(r.hour);
+      const hh = Number.isInteger(h) ? String(h).padStart(2, '0') : '';
+      const startTime = hh ? `${hh}:00` : '';
+      const endTime = hh ? `${String((h + 1) % 24).padStart(2, '0')}:00` : '';
+      const roomLabel = String(r.room_label || '').trim() || String(r.room_number || '').trim() || String(r.room_name || '').trim();
+      return {
+        id: r.id,
+        officeLocationId: r.office_location_id,
+        officeName: r.office_name || '',
+        officeTimezone: r.office_timezone || '',
+        roomId: r.room_id,
+        roomLabel,
+        providerId: r.provider_id,
+        providerName: `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim(),
+        weekday: Number(r.weekday),
+        dayOfWeek: dayName,
+        hour: Number(r.hour),
+        startTime,
+        endTime,
+        assignedFrequency: r.assigned_frequency,
+        availabilityMode: r.availability_mode,
+        temporaryUntilDate: r.temporary_until_date ? String(r.temporary_until_date).slice(0, 10) : null,
+        availableSinceDate: r.available_since_date ? String(r.available_since_date).slice(0, 10) : null,
+        isActive: !!r.is_active
+      };
+    });
+
+    // ---- Virtual working hours templates
+    const virtualWhere = ['v.agency_id = ?'];
+    const virtualParams = [agencyId];
+    if (providerId) {
+      virtualWhere.push('v.provider_id = ?');
+      virtualParams.push(providerId);
+    }
+    if (dayOfWeek) {
+      virtualWhere.push('v.day_of_week = ?');
+      virtualParams.push(dayOfWeek);
+    }
+
+    let virtualRows = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           v.provider_id,
+           u.first_name AS provider_first_name,
+           u.last_name AS provider_last_name,
+           v.day_of_week,
+           v.start_time,
+           v.end_time,
+           v.session_type,
+           v.frequency
+         FROM provider_virtual_working_hours v
+         JOIN users u ON u.id = v.provider_id
+         WHERE ${virtualWhere.join(' AND ')}
+         ORDER BY u.last_name ASC, u.first_name ASC,
+                  FIELD(v.day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'),
+                  v.start_time ASC`,
+        virtualParams
+      );
+      virtualRows = rows || [];
+    } catch (e) {
+      if (e?.code === 'ER_NO_SUCH_TABLE') virtualRows = [];
+      else throw e;
+    }
+
+    const virtualWorkingHours = (virtualRows || []).map((r) => ({
+      providerId: r.provider_id,
+      providerName: `${r.provider_first_name || ''} ${r.provider_last_name || ''}`.trim(),
+      dayOfWeek: r.day_of_week,
+      startTime: r.start_time ? String(r.start_time).slice(0, 5) : '',
+      endTime: r.end_time ? String(r.end_time).slice(0, 5) : '',
+      sessionType: r.session_type || 'REGULAR',
+      frequency: r.frequency || 'WEEKLY'
+    }));
+
+    res.json({
+      ok: true,
+      agencyId,
+      filters: { providerId, schoolOrganizationId, officeLocationId, dayOfWeek, weekday: effectiveWeekday, hour, includeInactive },
+      providers: providers || [],
+      organizations: organizations || [],
+      offices: offices || [],
+      schoolSlots,
+      officeAvailability,
+      virtualWorkingHours
+    });
   } catch (e) {
     next(e);
   }
