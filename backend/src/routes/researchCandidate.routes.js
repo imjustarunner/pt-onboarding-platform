@@ -5,11 +5,15 @@ import { researchCandidate } from '../controllers/researchCandidate.controller.j
 
 const router = express.Router();
 
-// All research endpoints require hiring capability
-router.use(authenticate, requireCapability('canManageHiring'));
-
 router.post(
   '/research-candidate',
+  // IMPORTANT:
+  // This router is mounted at `/api` in `server.js`.
+  // Do NOT use `router.use(authenticate, requireCapability(...))` here, otherwise it will
+  // run for *every* `/api/*` request (payroll, presence, chat, weather, etc) and cause
+  // widespread 403s for non-hiring roles.
+  authenticate,
+  requireCapability('canManageHiring'),
   [
     body('agencyId').isInt({ min: 1 }),
     body('candidateUserId').isInt({ min: 1 }),
