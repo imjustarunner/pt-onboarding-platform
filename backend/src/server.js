@@ -156,7 +156,7 @@ app.use(accessDebugMiddleware);
 //
 // Note: For public files (icons, fonts), consider making them public in GCS
 // and serving directly without signed URLs for even better performance
-app.use('/uploads', async (req, res, next) => {
+const uploadsHandler = async (req, res, next) => {
   // Keep a best-effort resolved storage key so we can fall back to local files in dev.
   let resolvedFilePath = null;
   try {
@@ -433,7 +433,13 @@ app.use('/uploads', async (req, res, next) => {
     
     res.status(statusCode).json({ error: { message: 'File not available', details: error.message } });
   }
-});
+};
+
+// Serve uploads from both `/uploads/*` and `/api/uploads/*`.
+// This matters for single-domain deployments where the backend is path-routed under `/api`
+// and `/uploads/*` would otherwise hit the frontend service.
+app.use('/uploads', uploadsHandler);
+app.use('/api/uploads', uploadsHandler);
 
 // Health check
 app.get('/health', (req, res) => {

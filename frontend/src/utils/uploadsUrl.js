@@ -5,9 +5,12 @@
  * so relative `/uploads/...` URLs will hit the frontend Cloud Run service (404).
  */
 export function getBackendBaseUrl() {
+  // Keep the API base as-is. We serve uploads from `/api/uploads/*` as well as `/uploads/*`,
+  // so this works for:
+  // - split-origin deployments (backend origin differs from frontend origin)
+  // - single-domain deployments where backend is path-routed under `/api`
   const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-  // Remove trailing "/api" because uploads are served from the backend root
-  return baseURL.replace('/api', '') || 'http://localhost:3000';
+  return String(baseURL || 'http://localhost:3000/api').replace(/\/$/, '');
 }
 
 export function normalizeUploadsPath(path) {

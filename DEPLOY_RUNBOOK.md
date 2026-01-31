@@ -271,6 +271,28 @@ gcloud run services update onboarding-backend \
 Cause: Cloud Run is private.
 Fix: org IAM or authenticated access.
 
+### Widespread 403s on many `/api/*` endpoints (app-level)
+
+If you see lots of **`403 {"error":{"message":"Access denied"}}`** across unrelated endpoints (payroll/presence/chat/weather/etc) *but*:
+
+- `/health` is **200**
+- requests are reaching the container (Cloud Run is allowing ingress)
+- login succeeds and JWT decodes correctly
+
+Then suspect a **mis-mounted router applying auth/capability middleware globally**.
+
+**Real incident (Jan 2026):**
+
+- `researchCandidateRoutes` was mounted as `app.use('/api', researchCandidateRoutes)`
+- Inside that router we had `router.use(authenticate, requireCapability('canManageHiring'))`
+- Result: the hiring capability check ran for **every** `/api/*` route, denying providers everywhere.
+
+**Prevention:**
+
+- If a router is mounted at a broad prefix like `/api`, do **not** put `router.use(requireCapability/requireAdmin/requireBackofficeAdmin)` unless you truly intend it to gate *all* API routes under that prefix.
+- Prefer per-route middleware:
+  - `router.post('/research-candidate', authenticate, requireCapability('canManageHiring'), handler)`
+
 ### `bquote>` in terminal
 
 Cause: password contains shell-breaking chars.
