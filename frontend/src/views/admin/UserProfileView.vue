@@ -498,29 +498,80 @@
               <div class="agency-assignments-section">
                 <h3>Agency Assignments</h3>
                 <div class="agency-assignments">
-                  <div v-if="userAgencies.length === 0" class="no-agencies">
+                  <div v-if="affiliatedAgencies.length === 0" class="no-agencies">
                     <p>No agencies assigned</p>
                   </div>
                   <div v-else class="agencies-list">
-                    <div v-for="agency in userAgencies" :key="agency.id" class="agency-item">
-                      <div style="display:flex; align-items:center; gap: 10px; flex-wrap: wrap;">
-                        <span class="agency-name">{{ agency.name }}</span>
-                        <span v-if="agency.organization_type" class="muted" style="font-size: 12px; font-weight: 800;">
-                          ({{ agency.organization_type }})
-                        </span>
+                    <div v-for="agency in affiliatedAgencies" :key="agency.id" class="agency-item">
+                      <div class="agency-item-left">
+                        <div class="agency-item-row">
+                          <span class="agency-name">{{ agency.name }}</span>
 
-                        <div v-if="isSchoolOrProgramOrg(agency)" style="display:flex; align-items:center; gap: 8px; flex-wrap: wrap;">
-                          <button class="btn btn-secondary btn-sm" type="button" @click="openSchoolSchedulingFromAgencyRow(agency)">
-                            Days &amp; slots
-                          </button>
-                          <span class="muted" style="font-size: 12px;">
-                            (Set the day, 08:00–15:00 default, and slots)
-                          </span>
+                          <div
+                            v-if="(affiliatedOrgsByAgencyId[String(agency.id)] || []).length > 0"
+                            class="affiliations-details-wrap"
+                            @mouseenter="openAffiliationsPopover(Number(agency.id))"
+                            @mouseleave="closeAffiliationsPopover(Number(agency.id))"
+                          >
+                            <button
+                              type="button"
+                              class="btn btn-secondary btn-sm affiliations-details-trigger"
+                              @click.prevent="toggleAffiliationsPopover(Number(agency.id))"
+                              :aria-expanded="isAffiliationsPopoverOpenFor(Number(agency.id)) ? 'true' : 'false'"
+                              :title="`Show affiliated schools/programs (${(affiliatedOrgsByAgencyId[String(agency.id)] || []).length})`"
+                            >
+                              Schools
+                              <span class="muted" style="font-weight: 700;">
+                                ({{ (affiliatedOrgsByAgencyId[String(agency.id)] || []).length }})
+                              </span>
+                            </button>
+
+                            <div v-if="isAffiliationsPopoverOpenFor(Number(agency.id))" class="affiliations-popover">
+                              <div class="affiliations-popover-title">
+                                Schools &amp; other orgs under {{ agency.name }}
+                              </div>
+                              <div
+                                v-for="org in (affiliatedOrgsByAgencyId[String(agency.id)] || [])"
+                                :key="org.id"
+                                class="affiliations-popover-item"
+                              >
+                                <div class="affiliations-popover-item-left">
+                                  <div class="affiliations-popover-item-name">
+                                    {{ org.name }}
+                                    <span v-if="org.organization_type" class="muted" style="font-size: 11px; font-weight: 800;">
+                                      ({{ org.organization_type }})
+                                    </span>
+                                  </div>
+                                  <div class="affiliations-popover-item-actions">
+                                    <button
+                                      v-if="isSchoolOrProgramOrg(org)"
+                                      class="btn btn-secondary btn-sm"
+                                      type="button"
+                                      @click="openSchoolSchedulingFromAgencyRow(org)"
+                                    >
+                                      Days &amp; slots
+                                    </button>
+                                    <button
+                                      v-if="canEditUser"
+                                      class="btn btn-danger btn-sm"
+                                      type="button"
+                                      @click="removeAgency(org.id)"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                              <div class="muted" style="font-size: 12px; margin-top: 8px;">
+                                Tip: hover to peek, click to pin open.
+                              </div>
+                            </div>
+                          </div>
                         </div>
 
                         <div
-                          v-if="canEditUser && isAgencyOrg(agency)"
-                          style="display:flex; align-items:center; gap: 6px;"
+                          v-if="canEditUser"
+                          class="agency-item-row"
                           title="Optional per-organization login email alias. This email can be used to log into the same account under this organization."
                         >
                           <span class="muted" style="font-size: 12px; font-weight: 700;">Login Email</span>
@@ -535,8 +586,8 @@
                         </div>
 
                         <div
-                          v-if="canEditUser && canShowH0032Mode && isAgencyOrg(agency)"
-                          style="display:flex; align-items:center; gap: 6px;"
+                          v-if="canEditUser && canShowH0032Mode"
+                          class="agency-item-row"
                           title="H0032 mode is per-organization. Cat1 Hour means H0032 rows require manual minutes entry and will appear in Payroll → Raw Import → Process H0032. Cat2 Flat means H0032 defaults to 30 minutes and will not appear in that queue."
                         >
                           <span class="muted" style="font-size: 12px; font-weight: 700;">H0032</span>
@@ -553,8 +604,9 @@
                         </div>
 
                         <div
-                          v-if="canEditUser && canShowPrelicensedSupervision && isAgencyOrg(agency)"
-                          style="display:flex; align-items:center; gap: 8px; flex-wrap: wrap;"
+                          v-if="canEditUser && canShowPrelicensedSupervision"
+                          class="agency-item-row"
+                          style="flex-wrap: wrap;"
                           title="Prelicensed supervision tracking is per-organization. Baseline hours are added to accrued payroll supervision hours (99414/99416). Pay for 99414/99416 is $0 until the user has already reached ≥50 individual and ≥100 total hours in prior pay periods."
                         >
                           <span class="muted" style="font-size: 12px; font-weight: 700;">Prelicensed</span>
@@ -602,7 +654,57 @@
                           />
                         </div>
                       </div>
+
                       <button v-if="canEditUser" @click="removeAgency(agency.id)" class="btn btn-danger btn-sm">Remove</button>
+                    </div>
+                  </div>
+
+                  <div
+                    v-if="(unaffiliatedOrgs || []).length > 0"
+                    class="unaffiliated-orgs-row"
+                    @mouseenter="openAffiliationsPopover(0)"
+                    @mouseleave="closeAffiliationsPopover(0)"
+                  >
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm affiliations-details-trigger"
+                      @click.prevent="toggleAffiliationsPopover(0)"
+                      :aria-expanded="isAffiliationsPopoverOpenFor(0) ? 'true' : 'false'"
+                      title="Organizations not linked to an agency"
+                    >
+                      Other affiliations
+                      <span class="muted" style="font-weight: 700;">({{ (unaffiliatedOrgs || []).length }})</span>
+                    </button>
+                    <div v-if="isAffiliationsPopoverOpenFor(0)" class="affiliations-popover affiliations-popover--below">
+                      <div class="affiliations-popover-title">Other affiliations</div>
+                      <div v-for="org in (unaffiliatedOrgs || [])" :key="org.id" class="affiliations-popover-item">
+                        <div class="affiliations-popover-item-left">
+                          <div class="affiliations-popover-item-name">
+                            {{ org.name }}
+                            <span v-if="org.organization_type" class="muted" style="font-size: 11px; font-weight: 800;">
+                              ({{ org.organization_type }})
+                            </span>
+                          </div>
+                          <div class="affiliations-popover-item-actions">
+                            <button
+                              v-if="isSchoolOrProgramOrg(org)"
+                              class="btn btn-secondary btn-sm"
+                              type="button"
+                              @click="openSchoolSchedulingFromAgencyRow(org)"
+                            >
+                              Days &amp; slots
+                            </button>
+                            <button
+                              v-if="canEditUser"
+                              class="btn btn-danger btn-sm"
+                              type="button"
+                              @click="removeAgency(org.id)"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                   
@@ -2350,6 +2452,35 @@ const orgTypeFor = (org) => String(org?.organization_type || 'agency').toLowerCa
 const isAgencyOrg = (org) => orgTypeFor(org) === 'agency';
 const isSchoolOrProgramOrg = (org) => !isAgencyOrg(org);
 
+// Compact affiliations display on User Profile:
+// - show agencies in the main list
+// - show schools/programs/etc in a small hover/click popover per agency
+const hoverAffiliationsPopoverAgencyId = ref(null);
+const pinnedAffiliationsPopoverAgencyId = ref(null);
+const isAffiliationsPopoverOpenFor = (agencyId) => {
+  const id = Number(agencyId);
+  return hoverAffiliationsPopoverAgencyId.value === id || pinnedAffiliationsPopoverAgencyId.value === id;
+};
+const openAffiliationsPopover = (agencyId) => {
+  const id = Number(agencyId);
+  // If a popover is pinned to another agency, don't open a hover popover for a different row.
+  if (pinnedAffiliationsPopoverAgencyId.value !== null && pinnedAffiliationsPopoverAgencyId.value !== id) return;
+  hoverAffiliationsPopoverAgencyId.value = id;
+};
+const closeAffiliationsPopover = (agencyId) => {
+  const id = Number(agencyId);
+  if (hoverAffiliationsPopoverAgencyId.value === id) hoverAffiliationsPopoverAgencyId.value = null;
+};
+const toggleAffiliationsPopover = (agencyId) => {
+  const id = Number(agencyId);
+  if (pinnedAffiliationsPopoverAgencyId.value === id) {
+    pinnedAffiliationsPopoverAgencyId.value = null;
+  } else {
+    pinnedAffiliationsPopoverAgencyId.value = id;
+    hoverAffiliationsPopoverAgencyId.value = id;
+  }
+};
+
 // Schedule view requires an agency context.
 // In admin settings flows, `agencyStore.currentAgency` may be unset; fall back to:
 // - explicit route query agencyId
@@ -2370,6 +2501,21 @@ const scheduleAgencyId = computed(() => {
 
 // Schedule & Availability: allow filtering by affiliated agencies (agency-type orgs).
 const affiliatedAgencies = computed(() => (userAgencies.value || []).filter((a) => isAgencyOrg(a)));
+const affiliatedOrgsByAgencyId = computed(() => {
+  const out = {};
+  for (const org of userAgencies.value || []) {
+    if (!org || isAgencyOrg(org)) continue;
+    const raw = Number(org.affiliated_agency_id || 0);
+    const key = (Number.isFinite(raw) && raw > 0) ? String(raw) : '0';
+    if (!out[key]) out[key] = [];
+    out[key].push(org);
+  }
+  for (const k of Object.keys(out)) {
+    out[k].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+  }
+  return out;
+});
+const unaffiliatedOrgs = computed(() => affiliatedOrgsByAgencyId.value?.['0'] || []);
 const scheduleAgencyLabelById = computed(() => {
   const out = {};
   for (const a of affiliatedAgencies.value || []) {
@@ -4331,6 +4477,22 @@ onMounted(() => {
   margin-bottom: 6px;
 }
 
+.agency-item-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.agency-item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .agency-name {
   font-weight: 500;
   color: var(--text-primary);
@@ -4344,6 +4506,82 @@ onMounted(() => {
   width: auto;
   min-width: auto;
   flex-shrink: 0;
+}
+
+.affiliations-details-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.affiliations-details-trigger {
+  padding: 3px 8px;
+}
+
+.affiliations-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  min-width: 360px;
+  max-width: 520px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.15);
+  z-index: 50;
+}
+
+.affiliations-popover--below {
+  position: relative;
+  top: auto;
+  left: auto;
+  margin-top: 10px;
+}
+
+.affiliations-popover-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.affiliations-popover-item {
+  padding: 8px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.affiliations-popover-item:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.affiliations-popover-item-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.affiliations-popover-item-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.affiliations-popover-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.unaffiliated-orgs-row {
+  margin-top: 6px;
+  position: relative;
 }
 
 .add-agency-section {

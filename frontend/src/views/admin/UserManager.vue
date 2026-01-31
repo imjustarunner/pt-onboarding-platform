@@ -253,8 +253,56 @@
                 {{ user.first_name }} {{ user.last_name }}
               </router-link>
             </td>
-            <td>{{ user.email }}</td>
-            <td>{{ user.agencies || 'No Agency' }}</td>
+            <td>
+              <span class="table-truncate" :title="String(user.email || '')">{{ user.email }}</span>
+            </td>
+            <td class="user-affiliations-cell">
+              <div class="user-affiliations-inline">
+                <span
+                  class="user-affiliations-agencies table-truncate"
+                  :title="userAgencyNames(user).length ? userAgencyNames(user).join(', ') : String(user.agencies || 'No Agency')"
+                >
+                  {{ userAgencySummary(user) }}
+                </span>
+
+                <div
+                  v-if="userChildOrgs(user).length > 0"
+                  class="user-affiliations-details-wrap"
+                  @mouseenter="openUserAffiliationsPopover(Number(user.id))"
+                  @mouseleave="closeUserAffiliationsPopover(Number(user.id))"
+                >
+                  <button
+                    type="button"
+                    class="btn btn-secondary btn-sm user-affiliations-details-btn"
+                    @click.prevent="toggleUserAffiliationsPopover(Number(user.id))"
+                    :aria-expanded="isUserAffiliationsPopoverOpenFor(Number(user.id)) ? 'true' : 'false'"
+                    :title="`Show schools / other orgs (${userChildOrgs(user).length})`"
+                  >
+                    Details
+                    <span class="muted" style="font-weight: 800;">({{ userChildOrgs(user).length }})</span>
+                  </button>
+
+                  <div v-if="isUserAffiliationsPopoverOpenFor(Number(user.id))" class="user-affiliations-popover">
+                    <div class="user-affiliations-popover-title">Schools &amp; other orgs</div>
+                    <div
+                      v-for="org in userChildOrgs(user)"
+                      :key="org.id"
+                      class="user-affiliations-popover-item"
+                    >
+                      <span class="user-affiliations-popover-item-name">
+                        {{ org.name }}
+                        <span v-if="org.organization_type" class="muted" style="font-size: 11px; font-weight: 800;">
+                          ({{ org.organization_type }})
+                        </span>
+                      </span>
+                    </div>
+                    <div class="muted" style="font-size: 12px; margin-top: 8px;">
+                      Tip: hover to peek, click to pin open.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td>
             <td>
               <span :class="['badge', user.role === 'admin' ? 'badge-success' : 'badge-info']">
                 {{ formatRole(user.role) }}
@@ -1375,6 +1423,81 @@ const organizationOptions = computed(() => {
     .filter((o) => parseInt(String(o?.__affiliatedAgencyId || orgAffiliationById.value?.[String(o?.id)] || ''), 10) === aid)
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
+
+// User affiliations display helpers (keep table rows compact)
+const orgById = computed(() => {
+  const out = {};
+  for (const o of agencies.value || []) {
+    const id = Number(o?.id || 0);
+    if (!id) continue;
+    out[id] = o;
+  }
+  return out;
+});
+const orgTypeFor = (org) => String(org?.organization_type || 'agency').toLowerCase();
+const parseUserOrgIds = (u) => {
+  const raw = u?.agency_ids;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map((x) => parseInt(String(x), 10)).filter((n) => Number.isFinite(n) && n > 0);
+  return String(raw)
+    .split(',')
+    .map((s) => parseInt(String(s).trim(), 10))
+    .filter((n) => Number.isFinite(n) && n > 0);
+};
+const userAgencyIds = (u) => {
+  const ids = parseUserOrgIds(u);
+  const parentIds = new Set();
+  for (const orgId of ids) {
+    const parentId = parseInt(String(orgAffiliationById.value?.[String(orgId)] || ''), 10);
+    if (parentId) parentIds.add(parentId);
+  }
+  return Array.from(parentIds.values()).sort((a, b) => a - b);
+};
+const userAgencyNames = (u) => {
+  const ids = userAgencyIds(u);
+  const names = ids.map((id) => String(orgById.value?.[id]?.name || `Agency ${id}`));
+  names.sort((a, b) => a.localeCompare(b));
+  return names;
+};
+const userAgencySummary = (u) => {
+  const names = userAgencyNames(u);
+  if (!names.length) return String(u?.agencies || 'No Agency') || 'No Agency';
+  if (names.length <= 2) return names.join(', ');
+  return `${names.slice(0, 2).join(', ')} +${names.length - 2}`;
+};
+const userChildOrgs = (u) => {
+  const ids = parseUserOrgIds(u);
+  const rows = ids
+    .map((id) => orgById.value?.[Number(id)] || null)
+    .filter((o) => o && orgTypeFor(o) !== 'agency');
+  rows.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+  return rows;
+};
+
+const hoverUserAffiliationsPopoverUserId = ref(null);
+const pinnedUserAffiliationsPopoverUserId = ref(null);
+const isUserAffiliationsPopoverOpenFor = (userId) => {
+  const id = Number(userId);
+  return hoverUserAffiliationsPopoverUserId.value === id || pinnedUserAffiliationsPopoverUserId.value === id;
+};
+const openUserAffiliationsPopover = (userId) => {
+  const id = Number(userId);
+  if (pinnedUserAffiliationsPopoverUserId.value !== null && pinnedUserAffiliationsPopoverUserId.value !== id) return;
+  hoverUserAffiliationsPopoverUserId.value = id;
+};
+const closeUserAffiliationsPopover = (userId) => {
+  const id = Number(userId);
+  if (hoverUserAffiliationsPopoverUserId.value === id) hoverUserAffiliationsPopoverUserId.value = null;
+};
+const toggleUserAffiliationsPopover = (userId) => {
+  const id = Number(userId);
+  if (pinnedUserAffiliationsPopoverUserId.value === id) {
+    pinnedUserAffiliationsPopoverUserId.value = null;
+  } else {
+    pinnedUserAffiliationsPopoverUserId.value = id;
+    hoverUserAffiliationsPopoverUserId.value = id;
+  }
+};
 
 // AI Search (Gemini-ready)
 const aiQueryText = ref('');
@@ -3494,7 +3617,11 @@ onMounted(async () => {
   background: white;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  overflow: hidden;
+  /* On smaller desktop screens, tables can exceed viewport width.
+     Allow horizontal scrolling instead of clipping content. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 table {
@@ -3510,6 +3637,84 @@ th, td {
   padding: 12px 8px;
   text-align: left;
   border-bottom: 1px solid #dee2e6;
+  vertical-align: middle;
+}
+
+.table-truncate {
+  display: inline-block;
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.user-affiliations-cell {
+  position: relative;
+}
+
+.user-affiliations-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.user-affiliations-agencies {
+  max-width: 320px;
+  min-width: 0;
+}
+
+.user-affiliations-details-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.user-affiliations-details-btn {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.user-affiliations-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  min-width: 320px;
+  max-width: 520px;
+  background: #ffffff;
+  border: 1px solid var(--border, #dee2e6);
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.15);
+  z-index: 60;
+}
+
+.user-affiliations-popover-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-primary, #2c3e50);
+  margin-bottom: 8px;
+}
+
+.user-affiliations-popover-item {
+  padding: 6px 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.user-affiliations-popover-item:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.user-affiliations-popover-item-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary, #2c3e50);
 }
 
 .actions-cell {
@@ -3519,6 +3724,41 @@ th, td {
   max-width: 400px;
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+/* Responsive: make User Manager usable on 13" screens */
+@media (max-width: 1100px) {
+  .users-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .filters-sidebar {
+    position: relative;
+    top: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .page-header {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .header-actions {
+    flex-wrap: wrap;
+  }
+
+  th, td {
+    padding: 10px 6px;
+  }
+
+  .table-truncate {
+    max-width: 180px;
+  }
+
+  .user-affiliations-agencies {
+    max-width: 240px;
+  }
 }
 
 .action-buttons {
