@@ -1,5 +1,5 @@
 <template>
-  <div class="top-card">
+  <div class="top-card" :class="ratioCardClass">
     <div class="top-card-head">
       <div>
         <div class="title">My Snapshot</div>
@@ -134,6 +134,17 @@ const showRatio = computed(() => {
   return !!(di && !di.disabled && di.last && di.avg90);
 });
 
+// Card-level color: green if both last and 90-day are green; red if either is red; else yellow.
+const ratioCardClass = computed(() => {
+  const di = summary.value?.directIndirect || null;
+  if (!di || di.disabled || !di.last || !di.avg90) return '';
+  const lastKind = di.last?.kind || '';
+  const avgKind = di.avg90?.kind || '';
+  if (lastKind === 'red' || avgKind === 'red') return 'top-card-ratio-red';
+  if (lastKind === 'green' && avgKind === 'green') return 'top-card-ratio-green';
+  return 'top-card-ratio-yellow';
+});
+
 const officeLine1 = computed(() => {
   const o = summary.value?.office || null;
   if (!o) return '—';
@@ -212,8 +223,11 @@ onMounted(load);
 .actions {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
+}
+@media (max-width: 520px) {
+  .actions { flex-wrap: wrap; }
 }
 .grid {
   margin-top: 12px;
@@ -263,5 +277,10 @@ onMounted(load);
 .pill-green { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.12); color: #166534; }
 .pill-yellow { border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.12); color: #92400e; }
 .pill-red { border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.10); color: #991b1b; }
+
+/* Card-level ratio color (for hourly workers) */
+.top-card-ratio-green { border-left: 4px solid #22c55e; background: linear-gradient(to right, rgba(34,197,94,0.06), transparent); }
+.top-card-ratio-yellow { border-left: 4px solid #eab308; background: linear-gradient(to right, rgba(234,179,8,0.06), transparent); }
+.top-card-ratio-red { border-left: 4px solid #ef4444; background: linear-gradient(to right, rgba(239,68,68,0.06), transparent); }
 </style>
 

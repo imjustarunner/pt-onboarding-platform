@@ -49,6 +49,8 @@ class Notification {
     'payroll_unpaid_notes_2_periods_old',
     // Payroll: supervisor reminders (unsigned draft notes)
     'payroll_unsigned_draft_notes',
+    // Payroll: Direct/Indirect ratio yellow or red (hourly workers)
+    'payroll_direct_indirect_ratio_alert',
     // Office scheduling
     'office_schedule_biweekly_review',
     'office_schedule_booking_confirm_6_weeks',
@@ -56,7 +58,9 @@ class Notification {
     // Supervision tracking
     'supervision_individual_50_reached',
     'supervision_total_100_reached',
-    'supervision_supervisee_completed'
+    'supervision_supervisee_completed',
+    // Payroll: home address changes (mileage / compliance workflow)
+    'payroll_home_address_updated'
   ];
 
   static async create(notificationData) {

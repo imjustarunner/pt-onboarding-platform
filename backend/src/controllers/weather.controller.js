@@ -125,7 +125,10 @@ function summarizeSnow({ daily }) {
 export const getMyWeather = async (req, res, next) => {
   try {
     const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!userId) {
+      // Best-effort navbar feature: do not hard-fail the session if cookies are blocked or missing.
+      return res.json({ status: 'unauthenticated' });
+    }
 
     const force = String(req.query?.force || '').trim() === '1';
     const isDev = String(process.env.NODE_ENV || '').toLowerCase() === 'development';

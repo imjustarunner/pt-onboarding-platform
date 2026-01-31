@@ -1,9 +1,9 @@
 import express from 'express';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticateOptional } from '../middleware/auth.middleware.js';
 import { getMyWeather } from '../controllers/weather.controller.js';
 
 const router = express.Router();
-router.use(authenticate);
+router.use(authenticateOptional);
 
 router.get('/me', getMyWeather);
 

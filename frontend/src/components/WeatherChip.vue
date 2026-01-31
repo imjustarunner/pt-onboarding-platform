@@ -98,14 +98,14 @@ const detailTitle = computed(() => {
 const fetchWeather = async () => {
   if (!isAuthenticated.value) return;
   try {
-    const resp = await api.get('/weather/me', { skipGlobalLoading: true });
+    const resp = await api.get('/weather/me', { skipGlobalLoading: true, skipAuthRedirect: true });
     const data = resp?.data || null;
     weather.value = data;
 
     // Self-heal once: if we get a failure state, force a re-geocode immediately.
     if (!didForceRefresh.value && data && data.status && data.status !== 'ok' && data.status !== 'missing_home_address') {
       didForceRefresh.value = true;
-      const resp2 = await api.get('/weather/me?force=1', { skipGlobalLoading: true });
+      const resp2 = await api.get('/weather/me?force=1', { skipGlobalLoading: true, skipAuthRedirect: true });
       weather.value = resp2?.data || data;
     }
   } catch {

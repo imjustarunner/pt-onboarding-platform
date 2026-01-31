@@ -117,9 +117,34 @@
         <div class="card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Home Address</h3>
-            <button class="btn btn-primary btn-large" @click="saveHomeAddress" :disabled="savingHomeAddress">
-              {{ savingHomeAddress ? 'Saving...' : 'Save Home Address' }}
-            </button>
+            <div style="display:flex; gap: 10px; flex-wrap: wrap;">
+              <button
+                v-if="!editingHomeAddress"
+                class="btn btn-secondary btn-large"
+                type="button"
+                @click="startEditingHomeAddress"
+              >
+                Edit
+              </button>
+              <button
+                v-else
+                class="btn btn-primary btn-large"
+                type="button"
+                @click="saveHomeAddress"
+                :disabled="savingHomeAddress"
+              >
+                {{ savingHomeAddress ? 'Saving...' : 'Save' }}
+              </button>
+              <button
+                v-if="editingHomeAddress"
+                class="btn btn-secondary btn-large"
+                type="button"
+                @click="cancelEditingHomeAddress"
+                :disabled="savingHomeAddress"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
           <div class="hint" style="margin-top: 6px;">
             Used for School Mileage auto-calculation.
@@ -128,23 +153,23 @@
           <div class="fields-grid" style="margin-top: 12px;">
             <div class="field-item">
               <label>Street</label>
-              <input v-model="homeAddressForm.street" type="text" placeholder="123 Main St" />
+              <input v-model="homeAddressForm.street" :disabled="!editingHomeAddress" type="text" placeholder="123 Main St" />
             </div>
             <div class="field-item">
               <label>Apt / Unit</label>
-              <input v-model="homeAddressForm.line2" type="text" placeholder="Apt 4B (optional)" />
+              <input v-model="homeAddressForm.line2" :disabled="!editingHomeAddress" type="text" placeholder="Apt 4B (optional)" />
             </div>
             <div class="field-item">
               <label>City</label>
-              <input v-model="homeAddressForm.city" type="text" placeholder="City" />
+              <input v-model="homeAddressForm.city" :disabled="!editingHomeAddress" type="text" placeholder="City" />
             </div>
             <div class="field-item">
               <label>State</label>
-              <input v-model="homeAddressForm.state" type="text" placeholder="State" />
+              <input v-model="homeAddressForm.state" :disabled="!editingHomeAddress" type="text" placeholder="State" />
             </div>
             <div class="field-item">
               <label>Postal code</label>
-              <input v-model="homeAddressForm.postalCode" type="text" placeholder="ZIP" />
+              <input v-model="homeAddressForm.postalCode" :disabled="!editingHomeAddress" type="text" placeholder="ZIP" />
             </div>
           </div>
         </div>
@@ -526,6 +551,8 @@ const activeMyCategoryKey = ref('__all');
 const showEmptyMyFields = ref(false);
 
 const savingHomeAddress = ref(false);
+const editingHomeAddress = ref(false);
+const savedHomeAddressSnapshot = ref(null);
 const homeAddressError = ref('');
 const homeAddressForm = ref({
   street: '',
@@ -727,10 +754,28 @@ const fetchAccountInfo = async () => {
       state: response.data?.homeState || '',
       postalCode: response.data?.homePostalCode || ''
     };
+    savedHomeAddressSnapshot.value = { ...homeAddressForm.value };
+    editingHomeAddress.value = false;
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to load account information';
   } finally {
     loading.value = false;
+  }
+};
+
+const startEditingHomeAddress = () => {
+  editingHomeAddress.value = true;
+  homeAddressError.value = '';
+  if (!savedHomeAddressSnapshot.value) {
+    savedHomeAddressSnapshot.value = { ...homeAddressForm.value };
+  }
+};
+
+const cancelEditingHomeAddress = () => {
+  editingHomeAddress.value = false;
+  homeAddressError.value = '';
+  if (savedHomeAddressSnapshot.value) {
+    homeAddressForm.value = { ...savedHomeAddressSnapshot.value };
   }
 };
 
@@ -767,6 +812,8 @@ const saveHomeAddress = async () => {
       homePostalCode: homeAddressForm.value.postalCode
     });
     await fetchAccountInfo();
+    savedHomeAddressSnapshot.value = { ...homeAddressForm.value };
+    editingHomeAddress.value = false;
     alert('Home address saved successfully!');
   } catch (err) {
     homeAddressError.value = err.response?.data?.error?.message || 'Failed to save home address';

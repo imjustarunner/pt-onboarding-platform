@@ -6763,6 +6763,17 @@ export const postPayrollPeriod = async (req, res, next) => {
       // Do not block posting payroll if office review notifications fail.
     }
 
+    // Best-effort: notify hourly workers (and supervisors/admins) when Direct/Indirect ratio is yellow or red.
+    try {
+      const { emitDirectIndirectRatioNotifications } = await import('../services/payrollDirectIndirectRatio.service.js');
+      await emitDirectIndirectRatioNotifications({
+        agencyId: period.agency_id,
+        payrollPeriodId
+      });
+    } catch {
+      // Do not block posting payroll if ratio notifications fail.
+    }
+
     res.json(await PayrollPeriod.findById(payrollPeriodId));
   } catch (e) {
     next(e);
@@ -7942,6 +7953,11 @@ export const updateMyHomeAddress = async (req, res, next) => {
     const homeCity = body.homeCity ? String(body.homeCity).slice(0, 128) : null;
     const homeState = body.homeState ? String(body.homeState).slice(0, 64) : null;
     const homePostalCode = body.homePostalCode ? String(body.homePostalCode).slice(0, 32) : null;
+    const addressLine = [homeStreetAddress, homeAddressLine2, [homeCity, homeState].filter(Boolean).join(', '), homePostalCode]
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
 
     // When the home address is updated, clear cached geocode coordinates (used by weather).
     // Best-effort fallback for older DBs without the new columns.
@@ -7966,6 +7982,61 @@ export const updateMyHomeAddress = async (req, res, next) => {
          WHERE id = ?`,
         [homeStreetAddress, homeAddressLine2, homeCity, homeState, homePostalCode, userId]
       );
+    }
+
+    // Notify agency admins/staff (best-effort; do not block save).
+    try {
+      const NotificationService = (await import('../services/notification.service.js')).default;
+      const User = (await import('../models/User.model.js')).default;
+      const Agency = (await import('../models/Agency.model.js')).default;
+      const orgs = await User.getAgencies(userId);
+      const agencyIds = (orgs || [])
+        .filter((o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency')
+        .map((o) => Number(o.id))
+        .filter(Boolean);
+
+      // Fallback: if they only belong to a school/program org, resolve parent agency ids.
+      if (agencyIds.length === 0) {
+        for (const o of orgs || []) {
+          const id = Number(o?.id || 0);
+          if (!id) continue;
+          const t = String(o?.organization_type || '').toLowerCase();
+          if (t === 'agency') continue;
+          // Prefer org affiliations; fall back to legacy agency_schools.
+          let parent = null;
+          try {
+            const OrganizationAffiliation = (await import('../models/OrganizationAffiliation.model.js')).default;
+            parent = await OrganizationAffiliation.getActiveAgencyIdForOrganization(id);
+          } catch {
+            parent = null;
+          }
+          if (!parent) {
+            try {
+              const AgencySchool = (await import('../models/AgencySchool.model.js')).default;
+              parent = await AgencySchool.getActiveAgencyIdForSchool(id);
+            } catch {
+              parent = null;
+            }
+          }
+          const pid = parent ? Number(parent) : null;
+          if (pid) agencyIds.push(pid);
+        }
+      }
+
+      // De-dupe
+      const uniqAgencyIds = Array.from(new Set(agencyIds)).filter(Boolean);
+      for (const aid of uniqAgencyIds) {
+        // Ensure it is really an agency row (defensive)
+        const a = await Agency.findById(aid);
+        if (!a || String(a.organization_type || 'agency').toLowerCase() !== 'agency') continue;
+        await NotificationService.createPayrollHomeAddressUpdatedNotification({
+          userId,
+          agencyId: aid,
+          address: addressLine
+        });
+      }
+    } catch {
+      // ignore
     }
     res.json({ ok: true });
   } catch (e) {
@@ -11465,17 +11536,12 @@ export const getMyDashboardSummary = async (req, res, next) => {
       twoPeriodsOld = null;
     }
 
-    // Direct/Indirect ratio is only relevant for simple hourly rate cards (direct + indirect only).
+    // Direct/Indirect ratio card is shown only for hourly workers (users.is_hourly_worker).
     let showRatio = false;
     try {
-      const comp = await getUserCompensationForAgency({ agencyId: resolvedAgencyId, userId });
-      const rc = comp?.rateCard || null;
-      if (rc) {
-        const o1 = Number(rc.other_rate_1 || 0);
-        const o2 = Number(rc.other_rate_2 || 0);
-        const o3 = Number(rc.other_rate_3 || 0);
-        showRatio = Math.abs(o1) < 1e-9 && Math.abs(o2) < 1e-9 && Math.abs(o3) < 1e-9;
-      }
+      const User = (await import('../models/User.model.js')).default;
+      const u = await User.findById(userId);
+      showRatio = !!(u?.is_hourly_worker === 1 || u?.is_hourly_worker === true || u?.is_hourly_worker === '1');
     } catch {
       showRatio = false;
     }

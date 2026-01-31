@@ -747,6 +747,32 @@ class NotificationService {
       relatedEntityId: userId
     });
   }
+
+  /**
+   * Payroll/admin notification: provider updated home address (used for mileage auto-calculation).
+   * This is agency-scoped so staff/admins see it in the agency notification queue.
+   */
+  static async createPayrollHomeAddressUpdatedNotification({ userId, agencyId, address }) {
+    if (!userId || !agencyId) return null;
+    const user = await User.findById(userId);
+    if (!user) return null;
+
+    const line = String(address || '').trim();
+    const msg =
+      `Home address updated for ${String(user.first_name || '').trim()} ${String(user.last_name || '').trim()}`.trim() +
+      (line ? `: ${line}` : '.');
+
+    return Notification.create({
+      type: 'payroll_home_address_updated',
+      severity: 'info',
+      title: 'Home address updated (mileage)',
+      message: msg,
+      userId,
+      agencyId,
+      relatedEntityType: 'user',
+      relatedEntityId: userId
+    });
+  }
 }
 
 export default NotificationService;
