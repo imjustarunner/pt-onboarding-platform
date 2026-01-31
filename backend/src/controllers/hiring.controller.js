@@ -6,7 +6,11 @@ import HiringResearchReport from '../models/HiringResearchReport.model.js';
 import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import StorageService from '../services/storage.service.js';
-import { generatePreScreenReportWithGeminiApiKey, generatePreScreenReportWithGoogleSearch } from '../services/preScreenResearch.service.js';
+import {
+  generatePreScreenReportWithGeminiApiKey,
+  generatePreScreenReportWithGoogleSearch,
+  generatePreScreenReportWithVertexNoSearch
+} from '../services/preScreenResearch.service.js';
 import config from '../config/config.js';
 
 function parseIntParam(v) {
@@ -326,16 +330,21 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
           linkedInUrl
         });
       } catch (e) {
-        // Common in some environments: Cloud Run service account not permitted for Vertex Search grounding (403),
-        // or Vertex project/env not configured yet (503). Fall back to GEMINI_API_KEY so the feature remains usable.
+        // Common in some environments: Vertex+Search grounding is not permitted (403),
+        // or the Vertex project/env is not configured yet (503). Fall back gracefully:
+        // 1) Try Vertex without Search tool
+        // 2) If GEMINI_API_KEY configured, try the API key path
         const status = e?.status;
         const canFallbackStatus = status === 403 || status === 401 || status === 503;
-        const hasApiKey = !!String(process.env.GEMINI_API_KEY || '').trim();
+        if (!canFallbackStatus) throw e;
 
-        // Only fall back if the key is actually configured; otherwise return the real Vertex error.
-        if (!canFallbackStatus || !hasApiKey) throw e;
-
-        ai = await generatePreScreenReportWithGeminiApiKey({ candidateName, resumeText, linkedInUrl });
+        try {
+          ai = await generatePreScreenReportWithVertexNoSearch({ candidateName, resumeText, linkedInUrl });
+        } catch (e2) {
+          const hasApiKey = !!String(process.env.GEMINI_API_KEY || '').trim();
+          if (!hasApiKey) throw e2;
+          ai = await generatePreScreenReportWithGeminiApiKey({ candidateName, resumeText, linkedInUrl });
+        }
       }
     } catch (e) {
       await createFailedAiReport({ candidateUserId, createdByUserId: req.user.id, error: e });

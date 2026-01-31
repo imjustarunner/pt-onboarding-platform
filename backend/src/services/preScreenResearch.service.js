@@ -259,3 +259,93 @@ export async function generatePreScreenReportWithGoogleSearch({
   }
 }
 
+export async function generatePreScreenReportWithVertexNoSearch({ candidateName, resumeText, linkedInUrl }) {
+  const projectId = process.env.GCP_PROJECT_ID || process.env.GCS_PROJECT_ID || '';
+  const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
+  const modelId = String(process.env.VERTEX_AI_RESEARCH_MODEL || 'gemini-2.5-pro').trim() || 'gemini-2.5-pro';
+  const timeoutMs = Math.min(
+    Math.max(parseInt(process.env.VERTEX_AI_RESEARCH_TIMEOUT_MS || '120000', 10) || 120000, 5000),
+    180000
+  );
+  const maxOutputTokens = Math.min(
+    Math.max(parseInt(process.env.VERTEX_AI_RESEARCH_MAX_OUTPUT_TOKENS || '2400', 10) || 2400, 300),
+    4096
+  );
+
+  if (!projectId) {
+    const err = new Error('GCP_PROJECT_ID (or GCS_PROJECT_ID) is not configured');
+    err.status = 503;
+    throw err;
+  }
+
+  const { systemPrompt, userPrompt, normalized } = buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl });
+  const token = await getAccessToken();
+  const url = `https://${encodeURIComponent(location)}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(
+    projectId
+  )}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(modelId)}:generateContent`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  const started = Date.now();
+  try {
+    const body = {
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      model: `projects/${projectId}/locations/${location}/publishers/google/models/${modelId}`,
+      generationConfig: { temperature: 0.2, maxOutputTokens }
+    };
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=utf-8'
+      },
+      signal: controller.signal,
+      body: JSON.stringify(body)
+    });
+
+    const latencyMs = Date.now() - started;
+
+    if (!resp.ok) {
+      const t = String(await resp.text()).slice(0, 2000);
+      const err = new Error('Vertex AI pre-screen request failed');
+      err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
+      err.details = t;
+      err.latencyMs = latencyMs;
+      throw err;
+    }
+
+    const data = await resp.json();
+    const parts = data?.candidates?.[0]?.content?.parts;
+    const text = Array.isArray(parts) ? parts.map((p) => p?.text || '').filter(Boolean).join('') : '';
+
+    if (!text) {
+      const err = new Error('Model returned empty response');
+      err.status = 502;
+      err.latencyMs = latencyMs;
+      throw err;
+    }
+
+    return {
+      text: String(text).trim(),
+      latencyMs,
+      modelId,
+      isGrounded: false,
+      normalizedInput: normalized,
+      groundingMetadata: null
+    };
+  } catch (e) {
+    const isAbort = e?.name === 'AbortError';
+    if (isAbort) {
+      const err = new Error('Vertex AI pre-screen request timed out');
+      err.status = 504;
+      throw err;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
