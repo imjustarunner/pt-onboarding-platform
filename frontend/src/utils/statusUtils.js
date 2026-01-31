@@ -9,6 +9,7 @@
  */
 export function getStatusLabel(status) {
   const statusMap = {
+    'PROSPECTIVE': 'Prospective (Applicant)',
     'PENDING_SETUP': 'Pending Setup',
     'PREHIRE_OPEN': 'Pre-Hire',
     'PREHIRE_REVIEW': 'Ready for Review',
@@ -36,6 +37,8 @@ export function getStatusLabel(status) {
 export function getStatusBadgeClass(status, isActive) {
   // Map new status values to badge classes
   switch (status) {
+    case 'PROSPECTIVE':
+      return 'badge-info';
     case 'PENDING_SETUP':
       return 'badge-warning';
     case 'PREHIRE_OPEN':
@@ -82,5 +85,5 @@ export function canAccessOnDemand(status) {
  * @returns {boolean} Whether user can access dashboard
  */
 export function canAccessDashboard(status) {
-  return status !== 'ARCHIVED' && status !== 'PENDING_SETUP';
+  return status !== 'ARCHIVED' && status !== 'PENDING_SETUP' && status !== 'PROSPECTIVE';
 }

@@ -61,6 +61,7 @@
             <label for="statusSort" class="filter-label">Status</label>
             <select id="statusSort" v-model="statusSort" class="filter-select">
               <option value="">All</option>
+              <option value="PROSPECTIVE">Prospective (Applicant)</option>
               <option value="PENDING_SETUP">Pending Setup</option>
               <option value="PREHIRE_OPEN">Pre-Hire</option>
               <option value="PREHIRE_REVIEW">Ready for Review</option>
