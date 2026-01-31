@@ -1806,7 +1806,9 @@ const canViewProviderInfo = computed(() => {
 });
 
 const isViewingSchoolStaff = computed(() => {
-  const r = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
+  // IMPORTANT: Do not read accountForm here (it is declared later in this file).
+  // The bundler may hoist this computed above accountForm initialization, causing a TDZ crash.
+  const r = String(user.value?.role || '').trim().toLowerCase();
   return r === 'school_staff';
 });
 
