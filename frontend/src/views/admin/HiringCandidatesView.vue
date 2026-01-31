@@ -1286,7 +1286,7 @@ onMounted(async () => {
   width: 100%;
   border-collapse: collapse;
   margin: 10px 0;
-  table-layout: fixed;
+  table-layout: auto;
   overflow-x: auto;
 }
 .markdown :deep(th),
@@ -1297,6 +1297,11 @@ onMounted(async () => {
   vertical-align: top;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+.markdown :deep(th:last-child),
+.markdown :deep(td:last-child) {
+  min-width: 120px;
+  white-space: nowrap;
 }
 
 .search-suggestions {
