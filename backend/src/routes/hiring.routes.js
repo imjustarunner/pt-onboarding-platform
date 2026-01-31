@@ -11,6 +11,7 @@ import {
   uploadCandidateResume,
   viewCandidateResume,
   deleteCandidateResume,
+  getCandidatePhoto,
   getCandidateResumeSummary,
   generateCandidateResumeSummary,
   transferCandidateAgency,
@@ -57,6 +58,7 @@ router.get('/candidates/:userId/resumes', listCandidateResumes);
 router.post('/candidates/:userId/resumes/upload', upload.single('file'), uploadCandidateResume);
 router.get('/candidates/:userId/resumes/:docId/view', viewCandidateResume);
 router.delete('/candidates/:userId/resumes/:docId', deleteCandidateResume);
+router.get('/candidates/:userId/photo', getCandidatePhoto);
 router.get('/candidates/:userId/resume-summary', getCandidateResumeSummary);
 router.post('/candidates/:userId/resume-summary', generateCandidateResumeSummary);
 router.post('/candidates/:userId/transfer-agency', transferCandidateAgency);

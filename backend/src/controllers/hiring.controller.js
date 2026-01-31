@@ -14,6 +14,7 @@ import {
 } from '../services/preScreenResearch.service.js';
 import { extractResumeTextFromUpload } from '../services/resumeTextExtraction.service.js';
 import { generateResumeSummaryJson } from '../services/resumeStructuring.service.js';
+import { extractResumePhotoPngFromPdf } from '../services/resumePhotoExtraction.service.js';
 import config from '../config/config.js';
 
 function parseIntParam(v) {
@@ -722,6 +723,56 @@ export const uploadCandidateResume = async (req, res, next) => {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
+    // Best-effort: extract an embedded headshot image from resume PDFs and store it as an internal admin doc.
+    // NOTE: we intentionally do NOT scrape LinkedIn due to brittleness/ToS concerns.
+    try {
+      if (String(mimeType || '').toLowerCase() === 'application/pdf') {
+        const photo = await extractResumePhotoPngFromPdf({ buffer: fileBuffer });
+        if (photo?.status === 'completed' && photo.pngBuffer) {
+          // Remove old stored resume photos to avoid clutter.
+          try {
+            const [old] = await pool.execute(
+              `SELECT id, storage_path
+               FROM user_admin_docs
+               WHERE user_id = ? AND doc_type = 'resume_photo'
+               ORDER BY created_at DESC
+               LIMIT 10`,
+              [candidateUserId]
+            );
+            for (const d of old || []) {
+              if (d?.storage_path) {
+                try { await StorageService.deleteAdminDoc(d.storage_path); } catch { /* ignore */ }
+              }
+              try { await pool.execute(`DELETE FROM user_admin_docs WHERE id = ? LIMIT 1`, [d.id]); } catch { /* ignore */ }
+            }
+          } catch {
+            // ignore cleanup
+          }
+
+          const photoName = `resume-photo-${candidateUserId}-${uniqueSuffix}.png`;
+          const photoStorage = await StorageService.saveAdminDoc(photo.pngBuffer, photoName, 'image/png');
+          await pool.execute(
+            `INSERT INTO user_admin_docs (
+              user_id, title, doc_type, note_text,
+              storage_path, original_name, mime_type,
+              created_by_user_id
+            ) VALUES (?, ?, 'resume_photo', ?, ?, ?, ?, ?)`,
+            [
+              candidateUserId,
+              'Resume photo',
+              `source_resume_doc_id:${result.insertId}`,
+              photoStorage.relativePath,
+              photoName,
+              'image/png',
+              req.user.id
+            ]
+          );
+        }
+      }
+    } catch {
+      // best-effort only; never block resume upload
+    }
+
     const [rows] = await pool.execute(
       `SELECT * FROM user_admin_docs WHERE id = ? LIMIT 1`,
       [result.insertId]
@@ -799,6 +850,39 @@ export const deleteCandidateResume = async (req, res, next) => {
     await pool.execute(`DELETE FROM user_admin_docs WHERE id = ? LIMIT 1`, [docId]);
 
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getCandidatePhoto = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const candidateUserId = parseIntParam(req.params.userId);
+    if (!candidateUserId) return res.status(400).json({ error: { message: 'Invalid userId' } });
+
+    const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
+    if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+
+    const [rows] = await pool.execute(
+      `SELECT * FROM user_admin_docs
+       WHERE user_id = ? AND doc_type = 'resume_photo' AND storage_path IS NOT NULL
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [candidateUserId]
+    );
+    const doc = rows?.[0] || null;
+    if (!doc) return res.json({ url: null });
+
+    const url = await StorageService.getSignedUrl(doc.storage_path, 10);
+    res.json({
+      url,
+      expiresInMinutes: 10,
+      docId: doc.id,
+      createdAt: doc.created_at || null
+    });
   } catch (e) {
     next(e);
   }
@@ -1001,7 +1085,7 @@ export const deleteCandidate = async (req, res, next) => {
     const [docs] = await conn.execute(
       `SELECT id, storage_path
        FROM user_admin_docs
-       WHERE user_id = ? AND doc_type = 'resume'`,
+       WHERE user_id = ? AND doc_type IN ('resume','resume_photo')`,
       [candidateUserId]
     );
 
@@ -1016,7 +1100,7 @@ export const deleteCandidate = async (req, res, next) => {
     }
 
     // Delete docs (will cascade delete hiring_resume_parses if migration 312 exists).
-    await conn.execute(`DELETE FROM user_admin_docs WHERE user_id = ? AND doc_type = 'resume'`, [candidateUserId]);
+    await conn.execute(`DELETE FROM user_admin_docs WHERE user_id = ? AND doc_type IN ('resume','resume_photo')`, [candidateUserId]);
 
     // Delete hiring records (best effort if tables not present).
     try {

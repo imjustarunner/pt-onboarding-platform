@@ -57,7 +57,10 @@
           <template v-else>
             <div class="detail-header">
               <div>
-                <h3 class="detail-name">{{ candidateName }}</h3>
+                <div class="detail-title-row">
+                  <img v-if="candidatePhotoUrl" class="candidate-photo" :src="candidatePhotoUrl" alt="Candidate photo" />
+                  <h3 class="detail-name">{{ candidateName }}</h3>
+                </div>
                 <div class="detail-meta">
                   <span class="pill">{{ detail.profile?.stage || 'applied' }}</span>
                   <span class="muted">{{ detail.user?.personal_email || detail.user?.email }}</span>
@@ -473,6 +476,17 @@ const candidateName = computed(() => {
   return `${u.first_name || ''} ${u.last_name || ''}`.trim();
 });
 
+const candidatePhotoUrl = ref('');
+const loadCandidatePhoto = async () => {
+  if (!selectedId.value || !effectiveAgencyId.value) return;
+  try {
+    const r = await api.get(`/hiring/candidates/${selectedId.value}/photo`, { params: { agencyId: effectiveAgencyId.value } });
+    candidatePhotoUrl.value = String(r.data?.url || '').trim();
+  } catch {
+    candidatePhotoUrl.value = '';
+  }
+};
+
 const transferToAgencyId = ref('');
 const transferringAgency = ref(false);
 const transferAgency = async () => {
@@ -599,6 +613,7 @@ const selectCandidate = async (id) => {
   promoteResult.value = null;
   preScreenLinkedInUrl.value = '';
   await loadDetail();
+  await loadCandidatePhoto();
   await loadResumes();
   await loadResumeSummary();
   await loadAssignees();
@@ -1147,6 +1162,19 @@ onMounted(async () => {
   gap: 12px;
   margin-bottom: 10px;
   align-items: flex-start;
+}
+.detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.candidate-photo {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid #e5e7eb;
+  background: #f3f4f6;
 }
 .detail-actions {
   display: flex;
