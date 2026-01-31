@@ -320,10 +320,63 @@ const openPrintWindow = ({ url, title }) => {
   w.document.close();
 };
 
+function getGoogleDocsPreviewUrl(rawUrl) {
+  const u = String(rawUrl || '').trim();
+  if (!u) return null;
+  if (!u.includes('docs.google.com') && !u.includes('drive.google.com')) return null;
+
+  // Normalize common Google share URLs into embeddable preview URLs.
+  // NOTE: We can't reliably trigger printing cross-origin from our app, but
+  // opening a Google "preview" page lets users print from their browser UI.
+  try {
+    // Docs/Sheets/Slides: https://docs.google.com/{type}/d/{id}/edit...
+    const m = u.match(
+      /^https?:\/\/docs\.google\.com\/(document|spreadsheets|presentation|drawings)\/d\/([a-zA-Z0-9_-]+)(\/[^?#]*)?([?#].*)?$/i
+    );
+    if (m) {
+      const type = m[1].toLowerCase();
+      const id = m[2];
+      // Use /preview for consistent viewing/printing UI.
+      return `https://docs.google.com/${type}/d/${id}/preview`;
+    }
+
+    // Drive file: https://drive.google.com/file/d/{id}/view...
+    const m2 = u.match(
+      /^https?:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)(\/[^?#]*)?([?#].*)?$/i
+    );
+    if (m2) {
+      const id = m2[1];
+      return `https://drive.google.com/file/d/${id}/preview`;
+    }
+
+    // Drive open?id=... (legacy)
+    const parsed = new URL(u);
+    if (parsed.hostname === 'drive.google.com') {
+      const id = parsed.searchParams.get('id');
+      if (id) return `https://drive.google.com/file/d/${id}/preview`;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 const printItem = (d) => {
   const kind = String(d?.kind || '').toLowerCase();
   const title = d?.title || d?.original_filename || `Document #${d?.id || ''}`;
   const url = kind === 'link' ? d?.link_url : toUploadsUrl(d?.file_path);
+
+  // Google Docs often blocks embedding (blank iframe). For these, open a Google
+  // preview page so the user can print from the browser (File → Print).
+  if (kind === 'link') {
+    const preview = getGoogleDocsPreviewUrl(url);
+    if (preview) {
+      window.open(preview, '_blank', 'noopener,noreferrer');
+      return;
+    }
+  }
+
   openPrintWindow({ url, title });
 };
 

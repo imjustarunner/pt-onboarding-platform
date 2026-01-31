@@ -115,6 +115,76 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       credential = null;
     }
 
+    // Optional: supervisor (best-effort; show the most recent assignment under the school's affiliated agency)
+    let supervisor = null;
+    try {
+      const schoolOrgId = parseInt(schoolId, 10);
+      const activeAgencyId =
+        (await OrganizationAffiliation.getActiveAgencyIdForOrganization(schoolOrgId)) ||
+        (await AgencySchool.getActiveAgencyIdForSchool(schoolOrgId)) ||
+        null;
+      if (activeAgencyId) {
+        const [rows] = await pool.execute(
+          `SELECT
+             sa.supervisor_id,
+             u.first_name,
+             u.last_name,
+             u.email,
+             u.profile_photo_path
+           FROM supervisor_assignments sa
+           JOIN users u ON u.id = sa.supervisor_id
+           WHERE sa.supervisee_id = ? AND sa.agency_id = ?
+           ORDER BY sa.created_at DESC, sa.id DESC
+           LIMIT 1`,
+          [providerUserId, parseInt(activeAgencyId, 10)]
+        );
+        const s = rows?.[0] || null;
+        if (s?.supervisor_id) {
+          let supervisorCredential = null;
+          try {
+            const [c2] = await pool.execute(
+              `SELECT uiv.value
+               FROM user_info_values uiv
+               JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+               WHERE uiv.user_id = ?
+                 AND uifd.field_key = 'provider_credential'
+               ORDER BY uiv.updated_at DESC, uiv.id DESC
+               LIMIT 1`,
+              [Number(s.supervisor_id)]
+            );
+            supervisorCredential = c2?.[0]?.value ?? null;
+          } catch (e) {
+            const msg = String(e?.message || '');
+            const missing =
+              msg.includes("doesn't exist") ||
+              msg.includes('ER_NO_SUCH_TABLE') ||
+              msg.includes('Unknown column') ||
+              msg.includes('ER_BAD_FIELD_ERROR');
+            if (!missing) throw e;
+            supervisorCredential = null;
+          }
+
+          supervisor = {
+            id: Number(s.supervisor_id),
+            first_name: s.first_name || null,
+            last_name: s.last_name || null,
+            email: s.email || null,
+            credential: supervisorCredential ? String(supervisorCredential) : null,
+            profile_photo_url: publicUploadsUrlFromStoredPath(s.profile_photo_path || null)
+          };
+        }
+      }
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing =
+        msg.includes("doesn't exist") ||
+        msg.includes('ER_NO_SUCH_TABLE') ||
+        msg.includes('Unknown column') ||
+        msg.includes('ER_BAD_FIELD_ERROR');
+      if (!missing) throw e;
+      supervisor = null;
+    }
+
     res.json({
       provider_user_id: u.id,
       first_name: u.first_name || null,
@@ -128,7 +198,8 @@ export const getProviderSchoolProfile = async (req, res, next) => {
       work_phone: u.work_phone || null,
       work_phone_extension: u.work_phone_extension || null,
       profile_photo_url: publicUploadsUrlFromStoredPath(u.profile_photo_path || null),
-      school_info_blurb: schoolInfoBlurb
+      school_info_blurb: schoolInfoBlurb,
+      supervisor
     });
   } catch (e) {
     next(e);

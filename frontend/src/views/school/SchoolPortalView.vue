@@ -433,12 +433,15 @@
           :providers-error="store.dayProvidersError"
           :panel-for="panelFor"
           :client-label-mode="clientLabelMode"
+          :current-user-id="authStore.user?.id || null"
+          :current-user-role="authStore.user?.role || ''"
           @add-day="handleAddDay"
           @add-provider="handleAddProvider"
           @open-client="openClient"
           @save-slots="handleSaveSlots"
           @move-slot="handleMoveSlot"
           @open-provider="goToProviderSchoolProfile"
+          @request-availability="openAvailabilityRequest"
         />
         <div v-else class="empty-state">Organization not loaded.</div>
           </div>
@@ -515,6 +518,66 @@
       @close="showHelpDesk = false"
     />
 
+    <div v-if="showAvailabilityRequest" class="modal-overlay" @click.self="closeAvailabilityRequest">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <strong>Update my availability (request)</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeAvailabilityRequest">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="muted" style="margin-bottom: 10px;">
+            This sends a request to the admin/staff team to update your slots/hours for this school.
+          </div>
+
+          <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Current slots</label>
+              <div class="muted">
+                {{ availabilityCurrentSlotsText }}
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Change slots by (can be negative)</label>
+              <input v-model.number="availabilityDeltaSlots" type="number" />
+              <div class="muted" style="font-size: 12px; margin-top: 4px;">
+                Requested total: <strong>{{ availabilityRequestedSlotsTotal }}</strong>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Current hours</label>
+              <div class="muted">
+                {{ availabilityCurrentHoursText }}
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Requested hours</label>
+              <div style="display:flex; gap: 8px; align-items: center;">
+                <input v-model="availabilityNewStart" type="time" style="width: 140px;" />
+                <span class="muted">to</span>
+                <input v-model="availabilityNewEnd" type="time" style="width: 140px;" />
+              </div>
+            </div>
+            <div class="form-group" style="grid-column: 1 / -1;">
+              <label>Note (optional)</label>
+              <input v-model="availabilityNote" type="text" placeholder="e.g., 40min sessions; can see 10/day on Tuesdays" />
+            </div>
+          </div>
+
+          <div style="display:flex; gap: 10px; align-items:center; margin-top: 12px;">
+            <button
+              class="btn btn-primary"
+              type="button"
+              :disabled="availabilitySubmitting"
+              @click="submitAvailabilityRequest"
+            >
+              {{ availabilitySubmitting ? 'Sending…' : 'Send request' }}
+            </button>
+            <div v-if="availabilityError" class="error" style="margin:0;">{{ availabilityError }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="comingSoonKey" class="modal-overlay" @click.self="comingSoonKey = ''">
       <div class="modal" @click.stop>
         <div class="modal-header">
@@ -582,6 +645,16 @@ const showHelpDesk = ref(false);
 const comingSoonKey = ref(''); // 'parent_qr' | 'parent_sign' | 'packet_upload'
 const showSchoolSettings = ref(false);
 const affiliatedAgencyId = ref(null);
+
+// Provider availability request modal (creates a support ticket)
+const showAvailabilityRequest = ref(false);
+const availabilityRequest = ref(null); // payload from ProviderPanel
+const availabilityDeltaSlots = ref(0);
+const availabilityNewStart = ref('');
+const availabilityNewEnd = ref('');
+const availabilityNote = ref('');
+const availabilitySubmitting = ref(false);
+const availabilityError = ref('');
 
 const openComingSoon = (key) => {
   comingSoonKey.value = String(key || '');
@@ -654,6 +727,106 @@ const canShowSchoolSettingsButton = computed(() => {
   const list = Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [];
   return list.some((a) => Number(a?.id) === Number(affId));
 });
+
+const openAvailabilityRequest = (payload) => {
+  availabilityRequest.value = payload || null;
+  availabilityDeltaSlots.value = 0;
+  availabilityNote.value = '';
+  availabilityError.value = '';
+
+  const st = String(payload?.startTime || '').slice(0, 5);
+  const et = String(payload?.endTime || '').slice(0, 5);
+  availabilityNewStart.value = st || '';
+  availabilityNewEnd.value = et || '';
+  showAvailabilityRequest.value = true;
+};
+
+const closeAvailabilityRequest = () => {
+  showAvailabilityRequest.value = false;
+  availabilityRequest.value = null;
+  availabilityDeltaSlots.value = 0;
+  availabilityNewStart.value = '';
+  availabilityNewEnd.value = '';
+  availabilityNote.value = '';
+  availabilityError.value = '';
+};
+
+const availabilityCurrentSlotsText = computed(() => {
+  const p = availabilityRequest.value || {};
+  const total = p.slotsTotal ?? null;
+  const used = p.slotsUsed ?? null;
+  if (total == null) return '—';
+  if (used == null) return `${Number(total)} total`;
+  return `${Number(used || 0)} assigned / ${Number(total)} total`;
+});
+
+const availabilityRequestedSlotsTotal = computed(() => {
+  const p = availabilityRequest.value || {};
+  const current = Number(p.slotsTotal ?? 0);
+  const delta = Number(availabilityDeltaSlots.value || 0);
+  const out = Number.isFinite(current) ? current + delta : delta;
+  return Number.isFinite(out) ? out : '';
+});
+
+const availabilityCurrentHoursText = computed(() => {
+  const p = availabilityRequest.value || {};
+  const st = String(p.startTime || '').slice(0, 5);
+  const et = String(p.endTime || '').slice(0, 5);
+  if (!st && !et) return '—';
+  return `${st || '—'}–${et || '—'}`;
+});
+
+const submitAvailabilityRequest = async () => {
+  if (!organizationId.value) return;
+  const p = availabilityRequest.value || {};
+  if (!p.providerUserId) return;
+  try {
+    availabilitySubmitting.value = true;
+    availabilityError.value = '';
+
+    const weekday = String(p.weekday || store.selectedWeekday || '').trim();
+    const providerName = String(p.providerName || '').trim() || `Provider #${p.providerUserId}`;
+    const currentSlots = p.slotsTotal ?? null;
+    const currentUsed = p.slotsUsed ?? null;
+    const delta = Number(availabilityDeltaSlots.value || 0);
+    const requestedSlots = availabilityRequestedSlotsTotal.value;
+    const currentHours = availabilityCurrentHoursText.value;
+    const requestedHours =
+      availabilityNewStart.value || availabilityNewEnd.value
+        ? `${availabilityNewStart.value || '—'}–${availabilityNewEnd.value || '—'}`
+        : '—';
+
+    const subject = `Availability update request — ${providerName}${weekday ? ` (${weekday})` : ''}`;
+    const question = [
+      `School: ${organizationDisplayName.value || organizationName.value || ''}`.trim(),
+      `Provider: ${providerName} (user_id=${p.providerUserId})`,
+      weekday ? `Day: ${weekday}` : null,
+      '',
+      `Current slots: ${currentUsed != null && currentSlots != null ? `${Number(currentUsed || 0)} assigned / ${Number(currentSlots)} total` : (currentSlots != null ? `${Number(currentSlots)} total` : '—')}`,
+      `Requested slots total: ${requestedSlots} (delta ${delta >= 0 ? '+' : ''}${delta})`,
+      '',
+      `Current hours: ${currentHours}`,
+      `Requested hours: ${requestedHours}`,
+      availabilityNote.value.trim() ? '' : null,
+      availabilityNote.value.trim() ? `Note: ${availabilityNote.value.trim()}` : null
+    ]
+      .filter((x) => x !== null && x !== undefined)
+      .join('\n');
+
+    await api.post('/support-tickets', {
+      schoolOrganizationId: organizationId.value,
+      subject,
+      question
+    });
+
+    closeAvailabilityRequest();
+    showHelpDesk.value = true; // show the user the created ticket in their list
+  } catch (e) {
+    availabilityError.value = e.response?.data?.error?.message || 'Failed to send request';
+  } finally {
+    availabilitySubmitting.value = false;
+  }
+};
 
 const ensureAffiliation = async () => {
   if (!organizationId.value) return;

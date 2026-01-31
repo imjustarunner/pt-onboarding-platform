@@ -56,6 +56,28 @@
               <div v-if="profile?.credential" class="sub">{{ profile.credential }}</div>
               <div v-if="profile?.service_focus" class="sub">{{ profile.service_focus }}</div>
               <div v-if="providerContactLine" class="sub">{{ providerContactLine }}</div>
+              <div v-if="profile?.supervisor?.id" class="supervisor-row">
+                <div class="supervisor-label">Supervisor</div>
+                <div class="supervisor-pill">
+                  <div class="supervisor-avatar" aria-hidden="true">
+                    <img
+                      v-if="profile.supervisor.profile_photo_url"
+                      :src="toUploadsUrl(profile.supervisor.profile_photo_url)"
+                      alt=""
+                      class="supervisor-avatar-img"
+                    />
+                    <span v-else class="supervisor-avatar-fallback">{{ initialsFor(profile.supervisor) }}</span>
+                  </div>
+                  <div class="supervisor-meta">
+                    <div class="supervisor-name">
+                      {{ profile.supervisor.first_name }} {{ profile.supervisor.last_name }}
+                    </div>
+                    <div v-if="profile.supervisor.credential" class="supervisor-cred">
+                      {{ profile.supervisor.credential }}
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div v-if="profile?.school_info_blurb" class="blurb">
                 <strong>Provider info</strong>
                 <div class="blurb-text">{{ profile.school_info_blurb }}</div>
@@ -623,6 +645,67 @@ watch(
   height: 14px;
   padding: 0;
   border-radius: 999px;
+}
+.supervisor-row {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+.supervisor-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+.supervisor-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 6px 10px;
+  width: fit-content;
+  max-width: 100%;
+}
+.supervisor-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: white;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.supervisor-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.supervisor-avatar-fallback {
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--text-secondary);
+}
+.supervisor-meta {
+  min-width: 0;
+}
+.supervisor-name {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.supervisor-cred {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .day-pill {
   display: inline-flex;

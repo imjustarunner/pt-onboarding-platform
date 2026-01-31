@@ -1123,6 +1123,38 @@
             class="form-section-divider"
             style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
           >
+            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Ticketing Notifications</h4>
+            <small class="hint">Choose which org-types should generate support ticket notifications for this agency.</small>
+          </div>
+
+          <div
+            v-if="activeTab === 'notifications' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-group"
+          >
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px;">
+              <label class="hint" style="display: inline-flex; align-items: center; gap: 8px;">
+                <input type="checkbox" value="school" v-model="agencyForm.ticketingNotificationOrgTypes" />
+                Schools
+              </label>
+              <label class="hint" style="display: inline-flex; align-items: center; gap: 8px;">
+                <input type="checkbox" value="program" v-model="agencyForm.ticketingNotificationOrgTypes" />
+                Programs
+              </label>
+              <label class="hint" style="display: inline-flex; align-items: center; gap: 8px;">
+                <input type="checkbox" value="learning" v-model="agencyForm.ticketingNotificationOrgTypes" />
+                Learning
+              </label>
+            </div>
+            <small class="hint" style="display: block; margin-top: 8px;">
+              These control which tickets appear as notifications (ticket list access stays in <strong>Support tickets</strong>).
+            </small>
+          </div>
+
+          <div
+            v-if="activeTab === 'notifications' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-section-divider"
+            style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
+          >
             <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Tier System (Payroll)</h4>
             <small class="hint">Enable/disable tier calculations and set the weekly credits/hour thresholds for Tier 1/2/3.</small>
           </div>
@@ -1797,6 +1829,10 @@
               <div class="notification-icon-item">
                 <label>Password Changed</label>
                 <IconSelector v-model="agencyForm.passwordChangedIconId" :defaultAgencyId="editingAgency?.id || null" />
+              </div>
+              <div class="notification-icon-item">
+                <label>Support Tickets</label>
+                <IconSelector v-model="agencyForm.supportTicketCreatedIconId" :defaultAgencyId="editingAgency?.id || null" />
               </div>
             </div>
           </div>
@@ -3322,7 +3358,11 @@ const defaultAgencyForm = () => ({
   invitationExpiredIconId: null,
   firstLoginIconId: null,
   firstLoginPendingIconId: null,
-  passwordChangedIconId: null
+  passwordChangedIconId: null,
+  supportTicketCreatedIconId: null,
+
+  // Ticketing notification scope (agency-only; defaults to all child org types)
+  ticketingNotificationOrgTypes: ['school', 'program', 'learning']
 });
 
 const agencyForm = ref(defaultAgencyForm());
@@ -3387,6 +3427,8 @@ const addSchoolContactError = ref('');
 
 const addSchoolContact = async () => {
   if (!editingAgency.value?.id) return;
+  const pendingEmail = String(newSchoolContact.value.email || '').trim().toLowerCase();
+  const pendingName = String(newSchoolContact.value.fullName || '').trim();
   try {
     addingSchoolContact.value = true;
     addSchoolContactError.value = '';
@@ -3401,6 +3443,21 @@ const addSchoolContact = async () => {
     await reloadSchoolContacts();
   } catch (e) {
     addSchoolContactError.value = e.response?.data?.error?.message || 'Failed to add contact';
+    // If the backend returns an error but the contact still appears (rare but observed),
+    // refresh and treat it as success to avoid confusing the user.
+    await reloadSchoolContacts();
+    const list = Array.isArray(editingAgency.value?.school_contacts) ? editingAgency.value.school_contacts : [];
+    const exists = list.some((c) => {
+      const ce = String(c?.email || '').trim().toLowerCase();
+      const cn = String(c?.full_name || '').trim();
+      if (pendingEmail && ce && ce === pendingEmail) return true;
+      if (pendingName && cn && cn === pendingName) return true;
+      return false;
+    });
+    if (exists) {
+      addSchoolContactError.value = '';
+      newSchoolContact.value = { fullName: '', roleTitle: '', email: '', notes: '', isPrimary: false };
+    }
   } finally {
     addingSchoolContact.value = false;
   }
@@ -3594,8 +3651,13 @@ const sortByNameAsc = (list) => {
   return [...(list || [])].sort((a, b) => normalizeText(a?.name).localeCompare(normalizeText(b?.name)));
 };
 
+// In embedded mode, `agencies` may only contain the selected school/program,
+// so we keep a separate list of parent agencies to populate affiliation pickers.
+const parentAgenciesOverride = ref(null); // array | null
+
 const parentAgencies = computed(() => {
-  return sortByNameAsc((agencies.value || []).filter(a => String(a.organization_type || 'agency').toLowerCase() === 'agency'));
+  const src = Array.isArray(parentAgenciesOverride.value) ? parentAgenciesOverride.value : (agencies.value || []);
+  return sortByNameAsc((src || []).filter(a => String(a.organization_type || 'agency').toLowerCase() === 'agency'));
 });
 
 const affiliableAgencies = computed(() => parentAgencies.value);
@@ -4314,7 +4376,8 @@ const editAgency = async (agency) => {
     accentColor: palette.accent || '#f97316',
     iconId: agency.icon_id || null,
     chatIconId: agency.chat_icon_id ?? null,
-    isActive: agency.is_active,
+    // Backend stores is_active as TINYINT(1) in many envs; validator expects boolean.
+    isActive: (agency.is_active === 1 || agency.is_active === true || String(agency.is_active || '').toLowerCase() === 'true'),
     trainingFocusDefaultIconId: agency.training_focus_default_icon_id ?? null,
     moduleDefaultIconId: agency.module_default_icon_id ?? null,
     userDefaultIconId: agency.user_default_icon_id ?? null,
@@ -4411,7 +4474,19 @@ const editAgency = async (agency) => {
     invitationExpiredIconId: agency.invitation_expired_icon_id ?? null,
     firstLoginIconId: agency.first_login_icon_id ?? null,
     firstLoginPendingIconId: agency.first_login_pending_icon_id ?? null,
-    passwordChangedIconId: agency.password_changed_icon_id ?? null
+    passwordChangedIconId: agency.password_changed_icon_id ?? null,
+    supportTicketCreatedIconId: agency.support_ticket_created_icon_id ?? null,
+    ticketingNotificationOrgTypes: (() => {
+      const raw = agency.ticketing_notification_org_types_json ?? null;
+      let parsed = raw;
+      if (typeof raw === 'string' && raw.trim()) {
+        try { parsed = JSON.parse(raw); } catch { parsed = null; }
+      }
+      if (Array.isArray(parsed) && parsed.length) {
+        return parsed.map((t) => String(t || '').trim().toLowerCase()).filter(Boolean);
+      }
+      return ['school', 'program', 'learning'];
+    })()
   };
 
   // Load available uploaded font families for this org (includes platform + org fonts)
@@ -4957,6 +5032,10 @@ const saveAgency = async () => {
       firstLoginIconId: agencyForm.value.firstLoginIconId ?? null,
       firstLoginPendingIconId: agencyForm.value.firstLoginPendingIconId ?? null,
       passwordChangedIconId: agencyForm.value.passwordChangedIconId ?? null,
+      supportTicketCreatedIconId: agencyForm.value.supportTicketCreatedIconId ?? null,
+      ticketingNotificationOrgTypes: Array.isArray(agencyForm.value.ticketingNotificationOrgTypes)
+        ? agencyForm.value.ticketingNotificationOrgTypes.map((t) => String(t || '').trim().toLowerCase()).filter(Boolean)
+        : null,
       schoolProfile:
         String(agencyForm.value.organizationType || '').toLowerCase() === 'school'
           ? {
@@ -5199,6 +5278,7 @@ const closeModal = () => {
   savingNotificationTriggerKey.value = null;
   customParamKeys.value = [];
   customParameters.value = {};
+  parentAgenciesOverride.value = null;
   originalAgencyFormSnapshot.value = '';
 
   try {
@@ -5238,6 +5318,17 @@ watch([requiresAffiliatedAgency, affiliableAgencies, userRole, editingAgency], a
         }
       } catch (e) {
         // best effort
+      }
+    }
+    // Fallbacks (embedded mode / non-super-admin):
+    // - If backend included affiliation metadata, use it.
+    // - Otherwise, if the user only has one parent agency, lock to it.
+    if (!agencyForm.value.affiliatedAgencyId) {
+      const meta = editingAgency.value?.affiliated_agency_id || editingAgency.value?.affiliatedAgencyId || null;
+      if (meta) {
+        agencyForm.value.affiliatedAgencyId = String(meta);
+      } else if (userRole.value !== 'super_admin' && affiliableAgencies.value.length === 1) {
+        agencyForm.value.affiliatedAgencyId = String(affiliableAgencies.value[0].id);
       }
     }
     return;
@@ -5298,6 +5389,14 @@ onMounted(async () => {
       buildings.value = [];
       availableUsers.value = [];
       affiliatedOrganizations.value = [];
+      // Populate parent agencies so affiliation dropdown isn't empty.
+      try {
+        const parentRes = await api.get('/agencies', { params: { _ts: Date.now() } });
+        const list = Array.isArray(parentRes.data) ? parentRes.data : [];
+        parentAgenciesOverride.value = list.filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency');
+      } catch {
+        parentAgenciesOverride.value = [];
+      }
       showCreateModal.value = false;
       if (agencies.value[0]) {
         editAgency(agencies.value[0]);
@@ -5307,6 +5406,7 @@ onMounted(async () => {
     } catch (e) {
       error.value = e.response?.data?.error?.message || 'Failed to load organization';
       agencies.value = [];
+      parentAgenciesOverride.value = [];
     } finally {
       loading.value = false;
     }

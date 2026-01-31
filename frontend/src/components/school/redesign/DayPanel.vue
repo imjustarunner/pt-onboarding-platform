@@ -97,7 +97,10 @@
             v-for="p in providers"
             :key="`panel-${p.provider_user_id}`"
             :provider="p"
+            :weekday="weekday"
             :client-label-mode="clientLabelMode"
+            :current-user-id="currentUserId"
+            :current-user-role="currentUserRole"
             :caseload-clients="panelFor(p.provider_user_id)?.caseloadClients || []"
             :slots="panelFor(p.provider_user_id)?.slots || []"
             :loading="panelFor(p.provider_user_id)?.loading || false"
@@ -107,6 +110,7 @@
             @save-slots="(slots) => $emit('save-slots', { providerUserId: p.provider_user_id, slots })"
             @move-slot="(evt) => $emit('move-slot', { providerUserId: p.provider_user_id, ...evt })"
             @open-provider="$emit('open-provider', $event)"
+            @request-availability="$emit('request-availability', $event)"
           />
         </div>
       </div>
@@ -125,7 +129,9 @@ const props = defineProps({
   loadingProviders: { type: Boolean, default: false },
   providersError: { type: String, default: '' },
   panelFor: { type: Function, required: true },
-  clientLabelMode: { type: String, default: 'codes' }
+  clientLabelMode: { type: String, default: 'codes' },
+  currentUserId: { type: [Number, String], default: null },
+  currentUserRole: { type: String, default: '' }
 });
 
 const emit = defineEmits([
@@ -134,7 +140,8 @@ const emit = defineEmits([
   'open-client',
   'save-slots',
   'move-slot',
-  'open-provider'
+  'open-provider',
+  'request-availability'
 ]);
 
 const showAddProvider = ref(false);
