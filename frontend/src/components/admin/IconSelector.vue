@@ -178,6 +178,24 @@ const applyDefaultAgencyFilterIfProvided = () => {
   else selectedAgency.value = '';
 };
 
+const ensureAgenciesLoaded = async () => {
+  // Avoid loading *all icons* (and agencies) for every IconSelector instance on page load.
+  // Only load agency lists when the modal is actually opened.
+  try {
+    if (authStore.user?.role === 'super_admin') {
+      if (!Array.isArray(agencyStore.agencies) || agencyStore.agencies.length === 0) {
+        await agencyStore.fetchAgencies();
+      }
+    } else {
+      if (!Array.isArray(agencyStore.userAgencies) || agencyStore.userAgencies.length === 0) {
+        await agencyStore.fetchUserAgencies();
+      }
+    }
+  } catch {
+    // ignore
+  }
+};
+
 const fetchIcons = async () => {
   try {
     loading.value = true;
@@ -201,22 +219,10 @@ const fetchIcons = async () => {
     // If selectedAgency.value is empty string, don't pass agencyId at all
     params.append('sortBy', sortBy.value);
     params.append('sortOrder', 'asc');
-    
-    console.log('IconSelector: Fetching icons with params:', {
-      selectedAgency: selectedAgency.value,
-      agencyIdParam: selectedAgency.value === 'null' ? 'null' : (selectedAgency.value && selectedAgency.value !== '' ? selectedAgency.value : 'not passed'),
-      fullParams: params.toString()
-    });
-    
+
     const response = await api.get(`/icons?${params.toString()}`);
     icons.value = response.data;
-    
-    console.log('IconSelector: Received icons:', icons.value.length, 'icons');
-    if (selectedAgency.value && selectedAgency.value !== '' && selectedAgency.value !== 'null') {
-      console.log('IconSelector: Agency filter active, icons with agency_id:', icons.value.filter(i => i.agency_id === parseInt(selectedAgency.value)).length);
-      console.log('IconSelector: Platform icons (agency_id null):', icons.value.filter(i => i.agency_id === null).length);
-    }
-    
+
     // After fetching, try to find the selected icon if modelValue is set
     // But don't add it to the list if it doesn't match the current filter
     if (props.modelValue && !selectedIcon.value) {
@@ -261,7 +267,6 @@ const selectIcon = (icon) => {
 const confirmSelection = () => {
   if (tempSelectedIcon.value) {
     selectedIcon.value = tempSelectedIcon.value;
-    console.log('IconSelector: Confirming selection, emitting iconId:', tempSelectedIcon.value.id);
     emit('update:modelValue', tempSelectedIcon.value.id);
     closeModal();
   }
@@ -288,7 +293,8 @@ const handleOpenModal = async (event) => {
   selectedCategory.value = '';
   searchTerm.value = '';
   sortBy.value = 'name';
-  // Fetch icons with no filters to show all available
+  await ensureAgenciesLoaded();
+  // Fetch icons when the modal is opened (not on page load).
   await fetchIcons();
   showModal.value = true;
 };
@@ -303,20 +309,16 @@ const closeModal = () => {
 };
 
 watch(() => props.modelValue, async (newValue) => {
-  console.log('IconSelector: modelValue changed to:', newValue);
   if (newValue && icons.value.length > 0) {
     const foundIcon = icons.value.find(i => i.id === newValue);
     if (foundIcon) {
-      console.log('IconSelector: Found icon in list:', foundIcon);
       selectedIcon.value = foundIcon;
       tempSelectedIcon.value = foundIcon;
     } else {
       // Icon not in current list, try to fetch it for display purposes
-      console.log('IconSelector: Icon not in list, fetching individually...');
       try {
         const iconResponse = await api.get(`/icons/${newValue}`);
         if (iconResponse.data) {
-          console.log('IconSelector: Fetched icon:', iconResponse.data);
           selectedIcon.value = iconResponse.data;
           tempSelectedIcon.value = iconResponse.data;
           // Only add to icons list if it matches the current filter
@@ -336,7 +338,6 @@ watch(() => props.modelValue, async (newValue) => {
       }
     }
   } else if (!newValue) {
-    console.log('IconSelector: modelValue is null/undefined, clearing selection');
     selectedIcon.value = null;
     tempSelectedIcon.value = null;
   }
@@ -354,21 +355,11 @@ watch(() => icons.value, (newIcons) => {
 }, { immediate: true });
 
 onMounted(async () => {
-  // Fetch agencies if needed
-  if (authStore.user?.role === 'super_admin') {
-    await agencyStore.fetchAgencies(); // Fetch all agencies for super admin
-  } else {
-    await agencyStore.fetchUserAgencies();
-  }
-  await fetchIcons();
-  // After icons are loaded, set the selected icon
-  if (props.modelValue) {
-    const foundIcon = icons.value.find(i => i.id === props.modelValue);
-    if (foundIcon) {
-      selectedIcon.value = foundIcon;
-      tempSelectedIcon.value = foundIcon;
-    }
-  }
+  // Do not fetch the full icon library on mount. This component can appear many times
+  // on settings pages; loading 400+ icons per instance causes a huge delay.
+  //
+  // We only load icons when the modal is opened. For the preview chip, fetch the single icon
+  // by id via the modelValue watcher (cheap) when needed.
 });
 </script>
 
