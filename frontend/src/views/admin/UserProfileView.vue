@@ -1805,6 +1805,11 @@ const canViewProviderInfo = computed(() => {
   return true;
 });
 
+const isViewingSchoolStaff = computed(() => {
+  const r = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
+  return r === 'school_staff';
+});
+
 const canViewSchoolAffiliation = computed(() => {
   const u = user.value;
   if (!u) return false;
@@ -1823,6 +1828,20 @@ const superviseesLoading = ref(false);
 const supervisorsLoading = ref(false);
 
 const tabs = computed(() => {
+  // School staff accounts should be simple (no provider workflow / availability / payroll / etc).
+  if (isViewingSchoolStaff.value) {
+    const schoolStaffTabs = [
+      { id: 'account', label: 'Account' },
+      { id: 'training', label: 'Training' },
+      { id: 'documents', label: 'Documents' },
+      { id: 'communications', label: 'Communications' },
+      ...(canViewAdminDocsTab.value ? [{ id: 'admin_docs', label: 'Admin Documentation' }] : []),
+      { id: 'preferences', label: 'Preferences' },
+      ...(canViewActivityLog.value ? [{ id: 'activity', label: 'Activity Log' }] : [])
+    ];
+    return schoolStaffTabs;
+  }
+
   const baseTabs = [
     { id: 'account', label: 'Account' },
     { id: 'additional', label: 'Additional' },
@@ -1846,6 +1865,16 @@ const tabs = computed(() => {
   
   return baseTabs;
 });
+
+// If the current tab becomes unavailable (e.g., switching to a school_staff user), normalize back to Account.
+watch(
+  tabs,
+  (t) => {
+    const allowed = new Set((t || []).map((x) => x.id));
+    if (!allowed.has(String(activeTab.value || ''))) activeTab.value = 'account';
+  },
+  { immediate: true }
+);
 
 const accountForm = ref({
   firstName: '',

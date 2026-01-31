@@ -351,6 +351,18 @@ export const createSchoolStaffUserFromContact = async (req, res, next) => {
       }
     }
 
+    // School staff do not have a workflow: ensure they are ACTIVE immediately.
+    try {
+      await User.updateStatus(user.id, 'ACTIVE_EMPLOYEE', req.user?.id || null);
+    } catch {
+      // ignore (older deployments without full status lifecycle)
+    }
+    try {
+      await User.update(user.id, { isActive: true });
+    } catch {
+      // ignore (older deployments)
+    }
+
     // Ensure membership exists.
     await User.assignToAgency(user.id, orgId);
 
