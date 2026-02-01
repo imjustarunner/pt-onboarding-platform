@@ -534,7 +534,8 @@ onUnmounted(() => {
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow-lg);
-  z-index: 2500;
+  /* Must sit above app modals (some use z-index 10000). */
+  z-index: 20000;
   padding: 14px;
 }
 

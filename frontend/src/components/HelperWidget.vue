@@ -109,7 +109,8 @@ const answerStub = () => {
 .helper-root {
   position: fixed;
   bottom: 18px;
-  z-index: 2400;
+  /* Must sit above app modals (some use z-index 10000). */
+  z-index: 19000;
 }
 .helper-root.bottom-right { right: 18px; }
 .helper-root.bottom-left { left: 18px; }
