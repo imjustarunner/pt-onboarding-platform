@@ -75,10 +75,10 @@
             <span v-else>• Showing affiliated organizations (filtered by view).</span>
             <button class="btn-link" type="button" @click="clearAgencyFilter">Clear</button>
           </div>
-        </div>
-
-        <div v-if="loading" class="loading">Loading agencies...</div>
-        <div v-else-if="error" class="error">{{ error }}</div>
+    </div>
+    
+    <div v-if="loading" class="loading">Loading agencies...</div>
+    <div v-else-if="error" class="error">{{ error }}</div>
         <div v-else class="org-list">
           <div v-if="loadingAffiliates && selectedAgencyFilterId" class="loading">Loading affiliated organizations…</div>
           <div v-else-if="organizationsToRender.length === 0" class="empty-state-inline">
@@ -115,20 +115,20 @@
                   <span v-else class="org-avatar-fallback">
                     {{ String(org.name || '?').trim().slice(0, 1).toUpperCase() }}
                   </span>
-                </div>
+            </div>
                 <div v-if="!navCollapsed" class="org-title">
                   <div class="org-name">{{ org.name }}</div>
                   <div v-if="!isChildOrgRow(org)" class="org-slug">{{ org.slug }}</div>
-                </div>
-              </div>
+            </div>
+          </div>
               <div v-if="!navCollapsed && !isChildOrgRow(org)" class="org-right">
                 <div class="org-badges">
                   <span class="badge badge-type">{{ String(org.organization_type || 'agency').toLowerCase() }}</span>
                   <span :class="['badge', org.is_active ? 'badge-success' : 'badge-secondary']">
                     {{ org.is_active ? 'Active' : 'Inactive' }}
-                  </span>
-                </div>
-
+          </span>
+        </div>
+        
                 <div class="org-actions">
                   <button
                     v-if="org.portal_url"
@@ -138,8 +138,8 @@
                   >
                     Copy URL
                   </button>
-                  <button
-                    v-if="userRole === 'super_admin'"
+                <button 
+                  v-if="userRole === 'super_admin'"
                     type="button"
                     class="btn btn-secondary btn-sm"
                     @click.stop="openDuplicateModal(org)"
@@ -176,20 +176,20 @@
                 />
                 <span v-else class="detail-summary-fallback">
                   {{ String(editingAgency.name || '?').trim().slice(0, 1).toUpperCase() }}
-                </span>
-              </div>
+              </span>
+            </div>
               <div class="detail-summary-text">
                 <div class="detail-summary-name">{{ editingAgency.name }}</div>
                 <div class="detail-summary-meta">
                   <span class="detail-summary-slug">{{ editingAgency.slug }}</span>
                   <span class="detail-summary-sep">•</span>
                   <span class="detail-summary-type">{{ String(editingAgency.organization_type || 'agency').toLowerCase() }}</span>
-                </div>
+          </div>
               </div>
             </div>
 
             <div class="detail-summary-actions">
-              <button
+                <button 
                 v-if="editingAgency.portal_url"
                 type="button"
                 class="btn btn-secondary btn-sm"
@@ -307,8 +307,8 @@
                 <span v-else-if="editingAgency.is_active === false" class="pill pill-warn">Inactive</span>
                 <span v-else class="pill pill-ok">Active</span>
                 <span v-if="editingAgency.portal_url" class="pill pill-muted mono">/{{ editingAgency.portal_url }}</span>
-              </div>
-            </div>
+      </div>
+    </div>
             <div class="org-general-actions">
               <button
                 v-if="editingAgency.portal_url"
@@ -370,11 +370,11 @@
             <div class="pricing-row">
               <span class="pricing-label">Affiliated agency</span>
               <span class="pricing-value">{{ selectedAffiliatedAgency?.name || '—' }}</span>
-            </div>
+      </div>
             <div class="pricing-row">
               <span class="pricing-label">Additional {{ agencyForm.organizationType }}</span>
               <span class="pricing-value">{{ formatMoneyCents(estimatedUnitPriceCents) }} / month</span>
-            </div>
+    </div>
             <small class="pricing-note">Unit price estimate; actual billing depends on current plan usage and included counts.</small>
           </div>
           <template v-if="!isOfficeType">
@@ -395,7 +395,7 @@
           </template>
 
           <template v-else>
-            <div class="form-group">
+          <div class="form-group">
               <label>Building name *</label>
               <input v-model="agencyForm.name" type="text" required placeholder="e.g., Downtown Office" />
               <small>This creates a building asset. You’ll manage rooms, room types, SVG map, and multi-agency links in Office → Settings.</small>
@@ -420,24 +420,24 @@
                 >
                   <select v-model="agencyForm.officeAdditionalAgencyIds[idx]" class="select">
                     <option value="">Select an agency…</option>
-                    <option
+              <option
                       v-for="a in affiliableAgencies"
                       :key="a.id"
                       :value="String(a.id)"
                       :disabled="String(a.id) === String(agencyForm.affiliatedAgencyId)"
                     >
                       {{ a.name }}
-                    </option>
-                  </select>
+              </option>
+            </select>
                   <button type="button" class="btn btn-secondary btn-sm" @click="removeOfficeAdditionalAgency(idx)">
                     Remove
                   </button>
-                </div>
+          </div>
 
                 <button type="button" class="btn btn-secondary btn-sm" @click="addOfficeAdditionalAgency">
                   Add another agency
-                </button>
-              </div>
+            </button>
+          </div>
               <small>The selected Agency above is always attached automatically.</small>
             </div>
           </template>
@@ -464,30 +464,30 @@
               <div class="form-group">
                 <label>ITSCO Group Email</label>
                 <input v-model="agencyForm.schoolProfile.itscoEmail" type="email" placeholder="group@example.org" />
-              </div>
-            </div>
-
+      </div>
+    </div>
+    
             <div style="display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 12px; margin-top: 10px;">
               <div class="form-group">
                 <label>Bell Schedule Start</label>
                 <input v-model="agencyForm.schoolProfile.bellScheduleStartTime" type="time" />
-              </div>
-              <div class="form-group">
+        </div>
+          <div class="form-group">
                 <label>Bell Schedule End</label>
                 <input v-model="agencyForm.schoolProfile.bellScheduleEndTime" type="time" />
-              </div>
-              <div class="form-group">
+          </div>
+          <div class="form-group">
                 <label>Notes</label>
                 <textarea
                   v-model="agencyForm.schoolProfile.schoolDaysTimes"
                   rows="2"
                   placeholder="(migrated from Soft Schedule) Freeform notes…"
                 ></textarea>
-              </div>
+          </div>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 10px;">
-              <div class="form-group">
+            <div class="form-group">
                 <label>Primary Contact Name</label>
                 <input v-model="agencyForm.schoolProfile.primaryContactName" type="text" />
               </div>
@@ -550,11 +550,11 @@
               
               <!-- URL Input -->
               <div v-if="logoInputMethod === 'url'" class="logo-input-section">
-                <input v-model="agencyForm.logoUrl" type="url" placeholder="https://example.com/logo.png" />
+              <input v-model="agencyForm.logoUrl" type="url" placeholder="https://example.com/logo.png" />
                 <p class="form-help">Enter the full URL to your agency logo image (PNG, JPG, GIF, SVG, or WebP)</p>
                 <div v-if="agencyForm.logoUrl" class="logo-preview">
-                  <img :src="agencyForm.logoUrl" alt="Logo preview" @error="handleLogoError" />
-                  <p v-if="logoError" class="logo-error">Failed to load logo. Please check the URL.</p>
+                <img :src="agencyForm.logoUrl" alt="Logo preview" @error="handleLogoError" />
+                <p v-if="logoError" class="logo-error">Failed to load logo. Please check the URL.</p>
                 </div>
               </div>
               
@@ -774,35 +774,35 @@
           </template>
 
           <template v-else>
-            <div class="form-group">
-              <label>Onboarding Team Email</label>
-              <input 
-                v-model="agencyForm.onboardingTeamEmail" 
-                type="email" 
-                placeholder="onboarding@agency.com"
-              />
-              <small>Email address for the onboarding team</small>
-            </div>
-            
-            <div class="form-group">
-              <label>Phone Number</label>
-              <input 
-                v-model="agencyForm.phoneNumber" 
-                type="tel" 
-                placeholder="(555) 123-4567"
-              />
-              <small>Phone number for the agency</small>
-            </div>
-            
-            <div class="form-group">
-              <label>Phone Extension</label>
-              <input 
-                v-model="agencyForm.phoneExtension" 
-                type="text" 
-                maxlength="10"
-                placeholder="123"
-              />
-              <small>Optional phone extension</small>
+          <div class="form-group">
+            <label>Onboarding Team Email</label>
+            <input 
+              v-model="agencyForm.onboardingTeamEmail" 
+              type="email" 
+              placeholder="onboarding@agency.com"
+            />
+            <small>Email address for the onboarding team</small>
+          </div>
+          
+          <div class="form-group">
+            <label>Phone Number</label>
+            <input 
+              v-model="agencyForm.phoneNumber" 
+              type="tel" 
+              placeholder="(555) 123-4567"
+            />
+            <small>Phone number for the agency</small>
+          </div>
+          
+          <div class="form-group">
+            <label>Phone Extension</label>
+            <input 
+              v-model="agencyForm.phoneExtension" 
+              type="text" 
+              maxlength="10"
+              placeholder="123"
+            />
+            <small>Optional phone extension</small>
             </div>
           </template>
           </div>
@@ -1439,29 +1439,29 @@
           
           <div class="terminology-grid">
             <div class="terminology-item">
-              <label>People Operations Term</label>
-              <input v-model="agencyForm.terminologySettings.peopleOpsTerm" type="text" placeholder="Leave blank for platform default" />
-              <small>Platform default: "People Operations"</small>
-            </div>
+            <label>People Operations Term</label>
+            <input v-model="agencyForm.terminologySettings.peopleOpsTerm" type="text" placeholder="Leave blank for platform default" />
+            <small>Platform default: "People Operations"</small>
+          </div>
             <div class="terminology-item">
-              <label>Training Modules Term</label>
-              <input v-model="agencyForm.terminologySettings.trainingModulesTerm" type="text" placeholder="Leave blank for platform default" />
-              <small>Platform default: "Training Modules"</small>
-            </div>
+            <label>Training Modules Term</label>
+            <input v-model="agencyForm.terminologySettings.trainingModulesTerm" type="text" placeholder="Leave blank for platform default" />
+            <small>Platform default: "Training Modules"</small>
+          </div>
             <div class="terminology-item">
-              <label>Training Focus Term</label>
-              <input v-model="agencyForm.terminologySettings.trainingFocusTerm" type="text" placeholder="Leave blank for platform default" />
-              <small>Platform default: "Training Focus"</small>
-            </div>
+            <label>Training Focus Term</label>
+            <input v-model="agencyForm.terminologySettings.trainingFocusTerm" type="text" placeholder="Leave blank for platform default" />
+            <small>Platform default: "Training Focus"</small>
+          </div>
             <div class="terminology-item">
-              <label>Onboarding Term</label>
-              <input v-model="agencyForm.terminologySettings.onboardingTerm" type="text" placeholder="Leave blank for platform default" />
-              <small>Platform default: "Onboarding"</small>
-            </div>
+            <label>Onboarding Term</label>
+            <input v-model="agencyForm.terminologySettings.onboardingTerm" type="text" placeholder="Leave blank for platform default" />
+            <small>Platform default: "Onboarding"</small>
+          </div>
             <div class="terminology-item">
-              <label>Ongoing Development Term</label>
-              <input v-model="agencyForm.terminologySettings.ongoingDevTerm" type="text" placeholder="Leave blank for platform default" />
-              <small>Platform default: "Ongoing Development"</small>
+            <label>Ongoing Development Term</label>
+            <input v-model="agencyForm.terminologySettings.ongoingDevTerm" type="text" placeholder="Leave blank for platform default" />
+            <small>Platform default: "Ongoing Development"</small>
             </div>
           </div>
           
@@ -1507,9 +1507,9 @@
           
           <!-- Customize Icons Tab -->
           <div v-show="activeTab === 'icons'" class="tab-content">
-            <div class="settings-section-divider">
+          <div class="settings-section-divider">
               <h4>Icon Templates</h4>
-              <p class="section-description">
+            <p class="section-description">
                 Apply a saved icon set to this organization in one click, or save the current icon set as a template.
               </p>
             </div>
@@ -1542,10 +1542,10 @@
               <h4>Organization Icon</h4>
               <p class="section-description">
                 The main icon representing this organization.
-              </p>
-            </div>
-            
-            <div class="form-group">
+            </p>
+          </div>
+          
+          <div class="form-group">
               <label>Organization Icon</label>
               <IconSelector v-model="agencyForm.iconId" label="Select Organization Icon" :defaultAgencyId="editingAgency?.id || null" />
               <small>Main icon displayed for this organization</small>
@@ -1556,9 +1556,9 @@
               <p class="section-description">
                 Icon used for the left-side chat button.
               </p>
-            </div>
-
-            <div class="form-group">
+          </div>
+          
+          <div class="form-group">
               <label>Chat Icon</label>
               <IconSelector v-model="agencyForm.chatIconId" :defaultAgencyId="editingAgency?.id || null" />
               <small>Overrides the platform chat icon for this organization</small>
@@ -1578,29 +1578,29 @@
                 <small>Default icon for training focuses when no specific icon is assigned</small>
               </div>
               <div class="default-icon-item">
-                <label>Module Default Icon</label>
+            <label>Module Default Icon</label>
                 <IconSelector v-model="agencyForm.moduleDefaultIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Default icon for modules when no specific icon is assigned</small>
-              </div>
+            <small>Default icon for modules when no specific icon is assigned</small>
+          </div>
               <div class="default-icon-item">
-                <label>User Default Icon</label>
+            <label>User Default Icon</label>
                 <IconSelector v-model="agencyForm.userDefaultIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Default icon for users when no specific icon is assigned</small>
-              </div>
+            <small>Default icon for users when no specific icon is assigned</small>
+          </div>
               <div class="default-icon-item">
-                <label>Document Default Icon</label>
+            <label>Document Default Icon</label>
                 <IconSelector v-model="agencyForm.documentDefaultIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Default icon for documents when no specific icon is assigned</small>
+            <small>Default icon for documents when no specific icon is assigned</small>
               </div>
-            </div>
-            
-            <div class="settings-section-divider">
-              <h4>Dashboard Action Icons</h4>
-              <p class="section-description">
+          </div>
+          
+          <div class="settings-section-divider">
+            <h4>Dashboard Action Icons</h4>
+            <p class="section-description">
                 Icons displayed on the dashboard quick action cards. These override platform defaults for this organization.
-              </p>
-            </div>
-            
+            </p>
+          </div>
+          
             <div class="dashboard-icons-grid">
               <div class="dashboard-icon-item">
                 <label>Manage Organizations Icon</label>
@@ -1623,10 +1623,10 @@
                 <small>Icon for the "Chats" action card</small>
               </div>
               <div class="dashboard-icon-item">
-                <label>Progress Dashboard Icon</label>
+            <label>Progress Dashboard Icon</label>
                 <IconSelector v-model="agencyForm.progressDashboardIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Icon for the "Progress Dashboard" action card</small>
-              </div>
+            <small>Icon for the "Progress Dashboard" action card</small>
+          </div>
               <div class="dashboard-icon-item">
                 <label>View All Progress Icon</label>
                 <IconSelector v-model="agencyForm.viewAllProgressIconId" :defaultAgencyId="editingAgency?.id || null" />
@@ -1658,32 +1658,32 @@
                 <small>Icon for the "Billing" action card</small>
               </div>
               <div class="dashboard-icon-item">
-                <label>Manage Modules Icon</label>
+            <label>Manage Modules Icon</label>
                 <IconSelector v-model="agencyForm.manageModulesIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Icon for the "Manage Modules" action card</small>
-              </div>
+            <small>Icon for the "Manage Modules" action card</small>
+          </div>
               <div class="dashboard-icon-item">
-                <label>Manage Documents Icon</label>
+            <label>Manage Documents Icon</label>
                 <IconSelector v-model="agencyForm.manageDocumentsIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Icon for the "Manage Documents" action card</small>
-              </div>
+            <small>Icon for the "Manage Documents" action card</small>
+          </div>
               <div class="dashboard-icon-item">
-                <label>Manage Users Icon</label>
+            <label>Manage Users Icon</label>
                 <IconSelector v-model="agencyForm.manageUsersIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Icon for the "Manage Users" action card</small>
-              </div>
+            <small>Icon for the "Manage Users" action card</small>
+          </div>
               <div class="dashboard-icon-item">
                 <label>Platform Settings Icon</label>
                 <IconSelector v-model="agencyForm.platformSettingsIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the \"Platform Settings\" action card</small>
               </div>
               <div class="dashboard-icon-item">
-                <label>Settings Icon</label>
+            <label>Settings Icon</label>
                 <IconSelector v-model="agencyForm.settingsIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Icon for the "Settings" action card</small>
+            <small>Icon for the "Settings" action card</small>
               </div>
-            </div>
-
+          </div>
+          
             <div class="settings-section-divider">
               <h4>My Dashboard Card Icons</h4>
               <p class="section-description">
@@ -1812,7 +1812,7 @@
                 <IconSelector v-model="agencyForm.schoolPortalUploadPacketIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Upload packet" card in school portals</small>
               </div>
-              <div class="form-group">
+          <div class="form-group">
                 <label>Documents Card Icon</label>
                 <IconSelector v-model="agencyForm.schoolPortalPublicDocumentsIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Documents" card in school portals</small>
@@ -1964,7 +1964,7 @@
             <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
               <div class="filters-group">
                 <label class="filters-label">Training accrual (hours per 30)</label>
-                <input
+              <input 
                   v-model="ptoPolicyDraft.trainingAccrualPer30"
                   class="filters-input"
                   type="number"
@@ -1975,7 +1975,7 @@
               </div>
               <div class="filters-group">
                 <label class="filters-label">Training max balance (hours)</label>
-                <input
+              <input 
                   v-model="ptoPolicyDraft.trainingMaxBalance"
                   class="filters-input"
                   type="number"
@@ -2106,15 +2106,15 @@
                 </button>
               </div>
               <div class="filters-group">
-                <button
-                  type="button"
+              <button 
+                type="button" 
                   class="btn btn-primary btn-sm"
                   @click="saveAllPayrollRules"
                   :disabled="savingPayrollRule || !dirtyPayrollRuleCodes.length"
-                >
+              >
                   {{ savingPayrollRule ? 'Saving…' : `Save all (${dirtyPayrollRuleCodes.length})` }}
-                </button>
-              </div>
+              </button>
+            </div>
               <div class="filters-group" v-if="dirtyPayrollRuleCodes.length">
                 <div class="filters-hint" style="margin-top: 0;">
                   <strong>Unsaved changes:</strong> {{ dirtyPayrollRuleCodes.slice(0, 12).join(', ') }}<span v-if="dirtyPayrollRuleCodes.length > 12">…</span>
@@ -2181,14 +2181,14 @@
                     </td>
                     <td class="right">
                       <div class="payroll-rule-actions">
-                        <button
-                          type="button"
-                          class="btn btn-secondary btn-sm"
+            <button 
+              type="button" 
+              class="btn btn-secondary btn-sm"
                           @click="savePayrollRule(r)"
                           :disabled="savingPayrollRuleByCode[r.service_code] || !isPayrollRuleDirty(r)"
-                        >
+            >
                           Save
-                        </button>
+            </button>
                         <button
                           type="button"
                           class="btn btn-danger btn-sm"
@@ -2676,7 +2676,7 @@ const getOfficeLocationEdit = (locationId) => {
   const id = Number(locationId);
   if (!id) {
     return {
-      name: '',
+  name: '',
       timezone: 'America/New_York',
       timezoneCustom: '',
       streetAddress: '',
@@ -3987,8 +3987,8 @@ const saveIconTemplate = async ({ name, description, iconData }) => {
         return;
       }
       throw err;
-    }
-  } catch (err) {
+        }
+      } catch (err) {
     console.error('Failed to save icon template:', err);
     iconTemplateError.value = err.response?.data?.error?.message || 'Failed to save icon template';
   } finally {
@@ -4324,6 +4324,26 @@ const normalizeOrganizationType = (value, fallback = 'agency') => {
   return t || fallback;
 };
 
+const looksLikeUploadsPath = (value) => {
+  const s = String(value || '').trim();
+  if (!s) return false;
+  // Common legacy patterns: '/uploads/x.png', 'uploads/x.png'
+  return s.startsWith('/uploads/') || s.startsWith('uploads/');
+};
+
+const normalizeUploadsPath = (value) => {
+  const s = String(value || '').trim();
+  if (!s) return '';
+  if (s.startsWith('/uploads/')) return s;
+  if (s.startsWith('uploads/')) return `/${s}`;
+  return s;
+};
+
+const isAbsoluteHttpUrl = (value) => {
+  const s = String(value || '').trim();
+  return s.startsWith('http://') || s.startsWith('https://');
+};
+
 const editAgency = async (agency) => {
   // Buildings (office_locations) are managed in the Buildings module, not in this agency editor.
   const orgTypeEarly = String(agency?.organization_type || agency?.organizationType || '').toLowerCase();
@@ -4385,6 +4405,12 @@ const editAgency = async (agency) => {
   // Set logo input method based on what's available
   if (agency.logo_path) {
     logoInputMethod.value = 'upload';
+  } else if (agency.logo_url && looksLikeUploadsPath(agency.logo_url)) {
+    // Legacy data: some orgs stored uploaded asset paths in logo_url (ex: '/uploads/foo.png').
+    // Backend validators require logoUrl to be an absolute URL, so treat this as logoPath.
+    logoInputMethod.value = 'upload';
+    agency.logo_path = normalizeUploadsPath(agency.logo_url);
+    agency.logo_url = null;
   } else if (agency.logo_url) {
     logoInputMethod.value = 'url';
   } else {
@@ -4405,7 +4431,7 @@ const editAgency = async (agency) => {
       return { tier1MinWeekly: 6, tier2MinWeekly: 13, tier3MinWeekly: 25 };
     }
   })();
-
+  
   agencyForm.value = {
     organizationType: normalizeOrganizationType(agency.organization_type || agency.organizationType, 'agency'),
     affiliatedAgencyId: '',
@@ -5028,14 +5054,28 @@ const saveAgency = async () => {
 
     const normalizedOrganizationType = normalizeOrganizationType(agencyForm.value.organizationType, 'agency');
     
+    // Some legacy orgs stored an uploads path inside logoUrl (ex: '/uploads/x.png').
+    // If we send that through as logoUrl, backend validation fails. Preserve the logo by
+    // converting uploads-like URLs into logoPath automatically.
+    const rawLogoUrl = String(agencyForm.value.logoUrl || '').trim();
+    const shouldTreatLogoUrlAsPath = rawLogoUrl && !isAbsoluteHttpUrl(rawLogoUrl) && looksLikeUploadsPath(rawLogoUrl);
+    const logoUrlToSend =
+      logoInputMethod.value === 'url'
+        ? (shouldTreatLogoUrlAsPath ? null : (rawLogoUrl || null))
+        : null;
+    const logoPathToSend =
+      logoInputMethod.value === 'upload'
+        ? (agencyForm.value.logoPath || null)
+        : (shouldTreatLogoUrlAsPath ? normalizeUploadsPath(rawLogoUrl) : null);
+
     const data = {
       organizationType: normalizedOrganizationType,
       name: agencyForm.value.name.trim(),
       officialName: agencyForm.value.officialName?.trim() || null,
       slug: slug,
       // Clear one when using the other (like platform branding)
-      logoUrl: logoInputMethod.value === 'url' ? (agencyForm.value.logoUrl?.trim() || null) : null,
-      logoPath: logoInputMethod.value === 'upload' ? (agencyForm.value.logoPath || null) : null,
+      logoUrl: logoUrlToSend,
+      logoPath: logoPathToSend,
       colorPalette: colorPalette,
       terminologySettings: Object.keys(terminologySettings).length > 0 ? terminologySettings : null,
       iconId: agencyForm.value.iconId ?? null,
@@ -5185,7 +5225,7 @@ const saveAgency = async () => {
     // If they clicked "Save" while editing a school, keep them on the same org after save.
     if (!wasEditingExisting && !embeddedSingleOrg.value) {
       // Creating new orgs can still close the modal.
-      closeModal();
+    closeModal();
     }
 
     // Mark current form as the new baseline (no unsaved-changes prompt).
@@ -5253,7 +5293,7 @@ const archiveOrganization = async (org) => {
   if (!confirm(`Are you sure you want to archive this ${label}? Archived items will be hidden from most views but can be restored later.`)) {
     return;
   }
-
+  
   try {
     if (orgType === 'office' || org?.__kind === 'building') {
       await api.post(`/offices/${org.id}/archive`);
@@ -5273,7 +5313,7 @@ const restoreOrganization = async (org) => {
   if (!confirm(`Are you sure you want to restore this ${label}?`)) {
     return;
   }
-
+  
   try {
     if (orgType === 'office' || org?.__kind === 'building') {
       await api.post(`/offices/${org.id}/restore`);
@@ -5514,7 +5554,7 @@ onMounted(async () => {
       loading.value = false;
     }
   } else {
-    await fetchAgencies();
+  await fetchAgencies();
   }
   if (userRole.value === 'super_admin') {
     await fetchUsers();
