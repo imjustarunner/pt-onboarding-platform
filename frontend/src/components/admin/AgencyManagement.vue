@@ -1752,6 +1752,11 @@
                 <IconSelector v-model="agencyForm.myDashboardNotificationsIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Notifications" card</small>
               </div>
+              <div class="dashboard-icon-item">
+                <label>Supervision Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardSupervisionIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Supervision" card (supervisors only)</small>
+              </div>
             </div>
 
             <div v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'agency'" class="settings-section-divider">
@@ -3249,6 +3254,7 @@ const ICON_TEMPLATE_FIELDS = [
   'myDashboardCommunicationsIconId',
   'myDashboardChatsIconId',
   'myDashboardNotificationsIconId',
+  'myDashboardSupervisionIconId',
   'schoolPortalProvidersIconId',
   'schoolPortalDaysIconId',
   'schoolPortalRosterIconId',
@@ -3319,6 +3325,7 @@ const defaultAgencyForm = () => ({
   myDashboardCommunicationsIconId: null,
   myDashboardChatsIconId: null,
   myDashboardNotificationsIconId: null,
+  myDashboardSupervisionIconId: null,
   schoolPortalProvidersIconId: null,
   schoolPortalDaysIconId: null,
   schoolPortalRosterIconId: null,
@@ -4312,6 +4319,11 @@ const safeJsonObject = (value, fallback = {}) => {
   }
 };
 
+const normalizeOrganizationType = (value, fallback = 'agency') => {
+  const t = String(value ?? '').trim().toLowerCase();
+  return t || fallback;
+};
+
 const editAgency = async (agency) => {
   // Buildings (office_locations) are managed in the Buildings module, not in this agency editor.
   const orgTypeEarly = String(agency?.organization_type || agency?.organizationType || '').toLowerCase();
@@ -4395,7 +4407,7 @@ const editAgency = async (agency) => {
   })();
 
   agencyForm.value = {
-    organizationType: agency.organization_type || 'agency',
+    organizationType: normalizeOrganizationType(agency.organization_type || agency.organizationType, 'agency'),
     affiliatedAgencyId: '',
     name: agency.name,
     officialName: agency.official_name || '',
@@ -4444,6 +4456,7 @@ const editAgency = async (agency) => {
     myDashboardCommunicationsIconId: agency.my_dashboard_communications_icon_id ?? null,
     myDashboardChatsIconId: agency.my_dashboard_chats_icon_id ?? null,
     myDashboardNotificationsIconId: agency.my_dashboard_notifications_icon_id ?? null,
+    myDashboardSupervisionIconId: agency.my_dashboard_supervision_icon_id ?? null,
     schoolPortalProvidersIconId: agency.school_portal_providers_icon_id ?? null,
     schoolPortalDaysIconId: agency.school_portal_days_icon_id ?? null,
     schoolPortalRosterIconId: agency.school_portal_roster_icon_id ?? null,
@@ -5012,9 +5025,11 @@ const saveAgency = async () => {
         customParams[key.trim()] = customParameters.value[key];
       }
     });
+
+    const normalizedOrganizationType = normalizeOrganizationType(agencyForm.value.organizationType, 'agency');
     
     const data = {
-      organizationType: agencyForm.value.organizationType || 'agency',
+      organizationType: normalizedOrganizationType,
       name: agencyForm.value.name.trim(),
       officialName: agencyForm.value.officialName?.trim() || null,
       slug: slug,
@@ -5058,6 +5073,7 @@ const saveAgency = async () => {
       myDashboardCommunicationsIconId: agencyForm.value.myDashboardCommunicationsIconId ?? null,
       myDashboardChatsIconId: agencyForm.value.myDashboardChatsIconId ?? null,
       myDashboardNotificationsIconId: agencyForm.value.myDashboardNotificationsIconId ?? null,
+      myDashboardSupervisionIconId: agencyForm.value.myDashboardSupervisionIconId ?? null,
       schoolPortalProvidersIconId: agencyForm.value.schoolPortalProvidersIconId ?? null,
       schoolPortalDaysIconId: agencyForm.value.schoolPortalDaysIconId ?? null,
       schoolPortalRosterIconId: agencyForm.value.schoolPortalRosterIconId ?? null,
