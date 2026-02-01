@@ -111,14 +111,8 @@ const helperConfig = computed(() => {
     if (enabled && cfg && typeof cfg === 'object') return cfg;
   }
 
-  // 3) Default global helper config for now
-  return {
-    enabled: true,
-    imageUrl: overlaysStore.platformHelper?.imageUrl || null,
-    message: 'Need help? Toggle the Builder to configure me per page.',
-    position: 'bottom_right',
-    placements: []
-  };
+  // 3) No default: helper should only appear where configured.
+  return null;
 });
 
 const placements = computed(() => (Array.isArray(helperConfig.value?.placements) ? helperConfig.value.placements : []));
@@ -145,15 +139,17 @@ const hasPlacementMatch = computed(() => !!firstMatchingPlacement.value);
 // If placements are defined, only show when a placement matches (ideal for modals / step UIs).
 const enabled = computed(() => {
   if (!props.enabled) return false;
+  if (!helperConfig.value) return false;
   if (helperConfig.value.enabled === false) return false;
   if (placements.value.length > 0) return hasPlacementMatch.value;
   return true;
 });
 
-// Platform image is the source of truth.
-const imageUrl = computed(() => overlaysStore.platformHelper?.imageUrl || null);
+// Platform image is the source of truth, but only show it when helper is configured for this page.
+const imageUrl = computed(() => (helperConfig.value ? (overlaysStore.platformHelper?.imageUrl || null) : null));
 
 const message = computed(() => {
+  if (!helperConfig.value) return '';
   const match = firstMatchingPlacement.value;
   if (match && match.message) return match.message;
   return helperConfig.value.message;
@@ -169,7 +165,7 @@ const activeAgentConfig = computed(() => {
 });
 
 const positionClass = computed(() =>
-  helperConfig.value.position === 'bottom_left' ? 'bottom-left' : 'bottom-right'
+  helperConfig.value?.position === 'bottom_left' ? 'bottom-left' : 'bottom-right'
 );
 
 // Stationary helper: we keep the avatar fixed to a corner.

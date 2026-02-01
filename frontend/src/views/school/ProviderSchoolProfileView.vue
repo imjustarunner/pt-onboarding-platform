@@ -1,8 +1,7 @@
 <template>
   <div class="wrap">
-    <div data-tour="school-provider-profile-page">
+    <div v-if="organizationId && providerUserId" data-tour="school-provider-profile-page">
       <ProviderSchoolProfile
-        v-if="organizationId && providerUserId"
         :school-organization-id="organizationId"
         :provider-user-id="providerUserId"
         @open-client="openClient"

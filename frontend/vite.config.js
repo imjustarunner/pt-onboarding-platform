@@ -3,7 +3,8 @@ import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
-  root: '.', // Explicitly set root to current directory to ensure Vite finds index.html
+  // Always resolve root relative to this config file (works even when invoked from repo root).
+  root: fileURLToPath(new URL('.', import.meta.url)),
   plugins: [vue()],
   resolve: {
     alias: {
