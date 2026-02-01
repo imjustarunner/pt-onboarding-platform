@@ -33,7 +33,7 @@
               @click="selectedSupervisee = s"
             >
               <div class="supervision-card-avatar" :class="{ 'has-photo': s.supervisee_profile_photo_url }">
-                <img v-if="s.supervisee_profile_photo_url" :src="s.supervisee_profile_photo_url" :alt="superviseeDisplayName(s)" class="supervision-card-avatar-img" />
+                <img v-if="s.supervisee_profile_photo_url" :src="toUploadsUrl(s.supervisee_profile_photo_url)" :alt="superviseeDisplayName(s)" class="supervision-card-avatar-img" />
                 <span v-else class="supervision-card-avatar-initial">{{ avatarInitial(s) }}</span>
               </div>
               <div class="supervision-card-info">
@@ -49,7 +49,7 @@
           <div class="supervision-detail">
             <section class="supervision-hero">
               <div class="supervision-hero-avatar" :class="{ 'has-photo': selectedSupervisee?.supervisee_profile_photo_url }">
-                <img v-if="selectedSupervisee?.supervisee_profile_photo_url" :src="selectedSupervisee.supervisee_profile_photo_url" :alt="selectedSuperviseeDisplayName" class="supervision-hero-avatar-img" />
+                <img v-if="selectedSupervisee?.supervisee_profile_photo_url" :src="toUploadsUrl(selectedSupervisee.supervisee_profile_photo_url)" :alt="selectedSuperviseeDisplayName" class="supervision-hero-avatar-img" />
                 <span v-else class="supervision-hero-avatar-initial">{{ selectedSupervisee ? avatarInitial(selectedSupervisee) : '' }}</span>
               </div>
               <div class="supervision-hero-info">
@@ -291,6 +291,7 @@ import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
 

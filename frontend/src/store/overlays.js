@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import api from '../services/api';
+import { toUploadsUrl } from '../utils/uploadsUrl';
 
 const keyFor = (agencyId, routeName) => `${String(agencyId)}::${String(routeName)}`;
 
@@ -81,7 +82,7 @@ export const useOverlaysStore = defineStore('overlays', () => {
       const data = resp?.data || {};
       platformHelper.value = {
         enabled: data.enabled !== false,
-        imageUrl: data.imageUrl || null,
+        imageUrl: data.imageUrl ? toUploadsUrl(String(data.imageUrl)) : null,
         imagePath: data.imagePath || null,
         fetchedAt: Date.now()
       };

@@ -22,10 +22,12 @@ export const getPlatformHelperSettings = async (req, res, next) => {
     const publicRel = String(imagePath || '').startsWith('uploads/')
       ? String(imagePath).substring('uploads/'.length)
       : String(imagePath || '');
+    const isSuperAdmin = req.user?.role === 'super_admin';
 
     res.json({
       enabled: row.enabled === 1 || row.enabled === true,
-      imagePath,
+      // Avoid leaking internal storage paths to non-superadmins.
+      imagePath: isSuperAdmin ? imagePath : null,
       imageUrl: imagePath ? `/uploads/${publicRel}` : null,
       missingTable: row.missingTable === true
     });

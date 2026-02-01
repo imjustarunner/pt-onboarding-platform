@@ -218,12 +218,24 @@ watch(() => route.fullPath, () => {
   }
 });
 
-// Prefetch platform helper settings (superadmin-only endpoint; best-effort).
-try {
-  overlaysStore.fetchPlatformHelper();
-} catch {
-  // ignore
-}
+// Prefetch platform helper settings only when the helper is actually configured on this page,
+// so providers don’t hit superadmin-only endpoints (and we avoid noise on login pages).
+const didPrefetchPlatformHelper = ref(false);
+watch(
+  () => [!!helperConfig.value, !!enabled.value, !!isSuperAdmin.value],
+  async () => {
+    const shouldPrefetch = (!!helperConfig.value && !!enabled.value) || isSuperAdmin.value;
+    if (!shouldPrefetch) return;
+    if (didPrefetchPlatformHelper.value) return;
+    didPrefetchPlatformHelper.value = true;
+    try {
+      await overlaysStore.fetchPlatformHelper();
+    } catch {
+      // best-effort
+    }
+  },
+  { immediate: true }
+);
 
 const highlightSelector = (selector) => {
   const sel = String(selector || '').trim();

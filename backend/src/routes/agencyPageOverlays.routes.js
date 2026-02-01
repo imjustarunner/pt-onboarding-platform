@@ -28,7 +28,8 @@ router.delete('/agencies/:agencyId/routes/:routeName/tutorial', authenticate, re
 router.delete('/agencies/:agencyId/routes/:routeName/helper', authenticate, requireAgencyAdmin, deleteHelperOverlay);
 
 // Platform-wide helper settings (image, enabled flag). Superadmin only.
-router.get('/platform/helper-settings', authenticate, requireSuperAdmin, getPlatformHelperSettings);
+// Safe read for any authenticated user (providers need this when a helper is configured for a page).
+router.get('/platform/helper-settings', authenticate, getPlatformHelperSettings);
 router.put('/platform/helper-settings', authenticate, requireSuperAdmin, updatePlatformHelperSettings);
 router.post('/platform/helper-image', authenticate, requireSuperAdmin, uploadPlatformHelperImageMiddleware, uploadPlatformHelperImage);
 
