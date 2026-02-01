@@ -3,6 +3,7 @@ import { parse } from 'csv-parse/sync';
 import XLSX from 'xlsx';
 import crypto from 'crypto';
 import pool from '../config/database.js';
+import User from '../models/User.model.js';
 import NotificationEvent from '../models/NotificationEvent.model.js';
 import { createNotificationAndDispatch } from '../services/notificationDispatcher.service.js';
 import { requirePayrollAccess } from './payroll.controller.js';
@@ -98,6 +99,13 @@ function normalizeNameKey(name) {
     .trim();
 }
 
+function normalizeInitialsKey(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  // Keep alphanumerics only, uppercase, no spaces.
+  return s.replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 32);
+}
+
 function parseHumanNameToFirstLast(raw) {
   const s = String(raw || '').trim();
   if (!s) return { first: '', last: '' };
@@ -137,6 +145,18 @@ function clientAbbrevFromName(rawPatientName) {
   return compact.slice(0, 1).toUpperCase() + compact.slice(1).toLowerCase();
 }
 
+function clientAbbrevFromInitials(initialsNorm) {
+  const s = normalizeInitialsKey(initialsNorm);
+  if (!s) return 'Client';
+  if (s.length >= 6) {
+    const a = s.slice(0, 3);
+    const b = s.slice(-3);
+    return `${title3(a)}${title3(b)}`;
+  }
+  // Short fallback (TitleCase whole token)
+  return s.slice(0, 1).toUpperCase() + s.slice(1).toLowerCase();
+}
+
 function stableStringify(obj) {
   const keys = Object.keys(obj || {}).sort();
   const out = {};
@@ -152,6 +172,21 @@ function hmacClientKeyHex({ keyMaterial, agencyId, normalizedPatientKey }) {
   return crypto
     .createHmac('sha256', keyMaterial)
     .update(`agency:${String(agencyId)}|patient:${String(normalizedPatientKey || '')}`, 'utf8')
+    .digest('hex');
+}
+
+function hmacDobHashHex({ keyMaterial, agencyId, dobYmd }) {
+  if (!dobYmd) return null;
+  return crypto
+    .createHmac('sha256', keyMaterial)
+    .update(`agency:${String(agencyId)}|dob:${String(dobYmd)}`, 'utf8')
+    .digest('hex');
+}
+
+function hmacInitialsDobClientKeyHex({ keyMaterial, agencyId, initialsNorm, dobYmd }) {
+  return crypto
+    .createHmac('sha256', keyMaterial)
+    .update(`agency:${String(agencyId)}|initials:${String(initialsNorm || '')}|dob:${String(dobYmd || '')}`, 'utf8')
     .digest('hex');
 }
 
@@ -244,19 +279,22 @@ async function bulkUpsertRows(rows) {
         r.serviceCode,
         r.providerUserId || null,
         r.providerNameNormalized || null,
+        r.patientInitialsNormalized || null,
+        r.dobHash || null,
         r.clientId || null,
         r.clientKeyHash,
         r.clientAbbrev,
         r.rowFingerprint
       ]);
     }
-    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+    const placeholders = values.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(',');
     const flat = values.flat();
 
     const [result] = await pool.execute(
       `INSERT INTO agency_psychotherapy_report_rows
         (upload_id, agency_id, service_date, fiscal_year_start, service_code,
          provider_user_id, provider_name_normalized,
+         patient_initials_normalized, dob_hash,
          client_id, client_key_hash, client_abbrev,
          row_fingerprint)
        VALUES ${placeholders}
@@ -267,6 +305,8 @@ async function bulkUpsertRows(rows) {
          service_code = VALUES(service_code),
          provider_user_id = VALUES(provider_user_id),
          provider_name_normalized = VALUES(provider_name_normalized),
+         patient_initials_normalized = VALUES(patient_initials_normalized),
+         dob_hash = VALUES(dob_hash),
          client_id = VALUES(client_id),
          client_key_hash = VALUES(client_key_hash),
          client_abbrev = VALUES(client_abbrev)`,
@@ -414,6 +454,21 @@ export const uploadPsychotherapyComplianceReport = [
         clientIdsByNameKey.set(key, list);
       }
 
+      const [clientInitialsRows] = await pool.execute(
+        `SELECT id, initials
+         FROM clients
+         WHERE agency_id = ? AND initials IS NOT NULL`,
+        [Number(agencyId)]
+      );
+      const clientIdsByInitialsKey = new Map(); // initialsKey -> [ids]
+      for (const r of clientInitialsRows || []) {
+        const key = normalizeInitialsKey(r.initials);
+        if (!key) continue;
+        const list = clientIdsByInitialsKey.get(key) || [];
+        list.push(Number(r.id));
+        clientIdsByInitialsKey.set(key, list);
+      }
+
       const [prevMatchRows] = await pool.execute(
         `SELECT client_key_hash, client_id
          FROM agency_psychotherapy_report_rows
@@ -433,6 +488,32 @@ export const uploadPsychotherapyComplianceReport = [
           continue;
         }
         matchedClientIdByHash.set(h, cid);
+      }
+
+      const [prevDobInitialsMatchRows] = await pool.execute(
+        `SELECT patient_initials_normalized, dob_hash, client_id
+         FROM agency_psychotherapy_report_rows
+         WHERE agency_id = ?
+           AND client_id IS NOT NULL
+           AND patient_initials_normalized IS NOT NULL
+           AND dob_hash IS NOT NULL`,
+        [Number(agencyId)]
+      );
+      const matchedClientIdByInitialsDob = new Map(); // key -> unique clientId
+      const multiInitialsDob = new Set();
+      for (const r of prevDobInitialsMatchRows || []) {
+        const ini = String(r.patient_initials_normalized || '').trim();
+        const dh = String(r.dob_hash || '').trim();
+        const cid = Number(r.client_id || 0);
+        if (!ini || !dh || !cid) continue;
+        const k = `${ini}|${dh}`;
+        if (multiInitialsDob.has(k)) continue;
+        if (matchedClientIdByInitialsDob.has(k) && matchedClientIdByInitialsDob.get(k) !== cid) {
+          matchedClientIdByInitialsDob.delete(k);
+          multiInitialsDob.add(k);
+          continue;
+        }
+        matchedClientIdByInitialsDob.set(k, cid);
       }
 
       const [userRows] = await pool.execute(
@@ -482,10 +563,28 @@ export const uploadPsychotherapyComplianceReport = [
           continue;
         }
 
+        const patientInitialsRaw = getFirst(n, [
+          'patient initials',
+          'client initials',
+          'student initials',
+          'initials',
+          'client code',
+          'client identifier',
+          'client id'
+        ]);
+        const patientInitialsNormalized = normalizeInitialsKey(patientInitialsRaw);
+
+        const dobRaw = getFirst(n, ['dob', 'date of birth', 'birth date', 'patient dob', 'patient date of birth']);
+        const dobDate = parseServiceDate(dobRaw);
+        const dobYmd = formatYmd(dobDate);
+        const dobHash = dobYmd ? hmacDobHashHex({ keyMaterial, agencyId, dobYmd }) : null;
+
         const patientName =
           String(getFirst(n, ['patient', 'patient name', 'client', 'client name']) || '').trim() ||
           `${String(getFirst(n, ['patient first name', 'first name', 'first']) || '').trim()} ${String(getFirst(n, ['patient last name', 'last name', 'last']) || '').trim()}`.trim();
-        if (!patientName) {
+
+        // Require at least initials or a name (DOB alone is not enough).
+        if (!patientInitialsNormalized && !String(patientName || '').trim()) {
           skipped += 1;
           continue;
         }
@@ -505,9 +604,12 @@ export const uploadPsychotherapyComplianceReport = [
           ]) || ''
         ).trim();
 
-        const patientKey = normalizeNameKey(patientName);
-        const clientKeyHash = hmacClientKeyHex({ keyMaterial, agencyId, normalizedPatientKey: patientKey });
-        const clientAbbrev = clientAbbrevFromName(patientName);
+        const patientKey = patientName ? normalizeNameKey(patientName) : '';
+        const clientKeyHash =
+          (patientInitialsNormalized && dobYmd)
+            ? hmacInitialsDobClientKeyHex({ keyMaterial, agencyId, initialsNorm: patientInitialsNormalized, dobYmd })
+            : hmacClientKeyHex({ keyMaterial, agencyId, normalizedPatientKey: patientKey || patientInitialsNormalized || 'unknown' });
+        const clientAbbrev = patientInitialsNormalized ? clientAbbrevFromInitials(patientInitialsNormalized) : clientAbbrevFromName(patientName);
 
         const fyStart = computeFiscalYearStartYmd(serviceDate);
         if (!fyStart) {
@@ -524,12 +626,23 @@ export const uploadPsychotherapyComplianceReport = [
           if (ids.length === 1) providerUserId = ids[0];
         }
 
-        // Best-effort: match client id by full name if unique, else use prior manual matches by hash.
+        // Best-effort: match client id by full name if unique.
         let clientId = null;
         if (patientKey && clientIdsByNameKey.has(patientKey)) {
           const ids = clientIdsByNameKey.get(patientKey) || [];
           if (ids.length === 1) clientId = ids[0];
         }
+        // Next: match by initials if unique within agency.
+        if (!clientId && patientInitialsNormalized && clientIdsByInitialsKey.has(patientInitialsNormalized)) {
+          const ids = clientIdsByInitialsKey.get(patientInitialsNormalized) || [];
+          if (ids.length === 1) clientId = ids[0];
+        }
+        // Next: match by prior mapping using initials+dob_hash (learned from past matches).
+        if (!clientId && patientInitialsNormalized && dobHash) {
+          const k = `${patientInitialsNormalized}|${dobHash}`;
+          if (matchedClientIdByInitialsDob.has(k)) clientId = matchedClientIdByInitialsDob.get(k);
+        }
+        // Finally: use prior manual matches by client_key_hash.
         if (!clientId && matchedClientIdByHash.has(clientKeyHash)) {
           clientId = matchedClientIdByHash.get(clientKeyHash);
         }
@@ -557,6 +670,8 @@ export const uploadPsychotherapyComplianceReport = [
           serviceCode,
           providerUserId,
           providerNameNormalized,
+          patientInitialsNormalized: patientInitialsNormalized || null,
+          dobHash,
           clientId,
           clientKeyHash,
           clientAbbrev,
@@ -628,6 +743,7 @@ export const getPsychotherapyComplianceSummary = async (req, res, next) => {
          r.client_id,
          r.client_key_hash,
          r.client_abbrev,
+         MAX(r.patient_initials_normalized) AS patient_initials_normalized,
          r.provider_user_id,
          r.fiscal_year_start,
          r.service_code,
@@ -664,6 +780,7 @@ export const getPsychotherapyComplianceSummary = async (req, res, next) => {
           client_id: r.client_id === null ? null : Number(r.client_id),
           client_key_hash: String(r.client_key_hash || '').trim(),
           client_abbrev: String(r.client_abbrev || '').trim() || 'Client',
+          patient_initials_normalized: String(r.patient_initials_normalized || '').trim() || null,
           provider_user_id: r.provider_user_id === null ? null : Number(r.provider_user_id),
           fiscal_year_start: String(r.fiscal_year_start || '').slice(0, 10),
           per_code: {},
@@ -752,6 +869,96 @@ export const matchPsychotherapyComplianceClient = async (req, res, next) => {
     );
 
     res.json({ ok: true, affected_rows: Number(result.affectedRows || 0) });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Get client identifiers (abbrevs/initials) with 24+ sessions for a supervisee. Supervisor or admin/support only.
+ * GET /psychotherapy-compliance/supervisee/:superviseeId/clients-24-plus?agencyId=...&fiscalYearStart=...
+ */
+export const getSuperviseeClients24Plus = async (req, res, next) => {
+  try {
+    const requesterId = Number(req.user?.id || 0);
+    const superviseeId = req.params.superviseeId ? parseInt(String(req.params.superviseeId), 10) : null;
+    const agencyIdRaw = req.query?.agencyId ?? req.body?.agencyId;
+    const agencyId = agencyIdRaw ? parseInt(String(agencyIdRaw), 10) : null;
+    if (!requesterId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!superviseeId) return res.status(400).json({ error: { message: 'superviseeId is required' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    if (requesterId !== superviseeId) {
+      const isAdminOrSupport = req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support';
+      if (!isAdminOrSupport) {
+        const hasAccess = await User.supervisorHasAccess(requesterId, superviseeId, agencyId);
+        if (!hasAccess) {
+          return res.status(403).json({ error: { message: 'Access denied. You can only view compliance for your assigned supervisees.' } });
+        }
+      }
+    }
+
+    if (!(await requireAgencyMember(req, res, agencyId))) return;
+
+    const fyRaw = String(req.query?.fiscalYearStart || '').trim();
+    const now = new Date();
+    const defaultFy = computeFiscalYearStartYmd(now);
+    const fiscalYearStart = (fyRaw && /^\d{4}-\d{2}-\d{2}$/.test(fyRaw)) ? fyRaw : defaultFy;
+
+    const params = [Number(agencyId), String(fiscalYearStart).slice(0, 10), Number(superviseeId)];
+    const [rows] = await pool.execute(
+      `SELECT
+         r.client_id,
+         r.client_key_hash,
+         r.client_abbrev,
+         r.provider_user_id,
+         r.fiscal_year_start,
+         r.service_code,
+         COUNT(*) AS code_count
+       FROM agency_psychotherapy_report_rows r
+       WHERE r.agency_id = ?
+         AND r.fiscal_year_start = ?
+         AND r.provider_user_id = ?
+       GROUP BY
+         r.client_id,
+         r.client_key_hash,
+         r.client_abbrev,
+         r.provider_user_id,
+         r.fiscal_year_start,
+         r.service_code
+       ORDER BY r.client_id ASC, r.client_key_hash ASC, r.service_code ASC`,
+      params
+    );
+
+    const makeKey = (r) => {
+      const clientId = r.client_id === null ? null : Number(r.client_id);
+      const clientKeyHash = String(r.client_key_hash || '');
+      const providerId = r.provider_user_id === null ? null : Number(r.provider_user_id);
+      const fy = String(r.fiscal_year_start || '').slice(0, 10);
+      const scope = clientId ? `client:${clientId}` : `hash:${clientKeyHash}`;
+      return `${scope}|provider:${providerId || 'none'}|fy:${fy}`;
+    };
+    const grouped = new Map();
+    for (const r of rows || []) {
+      const k = makeKey(r);
+      if (!grouped.has(k)) {
+        grouped.set(k, { client_abbrev: String(r.client_abbrev || '').trim() || 'Client', total: 0 });
+      }
+      const rec = grouped.get(k);
+      rec.total += Number(r.code_count || 0);
+    }
+    const clientAbbrevs = [];
+    for (const rec of grouped.values()) {
+      if (rec.total >= 25) clientAbbrevs.push(rec.client_abbrev);
+    }
+    clientAbbrevs.sort((a, b) => String(a).localeCompare(String(b)));
+
+    res.json({
+      agency_id: Number(agencyId),
+      supervisee_id: superviseeId,
+      fiscal_year_start: fiscalYearStart,
+      clientAbbrevs
+    });
   } catch (e) {
     next(e);
   }

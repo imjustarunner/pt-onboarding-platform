@@ -80,6 +80,7 @@
           <thead>
             <tr>
               <th>Client</th>
+              <th>Initials</th>
               <th>Provider</th>
               <th>Codes</th>
               <th>Total</th>
@@ -89,6 +90,7 @@
           <tbody>
             <tr v-for="r in matchedRows" :key="`m-${r.client_id}-${r.provider_user_id}-${r.fiscal_year_start}`">
               <td><span class="pill">{{ r.client_abbrev }}</span></td>
+              <td class="muted-small">{{ r.patient_initials_normalized || '—' }}</td>
               <td>{{ r.provider_name || (r.provider_user_id ? `User #${r.provider_user_id}` : '—') }}</td>
               <td class="codes">{{ formatCodes(r.per_code) }}</td>
               <td><strong>{{ r.total }}</strong></td>
@@ -99,7 +101,7 @@
               </td>
             </tr>
             <tr v-if="matchedRows.length === 0">
-              <td colspan="5" class="muted">No matched clients found for this fiscal year.</td>
+              <td colspan="6" class="muted">No matched clients found for this fiscal year.</td>
             </tr>
           </tbody>
         </table>
@@ -113,6 +115,7 @@
           <thead>
             <tr>
               <th>Client</th>
+              <th>Initials</th>
               <th>Provider</th>
               <th>Codes</th>
               <th>Total</th>
@@ -123,6 +126,7 @@
           <tbody>
             <tr v-for="r in unmatchedRows" :key="`u-${r.client_key_hash}-${r.provider_user_id}-${r.fiscal_year_start}`">
               <td><span class="pill">{{ r.client_abbrev }}</span></td>
+              <td class="muted-small">{{ r.patient_initials_normalized || '—' }}</td>
               <td>{{ r.provider_name || (r.provider_user_id ? `User #${r.provider_user_id}` : '—') }}</td>
               <td class="codes">{{ formatCodes(r.per_code) }}</td>
               <td><strong>{{ r.total }}</strong></td>
@@ -150,7 +154,7 @@
               </td>
             </tr>
             <tr v-if="unmatchedRows.length === 0">
-              <td colspan="6" class="muted">No unmatched clients found for this fiscal year.</td>
+              <td colspan="7" class="muted">No unmatched clients found for this fiscal year.</td>
             </tr>
           </tbody>
         </table>
