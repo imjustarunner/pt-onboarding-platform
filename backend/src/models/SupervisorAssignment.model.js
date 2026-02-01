@@ -175,6 +175,25 @@ class SupervisorAssignment {
   }
 
   /**
+   * Delete all assignments for a supervisor (optionally scoped to agency).
+   */
+  static async deleteAllForSupervisor(supervisorId, agencyId = null) {
+    if (!supervisorId) return false;
+    if (agencyId) {
+      const [result] = await pool.execute(
+        'DELETE FROM supervisor_assignments WHERE supervisor_id = ? AND agency_id = ?',
+        [supervisorId, agencyId]
+      );
+      return result.affectedRows > 0;
+    }
+    const [result] = await pool.execute(
+      'DELETE FROM supervisor_assignments WHERE supervisor_id = ?',
+      [supervisorId]
+    );
+    return result.affectedRows > 0;
+  }
+
+  /**
    * Check if assignment exists
    */
   static async isAssigned(supervisorId, superviseeId, agencyId) {

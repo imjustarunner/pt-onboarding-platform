@@ -1129,14 +1129,12 @@ router.beforeEach(async (to, from, next) => {
     }
     
     const hasRequiredRole = requiredRoles.some((role) => {
-      // Super admin, admin, support, supervisors, and CPAs can access admin routes
+      // Backoffice admin routes: true admins/support only.
       if (role === 'admin') {
         return (
           userRole === 'admin' ||
           userRole === 'super_admin' ||
-          userRole === 'support' ||
-          userRole === 'supervisor' ||
-          userRole === 'clinical_practice_assistant'
+          userRole === 'support'
         );
       }
 

@@ -176,17 +176,67 @@
               <div class="section-header">
                 <h2 style="margin: 0;">My Schedule</h2>
               </div>
+              <div
+                v-if="isSupervisor(authStore.user)"
+                style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; align-items: flex-end;"
+              >
+                <div class="form-group" style="min-width: 220px;">
+                  <label class="lbl">View</label>
+                  <select v-model="scheduleViewMode" class="input">
+                    <option value="self">My schedule</option>
+                    <option value="supervisee">Supervisee schedule</option>
+                  </select>
+                </div>
+
+                <template v-if="scheduleViewMode === 'supervisee'">
+                  <div class="form-group" style="min-width: 260px;">
+                    <label class="lbl">Supervisee</label>
+                    <select v-model.number="selectedSuperviseeId" class="input" :disabled="superviseesLoading">
+                      <option :value="0">Select…</option>
+                      <option v-for="s in superviseesFilteredSorted" :key="`supv-${s.id}`" :value="s.id">
+                        {{ s.label }}
+                      </option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="min-width: 180px;">
+                    <label class="lbl">Sort</label>
+                    <select v-model="superviseeSortKey" class="input">
+                      <option value="name">Name</option>
+                      <option value="agency">Agency</option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="min-width: 140px;">
+                    <label class="lbl">Order</label>
+                    <select v-model="superviseeSortDir" class="input">
+                      <option value="asc">A → Z</option>
+                      <option value="desc">Z → A</option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="min-width: 220px;">
+                    <label class="lbl">Filter</label>
+                    <input v-model="superviseeQuery" class="input" placeholder="Search name or agency…" />
+                  </div>
+                </template>
+              </div>
+              <div v-if="superviseesError" class="error" style="margin-top: 8px;">{{ superviseesError }}</div>
               <div v-if="!providerSurfacesEnabled" class="hint" style="margin-top: 8px;">
                 Scheduling is disabled for this organization.
               </div>
               <div v-else-if="!currentAgencyId" class="hint" style="margin-top: 8px;">
                 Select an organization to view your schedule.
               </div>
+              <div
+                v-else-if="isSupervisor(authStore.user) && scheduleViewMode === 'supervisee' && selectedSuperviseeId === 0"
+                class="hint"
+                style="margin-top: 8px;"
+              >
+                Select a supervisee to view their schedule.
+              </div>
               <ScheduleAvailabilityGrid
-                v-else-if="authStore.user?.id"
-                :user-id="Number(authStore.user.id)"
+                v-else-if="authStore.user?.id && scheduleGridUserId"
+                :user-id="scheduleGridUserId"
                 :agency-id="Number(currentAgencyId)"
-                mode="self"
+                :mode="scheduleGridMode"
               />
             </div>
           </div>
@@ -514,6 +564,16 @@ const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 
 const showSupervisionModal = ref(false);
 
+// Supervisor schedule picker (inside My Schedule card)
+const scheduleViewMode = ref('self'); // 'self' | 'supervisee'
+const superviseesLoading = ref(false);
+const superviseesError = ref('');
+const supervisees = ref([]); // [{ id, firstName, lastName, agencyName }]
+const selectedSuperviseeId = ref(0);
+const superviseeSortKey = ref('name'); // 'name' | 'agency'
+const superviseeSortDir = ref('asc'); // 'asc' | 'desc'
+const superviseeQuery = ref('');
+
 // If an icon URL 404s (or otherwise fails to load), show a simple fallback glyph.
 const failedRailIconIds = ref(new Set());
 const onRailIconError = (card, event) => {
@@ -543,6 +603,78 @@ const currentAgencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
   return a?.id || null;
 });
+
+const fetchSuperviseesForSchedule = async () => {
+  try {
+    superviseesError.value = '';
+    const myId = Number(authStore.user?.id || 0);
+    if (!myId) return;
+    if (!isSupervisor(authStore.user)) return;
+    if (!currentAgencyId.value) return;
+
+    superviseesLoading.value = true;
+    const resp = await api.get(`/supervisor-assignments/supervisor/${myId}`, {
+      params: { agencyId: Number(currentAgencyId.value) }
+    });
+
+    const rows = Array.isArray(resp.data) ? resp.data : [];
+    supervisees.value = rows
+      .map((r) => ({
+        id: Number(r?.supervisee_id || 0),
+        firstName: String(r?.supervisee_first_name || '').trim(),
+        lastName: String(r?.supervisee_last_name || '').trim(),
+        agencyName: String(r?.agency_name || '').trim()
+      }))
+      .filter((s) => Number.isFinite(s.id) && s.id > 0);
+
+    if (scheduleViewMode.value === 'supervisee' && selectedSuperviseeId.value === 0 && supervisees.value.length > 0) {
+      selectedSuperviseeId.value = supervisees.value[0].id;
+    }
+  } catch (e) {
+    supervisees.value = [];
+    const msg = e?.response?.data?.error?.message || e?.message || 'Failed to load supervisees';
+    superviseesError.value = msg;
+  } finally {
+    superviseesLoading.value = false;
+  }
+};
+
+const superviseeLabel = (s) => {
+  const name = `${String(s?.lastName || '').trim()}, ${String(s?.firstName || '').trim()}`.replace(/^,\s*/, '').trim();
+  const agency = String(s?.agencyName || '').trim();
+  return agency ? `${name} (${agency})` : name;
+};
+
+const superviseesFilteredSorted = computed(() => {
+  const q = String(superviseeQuery.value || '').trim().toLowerCase();
+  const key = String(superviseeSortKey.value || 'name');
+  const dir = String(superviseeSortDir.value || 'asc') === 'desc' ? -1 : 1;
+
+  const normNameKey = (s) => `${String(s?.lastName || '').toLowerCase()}|${String(s?.firstName || '').toLowerCase()}`;
+  const normAgencyKey = (s) => `${String(s?.agencyName || '').toLowerCase()}|${normNameKey(s)}`;
+
+  return (supervisees.value || [])
+    .filter((s) => {
+      if (!q) return true;
+      const hay = `${s.firstName} ${s.lastName} ${s.agencyName}`.toLowerCase();
+      return hay.includes(q);
+    })
+    .slice()
+    .sort((a, b) => {
+      const ka = key === 'agency' ? normAgencyKey(a) : normNameKey(a);
+      const kb = key === 'agency' ? normAgencyKey(b) : normNameKey(b);
+      return dir * ka.localeCompare(kb);
+    })
+    .map((s) => ({ ...s, label: superviseeLabel(s) }));
+});
+
+const scheduleGridUserId = computed(() => {
+  if (scheduleViewMode.value === 'self') return Number(authStore.user?.id || 0);
+  if (scheduleViewMode.value === 'supervisee') return Number(selectedSuperviseeId.value || 0);
+  return 0;
+});
+
+const scheduleGridMode = computed(() => (scheduleViewMode.value === 'self' ? 'self' : 'admin'));
 
 const tabs = computed(() => [
   { id: 'checklist', label: 'Checklist', badgeCount: checklistCount.value },
@@ -589,6 +721,14 @@ const filteredTabs = computed(() => {
 const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
 
 const dashboardCards = computed(() => {
+  const u = authStore.user;
+  const role = String(u?.role || '').toLowerCase();
+  const caps = u?.capabilities || {};
+  const isTrueAdmin = role === 'admin' || role === 'super_admin';
+  const isProvider = role === 'provider';
+  const isSup = isSupervisor(u);
+  const isLimitedAccessNonProvider = !isTrueAdmin && !isProvider && (isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll);
+
   // Use the current organization (when selected) for icon overrides.
   // If none is selected, we fall back to platform branding inside `getDashboardCardIconUrl`.
   const cardIconOrgOverride = undefined;
@@ -608,40 +748,47 @@ const dashboardCards = computed(() => {
   if (isOnboardingComplete.value) {
     // School staff should not see payroll/claims submission surfaces.
     if (!isSchoolStaff.value) {
-      cards.push({
-        id: 'my_schedule',
-        label: 'My Schedule',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
-        description: 'View weekly schedule and request availability from the grid.'
-      });
-      cards.push({
-        id: 'clients',
-        label: 'Clients',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('clients', cardIconOrgOverride),
-        description: 'Your caseload by school with psychotherapy fiscal-year totals.'
-      });
-      if (providerSurfacesEnabled.value) {
+      // Schedule card is available via Dashboard (not top nav) for providers, supervisors, and limited-access users.
+      if (isProvider || isSup || !!caps?.canManageHiring || !!caps?.canManagePayroll) {
         cards.push({
-          id: 'submit',
-          label: 'Submit',
+          id: 'my_schedule',
+          label: 'My Schedule',
           kind: 'content',
           badgeCount: 0,
-          iconUrl: brandingStore.getDashboardCardIconUrl('submit', cardIconOrgOverride),
-          description: 'Submit mileage, in-school claims, and more.'
+          iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
+          description: 'View weekly schedule and request availability from the grid.'
         });
       }
-      cards.push({
-        id: 'payroll',
-        label: 'Payroll',
-        kind: 'content',
-        badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('payroll', cardIconOrgOverride),
-        description: 'Your payroll history by pay period.'
-      });
+
+      // Provider-only surfaces: hide these for limited-access non-provider users.
+      if (!isLimitedAccessNonProvider) {
+        cards.push({
+          id: 'clients',
+          label: 'Clients',
+          kind: 'content',
+          badgeCount: 0,
+          iconUrl: brandingStore.getDashboardCardIconUrl('clients', cardIconOrgOverride),
+          description: 'Your caseload by school with psychotherapy fiscal-year totals.'
+        });
+        if (providerSurfacesEnabled.value) {
+          cards.push({
+            id: 'submit',
+            label: 'Submit',
+            kind: 'content',
+            badgeCount: 0,
+            iconUrl: brandingStore.getDashboardCardIconUrl('submit', cardIconOrgOverride),
+            description: 'Submit mileage, in-school claims, and more.'
+          });
+        }
+        cards.push({
+          id: 'payroll',
+          label: 'Payroll',
+          kind: 'content',
+          badgeCount: 0,
+          iconUrl: brandingStore.getDashboardCardIconUrl('payroll', cardIconOrgOverride),
+          description: 'Your payroll history by pay period.'
+        });
+      }
     }
     cards.push({
       id: 'my',
@@ -661,33 +808,39 @@ const dashboardCards = computed(() => {
     });
 
     // Communications surfaces (separate pages)
-    cards.push({
-      id: 'communications',
-      label: 'Communications',
-      kind: 'link',
-      to: '/admin/communications',
-      badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('communications', cardIconOrgOverride),
-      description: 'Unified feed for texts + platform chats.'
-    });
-    cards.push({
-      id: 'chats',
-      label: 'Chats',
-      kind: 'link',
-      to: '/admin/communications/chats',
-      badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('chats', cardIconOrgOverride),
-      description: 'Direct messages in the platform.'
-    });
-    cards.push({
-      id: 'notifications',
-      label: 'Notifications',
-      kind: 'link',
-      to: '/admin/notifications',
-      badgeCount: 0,
-      iconUrl: brandingStore.getDashboardCardIconUrl('notifications', cardIconOrgOverride),
-      description: 'Your recent notifications.'
-    });
+    if (!isLimitedAccessNonProvider) {
+      cards.push({
+        id: 'communications',
+        label: 'Communications',
+        kind: 'link',
+        to: '/admin/communications',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('communications', cardIconOrgOverride),
+        description: 'Unified feed for texts + platform chats.'
+      });
+      cards.push({
+        id: 'chats',
+        label: 'Chats',
+        kind: 'link',
+        to: '/admin/communications/chats',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('chats', cardIconOrgOverride),
+        description: 'Direct messages in the platform.'
+      });
+    }
+
+    // Notifications should not be shown for non-admin users.
+    if (isTrueAdmin) {
+      cards.push({
+        id: 'notifications',
+        label: 'Notifications',
+        kind: 'link',
+        to: '/admin/notifications',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('notifications', cardIconOrgOverride),
+        description: 'Your recent notifications.'
+      });
+    }
     // Supervision card (supervisors only)
     if (isSupervisor(authStore.user)) {
       cards.push({
@@ -1097,6 +1250,16 @@ watch([currentAgencyId, isOnboardingComplete], async () => {
   await loadMyAssignedSchools();
   await loadAgencyDashboardBanner();
 });
+
+// Supervisor: load supervisees for schedule sorting/selection.
+watch([activeTab, currentAgencyId, () => authStore.user?.id], async () => {
+  if (props.previewMode) return;
+  if (activeTab.value !== 'my_schedule') return;
+  if (!isOnboardingComplete.value) return;
+  if (!isSupervisor(authStore.user)) return;
+  if (!currentAgencyId.value) return;
+  await fetchSuperviseesForSchedule();
+}, { immediate: true });
 </script>
 
 <style scoped>

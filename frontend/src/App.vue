@@ -56,6 +56,21 @@
               <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu">
                 {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
               </router-link>
+              <!-- Minimal top-nav for non-admin users with limited access -->
+              <router-link
+                v-if="canSeeApplicantsTopNavLink"
+                :to="orgTo('/admin/hiring')"
+                @click="closeMobileMenu"
+              >
+                Applicants
+              </router-link>
+              <router-link
+                v-if="canSeePayrollTopNavLink"
+                :to="orgTo('/admin/payroll')"
+                @click="closeMobileMenu"
+              >
+                Payroll
+              </router-link>
               <router-link
                 v-if="canShowAdminDashboardIcon"
                 :to="orgTo('/admin')"
@@ -69,14 +84,7 @@
               </router-link>
 
               <!-- Portal navigation (admins must see this even if ACTIVE_EMPLOYEE) -->
-              <template v-if="canSeePortalNav">
-                <!-- Keep Notifications visible as a top-level item -->
-                <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu">
-                  Notifications
-                </router-link>
-                <router-link :to="orgTo('/notifications')" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu">
-                  Notifications
-                </router-link>
+              <template v-if="canSeePortalNav && canSeeFullPortalNav">
 
                 <div class="nav-dropdown" @click.stop>
                   <button
@@ -131,7 +139,7 @@
                     Management <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="managementMenuOpen" class="nav-dropdown-menu">
-                    <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeAllNavMenus">Admin Dashboard</router-link>
+                    <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeAllNavMenus">Admin Dashboard</router-link>
                     <div class="nav-dropdown-sep" />
                     <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Executive Report</router-link>
                     <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Payroll</router-link>
@@ -173,7 +181,7 @@
                 </div>
               </template>
               <router-link
-                v-if="hasCapability('canJoinProgramEvents')"
+                v-if="canShowScheduleTopNav"
                 :to="orgTo('/schedule')"
                 @click="closeMobileMenu"
                 class="nav-link"
@@ -262,11 +270,17 @@
               {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
             </router-link>
             <router-link
-              v-if="hasCapability('canManageHiring')"
+              v-if="canSeeApplicantsTopNavLink"
               :to="orgTo('/admin/hiring')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
             >Applicants</router-link>
+            <router-link
+              v-if="canSeePayrollTopNavLink"
+              :to="orgTo('/admin/payroll')"
+              @click="closeMobileMenu"
+              class="mobile-nav-link"
+            >Payroll</router-link>
             <router-link
               v-if="hasCapability('canJoinProgramEvents')"
               :to="orgTo('/office')"
@@ -274,8 +288,8 @@
               class="mobile-nav-link"
             >Office</router-link>
 
-            <template v-if="canSeePortalNav">
-              <router-link :to="orgTo('/admin')" v-if="isAdmin || isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
+            <template v-if="canSeePortalNav && canSeeFullPortalNav">
+              <router-link :to="orgTo('/admin')" v-if="isTrueAdmin" @click="closeMobileMenu" class="mobile-nav-link">Admin Dashboard</router-link>
 
               <router-link
                 :to="orgTo('/admin/modules')"
@@ -308,9 +322,6 @@
               <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Receivables</router-link>
               <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Expense/Reimbursements</router-link>
               <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link">Revenue</router-link>
-
-              <router-link :to="orgTo('/admin/notifications')" v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
-              <router-link :to="orgTo('/notifications')" v-if="isSupervisor(user) || user?.role === 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Notifications</router-link>
 
               <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Settings</router-link>
             </template>
@@ -678,6 +689,18 @@ const isAdmin = computed(() => {
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
 
+const isTrueAdmin = computed(() => {
+  const role = user.value?.role;
+  return role === 'admin' || role === 'super_admin';
+});
+
+const canSeeFullPortalNav = computed(() => {
+  // Keep the “full” admin dropdown navigation for backoffice roles.
+  // Limited-access users (payroll/hiring/supervisors) should not see it.
+  const role = user.value?.role;
+  return role === 'admin' || role === 'super_admin' || role === 'support';
+});
+
 const parseFeatureFlags = (raw) => {
   if (!raw) return {};
   if (typeof raw === 'object') return raw || {};
@@ -753,6 +776,14 @@ const canSeePayrollManagement = computed(() => {
   return ids.includes(currentAgencyId.value);
 });
 
+const canSeeApplicantsTopNavLink = computed(() => {
+  return !canSeeFullPortalNav.value && hasCapability('canManageHiring');
+});
+
+const canSeePayrollTopNavLink = computed(() => {
+  return !canSeeFullPortalNav.value && canSeePayrollManagement.value;
+});
+
 const isPrivilegedPortalUser = computed(() => {
   const role = user.value?.role;
   return role === 'admin' || role === 'super_admin' || role === 'support' || isSupervisor(user.value) || role === 'clinical_practice_assistant';
@@ -798,8 +829,12 @@ const settingsIconUrl = computed(() => {
 const canShowAdminDashboardIcon = computed(() => {
   const u = authStore.user;
   if (!u) return false;
-  // Mirror Admin Dashboard link gating.
-  return isAdmin.value || isSupervisor(u) || u?.role === 'clinical_practice_assistant';
+  // Only true admins should see the admin dashboard icon.
+  return isTrueAdmin.value;
+});
+
+const canShowScheduleTopNav = computed(() => {
+  return isTrueAdmin.value && hasCapability('canJoinProgramEvents');
 });
 
 const adminDashboardIconUrl = computed(() => {

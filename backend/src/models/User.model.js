@@ -1173,6 +1173,29 @@ class User {
       // Return the corrected user
       return this.findById(id);
     }
+
+    // If supervisor privileges were turned off, remove supervisee assignments.
+    // This keeps the source-of-truth boolean and join table consistent.
+    try {
+      const prevHasSupervisor =
+        currentUser?.has_supervisor_privileges === true ||
+        currentUser?.has_supervisor_privileges === 1 ||
+        currentUser?.has_supervisor_privileges === '1';
+      const nextHasSupervisor =
+        updatedUser?.has_supervisor_privileges === true ||
+        updatedUser?.has_supervisor_privileges === 1 ||
+        updatedUser?.has_supervisor_privileges === '1';
+
+      if (prevHasSupervisor && !nextHasSupervisor) {
+        const SupervisorAssignment = (await import('./SupervisorAssignment.model.js')).default;
+        await SupervisorAssignment.deleteAllForSupervisor(id);
+      }
+    } catch (e) {
+      // Best-effort: older DBs may not have the table yet.
+      if (e?.code !== 'ER_NO_SUCH_TABLE') {
+        console.error('User.update: Failed to remove supervisor assignments after disabling supervisor privileges:', e);
+      }
+    }
     
     return updatedUser;
   }
