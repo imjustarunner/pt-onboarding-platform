@@ -1048,6 +1048,28 @@ onMounted(async () => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Compact outline-style header buttons (Refresh/New applicant). */
+.header-actions .btn {
+  padding: 6px 10px;
+  font-size: 13px;
+  line-height: 1.2;
+  border-radius: 8px;
+  border: 1px solid currentColor;
+  background: transparent !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+.header-actions .btn-primary {
+  color: var(--primary);
+}
+.header-actions .btn-secondary {
+  color: var(--text-secondary);
+}
+.header-actions .btn:hover:not(:disabled) {
+  background: rgba(15, 23, 42, 0.05) !important;
 }
 .grid {
   display: grid;
@@ -1181,6 +1203,15 @@ onMounted(async () => {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
+}
+
+/* Keep action buttons inline and content-sized (avoid full-width stacking). */
+.detail-actions .btn {
+  flex: 0 0 auto;
+  width: auto !important;
+  min-width: 0;
+  max-width: 100%;
 }
 .detail-name {
   margin: 0;
