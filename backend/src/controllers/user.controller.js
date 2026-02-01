@@ -548,6 +548,56 @@ export const aiQueryUsers = async (req, res, next) => {
     // If the query looks like a clinical “find me a provider” request, prefer the provider_search_index
     // (it understands multi_select fields like treatment modalities and age specialty).
     const qLower = raw.toLowerCase();
+    const wantsAvailability =
+      /\b(available|availability|openings?|open\s+slots?|schedule|when|next\s+available|appointment)\b/i.test(raw);
+    const isValidYmd = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '').slice(0, 10));
+    const weekStartYmd =
+      isValidYmd(req.query.weekStart) ? String(req.query.weekStart).slice(0, 10) : new Date().toISOString().slice(0, 10);
+
+    const enrichProvidersWithAvailability = async ({ agencyId, results }) => {
+      const aId = parseInt(String(agencyId || ''), 10);
+      if (!Number.isFinite(aId) || aId <= 0) return { results, meta: { computedFor: 0 } };
+      const list = Array.isArray(results) ? results : [];
+      if (!list.length) return { results: list, meta: { computedFor: 0 } };
+
+      const ProviderAvailabilityService = (await import('../services/providerAvailability.service.js')).default;
+      const MAX = 25; // keep this cheap; availability computation can be expensive
+      let computedFor = 0;
+
+      // Compute sequentially to avoid spiky load (Google busy calendar calls).
+      for (let i = 0; i < Math.min(list.length, MAX); i++) {
+        const u = list[i];
+        const providerId = parseInt(String(u?.id || ''), 10);
+        if (!Number.isFinite(providerId) || providerId <= 0) continue;
+        try {
+          const availability = await ProviderAvailabilityService.computeWeekAvailability({
+            agencyId: aId,
+            providerId,
+            weekStartYmd,
+            includeGoogleBusy: true,
+            externalCalendarIds: [],
+            slotMinutes: 60
+          });
+          const virtual = Array.isArray(availability?.virtualSlots) ? availability.virtualSlots : [];
+          const inPerson = Array.isArray(availability?.inPersonSlots) ? availability.inPersonSlots : [];
+          const nextVirtual = virtual[0] || null;
+          const nextInPerson = inPerson[0] || null;
+
+          u.availability_timeZone = availability?.timeZone || null;
+          u.availability_weekStart = availability?.weekStart || null;
+          u.availability_nextVirtualStartAt = nextVirtual?.startAt || null;
+          u.availability_nextVirtualEndAt = nextVirtual?.endAt || null;
+          u.availability_nextInPersonStartAt = nextInPerson?.startAt || null;
+          u.availability_nextInPersonEndAt = nextInPerson?.endAt || null;
+          computedFor += 1;
+        } catch {
+          // Best-effort; skip availability for this provider.
+        }
+      }
+
+      return { results: list, meta: { computedFor, weekStartYmd } };
+    };
+
     const hasWord = (w) => new RegExp(`\\b${w}\\b`, 'i').test(raw);
     const detectedModalities = [];
     for (const code of ['CBT', 'DBT', 'EMDR', 'ERP', 'ACT', 'ABA', 'CPT', 'IFS', 'PCIT']) {
@@ -778,6 +828,12 @@ export const aiQueryUsers = async (req, res, next) => {
         .filter(Boolean)
         .join('; ');
 
+      let availabilityMeta = null;
+      if (wantsAvailability && effectiveProvidersOnly && resolvedAgencyId) {
+        const enriched = await enrichProvidersWithAvailability({ agencyId: resolvedAgencyId, results });
+        availabilityMeta = enriched?.meta || null;
+      }
+
       return res.json({
         results,
         emailsSemicolon,
@@ -791,7 +847,8 @@ export const aiQueryUsers = async (req, res, next) => {
           limit,
           activeOnly,
           providersOnly: effectiveProvidersOnly,
-          filteredByAcceptingNewClients: hasAcceptingNewClientsCol
+          filteredByAcceptingNewClients: hasAcceptingNewClientsCol,
+          availability: availabilityMeta
         }
       });
     }
@@ -840,10 +897,24 @@ export const aiQueryUsers = async (req, res, next) => {
       .filter(Boolean)
       .join('; ');
 
+    let availabilityMeta = null;
+    if (wantsAvailability) {
+      if (!resolvedAgencyId) {
+        return res.status(400).json({
+          error: { message: 'Select an agency (Filter by Agency) to check provider availability.' }
+        });
+      }
+      const likelyProviders = providersOnly || /\bprovider\b/i.test(raw) || /\btherapist\b/i.test(raw);
+      if (likelyProviders) {
+        const enriched = await enrichProvidersWithAvailability({ agencyId: resolvedAgencyId, results });
+        availabilityMeta = enriched?.meta || null;
+      }
+    }
+
     res.json({
       results,
       emailsSemicolon,
-      meta: { keywords: terms, total: results.length, limit, activeOnly, providersOnly, includeArchived }
+      meta: { keywords: terms, total: results.length, limit, activeOnly, providersOnly, includeArchived, availability: availabilityMeta }
     });
   } catch (error) {
     next(error);
@@ -1247,6 +1318,9 @@ export const updateUser = async (req, res, next) => {
       companyCardEnabled,
       billingAcknowledged,
       skillBuilderEligible,
+      hasPayrollAccess,
+      isHourlyWorker,
+      hasHiringAccess,
       externalBusyIcsUrl
     } = req.body;
     const loginEmailAliases = req.body?.loginEmailAliases;
@@ -1601,6 +1675,13 @@ export const updateUser = async (req, res, next) => {
     // Skill Builder eligibility (provider program)
     if (skillBuilderEligible !== undefined) updateData.skillBuilderEligible = Boolean(skillBuilderEligible);
 
+    // Payroll access (profile toggle: set for all agencies for this user)
+    if (hasPayrollAccess !== undefined) updateData.hasPayrollAccess = Boolean(hasPayrollAccess);
+    // Hourly worker (drives Direct/Indirect ratio card visibility)
+    if (isHourlyWorker !== undefined) updateData.isHourlyWorker = Boolean(isHourlyWorker);
+    // Hiring process access (applicants / prospective)
+    if (hasHiringAccess !== undefined) updateData.hasHiringAccess = Boolean(hasHiringAccess);
+
     // External busy calendar (ICS) URL (admin/support/super admin only)
     if (externalBusyIcsUrl !== undefined) {
       if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
@@ -1620,6 +1701,16 @@ export const updateUser = async (req, res, next) => {
     } : 'null');
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    // When hasPayrollAccess was provided, set it for all agencies for this user
+    if (hasPayrollAccess !== undefined) {
+      try {
+        await User.setPayrollAccessForAllAgencies(parseInt(id), !!hasPayrollAccess);
+      } catch (payrollErr) {
+        console.error('Error setting payroll access for all agencies:', payrollErr);
+        // Don't fail the request; user record was updated
+      }
     }
 
     res.json(user);
@@ -3209,7 +3300,12 @@ export const getAccountInfo = async (req, res, next) => {
       supervisors: supervisors,
       hasSupervisorPrivileges: (user.role === 'admin' || user.role === 'super_admin' || user.role === 'clinical_practice_assistant') 
         ? (user.has_supervisor_privileges || false) 
-        : undefined // Only include for eligible roles
+        : undefined, // Only include for eligible roles
+      hasPayrollAccess: (await User.listPayrollAgencyIds(userIdInt)).length > 0,
+      isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
+      hasHiringAccess: !!(user.has_hiring_access === 1 || user.has_hiring_access === true || user.has_hiring_access === '1'),
+      companyCardEnabled: !!(user.company_card_enabled === 1 || user.company_card_enabled === true || user.company_card_enabled === '1'),
+      skillBuilderEligible: !!(user.skill_builder_eligible === 1 || user.skill_builder_eligible === true || user.skill_builder_eligible === '1')
     };
     
     // For pending users, include passwordless login link

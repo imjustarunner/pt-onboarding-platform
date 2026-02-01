@@ -2,13 +2,13 @@
   <div class="container">
     <div class="page-header">
       <div>
-        <router-link to="/admin/users" class="back-link">← Back to Users</router-link>
-        <div class="user-header-info">
+        <router-link to="/admin/users" class="back-link" data-tour="user-profile-back">← Back to Users</router-link>
+        <div class="user-header-info" data-tour="user-profile-header">
           <div class="header-avatar">
             <img v-if="headerPhotoUrl" :src="headerPhotoUrl" alt="Profile photo" class="header-photo" />
             <div v-else class="header-photo-fallback" aria-hidden="true">{{ headerInitials }}</div>
           </div>
-          <h1>{{ headerDisplayName }}</h1>
+          <h1 data-tour="user-profile-title">{{ headerDisplayName }}</h1>
           <span 
             v-if="user" 
             :class="['status-badge-header', getStatusBadgeClass(user.status, user.is_active)]"
@@ -21,6 +21,7 @@
             v-if="showGlobalAvailabilityInHeader"
             class="header-availability"
             :title="providerAcceptingNewClients ? 'OPEN (global)' : 'CLOSED (global)'"
+            data-tour="user-profile-global-availability"
           >
             <span class="header-availability-label">Global</span>
             <div class="toggle-switch toggle-switch-sm">
@@ -61,7 +62,7 @@
             style="display:none;"
             @change="onAdminPhotoSelected"
           />
-          <div style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap;">
+          <div style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap;" data-tour="user-profile-photo-upload">
             <button class="btn btn-secondary btn-sm" type="button" @click="profilePhotoInput?.click()" :disabled="photoUploading">
               {{ photoUploading ? 'Uploading…' : 'Upload Profile Photo' }}
             </button>
@@ -74,20 +75,21 @@
     <div v-if="loading" class="loading">Loading user profile...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="profile-content">
-      <div class="tabs">
+      <div class="tabs" data-tour="user-profile-tabs">
         <button
           v-for="tab in tabs"
           :key="tab.id"
           type="button"
           @click="selectTab(tab.id)"
           :class="['tab-button', { active: activeTab === tab.id }]"
+          data-tour="user-profile-tab"
         >
           {{ tab.label }}
         </button>
       </div>
 
       <!-- Force full remount when switching tabs to avoid Vue patch edge-cases across radically different subtrees -->
-      <div class="tab-content" :key="activeTab">
+      <div class="tab-content" :key="activeTab" data-tour="user-profile-tab-content">
         <div v-if="activeTab === 'account'" class="tab-panel">
           <h2>Account Information</h2>
           <div class="account-layout">
@@ -475,6 +477,52 @@
                   </div>
                 </label>
 
+                <label
+                  v-if="showPayrollAccessToggle"
+                  class="compact-toggle"
+                  title="Payroll access given to staff or provider. Not accessible by default except admin/super admin."
+                >
+                  <span class="compact-title">Payroll access</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="payroll-access-toggle"
+                      type="checkbox"
+                      v-model="accountForm.hasPayrollAccess"
+                      :disabled="!isEditingAccount"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+                <label
+                  class="compact-toggle"
+                  title="Hourly workers see the Direct/Indirect ratio card and receive ratio notifications."
+                >
+                  <span class="compact-title">Hourly Workers</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="hourly-worker-toggle"
+                      type="checkbox"
+                      v-model="accountForm.isHourlyWorker"
+                      :disabled="!isEditingAccount"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+                <label
+                  class="compact-toggle"
+                  title="Allows access to applicants and prospective people in the hiring process."
+                >
+                  <span class="compact-title">Hiring process access</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="hiring-access-toggle"
+                      type="checkbox"
+                      v-model="accountForm.hasHiringAccess"
+                      :disabled="!isEditingAccount"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
                 <label
                   v-if="canToggleSupervisorPrivileges"
                   class="compact-toggle"
@@ -1901,7 +1949,10 @@ const accountForm = ref({
   credential: '',
   hasSupervisorPrivileges: false,
   hasProviderAccess: false,
-  hasStaffAccess: false
+  hasStaffAccess: false,
+  hasPayrollAccess: false,
+  isHourlyWorker: false,
+  hasHiringAccess: false
 });
 
 // School affiliation (provider scheduling / availability)
@@ -2453,6 +2504,12 @@ const canToggleSupervisorPrivileges = computed(() => {
   return eligibleRoles.includes(role);
 });
 
+// Payroll access toggle: show for staff/provider/etc., not for admin/super_admin (they have payroll by role).
+const showPayrollAccessToggle = computed(() => {
+  const role = String(user.value?.role || accountForm.value?.role || '').trim().toLowerCase();
+  return role && role !== 'admin' && role !== 'super_admin';
+});
+
 // Watch for role changes to reset supervisor privileges if role becomes ineligible
 watch(() => accountForm.value.role, (newRole) => {
   const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant'];
@@ -2882,7 +2939,10 @@ const fetchUser = async () => {
       hasSupervisorPrivileges: currentHasSupervisorPrivileges || String(currentRoleRaw || '').trim().toLowerCase() === 'supervisor',
       credential: accountForm.value?.credential || '',
       hasProviderAccess: user.value.has_provider_access === true || user.value.has_provider_access === 1 || user.value.has_provider_access === '1' || false,
-      hasStaffAccess: user.value.has_staff_access === true || user.value.has_staff_access === 1 || user.value.has_staff_access === '1' || false
+      hasStaffAccess: user.value.has_staff_access === true || user.value.has_staff_access === 1 || user.value.has_staff_access === '1' || false,
+      hasPayrollAccess: accountInfo.value?.hasPayrollAccess === true || accountForm.value?.hasPayrollAccess || false,
+      isHourlyWorker: user.value?.is_hourly_worker === true || user.value?.is_hourly_worker === 1 || user.value?.is_hourly_worker === '1' || accountForm.value?.isHourlyWorker || false,
+      hasHiringAccess: user.value?.has_hiring_access === true || user.value?.has_hiring_access === 1 || user.value?.has_hiring_access === '1' || accountForm.value?.hasHiringAccess || false
     };
     
     // Render the page as soon as the base user record is loaded.
@@ -2946,6 +3006,16 @@ const fetchAccountInfo = async () => {
     // Backfill preferred name (account-info endpoint is authoritative for display fields)
     if (!accountForm.value.preferredName) {
       accountForm.value.preferredName = response.data?.preferredName || '';
+    }
+    // Contracts & flags: payroll, hourly worker, hiring access (from account-info)
+    if (response.data?.hasPayrollAccess !== undefined) {
+      accountForm.value.hasPayrollAccess = Boolean(response.data.hasPayrollAccess);
+    }
+    if (response.data?.isHourlyWorker !== undefined) {
+      accountForm.value.isHourlyWorker = Boolean(response.data.isHourlyWorker);
+    }
+    if (response.data?.hasHiringAccess !== undefined) {
+      accountForm.value.hasHiringAccess = Boolean(response.data.hasHiringAccess);
     }
   } catch (err) {
     accountInfoError.value = err.response?.data?.error?.message || 'Failed to load account information';
@@ -3344,6 +3414,9 @@ const saveAccount = async () => {
       medcancelRateSchedule: String(accountForm.value.medcancelRateSchedule || 'none').toLowerCase(),
       companyCardEnabled: Boolean(accountForm.value.companyCardEnabled),
       skillBuilderEligible: Boolean(accountForm.value.skillBuilderEligible),
+      hasPayrollAccess: Boolean(accountForm.value.hasPayrollAccess),
+      isHourlyWorker: Boolean(accountForm.value.isHourlyWorker),
+      hasHiringAccess: Boolean(accountForm.value.hasHiringAccess),
       role: accountForm.value.role
     };
 

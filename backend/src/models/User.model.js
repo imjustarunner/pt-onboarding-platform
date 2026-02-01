@@ -263,7 +263,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'skill_builder_eligible')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'skill_builder_eligible', 'is_hourly_worker')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -297,6 +297,8 @@ class User {
       if (existingColumns.includes('title')) query += ', title';
       if (existingColumns.includes('service_focus')) query += ', service_focus';
       if (existingColumns.includes('skill_builder_eligible')) query += ', skill_builder_eligible';
+      if (existingColumns.includes('has_hiring_access')) query += ', has_hiring_access';
+      if (existingColumns.includes('is_hourly_worker')) query += ', is_hourly_worker';
     } catch (err) {
       // If we can't check columns, just use the base query
       console.warn('Could not check for pending columns:', err.message);
@@ -622,6 +624,8 @@ class User {
       medcancelRateSchedule,
       companyCardEnabled,
       skillBuilderEligible,
+      isHourlyWorker,
+      hasHiringAccess,
       externalBusyIcsUrl
     } = userData;
     
@@ -1041,6 +1045,40 @@ class User {
       }
     }
 
+    // Hourly worker (drives Direct/Indirect ratio card visibility)
+    if (isHourlyWorker !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'is_hourly_worker'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('is_hourly_worker = ?');
+          values.push(isHourlyWorker ? 1 : 0);
+        }
+      } catch (err) {
+        console.warn('is_hourly_worker column check failed:', err.message);
+      }
+    }
+
+    // Hiring process access (applicants / prospective access)
+    if (hasHiringAccess !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'has_hiring_access'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('has_hiring_access = ?');
+          values.push(hasHiringAccess ? 1 : 0);
+        }
+      } catch (err) {
+        console.warn('has_hiring_access column check failed:', err.message);
+      }
+    }
+
     // External busy calendar ICS URL (for schedule overlays / auditing)
     if (externalBusyIcsUrl !== undefined) {
       const url = externalBusyIcsUrl === null ? null : String(externalBusyIcsUrl || '').trim();
@@ -1268,6 +1306,16 @@ class User {
     );
     const membership = await this.getAgencyMembership(userId, agencyId);
     return membership;
+  }
+
+  /** Set has_payroll_access for all agencies this user belongs to (global toggle from profile). */
+  static async setPayrollAccessForAllAgencies(userId, enabled) {
+    const val = enabled ? 1 : 0;
+    const [result] = await pool.execute(
+      'UPDATE user_agencies SET has_payroll_access = ? WHERE user_id = ?',
+      [val, userId]
+    );
+    return result.affectedRows;
   }
 
   static async setAgencyH0032RequiresManualMinutes(userId, agencyId, enabled) {
