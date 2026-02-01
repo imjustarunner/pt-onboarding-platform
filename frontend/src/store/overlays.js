@@ -8,6 +8,13 @@ export const useOverlaysStore = defineStore('overlays', () => {
   const cache = ref({}); // key -> { tutorial, helper, fetchedAt }
   const loadingKeys = ref({});
 
+  const platformHelper = ref({
+    enabled: true,
+    imageUrl: null,
+    imagePath: null,
+    fetchedAt: null
+  });
+
   const getCached = (agencyId, routeName) => {
     const k = keyFor(agencyId, routeName);
     return cache.value?.[k] || null;
@@ -59,12 +66,43 @@ export const useOverlaysStore = defineStore('overlays', () => {
     return await fetchRouteOverlays(agencyId, routeName);
   };
 
+  const fetchPlatformHelper = async () => {
+    try {
+      const resp = await api.get('/overlays/platform/helper-settings');
+      const data = resp?.data || {};
+      platformHelper.value = {
+        enabled: data.enabled !== false,
+        imageUrl: data.imageUrl || null,
+        imagePath: data.imagePath || null,
+        fetchedAt: Date.now()
+      };
+      return platformHelper.value;
+    } catch (e) {
+      // best-effort
+      return platformHelper.value;
+    }
+  };
+
+  const uploadPlatformHelperImage = async (file) => {
+    const form = new FormData();
+    form.append('image', file);
+    const resp = await api.post('/overlays/platform/helper-image', form, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    // Refresh cached settings
+    await fetchPlatformHelper();
+    return resp?.data || null;
+  };
+
   return {
     cache,
     getCached,
     fetchRouteOverlays,
     publishTutorial,
-    publishHelper
+    publishHelper,
+    platformHelper,
+    fetchPlatformHelper,
+    uploadPlatformHelperImage
   };
 });
 

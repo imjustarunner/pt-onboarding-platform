@@ -190,10 +190,22 @@
         </div>
       </div>
 
-      <div class="field">
-        <label>Helper image URL</label>
-        <input v-model="helperDraft.imageUrl" placeholder="https://.../helper.png" />
+      <div class="status">
+        <div class="status-row">
+          <div class="status-label">Platform helper image</div>
+          <div class="status-val">
+            <span v-if="platformHelperImageUrl" class="mono">{{ platformHelperImageUrl }}</span>
+            <span v-else class="dim">None</span>
+          </div>
+        </div>
+        <div class="status-row">
+          <input ref="platformImageInput" type="file" accept="image/*" @change="onPlatformImageSelected" />
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="!selectedPlatformImage" @click="uploadPlatformImage">
+            Upload
+          </button>
+        </div>
       </div>
+
       <div class="field">
         <label>Helper message (this page)</label>
         <textarea v-model="helperDraft.message" rows="3" placeholder="What should the helper say on this page?" />
@@ -233,7 +245,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useSuperadminBuilderStore } from '../store/superadminBuilder';
@@ -264,10 +276,18 @@ const draft = reactive({
 
 const helperDraft = reactive({
   enabled: true,
-  imageUrl: '',
   message: '',
   position: 'bottom_right'
 });
+
+const platformImageInput = ref(null);
+const selectedPlatformImage = ref(null);
+const onPlatformImageSelected = (e) => {
+  const f = e?.target?.files?.[0] || null;
+  selectedPlatformImage.value = f || null;
+};
+
+const platformHelperImageUrl = computed(() => overlaysStore.platformHelper?.imageUrl || null);
 
 const draftTour = computed(() => {
   if (!routeName.value) return null;
@@ -417,10 +437,20 @@ const saveHelperDraft = () => {
   if (!routeName.value) return;
   store.setHelperDraftForRouteName(routeName.value, {
     enabled: !!helperDraft.enabled,
-    imageUrl: helperDraft.imageUrl || null,
     message: helperDraft.message || null,
     position: helperDraft.position || 'bottom_right'
   });
+};
+
+const uploadPlatformImage = async () => {
+  if (!selectedPlatformImage.value) return;
+  await overlaysStore.uploadPlatformHelperImage(selectedPlatformImage.value);
+  selectedPlatformImage.value = null;
+  try {
+    if (platformImageInput.value) platformImageInput.value.value = '';
+  } catch {
+    // ignore
+  }
 };
 
 const publishHelperDraft = async () => {
@@ -514,6 +544,7 @@ onMounted(() => {
   document.addEventListener('click', onDocumentClickCapture, true);
   // Best-effort: preload published overlays for current route/org.
   refreshPublished();
+  overlaysStore.fetchPlatformHelper();
 });
 
 onUnmounted(() => {

@@ -76,7 +76,7 @@ const helperConfig = computed(() => {
   // 3) Default global helper config for now
   return {
     enabled: true,
-    imageUrl: null,
+    imageUrl: overlaysStore.platformHelper?.imageUrl || null,
     message: 'Need help? Toggle the Builder to configure me per page.',
     position: 'bottom_right'
   };
@@ -98,6 +98,13 @@ watch(() => route.fullPath, () => {
     overlaysStore.fetchRouteOverlays(currentAgencyId.value, routeName.value);
   }
 });
+
+// Prefetch platform helper settings (superadmin-only endpoint; best-effort).
+try {
+  overlaysStore.fetchPlatformHelper();
+} catch {
+  // ignore
+}
 
 const answerStub = () => {
   if (!question.value.trim()) return;

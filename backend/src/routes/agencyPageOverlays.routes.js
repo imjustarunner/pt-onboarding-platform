@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin } from '../middleware/auth.middleware.js';
+import { requireSuperAdmin } from '../middleware/auth.middleware.js';
 import {
   getRouteOverlays,
   upsertTutorialOverlay,
@@ -7,6 +8,12 @@ import {
   deleteTutorialOverlay,
   deleteHelperOverlay
 } from '../controllers/agencyPageOverlays.controller.js';
+import {
+  getPlatformHelperSettings,
+  updatePlatformHelperSettings,
+  uploadPlatformHelperImage,
+  uploadPlatformHelperImageMiddleware
+} from '../controllers/platformHelperSettings.controller.js';
 
 const router = express.Router();
 
@@ -19,6 +26,11 @@ router.put('/agencies/:agencyId/routes/:routeName/helper', authenticate, require
 
 router.delete('/agencies/:agencyId/routes/:routeName/tutorial', authenticate, requireAgencyAdmin, deleteTutorialOverlay);
 router.delete('/agencies/:agencyId/routes/:routeName/helper', authenticate, requireAgencyAdmin, deleteHelperOverlay);
+
+// Platform-wide helper settings (image, enabled flag). Superadmin only.
+router.get('/platform/helper-settings', authenticate, requireSuperAdmin, getPlatformHelperSettings);
+router.put('/platform/helper-settings', authenticate, requireSuperAdmin, updatePlatformHelperSettings);
+router.post('/platform/helper-image', authenticate, requireSuperAdmin, uploadPlatformHelperImageMiddleware, uploadPlatformHelperImage);
 
 export default router;
 

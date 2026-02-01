@@ -388,6 +388,35 @@ class StorageService {
   }
 
   /**
+   * Save a helper widget image to GCS (platform-wide)
+   * @param {Buffer} fileBuffer - File content as buffer
+   * @param {string} filename - Filename (will be sanitized)
+   * @param {string} contentType - MIME type
+   * @returns {Promise<{path: string, key: string, filename: string, relativePath: string}>}
+   */
+  static async saveHelperAsset(fileBuffer, filename, contentType = 'image/png') {
+    const sanitizedFilename = this.sanitizeFilename(filename);
+    const key = `uploads/helpers/${sanitizedFilename}`;
+
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: contentType,
+      metadata: {
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return {
+      path: key,
+      key: key,
+      filename: sanitizedFilename,
+      relativePath: key
+    };
+  }
+
+  /**
    * Save a user profile photo to GCS
    * @param {number} userId - User ID (for metadata)
    * @param {Buffer} fileBuffer - File content

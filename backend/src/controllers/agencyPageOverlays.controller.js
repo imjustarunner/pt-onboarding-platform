@@ -97,7 +97,8 @@ export const upsertHelperOverlay = async (req, res, next) => {
     const enabled = helper.enabled !== false && req.body?.enabled !== false;
     const position = String(helper.position || 'bottom_right');
     const message = helper.message == null ? null : String(helper.message);
-    const imageUrl = helper.imageUrl == null ? null : String(helper.imageUrl);
+    // Platform-level image only (do not store per-org image URLs).
+    const imageUrl = null;
 
     const saved = await AgencyPageOverlay.upsert({
       agencyId,
