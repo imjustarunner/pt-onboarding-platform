@@ -85,11 +85,24 @@ export const useSuperadminBuilderStore = defineStore('superadminBuilder', () => 
     const d = getDraftForRouteName(routeName);
     const h = d?.helper;
     if (!h || typeof h !== 'object') return null;
+    const placements = Array.isArray(h.placements)
+      ? h.placements
+          .map((p) => {
+            const selector = String(p?.selector || '').trim();
+            if (!selector) return null;
+            const side = String(p?.side || 'right');
+            const sideNorm = ['right', 'left', 'top', 'bottom'].includes(side) ? side : 'right';
+            const msg = p?.message == null ? null : String(p.message);
+            return { selector, side: sideNorm, message: msg };
+          })
+          .filter(Boolean)
+      : [];
+
     return {
       enabled: h.enabled !== false,
-      imageUrl: String(h.imageUrl || '').trim() || null,
       message: String(h.message || '').trim() || null,
-      position: String(h.position || 'bottom_right') // bottom_right | bottom_left
+      position: String(h.position || 'bottom_right'), // bottom_right | bottom_left
+      placements
     };
   };
 
@@ -99,9 +112,9 @@ export const useSuperadminBuilderStore = defineStore('superadminBuilder', () => 
     const prev = getDraftForRouteName(key) || {};
     const nextHelper = {
       enabled: helper?.enabled !== false,
-      imageUrl: helper?.imageUrl || null,
       message: helper?.message || null,
-      position: helper?.position || 'bottom_right'
+      position: helper?.position || 'bottom_right',
+      placements: Array.isArray(helper?.placements) ? helper.placements : (prev?.helper?.placements || [])
     };
     const next = { ...prev, helper: nextHelper };
     drafts.value = { ...(drafts.value || {}), [key]: next };

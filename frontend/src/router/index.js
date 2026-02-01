@@ -403,6 +403,12 @@ const routes = [
     meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/psychotherapy-compliance',
+    name: 'OrganizationPsychotherapyCompliance',
+    component: () => import('../views/admin/PsychotherapyComplianceView.vue'),
+    meta: { requiresAuth: true, requiresCapability: 'canManagePayroll', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/payroll',
     name: 'OrganizationPayroll',
     component: () => import('../views/admin/PayrollView.vue'),

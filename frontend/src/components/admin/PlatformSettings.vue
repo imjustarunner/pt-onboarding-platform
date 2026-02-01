@@ -96,6 +96,10 @@
           <IconSelector v-model="myDashboardIcons.myScheduleIconId" />
         </div>
         <div class="icon-setting-item">
+          <label>Clients</label>
+          <IconSelector v-model="myDashboardIcons.clientsIconId" />
+        </div>
+        <div class="icon-setting-item">
           <label>Submit</label>
           <IconSelector v-model="myDashboardIcons.submitIconId" />
         </div>
@@ -237,6 +241,7 @@ const myDashboardIcons = ref({
   trainingIconId: null,
   documentsIconId: null,
   myScheduleIconId: null,
+  clientsIconId: null,
   submitIconId: null,
   payrollIconId: null,
   myAccountIconId: null,
@@ -279,6 +284,7 @@ const fetchSettings = async () => {
         trainingIconId: pb.my_dashboard_training_icon_id ?? null,
         documentsIconId: pb.my_dashboard_documents_icon_id ?? null,
         myScheduleIconId: pb.my_dashboard_my_schedule_icon_id ?? null,
+        clientsIconId: pb.my_dashboard_clients_icon_id ?? null,
         submitIconId: pb.my_dashboard_submit_icon_id ?? null,
         payrollIconId: pb.my_dashboard_payroll_icon_id ?? null,
         myAccountIconId: pb.my_dashboard_my_account_icon_id ?? null,
@@ -313,6 +319,7 @@ const saveMyDashboardIcons = async () => {
       myDashboardTrainingIconId: myDashboardIcons.value.trainingIconId,
       myDashboardDocumentsIconId: myDashboardIcons.value.documentsIconId,
       myDashboardMyScheduleIconId: myDashboardIcons.value.myScheduleIconId,
+      myDashboardClientsIconId: myDashboardIcons.value.clientsIconId,
       myDashboardSubmitIconId: myDashboardIcons.value.submitIconId,
       myDashboardPayrollIconId: myDashboardIcons.value.payrollIconId,
       myDashboardMyAccountIconId: myDashboardIcons.value.myAccountIconId,

@@ -185,6 +185,10 @@
             </div>
           </div>
 
+          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff" v-show="activeTab === 'clients'" class="my-panel">
+            <ProviderClientsTab />
+          </div>
+
           <!-- Submit (right panel) -->
           <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && providerSurfacesEnabled" v-show="activeTab === 'submit'" class="my-panel">
             <div class="section-header">
@@ -457,6 +461,7 @@ import AccountInfoView from './AccountInfoView.vue';
 import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
 import MyCompensationTab from '../components/dashboard/MyCompensationTab.vue';
 import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
+import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
 
 const props = defineProps({
   previewMode: {
@@ -594,6 +599,14 @@ const dashboardCards = computed(() => {
         iconUrl: brandingStore.getDashboardCardIconUrl('my_schedule', cardIconOrgOverride),
         description: 'View weekly schedule and request availability from the grid.'
       });
+      cards.push({
+        id: 'clients',
+        label: 'Clients',
+        kind: 'content',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('clients', cardIconOrgOverride),
+        description: 'Your caseload by school with psychotherapy fiscal-year totals.'
+      });
       if (providerSurfacesEnabled.value) {
         cards.push({
           id: 'submit',
@@ -676,15 +689,16 @@ const railCards = computed(() => {
       return ({
         my: 0,
         my_schedule: 1,
-        checklist: 2,
-        training: 3,
-        documents: 4,
-        submit: 5,
-        payroll: 6,
-        on_demand_training: 7,
-        communications: 8,
-        chats: 9,
-        notifications: 10
+        clients: 2,
+        checklist: 3,
+        training: 4,
+        documents: 5,
+        submit: 6,
+        payroll: 7,
+        on_demand_training: 8,
+        communications: 9,
+        chats: 10,
+        notifications: 11
       })[k] ?? 999;
     }
     return ({
@@ -692,13 +706,14 @@ const railCards = computed(() => {
       documents: 1,
       training: 2,
       my_schedule: 3,
-      submit: 4,
-      payroll: 5,
-      my: 6,
-      on_demand_training: 7,
-      communications: 8,
-      chats: 9,
-      notifications: 10
+      clients: 4,
+      submit: 5,
+      payroll: 6,
+      my: 7,
+      on_demand_training: 8,
+      communications: 9,
+      chats: 10,
+      notifications: 11
     })[k] ?? 999;
   };
 

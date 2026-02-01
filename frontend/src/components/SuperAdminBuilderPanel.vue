@@ -190,6 +190,17 @@
         </div>
       </div>
 
+      <div class="row">
+        <label class="chk">
+          <input type="checkbox" :checked="store.captureClicks" @change="store.setCaptureClicks($event.target.checked)" />
+          Click-to-select a placement (modal step element)
+        </label>
+      </div>
+
+      <div v-if="store.captureClicks" class="hint">
+        Click an element inside the modal step where the helper should appear.
+      </div>
+
       <div class="status">
         <div class="status-row">
           <div class="status-label">Platform helper image</div>
@@ -207,7 +218,7 @@
       </div>
 
       <div class="field">
-        <label>Helper message (this page)</label>
+        <label>Fallback message (when no placement matches)</label>
         <textarea v-model="helperDraft.message" rows="3" placeholder="What should the helper say on this page?" />
       </div>
       <div class="grid2">
@@ -240,12 +251,63 @@
           Clear helper draft
         </button>
       </div>
+
+      <div class="draft">
+        <div class="draft-head">
+          <div class="draft-title">Helper placements (this page)</div>
+          <div class="draft-actions">
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="!canAddPlacement" @click="addPlacement">
+              Add placement
+            </button>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top: 10px;">
+          <label>Placement selector</label>
+          <input v-model="placementDraft.selector" placeholder='Click an element, or type a selector like [data-tour="..."]' />
+          <div class="help">Tip: clicking an element inside a modal step usually works best.</div>
+        </div>
+
+        <div class="grid2">
+          <div class="field">
+            <label>Side</label>
+            <select v-model="placementDraft.side">
+              <option value="right">right</option>
+              <option value="left">left</option>
+              <option value="top">top</option>
+              <option value="bottom">bottom</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Message (optional)</label>
+            <input v-model="placementDraft.message" placeholder="Shown when this step is visible" />
+          </div>
+        </div>
+
+        <ol v-if="helperPlacements.length > 0" class="step-list">
+          <li v-for="(p, idx) in helperPlacements" :key="idx" class="step-item">
+            <div class="step-line">
+              <span class="mono">{{ p.selector }}</span>
+            </div>
+            <div class="step-line dim">
+              <strong>{{ p.side }}</strong><span v-if="p.message"> — {{ p.message }}</span>
+            </div>
+            <div class="step-row">
+              <button type="button" class="btn btn-secondary btn-sm" @click="removePlacement(idx)">Remove</button>
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="idx === 0" @click="movePlacement(idx, -1)">Up</button>
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="idx === helperPlacements.length - 1" @click="movePlacement(idx, +1)">Down</button>
+            </div>
+          </li>
+        </ol>
+
+        <div v-else class="empty">No placements yet. Turn on click-to-select and click inside a modal step.</div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useSuperadminBuilderStore } from '../store/superadminBuilder';
@@ -278,6 +340,12 @@ const helperDraft = reactive({
   enabled: true,
   message: '',
   position: 'bottom_right'
+});
+
+const placementDraft = reactive({
+  selector: '',
+  side: 'right',
+  message: ''
 });
 
 const platformImageInput = ref(null);
@@ -324,7 +392,8 @@ const publishedHelperSummary = computed(() => {
   if (!publishedHelperConfig.value) return null;
   const enabled = published.value?.helper?.enabled !== false ? 'on' : 'off';
   const pos = String(publishedHelperConfig.value?.position || 'bottom_right');
-  return `${enabled} · ${pos}`;
+  const n = Array.isArray(publishedHelperConfig.value?.placements) ? publishedHelperConfig.value.placements.length : 0;
+  return n > 0 ? `${enabled} · ${n} placement${n === 1 ? '' : 's'}` : `${enabled} · ${pos}`;
 });
 
 const canAdd = computed(() => !!routeName.value && !!draft.selector && !!draft.title);
@@ -438,7 +507,8 @@ const saveHelperDraft = () => {
   store.setHelperDraftForRouteName(routeName.value, {
     enabled: !!helperDraft.enabled,
     message: helperDraft.message || null,
-    position: helperDraft.position || 'bottom_right'
+    position: helperDraft.position || 'bottom_right',
+    placements: helperPlacements.value
   });
 };
 
@@ -465,6 +535,48 @@ const publishHelperDraft = async () => {
   }
 };
 
+const helperPlacements = computed(() => {
+  const d = store.getHelperDraftForRouteName(routeName.value);
+  return Array.isArray(d?.placements) ? d.placements : [];
+});
+
+const canAddPlacement = computed(() => !!routeName.value && !!String(placementDraft.selector || '').trim());
+
+const addPlacement = () => {
+  if (!routeName.value) return;
+  const selector = String(placementDraft.selector || '').trim();
+  if (!selector) return;
+  const side = ['right', 'left', 'top', 'bottom'].includes(String(placementDraft.side)) ? String(placementDraft.side) : 'right';
+  const msg = String(placementDraft.message || '').trim();
+  const next = [...helperPlacements.value, { selector, side, message: msg || null }];
+  store.setHelperDraftForRouteName(routeName.value, {
+    ...(store.getHelperDraftForRouteName(routeName.value) || {}),
+    enabled: !!helperDraft.enabled,
+    message: helperDraft.message || null,
+    position: helperDraft.position || 'bottom_right',
+    placements: next
+  });
+  placementDraft.selector = '';
+  placementDraft.message = '';
+};
+
+const removePlacement = (idx) => {
+  if (!routeName.value) return;
+  const next = helperPlacements.value.filter((_, i) => i !== idx);
+  store.setHelperDraftForRouteName(routeName.value, { ...(store.getHelperDraftForRouteName(routeName.value) || {}), placements: next });
+};
+
+const movePlacement = (idx, delta) => {
+  if (!routeName.value) return;
+  const arr = [...helperPlacements.value];
+  const j = idx + delta;
+  if (j < 0 || j >= arr.length) return;
+  const tmp = arr[idx];
+  arr[idx] = arr[j];
+  arr[j] = tmp;
+  store.setHelperDraftForRouteName(routeName.value, { ...(store.getHelperDraftForRouteName(routeName.value) || {}), placements: arr });
+};
+
 const loadPublishedHelperIntoDraft = async () => {
   if (!routeName.value || !currentAgencyId.value) return;
   const latest = await overlaysStore.fetchRouteOverlays(currentAgencyId.value, routeName.value);
@@ -478,6 +590,20 @@ const clearHelperDraft = () => {
   if (!routeName.value) return;
   store.clearHelperDraftForRouteName(routeName.value);
 };
+
+const syncHelperDraftFormFromStore = () => {
+  if (!routeName.value) return;
+  const d = store.getHelperDraftForRouteName(routeName.value);
+  helperDraft.enabled = d?.enabled !== false;
+  helperDraft.message = d?.message || '';
+  helperDraft.position = d?.position || 'bottom_right';
+};
+
+watch(routeName, () => {
+  syncHelperDraftFormFromStore();
+  placementDraft.selector = '';
+  placementDraft.message = '';
+});
 
 // ----- element picking -----
 const cssEscape = (s) => {
@@ -525,7 +651,7 @@ const buildCssPath = (el) => {
 };
 
 const onDocumentClickCapture = (e) => {
-  if (!store.panelOpen || store.mode !== 'tutorial') return;
+  if (!store.panelOpen) return;
   if (!store.captureClicks) return;
 
   // Don’t allow interacting with the builder itself.
@@ -537,7 +663,12 @@ const onDocumentClickCapture = (e) => {
 
   const el = e.target;
   const sel = buildCssPath(el);
-  if (sel) draft.selector = sel;
+  if (!sel) return;
+  if (store.mode === 'tutorial') {
+    draft.selector = sel;
+  } else if (store.mode === 'helper') {
+    placementDraft.selector = sel;
+  }
 };
 
 onMounted(() => {
@@ -545,6 +676,7 @@ onMounted(() => {
   // Best-effort: preload published overlays for current route/org.
   refreshPublished();
   overlaysStore.fetchPlatformHelper();
+  syncHelperDraftFormFromStore();
 });
 
 onUnmounted(() => {

@@ -1,5 +1,10 @@
 <template>
-  <div v-if="enabled" class="helper-root" :class="positionClass">
+  <div
+    v-if="enabled"
+    class="helper-root"
+    :class="positionClass"
+    :style="anchoredStyle"
+  >
     <button type="button" class="helper-avatar" @click="open = !open" :aria-expanded="open ? 'true' : 'false'">
       <img v-if="imageUrl" :src="imageUrl" alt="Helper" />
       <span v-else aria-hidden="true">?</span>
@@ -29,7 +34,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useSuperadminBuilderStore } from '../store/superadminBuilder';
@@ -78,16 +83,96 @@ const helperConfig = computed(() => {
     enabled: true,
     imageUrl: overlaysStore.platformHelper?.imageUrl || null,
     message: 'Need help? Toggle the Builder to configure me per page.',
-    position: 'bottom_right'
+    position: 'bottom_right',
+    placements: []
   };
 });
 
-const enabled = computed(() => props.enabled && helperConfig.value.enabled !== false);
-const imageUrl = computed(() => helperConfig.value.imageUrl);
-const message = computed(() => helperConfig.value.message);
+const placements = computed(() => (Array.isArray(helperConfig.value?.placements) ? helperConfig.value.placements : []));
+
+const firstMatchingPlacement = computed(() => {
+  for (const p of placements.value) {
+    try {
+      const sel = String(p?.selector || '').trim();
+      if (!sel) continue;
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const r = el.getBoundingClientRect?.();
+      if (!r || r.width <= 0 || r.height <= 0) continue;
+      return { ...p, __rect: r };
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+});
+
+const hasPlacementMatch = computed(() => !!firstMatchingPlacement.value);
+
+// If placements are defined, only show when a placement matches (ideal for modals / step UIs).
+const enabled = computed(() => {
+  if (!props.enabled) return false;
+  if (helperConfig.value.enabled === false) return false;
+  if (placements.value.length > 0) return hasPlacementMatch.value;
+  return true;
+});
+
+// Platform image is the source of truth.
+const imageUrl = computed(() => overlaysStore.platformHelper?.imageUrl || null);
+
+const message = computed(() => {
+  const match = firstMatchingPlacement.value;
+  if (match && match.message) return match.message;
+  return helperConfig.value.message;
+});
+
 const positionClass = computed(() =>
   helperConfig.value.position === 'bottom_left' ? 'bottom-left' : 'bottom-right'
 );
+
+const anchoredStyle = ref(null);
+let tick = null;
+let onMove = null;
+
+const updateAnchoredStyle = () => {
+  const match = firstMatchingPlacement.value;
+  if (!match) {
+    anchoredStyle.value = null;
+    return;
+  }
+  const rect = match.__rect;
+  const side = String(match.side || 'right');
+  const offset = 12;
+  const size = 56; // avatar size
+
+  let top = rect.top;
+  let left = rect.left;
+
+  if (side === 'right') {
+    top = rect.top + rect.height / 2 - size / 2;
+    left = rect.right + offset;
+  } else if (side === 'left') {
+    top = rect.top + rect.height / 2 - size / 2;
+    left = rect.left - size - offset;
+  } else if (side === 'top') {
+    top = rect.top - size - offset;
+    left = rect.left + rect.width / 2 - size / 2;
+  } else if (side === 'bottom') {
+    top = rect.bottom + offset;
+    left = rect.left + rect.width / 2 - size / 2;
+  }
+
+  // Keep within viewport a bit
+  top = Math.max(10, Math.min(top, window.innerHeight - size - 10));
+  left = Math.max(10, Math.min(left, window.innerWidth - size - 10));
+
+  anchoredStyle.value = {
+    top: `${Math.round(top)}px`,
+    left: `${Math.round(left)}px`,
+    right: 'auto',
+    bottom: 'auto'
+  };
+};
 
 watch(() => route.fullPath, () => {
   open.value = false;
@@ -105,6 +190,32 @@ try {
 } catch {
   // ignore
 }
+
+watch(
+  () => [route.fullPath, helperConfig.value, overlaysStore.platformHelper?.imageUrl],
+  () => {
+    updateAnchoredStyle();
+  },
+  { deep: true }
+);
+
+onMounted(() => {
+  onMove = () => updateAnchoredStyle();
+  window.addEventListener('resize', onMove);
+  window.addEventListener('scroll', onMove, true);
+  tick = setInterval(updateAnchoredStyle, 250);
+  updateAnchoredStyle();
+});
+
+onUnmounted(() => {
+  if (onMove) {
+    window.removeEventListener('resize', onMove);
+    window.removeEventListener('scroll', onMove, true);
+    onMove = null;
+  }
+  if (tick) clearInterval(tick);
+  tick = null;
+});
 
 const answerStub = () => {
   if (!question.value.trim()) return;

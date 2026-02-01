@@ -160,6 +160,22 @@
               </div>
             </div>
           </div>
+
+          <div class="panel">
+            <div class="panel-title">Clients (psychotherapy fiscal-year totals)</div>
+            <div v-if="psychotherapyLoading" class="muted">Loading psychotherapy totals…</div>
+            <div v-else-if="psychotherapyError" class="muted">Psychotherapy totals unavailable.</div>
+            <ClientListGrid
+              v-else
+              :organization-slug="String(route.params.organizationSlug || '')"
+              :organization-id="Number(props.schoolOrganizationId)"
+              roster-scope="provider"
+              :client-label-mode="clientLabelMode"
+              :psychotherapy-totals-by-client-id="psychotherapyTotalsByClientId"
+              :show-search="true"
+              search-placeholder="Search clients…"
+            />
+          </div>
         </div>
 
         <div class="right">
@@ -220,6 +236,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../../services/api';
 import SchoolDayBar from './SchoolDayBar.vue';
 import SoftScheduleEditor from './SoftScheduleEditor.vue';
+import ClientListGrid from '../ClientListGrid.vue';
 import { useAuthStore } from '../../../store/auth';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
 
@@ -249,6 +266,11 @@ const profile = ref(null);
 const caseload = ref(null);
 const loading = ref(false);
 const error = ref('');
+
+const psychotherapyTotalsByClientId = ref(null);
+const psychotherapyLoading = ref(false);
+const psychotherapyError = ref('');
+const psychotherapyFiscalYearStart = ref('');
 
 const selectedWeekday = ref(null);
 
@@ -397,6 +419,50 @@ const normalizedSupervisors = computed(() => {
   return [];
 });
 
+const computeFiscalYearStartYmd = (d) => {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return '';
+  const y = dt.getFullYear();
+  const m = dt.getMonth() + 1;
+  const startYear = m >= 7 ? y : (y - 1);
+  return `${startYear}-07-01`;
+};
+
+const loadPsychotherapyCompliance = async () => {
+  try {
+    psychotherapyLoading.value = true;
+    psychotherapyError.value = '';
+    psychotherapyTotalsByClientId.value = null;
+    if (!psychotherapyFiscalYearStart.value) {
+      psychotherapyFiscalYearStart.value = computeFiscalYearStartYmd(new Date());
+    }
+    const aff = await api.get(`/school-portal/${props.schoolOrganizationId}/affiliation`);
+    const agencyId = aff.data?.active_agency_id ? Number(aff.data.active_agency_id) : null;
+    if (!agencyId) return;
+    const r = await api.get('/psychotherapy-compliance/summary', {
+      params: { agencyId, fiscalYearStart: psychotherapyFiscalYearStart.value }
+    });
+    const matched = Array.isArray(r.data?.matched) ? r.data.matched : [];
+    const m = {};
+    for (const row of matched) {
+      if (!row?.client_id) continue;
+      m[String(row.client_id)] = {
+        total: Number(row?.total || 0),
+        per_code: row?.per_code || {},
+        client_abbrev: row?.client_abbrev || null,
+        surpassed_24: !!row?.surpassed_24
+      };
+    }
+    psychotherapyTotalsByClientId.value = m;
+  } catch (e) {
+    // Non-blocking: if the agency context isn't available or access is denied, don't break the profile.
+    psychotherapyError.value = e?.response?.data?.error?.message || '';
+    psychotherapyTotalsByClientId.value = null;
+  } finally {
+    psychotherapyLoading.value = false;
+  }
+};
+
 const load = async () => {
   try {
     loading.value = true;
@@ -410,6 +476,7 @@ const load = async () => {
     caseload.value = c.data || null;
     recomputeDayBar();
     recomputeSelectedDayClients();
+    await loadPsychotherapyCompliance();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load provider profile';
   } finally {

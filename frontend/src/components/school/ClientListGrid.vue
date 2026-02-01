@@ -48,6 +48,16 @@
               Assigned Day
               <span class="sort-indicator" v-if="sortKey === 'service_day'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
+            <th
+              v-if="showPsychotherapyColumn"
+              class="sortable"
+              @click="toggleSort('psychotherapy_total')"
+              role="button"
+              tabindex="0"
+            >
+              Psychotherapy FY
+              <span class="sort-indicator" v-if="sortKey === 'psychotherapy_total'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            </th>
             <th></th>
             <th v-if="showChecklistButton"></th>
             <th v-if="canEditClients" class="edit-col">Edit</th>
@@ -81,6 +91,15 @@
             <td>{{ client.provider_name || 'Not assigned' }}</td>
             <td>{{ client.skills ? 'Yes' : 'No' }}</td>
             <td>{{ client.service_day || '—' }}</td>
+            <td v-if="showPsychotherapyColumn" class="psy-cell">
+              <span
+                class="psy-pill"
+                :class="{ 'psy-pill-alert': (psychotherapyCell(client).total || 0) >= 25 }"
+                :title="psychotherapyCell(client).title"
+              >
+                {{ psychotherapyCell(client).total ?? '—' }}
+              </span>
+            </td>
             <td>
               <button class="btn btn-secondary btn-sm comment-btn" @click="openClient(client)">
                 <span v-if="(client.unread_notes_count || 0) > 0" class="unread-dot" aria-hidden="true" />
@@ -150,6 +169,11 @@ const props = defineProps({
   searchPlaceholder: {
     type: String,
     default: 'Search roster…'
+  },
+  psychotherapyTotalsByClientId: {
+    // { [clientId]: { total: number, per_code: { [code]: number }, client_abbrev?: string, surpassed_24?: boolean } }
+    type: Object,
+    default: null
   }
 });
 
@@ -171,6 +195,8 @@ const showChecklistButton = computed(() => {
 
 const sortKey = ref('submission_date');
 const sortDir = ref('desc');
+
+const showPsychotherapyColumn = computed(() => !!props.psychotherapyTotalsByClientId);
 
 const fetchClients = async () => {
   // School roster requires a numeric org id.
@@ -252,6 +278,12 @@ const sortValue = (client, key) => {
   if (key === 'document_status') return String(formatDocSummary(client) || '').toLowerCase();
   if (key === 'provider_name') return String(client.provider_name || '').toLowerCase();
   if (key === 'skills') return client.skills ? 1 : 0;
+  if (key === 'psychotherapy_total') {
+    const m = props.psychotherapyTotalsByClientId || {};
+    const rec = m?.[String(client?.id ?? '')] || m?.[Number(client?.id ?? 0)] || null;
+    const t = Number(rec?.total ?? 0);
+    return Number.isFinite(t) ? t : 0;
+  }
   if (key === 'service_day') {
     // Multi-provider may return "Mon, Wed"; sort by first day token.
     const raw = String(client.service_day || '');
@@ -348,6 +380,21 @@ const formatDocSummary = (client) => {
   if (!v) return '—';
   if (v.toUpperCase() === 'NONE') return 'None';
   return v.replace(/_/g, ' ');
+};
+
+const psychotherapyCell = (client) => {
+  const m = props.psychotherapyTotalsByClientId || null;
+  if (!m || !client?.id) return { total: null, title: '' };
+  const rec = m?.[String(client.id)] || m?.[Number(client.id)] || null;
+  if (!rec) return { total: 0, title: '' };
+  const per = rec?.per_code && typeof rec.per_code === 'object' ? rec.per_code : {};
+  const parts = Object.entries(per)
+    .filter(([, v]) => Number(v) > 0)
+    .sort(([a], [b]) => String(a).localeCompare(String(b)))
+    .map(([code, count]) => `${String(code).toUpperCase()} (${Number(count)})`);
+  const total = Number(rec?.total ?? 0);
+  const title = parts.length ? `${parts.join('\n')}\nTotal (${total})` : '';
+  return { total: Number.isFinite(total) ? total : 0, title };
 };
 
 const openClient = (client) => {
@@ -519,5 +566,26 @@ td {
   background: var(--danger, #d92d20);
   margin-right: 8px;
   vertical-align: middle;
+}
+
+.psy-cell {
+  white-space: nowrap;
+}
+.psy-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-weight: 900;
+}
+.psy-pill-alert {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.10);
+  color: #991b1b;
 }
 </style>

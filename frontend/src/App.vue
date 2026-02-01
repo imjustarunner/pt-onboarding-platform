@@ -136,6 +136,7 @@
                     <router-link :to="orgTo('/admin/executive-report')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Executive Report</router-link>
                     <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Payroll</router-link>
                     <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Receivables</router-link>
+                    <router-link :to="orgTo('/admin/psychotherapy-compliance')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Psychotherapy Compliance</router-link>
                     <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeAllNavMenus">Expense/Reimbursements</router-link>
                     <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeAllNavMenus">Revenue</router-link>
 

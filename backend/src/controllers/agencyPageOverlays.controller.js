@@ -97,6 +97,21 @@ export const upsertHelperOverlay = async (req, res, next) => {
     const enabled = helper.enabled !== false && req.body?.enabled !== false;
     const position = String(helper.position || 'bottom_right');
     const message = helper.message == null ? null : String(helper.message);
+
+    // Optional: contextual placements (ex: modal steps). If provided, helper UI will show only when a placement matches.
+    // Placement format: { selector: string, message?: string, side?: 'right'|'left'|'top'|'bottom' }
+    const rawPlacements = Array.isArray(helper.placements) ? helper.placements : [];
+    const placements = rawPlacements
+      .map((p) => {
+        const selector = String(p?.selector || '').trim();
+        if (!selector) return null;
+        const side = String(p?.side || 'right');
+        const sideNorm = ['right', 'left', 'top', 'bottom'].includes(side) ? side : 'right';
+        const msg = p?.message == null ? null : String(p.message);
+        return { selector: selector.slice(0, 400), side: sideNorm, message: msg };
+      })
+      .filter(Boolean);
+
     // Platform-level image only (do not store per-org image URLs).
     const imageUrl = null;
 
@@ -106,7 +121,7 @@ export const upsertHelperOverlay = async (req, res, next) => {
       overlayType: 'helper',
       enabled,
       version: 1,
-      config: { enabled, position, message, imageUrl },
+      config: { enabled, position, message, placements, imageUrl },
       actorUserId
     });
 

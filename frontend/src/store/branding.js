@@ -697,6 +697,7 @@ export const useBrandingStore = defineStore('branding', () => {
       documents: 'my_dashboard_documents_icon_path',
       my: 'my_dashboard_my_account_icon_path',
       my_schedule: 'my_dashboard_my_schedule_icon_path',
+      clients: 'my_dashboard_clients_icon_path',
       on_demand_training: 'my_dashboard_on_demand_training_icon_path',
       payroll: 'my_dashboard_payroll_icon_path',
       submit: 'my_dashboard_submit_icon_path',
