@@ -1,11 +1,11 @@
 <template>
   <div class="container">
-    <div class="page-header">
+    <div class="page-header" data-tour="schools-overview-header">
       <div class="header-left">
-        <h1>{{ pageTitle }}</h1>
+        <h1 data-tour="schools-overview-title">{{ pageTitle }}</h1>
         <span class="badge badge-info">Admin</span>
       </div>
-      <div class="header-actions">
+      <div class="header-actions" data-tour="schools-overview-actions">
         <router-link class="btn btn-secondary" to="/admin/clients">Back to Client Management</router-link>
         <button class="btn btn-secondary" type="button" :disabled="loading" @click="refresh">
           {{ loading ? 'Refreshing…' : 'Refresh' }}
@@ -13,8 +13,8 @@
       </div>
     </div>
 
-    <div class="controls">
-      <div v-if="isSuperAdmin" class="control">
+    <div class="controls" data-tour="schools-overview-controls">
+      <div v-if="isSuperAdmin" class="control" data-tour="schools-overview-agency">
         <label class="control-label">Agency</label>
         <select v-model="selectedAgencyId" class="control-select">
           <option v-for="a in agencyOptions" :key="a.id" :value="String(a.id)">
@@ -25,7 +25,7 @@
 
       <div class="control" style="flex: 1;">
         <label class="control-label">Search</label>
-        <input v-model="searchQuery" class="control-input" type="text" :placeholder="searchPlaceholder" />
+        <input v-model="searchQuery" class="control-input" type="text" :placeholder="searchPlaceholder" data-tour="schools-overview-search" />
       </div>
 
       <div class="control">
@@ -47,11 +47,12 @@
         {{ emptyStateText }}
       </div>
 
-      <div v-else class="cards-grid">
+      <div v-else class="cards-grid" data-tour="schools-overview-cards">
         <div
           v-for="s in filteredSchools"
           :key="s.school_id"
           class="school-card"
+          data-tour="schools-overview-card"
           role="button"
           tabindex="0"
           :class="{ 'skills-active': s.skills_group_occurring_now }"

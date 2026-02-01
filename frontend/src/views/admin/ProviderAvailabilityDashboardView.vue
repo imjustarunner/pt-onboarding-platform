@@ -1,11 +1,11 @@
 <template>
   <div class="page">
-    <div class="page-header">
+    <div class="page-header" data-tour="avail-header">
       <div>
-        <h1>Provider Availability</h1>
-        <p class="page-description">View school slots, office availability, and virtual availability templates.</p>
+        <h1 data-tour="avail-title">Provider Availability</h1>
+        <p class="page-description" data-tour="avail-subtitle">View school slots, office availability, and virtual availability templates.</p>
       </div>
-      <div class="header-actions">
+      <div class="header-actions" data-tour="avail-actions">
         <button class="btn btn-secondary" type="button" @click="reload" :disabled="loading">Refresh</button>
       </div>
     </div>
@@ -14,18 +14,18 @@
       <p>Select an agency first.</p>
     </div>
 
-    <div v-else class="panel">
-      <div class="tabs">
-        <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'">School slots</button>
-        <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'">Office availability</button>
-        <button class="tab" :class="{ active: tab === 'virtual' }" @click="tab = 'virtual'">Virtual availability</button>
+    <div v-else class="panel" data-tour="avail-panel">
+      <div class="tabs" data-tour="avail-tabs">
+        <button class="tab" :class="{ active: tab === 'school' }" @click="tab = 'school'" data-tour="avail-tab-school">School slots</button>
+        <button class="tab" :class="{ active: tab === 'office' }" @click="tab = 'office'" data-tour="avail-tab-office">Office availability</button>
+        <button class="tab" :class="{ active: tab === 'virtual' }" @click="tab = 'virtual'" data-tour="avail-tab-virtual">Virtual availability</button>
       </div>
 
       <div v-if="error" class="error">{{ error }}</div>
       <div v-else-if="loading" class="loading">Loading…</div>
 
       <div v-else>
-        <div class="filters">
+        <div class="filters" data-tour="avail-filters">
           <div class="field">
             <label>Provider</label>
             <select v-model="filters.providerId" class="select">
@@ -78,7 +78,7 @@
           </div>
         </div>
 
-        <div v-if="tab === 'school'" class="school-actions">
+        <div v-if="tab === 'school'" class="school-actions" data-tour="avail-school-actions">
           <button class="btn btn-secondary btn-sm" type="button" @click="expandAllSchools" :disabled="schoolGroups.length === 0">
             Expand all
           </button>
@@ -88,7 +88,7 @@
           <div class="muted" style="font-size: 12px;">Schools: {{ schoolGroups.length }} · Rows: {{ schoolRows.length }}</div>
         </div>
 
-        <div v-if="tab === 'school'" class="table-wrap">
+        <div v-if="tab === 'school'" class="table-wrap" data-tour="avail-school-table">
           <table class="table">
             <thead>
               <tr>
@@ -149,7 +149,7 @@
           </table>
         </div>
 
-        <div v-else-if="tab === 'office'" class="table-wrap">
+        <div v-else-if="tab === 'office'" class="table-wrap" data-tour="avail-office-table">
           <table class="table">
             <thead>
               <tr>
@@ -183,7 +183,7 @@
           </table>
         </div>
 
-        <div v-else class="table-wrap">
+        <div v-else class="table-wrap" data-tour="avail-virtual-table">
           <table class="table">
             <thead>
               <tr>

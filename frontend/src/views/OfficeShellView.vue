@@ -1,11 +1,11 @@
 <template>
   <div class="container office-shell">
-    <div class="header">
+    <div class="header" data-tour="buildings-header">
       <div>
-        <h2>Office locations</h2>
-        <p class="subtitle">Scheduling, kiosk, and office location settings.</p>
+        <h2 data-tour="buildings-title">Office locations</h2>
+        <p class="subtitle" data-tour="buildings-subtitle">Scheduling, kiosk, and office location settings.</p>
       </div>
-      <div class="actions">
+      <div class="actions" data-tour="buildings-office-select">
         <select v-model="selectedOfficeId" @change="onOfficeChanged" :disabled="loading">
           <option value="">Select an office location…</option>
           <option v-for="o in offices" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
@@ -13,15 +13,17 @@
       </div>
     </div>
 
-    <div class="tabs">
-      <router-link class="tab" :class="{ active: isActive('/buildings/schedule') }" :to="orgTo('/buildings/schedule')">Schedule</router-link>
-      <router-link class="tab" :class="{ active: isActive('/buildings/review') }" :to="orgTo('/buildings/review')">Review</router-link>
-      <router-link class="tab" :class="{ active: isActive('/buildings/settings') }" :to="orgTo('/buildings/settings')">Settings</router-link>
+    <div class="tabs" data-tour="buildings-tabs">
+      <router-link class="tab" :class="{ active: isActive('/buildings/schedule') }" :to="orgTo('/buildings/schedule')" data-tour="buildings-tab-schedule">Schedule</router-link>
+      <router-link class="tab" :class="{ active: isActive('/buildings/review') }" :to="orgTo('/buildings/review')" data-tour="buildings-tab-review">Review</router-link>
+      <router-link class="tab" :class="{ active: isActive('/buildings/settings') }" :to="orgTo('/buildings/settings')" data-tour="buildings-tab-settings">Settings</router-link>
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
 
-    <router-view />
+    <div data-tour="buildings-content">
+      <router-view />
+    </div>
   </div>
 </template>
 

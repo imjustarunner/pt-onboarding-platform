@@ -1,12 +1,12 @@
 <template>
   <div class="container comms-feed">
-    <div class="header">
+    <div class="header" data-tour="comms-header">
       <div>
-        <h2>Communications</h2>
-        <p class="subtitle">Texts + platform chats.</p>
+        <h2 data-tour="comms-title">Communications</h2>
+        <p class="subtitle" data-tour="comms-subtitle">Texts + platform chats.</p>
       </div>
-      <div class="header-actions">
-        <router-link class="btn btn-secondary" :to="chatsLink">Chats</router-link>
+      <div class="header-actions" data-tour="comms-actions">
+        <router-link class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Chats</router-link>
         <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
       </div>
     </div>
@@ -14,13 +14,14 @@
     <div v-if="error" class="error-box">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading…</div>
 
-    <div v-else class="card">
+    <div v-else class="card" data-tour="comms-card">
       <div v-if="rows.length === 0" class="empty">No communications yet.</div>
-      <div v-else class="list">
+      <div v-else class="list" data-tour="comms-list">
         <button
           v-for="item in rows"
           :key="itemKey(item)"
           class="row"
+          data-tour="comms-row"
           @click="openItem(item)"
           :title="item.preview"
         >

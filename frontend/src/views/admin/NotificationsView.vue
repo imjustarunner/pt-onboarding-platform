@@ -1,8 +1,8 @@
 <template>
   <div class="notifications-view">
-    <div class="view-header">
-      <h1>Notifications</h1>
-      <div v-if="agencies.length > 1" class="agency-selector">
+    <div class="view-header" data-tour="notifications-header">
+      <h1 data-tour="notifications-title">Notifications</h1>
+      <div v-if="agencies.length > 1" class="agency-selector" data-tour="notifications-agency-filter">
         <label>Filter by Agency:</label>
         <select v-model="selectedAgencyId" @change="handleAgencyChange" class="agency-select">
           <option :value="null">All Agencies</option>
@@ -13,7 +13,7 @@
       </div>
     </div>
 
-    <div class="filters-section">
+    <div class="filters-section" data-tour="notifications-filters">
       <div class="filter-group">
         <label>Type:</label>
         <select v-model="filters.type" @change="applyFilters" class="filter-select">
@@ -73,11 +73,12 @@
     <div v-else-if="groupedNotifications.length === 0" class="empty-state">
       <p>No notifications found.</p>
     </div>
-    <div v-else class="notifications-list">
+    <div v-else class="notifications-list" data-tour="notifications-list">
       <div
         v-for="group in groupedNotifications"
         :key="groupBy === 'user' ? group.userId : group.type"
         class="notification-group"
+        data-tour="notifications-group"
       >
         <h2 class="group-title">
           <span v-if="groupBy === 'user'">
@@ -104,6 +105,7 @@
             v-for="notification in group.notifications"
             :key="notification.id"
             class="notification-item"
+            data-tour="notifications-item"
             :class="{
               'unread': !notification.is_read && !notification.is_resolved && (!notification.muted_until || new Date(notification.muted_until) <= new Date()),
               'resolved': notification.is_resolved,

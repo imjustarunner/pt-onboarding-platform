@@ -1,13 +1,13 @@
 <template>
   <div class="container">
-    <div class="page-header">
+    <div class="page-header" data-tour="payroll-header">
       <div>
-        <h1>Payroll</h1>
+        <h1 data-tour="payroll-title">Payroll</h1>
         <p class="subtitle">Upload your billing report. We’ll auto-detect the correct pay period (Sat→Fri, every 2 weeks).</p>
       </div>
     </div>
 
-    <div class="org-bar">
+    <div class="org-bar" data-tour="payroll-org-bar">
       <div class="org-bar-left">
         <div class="org-bar-label">Organization</div>
         <div v-if="!showOrgPicker" class="org-bar-value">
@@ -23,7 +23,7 @@
       </div>
     </div>
 
-    <div class="card wizard-hero" style="margin-bottom: 12px;">
+    <div class="card wizard-hero" style="margin-bottom: 12px;" data-tour="payroll-wizard-hero">
       <div class="wizard-hero-head">
         <div>
           <h2 class="card-title" style="margin-bottom: 4px;">Payroll Wizard</h2>
@@ -33,8 +33,8 @@
         </div>
       </div>
 
-      <div class="wizard-hero-controls">
-        <div class="field wizard-period">
+      <div class="wizard-hero-controls" data-tour="payroll-wizard-controls">
+        <div class="field wizard-period" data-tour="payroll-period-picker">
           <label>Pay period</label>
           <select v-model="selectedPeriodId" :disabled="!agencyId || !(periods || []).length">
             <option :value="null" disabled>Select a pay period…</option>
@@ -45,7 +45,7 @@
           </div>
         </div>
 
-        <div class="wizard-cta">
+        <div class="wizard-cta" data-tour="payroll-open-wizard">
           <button class="btn btn-primary wizard-btn" type="button" @click="openPayrollWizard" :disabled="!selectedPeriodId">
             Open Payroll Wizard
           </button>

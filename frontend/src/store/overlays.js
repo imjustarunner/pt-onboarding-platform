@@ -4,6 +4,15 @@ import api from '../services/api';
 
 const keyFor = (agencyId, routeName) => `${String(agencyId)}::${String(routeName)}`;
 
+const extractApiErrorMessage = (e) => {
+  const msg =
+    e?.response?.data?.error?.message ||
+    e?.response?.data?.message ||
+    e?.message ||
+    'Request failed';
+  return String(msg);
+};
+
 export const useOverlaysStore = defineStore('overlays', () => {
   const cache = ref({}); // key -> { tutorial, helper, fetchedAt }
   const loadingKeys = ref({});
@@ -84,14 +93,18 @@ export const useOverlaysStore = defineStore('overlays', () => {
   };
 
   const uploadPlatformHelperImage = async (file) => {
-    const form = new FormData();
-    form.append('image', file);
-    const resp = await api.post('/overlays/platform/helper-image', form, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-    // Refresh cached settings
-    await fetchPlatformHelper();
-    return resp?.data || null;
+    try {
+      const form = new FormData();
+      form.append('image', file);
+      const resp = await api.post('/overlays/platform/helper-image', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      // Refresh cached settings
+      await fetchPlatformHelper();
+      return resp?.data || null;
+    } catch (e) {
+      throw new Error(extractApiErrorMessage(e));
+    }
   };
 
   return {

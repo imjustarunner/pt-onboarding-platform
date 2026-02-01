@@ -98,8 +98,24 @@ export const upsertHelperOverlay = async (req, res, next) => {
     const position = String(helper.position || 'bottom_right');
     const message = helper.message == null ? null : String(helper.message);
 
+    const normalizeAgentConfig = (raw) => {
+      if (!raw || typeof raw !== 'object') return null;
+      const enabled = raw.enabled === true;
+      if (!enabled) return { enabled: false, systemPrompt: null, allowedTools: [] };
+      const systemPrompt = raw.systemPrompt == null ? null : String(raw.systemPrompt).slice(0, 6000);
+      const allowed = Array.isArray(raw.allowedTools) ? raw.allowedTools : [];
+      const allowList = new Set(['createTask', 'createHiringCandidate', 'addHiringNote', 'setHiringStage']);
+      const allowedTools = allowed
+        .map((t) => String(t || '').trim())
+        .filter((t) => allowList.has(t))
+        .slice(0, 10);
+      return { enabled: true, systemPrompt: systemPrompt || null, allowedTools };
+    };
+
+    const agent = normalizeAgentConfig(helper.agent);
+
     // Optional: contextual placements (ex: modal steps). If provided, helper UI will show only when a placement matches.
-    // Placement format: { selector: string, message?: string, side?: 'right'|'left'|'top'|'bottom' }
+    // Placement format: { selector: string, message?: string, side?: 'right'|'left'|'top'|'bottom', agent?: { enabled, systemPrompt?, allowedTools[] } }
     const rawPlacements = Array.isArray(helper.placements) ? helper.placements : [];
     const placements = rawPlacements
       .map((p) => {
@@ -108,7 +124,8 @@ export const upsertHelperOverlay = async (req, res, next) => {
         const side = String(p?.side || 'right');
         const sideNorm = ['right', 'left', 'top', 'bottom'].includes(side) ? side : 'right';
         const msg = p?.message == null ? null : String(p.message);
-        return { selector: selector.slice(0, 400), side: sideNorm, message: msg };
+        const placementAgent = normalizeAgentConfig(p?.agent);
+        return { selector: selector.slice(0, 400), side: sideNorm, message: msg, agent: placementAgent };
       })
       .filter(Boolean);
 
@@ -121,7 +138,7 @@ export const upsertHelperOverlay = async (req, res, next) => {
       overlayType: 'helper',
       enabled,
       version: 1,
-      config: { enabled, position, message, placements, imageUrl },
+      config: { enabled, position, message, agent, placements, imageUrl },
       actorUserId
     });
 

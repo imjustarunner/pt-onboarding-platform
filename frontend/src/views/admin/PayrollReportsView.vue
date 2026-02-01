@@ -1,13 +1,13 @@
 <template>
   <div>
-    <div class="card" style="margin-bottom: 12px;">
-      <h2 class="card-title">Payroll Reports</h2>
+    <div class="card" style="margin-bottom: 12px;" data-tour="payroll-reports-header">
+      <h2 class="card-title" data-tour="payroll-reports-title">Payroll Reports</h2>
       <div class="hint">Build and download the exact report you need.</div>
     </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
 
-    <div class="card" style="margin-bottom: 12px;">
+    <div class="card" style="margin-bottom: 12px;" data-tour="payroll-reports-filters">
       <div class="field-row" style="grid-template-columns: 1fr 1fr; align-items: end;">
         <div class="field">
           <label>Pay period</label>
@@ -106,8 +106,8 @@
       </div>
     </div>
 
-    <div class="card" style="margin-bottom: 12px;">
-      <div class="actions" style="justify-content: flex-start;">
+    <div class="card" style="margin-bottom: 12px;" data-tour="payroll-reports-actions">
+      <div class="actions" style="justify-content: flex-start;" data-tour="payroll-reports-report-tabs">
         <button class="btn btn-secondary" type="button" @click="activeTab = 'export'">Payroll export</button>
         <button class="btn btn-secondary" type="button" @click="activeTab = 'sessions'">Sessions / Units</button>
         <button class="btn btn-secondary" type="button" @click="activeTab = 'service_codes'">Service Code Totals</button>

@@ -31,3 +31,12 @@ export const noteAidLimiter = rateLimit({
   keyGenerator: (req) => `note-aid:${req.user?.id || req.ip}`,
 });
 
+export const agentLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: isDevelopment ? 60 : 10, // keep relatively low in prod (LLMs are expensive)
+  message: { error: { message: 'Too many assistant requests, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `agent:${req.user?.id || req.ip}`,
+});
+

@@ -1,12 +1,12 @@
 <template>
   <div class="container chats-view">
-    <div class="header">
+    <div class="header" data-tour="chats-header">
       <div>
-        <h2>Platform Chats</h2>
-        <p class="subtitle">Direct messages within the selected agency.</p>
+        <h2 data-tour="chats-title">Platform Chats</h2>
+        <p class="subtitle" data-tour="chats-subtitle">Direct messages within the selected agency.</p>
       </div>
-      <div class="header-actions">
-        <div v-if="canChooseAgency" class="agency-picker">
+      <div class="header-actions" data-tour="chats-actions">
+        <div v-if="canChooseAgency" class="agency-picker" data-tour="chats-agency-picker">
           <label>Agency</label>
           <select v-model="selectedAgencyId" @change="onAgencyPicked">
             <option :value="''">Select…</option>
@@ -17,12 +17,12 @@
       </div>
     </div>
 
-    <div v-if="!agencyId" class="empty">
+    <div v-if="!agencyId" class="empty" data-tour="chats-empty">
       Select an agency first.
     </div>
 
-    <div v-else class="grid">
-      <div class="card threads">
+    <div v-else class="grid" data-tour="chats-grid">
+      <div class="card threads" data-tour="chats-threads">
         <div class="card-title">Threads</div>
         <div v-if="loading" class="muted">Loading…</div>
         <div v-else-if="error" class="error">{{ error }}</div>
@@ -32,6 +32,7 @@
           v-for="t in threads"
           :key="t.thread_id"
           class="thread"
+          data-tour="chats-thread"
           :class="{ active: t.thread_id === activeThreadId }"
           @click="selectThread(t)"
         >
@@ -47,10 +48,10 @@
         </button>
       </div>
 
-      <div class="card messages">
+      <div class="card messages" data-tour="chats-messages">
         <div class="card-title title-row">
           <span>{{ activeThreadLabel }}</span>
-          <div v-if="activeThreadId" class="title-actions">
+          <div v-if="activeThreadId" class="title-actions" data-tour="chats-thread-actions">
             <button class="btn btn-secondary btn-xs" type="button" @click="toggleSelectMode" :disabled="sending || messagesLoading">
               {{ selectMode ? 'Cancel' : 'Select' }}
             </button>
@@ -74,7 +75,7 @@
         <div v-else>
           <div v-if="messagesLoading" class="muted">Loading…</div>
           <div v-else-if="messagesError" class="error">{{ messagesError }}</div>
-          <div v-else class="bubble-list" ref="messagesEl">
+          <div v-else class="bubble-list" ref="messagesEl" data-tour="chats-bubble-list">
             <div v-for="m in messages" :key="m.id" class="bubble-row" :class="{ mine: m.sender_user_id === meId }">
               <label v-if="selectMode" class="select-box">
                 <input
@@ -115,7 +116,7 @@
             </div>
           </div>
 
-          <div class="composer">
+          <div class="composer" data-tour="chats-composer">
             <textarea v-model="draft" rows="3" placeholder="Type a message…" />
             <div class="actions">
               <button class="btn btn-primary" @click="send" :disabled="sending || !draft.trim()">Send</button>

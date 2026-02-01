@@ -1,11 +1,13 @@
 <template>
   <div class="wrap">
-    <ProviderSchoolProfile
-      v-if="organizationId && providerUserId"
-      :school-organization-id="organizationId"
-      :provider-user-id="providerUserId"
-      @open-client="openClient"
-    />
+    <div data-tour="school-provider-profile-page">
+      <ProviderSchoolProfile
+        v-if="organizationId && providerUserId"
+        :school-organization-id="organizationId"
+        :provider-user-id="providerUserId"
+        @open-client="openClient"
+      />
+    </div>
     <div v-else class="empty">Organization not loaded.</div>
 
     <ClientModal

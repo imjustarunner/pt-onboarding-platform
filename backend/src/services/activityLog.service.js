@@ -83,7 +83,9 @@ class ActivityLogService {
       'password_change',
 
       // AI / helper tools (do NOT log sensitive content in metadata)
-      'note_aid_execute'
+      'note_aid_execute',
+      'agent_assist',
+      'agent_tool_execute'
     ];
     
     if (data.actionType && !allowedActionTypes.includes(data.actionType)) {

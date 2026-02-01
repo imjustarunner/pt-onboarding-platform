@@ -73,7 +73,7 @@
     </div>
     
     <!-- Onboarding Checklist Card -->
-    <div v-if="onboardingCompletion < 100" class="onboarding-card">
+    <div v-if="onboardingCompletion < 100" class="onboarding-card" data-tour="dash-onboarding-card">
       <div class="onboarding-header">
         <h2>Onboarding Checklist</h2>
         <span class="completion-badge">{{ onboardingCompletion }}% Complete</span>
@@ -92,6 +92,7 @@
     <div
       v-if="!previewMode && isOnboardingComplete && !isPending && !isSchoolStaff && providerSurfacesEnabled"
       class="top-snapshot-wrap"
+      data-tour="dash-snapshot"
     >
       <div class="top-snapshot-head">
         <div class="top-snapshot-title">My Snapshot</div>
@@ -165,7 +166,12 @@
           />
 
           <!-- My Schedule (full-width focus panel) -->
-          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff" v-show="activeTab === 'my_schedule'" class="my-panel my-schedule-panel">
+          <div
+            v-if="!previewMode && isOnboardingComplete && !isSchoolStaff"
+            v-show="activeTab === 'my_schedule'"
+            class="my-panel my-schedule-panel"
+            data-tour="dash-my-schedule-panel"
+          >
             <div class="my-schedule-stage">
               <div class="section-header">
                 <h2 style="margin: 0;">My Schedule</h2>
@@ -190,7 +196,12 @@
           </div>
 
           <!-- Submit (right panel) -->
-          <div v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && providerSurfacesEnabled" v-show="activeTab === 'submit'" class="my-panel">
+          <div
+            v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && providerSurfacesEnabled"
+            v-show="activeTab === 'submit'"
+            class="my-panel"
+            data-tour="dash-submit-panel"
+          >
             <div class="section-header">
               <h2 style="margin: 0;">Submit</h2>
               <button v-if="submitPanelView !== 'root'" type="button" class="btn btn-secondary btn-sm" @click="submitPanelView = 'root'">
@@ -360,7 +371,7 @@
             v-show="activeTab === 'my'"
             class="my-panel"
           >
-            <div class="my-subnav">
+            <div class="my-subnav" data-tour="dash-my-subnav">
               <button
                 type="button"
                 class="subtab"

@@ -209,6 +209,12 @@
             <span v-else class="dim">None</span>
           </div>
         </div>
+        <div class="status-row" v-if="platformImageError">
+          <div class="status-label">Upload error</div>
+          <div class="status-val">
+            <span class="dim">{{ platformImageError }}</span>
+          </div>
+        </div>
         <div class="status-row">
           <input ref="platformImageInput" type="file" accept="image/*" @change="onPlatformImageSelected" />
           <button type="button" class="btn btn-secondary btn-sm" :disabled="!selectedPlatformImage" @click="uploadPlatformImage">
@@ -220,6 +226,31 @@
       <div class="field">
         <label>Fallback message (when no placement matches)</label>
         <textarea v-model="helperDraft.message" rows="3" placeholder="What should the helper say on this page?" />
+      </div>
+
+      <div class="status">
+        <div class="status-row">
+          <div class="status-label">Agent (this page)</div>
+          <div class="status-val">
+            <label class="chk">
+              <input type="checkbox" v-model="helperDraft.agentEnabled" />
+              Enabled
+            </label>
+          </div>
+        </div>
+        <div class="field" style="margin-top: 10px;" v-if="helperDraft.agentEnabled">
+          <label>Agent system prompt (optional)</label>
+          <textarea v-model="helperDraft.agentSystemPrompt" rows="3" placeholder="Define what this agent should do on this page..." />
+          <div class="help">This gets sent to the backend agent gateway as a policy/prompt layer.</div>
+        </div>
+        <div class="field" style="margin-top: 10px;" v-if="helperDraft.agentEnabled">
+          <label>Allowed tools</label>
+          <label v-for="t in allowedAgentTools" :key="t.id" class="chk" style="font-weight:600;">
+            <input type="checkbox" :value="t.id" v-model="helperDraft.agentAllowedTools" />
+            {{ t.label }}
+          </label>
+          <div class="help">Backend still enforces permissions; this just narrows what the agent will attempt.</div>
+        </div>
       </div>
       <div class="grid2">
         <div class="field">
@@ -284,6 +315,29 @@
           </div>
         </div>
 
+        <div class="status">
+          <div class="status-row">
+            <div class="status-label">Agent (this placement)</div>
+            <div class="status-val">
+              <label class="chk">
+                <input type="checkbox" v-model="placementDraft.agentEnabled" />
+                Enabled
+              </label>
+            </div>
+          </div>
+          <div class="field" style="margin-top: 10px;" v-if="placementDraft.agentEnabled">
+            <label>Agent system prompt (optional)</label>
+            <textarea v-model="placementDraft.agentSystemPrompt" rows="3" placeholder="Define what this agent should do when this modal step is visible..." />
+          </div>
+          <div class="field" style="margin-top: 10px;" v-if="placementDraft.agentEnabled">
+            <label>Allowed tools</label>
+            <label v-for="t in allowedAgentTools" :key="t.id" class="chk" style="font-weight:600;">
+              <input type="checkbox" :value="t.id" v-model="placementDraft.agentAllowedTools" />
+              {{ t.label }}
+            </label>
+          </div>
+        </div>
+
         <ol v-if="helperPlacements.length > 0" class="step-list">
           <li v-for="(p, idx) in helperPlacements" :key="idx" class="step-item">
             <div class="step-line">
@@ -339,20 +393,35 @@ const draft = reactive({
 const helperDraft = reactive({
   enabled: true,
   message: '',
-  position: 'bottom_right'
+  position: 'bottom_right',
+  agentEnabled: false,
+  agentSystemPrompt: '',
+  agentAllowedTools: []
 });
 
 const placementDraft = reactive({
   selector: '',
   side: 'right',
-  message: ''
+  message: '',
+  agentEnabled: false,
+  agentSystemPrompt: '',
+  agentAllowedTools: []
 });
+
+const allowedAgentTools = [
+  { id: 'createTask', label: 'createTask (admin-only)' },
+  { id: 'createHiringCandidate', label: 'createHiringCandidate (canManageHiring)' },
+  { id: 'addHiringNote', label: 'addHiringNote (canManageHiring)' },
+  { id: 'setHiringStage', label: 'setHiringStage (canManageHiring)' }
+];
 
 const platformImageInput = ref(null);
 const selectedPlatformImage = ref(null);
+const platformImageError = ref('');
 const onPlatformImageSelected = (e) => {
   const f = e?.target?.files?.[0] || null;
   selectedPlatformImage.value = f || null;
+  platformImageError.value = '';
 };
 
 const platformHelperImageUrl = computed(() => overlaysStore.platformHelper?.imageUrl || null);
@@ -508,18 +577,28 @@ const saveHelperDraft = () => {
     enabled: !!helperDraft.enabled,
     message: helperDraft.message || null,
     position: helperDraft.position || 'bottom_right',
+    agent: {
+      enabled: helperDraft.agentEnabled === true,
+      systemPrompt: String(helperDraft.agentSystemPrompt || '').trim() || null,
+      allowedTools: Array.isArray(helperDraft.agentAllowedTools) ? helperDraft.agentAllowedTools : []
+    },
     placements: helperPlacements.value
   });
 };
 
 const uploadPlatformImage = async () => {
   if (!selectedPlatformImage.value) return;
-  await overlaysStore.uploadPlatformHelperImage(selectedPlatformImage.value);
-  selectedPlatformImage.value = null;
+  platformImageError.value = '';
   try {
-    if (platformImageInput.value) platformImageInput.value.value = '';
-  } catch {
-    // ignore
+    await overlaysStore.uploadPlatformHelperImage(selectedPlatformImage.value);
+    selectedPlatformImage.value = null;
+    try {
+      if (platformImageInput.value) platformImageInput.value.value = '';
+    } catch {
+      // ignore
+    }
+  } catch (e) {
+    platformImageError.value = String(e?.message || e || 'Upload failed');
   }
 };
 
@@ -548,7 +627,21 @@ const addPlacement = () => {
   if (!selector) return;
   const side = ['right', 'left', 'top', 'bottom'].includes(String(placementDraft.side)) ? String(placementDraft.side) : 'right';
   const msg = String(placementDraft.message || '').trim();
-  const next = [...helperPlacements.value, { selector, side, message: msg || null }];
+  const next = [
+    ...helperPlacements.value,
+    {
+      selector,
+      side,
+      message: msg || null,
+      agent: placementDraft.agentEnabled
+        ? {
+            enabled: true,
+            systemPrompt: String(placementDraft.agentSystemPrompt || '').trim() || null,
+            allowedTools: Array.isArray(placementDraft.agentAllowedTools) ? placementDraft.agentAllowedTools : []
+          }
+        : null
+    }
+  ];
   store.setHelperDraftForRouteName(routeName.value, {
     ...(store.getHelperDraftForRouteName(routeName.value) || {}),
     enabled: !!helperDraft.enabled,
@@ -558,6 +651,9 @@ const addPlacement = () => {
   });
   placementDraft.selector = '';
   placementDraft.message = '';
+  placementDraft.agentEnabled = false;
+  placementDraft.agentSystemPrompt = '';
+  placementDraft.agentAllowedTools = [];
 };
 
 const removePlacement = (idx) => {
@@ -597,6 +693,9 @@ const syncHelperDraftFormFromStore = () => {
   helperDraft.enabled = d?.enabled !== false;
   helperDraft.message = d?.message || '';
   helperDraft.position = d?.position || 'bottom_right';
+  helperDraft.agentEnabled = d?.agent?.enabled === true;
+  helperDraft.agentSystemPrompt = d?.agent?.systemPrompt || '';
+  helperDraft.agentAllowedTools = Array.isArray(d?.agent?.allowedTools) ? d.agent.allowedTools : [];
 };
 
 watch(routeName, () => {

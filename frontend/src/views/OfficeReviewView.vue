@@ -1,9 +1,9 @@
 <template>
   <div class="office-review">
-    <div class="card">
-      <div class="head">
+    <div class="card" data-tour="buildings-review-card">
+      <div class="head" data-tour="buildings-review-header">
         <div>
-          <h3 style="margin: 0;">Building Review</h3>
+          <h3 style="margin: 0;" data-tour="buildings-review-title">Building Review</h3>
           <div class="muted">Biweekly (payroll) review + 6-week booked confirmations.</div>
         </div>
         <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
@@ -13,7 +13,7 @@
       <div v-else-if="loading" class="loading">Loading…</div>
 
       <div v-else>
-        <div class="summary">
+        <div class="summary" data-tour="buildings-review-summary">
           <div><strong>Total:</strong> {{ summary?.counts?.total ?? 0 }}</div>
           <div><strong>Needs 2-week review:</strong> {{ summary?.counts?.needsTwoWeekReview ?? 0 }}</div>
           <div><strong>Needs 6-week confirm:</strong> {{ summary?.counts?.needsSixWeekBookedConfirm ?? 0 }}</div>
@@ -23,8 +23,8 @@
           No assigned office slots found.
         </div>
 
-        <div v-else class="list">
-          <div v-for="a in summary.assignments" :key="a.standingAssignmentId" class="row">
+        <div v-else class="list" data-tour="buildings-review-list">
+          <div v-for="a in summary.assignments" :key="a.standingAssignmentId" class="row" data-tour="buildings-review-row">
             <div class="main">
               <div class="title">
                 {{ a.officeName }} — {{ a.roomNumber ? `#${a.roomNumber}` : '' }} {{ a.roomName }}
@@ -39,7 +39,7 @@
               </div>
             </div>
 
-            <div class="actions">
+            <div class="actions" data-tour="buildings-review-row-actions">
               <button
                 v-if="a.needsTwoWeekReview"
                 class="btn btn-secondary btn-sm"

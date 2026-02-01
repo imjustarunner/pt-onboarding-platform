@@ -77,12 +77,33 @@ const onKeydown = (e) => {
 };
 
 const filterRenderableSteps = (steps) => {
+  const isVisible = (el) => {
+    try {
+      if (!el || !(el instanceof Element)) return false;
+      const style = window.getComputedStyle(el);
+      if (!style) return false;
+      if (style.display === 'none') return false;
+      if (style.visibility === 'hidden') return false;
+      // getClientRects() is empty for display:none and for many off-DOM cases
+      if (el.getClientRects().length === 0) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   return (steps || []).filter((s) => {
     try {
       if (!s?.element) return true; // popovers without anchors are allowed
-      if (typeof s.element === 'string') return !!document.querySelector(s.element);
-      if (typeof s.element === 'function') return !!s.element();
-      return !!s.element; // Element
+      if (typeof s.element === 'string') {
+        const el = document.querySelector(s.element);
+        return !!el && isVisible(el);
+      }
+      if (typeof s.element === 'function') {
+        const el = s.element();
+        return !!el && isVisible(el);
+      }
+      return !!s.element && isVisible(s.element); // Element
     } catch {
       return false;
     }

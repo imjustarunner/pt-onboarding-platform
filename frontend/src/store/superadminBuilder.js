@@ -85,6 +85,13 @@ export const useSuperadminBuilderStore = defineStore('superadminBuilder', () => 
     const d = getDraftForRouteName(routeName);
     const h = d?.helper;
     if (!h || typeof h !== 'object') return null;
+    const agent = h.agent && typeof h.agent === 'object'
+      ? {
+          enabled: h.agent.enabled === true,
+          systemPrompt: String(h.agent.systemPrompt || '').trim() || null,
+          allowedTools: Array.isArray(h.agent.allowedTools) ? h.agent.allowedTools : []
+        }
+      : { enabled: false, systemPrompt: null, allowedTools: [] };
     const placements = Array.isArray(h.placements)
       ? h.placements
           .map((p) => {
@@ -93,7 +100,14 @@ export const useSuperadminBuilderStore = defineStore('superadminBuilder', () => 
             const side = String(p?.side || 'right');
             const sideNorm = ['right', 'left', 'top', 'bottom'].includes(side) ? side : 'right';
             const msg = p?.message == null ? null : String(p.message);
-            return { selector, side: sideNorm, message: msg };
+            const pa = p?.agent && typeof p.agent === 'object'
+              ? {
+                  enabled: p.agent.enabled === true,
+                  systemPrompt: String(p.agent.systemPrompt || '').trim() || null,
+                  allowedTools: Array.isArray(p.agent.allowedTools) ? p.agent.allowedTools : []
+                }
+              : null;
+            return { selector, side: sideNorm, message: msg, agent: pa };
           })
           .filter(Boolean)
       : [];
@@ -102,6 +116,7 @@ export const useSuperadminBuilderStore = defineStore('superadminBuilder', () => 
       enabled: h.enabled !== false,
       message: String(h.message || '').trim() || null,
       position: String(h.position || 'bottom_right'), // bottom_right | bottom_left
+      agent,
       placements
     };
   };
@@ -114,6 +129,7 @@ export const useSuperadminBuilderStore = defineStore('superadminBuilder', () => 
       enabled: helper?.enabled !== false,
       message: helper?.message || null,
       position: helper?.position || 'bottom_right',
+      agent: helper?.agent || prev?.helper?.agent || { enabled: false, systemPrompt: null, allowedTools: [] },
       placements: Array.isArray(helper?.placements) ? helper.placements : (prev?.helper?.placements || [])
     };
     const next = { ...prev, helper: nextHelper };

@@ -1,8 +1,8 @@
 <template>
   <div class="container">
-    <div class="page-header">
-      <h1>Client Management</h1>
-      <div class="header-actions">
+    <div class="page-header" data-tour="clients-header">
+      <h1 data-tour="clients-title">Client Management</h1>
+      <div class="header-actions" data-tour="clients-actions">
         <button @click="showBulkImportModal = true" class="btn btn-secondary">Bulk Import</button>
         <router-link
           v-if="canBackofficeEdit"
@@ -41,7 +41,7 @@
 
     <!-- Filters and Search -->
     <!-- Keep mounted during loading so inputs don't lose focus -->
-    <div class="table-controls" v-show="clients.length > 0">
+    <div class="table-controls" v-show="clients.length > 0" data-tour="clients-filters">
       <div class="filter-group">
         <input
           v-model="searchQuery"
@@ -50,6 +50,7 @@
           class="search-input"
           @input="onSearchInput"
           @keydown.enter.prevent="applyFilters"
+          data-tour="clients-search"
         />
         <select v-model="clientStatusFilter" @change="applyFilters" class="filter-select">
           <option value="">All Client Statuses</option>
@@ -157,7 +158,7 @@
         </div>
       </div>
 
-      <div class="pagination-bar">
+      <div class="pagination-bar" data-tour="clients-pagination">
         <div class="pagination-left">
           <span class="pagination-meta">
             Showing {{ pagedClients.length }} of {{ filteredClients.length }}
@@ -187,7 +188,7 @@
       <p v-else>No clients match your filters.</p>
     </div>
 
-    <div v-else class="clients-table-container">
+    <div v-else class="clients-table-container" data-tour="clients-table-container">
       <div v-if="selectedIds.size > 0" class="bulk-bar">
         <div class="bulk-left">
           <strong>{{ selectedIds.size }}</strong> selected
@@ -253,7 +254,7 @@
           </div>
         </div>
       </div>
-      <table class="clients-table">
+      <table class="clients-table" data-tour="clients-table">
         <thead>
           <tr>
             <th style="width: 34px;">

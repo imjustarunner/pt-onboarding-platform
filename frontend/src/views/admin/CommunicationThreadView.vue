@@ -1,14 +1,14 @@
 <template>
   <div class="container comms-thread">
-    <div class="header">
+    <div class="header" data-tour="thread-header">
       <div>
-        <router-link to="/admin/communications" class="back">← Back to All Recent Texts</router-link>
-        <h2>Conversation</h2>
-        <p class="subtitle">
+        <router-link to="/admin/communications" class="back" data-tour="thread-back">← Back to All Recent Texts</router-link>
+        <h2 data-tour="thread-title">Conversation</h2>
+        <p class="subtitle" data-tour="thread-client">
           Client: {{ thread?.client?.initials || '—' }}
         </p>
       </div>
-      <div class="header-actions">
+      <div class="header-actions" data-tour="thread-actions">
         <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
         <button class="btn btn-danger" @click="deleteConversation" :disabled="deleting || loading">
           {{ deleting ? 'Deleting…' : 'Delete conversation' }}
@@ -19,15 +19,16 @@
     <div v-if="error" class="error-box">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading…</div>
 
-    <div v-else class="grid">
-      <div class="card messages">
+    <div v-else class="grid" data-tour="thread-grid">
+      <div class="card messages" data-tour="thread-messages">
         <div v-if="thread?.messages?.length === 0" class="empty">No messages in this thread.</div>
-        <div v-else class="bubble-list">
+        <div v-else class="bubble-list" data-tour="thread-bubble-list">
           <div
             v-for="m in orderedMessages"
             :key="m.id"
             class="bubble"
             :class="m.direction === 'INBOUND' ? 'in' : 'out'"
+            data-tour="thread-bubble"
           >
             <div class="meta">
               <span class="dir">{{ m.direction }}</span>
@@ -38,7 +39,7 @@
         </div>
       </div>
 
-      <div class="card composer">
+      <div class="card composer" data-tour="thread-composer">
         <h3>Send message</h3>
         <div class="field">
           <label>Message</label>

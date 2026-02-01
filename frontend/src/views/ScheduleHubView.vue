@@ -1,32 +1,32 @@
 <template>
   <div class="container sched-hub">
-    <div class="header">
+    <div class="header" data-tour="schedule-hub-header">
       <div>
-        <h2 style="margin: 0;">Schedule</h2>
-        <p class="subtitle">Choose what schedule view you want to open.</p>
+        <h2 style="margin: 0;" data-tour="schedule-hub-title">Schedule</h2>
+        <p class="subtitle" data-tour="schedule-hub-subtitle">Choose what schedule view you want to open.</p>
       </div>
     </div>
 
-    <div class="grid">
-      <router-link class="card" :to="orgTo('/dashboard?tab=my_schedule')">
+    <div class="grid" data-tour="schedule-hub-grid">
+      <router-link class="card" :to="orgTo('/dashboard?tab=my_schedule')" data-tour="schedule-hub-card-full">
         <div class="card-title">Full schedule</div>
         <div class="card-desc">Your schedule grid (with requests, school assignments, office, and overlays).</div>
         <div class="card-cta">Open</div>
       </router-link>
 
-      <router-link class="card" :to="orgTo('/schedule/staff')">
+      <router-link class="card" :to="orgTo('/schedule/staff')" data-tour="schedule-hub-card-staff">
         <div class="card-title">Staff schedules (compare)</div>
         <div class="card-desc">Select multiple providers and compare schedules; reorder and view two+ at once.</div>
         <div class="card-cta">Open</div>
       </router-link>
 
-      <router-link class="card" :to="orgTo('/buildings/schedule')">
+      <router-link class="card" :to="orgTo('/buildings/schedule')" data-tour="schedule-hub-card-buildings-schedule">
         <div class="card-title">Buildings / offices schedule</div>
         <div class="card-desc">Master building schedule grid (rooms, slot states, booking actions).</div>
         <div class="card-cta">Open</div>
       </router-link>
 
-      <router-link class="card" :to="orgTo('/buildings')">
+      <router-link class="card" :to="orgTo('/buildings')" data-tour="schedule-hub-card-buildings-admin">
         <div class="card-title">Buildings / offices admin</div>
         <div class="card-desc">Building selection, review workflows, and building settings.</div>
         <div class="card-cta">Open</div>

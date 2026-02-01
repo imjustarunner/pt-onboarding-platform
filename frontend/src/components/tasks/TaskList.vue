@@ -1,12 +1,12 @@
 <template>
   <div class="task-list">
-    <div class="filters" v-if="tasks.length > 0">
-      <select v-model="filterType" @change="applyFilters" class="filter-select">
+    <div class="filters" v-if="tasks.length > 0" data-tour="tasks-filters">
+      <select v-model="filterType" @change="applyFilters" class="filter-select" data-tour="tasks-filter-type">
         <option value="all">All Tasks</option>
         <option value="training">Training</option>
         <option value="document">Documents</option>
       </select>
-      <select v-model="filterStatus" @change="applyFilters" class="filter-select">
+      <select v-model="filterStatus" @change="applyFilters" class="filter-select" data-tour="tasks-filter-status">
         <option value="all">All Status</option>
         <option value="pending">Pending</option>
         <option value="in_progress">In Progress</option>
@@ -14,16 +14,17 @@
       </select>
     </div>
 
-    <div v-if="loading" class="loading">Loading tasks...</div>
+    <div v-if="loading" class="loading" data-tour="tasks-loading">Loading tasks...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else-if="filteredTasks.length === 0" class="empty-state">
+    <div v-else-if="filteredTasks.length === 0" class="empty-state" data-tour="tasks-empty">
       <p>No tasks found</p>
     </div>
-    <div v-else class="tasks">
+    <div v-else class="tasks" data-tour="tasks-grid">
       <div
         v-for="task in filteredTasks"
         :key="task.id"
         class="task-card"
+        data-tour="tasks-card"
         @click="handleTaskClick(task)"
       >
         <div class="task-header">
@@ -42,6 +43,7 @@
             v-if="task.task_type === 'document'"
             class="btn btn-secondary btn-xs"
             type="button"
+            data-tour="tasks-print"
             @click.stop="openPrint(task)"
           >
             Print

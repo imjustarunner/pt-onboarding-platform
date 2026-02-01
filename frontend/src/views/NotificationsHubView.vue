@@ -1,12 +1,12 @@
 <template>
   <div class="container">
-    <div class="header">
-      <h1>Notifications</h1>
+    <div class="header" data-tour="notifhub-header">
+      <h1 data-tour="notifhub-title">Notifications</h1>
       <p class="sub">Personal + agency notifications in one place.</p>
     </div>
 
-    <div class="card-grid">
-      <div class="card">
+    <div class="card-grid" data-tour="notifhub-grid">
+      <div class="card" data-tour="notifhub-card-mine">
         <div class="card-top">
           <h2>My Notifications</h2>
           <span class="pill">{{ myUnreadCount }} unread</span>
@@ -30,7 +30,7 @@
         </div>
       </div>
 
-      <div v-if="showAgencyCards" class="card">
+      <div v-if="showAgencyCards" class="card" data-tour="notifhub-card-agency">
         <div class="card-top">
           <h2>Agency Notifications</h2>
           <span class="pill">{{ agencies.length }} agencies</span>
@@ -54,7 +54,7 @@
         </div>
       </div>
 
-      <div v-if="showTeamCard" class="card">
+      <div v-if="showTeamCard" class="card" data-tour="notifhub-card-team">
         <div class="card-top">
           <h2>Team Notifications</h2>
           <span class="pill">Supervisor/CPA</span>

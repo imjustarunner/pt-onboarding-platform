@@ -1,19 +1,19 @@
 <template>
   <div class="office-settings">
-    <div class="card">
-      <div class="card-head">
-        <h3 style="margin: 0;">Building Settings</h3>
+    <div class="card" data-tour="buildings-settings-card">
+      <div class="card-head" data-tour="buildings-settings-header">
+        <h3 style="margin: 0;" data-tour="buildings-settings-title">Building Settings</h3>
         <button class="btn btn-secondary" @click="loadAll" :disabled="loading">Refresh</button>
       </div>
 
-      <div v-if="!officeId" class="muted">
+      <div v-if="!officeId" class="muted" data-tour="buildings-settings-empty">
         Select a building above to manage settings.
       </div>
 
       <div v-else>
         <div v-if="error" class="error-box">{{ error }}</div>
 
-        <div class="section">
+        <div class="section" data-tour="buildings-settings-svg">
           <div class="section-title">SVG Map Link</div>
           <div class="row">
             <input v-model="svgUrl" type="url" placeholder="https://.../building.svg" />
@@ -52,7 +52,7 @@
           </div>
         </div>
 
-        <div class="section">
+        <div class="section" data-tour="buildings-settings-questionnaires">
           <div class="section-title">Questionnaires (Kiosk)</div>
           <div class="row">
             <select v-model="selectedModuleId" :disabled="loading">
@@ -79,7 +79,7 @@
           </div>
         </div>
 
-        <div class="section">
+        <div class="section" data-tour="buildings-settings-room-types">
           <div class="section-title">Office Types</div>
           <div class="row">
             <input v-model="newRoomTypeName" placeholder="New room type name" />
@@ -90,9 +90,9 @@
           </div>
         </div>
 
-        <div class="section">
+        <div class="section" data-tour="buildings-settings-rooms">
           <div class="section-title">Offices</div>
-          <div class="row">
+          <div class="row" data-tour="buildings-settings-rooms-create">
             <input v-model="newRoomNumber" type="number" placeholder="Number" style="max-width: 120px;" />
             <input v-model="newRoomLabel" placeholder="Label (e.g. Office 101)" />
             <button class="btn btn-primary" @click="createRoom" :disabled="saving || loading || (!newRoomLabel.trim() && !newRoomNumber)">Add</button>

@@ -1,12 +1,12 @@
 <template>
   <div class="office-schedule">
-    <div class="header">
+    <div class="header" data-tour="buildings-schedule-header">
       <div>
-        <h3 style="margin: 0;">Building Schedule</h3>
-        <div class="subtitle">Weekly office grid (Mon–Sun, 7am–9pm).</div>
+        <h3 style="margin: 0;" data-tour="buildings-schedule-title">Building Schedule</h3>
+        <div class="subtitle" data-tour="buildings-schedule-subtitle">Weekly office grid (Mon–Sun, 7am–9pm).</div>
       </div>
-      <div class="controls">
-        <div class="field">
+      <div class="controls" data-tour="buildings-schedule-controls">
+        <div class="field" data-tour="buildings-schedule-week">
           <label>Week of</label>
           <input v-model="weekStart" type="date" @change="loadGrid" :disabled="!officeId" />
         </div>
@@ -18,15 +18,15 @@
     <div v-else-if="error" class="error-box">{{ error }}</div>
     <div v-else-if="loading" class="loading">Loading…</div>
 
-    <div v-else-if="grid" class="grid-wrap">
-      <div class="legend">
+    <div v-else-if="grid" class="grid-wrap" data-tour="buildings-schedule-gridwrap">
+      <div class="legend" data-tour="buildings-schedule-legend">
         <div class="legend-item"><span class="dot open"></span> Open</div>
         <div class="legend-item"><span class="dot assigned_available"></span> Assigned available</div>
         <div class="legend-item"><span class="dot assigned_temporary"></span> Assigned temporary</div>
         <div class="legend-item"><span class="dot assigned_booked"></span> Assigned booked</div>
       </div>
 
-      <div v-if="canManageSchedule" class="card avail-search">
+      <div v-if="canManageSchedule" class="card avail-search" data-tour="buildings-schedule-avail-search">
         <div class="avail-search-head">
           <div>
             <div class="avail-search-title">Find availability</div>
@@ -101,7 +101,7 @@
         </div>
       </div>
 
-      <div class="room-nav">
+      <div class="room-nav" data-tour="buildings-schedule-room-nav">
         <label style="font-weight: 800;">Office</label>
         <select v-model.number="selectedRoomId" class="select" :disabled="!grid">
           <option v-for="r in sortedRooms" :key="`room-opt-${r.id}`" :value="Number(r.id)">
@@ -116,14 +116,14 @@
         </label>
       </div>
 
-      <div v-for="room in displayedRooms" :key="room.id" class="room-card">
+      <div v-for="room in displayedRooms" :key="room.id" class="room-card" data-tour="buildings-schedule-room-card">
         <div class="room-head">
           <div class="room-title">
             <strong>{{ room.roomNumber ? `#${room.roomNumber}` : '' }} {{ room.label || room.name }}</strong>
           </div>
         </div>
 
-        <div class="week-table">
+        <div class="week-table" data-tour="buildings-schedule-week-table">
           <div class="cell corner"></div>
           <div v-for="d in grid.days" :key="d" class="cell day-head">
             {{ formatDay(d) }}

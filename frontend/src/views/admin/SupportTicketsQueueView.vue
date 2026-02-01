@@ -1,11 +1,11 @@
 <template>
   <div class="page">
-    <div class="header">
+    <div class="header" data-tour="tickets-header">
       <div>
-        <h2 style="margin: 0;">Support tickets</h2>
+        <h2 style="margin: 0;" data-tour="tickets-title">Support tickets</h2>
         <div class="muted">Queue (school staff requests)</div>
       </div>
-      <div class="actions">
+      <div class="actions" data-tour="tickets-filters">
         <label class="field">
           Search (optional)
           <input v-model="searchInput" class="input" type="text" placeholder="Subject, question, or school…" />
@@ -41,9 +41,9 @@
     <div v-if="loading" class="muted">Loading…</div>
     <div v-else-if="tickets.length === 0" class="muted">No tickets found.</div>
 
-    <div v-else class="list">
+    <div v-else class="list" data-tour="tickets-list">
       <div v-for="t in tickets" :key="t.id" class="ticket">
-        <div class="ticket-top">
+        <div class="ticket-top" data-tour="tickets-row">
           <div class="left">
             <div class="subject">
               <strong>{{ t.subject || 'Support ticket' }}</strong>
@@ -106,7 +106,7 @@
           </div>
         </div>
 
-        <div v-if="openAnswerId === t.id" class="answer-box">
+        <div v-if="openAnswerId === t.id" class="answer-box" data-tour="tickets-answer-box">
           <div v-if="t.claimed_by_user_id && Number(t.claimed_by_user_id) !== Number(myUserId)" class="error">
             This ticket is claimed by {{ formatClaimedBy(t) }}. You can still view it, but you can’t answer unless you are the claimant.
           </div>

@@ -1,12 +1,13 @@
 <template>
   <div class="provider-school-profile">
-    <div class="header">
-      <button class="btn btn-secondary btn-sm" type="button" @click="backToProviders">← Back</button>
+    <div class="header" data-tour="school-provider-header">
+      <button class="btn btn-secondary btn-sm" type="button" @click="backToProviders" data-tour="school-provider-back">← Back</button>
       <button
         class="btn btn-secondary btn-sm"
         type="button"
         @click="toggleClientLabelMode"
         :title="clientLabelMode === 'codes' ? 'Show initials' : 'Show codes'"
+        data-tour="school-provider-codes-toggle"
       >
         {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
       </button>
@@ -18,14 +19,14 @@
     <div v-else>
       <div class="grid">
         <div class="left">
-          <div class="profile-hero">
+          <div class="profile-hero" data-tour="school-provider-hero">
             <div class="avatar-lg" aria-hidden="true">
               <img v-if="profilePhotoUrl" :src="profilePhotoUrl" alt="" class="avatar-img" />
               <span v-else>{{ initialsFor(profile) }}</span>
             </div>
             <div class="meta">
               <div class="name-row">
-                <div class="name">{{ profile?.first_name }} {{ profile?.last_name }}</div>
+                <div class="name" data-tour="school-provider-name">{{ profile?.first_name }} {{ profile?.last_name }}</div>
                 <div v-if="availabilityBadges.length" class="avail-badges" aria-label="Availability by day">
                   <span
                     v-for="b in availabilityBadges"
@@ -90,8 +91,8 @@
                 <strong>Provider info</strong>
                 <div class="blurb-text">{{ profile.school_info_blurb }}</div>
               </div>
-              <div class="hero-actions">
-                <button class="btn btn-secondary btn-sm" type="button" :disabled="chatWorking" @click="openChat">
+              <div class="hero-actions" data-tour="school-provider-actions">
+                <button class="btn btn-secondary btn-sm" type="button" :disabled="chatWorking" @click="openChat" data-tour="school-provider-message">
                   {{ chatWorking ? 'Opening…' : 'Message provider' }}
                 </button>
                 <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">Refresh</button>
@@ -99,13 +100,13 @@
             </div>
           </div>
 
-          <div class="panel">
+          <div class="panel" data-tour="school-provider-daybar-panel">
             <div class="panel-title">Day</div>
             <SchoolDayBar v-model="selectedWeekday" :days="dayBarDays" />
             <div v-if="!selectedWeekday" class="muted">Select a day to open the soft schedule.</div>
           </div>
 
-          <div v-if="selectedWeekday" class="panel">
+          <div v-if="selectedWeekday" class="panel" data-tour="school-provider-soft-schedule-panel">
             <div class="panel-title">Soft schedule ({{ selectedWeekday }})</div>
             <div v-if="messagesOpen" class="muted">
               Soft schedule is collapsed while messaging is open.
@@ -122,7 +123,7 @@
             />
           </div>
 
-          <div class="panel compact">
+          <div class="panel compact" data-tour="school-provider-caseload-summary">
             <div class="panel-title">Slot-based caseload (summary)</div>
             <div class="summary-grid">
               <div
@@ -161,7 +162,7 @@
             </div>
           </div>
 
-          <div class="panel">
+          <div class="panel" data-tour="school-provider-clients-panel">
             <div class="panel-title">Clients (psychotherapy fiscal-year totals)</div>
             <div v-if="psychotherapyLoading" class="muted">Loading psychotherapy totals…</div>
             <div v-else-if="psychotherapyError" class="muted">Psychotherapy totals unavailable.</div>
@@ -179,7 +180,7 @@
         </div>
 
         <div class="right">
-          <div class="panel">
+          <div class="panel" data-tour="school-provider-messages-panel">
             <div class="panel-title messages-title">
               <span>Messages</span>
               <button
@@ -196,7 +197,7 @@
               Click “Message provider” to open the thread.
             </div>
 
-            <div v-else class="messages">
+            <div v-else class="messages" data-tour="school-provider-messages-thread">
               <div v-if="messagesError" class="error">{{ messagesError }}</div>
               <div v-else-if="messagesLoading" class="muted">Loading messages…</div>
               <div v-else class="message-list">
@@ -211,7 +212,7 @@
                 </div>
               </div>
 
-              <div class="composer">
+              <div class="composer" data-tour="school-provider-messages-composer">
                 <textarea v-model="messageDraft" rows="4" style="width: 100%;" placeholder="Type a message (no PHI)…" />
                 <div class="composer-actions">
                   <button class="btn btn-secondary" type="button" :disabled="sendingMessage" @click="refreshMessages">

@@ -1,13 +1,13 @@
 <template>
   <div class="container">
-    <div class="page-header">
+    <div class="page-header" data-tour="expenses-header">
       <div>
-        <h1>Expense/Reimbursements</h1>
+        <h1 data-tour="expenses-title">Expense/Reimbursements</h1>
         <p class="subtitle">Review company card expenses and reimbursements in one place.</p>
       </div>
     </div>
 
-    <div class="org-bar">
+    <div class="org-bar" data-tour="expenses-org-bar">
       <div class="org-bar-left">
         <div class="org-bar-label">Organization</div>
         <div class="org-bar-value">
@@ -16,13 +16,13 @@
       </div>
     </div>
 
-    <div class="card" style="margin-top: 12px;">
+    <div class="card" style="margin-top: 12px;" data-tour="expenses-inbox-card">
       <div class="card-header" style="display: flex; justify-content: space-between; gap: 10px; align-items: center;">
         <div>
           <div class="card-title">Inbox</div>
           <div class="hint">Search, sort, and export. Receipts open in a new tab.</div>
         </div>
-        <div class="actions" style="margin: 0;">
+        <div class="actions" style="margin: 0;" data-tour="expenses-actions">
           <button class="btn btn-secondary btn-sm" type="button" @click="exportCsv" :disabled="!agencyId || exporting">
             {{ exporting ? 'Exporting…' : 'Export CSV' }}
           </button>
@@ -30,7 +30,7 @@
         </div>
       </div>
 
-      <div class="field-row" style="margin-top: 10px; grid-template-columns: 220px 220px 1fr 220px; align-items: end;">
+      <div class="field-row" style="margin-top: 10px; grid-template-columns: 220px 220px 1fr 220px; align-items: end;" data-tour="expenses-filters">
         <div class="field">
           <label>Type</label>
           <select v-model="typeFilter">
@@ -70,7 +70,7 @@
       </div>
 
       <div class="table-wrap" style="margin-top: 10px;">
-        <table class="table">
+        <table class="table" data-tour="expenses-table">
           <thead>
             <tr>
               <th>ID</th>

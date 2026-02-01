@@ -1,14 +1,14 @@
 <template>
   <div class="container">
-    <div class="page-header">
+    <div class="page-header" data-tour="provdir-header">
       <div>
         <router-link to="/admin" class="back-link">← Back to Dashboard</router-link>
-        <h1>Provider Directory</h1>
+        <h1 data-tour="provdir-title">Provider Directory</h1>
         <div class="muted" style="margin-top: 6px;">
           Search providers by profile fields (specialties, ages, interests). Optional AI can generate filters.
         </div>
       </div>
-      <div class="header-actions" style="display: flex; gap: 10px; align-items: center;">
+      <div class="header-actions" style="display: flex; gap: 10px; align-items: center;" data-tour="provdir-actions">
         <button class="btn btn-secondary" type="button" @click="rebuildIndex" :disabled="rebuilding">
           {{ rebuilding ? 'Rebuilding…' : 'Rebuild Index' }}
         </button>
@@ -20,7 +20,7 @@
 
     <div v-if="error" class="error" style="margin-top: 12px;">{{ error }}</div>
 
-    <div class="card" style="margin-top: 14px;">
+    <div class="card" style="margin-top: 14px;" data-tour="provdir-filters">
       <h3 class="card-title" style="margin: 0 0 10px 0;">Filters</h3>
 
       <div class="field-row" style="grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -44,7 +44,7 @@
         <span class="muted" style="font-size: 12px;">Uses credentialing field <code>provider_credential</code> to tag bachelor-level providers.</span>
       </div>
 
-      <div v-if="aiEnabled" class="card" style="margin-top: 12px;">
+      <div v-if="aiEnabled" class="card" style="margin-top: 12px;" data-tour="provdir-ai">
         <h4 style="margin: 0 0 8px 0;">AI (Gemini) – Generate filters</h4>
         <div class="field-row" style="grid-template-columns: 1fr auto; gap: 10px; align-items: end;">
           <div class="field">
@@ -58,7 +58,7 @@
         <div v-if="aiExplanation" class="muted" style="margin-top: 8px;">{{ aiExplanation }}</div>
       </div>
 
-      <div style="margin-top: 12px;">
+      <div style="margin-top: 12px;" data-tour="provdir-structured-filters">
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <h4 style="margin: 0;">Structured filters</h4>
           <button class="btn btn-secondary btn-sm" type="button" @click="addFilter">Add filter</button>
@@ -100,7 +100,7 @@
       </div>
     </div>
 
-    <div class="card" style="margin-top: 14px;">
+    <div class="card" style="margin-top: 14px;" data-tour="provdir-results">
       <h3 class="card-title" style="margin: 0 0 10px 0;">Results</h3>
       <div class="muted" v-if="!loading">Matches: {{ total }}</div>
       <div v-if="loading" class="loading" style="margin-top: 10px;">Searching…</div>

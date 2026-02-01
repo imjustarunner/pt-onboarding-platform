@@ -1,12 +1,12 @@
 <template>
   <div class="container hiring-root">
-    <div class="header">
+    <div class="header" data-tour="hiring-header">
       <div>
-        <h2>Applicants</h2>
+        <h2 data-tour="hiring-title">Applicants</h2>
         <div class="subtle">Prospective candidates (internal)</div>
       </div>
-      <div class="header-actions">
-        <div v-if="canChooseAgency" class="agency-picker">
+      <div class="header-actions" data-tour="hiring-actions">
+        <div v-if="canChooseAgency" class="agency-picker" data-tour="hiring-agency-picker">
           <label class="agency-label">Agency</label>
           <select v-model="selectedAgencyId" class="input agency-select">
             <option v-for="a in agencyChoices" :key="a.id" :value="String(a.id)">
@@ -21,19 +21,20 @@
 
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <div class="grid">
-      <div class="panel list-panel">
-        <div class="list-controls">
+    <div class="grid" data-tour="hiring-grid">
+      <div class="panel list-panel" data-tour="hiring-list-panel">
+        <div class="list-controls" data-tour="hiring-search">
           <input v-model="q" class="input" placeholder="Search name/email…" @keyup.enter="refresh" />
           <button class="btn btn-secondary" @click="refresh" :disabled="loading">Search</button>
         </div>
 
         <div v-if="loading" class="loading">Loading applicants…</div>
-        <div v-else class="list">
+        <div v-else class="list" data-tour="hiring-candidates-list">
           <button
             v-for="c in candidates"
             :key="c.id"
             class="list-item"
+            data-tour="hiring-candidate-row"
             :class="{ active: selectedId === c.id }"
             @click="selectCandidate(c.id)"
           >
@@ -48,14 +49,14 @@
         </div>
       </div>
 
-      <div class="panel detail-panel">
+      <div class="panel detail-panel" data-tour="hiring-detail-panel">
         <div v-if="!selectedId" class="empty">Select an applicant to view details.</div>
 
         <div v-else>
           <div v-if="detailLoading" class="loading">Loading profile…</div>
 
           <template v-else>
-            <div class="detail-header">
+            <div class="detail-header" data-tour="hiring-detail-header">
               <div>
                 <div class="detail-title-row">
                   <img v-if="candidatePhotoUrl" class="candidate-photo" :src="candidatePhotoUrl" alt="Candidate photo" />
@@ -66,7 +67,7 @@
                   <span class="muted">{{ detail.user?.personal_email || detail.user?.email }}</span>
                 </div>
               </div>
-              <div class="detail-actions">
+              <div class="detail-actions" data-tour="hiring-detail-actions">
                 <button class="btn btn-secondary" @click="generatePreScreenReport" :disabled="generatingPreScreen || !selectedId">
                   <span v-if="generatingPreScreen" class="spinner" aria-hidden="true"></span>
                   {{ generatingPreScreen ? 'Generating…' : 'Generate Pre-Screen Report' }}
@@ -88,7 +89,7 @@
               <div class="mono">{{ promoteResult.passwordlessTokenLink }}</div>
             </div>
 
-            <div class="tabs">
+            <div class="tabs" data-tour="hiring-detail-tabs">
               <button class="tab" :class="{ active: tab === 'profile' }" @click="tab = 'profile'">Profile</button>
               <button class="tab" :class="{ active: tab === 'resume' }" @click="tab = 'resume'">Resume</button>
               <button class="tab" :class="{ active: tab === 'resumeSummary' }" @click="tab = 'resumeSummary'">Resume Summary</button>

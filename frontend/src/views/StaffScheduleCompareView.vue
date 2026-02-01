@@ -1,17 +1,17 @@
 <template>
   <div class="container sched-compare">
-    <div class="header">
+    <div class="header" data-tour="sched-compare-header">
       <div>
-        <h2 style="margin: 0;">Staff schedules</h2>
+        <h2 style="margin: 0;" data-tour="sched-compare-title">Staff schedules</h2>
         <div class="subtitle">Compare multiple providers’ schedules (stacked or overlaid).</div>
       </div>
-      <div class="header-right">
-        <router-link class="btn btn-secondary" :to="orgTo('/schedule')">Back to Schedule</router-link>
-        <div class="week">
+      <div class="header-right" data-tour="sched-compare-controls">
+        <router-link class="btn btn-secondary" :to="orgTo('/schedule')" data-tour="sched-compare-back">Back to Schedule</router-link>
+        <div class="week" data-tour="sched-compare-week">
           <label class="lbl-sm">Week of</label>
           <input v-model="weekStartYmd" type="date" class="input" />
         </div>
-        <select v-model="viewMode" class="input" style="min-width: 140px;">
+        <select v-model="viewMode" class="input" style="min-width: 140px;" data-tour="sched-compare-view-mode">
           <option value="overlay">Overlay</option>
           <option value="stacked">Stacked</option>
         </select>
@@ -23,7 +23,7 @@
     <div v-if="error" class="error">{{ error }}</div>
 
     <div class="layout">
-      <aside class="panel">
+      <aside class="panel" data-tour="sched-compare-sidebar">
         <div class="panel-head">
           <div class="panel-title">Providers</div>
           <div class="muted" style="font-size: 12px;">
@@ -31,7 +31,7 @@
           </div>
         </div>
 
-        <details class="agency-filter" open>
+        <details class="agency-filter" open data-tour="sched-compare-agency-filter">
           <summary class="agency-filter-summary">
             <span>Agencies</span>
             <span class="muted" style="font-size: 12px;">({{ agencyIdsForSchedule.length }}/{{ availableAgencies.length }})</span>
@@ -51,14 +51,14 @@
           </div>
         </details>
 
-        <input v-model="search" class="input" placeholder="Search name/email…" />
+        <input v-model="search" class="input" placeholder="Search name/email…" data-tour="sched-compare-search" />
 
-        <div class="row" style="margin-top: 10px; gap: 8px;">
+        <div class="row" style="margin-top: 10px; gap: 8px;" data-tour="sched-compare-quick-picks">
           <button class="btn btn-secondary btn-sm" type="button" @click="selectNone">None</button>
           <button class="btn btn-secondary btn-sm" type="button" @click="selectFirstTwo" :disabled="filteredProviders.length < 2">Pick 2</button>
         </div>
 
-        <div class="list">
+        <div class="list" data-tour="sched-compare-provider-list">
           <label v-for="u in filteredProviders" :key="u.id" class="item">
             <input
               type="checkbox"
@@ -72,11 +72,11 @@
         </div>
       </aside>
 
-      <main class="main">
+      <main class="main" data-tour="sched-compare-main">
         <div v-if="loading" class="muted">Loading users…</div>
         <div v-else-if="!selectedUserIds.length" class="muted">Select providers to compare schedules.</div>
 
-        <div v-else-if="viewMode === 'overlay'" class="overlay-card">
+        <div v-else-if="viewMode === 'overlay'" class="overlay-card" data-tour="sched-compare-overlay">
           <ScheduleMultiUserOverlayGrid
             :user-ids="selectedUserIds"
             :agency-ids="agencyIdsForSchedule"
@@ -86,7 +86,7 @@
           />
         </div>
 
-        <div v-else class="stack">
+        <div v-else class="stack" data-tour="sched-compare-stacked">
           <div v-for="uid in selectedUserIds" :key="`sched-${uid}`" class="stack-card">
             <div class="stack-head">
               <div class="stack-title">{{ userLabelById[uid] || `User ${uid}` }}</div>

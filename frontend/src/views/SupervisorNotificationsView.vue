@@ -1,8 +1,8 @@
 <template>
   <div class="supervisor-notifications-view">
-    <div class="view-header">
-      <h1>Notifications</h1>
-      <div v-if="agencies.length > 1" class="agency-selector">
+    <div class="view-header" data-tour="teamnotif-header">
+      <h1 data-tour="teamnotif-title">Notifications</h1>
+      <div v-if="agencies.length > 1" class="agency-selector" data-tour="teamnotif-agency-filter">
         <label>Filter by Agency:</label>
         <select v-model="selectedAgencyId" @change="loadNotifications" class="agency-select">
           <option :value="null">All Agencies</option>
@@ -18,11 +18,12 @@
     <div v-else-if="groupedNotifications.length === 0" class="empty-state">
       <p>No notifications at this time.</p>
     </div>
-    <div v-else class="notifications-list">
+    <div v-else class="notifications-list" data-tour="teamnotif-list">
       <div
         v-for="group in groupedNotifications"
         :key="group.type"
         class="notification-group"
+        data-tour="teamnotif-group"
       >
         <h2 class="group-title">{{ getTypeLabel(group.type) }}</h2>
         <div class="group-notifications">
@@ -30,6 +31,7 @@
             v-for="notification in group.notifications"
             :key="`${notification.type}-${notification.userId || notification.user_id}-${notification.relatedEntityId || notification.related_entity_id || 'none'}-${notification.id || 'none'}`"
             class="notification-item"
+            data-tour="teamnotif-item"
             @click="handleNotificationClick(notification)"
           >
             <div class="notification-content">

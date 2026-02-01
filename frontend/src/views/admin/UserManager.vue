@@ -1,8 +1,8 @@
 <template>
   <div class="container">
-    <div class="page-header">
-      <h1>User Management</h1>
-      <div class="header-actions">
+    <div class="page-header" data-tour="users-header">
+      <h1 data-tour="users-title">User Management</h1>
+      <div class="header-actions" data-tour="users-header-actions">
         <button v-if="!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'" @click="showBulkAssignModal = true" class="btn btn-primary">Assign Documents</button>
         <button v-if="!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'" @click="showCreateModal = true" class="btn btn-primary">Create New User</button>
         <button v-if="user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support'" @click="showSupervisorsModal = true" class="btn btn-secondary">Supervisors</button>
@@ -14,7 +14,7 @@
     
     <div v-else>
       <div class="users-layout">
-        <aside class="filters-sidebar">
+        <aside class="filters-sidebar" data-tour="users-filters-sidebar">
           <div class="filter-section">
             <label for="userSearch" class="filter-label">Search</label>
             <input
@@ -24,6 +24,7 @@
               class="filter-input"
               placeholder="Name, email, agency, role, status, credential…"
               autocomplete="off"
+              data-tour="users-search"
             />
           </div>
 
@@ -137,8 +138,8 @@
           </div>
         </aside>
 
-        <div class="users-main">
-          <div class="ai-query-card">
+        <div class="users-main" data-tour="users-main">
+          <div class="ai-query-card" data-tour="users-ai-search">
             <div class="ai-query-banner">
               <img :src="aiBannerSrc" alt="AI status" class="ai-query-banner-img" />
             </div>
@@ -202,6 +203,20 @@
                       {{ u.first_name }} {{ u.last_name }}
                     </router-link>
                     <span class="muted"> — {{ u.email }}</span>
+                    <div
+                      v-if="u.availability_nextVirtualStartAt || u.availability_nextInPersonStartAt"
+                      class="muted"
+                      style="margin-top: 4px; font-size: 12px;"
+                    >
+                      <span v-if="u.availability_nextVirtualStartAt">
+                        Next virtual: {{ formatIsoShort(u.availability_nextVirtualStartAt) }}
+                      </span>
+                      <span v-if="u.availability_nextVirtualStartAt && u.availability_nextInPersonStartAt"> · </span>
+                      <span v-if="u.availability_nextInPersonStartAt">
+                        Next in-person: {{ formatIsoShort(u.availability_nextInPersonStartAt) }}
+                      </span>
+                      <span v-if="u.availability_timeZone"> ({{ u.availability_timeZone }})</span>
+                    </div>
                   </li>
                 </ul>
 
@@ -218,8 +233,8 @@
             </div>
           </div>
 
-          <div class="users-table" :class="{ 'users-table--expanded': userTableExpanded }">
-            <div class="users-table-toolbar">
+          <div class="users-table" :class="{ 'users-table--expanded': userTableExpanded }" data-tour="users-table">
+            <div class="users-table-toolbar" data-tour="users-table-toolbar">
               <button type="button" class="btn btn-secondary btn-sm" @click="userTableExpanded = !userTableExpanded">
                 {{ userTableExpanded ? 'Collapse columns' : 'Expand columns' }}
               </button>
@@ -1594,6 +1609,16 @@ const copyAiEmails = async () => {
     ta.select();
     document.execCommand('copy');
     document.body.removeChild(ta);
+  }
+};
+
+const formatIsoShort = (iso) => {
+  try {
+    const d = new Date(String(iso || ''));
+    if (Number.isNaN(d.getTime())) return String(iso || '');
+    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return String(iso || '');
   }
 };
 

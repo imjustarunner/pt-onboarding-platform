@@ -7,7 +7,7 @@
             <img :src="schoolLogoUrl" alt="" />
           </div>
           <div>
-            <h1>{{ organizationDisplayName }} Portal</h1>
+            <h1 data-tour="school-header-title">{{ organizationDisplayName }} Portal</h1>
             <p class="portal-subtitle">Schedule + roster (no PHI)</p>
           </div>
         </div>
@@ -33,7 +33,7 @@
             }}
           </div>
         </div>
-        <div class="top-actions">
+        <div class="top-actions" data-tour="school-top-actions">
           <button
             v-if="canShowSchoolSettingsButton"
             class="btn btn-secondary btn-sm settings-icon-btn"
@@ -52,7 +52,7 @@
           >
             Back to show all schools
           </router-link>
-          <div class="codes-toggle">
+          <div class="codes-toggle" data-tour="school-codes-toggle">
             <button
               class="btn btn-secondary btn-sm"
               type="button"
@@ -86,8 +86,8 @@
       </div>
 
       <div class="main-layout" :class="{ 'with-rail': portalMode !== 'home' }">
-        <nav v-if="portalMode !== 'home'" class="nav-rail" aria-label="School portal navigation">
-          <button class="nav-item" type="button" @click="portalMode = 'home'" :class="{ active: portalMode === 'home' }">
+        <nav v-if="portalMode !== 'home'" class="nav-rail" aria-label="School portal navigation" data-tour="school-nav-rail">
+          <button data-tour="school-nav-home" class="nav-item" type="button" @click="portalMode = 'home'" :class="{ active: portalMode === 'home' }">
             <div class="nav-icon">
               <img v-if="homeIconUrl" :src="homeIconUrl" alt="" class="nav-icon-img" />
               <div v-else class="nav-icon-fallback" aria-hidden="true">⌂</div>
@@ -95,7 +95,7 @@
             <div class="nav-label">Home</div>
           </button>
 
-          <button class="nav-item" type="button" @click="openProvidersPanel" :class="{ active: portalMode === 'providers' }">
+          <button data-tour="school-nav-providers" class="nav-item" type="button" @click="openProvidersPanel" :class="{ active: portalMode === 'providers' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
@@ -108,7 +108,7 @@
             <div class="nav-label">Providers</div>
           </button>
 
-          <button class="nav-item" type="button" @click="openDaysPanel" :class="{ active: portalMode === 'days' }">
+          <button data-tour="school-nav-days" class="nav-item" type="button" @click="openDaysPanel" :class="{ active: portalMode === 'days' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
@@ -121,7 +121,7 @@
             <div class="nav-label">Days</div>
           </button>
 
-          <button class="nav-item" type="button" @click="portalMode = 'roster'" :class="{ active: portalMode === 'roster' }">
+          <button data-tour="school-nav-roster" class="nav-item" type="button" @click="portalMode = 'roster'" :class="{ active: portalMode === 'roster' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
@@ -134,7 +134,7 @@
             <div class="nav-label">{{ isProvider ? 'My roster' : 'Roster' }}</div>
           </button>
 
-          <button class="nav-item" type="button" @click="portalMode = 'skills'" :class="{ active: portalMode === 'skills' }">
+          <button data-tour="school-nav-skills" class="nav-item" type="button" @click="portalMode = 'skills'" :class="{ active: portalMode === 'skills' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('skills_groups', cardIconOrg)"
@@ -147,7 +147,7 @@
             <div class="nav-label">Skills</div>
           </button>
 
-          <button class="nav-item" type="button" @click="portalMode = 'school_staff'" :class="{ active: portalMode === 'school_staff' }">
+          <button data-tour="school-nav-staff" class="nav-item" type="button" @click="portalMode = 'school_staff'" :class="{ active: portalMode === 'school_staff' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
@@ -160,7 +160,7 @@
             <div class="nav-label">Staff</div>
           </button>
 
-          <button class="nav-item" type="button" @click="portalMode = 'documents'" :class="{ active: portalMode === 'documents' }">
+          <button data-tour="school-nav-docs" class="nav-item" type="button" @click="portalMode = 'documents'" :class="{ active: portalMode === 'documents' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
@@ -173,7 +173,7 @@
             <div class="nav-label">Docs/Links</div>
           </button>
 
-          <button class="nav-item" type="button" @click="showHelpDesk = true">
+          <button data-tour="school-nav-help" class="nav-item" type="button" @click="showHelpDesk = true">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
@@ -189,13 +189,12 @@
 
         <div class="main-content">
           <div v-if="portalMode === 'days'" class="days-daybar-center">
-            <SchoolDayBar
-              v-model="store.selectedWeekday"
-              :days="store.days"
-            />
+            <div data-tour="school-days-daybar">
+              <SchoolDayBar v-model="store.selectedWeekday" :days="store.days" />
+            </div>
           </div>
           <div v-if="portalMode === 'home'" class="home">
-        <div class="home-snapshot">
+        <div class="home-snapshot" data-tour="school-home-snapshot">
           <div class="home-snapshot-title">At a glance</div>
           <div class="home-snapshot-grid">
             <div class="home-pill">
@@ -225,8 +224,8 @@
           </div>
         </div>
 
-        <div class="dashboard-card-grid">
-          <button class="dash-card" type="button" @click="openProvidersPanel">
+        <div class="dashboard-card-grid" data-tour="school-home-cards">
+          <button data-tour="school-home-card-providers" class="dash-card" type="button" @click="openProvidersPanel">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('providers', cardIconOrg)"
@@ -243,7 +242,7 @@
             </div>
           </button>
 
-          <button class="dash-card" type="button" @click="openDaysPanel">
+          <button data-tour="school-home-card-days" class="dash-card" type="button" @click="openDaysPanel">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('days', cardIconOrg)"
@@ -260,7 +259,7 @@
             </div>
           </button>
 
-          <button class="dash-card dash-card-default-roster" type="button" @click="scrollToHomeRoster">
+          <button data-tour="school-home-card-roster" class="dash-card dash-card-default-roster" type="button" @click="scrollToHomeRoster">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
@@ -294,7 +293,7 @@
             </div>
           </button>
 
-          <button class="dash-card" type="button" @click="portalMode = 'school_staff'">
+          <button data-tour="school-home-card-staff" class="dash-card" type="button" @click="portalMode = 'school_staff'">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('school_staff', cardIconOrg)"
@@ -314,7 +313,7 @@
             </div>
           </button>
 
-          <button class="dash-card" type="button" @click="portalMode = 'documents'">
+          <button data-tour="school-home-card-docs" class="dash-card" type="button" @click="portalMode = 'documents'">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('public_documents', cardIconOrg)"
@@ -331,7 +330,7 @@
             </div>
           </button>
 
-          <button class="dash-card" type="button" @click="showHelpDesk = true">
+          <button data-tour="school-home-card-help" class="dash-card" type="button" @click="showHelpDesk = true">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('contact_admin', cardIconOrg)"
@@ -400,7 +399,7 @@
           </button>
         </div>
 
-        <div ref="homeRosterEl" class="home-roster">
+        <div ref="homeRosterEl" class="home-roster" data-tour="school-home-roster">
           <div class="roster-header">
             <h2 style="margin: 0;">{{ isProvider ? 'My roster' : 'School roster' }}</h2>
             <div class="muted">{{ isProvider ? 'My assigned clients (restricted fields)' : 'Assigned + unassigned (restricted fields)' }}</div>
@@ -421,39 +420,43 @@
           </div>
 
           <div v-else-if="portalMode === 'days'">
-        <div v-if="!store.selectedWeekday" class="empty-state center">
-          Select a weekday to view schedules.
+        <div data-tour="school-days-panel">
+          <div v-if="!store.selectedWeekday" class="empty-state center">
+            Select a weekday to view schedules.
+          </div>
+          <DayPanel
+            v-else-if="organizationId"
+            :weekday="store.selectedWeekday"
+            :providers="store.dayProviders"
+            :eligible-providers="store.eligibleProvidersForSelectedDay"
+            :loading-providers="store.dayProvidersLoading"
+            :providers-error="store.dayProvidersError"
+            :panel-for="panelFor"
+            :client-label-mode="clientLabelMode"
+            :current-user-id="authStore.user?.id || null"
+            :current-user-role="authStore.user?.role || ''"
+            @add-day="handleAddDay"
+            @add-provider="handleAddProvider"
+            @open-client="openClient"
+            @save-slots="handleSaveSlots"
+            @move-slot="handleMoveSlot"
+            @open-provider="goToProviderSchoolProfile"
+            @request-availability="openAvailabilityRequest"
+          />
+          <div v-else class="empty-state">Organization not loaded.</div>
         </div>
-        <DayPanel
-          v-else-if="organizationId"
-          :weekday="store.selectedWeekday"
-          :providers="store.dayProviders"
-          :eligible-providers="store.eligibleProvidersForSelectedDay"
-          :loading-providers="store.dayProvidersLoading"
-          :providers-error="store.dayProvidersError"
-          :panel-for="panelFor"
-          :client-label-mode="clientLabelMode"
-          :current-user-id="authStore.user?.id || null"
-          :current-user-role="authStore.user?.role || ''"
-          @add-day="handleAddDay"
-          @add-provider="handleAddProvider"
-          @open-client="openClient"
-          @save-slots="handleSaveSlots"
-          @move-slot="handleMoveSlot"
-          @open-provider="goToProviderSchoolProfile"
-          @request-availability="openAvailabilityRequest"
-        />
-        <div v-else class="empty-state">Organization not loaded.</div>
           </div>
 
           <div v-else-if="portalMode === 'providers'">
-        <ProvidersDirectoryPanel
-          v-if="organizationId"
-          :providers="store.eligibleProviders"
-          :loading="store.eligibleProvidersLoading"
-          @open-provider="goToProviderSchoolProfile"
-          @message-provider="messageProvider"
-        />
+        <div data-tour="school-providers-panel">
+          <ProvidersDirectoryPanel
+            v-if="organizationId"
+            :providers="store.eligibleProviders"
+            :loading="store.eligibleProvidersLoading"
+            @open-provider="goToProviderSchoolProfile"
+            @message-provider="messageProvider"
+          />
+        </div>
           </div>
 
       <SkillsGroupsPanel
@@ -463,34 +466,40 @@
       />
 
           <div v-else-if="portalMode === 'school_staff'">
-        <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
-        <SchoolStaffPanel
-          v-else
-          :school-organization-id="organizationId"
-          :school-name="organizationName"
-        />
+        <div data-tour="school-staff-panel">
+          <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
+          <SchoolStaffPanel
+            v-else
+            :school-organization-id="organizationId"
+            :school-name="organizationName"
+          />
+        </div>
           </div>
 
           <div v-else-if="portalMode === 'documents'">
-        <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
-        <PublicDocumentsPanel v-else :school-organization-id="organizationId" />
+        <div data-tour="school-docs-panel">
+          <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
+          <PublicDocumentsPanel v-else :school-organization-id="organizationId" />
+        </div>
           </div>
 
           <div v-else-if="portalMode === 'roster'" class="roster">
-        <div class="roster-header">
+        <div class="roster-header" data-tour="school-roster-header">
           <h2 style="margin: 0;">{{ isProvider ? 'My roster' : 'School roster' }}</h2>
           <div class="muted">{{ isProvider ? 'My assigned clients (restricted fields)' : 'Assigned + unassigned (restricted fields)' }}</div>
         </div>
-        <ClientListGrid
-          v-if="organizationId"
-          :organization-slug="organizationSlug"
-          :organization-id="organizationId"
-          :roster-scope="isProvider ? 'provider' : 'school'"
-          :client-label-mode="clientLabelMode"
-          edit-mode="inline"
-          @edit-client="openAdminClientEditor"
-        />
-        <div v-else class="empty-state">Organization not loaded.</div>
+        <div data-tour="school-roster-panel">
+          <ClientListGrid
+            v-if="organizationId"
+            :organization-slug="organizationSlug"
+            :organization-id="organizationId"
+            :roster-scope="isProvider ? 'provider' : 'school'"
+            :client-label-mode="clientLabelMode"
+            edit-mode="inline"
+            @edit-client="openAdminClientEditor"
+          />
+          <div v-else class="empty-state">Organization not loaded.</div>
+        </div>
           </div>
 
           <div v-else class="empty-state">Organization not loaded.</div>

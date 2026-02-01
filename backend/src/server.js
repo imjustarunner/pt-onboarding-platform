@@ -100,6 +100,7 @@ import agencyPageOverlaysRoutes from './routes/agencyPageOverlays.routes.js';
 import researchCandidateRoutes from './routes/researchCandidate.routes.js';
 import publicProviderAvailabilityRoutes from './routes/publicProviderAvailability.routes.js';
 import publicSchoolsRoutes from './routes/publicSchools.routes.js';
+import agentsRoutes from './routes/agents.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -520,6 +521,7 @@ app.use('/api/office-review', officeReviewRoutes);
 app.use('/api/availability', availabilityRoutes);
 app.use('/api/hiring', hiringRoutes);
 app.use('/api/overlays', agencyPageOverlaysRoutes);
+app.use('/api/agents', agentsRoutes);
 app.use('/api', researchCandidateRoutes);
 app.use('/api/twilio', twilioRoutes);
 app.use('/api/messages', messageRoutes);
