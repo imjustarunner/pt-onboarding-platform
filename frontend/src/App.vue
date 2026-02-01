@@ -339,6 +339,7 @@
         <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
         <router-view />
       </main>
+      <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin" />
       <TourManager v-if="isAuthenticated" />
       <PlatformChatDrawer />
       <PoweredByFooter v-if="isAuthenticated" />
@@ -365,6 +366,7 @@ import BrandingProvider from './components/BrandingProvider.vue';
 import BrandingLogo from './components/BrandingLogo.vue';
 import PoweredByFooter from './components/PoweredByFooter.vue';
 import TourManager from './components/TourManager.vue';
+import SuperAdminBuilderPanel from './components/SuperAdminBuilderPanel.vue';
 import WeatherChip from './components/WeatherChip.vue';
 import { toUploadsUrl } from './utils/uploadsUrl';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
