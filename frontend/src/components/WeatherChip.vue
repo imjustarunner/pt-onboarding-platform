@@ -35,7 +35,7 @@
       class="weather-chip-link"
       type="button"
       @click="goToAccountInfo"
-      title="Weather temporarily unavailable. Click to verify your home address."
+      :title="unavailableTitle"
     >
       Weather unavailable
     </button>
@@ -93,6 +93,13 @@ const detailTitle = computed(() => {
     return pieces.length ? pieces.join(' ') : 'Snow forecast in the next 72 hours';
   }
   return 'No snow forecast in the next 72 hours';
+});
+
+const unavailableTitle = computed(() => {
+  const s = String(weather.value?.status || '').trim();
+  const base = s ? `Weather status: ${s}` : 'Weather temporarily unavailable.';
+  const devDebug = weather.value?.debug ? ' (see response debug payload)' : '';
+  return `${base}${devDebug} Click to verify your home address.`;
 });
 
 const fetchWeather = async () => {

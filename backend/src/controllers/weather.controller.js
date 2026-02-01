@@ -1,6 +1,7 @@
 import axios from 'axios';
 import pool from '../config/database.js';
 import { geocodeAddressWithGoogle } from '../services/googleGeocode.service.js';
+import User from '../models/User.model.js';
 
 // Small in-process cache to avoid hammering the (free) upstream API.
 // Key: userId -> { atMs, payload }
@@ -39,10 +40,10 @@ async function geocodeHomeAddress({ addressString, postal, city, state }) {
     // For Open-Meteo, ZIP/postal searches work well; full street addresses often do not.
     const url = 'https://geocoding-api.open-meteo.com/v1/search';
     const zip = String(postal || '').trim();
-    const st = String(state || '').trim();
     const fallbackName =
-      (/^\d{5}(-\d{4})?$/.test(zip) ? zip : '').trim() ||
-      [String(city || '').trim(), st].filter(Boolean).join(' ').trim() ||
+      // Open-Meteo search is picky: many "City ST" queries return no results.
+      // City-only + `country_code=US` works consistently.
+      String(city || '').trim() ||
       addressString;
     const resp = await axios.get(url, {
       params: {
@@ -50,7 +51,8 @@ async function geocodeHomeAddress({ addressString, postal, city, state }) {
         count: 1,
         language: 'en',
         format: 'json',
-        countryCode: 'US'
+        // Open-Meteo expects `country_code` (snake_case). Using `countryCode` yields empty results.
+        country_code: 'US'
       },
       timeout: 8000
     });
@@ -124,14 +126,35 @@ function summarizeSnow({ daily }) {
 
 export const getMyWeather = async (req, res, next) => {
   try {
-    const userId = req.user?.id;
+    const isDev = String(process.env.NODE_ENV || '').toLowerCase() === 'development';
+
+    let userId = req.user?.id;
+    if (!userId) {
+      // Some sessions (ex: approved_employee tokens) don't include a users-table id.
+      // Best-effort: map by email/username to the real users-table record when it exists.
+      const emailish = String(req.user?.email || '').trim().toLowerCase();
+      if (emailish) {
+        try {
+          const u = await User.findByEmail(emailish);
+          if (u?.id) userId = Number(u.id);
+        } catch {
+          // ignore
+        }
+      }
+    }
     if (!userId) {
       // Best-effort navbar feature: do not hard-fail the session if cookies are blocked or missing.
-      return res.json({ status: 'unauthenticated' });
+      const payload = { status: 'unauthenticated' };
+      if (isDev) {
+        payload.debug = {
+          hasAuthCookie: !!req.cookies?.authToken,
+          reqUser: req.user || null
+        };
+      }
+      return res.json(payload);
     }
 
     const force = String(req.query?.force || '').trim() === '1';
-    const isDev = String(process.env.NODE_ENV || '').toLowerCase() === 'development';
 
     const cached = weatherCacheByUserId.get(userId);
     if (!force && cached && (Date.now() - cached.atMs) < WEATHER_CACHE_TTL_MS) {
@@ -184,6 +207,32 @@ export const getMyWeather = async (req, res, next) => {
     const hasSomeAddress = !!String(city).trim() || !!String(state).trim() || !!String(postal).trim() || !!String(street).trim();
     if (!hasSomeAddress) {
       const payload = { status: 'missing_home_address' };
+      if (isDev) {
+        payload.debug = {
+          hasSomeAddress,
+          home: { street, line2, city, state, postal }
+        };
+      }
+      weatherCacheByUserId.set(userId, { atMs: Date.now(), payload });
+      return res.json(payload);
+    }
+
+    // If the address is too incomplete to geocode reliably (common when only street/apt is filled),
+    // treat it as "missing" so the UI prompts the user to complete it (city/state/ZIP).
+    const zip = String(postal || '').trim();
+    const st = String(state || '').trim().toUpperCase();
+    const zipOk = /^\d{5}(-\d{4})?$/.test(zip);
+    const hasCityState = !!String(city || '').trim() && /^[A-Z]{2}$/.test(st);
+    if (!zipOk && !hasCityState) {
+      const payload = { status: 'missing_home_address' };
+      if (isDev) {
+        payload.debug = {
+          reason: 'home_address_incomplete_for_geocoding',
+          home: { street, line2, city, state, postal },
+          zipOk,
+          hasCityState
+        };
+      }
       weatherCacheByUserId.set(userId, { atMs: Date.now(), payload });
       return res.json(payload);
     }
@@ -191,6 +240,13 @@ export const getMyWeather = async (req, res, next) => {
     const addressString = buildHomeAddressString({ street, line2, city, state, postal });
     if (!addressString) {
       const payload = { status: 'missing_home_address' };
+      if (isDev) {
+        payload.debug = {
+          hasSomeAddress,
+          home: { street, line2, city, state, postal },
+          addressString
+        };
+      }
       weatherCacheByUserId.set(userId, { atMs: Date.now(), payload });
       return res.json(payload);
     }
