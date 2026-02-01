@@ -113,6 +113,48 @@ export const getClients = async (req, res, next) => {
 };
 
 /**
+ * Get clients assigned to a user (supervisor viewing supervisee's caseload).
+ * GET /api/clients/for-user/:userId?agencyId=
+ * Requires supervisor access to the user in the given agency.
+ */
+export const getClientsForUser = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.userId, 10);
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!userId || !Number.isFinite(userId)) {
+      return res.status(400).json({ error: { message: 'userId is required' } });
+    }
+    if (!agencyId || !Number.isFinite(agencyId)) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+    const requesterId = req.user?.id;
+    if (!requesterId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    if (requesterId === userId) {
+      // Own clients: use normal getClients with provider_id (handled by getClients with user's agencies)
+      req.query.provider_id = userId;
+      req.query.agency_id = agencyId;
+      return await getClients(req, res, next);
+    }
+
+    const hasAccess = await User.supervisorHasAccess(requesterId, userId, agencyId);
+    if (!hasAccess) {
+      return res.status(403).json({ error: { message: 'You can only view clients for your assigned supervisees.' } });
+    }
+
+    const clients = await Client.findByAgencyId(agencyId, { provider_id: userId });
+    const includeArchived = String(req.query.includeArchived || '').toLowerCase() === 'true';
+    const out = includeArchived
+      ? clients
+      : (clients || []).filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+    res.json(out);
+  } catch (error) {
+    console.error('Get clients for user error:', error);
+    next(error);
+  }
+};
+
+/**
  * Get archived clients (agency view)
  * GET /api/clients/archived
  */
@@ -1285,14 +1327,11 @@ export const updateClient = async (req, res, next) => {
       }
     }
 
-    // School staff cannot update clients (read-only access)
-    const userAgencies = await User.getAgencies(userId);
-    const userOrganization = userAgencies.find(org => org.id === currentClient.organization_id);
-    const isSchoolStaff = userOrganization && (userOrganization.organization_type || 'agency') === 'school';
-    
-    if (isSchoolStaff && userRole !== 'super_admin') {
-      return res.status(403).json({ 
-        error: { message: 'School staff cannot update clients' } 
+    // School staff (role) cannot update clients (read-only). Admins/support/super_admin can.
+    const roleLower = String(userRole || '').toLowerCase();
+    if (roleLower === 'school_staff') {
+      return res.status(403).json({
+        error: { message: 'School staff cannot update clients' }
       });
     }
 
