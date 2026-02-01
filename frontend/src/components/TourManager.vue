@@ -4,20 +4,31 @@
 </template>
 
 <script setup>
-import { nextTick, onUnmounted, watch } from 'vue';
+import { computed, nextTick, onUnmounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { driver } from 'driver.js';
 import { useAuthStore } from '../store/auth';
 import { useTutorialStore } from '../store/tutorial';
+import { useAgencyStore } from '../store/agency';
+import { useOverlaysStore } from '../store/overlays';
+import { useSuperadminBuilderStore } from '../store/superadminBuilder';
 import { getTourForRoute } from '../tutorial/registry';
 
 const route = useRoute();
 const authStore = useAuthStore();
 const tutorialStore = useTutorialStore();
+const agencyStore = useAgencyStore();
+const overlaysStore = useOverlaysStore();
+const builderStore = useSuperadminBuilderStore();
 
 let drv = null;
 let activeTourId = null;
 let activeTourVersion = null;
+
+const currentAgencyId = computed(() => {
+  const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  return a?.id || null;
+});
 
 const isEditableTarget = (el) => {
   if (!el) return false;
@@ -84,7 +95,20 @@ const startForCurrentRoute = async () => {
   const userId = authStore.user?.id;
   if (!tutorialStore.enabled || !userId) return;
 
-  const tour = getTourForRoute(route);
+  const isSuperAdmin = authStore.user?.role === 'super_admin';
+  const draftTour = isSuperAdmin ? builderStore.getTutorialDraftForRouteName(route.name) : null;
+
+  let publishedTour = null;
+  if (!draftTour && currentAgencyId.value && route?.name) {
+    const overlays = await overlaysStore.fetchRouteOverlays(currentAgencyId.value, String(route.name));
+    const enabled = overlays?.tutorial?.enabled !== false;
+    const cfg = overlays?.tutorial?.config || null;
+    if (enabled && cfg && typeof cfg === 'object' && Array.isArray(cfg.steps)) {
+      publishedTour = cfg;
+    }
+  }
+
+  const tour = draftTour || publishedTour || getTourForRoute(route);
   if (!tour) return;
 
   await tutorialStore.ensureLoaded(userId);

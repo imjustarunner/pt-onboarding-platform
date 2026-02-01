@@ -33,6 +33,8 @@ import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useSuperadminBuilderStore } from '../store/superadminBuilder';
+import { useAgencyStore } from '../store/agency';
+import { useOverlaysStore } from '../store/overlays';
 
 const props = defineProps({
   // User-facing toggle (can be wired to user_preferences later)
@@ -42,6 +44,8 @@ const props = defineProps({
 const route = useRoute();
 const authStore = useAuthStore();
 const builderStore = useSuperadminBuilderStore();
+const agencyStore = useAgencyStore();
+const overlaysStore = useOverlaysStore();
 
 const open = ref(false);
 const question = ref('');
@@ -49,13 +53,27 @@ const answer = ref('');
 
 const routeName = computed(() => String(route.name || ''));
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
+const currentAgencyId = computed(() => {
+  const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  return a?.id || null;
+});
 
 const helperConfig = computed(() => {
+  // 1) Superadmin local draft override
   if (isSuperAdmin.value) {
     const draft = builderStore.getHelperDraftForRouteName(routeName.value);
     if (draft) return draft;
   }
-  // Default global helper config for now
+
+  // 2) Published per-org config (best-effort; may not be loaded yet)
+  if (currentAgencyId.value && routeName.value) {
+    const cached = overlaysStore.getCached(currentAgencyId.value, routeName.value);
+    const enabled = cached?.helper?.enabled !== false;
+    const cfg = cached?.helper?.config || null;
+    if (enabled && cfg && typeof cfg === 'object') return cfg;
+  }
+
+  // 3) Default global helper config for now
   return {
     enabled: true,
     imageUrl: null,
@@ -75,6 +93,10 @@ watch(() => route.fullPath, () => {
   open.value = false;
   question.value = '';
   answer.value = '';
+  // Prefetch published helper config for this page (best-effort).
+  if (currentAgencyId.value && routeName.value) {
+    overlaysStore.fetchRouteOverlays(currentAgencyId.value, routeName.value);
+  }
 });
 
 const answerStub = () => {

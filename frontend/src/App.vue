@@ -204,6 +204,15 @@
               >
                 Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
               </button>
+              <button
+                v-if="brandingStore.isSuperAdmin"
+                type="button"
+                class="btn btn-secondary"
+                :aria-pressed="builderStore.panelOpen ? 'true' : 'false'"
+                @click="builderStore.togglePanel()"
+              >
+                Builder
+              </button>
               <WeatherChip />
               <router-link
                 v-if="canShowSettingsIcon"
@@ -345,6 +354,7 @@ import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';
 import { useOrganizationStore } from './store/organization';
 import { useTutorialStore } from './store/tutorial';
+import { useSuperadminBuilderStore } from './store/superadminBuilder';
 import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
@@ -364,6 +374,7 @@ const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const organizationStore = useOrganizationStore();
 const tutorialStore = useTutorialStore();
+const builderStore = useSuperadminBuilderStore();
 const router = useRouter();
 const route = useRoute();
 const mobileMenuOpen = ref(false);

@@ -9,6 +9,10 @@
       Route: <span class="mono">{{ routeName || '—' }}</span>
     </div>
 
+    <div class="builder-subtitle" v-if="currentAgencyId">
+      Org ID: <span class="mono">{{ currentAgencyId }}</span>
+    </div>
+
     <div class="builder-tabs">
       <button
         type="button"
@@ -25,6 +29,34 @@
     </div>
 
     <div v-if="store.mode === 'tutorial'" class="builder-body">
+      <div class="status">
+        <div class="status-row">
+          <div class="status-label">Published tutorial</div>
+          <div class="status-val">
+            <span v-if="publishedTutorialSummary">{{ publishedTutorialSummary }}</span>
+            <span v-else class="dim">None</span>
+          </div>
+        </div>
+        <div class="status-row">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="!routeName || !currentAgencyId"
+            @click="refreshPublished()"
+          >
+            Refresh published
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="!publishedTutorialConfig"
+            @click="loadPublishedTutorialIntoDraft"
+          >
+            Load published into draft
+          </button>
+        </div>
+      </div>
+
       <div class="row">
         <label class="chk">
           <input type="checkbox" :checked="store.captureClicks" @change="store.setCaptureClicks($event.target.checked)" />
@@ -83,6 +115,14 @@
         <button type="button" class="btn btn-primary" :disabled="!canAdd" @click="addStep">
           Add step to draft
         </button>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          :disabled="!routeName || !currentAgencyId || draftSteps.length === 0"
+          @click="publishTutorialDraft"
+        >
+          Publish tutorial (this org)
+        </button>
         <button type="button" class="btn btn-secondary" :disabled="!canCopy" @click="copyStepJson">
           Copy step JSON
         </button>
@@ -122,6 +162,34 @@
     </div>
 
     <div v-else class="builder-body">
+      <div class="status">
+        <div class="status-row">
+          <div class="status-label">Published helper</div>
+          <div class="status-val">
+            <span v-if="publishedHelperSummary">{{ publishedHelperSummary }}</span>
+            <span v-else class="dim">None</span>
+          </div>
+        </div>
+        <div class="status-row">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="!routeName || !currentAgencyId"
+            @click="refreshPublished()"
+          >
+            Refresh published
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="!publishedHelperConfig"
+            @click="loadPublishedHelperIntoDraft"
+          >
+            Load published into draft
+          </button>
+        </div>
+      </div>
+
       <div class="field">
         <label>Helper image URL</label>
         <input v-model="helperDraft.imageUrl" placeholder="https://.../helper.png" />
@@ -148,6 +216,14 @@
         <button type="button" class="btn btn-primary" :disabled="!routeName" @click="saveHelperDraft">
           Save helper draft (this page)
         </button>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          :disabled="!routeName || !currentAgencyId"
+          @click="publishHelperDraft"
+        >
+          Publish helper (this org)
+        </button>
         <button type="button" class="btn btn-secondary" :disabled="!routeName" @click="clearHelperDraft">
           Clear helper draft
         </button>
@@ -161,13 +237,21 @@ import { computed, onMounted, onUnmounted, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useSuperadminBuilderStore } from '../store/superadminBuilder';
+import { useAgencyStore } from '../store/agency';
+import { useOverlaysStore } from '../store/overlays';
 
 const route = useRoute();
 const authStore = useAuthStore();
 const store = useSuperadminBuilderStore();
+const agencyStore = useAgencyStore();
+const overlaysStore = useOverlaysStore();
 
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 const routeName = computed(() => String(route.name || ''));
+const currentAgencyId = computed(() => {
+  const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  return a?.id || null;
+});
 
 const draft = reactive({
   selector: '',
@@ -191,6 +275,38 @@ const draftTour = computed(() => {
 });
 const draftSteps = computed(() => draftTour.value?.steps || []);
 
+const published = computed(() => {
+  if (!currentAgencyId.value || !routeName.value) return null;
+  return overlaysStore.getCached(currentAgencyId.value, routeName.value);
+});
+
+const publishedTutorialConfig = computed(() => {
+  const cfg = published.value?.tutorial?.config || null;
+  if (!cfg || typeof cfg !== 'object' || !Array.isArray(cfg.steps)) return null;
+  return cfg;
+});
+
+const publishedHelperConfig = computed(() => {
+  const cfg = published.value?.helper?.config || null;
+  if (!cfg || typeof cfg !== 'object') return null;
+  return cfg;
+});
+
+const publishedTutorialSummary = computed(() => {
+  if (!publishedTutorialConfig.value) return null;
+  const enabled = published.value?.tutorial?.enabled !== false ? 'on' : 'off';
+  const v = Number(published.value?.tutorial?.version || publishedTutorialConfig.value?.version || 1);
+  const n = (publishedTutorialConfig.value?.steps || []).length;
+  return `${enabled} · v${v} · ${n} step${n === 1 ? '' : 's'}`;
+});
+
+const publishedHelperSummary = computed(() => {
+  if (!publishedHelperConfig.value) return null;
+  const enabled = published.value?.helper?.enabled !== false ? 'on' : 'off';
+  const pos = String(publishedHelperConfig.value?.position || 'bottom_right');
+  return `${enabled} · ${pos}`;
+});
+
 const canAdd = computed(() => !!routeName.value && !!draft.selector && !!draft.title);
 const canCopy = computed(() => !!draft.selector);
 
@@ -213,6 +329,35 @@ const addStep = () => {
     steps: [...(tour.steps || []), toStep()]
   };
   store.setTutorialDraftForRouteName(routeName.value, next);
+};
+
+const publishTutorialDraft = async () => {
+  if (!routeName.value || !currentAgencyId.value) return;
+  const tour = draftTour.value;
+  if (!tour) return;
+  // IMPORTANT: publishing should bump the version so users who already completed
+  // the previous tour will see the updated one.
+  const toPublish = { ...tour, version: 0 };
+  const next = await overlaysStore.publishTutorial({ agencyId: currentAgencyId.value, routeName: routeName.value, tour: toPublish });
+  // Sync draft to published (so builder reflects the actual published version).
+  const cfg = next?.tutorial?.config;
+  if (cfg && typeof cfg === 'object' && Array.isArray(cfg.steps)) {
+    store.setTutorialDraftForRouteName(routeName.value, cfg);
+  }
+};
+
+const refreshPublished = async () => {
+  if (!routeName.value || !currentAgencyId.value) return;
+  await overlaysStore.fetchRouteOverlays(currentAgencyId.value, routeName.value);
+};
+
+const loadPublishedTutorialIntoDraft = async () => {
+  if (!routeName.value || !currentAgencyId.value) return;
+  const latest = await overlaysStore.fetchRouteOverlays(currentAgencyId.value, routeName.value);
+  const cfg = latest?.tutorial?.config || null;
+  if (cfg && typeof cfg === 'object' && Array.isArray(cfg.steps)) {
+    store.setTutorialDraftForRouteName(routeName.value, cfg);
+  }
 };
 
 const removeStep = (idx) => {
@@ -276,6 +421,27 @@ const saveHelperDraft = () => {
     message: helperDraft.message || null,
     position: helperDraft.position || 'bottom_right'
   });
+};
+
+const publishHelperDraft = async () => {
+  if (!routeName.value || !currentAgencyId.value) return;
+  const helper = store.getHelperDraftForRouteName(routeName.value);
+  if (!helper) return;
+  const next = await overlaysStore.publishHelper({ agencyId: currentAgencyId.value, routeName: routeName.value, helper });
+  // Sync draft to published
+  const cfg = next?.helper?.config;
+  if (cfg && typeof cfg === 'object') {
+    store.setHelperDraftForRouteName(routeName.value, cfg);
+  }
+};
+
+const loadPublishedHelperIntoDraft = async () => {
+  if (!routeName.value || !currentAgencyId.value) return;
+  const latest = await overlaysStore.fetchRouteOverlays(currentAgencyId.value, routeName.value);
+  const cfg = latest?.helper?.config || null;
+  if (cfg && typeof cfg === 'object') {
+    store.setHelperDraftForRouteName(routeName.value, cfg);
+  }
 };
 
 const clearHelperDraft = () => {
@@ -346,6 +512,8 @@ const onDocumentClickCapture = (e) => {
 
 onMounted(() => {
   document.addEventListener('click', onDocumentClickCapture, true);
+  // Best-effort: preload published overlays for current route/org.
+  refreshPublished();
 });
 
 onUnmounted(() => {
@@ -453,6 +621,35 @@ onUnmounted(() => {
   border-radius: 12px;
   padding: 10px 12px;
   font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.status {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+.status-row:first-child {
+  margin-top: 0;
+}
+.status-label {
+  font-weight: 800;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.status-val {
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.dim {
   color: var(--text-secondary);
 }
 
