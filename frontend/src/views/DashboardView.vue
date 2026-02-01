@@ -139,7 +139,7 @@
           </div>
           <div class="rail-card-meta">
             <span v-if="card.badgeCount > 0" class="rail-card-badge">{{ card.badgeCount }}</span>
-            <span class="rail-card-cta">{{ card.kind === 'link' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
+            <span class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
           </div>
         </button>
       </div>
@@ -447,6 +447,8 @@
         </div>
       </div>
     </div>
+
+    <SupervisionModal v-if="showSupervisionModal" @close="showSupervisionModal = false" />
   </div>
 </template>
 
@@ -473,6 +475,8 @@ import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
 import MyCompensationTab from '../components/dashboard/MyCompensationTab.vue';
 import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
+import SupervisionModal from '../components/supervision/SupervisionModal.vue';
+import { isSupervisor } from '../utils/helpers.js';
 
 const props = defineProps({
   previewMode: {
@@ -507,6 +511,8 @@ const isPending = ref(false);
 const pendingCompletionStatus = ref(null);
 const tierBadgeText = ref('');
 const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
+
+const showSupervisionModal = ref(false);
 
 // If an icon URL 404s (or otherwise fails to load), show a simple fallback glyph.
 const failedRailIconIds = ref(new Set());
@@ -682,6 +688,17 @@ const dashboardCards = computed(() => {
       iconUrl: brandingStore.getDashboardCardIconUrl('notifications', cardIconOrgOverride),
       description: 'Your recent notifications.'
     });
+    // Supervision card (supervisors only)
+    if (isSupervisor(authStore.user)) {
+      cards.push({
+        id: 'supervision',
+        label: 'Supervision',
+        kind: 'modal',
+        badgeCount: 0,
+        iconUrl: brandingStore.getDashboardCardIconUrl('supervision', cardIconOrgOverride),
+        description: 'View and support your supervisees.'
+      });
+    }
   }
 
   return cards;
@@ -709,7 +726,8 @@ const railCards = computed(() => {
         on_demand_training: 8,
         communications: 9,
         chats: 10,
-        notifications: 11
+        notifications: 11,
+        supervision: 12
       })[k] ?? 999;
     }
     return ({
@@ -724,7 +742,8 @@ const railCards = computed(() => {
       on_demand_training: 8,
       communications: 9,
       chats: 10,
-      notifications: 11
+      notifications: 11,
+      supervision: 12
     })[k] ?? 999;
   };
 
@@ -759,6 +778,10 @@ const handleCardClick = (card) => {
   if (props.previewMode) return;
   if (card.kind === 'link' && card.to) {
     router.push(String(card.to));
+    return;
+  }
+  if (card.id === 'supervision') {
+    showSupervisionModal.value = true;
     return;
   }
   if (card.id === 'submit') {

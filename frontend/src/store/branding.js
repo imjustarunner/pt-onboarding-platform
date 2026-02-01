@@ -703,7 +703,8 @@ export const useBrandingStore = defineStore('branding', () => {
       submit: 'my_dashboard_submit_icon_path',
       communications: 'my_dashboard_communications_icon_path',
       chats: 'my_dashboard_chats_icon_path',
-      notifications: 'my_dashboard_notifications_icon_path'
+      notifications: 'my_dashboard_notifications_icon_path',
+      supervision: 'my_dashboard_supervision_icon_path'
     };
 
     const field = iconFieldMap[cardId];

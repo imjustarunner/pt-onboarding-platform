@@ -75,7 +75,9 @@ class SupervisorAssignment {
              u.last_name as supervisee_last_name,
              u.email as supervisee_email,
              u.role as supervisee_role,
-             a.name as agency_name
+             u.profile_photo_path as supervisee_profile_photo_path,
+             a.name as agency_name,
+             TRIM(COALESCE(a.slug, a.portal_url, '')) as agency_slug
       FROM supervisor_assignments sa
       INNER JOIN users u ON sa.supervisee_id = u.id
       INNER JOIN agencies a ON sa.agency_id = a.id

@@ -64,9 +64,21 @@
           <h3>Total Modules</h3>
           <p class="stat-value">{{ stats.totalModules }}</p>
         </router-link>
+
+        <button
+          v-if="isSupervisor(user)"
+          type="button"
+          class="stat-card stat-card-button"
+          @click="showSupervisionModal = true"
+        >
+          <h3>Supervision</h3>
+          <p class="stat-value">View supervisees</p>
+        </button>
       </div>
       
       <NotificationCards />
+
+      <SupervisionModal v-if="showSupervisionModal" @close="showSupervisionModal = false" />
       
       <div v-if="!currentAgency" class="brand-preview-hint">
         Select an agency brand to preview agency-specific icon overrides.
@@ -92,14 +104,20 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
+import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
+import { isSupervisor } from '../../utils/helpers.js';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
 import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
+import SupervisionModal from '../../components/supervision/SupervisionModal.vue';
 
+const authStore = useAuthStore();
+const user = computed(() => authStore.user);
+const showSupervisionModal = ref(false);
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const currentAgency = computed(() => agencyStore.currentAgency);
@@ -551,6 +569,13 @@ onMounted(async () => {
   transform: translateY(-2px);
   box-shadow: var(--shadow-lg);
   border-color: var(--primary);
+}
+
+.stat-card.stat-card-button {
+  width: 100%;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .stat-card-link {

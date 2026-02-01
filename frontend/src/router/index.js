@@ -5,6 +5,7 @@ import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
 import { getDashboardRoute } from '../utils/router';
 import { getLoginUrl } from '../utils/loginRedirect';
+import { isSupervisor } from '../utils/helpers';
 
 const getDefaultOrganizationSlug = () => {
   try {
@@ -905,7 +906,11 @@ const userHasSlugAccess = (slug, agencyStore, authStore) => {
   const agencies = Array.isArray(fromStore) && fromStore.length > 0 ? fromStore : getStoredUserAgencies();
 
   // Some records use `portal_url` as the slug-ish value
-  return agencies.some((a) => a?.slug === slug || a?.portal_url === slug);
+  if (agencies.some((a) => a?.slug === slug || a?.portal_url === slug)) return true;
+  // Supervisors can access their supervisees' school portals
+  const superviseeSlugs = agencyStore.superviseePortalSlugs?.value ?? agencyStore.superviseePortalSlugs ?? [];
+  if (Array.isArray(superviseeSlugs) && superviseeSlugs.includes(slug)) return true;
+  return false;
 };
 
 router.beforeEach(async (to, from, next) => {
@@ -943,6 +948,9 @@ router.beforeEach(async (to, from, next) => {
   // This is what keeps the portal branded consistently across all authenticated pages.
   if (to.meta.organizationSlug) {
     const slug = to.params.organizationSlug;
+    if (typeof slug === 'string' && slug && authStore.isAuthenticated && authStore.user && isSupervisor(authStore.user)) {
+      await agencyStore.fetchSuperviseePortalSlugs();
+    }
     if (typeof slug === 'string' && slug) {
       // Apply portal branding for all slug routes (public + authenticated).
       // (Super admins can still view the portal with correct branding.)

@@ -19,8 +19,8 @@ export function isSupervisor(user) {
     return true;
   }
   
-  // Fallback: role check for backward compatibility
-  if (user.role === 'supervisor') {
+  // Fallback: role check for backward compatibility (case-insensitive)
+  if (String(user.role || '').toLowerCase() === 'supervisor') {
     return true;
   }
   

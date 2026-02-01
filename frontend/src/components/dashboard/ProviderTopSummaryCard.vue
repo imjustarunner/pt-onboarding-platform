@@ -33,7 +33,7 @@
         <div class="value">{{ summary?.lastPaycheck ? fmtMoney(summary.lastPaycheck.totalPay) : '—' }}</div>
       </div>
 
-      <div class="cell">
+      <div class="cell" v-if="isProvider">
         <div class="label">Incomplete notes (last pay period)</div>
         <div class="value">
           {{ fmtNum(summary?.unpaidNotes?.lastPayPeriod?.totalUnits || 0) }}
@@ -44,7 +44,7 @@
         </div>
       </div>
 
-      <div class="cell" v-if="(summary?.unpaidNotes?.priorStillUnpaid?.totalUnits || 0) > 0">
+      <div class="cell" v-if="isProvider && (summary?.unpaidNotes?.priorStillUnpaid?.totalUnits || 0) > 0">
         <div class="label">Still unpaid from prior pay period</div>
         <div class="value danger">{{ fmtNum(summary.unpaidNotes.priorStillUnpaid.totalUnits) }} <span class="muted">units</span></div>
         <div class="muted small">
@@ -52,7 +52,7 @@
         </div>
       </div>
 
-      <div class="cell" v-if="(summary?.unpaidNotes?.twoPeriodsOld?.totalUnits || 0) > 0">
+      <div class="cell" v-if="isProvider && (summary?.unpaidNotes?.twoPeriodsOld?.totalUnits || 0) > 0">
         <div class="label">Aging unpaid notes (2 pay periods old)</div>
         <div class="value danger">{{ fmtNum(summary.unpaidNotes.twoPeriodsOld.totalUnits) }} <span class="muted">units</span></div>
         <div class="muted small">
@@ -96,9 +96,9 @@
         </div>
       </div>
 
-      <div class="cell">
+      <div class="cell" v-if="summary?.supervisor?.name">
         <div class="label">Supervisor</div>
-        <div class="value">{{ summary?.supervisor?.name || '—' }}</div>
+        <div class="value">{{ summary.supervisor.name }}</div>
       </div>
 
       <div class="cell">
@@ -115,10 +115,21 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
 
 const router = useRouter();
 const route = useRoute();
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
+
+const isProvider = computed(() => {
+  const u = authStore.user;
+  if (!u) return false;
+  const role = String(u.role || '').toLowerCase();
+  if (role === 'provider') return true;
+  if (u.has_provider_access === true || u.has_provider_access === 1 || u.has_provider_access === '1') return true;
+  return false;
+});
 
 const agencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;

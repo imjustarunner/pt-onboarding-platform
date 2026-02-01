@@ -7,20 +7,21 @@ import {
   deleteUserSpecificDocument,
   upload
 } from '../controllers/userSpecificDocument.controller.js';
-import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireAdmin, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
-// All routes require authentication and admin access
 router.use(authenticate);
-router.use(requireBackofficeAdmin);
 
-router.post('/upload', upload.single('file'), createUserSpecificDocument);
-router.post('/', createUserSpecificDocument); // For HTML content
-router.get('/user/:userId', getUserSpecificDocuments);
-router.get('/:id', getUserSpecificDocument);
-router.put('/:id', upload.single('file'), updateUserSpecificDocument);
-router.delete('/:id', deleteUserSpecificDocument);
+// Create (upload): allow admin/support/super_admin or supervisors (controller enforces supervisee access for supervisors)
+router.post('/upload', requireAdmin, upload.single('file'), createUserSpecificDocument);
+router.post('/', requireAdmin, createUserSpecificDocument); // For HTML content
+
+// Read/update/delete: backoffice admin only
+router.get('/user/:userId', requireBackofficeAdmin, getUserSpecificDocuments);
+router.get('/:id', requireBackofficeAdmin, getUserSpecificDocument);
+router.put('/:id', requireBackofficeAdmin, upload.single('file'), updateUserSpecificDocument);
+router.delete('/:id', requireBackofficeAdmin, deleteUserSpecificDocument);
 
 export default router;
 

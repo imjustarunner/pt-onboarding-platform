@@ -142,6 +142,33 @@ class SupervisionSession {
     );
     return rows || [];
   }
+
+  /**
+   * Get total completed/scheduled supervision hours for a supervisee in an agency.
+   * Sums (end_at - start_at) for sessions where supervisee_user_id = superviseeUserId, agency_id = agencyId, status <> 'CANCELLED'.
+   */
+  static async getHoursSummaryForSupervisee(agencyId, superviseeUserId) {
+    const aId = parseInt(agencyId, 10);
+    const uId = parseInt(superviseeUserId, 10);
+    const [rows] = await pool.execute(
+      `SELECT
+         COALESCE(SUM(TIMESTAMPDIFF(SECOND, ss.start_at, ss.end_at)), 0) AS total_seconds,
+         COUNT(ss.id) AS session_count
+       FROM supervision_sessions ss
+       WHERE ss.agency_id = ?
+         AND ss.supervisee_user_id = ?
+         AND (ss.status IS NULL OR ss.status <> 'CANCELLED')`,
+      [aId, uId]
+    );
+    const r = rows?.[0] || null;
+    const totalSeconds = Number(r?.total_seconds || 0);
+    const totalHours = totalSeconds / 3600;
+    return {
+      totalSeconds,
+      totalHours: Math.round(totalHours * 100) / 100,
+      sessionCount: Number(r?.session_count || 0)
+    };
+  }
 }
 
 export default SupervisionSession;

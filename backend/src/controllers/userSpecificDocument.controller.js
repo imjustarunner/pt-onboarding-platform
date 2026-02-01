@@ -23,10 +23,10 @@ export const upload = multer({
 });
 
 /**
- * Create a user-specific document (non-template)
- * Accepts either:
- * - PDF upload (req.file)
- * - HTML content (req.body.htmlContent)
+ * Create a user-specific document (non-template).
+ * Used by supervision "Assign document" (upload-only) and admin user docs.
+ * When the main document process/feature is fixed, update this flow to stay in sync.
+ * Accepts either: PDF upload (req.file) or HTML content (req.body.htmlContent).
  */
 export const createUserSpecificDocument = async (req, res, next) => {
   try {
@@ -53,9 +53,21 @@ export const createUserSpecificDocument = async (req, res, next) => {
       });
     }
 
-    // Only admins can create user-specific documents
-    if (req.user.role !== 'super_admin' && req.user.role !== 'admin') {
-      return res.status(403).json({ error: { message: 'Access denied' } });
+    // Admins/support can create for anyone; supervisors only for their supervisees
+    const targetUserId = parseInt(userId, 10);
+    if (req.user.role === 'super_admin' || req.user.role === 'admin' || req.user.role === 'support') {
+      // allowed
+    } else {
+      const User = (await import('../models/User.model.js')).default;
+      const requestingUser = await User.findById(req.user.id);
+      const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
+      if (!isSupervisor) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+      const hasAccess = await User.supervisorHasAccess(req.user.id, targetUserId, null);
+      if (!hasAccess) {
+        return res.status(403).json({ error: { message: 'You can only assign documents to your assigned supervisees' } });
+      }
     }
 
     // Determine type

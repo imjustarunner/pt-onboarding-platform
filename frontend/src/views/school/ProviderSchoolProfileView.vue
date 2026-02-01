@@ -4,6 +4,7 @@
       <ProviderSchoolProfile
         :school-organization-id="organizationId"
         :provider-user-id="providerUserId"
+        :school-name="organizationName"
         @open-client="openClient"
       />
     </div>
@@ -37,6 +38,11 @@ const providerUserId = computed(() => {
 
 const organizationId = computed(() => {
   return organizationStore.organizationContext?.id || organizationStore.currentOrganization?.id || null;
+});
+
+const organizationName = computed(() => {
+  const org = organizationStore.organizationContext || organizationStore.currentOrganization;
+  return org?.official_name?.trim() || org?.name || '';
 });
 
 const openClient = (c) => {

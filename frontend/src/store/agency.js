@@ -179,6 +179,34 @@ export const useAgencyStore = defineStore('agency', () => {
     return tracks.value.filter(t => t.agency_id === currentAgency.value.id);
   });
 
+  const superviseePortalSlugs = ref([]);
+  let superviseePortalSlugsFetched = false;
+  let superviseePortalSlugsUserId = null;
+  const fetchSuperviseePortalSlugs = async () => {
+    const { useAuthStore } = await import('./auth');
+    const { isSupervisor } = await import('../utils/helpers');
+    const authStore = useAuthStore();
+    const currentUserId = authStore.user?.id ?? null;
+    if (currentUserId !== superviseePortalSlugsUserId) {
+      superviseePortalSlugsFetched = false;
+      superviseePortalSlugsUserId = currentUserId;
+      superviseePortalSlugs.value = [];
+    }
+    if (superviseePortalSlugsFetched) return;
+    try {
+      if (!authStore.user || !isSupervisor(authStore.user)) {
+        superviseePortalSlugsFetched = true;
+        return;
+      }
+      const response = await api.get('/users/me/supervisee-portal-slugs');
+      superviseePortalSlugs.value = Array.isArray(response.data?.slugs) ? response.data.slugs : [];
+    } catch {
+      superviseePortalSlugs.value = [];
+    } finally {
+      superviseePortalSlugsFetched = true;
+    }
+  };
+
   return {
     agencies,
     userAgencies,
@@ -189,7 +217,9 @@ export const useAgencyStore = defineStore('agency', () => {
     hydrateAgencyById,
     fetchAgencies,
     fetchUserAgencies,
-    fetchTracks
+    fetchTracks,
+    superviseePortalSlugs,
+    fetchSuperviseePortalSlugs
   };
 });
 

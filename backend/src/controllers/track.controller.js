@@ -580,6 +580,17 @@ export const assignTrainingFocus = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Agency ID is required' } });
     }
 
+    const isAdminOrSupport = req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support';
+    if (!isAdminOrSupport) {
+      const User = (await import('../models/User.model.js')).default;
+      for (const userId of userIds) {
+        const hasAccess = await User.supervisorHasAccess(assignedByUserId, parseInt(userId), parseInt(agencyId));
+        if (!hasAccess) {
+          return res.status(403).json({ error: { message: 'You can only assign training focus to users you supervise.' } });
+        }
+      }
+    }
+
     // Verify training focus exists
     const trainingFocus = await TrainingTrack.findById(id);
     if (!trainingFocus) {

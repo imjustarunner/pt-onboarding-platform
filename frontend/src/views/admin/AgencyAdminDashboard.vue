@@ -65,9 +65,21 @@
           <h3>Active Users</h3>
           <p class="stat-value">{{ stats.activeUsers }}</p>
         </component>
+
+        <button
+          v-if="!previewMode && (isSupervisor(user) || user?.role === 'clinical_practice_assistant')"
+          type="button"
+          class="stat-card stat-card-button"
+          @click="showSupervisionModal = true"
+        >
+          <h3>Supervision</h3>
+          <p class="stat-value">View supervisees</p>
+        </button>
       </div>
       
       <NotificationCards v-if="!previewMode" />
+
+      <SupervisionModal v-if="showSupervisionModal" @close="showSupervisionModal = false" />
 
       <QuickActionsSection
         v-if="!previewMode"
@@ -99,6 +111,7 @@ import { isSupervisor } from '../../utils/helpers.js';
 import NotificationCards from '../../components/admin/NotificationCards.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
 import AgencySpecsPanel from '../../components/admin/AgencySpecsPanel.vue';
+import SupervisionModal from '../../components/supervision/SupervisionModal.vue';
 
 const props = defineProps({
   previewMode: {
@@ -117,6 +130,7 @@ const authStore = useAuthStore();
 const user = computed(() => authStore.user);
 const currentAgency = computed(() => agencyStore.currentAgency);
 
+const showSupervisionModal = ref(false);
 const loading = ref(true);
 const error = ref('');
 const stats = ref({
@@ -577,6 +591,13 @@ onMounted(async () => {
   text-decoration: none;
   color: inherit;
   cursor: pointer;
+}
+
+.stat-card.stat-card-button {
+  width: 100%;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .stat-card:hover {

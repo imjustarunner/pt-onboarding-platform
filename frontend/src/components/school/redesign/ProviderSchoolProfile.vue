@@ -170,6 +170,7 @@
               v-else
               :organization-slug="String(route.params.organizationSlug || '')"
               :organization-id="Number(props.schoolOrganizationId)"
+              :organization-name="schoolName"
               roster-scope="provider"
               :client-label-mode="clientLabelMode"
               :psychotherapy-totals-by-client-id="psychotherapyTotalsByClientId"
@@ -243,7 +244,9 @@ import { toUploadsUrl } from '../../../utils/uploadsUrl';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
-  providerUserId: { type: Number, required: true }
+  providerUserId: { type: Number, required: true },
+  /** Display name for the school/program (shown in client list). */
+  schoolName: { type: String, default: '' }
 });
 defineEmits(['open-client']);
 

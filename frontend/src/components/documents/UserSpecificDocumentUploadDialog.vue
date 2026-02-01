@@ -1,3 +1,4 @@
+<!-- Used by supervision "Assign document" and admin user docs. When the main document process/feature is fixed, update this component to stay in sync. -->
 <template>
   <div class="modal-overlay" @click="$emit('close')">
     <div class="modal-content" @click.stop>
@@ -23,6 +24,7 @@
             <option value="authorization">Authorization</option>
             <option value="agreement">Agreement</option>
             <option value="compliance">Compliance</option>
+            <option value="continuing_education">Continuing Education</option>
             <option value="disclosure">Disclosure</option>
             <option value="consent">Consent</option>
             <option value="administrative">Administrative</option>

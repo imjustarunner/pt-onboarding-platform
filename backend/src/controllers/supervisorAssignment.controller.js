@@ -1,6 +1,7 @@
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import User from '../models/User.model.js';
 import { validationResult } from 'express-validator';
+import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 
 /**
  * Create a new supervisor assignment
@@ -166,7 +167,14 @@ export const getSupervisees = async (req, res, next) => {
       agencyId ? parseInt(agencyId) : null
     );
 
-    res.json(assignments);
+    const withPhotoUrl = (assignments || []).map((a) => ({
+      ...a,
+      supervisee_profile_photo_url: a.supervisee_profile_photo_path
+        ? publicUploadsUrlFromStoredPath(a.supervisee_profile_photo_path)
+        : null
+    }));
+
+    res.json(withPhotoUrl);
   } catch (error) {
     next(error);
   }

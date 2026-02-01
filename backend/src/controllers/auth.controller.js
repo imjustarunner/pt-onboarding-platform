@@ -503,6 +503,9 @@ export const login = async (req, res, next) => {
         requiresPasswordChange: pw.requiresPasswordChange || tempActive,
         passwordExpiresAt: pw.passwordExpiresAt,
         passwordExpired: pw.passwordExpired,
+        has_supervisor_privileges: !!(freshUser?.has_supervisor_privileges === true || freshUser?.has_supervisor_privileges === 1 || freshUser?.has_supervisor_privileges === '1'),
+        has_provider_access: !!(freshUser?.has_provider_access === true || freshUser?.has_provider_access === 1 || freshUser?.has_provider_access === '1'),
+        has_staff_access: !!(freshUser?.has_staff_access === true || freshUser?.has_staff_access === 1 || freshUser?.has_staff_access === '1'),
         ...(await buildPayrollCaps(user))
       },
       sessionId
@@ -919,6 +922,9 @@ export const passwordlessTokenLogin = async (req, res, next) => {
           requiresPasswordChange: pw.requiresPasswordChange,
           passwordExpiresAt: pw.passwordExpiresAt,
           passwordExpired: pw.passwordExpired,
+          has_supervisor_privileges: !!(fullUser?.has_supervisor_privileges === true || fullUser?.has_supervisor_privileges === 1 || fullUser?.has_supervisor_privileges === '1'),
+          has_provider_access: !!(fullUser?.has_provider_access === true || fullUser?.has_provider_access === 1 || fullUser?.has_provider_access === '1'),
+          has_staff_access: !!(fullUser?.has_staff_access === true || fullUser?.has_staff_access === 1 || fullUser?.has_staff_access === '1'),
           ...(await buildPayrollCaps(fullUser))
         },
         sessionId,
@@ -1130,6 +1136,9 @@ export const passwordlessTokenLoginFromBody = async (req, res, next) => {
           passwordExpired: pw.passwordExpired,
           medcancelEnabled: ['low', 'high'].includes(String(fullUser?.medcancel_rate_schedule || '').toLowerCase()),
           medcancelRateSchedule: fullUser?.medcancel_rate_schedule || null,
+          has_supervisor_privileges: !!(fullUser?.has_supervisor_privileges === true || fullUser?.has_supervisor_privileges === 1 || fullUser?.has_supervisor_privileges === '1'),
+          has_provider_access: !!(fullUser?.has_provider_access === true || fullUser?.has_provider_access === 1 || fullUser?.has_provider_access === '1'),
+          has_staff_access: !!(fullUser?.has_staff_access === true || fullUser?.has_staff_access === 1 || fullUser?.has_staff_access === '1'),
           ...(await buildPayrollCaps(fullUser))
         },
         sessionId,

@@ -343,7 +343,8 @@ class Agency {
         mds_i.file_path as my_dashboard_submit_icon_path, mds_i.name as my_dashboard_submit_icon_name,
         mdcom_i.file_path as my_dashboard_communications_icon_path, mdcom_i.name as my_dashboard_communications_icon_name,
         mdchat_i.file_path as my_dashboard_chats_icon_path, mdchat_i.name as my_dashboard_chats_icon_name,
-        mdn_i.file_path as my_dashboard_notifications_icon_path, mdn_i.name as my_dashboard_notifications_icon_name`
+        mdn_i.file_path as my_dashboard_notifications_icon_path, mdn_i.name as my_dashboard_notifications_icon_name,
+        mdsup_i.file_path as my_dashboard_supervision_icon_path, mdsup_i.name as my_dashboard_supervision_icon_name`
         : '';
       const myDashJoins = hasMyDashboardIcons
         ? `
@@ -358,7 +359,8 @@ class Agency {
         LEFT JOIN icons mds_i ON a.my_dashboard_submit_icon_id = mds_i.id
         LEFT JOIN icons mdcom_i ON a.my_dashboard_communications_icon_id = mdcom_i.id
         LEFT JOIN icons mdchat_i ON a.my_dashboard_chats_icon_id = mdchat_i.id
-        LEFT JOIN icons mdn_i ON a.my_dashboard_notifications_icon_id = mdn_i.id`
+        LEFT JOIN icons mdn_i ON a.my_dashboard_notifications_icon_id = mdn_i.id
+        LEFT JOIN icons mdsup_i ON a.my_dashboard_supervision_icon_id = mdsup_i.id`
         : '';
 
       // Join with icons table to get icon file paths (including master icon)
@@ -687,6 +689,7 @@ class Agency {
       myDashboardCommunicationsIconId,
       myDashboardChatsIconId,
       myDashboardNotificationsIconId,
+      myDashboardSupervisionIconId,
 
       // School Portal dashboard card icon overrides (agency-level; optional columns)
       schoolPortalProvidersIconId,
@@ -942,7 +945,8 @@ class Agency {
         'my_dashboard_submit_icon_id',
         'my_dashboard_communications_icon_id',
         'my_dashboard_chats_icon_id',
-        'my_dashboard_notifications_icon_id'
+        'my_dashboard_notifications_icon_id',
+        'my_dashboard_supervision_icon_id'
       );
       insertValues.push(
         myDashboardChecklistIconId || null,
@@ -956,7 +960,8 @@ class Agency {
         myDashboardSubmitIconId || null,
         myDashboardCommunicationsIconId || null,
         myDashboardChatsIconId || null,
-        myDashboardNotificationsIconId || null
+        myDashboardNotificationsIconId || null,
+        myDashboardSupervisionIconId || null
       );
     }
 
@@ -1057,7 +1062,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId

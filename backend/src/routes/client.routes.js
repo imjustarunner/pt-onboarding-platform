@@ -2,6 +2,7 @@ import express from 'express';
 import { body } from 'express-validator';
 import {
   getClients,
+  getClientsForUser,
   getArchivedClients,
   getClientById,
   createClient,
@@ -47,6 +48,7 @@ router.use(authenticate);
 
 // List clients (agency view)
 router.get('/', getClients);
+router.get('/for-user/:userId', getClientsForUser);
 router.get('/archived', getArchivedClients);
 
 // Delete bulk-imported clients for an agency (admin only)

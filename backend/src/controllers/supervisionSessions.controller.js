@@ -280,3 +280,41 @@ export const cancelSupervisionSession = async (req, res, next) => {
   }
 };
 
+/**
+ * Get supervision hours summary for a supervisee. Supervisor or admin/support only.
+ * GET /supervision/supervisee/:superviseeId/hours-summary?agencyId=...
+ */
+export const getSuperviseeHoursSummary = async (req, res, next) => {
+  try {
+    const requesterId = Number(req.user?.id || 0);
+    const superviseeId = req.params.superviseeId ? parseInt(req.params.superviseeId, 10) : null;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!requesterId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!superviseeId) return res.status(400).json({ error: { message: 'superviseeId is required' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    if (requesterId !== superviseeId) {
+      const role = String(req.user?.role || '').toLowerCase();
+      const isAdminOrSupport = role === 'admin' || role === 'super_admin' || role === 'support';
+      if (!isAdminOrSupport) {
+        const hasAccess = await User.supervisorHasAccess(requesterId, superviseeId, agencyId);
+        if (!hasAccess) {
+          return res.status(403).json({ error: { message: 'Access denied. You can only view hours for your assigned supervisees.' } });
+        }
+      }
+    }
+
+    const summary = await SupervisionSession.getHoursSummaryForSupervisee(agencyId, superviseeId);
+    res.json({
+      ok: true,
+      agencyId,
+      superviseeId,
+      totalHours: summary.totalHours,
+      totalSeconds: summary.totalSeconds,
+      sessionCount: summary.sessionCount
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+

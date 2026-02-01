@@ -495,6 +495,15 @@ export const assignModuleToUsers = async (req, res, next) => {
     };
 
     if (userIds && Array.isArray(userIds) && userIds.length > 0) {
+      const isAdminOrSupport = req.user.role === 'admin' || req.user.role === 'super_admin' || req.user.role === 'support';
+      if (!isAdminOrSupport) {
+        for (const userId of userIds) {
+          const hasAccess = await User.supervisorHasAccess(assignedByUserId, parseInt(userId), agencyId ? parseInt(agencyId) : null);
+          if (!hasAccess) {
+            return res.status(403).json({ error: { message: 'You can only assign modules to yourself or to users you supervise.' } });
+          }
+        }
+      }
       // Assign to individual users
       for (const userId of userIds) {
         const task = await TaskAssignmentService.assignTrainingTask({

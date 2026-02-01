@@ -11473,27 +11473,11 @@ export const listMyPayroll = async (req, res, next) => {
   }
 };
 
-export const getMyDashboardSummary = async (req, res, next) => {
-  try {
-    const userId = req.user?.id;
-    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : null;
-    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    const resolvedAgencyId = await resolvePayrollAgencyId(agencyId);
-    if (!resolvedAgencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-
-    // Ensure membership for non-admins.
-    if (!isAdminRole(req.user.role)) {
-      const [rows] = await pool.execute(
-        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
-        [userId, resolvedAgencyId]
-      );
-      if (!rows || rows.length === 0) {
-        return res.status(403).json({ error: { message: 'Access denied' } });
-      }
-    }
-
-    const agency = await Agency.findById(resolvedAgencyId);
+/**
+ * Build dashboard summary payload for a user in an agency (shared by getMyDashboardSummary and getSuperviseeDashboardSummary).
+ */
+async function buildDashboardSummaryPayload(userId, resolvedAgencyId) {
+  const agency = await Agency.findById(resolvedAgencyId);
 
     const all = await PayrollSummary.listForUser({ userId, agencyId: resolvedAgencyId, limit: 100, offset: 0 });
     const posted = (all || []).filter((r) => {
@@ -11539,7 +11523,6 @@ export const getMyDashboardSummary = async (req, res, next) => {
     // Direct/Indirect ratio card is shown only for hourly workers (users.is_hourly_worker).
     let showRatio = false;
     try {
-      const User = (await import('../models/User.model.js')).default;
       const u = await User.findById(userId);
       showRatio = !!(u?.is_hourly_worker === 1 || u?.is_hourly_worker === true || u?.is_hourly_worker === '1');
     } catch {
@@ -11693,30 +11676,96 @@ export const getMyDashboardSummary = async (req, res, next) => {
       };
     }
 
-    res.json({
-      ok: true,
-      agencyId: resolvedAgencyId,
-      lastPaycheck: lastPaycheck
-        ? {
-            payrollPeriodId: Number(lastPaycheck.payroll_period_id),
-            periodStart: String(lastPaycheck.period_start || '').slice(0, 10),
-            periodEnd: String(lastPaycheck.period_end || '').slice(0, 10),
-            totalPay: Number(lastPaycheck.total_amount || 0),
-            totalUnpaidUnits: unpaidLast.totalUnits,
-            breakdown: lastPaycheck.breakdown || null
-          }
-        : null,
-      unpaidNotes: {
-        lastPayPeriod: unpaidLast,
-        priorStillUnpaid: priorStill,
-        twoPeriodsOld
-      },
-      directIndirect: ratio,
-      supervision,
-      pto,
-      supervisor,
-      office
-    });
+  return {
+    ok: true,
+    agencyId: resolvedAgencyId,
+    lastPaycheck: lastPaycheck
+      ? {
+          payrollPeriodId: Number(lastPaycheck.payroll_period_id),
+          periodStart: String(lastPaycheck.period_start || '').slice(0, 10),
+          periodEnd: String(lastPaycheck.period_end || '').slice(0, 10),
+          totalPay: Number(lastPaycheck.total_amount || 0),
+          totalUnpaidUnits: unpaidLast.totalUnits,
+          breakdown: lastPaycheck.breakdown || null
+        }
+      : null,
+    unpaidNotes: {
+      lastPayPeriod: unpaidLast,
+      priorStillUnpaid: priorStill,
+      twoPeriodsOld
+    },
+    directIndirect: ratio,
+    supervision,
+    pto,
+    supervisor,
+    office
+  };
+}
+
+export const getMyDashboardSummary = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const resolvedAgencyId = await resolvePayrollAgencyId(agencyId);
+    if (!resolvedAgencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    if (!isAdminRole(req.user.role)) {
+      const [rows] = await pool.execute(
+        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+        [userId, resolvedAgencyId]
+      );
+      if (!rows || rows.length === 0) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    }
+
+    const payload = await buildDashboardSummaryPayload(userId, resolvedAgencyId);
+    res.json(payload);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Get dashboard summary for a supervisee (supervisor or admin/support only). Pay amounts are redacted.
+ */
+export const getSuperviseeDashboardSummary = async (req, res, next) => {
+  try {
+    const requesterId = req.user?.id;
+    const superviseeId = req.params.superviseeId ? parseInt(req.params.superviseeId, 10) : null;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!requesterId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!superviseeId) return res.status(400).json({ error: { message: 'superviseeId is required' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const resolvedAgencyId = await resolvePayrollAgencyId(agencyId);
+    if (!resolvedAgencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    if (requesterId !== superviseeId) {
+      const isAdminOrSupport = isAdminRole(req.user.role) || req.user.role === 'support';
+      if (!isAdminOrSupport) {
+        const hasAccess = await User.supervisorHasAccess(requesterId, superviseeId, resolvedAgencyId);
+        if (!hasAccess) {
+          return res.status(403).json({ error: { message: 'Access denied. You can only view dashboard summary for your assigned supervisees.' } });
+        }
+      }
+    }
+
+    const [memberRows] = await pool.execute(
+      'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [superviseeId, resolvedAgencyId]
+    );
+    if (!memberRows || memberRows.length === 0) {
+      return res.status(403).json({ error: { message: 'Supervisee is not in this agency.' } });
+    }
+
+    const payload = await buildDashboardSummaryPayload(superviseeId, resolvedAgencyId);
+    if (payload.lastPaycheck) {
+      payload.lastPaycheck.totalPay = null;
+      payload.lastPaycheck.breakdown = null;
+    }
+    res.json(payload);
   } catch (e) {
     next(e);
   }

@@ -50,14 +50,23 @@ export function getDashboardRoute() {
     return slug ? `/${slug}/guardian` : '/guardian';
   }
   
-  // Admins, super admins, support, supervisors, and CPAs go to admin dashboard
-  // Check role with case-insensitive comparison and handle variations
+  // Supervisors (not admin/super_admin/support) use provider dashboard when they have a slug
   const userRole = user.role?.toLowerCase();
-  if (userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin' || 
+  const isAdminLike = userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin' || userRole === 'support';
+  if (isSupervisor(user) && !isAdminLike) {
+    const orgs = user.agencies || [];
+    if (orgs.length === 1 && (orgs[0]?.slug || orgs[0]?.portal_url)) {
+      const slug = orgs[0].slug || orgs[0].portal_url;
+      if (slug && String(slug).trim()) return `/${slug}/dashboard`;
+    }
+  }
+
+  // Admins, super admins, support, supervisors (with multiple orgs or no slug), and CPAs go to admin dashboard
+  if (userRole === 'admin' || userRole === 'super_admin' || userRole === 'superadmin' ||
       user.role === 'support' || isSupervisor(user) || user.role === 'clinical_practice_assistant') {
     return '/admin';
   }
-  
+
   // Regular users go to regular dashboard
   return '/dashboard';
 }

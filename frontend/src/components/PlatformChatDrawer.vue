@@ -247,12 +247,15 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 
+const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
@@ -452,6 +455,39 @@ const openChat = async (u, agencyIdOverride = null) => {
 const openThread = async (t) => {
   if (!t?.other_participant) return;
   await openChat(t.other_participant, t.agency_id);
+};
+
+/** Open a direct thread by user id (e.g. from URL openChatWith=userId&agencyId=...). Used when supervisor clicks "Chat with supervisee". */
+const openChatByUserId = async (otherUserId, agencyIdOverride, displayName = '') => {
+  const useAgencyId = agencyIdOverride ? parseInt(agencyIdOverride, 10) : agencyId.value;
+  if (!useAgencyId || !otherUserId) return;
+  chatError.value = '';
+  chatMessages.value = [];
+  draft.value = '';
+  try {
+    chatLoading.value = true;
+    const resp = await api.post('/chat/threads/direct', {
+      agencyId: useAgencyId,
+      otherUserId: parseInt(otherUserId, 10)
+    }, { skipGlobalLoading: true });
+    activeThreadId.value = resp.data?.threadId ?? null;
+    activeThreadAgencyId.value = useAgencyId;
+    const name = (displayName || '').trim() || 'User';
+    const parts = name.split(/\s+/);
+    activeChatUser.value = {
+      id: parseInt(otherUserId, 10),
+      first_name: parts[0] || name,
+      last_name: parts.slice(1).join(' ') || ''
+    };
+    if (activeThreadId.value) {
+      await loadMessages({ markRead: true, scrollToBottom: true });
+    }
+    isOpen.value = true;
+  } catch (e) {
+    chatError.value = e.response?.data?.error?.message || 'Failed to open chat';
+  } finally {
+    chatLoading.value = false;
+  }
 };
 
 const scrollMessagesToBottom = async () => {
@@ -657,6 +693,24 @@ watch(agencyId, async () => {
   closeChat();
   await Promise.all([loadPresence(), loadThreads()]);
 });
+
+// When URL has openChatWith + agencyId (e.g. supervisor clicked "Chat with supervisee"), open that thread in the drawer and clear those params.
+watch(
+  () => ({ query: route.query, path: route.path }),
+  async (newVal) => {
+    const openChatWith = newVal.query?.openChatWith;
+    const agencyIdFromQuery = newVal.query?.agencyId;
+    const openChatWithName = newVal.query?.openChatWithName;
+    if (!openChatWith || !(agencyIdFromQuery || agencyId.value)) return;
+    await openChatByUserId(openChatWith, agencyIdFromQuery || agencyId.value, openChatWithName);
+    await loadThreads();
+    const q = { ...newVal.query };
+    delete q.openChatWith;
+    delete q.openChatWithName;
+    router.replace({ path: newVal.path, query: q });
+  },
+  { immediate: true }
+);
 
 onMounted(async () => {
   if (!isAuthenticated.value) return;

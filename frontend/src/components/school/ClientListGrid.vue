@@ -12,7 +12,7 @@
       <p>No clients found.</p>
     </div>
 
-    <div v-else class="clients-table">
+    <div v-else class="clients-table-wrapper">
       <div v-if="showSearch" class="table-toolbar">
         <input
           v-model="searchQuery"
@@ -21,7 +21,8 @@
           :placeholder="searchPlaceholder"
         />
       </div>
-      <table>
+      <div class="clients-table-scroll">
+        <table class="clients-table">
         <thead>
           <tr>
             <th class="sortable" @click="toggleSort('initials')" role="button" tabindex="0">
@@ -36,9 +37,9 @@
               Doc Status
               <span class="sort-indicator" v-if="sortKey === 'document_status'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
-            <th class="sortable" @click="toggleSort('provider_name')" role="button" tabindex="0">
-              Assigned Provider
-              <span class="sort-indicator" v-if="sortKey === 'provider_name'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
+            <th class="sortable" @click="toggleSort('organization_name')" role="button" tabindex="0">
+              School / Program
+              <span class="sort-indicator" v-if="sortKey === 'organization_name'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
             <th class="sortable" @click="toggleSort('skills')" role="button" tabindex="0">
               Skills
@@ -88,7 +89,7 @@
               </div>
             </td>
             <td>{{ formatDocSummary(client) }}</td>
-            <td>{{ client.provider_name || 'Not assigned' }}</td>
+            <td>{{ organizationName || client.organization_name || '—' }}</td>
             <td>{{ client.skills ? 'Yes' : 'No' }}</td>
             <td>{{ client.service_day || '—' }}</td>
             <td v-if="showPsychotherapyColumn" class="psy-cell">
@@ -122,7 +123,8 @@
             <td>{{ formatDate(client.submission_date) }}</td>
           </tr>
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
 
     <SchoolClientChatModal
@@ -174,6 +176,11 @@ const props = defineProps({
     // { [clientId]: { total: number, per_code: { [code]: number }, client_abbrev?: string, surpassed_24?: boolean } }
     type: Object,
     default: null
+  },
+  /** Display name for the current school/program (shown instead of Assigned Provider). */
+  organizationName: {
+    type: String,
+    default: ''
   }
 });
 
@@ -276,7 +283,7 @@ const sortValue = (client, key) => {
   if (!client) return '';
   if (key === 'status') return String(client.client_status_label || client.status || '').toLowerCase();
   if (key === 'document_status') return String(formatDocSummary(client) || '').toLowerCase();
-  if (key === 'provider_name') return String(client.provider_name || '').toLowerCase();
+  if (key === 'organization_name') return String(props.organizationName || client.organization_name || '').toLowerCase();
   if (key === 'skills') return client.skills ? 1 : 0;
   if (key === 'psychotherapy_total') {
     const m = props.psychotherapyTotalsByClientId || {};
@@ -310,6 +317,7 @@ const filteredClients = computed(() => {
     const hay = [
       formatRosterLabel(client),
       client?.client_status_label,
+      props.organizationName || client?.organization_name,
       client?.provider_name,
       client?.service_day,
       formatDocSummary(client)
@@ -446,18 +454,20 @@ onMounted(() => {
   background: rgba(245, 158, 11, 0.12);
   color: #92400e;
   font-weight: 800;
-  font-size: 12px;
+  font-size: 0.6875rem;
   line-height: 1;
 }
 .waitlist-bubble .wl-left {
-  padding: 4px 8px;
+  padding: 2px 6px;
   border-right: 1px solid rgba(245, 158, 11, 0.25);
 }
 .waitlist-bubble .wl-right {
-  padding: 4px 8px;
+  padding: 2px 6px;
 }
 .client-list-grid {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .loading-state,
@@ -472,51 +482,63 @@ onMounted(() => {
   color: #c33;
 }
 
-.clients-table {
+.clients-table-wrapper {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.clients-table-scroll {
   overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+.clients-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem; /* ~13px – compact row height */
 }
 
 .table-toolbar {
   display: flex;
   justify-content: flex-end;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 .table-search {
   width: 320px;
   max-width: 100%;
-  padding: 10px 12px;
+  padding: 8px 10px;
+  font-size: 0.8125rem;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--bg);
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-thead {
+.clients-table thead {
   background: var(--bg-alt);
 }
 
-th {
-  padding: 12px 16px;
+.clients-table th {
+  padding: 8px 10px;
   text-align: left;
   font-weight: 600;
+  font-size: 0.75rem; /* slightly smaller headers */
   color: var(--text-primary);
   border-bottom: 2px solid var(--border);
-}
-.sortable {
-  cursor: pointer;
-  user-select: none;
   white-space: nowrap;
 }
-.sortable:hover {
+.clients-table .sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.clients-table .sortable:hover {
   background: rgba(0, 0, 0, 0.03);
 }
 .sort-indicator {
-  margin-left: 8px;
-  font-size: 12px;
+  margin-left: 4px;
+  font-size: 10px;
   color: var(--text-secondary);
 }
 
@@ -526,16 +548,25 @@ th {
 }
 .initials {
   display: inline-block;
-  padding: 6px 10px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--bg);
 }
 
-td {
-  padding: 12px 16px;
+.clients-table td {
+  padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   color: var(--text-primary);
+  font-size: 0.8125rem;
+  vertical-align: middle;
+  line-height: 1.3;
+}
+
+.clients-table td:nth-child(3) {
+  max-width: 180px;
+  word-break: break-word;
 }
 
 .client-row {
@@ -575,9 +606,10 @@ td {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 38px;
-  height: 28px;
-  padding: 0 10px;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 0.75rem;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--bg);

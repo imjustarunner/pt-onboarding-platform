@@ -140,6 +140,9 @@ export const getCurrentUser = async (req, res, next) => {
       medcancelEnabled: ['low', 'high'].includes(String(user.medcancel_rate_schedule || '').toLowerCase()),
       medcancelRateSchedule: user.medcancel_rate_schedule || null,
       companyCardEnabled: Boolean(user.company_card_enabled),
+      has_supervisor_privileges: !!(user.has_supervisor_privileges === true || user.has_supervisor_privileges === 1 || user.has_supervisor_privileges === '1'),
+      has_provider_access: !!(user.has_provider_access === true || user.has_provider_access === 1 || user.has_provider_access === '1'),
+      has_staff_access: !!(user.has_staff_access === true || user.has_staff_access === 1 || user.has_staff_access === '1'),
       payrollAgencyIds,
       capabilities: {
         ...baseCaps,
@@ -1754,7 +1757,13 @@ export const getUserScheduleSummary = async (req, res, next) => {
 
     const isSelf = Number(req.user?.id || 0) === Number(providerId);
     if (!isSelf && !canViewProviderScheduleSummary(req.user?.role)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
+      // Allow supervisors to view their supervisees' schedules
+      const requestingUser = await User.findById(req.user?.id);
+      const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
+      if (!isSupervisor) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+      // supervisorHasAccess will be checked below with agencyId
     }
 
     const provider = await User.findById(providerId);
@@ -1772,15 +1781,29 @@ export const getUserScheduleSummary = async (req, res, next) => {
       }
     }
 
-    // Access control: super_admin can view any user; otherwise must share agency with provider.
+    // Access control: super_admin can view any user; otherwise must share agency with provider or be supervisor of provider.
     if (!isSelf && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
       const actorAgencies = await User.getAgencies(req.user.id);
       const targetAgencies = await User.getAgencies(providerId);
       const actorIds = new Set((actorAgencies || []).map((a) => Number(a.id)));
       const shared = (targetAgencies || []).map((a) => Number(a.id)).filter((id) => actorIds.has(id));
-      if (shared.length === 0) return res.status(403).json({ error: { message: 'Access denied' } });
-      if (!agencyId || !shared.includes(Number(agencyId))) {
-        agencyId = shared[0];
+      if (shared.length > 0) {
+        if (!agencyId || !shared.includes(Number(agencyId))) {
+          agencyId = shared[0];
+        }
+      } else {
+        const requestingUser = await User.findById(req.user.id);
+        const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
+        if (isSupervisor) {
+          const supervisorAgencyId = agencyId || (targetAgencies || [])[0]?.id;
+          if (supervisorAgencyId && (await User.supervisorHasAccess(req.user.id, providerId, Number(supervisorAgencyId)))) {
+            agencyId = Number(supervisorAgencyId);
+          } else {
+            return res.status(403).json({ error: { message: 'Access denied' } });
+          }
+        } else {
+          return res.status(403).json({ error: { message: 'Access denied' } });
+        }
       }
     }
 
@@ -2387,6 +2410,86 @@ export const getUserAgencies = async (req, res, next) => {
     const agencies = await User.getAgencies(userId);
     await attachAffiliationMeta(agencies);
     res.json(agencies);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get org slugs that the current user's supervisees are affiliated with (for router/school portal access).
+ * GET /users/me/supervisee-portal-slugs
+ */
+export const getSuperviseePortalSlugs = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const requestingUser = await User.findById(userId);
+    const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
+    if (!isSupervisor) {
+      return res.json({ slugs: [] });
+    }
+
+    const SupervisorAssignment = (await import('../models/SupervisorAssignment.model.js')).default;
+    const assignments = await SupervisorAssignment.findBySupervisor(userId, null);
+    const superviseeIds = [...new Set((assignments || []).map((a) => Number(a.supervisee_id)).filter((n) => Number.isFinite(n) && n > 0))];
+    const slugSet = new Set();
+    for (const superviseeId of superviseeIds) {
+      try {
+        const agencies = await User.getAgencies(superviseeId);
+        for (const a of agencies || []) {
+          const slug = (a.slug || a.portal_url || '').toString().trim();
+          if (slug) slugSet.add(slug);
+        }
+      } catch {
+        // ignore per-supervisee errors
+      }
+    }
+    const slugs = Array.from(slugSet).filter(Boolean).sort();
+    res.json({ slugs });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get affiliated school/program/learning portals for a user (for supervisor view: one button per school).
+ * GET /users/:id/affiliated-portals
+ * Returns orgs of type school/program/learning the user belongs to (id, name, slug).
+ * Allowed: self, admin/support/super_admin, or supervisor with access to this user.
+ */
+export const getAffiliatedPortals = async (req, res, next) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId || !Number.isFinite(userId)) {
+      return res.status(400).json({ error: { message: 'User ID is required' } });
+    }
+    const requesterId = req.user?.id;
+    if (!requesterId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    if (requesterId !== userId) {
+      const isAdminOrSupport = ['admin', 'super_admin', 'support'].includes(req.user?.role);
+      if (!isAdminOrSupport) {
+        const hasAccess = await User.supervisorHasAccess(requesterId, userId, null);
+        if (!hasAccess) {
+          return res.status(403).json({ error: { message: 'You can only view affiliated portals for yourself or your assigned supervisees.' } });
+        }
+      }
+    }
+
+    const agencies = await User.getAgencies(userId);
+    const schoolTypes = ['school', 'program', 'learning'];
+    const portals = (agencies || [])
+      .filter((a) => schoolTypes.includes(String(a.organization_type || '').toLowerCase()))
+      .map((a) => ({
+        id: a.id,
+        name: a.name || `Organization ${a.id}`,
+        slug: (a.slug || a.portal_url || '').toString().trim(),
+        organization_type: (a.organization_type || 'school').toLowerCase()
+      }))
+      .filter((p) => p.slug);
+
+    res.json({ portals });
   } catch (error) {
     next(error);
   }

@@ -34,6 +34,7 @@
       v-if="selectedSchoolOrgId"
       :organization-slug="organizationSlug"
       :organization-id="Number(selectedSchoolOrgId)"
+      :organization-name="selectedSchoolName"
       roster-scope="provider"
       client-label-mode="codes"
       :psychotherapy-totals-by-client-id="psychotherapyTotalsByClientId"
@@ -62,6 +63,13 @@ const agencyId = computed(() => {
 const schools = ref([]);
 const selectedSchoolOrgId = ref(null);
 const selectedFiscalYearStart = ref('');
+
+const selectedSchoolName = computed(() => {
+  const id = selectedSchoolOrgId.value;
+  if (!id) return '';
+  const s = (schools.value || []).find((x) => Number(x.schoolOrganizationId) === Number(id));
+  return s?.name || '';
+});
 const loading = ref(false);
 const error = ref('');
 const psychotherapyTotalsByClientId = ref(null);
@@ -147,6 +155,8 @@ watch(() => selectedFiscalYearStart.value, () => loadCompliance().catch(() => {}
 .provider-clients-tab {
   display: grid;
   gap: 14px;
+  min-width: 0;
+  max-width: 100%;
 }
 .section-header {
   display: flex;

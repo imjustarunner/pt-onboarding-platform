@@ -1,6 +1,7 @@
 import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import TaskAssignmentService from '../services/taskAssignment.service.js';
+import User from '../models/User.model.js';
 import { validationResult } from 'express-validator';
 import StorageService from '../services/storage.service.js';
 import DocumentVariableService from '../services/documentVariable.service.js';
@@ -370,7 +371,18 @@ export const assignTask = async (req, res, next) => {
       if (!assignedToUserId && !assignedToRole && !assignedToAgencyId) {
         return res.status(400).json({ error: { message: 'Either assignedToUserId, assignedToRole, or assignedToAgencyId must be provided' } });
       }
-      
+
+      // When assigning to another user, require admin/support/super_admin or supervisor access to that user
+      if (assignedToUserId && parseInt(assignedToUserId) !== assignedByUserId) {
+        const isAdminOrSupport = ['admin', 'super_admin', 'support'].includes(req.user.role);
+        if (!isAdminOrSupport) {
+          const hasAccess = await User.supervisorHasAccess(assignedByUserId, parseInt(assignedToUserId), null);
+          if (!hasAccess) {
+            return res.status(403).json({ error: { message: 'You can only assign documents to yourself or to your assigned supervisees.' } });
+          }
+        }
+      }
+
       task = await TaskAssignmentService.assignDocumentTask({
         title,
         description,

@@ -206,7 +206,24 @@ export const getUserDocuments = async (req, res, next) => {
     }
 
     const userDocuments = await UserDocument.findByUser(userId);
-    res.json(userDocuments);
+    const taskIds = (userDocuments || []).map((d) => d.task_id).filter(Boolean);
+    const byTaskId = new Map();
+    if (taskIds.length > 0) {
+      const Task = (await import('../models/Task.model.js')).default;
+      const tasks = await Task.findByUser(userId, { taskType: 'document' });
+      for (const t of tasks || []) {
+        if (t.id && taskIds.includes(t.id)) byTaskId.set(t.id, { status: t.status, title: t.title });
+      }
+    }
+    const withStatus = (userDocuments || []).map((d) => {
+      const taskInfo = d.task_id ? byTaskId.get(d.task_id) : null;
+      return {
+        ...d,
+        task_status: taskInfo?.status ?? null,
+        task_title: taskInfo?.title ?? null
+      };
+    });
+    res.json(withStatus);
   } catch (error) {
     next(error);
   }

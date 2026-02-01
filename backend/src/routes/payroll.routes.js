@@ -27,6 +27,7 @@ import {
   upsertPayrollAdjustmentsForUser,
   listMyPayroll,
   getMyDashboardSummary,
+  getSuperviseeDashboardSummary,
   getMyCurrentTier,
   getMyCompensation,
   getPayrollRateCard,
@@ -295,6 +296,7 @@ router.post('/tools/payroll/viewer', ...toolPreviewPayrollFileStaging);
 router.get('/users/:userId/periods', listUserPayroll);
 router.get('/me/periods', listMyPayroll);
 router.get('/me/dashboard-summary', getMyDashboardSummary);
+router.get('/supervisee/:superviseeId/dashboard-summary', getSuperviseeDashboardSummary);
 router.get('/me/current-tier', getMyCurrentTier);
 router.get('/me/compensation', getMyCompensation);
 
