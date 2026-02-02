@@ -1,16 +1,18 @@
 <template>
-  <div class="sched-wrap" :style="scheduleColorVars">
-    <div class="sched-toolbar">
-      <div class="sched-toolbar-top">
+  <div class="sched-wrap" :style="scheduleColorVars" data-tour="my-schedule-grid">
+    <div class="sched-toolbar" data-tour="my-schedule-toolbar">
+      <div class="sched-toolbar-top" data-tour="my-schedule-week-nav">
         <h2 class="sched-week-title">Week of {{ weekStart }}</h2>
         <div class="sched-week-meta">
           <div class="sched-today-label">Today {{ todayMmdd }}</div>
-          <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="goToTodayWeek" :disabled="loading">Today</button>
+          <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="goToTodayWeek" :disabled="loading" data-tour="my-schedule-today-btn">
+            Today
+          </button>
         </div>
       </div>
       <div class="sched-toolbar-main">
         <div class="sched-toolbar-left">
-          <div class="sched-view-switch" role="tablist" aria-label="Schedule view">
+          <div class="sched-view-switch" role="tablist" aria-label="Schedule view" data-tour="my-schedule-view-switch">
             <button
               v-for="opt in viewModeOptions"
               :key="`view-${opt.id}`"
@@ -30,7 +32,7 @@
         </div>
 
         <div class="sched-toolbar-right">
-          <label class="sched-inline">
+          <label class="sched-inline" data-tour="my-schedule-office-select">
             <span>Office</span>
             <select v-model.number="selectedOfficeLocationId" class="sched-select" :disabled="loading || officeGridLoading">
               <option :value="0">None</option>
@@ -57,6 +59,7 @@
             :aria-checked="String(!!showGoogleBusy)"
             :disabled="loading"
             @click="showGoogleBusy = !showGoogleBusy"
+            data-tour="my-schedule-google-busy-toggle"
           >
             Google busy
           </button>
@@ -70,6 +73,7 @@
             :disabled="loading"
             @click="showGoogleEvents = !showGoogleEvents"
             title="Shows event titles (sensitive)"
+            data-tour="my-schedule-google-titles-toggle"
           >
             Google titles
           </button>
@@ -82,6 +86,7 @@
             :aria-checked="String(!!hideWeekend)"
             :disabled="loading"
             @click="hideWeekend = !hideWeekend"
+            data-tour="my-schedule-hide-weekends-toggle"
           >
             Hide weekends
           </button>
@@ -93,6 +98,7 @@
             :disabled="loading"
             @click="hideAllCalendars"
             title="Hide all calendar overlays (keeps office overlay)"
+            data-tour="my-schedule-hide-calendars"
           >
             Hide calendars
           </button>
@@ -103,6 +109,7 @@
             :disabled="loading"
             @click="showAllCalendars"
             title="Restore calendar overlays"
+            data-tour="my-schedule-show-calendars"
           >
             Show calendars
           </button>
@@ -119,7 +126,7 @@
       </div>
 
       <div v-if="externalCalendarsAvailable.length" class="sched-toolbar-secondary">
-        <div class="sched-calendars">
+        <div class="sched-calendars" data-tour="my-schedule-ehr-calendars">
           <div class="sched-calendars-label">EHR calendars</div>
           <div class="sched-calendars-actions">
             <button type="button" class="sched-chip" :disabled="loading" @click="selectAllExternalCalendars">All</button>
@@ -141,7 +148,7 @@
     </div>
 
     <!-- Office layout view (room-by-room weekly board) -->
-    <div v-if="viewMode === 'office_layout'" class="sched-grid-wrap">
+    <div v-if="viewMode === 'office_layout'" class="sched-grid-wrap" data-tour="my-schedule-office-layout-panel">
       <div v-if="!selectedOfficeLocationId" class="hint" style="margin-top: 10px;">
         Select an office above to view the room-by-room weekly layout.
       </div>

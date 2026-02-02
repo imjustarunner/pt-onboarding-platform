@@ -8,6 +8,7 @@
 import dashboardTour from './tours/dashboard.tour';
 import tasksTour from './tours/tasks.tour';
 import scheduleHubTour from './tours/scheduleHub.tour';
+import myScheduleTour from './tours/mySchedule.tour';
 import schoolProviderProfileTour from './tours/schoolProviderProfile.tour';
 import staffScheduleCompareTour from './tours/staffScheduleCompare.tour';
 import buildingsShellTour from './tours/buildingsShell.tour';
@@ -35,6 +36,12 @@ import schoolsOverviewTour from './tours/schoolsOverview.tour';
 export const getTourForRoute = (route) => {
   const name = String(route?.name || '');
   if (!name) return null;
+
+  // Dashboard has multiple major panels; provide a focused tour when the schedule tab is open.
+  const tab = String(route?.query?.tab || '');
+  if ((name === 'Dashboard' || name === 'OrganizationDashboard') && tab === 'my_schedule') {
+    return myScheduleTour;
+  }
 
   const byRouteName = {
     Dashboard: dashboardTour,

@@ -1,5 +1,5 @@
 <template>
-  <div class="office-week-wrap">
+  <div class="office-week-wrap" data-tour="my-schedule-office-layout">
     <div v-if="!grid" class="hint">No office grid loaded.</div>
     <div v-else class="office-week">
       <div v-for="(dateYmd, dayIdx) in days" :key="`day-${dateYmd}`" class="day-section">
