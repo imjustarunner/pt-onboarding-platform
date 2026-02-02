@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 
 const DEFAULT_MEDCANCEL_POLICY = {
+  displayName: 'Med Cancel',
   serviceCode: 'MEDCANCEL',
   schedules: {
     low: { '90832': 5, '90834': 7.5, '90837': 10 },
@@ -23,6 +24,13 @@ function normalizeServiceCode(v) {
   return s || DEFAULT_MEDCANCEL_POLICY.serviceCode;
 }
 
+function normalizeDisplayName(v) {
+  const s = String(v || '').trim();
+  // Keep this conservative for UI use (not for filenames/URLs).
+  const out = s.slice(0, 48);
+  return out || DEFAULT_MEDCANCEL_POLICY.displayName;
+}
+
 function normalizeRateMap(mapLike) {
   const raw = mapLike && typeof mapLike === 'object' ? mapLike : {};
   const out = {};
@@ -41,6 +49,7 @@ export async function getAgencyMedcancelPolicy({ agencyId }) {
   const parsed = parseJson(agency?.medcancel_policy_json) || {};
 
   const next = {
+    displayName: normalizeDisplayName(parsed.displayName ?? parsed.display_name ?? DEFAULT_MEDCANCEL_POLICY.displayName),
     serviceCode: normalizeServiceCode(parsed.serviceCode ?? parsed.service_code ?? DEFAULT_MEDCANCEL_POLICY.serviceCode),
     schedules: {
       low: {
@@ -60,9 +69,11 @@ export async function getAgencyMedcancelPolicy({ agencyId }) {
 export async function upsertAgencyMedcancelPolicy({ agencyId, policy }) {
   // Backward compatible payload shapes.
   const raw = policy && typeof policy === 'object' ? policy : {};
+  const displayName = normalizeDisplayName(raw.displayName ?? raw.display_name);
   const serviceCode = normalizeServiceCode(raw.serviceCode ?? raw.service_code);
   const schedulesRaw = raw.schedules && typeof raw.schedules === 'object' ? raw.schedules : {};
   const next = {
+    displayName,
     serviceCode,
     schedules: {
       low: normalizeRateMap(schedulesRaw.low ?? raw.lowRates ?? raw.low_rates),

@@ -1881,6 +1881,13 @@
 
             <div class="filters-row" style="align-items: flex-end;">
               <div class="filters-group" style="min-width: 240px;">
+                <label class="filters-label">Display name (UI label)</label>
+                <input v-model="medcancelPolicyDraft.displayName" class="filters-input" type="text" :disabled="medcancelPolicyLoading || medcancelPolicySaving" />
+                <div class="filters-hint" style="margin-top: 6px;">
+                  This is what users will see instead of “Med Cancel”.
+                </div>
+              </div>
+              <div class="filters-group" style="min-width: 240px;">
                 <label class="filters-label">Pay service code</label>
                 <input v-model="medcancelPolicyDraft.serviceCode" class="filters-input" type="text" :disabled="medcancelPolicyLoading || medcancelPolicySaving" />
               </div>
@@ -2668,6 +2675,7 @@ const medcancelPolicyLoading = ref(false);
 const medcancelPolicySaving = ref(false);
 const medcancelPolicyError = ref('');
 const medcancelPolicyDraft = ref({
+  displayName: 'Med Cancel',
   serviceCode: 'MEDCANCEL',
   schedules: {
     low: { '90832': 5, '90834': 7.5, '90837': 10 },
@@ -2926,6 +2934,7 @@ const loadMedcancelPolicy = async () => {
     const resp = await api.get('/payroll/medcancel-policy', { params: { agencyId: editingAgency.value.id } });
     const pol = resp.data?.policy || {};
     medcancelPolicyDraft.value = {
+      displayName: String(pol?.displayName || 'Med Cancel').trim() || 'Med Cancel',
       serviceCode: String(pol?.serviceCode || 'MEDCANCEL').trim().toUpperCase() || 'MEDCANCEL',
       schedules: {
         low: (pol?.schedules?.low && typeof pol.schedules.low === 'object') ? pol.schedules.low : {},
@@ -2985,6 +2994,7 @@ const saveMedcancelPolicy = async () => {
     await api.put('/payroll/medcancel-policy', {
       agencyId: editingAgency.value.id,
       policy: {
+        displayName: String(pol?.displayName || 'Med Cancel').trim() || 'Med Cancel',
         serviceCode: String(pol?.serviceCode || 'MEDCANCEL').trim().toUpperCase() || 'MEDCANCEL',
         schedules: {
           low: normalizeMap(low),

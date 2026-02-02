@@ -18,7 +18,7 @@
         Other Mileage
       </button>
       <button class="btn btn-secondary btn-sm" type="button" @click="openMedcancelModal">
-        Med Cancel
+        {{ medcancelDisplayName }}
       </button>
       <button class="btn btn-secondary btn-sm" type="button" @click="openReimbursementModal">
         Reimbursement
@@ -284,9 +284,54 @@
       </label>
 
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
-        <button class="btn btn-primary" @click="submitMileage" :disabled="submittingMileage">
-          {{ submittingMileage ? 'Submitting…' : 'Submit for approval' }}
+        <button
+          class="btn btn-secondary"
+          type="button"
+          @click="queueMileageAndReset"
+          :disabled="submittingMileage"
+          style="margin-right: 8px;"
+          title="Queue this entry and start another (not submitted yet)"
+        >
+          + Add another entry
         </button>
+        <button class="btn btn-primary" @click="submitMileage" :disabled="submittingMileage">
+          {{ submittingMileage ? 'Submitting…' : ((mileageQueuedClaims || []).length ? `Submit all (${(mileageQueuedClaims || []).length + 1})` : 'Submit for approval') }}
+        </button>
+      </div>
+
+      <div v-if="(mileageQueuedClaims || []).length" class="card" style="margin-top: 10px;">
+        <h3 class="card-title" style="margin: 0 0 6px 0;">Queued entries (not submitted yet)</h3>
+        <div class="table-wrap" style="margin-top: 10px;">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Details</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(c, idx) in mileageQueuedClaims" :key="idx">
+                <td>{{ String(c.driveDate || '').slice(0,10) }}</td>
+                <td><strong>{{ String(c.claimType || '').toLowerCase()==='school_travel' ? 'School Mileage' : 'Other Mileage' }}</strong></td>
+                <td>
+                  <template v-if="String(c.claimType || '').toLowerCase()==='school_travel'">
+                    School #{{ c.schoolOrganizationId || '—' }} • Office #{{ c.officeLocationId || '—' }}
+                  </template>
+                  <template v-else>
+                    Miles {{ String(c.miles || '').trim() || '—' }}
+                  </template>
+                </td>
+                <td class="right">
+                  <button class="btn btn-danger btn-sm" type="button" @click="removeQueuedMileageClaim(idx)" :disabled="submittingMileage">
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -296,7 +341,7 @@
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
-          <div class="modal-title">Submit Med Cancel (Admin Override)</div>
+          <div class="modal-title">Submit {{ medcancelDisplayName }} (Admin Override)</div>
           <div class="hint">Submitting on behalf of {{ userName || `User #${userId}` }}.</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closeMedcancelModal">Close</button>
@@ -326,6 +371,9 @@
 
         <div class="hint" style="margin-top: 8px;">
           Estimated amount (if approved): <strong>{{ fmtMoney(medcancelEstimatedAmount) }}</strong>
+          <span v-if="String(userMedcancelRateSchedule||'').trim()" class="muted" style="margin-left: 8px;">
+            (Schedule: {{ String(userMedcancelRateSchedule).toLowerCase() }})
+          </span>
         </div>
 
         <div v-for="(it, idx) in medcancelForm.items" :key="idx" class="card" style="margin-top: 10px;">
@@ -368,6 +416,48 @@
           <button class="btn btn-secondary btn-sm" type="button" @click="addMedcancelItem" :disabled="submittingMedcancel">
             + Add another missed service (same date)
           </button>
+        </div>
+
+        <div class="actions" style="margin-top: 10px; justify-content: flex-start; gap: 8px; flex-wrap: wrap;">
+          <button
+            class="btn btn-secondary btn-sm"
+            type="button"
+            @click="queueMedcancelAndReset"
+            :disabled="submittingMedcancel"
+            title="Queue this date and start another date (still not submitted yet)"
+          >
+            + Add another date (queue this one)
+          </button>
+        </div>
+
+        <div v-if="(medcancelQueuedClaims || []).length" class="card" style="margin-top: 10px;">
+          <h3 class="card-title" style="margin: 0 0 6px 0;">Queued dates (not submitted yet)</h3>
+          <div class="table-wrap" style="margin-top: 10px;">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>School</th>
+                  <th class="right">Items</th>
+                  <th class="right">Est.</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(c, idx) in medcancelQueuedClaims" :key="idx">
+                  <td>{{ String(c.claimDate || '').slice(0,10) }}</td>
+                  <td>{{ c.schoolOrganizationId ? `#${c.schoolOrganizationId}` : '—' }}</td>
+                  <td class="right">{{ Array.isArray(c.items) ? c.items.length : 0 }}</td>
+                  <td class="right">{{ fmtMoney(estimateMedcancelAmountForClaim(c)) }}</td>
+                  <td class="right">
+                    <button class="btn btn-danger btn-sm" type="button" @click="removeQueuedMedcancelClaim(idx)" :disabled="submittingMedcancel">
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -1052,7 +1142,8 @@ import { useAuthStore } from '../../store/auth';
 const props = defineProps({
   agencyId: { type: Number, required: false, default: null },
   userId: { type: Number, required: false, default: null },
-  userName: { type: String, required: false, default: '' }
+  userName: { type: String, required: false, default: '' },
+  userMedcancelRateSchedule: { type: [String, null], required: false, default: null }
 });
 
 const authStore = useAuthStore();
@@ -1113,6 +1204,7 @@ const submitPtoError = ref('');
 const mileageSchools = ref([]);
 const mileageOffices = ref([]);
 const schoolTravelManualMilesMode = ref(false);
+const mileageQueuedClaims = ref([]); // queued mileage form snapshots (same claimType as current)
 
 const mileageForm = ref({
   claimType: 'school_travel',
@@ -1153,22 +1245,114 @@ const medcancelForm = ref({
   schoolOrganizationId: null,
   items: [{ missedServiceCode: '90832', clientInitials: '', sessionTime: '', note: '', attestation: false }]
 });
+const medcancelQueuedClaims = ref([]); // [{ claimDate, schoolOrganizationId, items }]
+
+const medcancelPolicyLoading = ref(false);
+const medcancelPolicy = ref(null); // { policy: { serviceCode, schedules: { low, high } } }
+const loadMedcancelPolicy = async () => {
+  if (!props.agencyId) return;
+  try {
+    medcancelPolicyLoading.value = true;
+    const resp = await api.get('/payroll/medcancel-policy', { params: { agencyId: props.agencyId } });
+    medcancelPolicy.value = resp.data || null;
+  } catch {
+    medcancelPolicy.value = null;
+  } finally {
+    medcancelPolicyLoading.value = false;
+  }
+};
+
+const normalizeMedcancelSchedule = (v) => {
+  const s = String(v || '').trim().toLowerCase();
+  return (s === 'low' || s === 'high' || s === 'none') ? s : 'none';
+};
 
 const medcancelEstimatedAmount = computed(() => {
-  const schedule = String(authStore.user?.medcancelRateSchedule || '').toLowerCase();
+  const schedule = normalizeMedcancelSchedule(props.userMedcancelRateSchedule);
   const items = Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items : [];
-  const rates =
+  const pol = medcancelPolicy.value?.policy || null;
+  const scheduleRates =
     schedule === 'high'
-      ? { '90832': 10, '90834': 15, '90837': 20 }
-      : { '90832': 5, '90834': 7.5, '90837': 10 };
+      ? (pol?.schedules?.high || {})
+      : (schedule === 'low' ? (pol?.schedules?.low || {}) : {});
   let sum = 0;
   for (const it of items) {
     const code = String(it?.missedServiceCode || '').trim();
-    sum += Number(rates[code] || 0);
+    sum += Number(scheduleRates?.[code] || 0);
   }
   sum = Math.round(sum * 100) / 100;
   return Number.isFinite(sum) ? sum : 0;
 });
+
+const estimateMedcancelAmountForClaim = (claim) => {
+  const schedule = normalizeMedcancelSchedule(props.userMedcancelRateSchedule);
+  const pol = medcancelPolicy.value?.policy || null;
+  const scheduleRates =
+    schedule === 'high'
+      ? (pol?.schedules?.high || {})
+      : (schedule === 'low' ? (pol?.schedules?.low || {}) : {});
+  const items = Array.isArray(claim?.items) ? claim.items : [];
+  let sum = 0;
+  for (const it of items) {
+    const code = String(it?.missedServiceCode || it?.missed_service_code || '').trim();
+    sum += Number(scheduleRates?.[code] || 0);
+  }
+  sum = Math.round(sum * 100) / 100;
+  return Number.isFinite(sum) ? sum : 0;
+};
+
+const medcancelDisplayName = computed(() => {
+  const name = medcancelPolicy.value?.policy?.displayName;
+  return String(name || 'Med Cancel').trim() || 'Med Cancel';
+});
+
+const queueCurrentMedcancelClaim = () => {
+  const schedule = normalizeMedcancelSchedule(props.userMedcancelRateSchedule);
+  if (schedule !== 'low' && schedule !== 'high') {
+    submitMedcancelError.value = 'This provider is not enabled for Med Cancel (schedule is None).';
+    return false;
+  }
+  const items = Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items : [];
+  if (!items.length) {
+    submitMedcancelError.value = 'Add at least one missed service.';
+    return false;
+  }
+  for (const it of items) {
+    if (!String(it.missedServiceCode || '').trim()) { submitMedcancelError.value = 'Each missed service requires a code.'; return false; }
+    if (!String(it.clientInitials || '').trim()) { submitMedcancelError.value = 'Each missed service requires client initials.'; return false; }
+    if (!String(it.sessionTime || '').trim()) { submitMedcancelError.value = 'Each missed service requires the session time.'; return false; }
+    if (!String(it.note || '').trim()) { submitMedcancelError.value = 'Each missed service requires a note.'; return false; }
+    if (!it.attestation) { submitMedcancelError.value = 'Each missed service requires attestation.'; return false; }
+  }
+  const snapshot = JSON.parse(JSON.stringify({
+    claimDate: medcancelForm.value.claimDate,
+    schoolOrganizationId: medcancelForm.value.schoolOrganizationId,
+    items
+  }));
+  medcancelQueuedClaims.value = [...(medcancelQueuedClaims.value || []), snapshot];
+  return true;
+};
+
+const removeQueuedMedcancelClaim = (idx) => {
+  const next = (medcancelQueuedClaims.value || []).slice();
+  next.splice(idx, 1);
+  medcancelQueuedClaims.value = next;
+};
+
+const todayYmd = () => {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+};
+
+const queueMedcancelAndReset = () => {
+  submitMedcancelError.value = '';
+  if (!queueCurrentMedcancelClaim()) return;
+  medcancelForm.value = {
+    claimDate: todayYmd(),
+    schoolOrganizationId: null,
+    items: [{ missedServiceCode: '90832', clientInitials: '', sessionTime: '', note: '', attestation: false }]
+  };
+};
 
 const reimbursementForm = ref({
   expenseDate: '',
@@ -1374,10 +1558,100 @@ const openMileageModal = async (claimType = 'school_travel') => {
   showMileageModal.value = true;
 };
 
+const snapshotMileageForm = () =>
+  JSON.parse(JSON.stringify({
+    claimType: mileageForm.value.claimType || 'school_travel',
+    driveDate: mileageForm.value.driveDate,
+    schoolOrganizationId: mileageForm.value.schoolOrganizationId,
+    officeLocationId: mileageForm.value.officeLocationId,
+    tierLevel: mileageForm.value.tierLevel,
+    miles: mileageForm.value.miles,
+    roundTrip: !!mileageForm.value.roundTrip,
+    startLocation: mileageForm.value.startLocation,
+    endLocation: mileageForm.value.endLocation,
+    notes: mileageForm.value.notes,
+    tripApprovedBy: mileageForm.value.tripApprovedBy,
+    tripPreapproved: mileageForm.value.tripPreapproved,
+    tripPurpose: mileageForm.value.tripPurpose,
+    costCenter: mileageForm.value.costCenter,
+    attestation: !!mileageForm.value.attestation
+  }));
+
+const validateMileageSnapshot = (snap) => {
+  const claimType = String(snap?.claimType || 'school_travel').trim().toLowerCase();
+  const driveDate = String(snap?.driveDate || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(driveDate)) return 'Drive date is required.';
+  if (!snap?.attestation) return 'Attestation is required.';
+
+  if (claimType === 'school_travel') {
+    if (!hasHomeAddress.value && !(schoolTravelManualMilesMode.value && String(snap?.miles || '').trim() !== '')) {
+      return 'Home address is required for School Mileage. Click “Enter home address” and save it first.';
+    }
+    if (!snap?.schoolOrganizationId) return 'School is required for School Mileage.';
+    if (!snap?.officeLocationId) return 'Office is required for School Mileage.';
+    // Optional: allow manual miles if auto unavailable; if provided, must be valid.
+    if (snap?.miles !== null && snap?.miles !== undefined && String(snap.miles).trim() !== '') {
+      const n = Number(snap.miles);
+      if (!Number.isFinite(n) || n < 0) return 'Enter a non-negative number of miles.';
+    }
+    if (snap?.tierLevel !== null && snap?.tierLevel !== undefined && snap?.tierLevel !== '') {
+      const t = Number(snap.tierLevel);
+      if (![1, 2, 3].includes(t)) return 'Tier must be 1, 2, 3, or blank.';
+    }
+    return null;
+  }
+
+  // Other Mileage
+  const miles = Number(snap?.miles || 0);
+  if (!Number.isFinite(miles) || miles < 0) return 'Miles must be a non-negative number.';
+  if (!String(snap?.tripApprovedBy || '').trim()) return 'Trip approver is required for Other Mileage.';
+  if (snap?.tripPreapproved !== true && snap?.tripPreapproved !== false) return 'Please select whether the trip was pre-approved.';
+  if (!String(snap?.tripPurpose || '').trim()) return 'Trip purpose is required for Other Mileage.';
+  return null;
+};
+
+const queueMileageAndReset = () => {
+  submitMileageError.value = '';
+  const snap = snapshotMileageForm();
+  const err = validateMileageSnapshot(snap);
+  if (err) {
+    submitMileageError.value = err;
+    return;
+  }
+  mileageQueuedClaims.value = [...(mileageQueuedClaims.value || []), snap];
+
+  // Reset for next entry (keep claim type)
+  const nextDate = todayYmd();
+  mileageForm.value = {
+    ...mileageForm.value,
+    driveDate: nextDate,
+    schoolOrganizationId: null,
+    officeLocationId: null,
+    tierLevel: null,
+    miles: '',
+    roundTrip: false,
+    startLocation: '',
+    endLocation: '',
+    notes: '',
+    tripApprovedBy: '',
+    tripPreapproved: null,
+    tripPurpose: '',
+    costCenter: '',
+    attestation: false
+  };
+};
+
+const removeQueuedMileageClaim = (idx) => {
+  const next = (mileageQueuedClaims.value || []).slice();
+  next.splice(idx, 1);
+  mileageQueuedClaims.value = next;
+};
+
 const closeMileageModal = () => {
   showMileageModal.value = false;
   editingHomeAddress.value = false;
   schoolTravelManualMilesMode.value = false;
+  mileageQueuedClaims.value = [];
 };
 
 const submitMileage = async () => {
@@ -1385,64 +1659,53 @@ const submitMileage = async () => {
   try {
     submittingMileage.value = true;
     submitMileageError.value = '';
-    if (mileageForm.value.claimType !== 'school_travel') {
-      if (!String(mileageForm.value.tripApprovedBy || '').trim()) {
-        submitMileageError.value = 'Trip approver is required for Other Mileage.';
-        return;
-      }
-      if (mileageForm.value.tripPreapproved !== true && mileageForm.value.tripPreapproved !== false) {
-        submitMileageError.value = 'Please select whether the trip was pre-approved.';
-        return;
-      }
-      if (!String(mileageForm.value.tripPurpose || '').trim()) {
-        submitMileageError.value = 'Trip purpose is required for Other Mileage.';
+
+    const claimsToSend = [...(mileageQueuedClaims.value || []), snapshotMileageForm()];
+    for (const c of claimsToSend) {
+      const err = validateMileageSnapshot(c);
+      if (err) {
+        submitMileageError.value = err;
         return;
       }
     }
-    if (mileageForm.value.claimType === 'school_travel') {
-      if (!schoolTravelManualMilesMode.value && !hasHomeAddress.value) {
-        submitMileageError.value = 'Home address is required for School Mileage. Click “Enter home address” and save it first.';
-        return;
-      }
-      if (schoolTravelManualMilesMode.value) {
-        const n = Number(mileageForm.value.miles);
-        if (!Number.isFinite(n) || n < 0) {
-          submitMileageError.value = 'Enter a non-negative number of miles.';
-          return;
-        }
-      }
+
+    let sent = 0;
+    for (const c of claimsToSend) {
+      const resp = await api.post(`${apiBase.value}/mileage-claims`, {
+        agencyId: props.agencyId,
+        claimType: c.claimType || 'school_travel',
+        driveDate: c.driveDate,
+        schoolOrganizationId: c.schoolOrganizationId,
+        officeLocationId: c.officeLocationId,
+        tierLevel: c.tierLevel,
+        miles: c.miles,
+        roundTrip: !!c.roundTrip,
+        startLocation: c.startLocation,
+        endLocation: c.endLocation,
+        notes: c.notes,
+        tripApprovedBy: c.tripApprovedBy,
+        tripPreapproved: c.tripPreapproved,
+        tripPurpose: c.tripPurpose,
+        costCenter: c.costCenter,
+        attestation: !!c.attestation
+      });
+      sent += 1;
+      const claimId = resp?.data?.claim?.id || resp?.data?.id || null;
+      const ct = String(c.claimType || '').toLowerCase() === 'school_travel' ? 'School Mileage' : 'Other Mileage';
+      const dt = String(c.driveDate || '').slice(0, 10);
+      pushSessionSubmission({
+        type: ct,
+        details: ct === 'School Mileage'
+          ? `Date ${dt} • School #${c.schoolOrganizationId || '—'} • Office #${c.officeLocationId || '—'}`
+          : `Date ${dt} • Miles ${String(c.miles || '').trim() || '—'}`,
+        id: claimId
+      });
     }
-    const resp = await api.post(`${apiBase.value}/mileage-claims`, {
-      agencyId: props.agencyId,
-      claimType: mileageForm.value.claimType || 'school_travel',
-      driveDate: mileageForm.value.driveDate,
-      schoolOrganizationId: mileageForm.value.schoolOrganizationId,
-      officeLocationId: mileageForm.value.officeLocationId,
-      tierLevel: mileageForm.value.tierLevel,
-      miles: mileageForm.value.miles,
-      roundTrip: !!mileageForm.value.roundTrip,
-      startLocation: mileageForm.value.startLocation,
-      endLocation: mileageForm.value.endLocation,
-      notes: mileageForm.value.notes,
-      tripApprovedBy: mileageForm.value.tripApprovedBy,
-      tripPreapproved: mileageForm.value.tripPreapproved,
-      tripPurpose: mileageForm.value.tripPurpose,
-      costCenter: mileageForm.value.costCenter,
-      attestation: !!mileageForm.value.attestation
-    });
+
+    mileageQueuedClaims.value = [];
     showMileageModal.value = false;
-    submitSuccess.value = 'Mileage submission sent successfully.';
+    submitSuccess.value = sent > 1 ? `Mileage submissions sent successfully (${sent}).` : 'Mileage submission sent successfully.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
-    const claimId = resp?.data?.claim?.id || resp?.data?.id || null;
-    const ct = String(mileageForm.value.claimType || '').toLowerCase() === 'school_travel' ? 'School Mileage' : 'Other Mileage';
-    const dt = String(mileageForm.value.driveDate || '').slice(0, 10);
-    pushSessionSubmission({
-      type: ct,
-      details: ct === 'School Mileage'
-        ? `Date ${dt} • School #${mileageForm.value.schoolOrganizationId || '—'} • Office #${mileageForm.value.officeLocationId || '—'}`
-        : `Date ${dt} • Miles ${String(mileageForm.value.miles || '').trim() || '—'}`,
-      id: claimId
-    });
   } catch (e) {
     const msg = e.response?.data?.error?.message || e.message || 'Failed to submit mileage';
     if (String(msg).includes('GOOGLE_MAPS_API_KEY')) {
@@ -1485,54 +1748,68 @@ const submitMedcancel = async () => {
   try {
     submittingMedcancel.value = true;
     submitMedcancelError.value = '';
-    const items = Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items : [];
-    if (!items.length) {
-      submitMedcancelError.value = 'Add at least one missed service.';
+    const schedule = normalizeMedcancelSchedule(props.userMedcancelRateSchedule);
+    if (schedule !== 'low' && schedule !== 'high') {
+      submitMedcancelError.value = 'This provider is not enabled for Med Cancel (schedule is None).';
       return;
     }
-    for (const it of items) {
-      if (!String(it.missedServiceCode || '').trim()) {
-        submitMedcancelError.value = 'Each missed service requires a code.';
-        return;
+
+    const claimsToSend = [
+      ...(medcancelQueuedClaims.value || []),
+      {
+        claimDate: medcancelForm.value.claimDate,
+        schoolOrganizationId: medcancelForm.value.schoolOrganizationId,
+        items: Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items : []
       }
-      if (!String(it.clientInitials || '').trim()) {
-        submitMedcancelError.value = 'Each missed service requires client initials.';
-        return;
-      }
-      if (!String(it.sessionTime || '').trim()) {
-        submitMedcancelError.value = 'Each missed service requires the session time.';
-        return;
-      }
-      if (!String(it.note || '').trim()) {
-        submitMedcancelError.value = 'Each missed service requires a note.';
-        return;
-      }
-      if (!it.attestation) {
-        submitMedcancelError.value = 'Each missed service requires attestation.';
-        return;
-      }
-    }
-    const resp = await api.post(`${apiBase.value}/medcancel-claims`, {
-      agencyId: props.agencyId,
-      claimDate: medcancelForm.value.claimDate,
-      schoolOrganizationId: medcancelForm.value.schoolOrganizationId,
-      items: items.map((it) => ({
+    ];
+
+    const normalizeItems = (items) =>
+      (items || []).map((it) => ({
         missedServiceCode: String(it.missedServiceCode || '').trim(),
         clientInitials: String(it.clientInitials || '').trim(),
         sessionTime: String(it.sessionTime || '').trim(),
         note: String(it.note || '').trim(),
         attestation: !!it.attestation
-      }))
-    });
+      }));
+
+    // Validate all claims before sending (so you don't lose ordering mid-batch).
+    for (const c of claimsToSend) {
+      const items = Array.isArray(c.items) ? c.items : [];
+      if (!items.length) {
+        submitMedcancelError.value = 'Each queued date must include at least one missed service.';
+        return;
+      }
+      for (const it of items) {
+        if (!String(it.missedServiceCode || '').trim()) { submitMedcancelError.value = 'Each missed service requires a code.'; return; }
+        if (!String(it.clientInitials || '').trim()) { submitMedcancelError.value = 'Each missed service requires client initials.'; return; }
+        if (!String(it.sessionTime || '').trim()) { submitMedcancelError.value = 'Each missed service requires the session time.'; return; }
+        if (!String(it.note || '').trim()) { submitMedcancelError.value = 'Each missed service requires a note.'; return; }
+        if (!it.attestation) { submitMedcancelError.value = 'Each missed service requires attestation.'; return; }
+      }
+    }
+
+    let sent = 0;
+    for (const c of claimsToSend) {
+      const items = Array.isArray(c.items) ? c.items : [];
+      const resp = await api.post(`${apiBase.value}/medcancel-claims`, {
+        agencyId: props.agencyId,
+        claimDate: c.claimDate,
+        schoolOrganizationId: c.schoolOrganizationId,
+        items: normalizeItems(items)
+      });
+      sent += 1;
+      const claimId = resp?.data?.claim?.id || resp?.data?.id || null;
+      pushSessionSubmission({
+        type: medcancelDisplayName.value,
+        details: `Date ${String(c.claimDate || '').slice(0, 10)} • Items ${items.length}`,
+        id: claimId
+      });
+    }
+
+    medcancelQueuedClaims.value = [];
     showMedcancelModal.value = false;
-    submitSuccess.value = 'Med Cancel submission sent successfully.';
+    submitSuccess.value = sent > 1 ? `${medcancelDisplayName.value} submissions sent successfully (${sent}).` : `${medcancelDisplayName.value} submission sent successfully.`;
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
-    const claimId = resp?.data?.claim?.id || resp?.data?.id || null;
-    pushSessionSubmission({
-      type: 'Med Cancel',
-      details: `Date ${String(medcancelForm.value.claimDate || '').slice(0, 10)} • Items ${items.length}`,
-      id: claimId
-    });
   } catch (e) {
     submitMedcancelError.value = e.response?.data?.error?.message || e.message || 'Failed to submit MedCancel';
   } finally {
@@ -2068,7 +2345,7 @@ watch(
     submitTimeClaimError.value = '';
     submitPtoError.value = '';
     if (!props.agencyId || !props.userId) return;
-    await Promise.all([loadMileageSchools(), loadMileageOffices(), loadUserHomeAddress(), loadPto()]);
+    await Promise.all([loadMileageSchools(), loadMileageOffices(), loadUserHomeAddress(), loadPto(), loadMedcancelPolicy()]);
   },
   { immediate: true }
 );

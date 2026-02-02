@@ -1530,7 +1530,12 @@
 
                   <div v-if="loadingUsers" class="muted" style="margin-top: 10px;">Loading providers…</div>
                   <div v-else-if="submitOnBehalfUserId" style="margin-top: 10px;">
-                    <AdminPayrollSubmitOverride :agency-id="agencyId" :user-id="submitOnBehalfUserId" :user-name="submitOnBehalfUserName" />
+                    <AdminPayrollSubmitOverride
+                      :agency-id="agencyId"
+                      :user-id="submitOnBehalfUserId"
+                      :user-name="submitOnBehalfUserName"
+                      :user-medcancel-rate-schedule="submitOnBehalfUser?.medcancel_rate_schedule || null"
+                    />
                   </div>
                   <div v-else class="hint" style="margin-top: 10px;">
                     Pick a provider above to begin submitting.
@@ -4313,6 +4318,11 @@ const submitOnBehalfUserName = computed(() => {
   const ln = String(u.last_name || '').trim();
   const fn = String(u.first_name || '').trim();
   return (ln || fn) ? `${ln}${ln && fn ? ', ' : ''}${fn}` : `User #${id}`;
+});
+
+const submitOnBehalfUser = computed(() => {
+  const id = submitOnBehalfUserId.value ? Number(submitOnBehalfUserId.value) : null;
+  return (agencyUsers.value || []).find((x) => Number(x?.id) === id) || null;
 });
 
 const payrollToolsCompareAllRows = computed(() => {

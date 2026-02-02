@@ -4505,12 +4505,26 @@ export const listPayrollAgencyUsers = async (req, res, next) => {
       hasIsActiveCol = false;
     }
 
+    // Optional MedCancel schedule (none|low|high)
+    let hasMedcancelScheduleCol = false;
+    try {
+      const dbName = process.env.DB_NAME || 'onboarding_stage';
+      const [cols3] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'medcancel_rate_schedule'",
+        [dbName]
+      );
+      hasMedcancelScheduleCol = (cols3 || []).length > 0;
+    } catch {
+      hasMedcancelScheduleCol = false;
+    }
+
     const supField = hasSupervisorPrivilegesCol ? ', u.has_supervisor_privileges' : '';
     const activeField = hasIsActiveCol ? ', u.is_active' : '';
+    const medcancelField = hasMedcancelScheduleCol ? ', u.medcancel_rate_schedule' : '';
     const includeInactive = String(req.query?.includeInactive || '').toLowerCase() === 'true' || String(req.query?.includeInactive || '') === '1';
     const activeFilter = (hasIsActiveCol && !includeInactive) ? ' AND u.is_active = TRUE' : '';
     const [rows] = await pool.execute(
-      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role${supField}${activeField}
+      `SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role${supField}${activeField}${medcancelField}
        FROM users u
        JOIN user_agencies ua ON u.id = ua.user_id
        WHERE ua.agency_id = ?
