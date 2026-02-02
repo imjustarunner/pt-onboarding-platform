@@ -2144,6 +2144,114 @@
               CSV import is done per pay period in Payroll → selected pay period → Supervision import. Columns: <code>email</code> (or <code>user_id</code>), <code>individual_hours</code>, <code>group_hours</code>.
             </div>
 
+            <div class="settings-section-divider" style="margin-top: 18px;">
+              <h4>Agency Holidays</h4>
+              <p class="section-description">
+                Configure explicit holiday dates and the holiday bonus policy (% of service pay for payable services on those dates).
+              </p>
+            </div>
+
+            <div v-if="holidayPayPolicyError" class="error-modal">
+              <strong>Error:</strong> {{ holidayPayPolicyError }}
+            </div>
+            <div v-if="agencyHolidaysError" class="error-modal" style="margin-top: 10px;">
+              <strong>Error:</strong> {{ agencyHolidaysError }}
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end;">
+              <div class="filters-group" style="min-width: 220px;">
+                <label class="filters-label">Holiday pay policy (%)</label>
+                <input
+                  v-model.number="holidayPayPolicyDraft.percentage"
+                  class="filters-input"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  :disabled="holidayPayPolicyLoading || holidayPayPolicySaving"
+                />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadHolidayPayPolicy" :disabled="holidayPayPolicyLoading || !editingAgency?.id">
+                  {{ holidayPayPolicyLoading ? 'Loading…' : 'Reload' }}
+                </button>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="saveHolidayPayPolicy" :disabled="holidayPayPolicySaving || !editingAgency?.id">
+                  {{ holidayPayPolicySaving ? 'Saving…' : 'Save holiday policy' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
+              <div class="filters-group" style="min-width: 260px;">
+                <label class="filters-label">Missing approval notification</label>
+                <div class="filters-hint" style="margin-top: 6px;">
+                  <ToggleSwitch v-model="holidayPayPolicyDraft.notifyMissingApproval" label="Enable notification if Holiday Bonus is assessed but not approved/rejected" compact />
+                </div>
+                <div class="filters-hint" style="margin-top: 6px;">
+                  <ToggleSwitch v-model="holidayPayPolicyDraft.notifyStrictMessage" :disabled="holidayPayPolicyDraft.notifyMissingApproval !== true" label="Use strict handbook/remediation message" compact />
+                </div>
+              </div>
+              <div class="filters-group" style="flex: 1 1 auto;">
+                <div class="filters-hint">
+                  Tip: Recipient roles and enable/disable can also be controlled via the Notification Triggers section.
+                </div>
+              </div>
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
+              <div class="filters-group" style="min-width: 220px;">
+                <label class="filters-label">Holiday date</label>
+                <input v-model="newHolidayDate" class="filters-input" type="date" :disabled="agencyHolidaysLoading || agencyHolidaysSaving" />
+              </div>
+              <div class="filters-group" style="min-width: 260px;">
+                <label class="filters-label">Name</label>
+                <input v-model="newHolidayName" class="filters-input" type="text" placeholder="e.g., New Year's Day" :disabled="agencyHolidaysLoading || agencyHolidaysSaving" />
+              </div>
+              <div class="filters-group">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  @click="addAgencyHoliday"
+                  :disabled="agencyHolidaysLoading || agencyHolidaysSaving || !String(newHolidayDate||'').trim() || !String(newHolidayName||'').trim()"
+                >
+                  Add
+                </button>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadAgencyHolidays" :disabled="agencyHolidaysLoading || !editingAgency?.id">
+                  {{ agencyHolidaysLoading ? 'Loading…' : 'Reload holidays' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="table-wrap" style="margin-top: 10px;">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 160px;">Date</th>
+                    <th>Name</th>
+                    <th style="width: 140px;"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="h in (agencyHolidays || [])" :key="h.id || `${h.holiday_date}-${h.name}`">
+                    <td><strong>{{ String(h.holiday_date || h.holidayDate || '').slice(0, 10) }}</strong></td>
+                    <td>{{ h.name }}</td>
+                    <td class="right">
+                      <button type="button" class="btn btn-danger btn-sm" @click="removeAgencyHoliday(h)" :disabled="agencyHolidaysSaving">
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                  <tr v-if="!(agencyHolidays || []).length">
+                    <td colspan="3" class="muted">No holidays configured.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
             <div class="settings-section-divider">
               <h4>Payroll Service Codes (Equivalencies)</h4>
               <p class="section-description">
@@ -2720,6 +2828,23 @@ const supervisionDraft = ref({
   after50Minutes: 30
 });
 
+// Agency holidays + holiday pay policy (agency-only)
+const agencyHolidaysLoading = ref(false);
+const agencyHolidaysSaving = ref(false);
+const agencyHolidaysError = ref('');
+const agencyHolidays = ref([]);
+const newHolidayDate = ref('');
+const newHolidayName = ref('');
+
+const holidayPayPolicyLoading = ref(false);
+const holidayPayPolicySaving = ref(false);
+const holidayPayPolicyError = ref('');
+const holidayPayPolicyDraft = ref({
+  percentage: 0,
+  notifyMissingApproval: false,
+  notifyStrictMessage: false
+});
+
 // Agency announcements (Dashboard banners)
 const announcementsLoading = ref(false);
 const announcementsSaving = ref(false);
@@ -2921,9 +3046,109 @@ const openPayrollTab = async () => {
   await loadMedcancelPolicy();
   await loadPtoPolicy();
   await loadSupervisionPolicy();
+  await loadHolidayPayPolicy();
+  await loadAgencyHolidays();
   await loadPayrollRules();
   await loadOtherRateTitles();
   await loadOfficeLocations();
+};
+
+const loadHolidayPayPolicy = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    holidayPayPolicyLoading.value = true;
+    holidayPayPolicyError.value = '';
+    const resp = await api.get('/payroll/holiday-pay-policy', { params: { agencyId: editingAgency.value.id } });
+    const pol = resp.data?.policy || {};
+    holidayPayPolicyDraft.value = {
+      percentage: Number(pol?.percentage || 0),
+      notifyMissingApproval: Boolean(pol?.notifyMissingApproval),
+      notifyStrictMessage: Boolean(pol?.notifyStrictMessage)
+    };
+  } catch (e) {
+    holidayPayPolicyError.value = e.response?.data?.error?.message || e.message || 'Failed to load holiday pay policy';
+  } finally {
+    holidayPayPolicyLoading.value = false;
+  }
+};
+
+const saveHolidayPayPolicy = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    holidayPayPolicySaving.value = true;
+    holidayPayPolicyError.value = '';
+    const payload = {
+      agencyId: editingAgency.value.id,
+      policy: {
+        percentage: Number(holidayPayPolicyDraft.value.percentage || 0),
+        notifyMissingApproval: Boolean(holidayPayPolicyDraft.value.notifyMissingApproval),
+        notifyStrictMessage: Boolean(holidayPayPolicyDraft.value.notifyStrictMessage)
+      }
+    };
+    const resp = await api.put('/payroll/holiday-pay-policy', payload);
+    const pol = resp.data?.policy || payload.policy;
+    holidayPayPolicyDraft.value = {
+      percentage: Number(pol?.percentage || 0),
+      notifyMissingApproval: Boolean(pol?.notifyMissingApproval),
+      notifyStrictMessage: Boolean(pol?.notifyStrictMessage)
+    };
+  } catch (e) {
+    holidayPayPolicyError.value = e.response?.data?.error?.message || e.message || 'Failed to save holiday pay policy';
+  } finally {
+    holidayPayPolicySaving.value = false;
+  }
+};
+
+const loadAgencyHolidays = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    agencyHolidaysLoading.value = true;
+    agencyHolidaysError.value = '';
+    const resp = await api.get('/payroll/holidays', { params: { agencyId: editingAgency.value.id } });
+    agencyHolidays.value = resp.data?.holidays || [];
+  } catch (e) {
+    agencyHolidaysError.value = e.response?.data?.error?.message || e.message || 'Failed to load holidays';
+    agencyHolidays.value = [];
+  } finally {
+    agencyHolidaysLoading.value = false;
+  }
+};
+
+const addAgencyHoliday = async () => {
+  if (!editingAgency.value?.id) return;
+  const date = String(newHolidayDate.value || '').trim().slice(0, 10);
+  const name = String(newHolidayName.value || '').trim();
+  if (!date || !name) return;
+  try {
+    agencyHolidaysSaving.value = true;
+    agencyHolidaysError.value = '';
+    await api.post('/payroll/holidays', { agencyId: editingAgency.value.id, holidayDate: date, name });
+    newHolidayDate.value = '';
+    newHolidayName.value = '';
+    await loadAgencyHolidays();
+  } catch (e) {
+    agencyHolidaysError.value = e.response?.data?.error?.message || e.message || 'Failed to add holiday';
+  } finally {
+    agencyHolidaysSaving.value = false;
+  }
+};
+
+const removeAgencyHoliday = async (h) => {
+  if (!editingAgency.value?.id) return;
+  const id = Number(h?.id || 0);
+  if (!id) return;
+  const ok = window.confirm('Remove this holiday?');
+  if (!ok) return;
+  try {
+    agencyHolidaysSaving.value = true;
+    agencyHolidaysError.value = '';
+    await api.delete(`/payroll/holidays/${id}`);
+    await loadAgencyHolidays();
+  } catch (e) {
+    agencyHolidaysError.value = e.response?.data?.error?.message || e.message || 'Failed to remove holiday';
+  } finally {
+    agencyHolidaysSaving.value = false;
+  }
 };
 
 const loadMedcancelPolicy = async () => {

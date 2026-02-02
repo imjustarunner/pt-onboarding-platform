@@ -71,7 +71,12 @@ import {
   ,patchMedcancelClaim
   ,getMedcancelPolicy
   ,putMedcancelPolicy
+  ,getHolidayPayPolicy
+  ,putHolidayPayPolicy
   ,getMyMedcancelPolicy
+  ,listAgencyHolidays
+  ,createAgencyHoliday
+  ,deleteAgencyHoliday
   ,getSupervisionPolicy
   ,putSupervisionPolicy
   ,listSupervisionAccountsForAgency
@@ -99,6 +104,8 @@ import {
   ,deleteMyTimeClaim
   ,listTimeClaims
   ,patchTimeClaim
+  ,listHolidayBonusClaims
+  ,patchHolidayBonusClaim
   ,createOfficeLocationForPayroll
   ,updateOfficeLocationForPayroll
   ,listMyAssignedSchoolsForPayroll
@@ -206,6 +213,11 @@ router.delete('/me/medcancel-claims/:id', deleteMyMedcancelClaim);
 router.get('/me/medcancel-policy', getMyMedcancelPolicy);
 router.get('/medcancel-policy', getMedcancelPolicy);
 router.put('/medcancel-policy', putMedcancelPolicy);
+router.get('/holiday-pay-policy', getHolidayPayPolicy);
+router.put('/holiday-pay-policy', putHolidayPayPolicy);
+router.get('/holidays', listAgencyHolidays);
+router.post('/holidays', createAgencyHoliday);
+router.delete('/holidays/:id', deleteAgencyHoliday);
 router.post('/me/reimbursement-claims', ...createMyReimbursementClaim);
 router.post('/users/:userId/reimbursement-claims', ...createUserReimbursementClaim);
 router.get('/me/reimbursement-claims', listMyReimbursementClaims);
@@ -272,6 +284,8 @@ router.get('/expenses/export.csv', downloadExpensesCsv);
 router.post('/expenses/:type/:id/drive', uploadExpenseReceiptToDrive);
 router.get('/time-claims', listTimeClaims);
 router.patch('/time-claims/:id', patchTimeClaim);
+router.get('/holiday-bonus-claims', listHolidayBonusClaims);
+router.patch('/holiday-bonus-claims/:id', patchHolidayBonusClaim);
 router.get('/pto-policy', getPtoPolicy);
 router.put('/pto-policy', putPtoPolicy);
 router.get('/users/:userId/pto-account', getUserPtoAccount);

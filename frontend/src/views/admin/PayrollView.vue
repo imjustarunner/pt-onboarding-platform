@@ -1989,6 +1989,62 @@
             </div>
 
             <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Holiday Bonus (Pending)</h3>
+              <div class="hint">
+                System-generated approvals when payable services occur on configured agency holiday dates. Approve/reject to include/exclude Holiday Bonus in payroll.
+              </div>
+              <div v-if="pendingHolidayBonusError" class="warn-box" style="margin-top: 8px;">{{ pendingHolidayBonusError }}</div>
+              <div v-if="pendingHolidayBonusLoading" class="muted" style="margin-top: 8px;">Loading pending holiday bonuses…</div>
+              <div v-else-if="!pendingHolidayBonusClaims.length" class="muted" style="margin-top: 8px;">No pending holiday bonuses for this pay period.</div>
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Holiday dates</th>
+                      <th class="right">Base service pay</th>
+                      <th class="right">%</th>
+                      <th class="right">Bonus</th>
+                      <th class="right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="c in pendingHolidayBonusClaims" :key="c.id">
+                      <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td class="muted">{{ holidayBonusDatesLabel(c) }}</td>
+                      <td class="right">{{ fmtMoney(Number(c.base_service_pay_amount || 0)) }}</td>
+                      <td class="right">{{ fmtNum(Number(c.holiday_bonus_percent || 0)) }}</td>
+                      <td class="right"><strong>{{ fmtMoney(Number(c.applied_amount || 0)) }}</strong></td>
+                      <td class="right">
+                        <div class="actions" style="justify-content: flex-end; margin: 0;">
+                          <button
+                            class="btn btn-primary btn-sm"
+                            @click="approveHolidayBonusClaim(c)"
+                            :disabled="updatingHolidayBonusClaimId === c.id"
+                          >
+                            {{ updatingHolidayBonusClaimId === c.id ? 'Approving…' : 'Approve' }}
+                          </button>
+                          <button class="btn btn-danger btn-sm" @click="rejectHolidayBonusClaim(c)" :disabled="updatingHolidayBonusClaimId === c.id">
+                            Reject
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+                <button class="btn btn-secondary" @click="loadAllPendingHolidayBonusClaims" :disabled="pendingHolidayBonusLoading || !agencyId">
+                  Show all pending (any period)
+                </button>
+                <button class="btn btn-secondary" @click="loadPendingHolidayBonusClaims" :disabled="pendingHolidayBonusLoading || !selectedPeriodId">
+                  This pay period only
+                </button>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top: 12px;">
               <h3 class="card-title" style="margin: 0 0 6px 0;">PTO Requests (Pending)</h3>
               <div class="hint">Approve to deduct PTO balances and post PTO pay into payroll adjustments (uses agency default PTO rate).</div>
               <div v-if="pendingPtoError" class="warn-box" style="margin-top: 8px;">{{ pendingPtoError }}</div>
@@ -2272,6 +2328,54 @@
               <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
                 <button class="btn btn-secondary" @click="loadApprovedReimbursementClaimsList" :disabled="approvedReimbursementListLoading || !selectedPeriodId">
                   Refresh approved reimbursements
+                </button>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top: 12px;">
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Approved Holiday Bonus (This pay period)</h3>
+              <div class="hint">Approved holiday bonuses contribute as a single “Holiday Bonus” line item in payroll adjustments.</div>
+              <div v-if="approvedHolidayBonusListError" class="warn-box" style="margin-top: 8px;">{{ approvedHolidayBonusListError }}</div>
+              <div v-if="approvedHolidayBonusListLoading" class="muted" style="margin-top: 8px;">Loading approved holiday bonuses…</div>
+              <div v-else-if="!approvedHolidayBonusClaims.length" class="muted" style="margin-top: 8px;">No approved holiday bonuses for this pay period.</div>
+              <div v-else class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Holiday dates</th>
+                      <th class="right">Base service pay</th>
+                      <th class="right">%</th>
+                      <th class="right">Bonus</th>
+                      <th class="right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="c in approvedHolidayBonusClaims" :key="c.id">
+                      <td>{{ nameForUserId(c.user_id) }}</td>
+                      <td class="muted">{{ holidayBonusDatesLabel(c) }}</td>
+                      <td class="right">{{ fmtMoney(Number(c.base_service_pay_amount || 0)) }}</td>
+                      <td class="right">{{ fmtNum(Number(c.holiday_bonus_percent || 0)) }}</td>
+                      <td class="right"><strong>{{ fmtMoney(Number(c.applied_amount || 0)) }}</strong></td>
+                      <td class="right">
+                        <div class="actions" style="justify-content: flex-end; margin: 0;">
+                          <button
+                            class="btn btn-secondary btn-sm"
+                            type="button"
+                            @click="unapproveHolidayBonusClaim(c)"
+                            :disabled="unapprovingHolidayBonusClaimId === c.id || isTargetPeriodLocked(Number(c.payroll_period_id || selectedPeriodId))"
+                          >
+                            {{ unapprovingHolidayBonusClaimId === c.id ? 'Unapproving…' : 'Unapprove' }}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+                <button class="btn btn-secondary" @click="loadApprovedHolidayBonusClaimsList" :disabled="approvedHolidayBonusListLoading || !selectedPeriodId">
+                  Refresh approved holiday bonuses
                 </button>
               </div>
             </div>
@@ -2852,6 +2956,9 @@
             <div class="field">
               <label>Bonus ($)</label>
               <input v-model="adjustments.bonusAmount" type="number" step="0.01" :disabled="isPeriodPosted" />
+              <div class="hint" style="margin-top: 4px;">
+                Approved Holiday Bonus (auto): {{ approvedHolidayBonusClaimsLoading ? 'Loading…' : fmtMoney(approvedHolidayBonusClaimsAmount || 0) }}
+              </div>
             </div>
             <div class="field">
               <label>Manual Reimbursement Override ($)</label>
@@ -3141,6 +3248,9 @@
                   <div class="field">
                     <label>Bonus ($)</label>
                     <input v-model="adjustments.bonusAmount" type="number" step="0.01" :disabled="isPeriodPosted" />
+                    <div class="hint" style="margin-top: 4px;">
+                      Approved Holiday Bonus (auto): {{ approvedHolidayBonusClaimsLoading ? 'Loading…' : fmtMoney(approvedHolidayBonusClaimsAmount || 0) }}
+                    </div>
                   </div>
                   <div class="field">
                     <label>Manual Reimbursement Override ($)</label>
@@ -4612,6 +4722,11 @@ const pendingTimeError = ref('');
 const approvingTimeClaimId = ref(null);
 const timeTargetPeriodByClaimId = ref({});
 
+const pendingHolidayBonusClaims = ref([]);
+const pendingHolidayBonusLoading = ref(false);
+const pendingHolidayBonusError = ref('');
+const updatingHolidayBonusClaimId = ref(null);
+
 const pendingPtoRequests = ref([]);
 const pendingPtoLoading = ref(false);
 const pendingPtoError = ref('');
@@ -4816,6 +4931,35 @@ const loadApprovedReimbursementClaimsAmount = async () => {
   }
 };
 
+const approvedHolidayBonusClaimsLoading = ref(false);
+const approvedHolidayBonusClaimsAmount = ref(0);
+
+const loadApprovedHolidayBonusClaimsAmount = async () => {
+  const uid = selectedUserId.value;
+  const pid = selectedPeriodId.value;
+  if (!agencyId.value || !uid || !pid) {
+    approvedHolidayBonusClaimsAmount.value = 0;
+    return;
+  }
+  try {
+    approvedHolidayBonusClaimsLoading.value = true;
+    const resp = await api.get('/payroll/holiday-bonus-claims', {
+      params: {
+        agencyId: agencyId.value,
+        status: 'approved',
+        payrollPeriodId: pid,
+        userId: uid
+      }
+    });
+    const rows = resp.data || [];
+    approvedHolidayBonusClaimsAmount.value = rows.reduce((a, c) => a + Number(c?.applied_amount || 0), 0);
+  } catch {
+    approvedHolidayBonusClaimsAmount.value = 0;
+  } finally {
+    approvedHolidayBonusClaimsLoading.value = false;
+  }
+};
+
 const loadApprovedTimeClaimsAmount = async () => {
   const uid = selectedUserId.value;
   const pid = selectedPeriodId.value;
@@ -4858,6 +5002,11 @@ const approvedReimbursementListError = ref('');
 const approvedReimbursementClaims = ref([]);
 const approvedReimbursementMoveTargetByClaimId = ref({});
 const movingReimbursementClaimId = ref(null);
+
+const approvedHolidayBonusListLoading = ref(false);
+const approvedHolidayBonusListError = ref('');
+const approvedHolidayBonusClaims = ref([]);
+const unapprovingHolidayBonusClaimId = ref(null);
 
 const approvedTimeClaimsLoading = ref(false);
 const approvedTimeClaimsAmount = ref(0);
@@ -5467,6 +5616,27 @@ const timeTypeLabel = (c) => {
   return t || 'Time';
 };
 
+const loadApprovedHolidayBonusClaimsList = async () => {
+  if (!agencyId.value || !selectedPeriodId.value) return;
+  try {
+    approvedHolidayBonusListLoading.value = true;
+    approvedHolidayBonusListError.value = '';
+    const resp = await api.get('/payroll/holiday-bonus-claims', {
+      params: {
+        agencyId: agencyId.value,
+        status: 'approved',
+        payrollPeriodId: selectedPeriodId.value
+      }
+    });
+    approvedHolidayBonusClaims.value = resp.data || [];
+  } catch (e) {
+    approvedHolidayBonusListError.value = e.response?.data?.error?.message || e.message || 'Failed to load approved holiday bonuses';
+    approvedHolidayBonusClaims.value = [];
+  } finally {
+    approvedHolidayBonusListLoading.value = false;
+  }
+};
+
 const loadApprovedMileageClaimsList = async () => {
   if (!agencyId.value || !selectedPeriodId.value) return;
   try {
@@ -5735,6 +5905,93 @@ const loadAllPendingTimeClaims = async () => {
     pendingTimeClaims.value = [];
   } finally {
     pendingTimeLoading.value = false;
+  }
+};
+
+const loadPendingHolidayBonusClaims = async () => {
+  if (!agencyId.value || !selectedPeriodId.value) return;
+  try {
+    pendingHolidayBonusLoading.value = true;
+    pendingHolidayBonusError.value = '';
+    const resp = await api.get('/payroll/holiday-bonus-claims', {
+      params: { agencyId: agencyId.value, status: 'submitted', payrollPeriodId: selectedPeriodId.value }
+    });
+    pendingHolidayBonusClaims.value = resp.data || [];
+  } catch (e) {
+    pendingHolidayBonusError.value = e.response?.data?.error?.message || e.message || 'Failed to load pending holiday bonuses';
+    pendingHolidayBonusClaims.value = [];
+  } finally {
+    pendingHolidayBonusLoading.value = false;
+  }
+};
+
+const loadAllPendingHolidayBonusClaims = async () => {
+  if (!agencyId.value) return;
+  try {
+    pendingHolidayBonusLoading.value = true;
+    pendingHolidayBonusError.value = '';
+    const resp = await api.get('/payroll/holiday-bonus-claims', {
+      params: { agencyId: agencyId.value, status: 'submitted' }
+    });
+    pendingHolidayBonusClaims.value = resp.data || [];
+  } catch (e) {
+    pendingHolidayBonusError.value = e.response?.data?.error?.message || e.message || 'Failed to load pending holiday bonuses';
+    pendingHolidayBonusClaims.value = [];
+  } finally {
+    pendingHolidayBonusLoading.value = false;
+  }
+};
+
+const approveHolidayBonusClaim = async (c) => {
+  if (!c?.id) return;
+  try {
+    updatingHolidayBonusClaimId.value = c.id;
+    pendingHolidayBonusError.value = '';
+    await api.patch(`/payroll/holiday-bonus-claims/${c.id}`, { action: 'approve' });
+    await loadPendingHolidayBonusClaims();
+    await loadApprovedHolidayBonusClaimsList();
+    await loadApprovedHolidayBonusClaimsAmount();
+    await loadPeriodDetails();
+  } catch (e) {
+    pendingHolidayBonusError.value = e.response?.data?.error?.message || e.message || 'Failed to approve holiday bonus';
+  } finally {
+    updatingHolidayBonusClaimId.value = null;
+  }
+};
+
+const rejectHolidayBonusClaim = async (c) => {
+  if (!c?.id) return;
+  const reason = window.prompt('Rejection reason (required):', '') || '';
+  if (!String(reason || '').trim()) return;
+  try {
+    updatingHolidayBonusClaimId.value = c.id;
+    pendingHolidayBonusError.value = '';
+    await api.patch(`/payroll/holiday-bonus-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() });
+    await loadPendingHolidayBonusClaims();
+    await loadPeriodDetails();
+  } catch (e) {
+    pendingHolidayBonusError.value = e.response?.data?.error?.message || e.message || 'Failed to reject holiday bonus';
+  } finally {
+    updatingHolidayBonusClaimId.value = null;
+  }
+};
+
+const unapproveHolidayBonusClaim = async (c) => {
+  if (!c?.id) return;
+  const ok = window.confirm('Unapprove this holiday bonus? It will return to Pending for re-approval.');
+  if (!ok) return;
+  try {
+    unapprovingHolidayBonusClaimId.value = c.id;
+    approvedHolidayBonusListError.value = '';
+    await api.patch(`/payroll/holiday-bonus-claims/${c.id}`, { action: 'unapprove' });
+    await loadApprovedHolidayBonusClaimsList();
+    await loadPendingHolidayBonusClaims();
+    await loadApprovedHolidayBonusClaimsAmount();
+    await loadPeriodDetails();
+  } catch (e) {
+    approvedHolidayBonusListError.value = e.response?.data?.error?.message || e.message || 'Failed to unapprove holiday bonus';
+  } finally {
+    unapprovingHolidayBonusClaimId.value = null;
   }
 };
 
@@ -6969,6 +7226,23 @@ const submitterLabel = (row) => {
   if (email) return email;
   if (submittedById) return nameForUserId(submittedById);
   return '—';
+};
+
+const holidayBonusDatesLabel = (row) => {
+  const raw = row?.holiday_dates_json ?? row?.holidayDatesJson ?? null;
+  let arr = [];
+  if (Array.isArray(raw)) {
+    arr = raw;
+  } else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      arr = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      arr = raw.split(',').map((s) => String(s || '').trim()).filter(Boolean);
+    }
+  }
+  const uniq = Array.from(new Set((arr || []).map((x) => String(x || '').slice(0, 10)).filter((x) => /^\\d{4}-\\d{2}-\\d{2}$/.test(x)))).sort();
+  return uniq.length ? uniq.join(', ') : '—';
 };
 
 const loadMileageRates = async () => {
@@ -9209,8 +9483,10 @@ watch(selectedPeriodId, async (id) => {
   await loadPeriodDetails();
   await loadApprovedMileageClaimsAmount();
   await loadApprovedMedcancelClaimsAmount();
+  await loadApprovedHolidayBonusClaimsAmount();
   await loadApprovedMileageClaimsList();
   await loadApprovedMedcancelClaimsList();
+  await loadApprovedHolidayBonusClaimsList();
   await loadManualPayLines();
   await loadPayrollTodos();
 });
@@ -9224,12 +9500,15 @@ watch(showStageModal, async (open) => {
   await loadAllPendingMedcancelClaims();
   await loadAllPendingReimbursementClaims();
   await loadAllPendingTimeClaims();
+  await loadPendingHolidayBonusClaims();
   await loadAllPendingPtoRequests();
   await loadApprovedMileageClaimsAmount();
   await loadApprovedMedcancelClaimsAmount();
+  await loadApprovedHolidayBonusClaimsAmount();
   await loadApprovedReimbursementClaimsAmount();
   await loadApprovedMileageClaimsList();
   await loadApprovedMedcancelClaimsList();
+  await loadApprovedHolidayBonusClaimsList();
   await loadApprovedReimbursementClaimsList();
   await loadManualPayLines();
   await loadPayrollTodos();
@@ -9244,6 +9523,7 @@ watch(selectedUserId, async () => {
   await loadRateCard();
   await loadApprovedMileageClaimsAmount();
   await loadApprovedMedcancelClaimsAmount();
+  await loadApprovedHolidayBonusClaimsAmount();
   await loadApprovedReimbursementClaimsAmount();
 });
 

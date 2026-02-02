@@ -40,6 +40,7 @@ import PayrollMedcancelClaimItem from '../models/PayrollMedcancelClaimItem.model
 import PayrollReimbursementClaim from '../models/PayrollReimbursementClaim.model.js';
 import PayrollCompanyCardExpense from '../models/PayrollCompanyCardExpense.model.js';
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
+import PayrollHolidayBonusClaim from '../models/PayrollHolidayBonusClaim.model.js';
 import PayrollPtoAccount from '../models/PayrollPtoAccount.model.js';
 import PayrollPtoLedger from '../models/PayrollPtoLedger.model.js';
 import PayrollPtoRequest from '../models/PayrollPtoRequest.model.js';
@@ -51,11 +52,20 @@ import { GoogleDriveService } from '../services/googleDrive.service.js';
 import { accruePrelicensedSupervisionFromPayroll } from '../services/supervision.service.js';
 import { getUserCompensationForAgency } from '../models/PayrollCompensation.service.js';
 import { getAgencyMedcancelPolicy, upsertAgencyMedcancelPolicy } from '../services/payrollMedcancelPolicy.service.js';
+import { getAgencyHolidayPayPolicy, upsertAgencyHolidayPayPolicy } from '../services/payrollHolidayPolicy.service.js';
+import { syncHolidayBonusClaimsForPeriod } from '../services/payrollHolidayBonus.service.js';
+import {
+  listAgencyHolidays as listAgencyHolidaysSvc,
+  createAgencyHoliday as createAgencyHolidaySvc,
+  findAgencyHolidayById as findAgencyHolidayByIdSvc,
+  deleteAgencyHolidayById as deleteAgencyHolidayByIdSvc
+} from '../services/agencyHolidays.service.js';
 import { payrollDefaultsForCode } from '../services/payrollServiceCodeDefaults.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import { getDrivingDistanceMeters, metersToMiles } from '../services/googleDistance.service.js';
 import NotificationService from '../services/notification.service.js';
 import PayrollNotesAgingService from '../services/payrollNotesAging.service.js';
+import PayrollHolidayBonusApprovalAlertService from '../services/payrollHolidayBonusApprovalAlert.service.js';
 import { OfficeScheduleReviewService } from '../services/officeScheduleReview.service.js';
 import {
   getAgencySupervisionPolicy,
@@ -3216,6 +3226,11 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     const imatterAmount = Number(adj?.imatter_amount || 0);
     const missedAppointmentsAmount = Number(adj?.missed_appointments_amount || 0);
     const bonusAmount = Number(adj?.bonus_amount || 0);
+    const holidayBonusClaimsAmount = await PayrollHolidayBonusClaim.sumApprovedForPeriodUser({
+      payrollPeriodId,
+      agencyId,
+      userId
+    });
     // Salary:
     // - If salary_amount is explicitly set for this pay period, treat it as the salary override.
     // - Otherwise, if an active salary position exists, auto-apply it.
@@ -3321,6 +3336,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       imatterAmount +
       missedAppointmentsAmount +
       bonusAmount +
+      holidayBonusClaimsAmount +
       timeClaimsAmount +
       ptoPay +
       manualPayLinesAmount +
@@ -3346,6 +3362,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     if (Number(imatterAmount || 0) > 1e-9) pushLine({ type: 'imatter', label: 'IMatter', taxable: true, amount: imatterAmount });
     if (Number(missedAppointmentsAmount || 0) > 1e-9) pushLine({ type: 'missed_appointments', label: 'Missed appointments', taxable: true, amount: missedAppointmentsAmount });
     if (Number(bonusAmount || 0) > 1e-9) pushLine({ type: 'bonus', label: 'Bonus', taxable: true, amount: bonusAmount });
+    if (Number(holidayBonusClaimsAmount || 0) > 1e-9) {
+      pushLine({ type: 'holiday_bonus', label: 'Holiday Bonus', taxable: true, amount: holidayBonusClaimsAmount, meta: { auto: holidayBonusClaimsAmount } });
+    }
     // Time claims: explicit line items, bucketed direct/indirect, and can contribute to hour totals.
     for (const c of approvedTimeClaims || []) {
       const amt = Number(c?.applied_amount || 0);
@@ -3426,6 +3445,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
       imatterAmount,
       missedAppointmentsAmount,
       bonusAmount,
+      holidayBonusClaimsAmount,
       ptoHours,
       sickPtoHours,
       trainingPtoHours,
@@ -6585,6 +6605,18 @@ export const runPayrollPeriod = async (req, res, next) => {
       });
     }
 
+    // Best-effort: generate/update system holiday bonus claims for this pay period
+    // so approvals are ready before payroll totals are computed.
+    try {
+      await syncHolidayBonusClaimsForPeriod({
+        agencyId: period.agency_id,
+        payrollPeriodId,
+        periodStart: period.period_start
+      });
+    } catch (e) {
+      if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
+
     // Recompute into payroll_summaries (private until posted).
     await recomputeSummariesFromStaging({
       payrollPeriodId,
@@ -6702,6 +6734,19 @@ export const runPayrollPeriod = async (req, res, next) => {
       }
     } catch (e) {
       // Do not block payroll runs if metrics/notifications fail (or migration not applied yet).
+      if (e?.code !== 'ER_NO_SUCH_TABLE') {
+        // ignore
+      }
+    }
+
+    // Best-effort: alert when holiday pay was assessed but approval is missing.
+    try {
+      await PayrollHolidayBonusApprovalAlertService.emitMissingHolidayBonusApprovalAlerts({
+        agencyId: period.agency_id,
+        payrollPeriodId
+      });
+    } catch (e) {
+      // Do not block payroll runs if notifications fail (or tables aren't migrated yet).
       if (e?.code !== 'ER_NO_SUCH_TABLE') {
         // ignore
       }
@@ -10252,6 +10297,117 @@ export const listTimeClaims = async (req, res, next) => {
   }
 };
 
+export const listHolidayBonusClaims = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    const payrollPeriodId = req.query.payrollPeriodId ? parseInt(req.query.payrollPeriodId, 10) : null;
+    const status = req.query.status ? String(req.query.status) : null;
+    const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
+
+    // Best-effort: refresh submitted claims so the list reflects current imports/holiday settings.
+    if (payrollPeriodId) {
+      try {
+        const period = await PayrollPeriod.findById(payrollPeriodId);
+        if (period && Number(period.agency_id) === Number(agencyId)) {
+          await syncHolidayBonusClaimsForPeriod({ agencyId, payrollPeriodId, periodStart: period.period_start });
+        }
+      } catch (e) {
+        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+      }
+    }
+
+    const rows = await PayrollHolidayBonusClaim.listForAgency({ agencyId, payrollPeriodId, status, userId });
+    res.json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const patchHolidayBonusClaim = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'id is required' } });
+
+    const claim = await PayrollHolidayBonusClaim.findById(id);
+    if (!claim) return res.status(404).json({ error: { message: 'Holiday bonus claim not found' } });
+    if (!(await requirePayrollAccess(req, res, claim.agency_id))) return;
+
+    const period = await PayrollPeriod.findById(claim.payroll_period_id);
+    const pst = String(period?.status || '').toLowerCase();
+    if (pst === 'posted' || pst === 'finalized') {
+      return res.status(409).json({ error: { message: 'Pay period is posted/finalized' } });
+    }
+
+    const action = String(req.body?.action || '').trim().toLowerCase();
+    if (!action) return res.status(400).json({ error: { message: 'action is required' } });
+
+    const st = String(claim.status || '').trim().toLowerCase();
+
+    if (action === 'approve') {
+      if (st !== 'submitted') {
+        return res.status(409).json({ error: { message: 'Only submitted claims can be approved' } });
+      }
+      const updated = await PayrollHolidayBonusClaim.approve({ id, approverUserId: req.user.id });
+      try {
+        if (period && String(period.status || '').toLowerCase() === 'ran') {
+          await recomputeSummariesFromStaging({
+            payrollPeriodId: period.id,
+            agencyId: period.agency_id,
+            periodStart: period.period_start,
+            periodEnd: period.period_end
+          });
+        }
+      } catch { /* best-effort */ }
+      return res.json({ claim: updated });
+    }
+
+    if (action === 'reject') {
+      if (st !== 'submitted') {
+        return res.status(409).json({ error: { message: 'Only submitted claims can be rejected' } });
+      }
+      const rejectionReason = String(req.body?.rejectionReason || req.body?.reason || '').trim().slice(0, 255);
+      if (!rejectionReason) return res.status(400).json({ error: { message: 'rejectionReason is required' } });
+      const updated = await PayrollHolidayBonusClaim.reject({ id, rejectorUserId: req.user.id, rejectionReason });
+      try {
+        if (period && String(period.status || '').toLowerCase() === 'ran') {
+          await recomputeSummariesFromStaging({
+            payrollPeriodId: period.id,
+            agencyId: period.agency_id,
+            periodStart: period.period_start,
+            periodEnd: period.period_end
+          });
+        }
+      } catch { /* best-effort */ }
+      return res.json({ claim: updated });
+    }
+
+    if (action === 'unapprove') {
+      if (st !== 'approved') {
+        return res.status(409).json({ error: { message: 'Only approved claims can be unapproved' } });
+      }
+      const updated = await PayrollHolidayBonusClaim.unapprove({ id });
+      try {
+        if (period && String(period.status || '').toLowerCase() === 'ran') {
+          await recomputeSummariesFromStaging({
+            payrollPeriodId: period.id,
+            agencyId: period.agency_id,
+            periodStart: period.period_start,
+            periodEnd: period.period_end
+          });
+        }
+      } catch { /* best-effort */ }
+      return res.json({ claim: updated });
+    }
+
+    res.status(400).json({ error: { message: `Unsupported action: ${action}` } });
+  } catch (e) {
+    next(e);
+  }
+};
+
 function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard }) {
   const type = String(claim?.claim_type || '').toLowerCase();
   const payload = claim?.payload || {};
@@ -10600,6 +10756,18 @@ export const getMedcancelPolicy = async (req, res, next) => {
   }
 };
 
+export const getHolidayPayPolicy = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const out = await getAgencyHolidayPayPolicy({ agencyId });
+    res.json({ ok: true, agencyId, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const putMedcancelPolicy = async (req, res, next) => {
   try {
     const body = req.body || {};
@@ -10611,6 +10779,20 @@ export const putMedcancelPolicy = async (req, res, next) => {
     const inSchoolEnabled = await isAgencyFeatureEnabled(agencyId, 'inSchoolSubmissionsEnabled', true);
     const medcancelEnabledForAgency = inSchoolEnabled && (await isAgencyFeatureEnabled(agencyId, 'medcancelEnabled', true));
     res.json({ ok: true, agencyId, enabled: medcancelEnabledForAgency, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putHolidayPayPolicy = async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const agencyId = body.agencyId ? parseInt(body.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const policy = body.policy && typeof body.policy === 'object' ? body.policy : {};
+    const out = await upsertAgencyHolidayPayPolicy({ agencyId, policy });
+    res.json({ ok: true, agencyId, ...out });
   } catch (e) {
     next(e);
   }
@@ -10635,6 +10817,50 @@ export const getMyMedcancelPolicy = async (req, res, next) => {
     const medcancelEnabledForAgency = inSchoolEnabled && (await isAgencyFeatureEnabled(agencyId, 'medcancelEnabled', true));
     const out = await getAgencyMedcancelPolicy({ agencyId });
     res.json({ ok: true, agencyId, enabled: medcancelEnabledForAgency, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listAgencyHolidays = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const holidays = await listAgencyHolidaysSvc({ agencyId });
+    res.json({ ok: true, agencyId, holidays });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createAgencyHoliday = async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const agencyId = body.agencyId ? parseInt(body.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const holidayDate = body.holidayDate || body.holiday_date || body.date;
+    const name = body.name || body.label || body.title;
+    const holiday = await createAgencyHolidaySvc({ agencyId, holidayDate, name });
+    res.status(201).json({ ok: true, agencyId, holiday });
+  } catch (e) {
+    if (e?.status) {
+      return res.status(e.status).json({ error: { message: e.message } });
+    }
+    next(e);
+  }
+};
+
+export const deleteAgencyHoliday = async (req, res, next) => {
+  try {
+    const id = req.params.id ? parseInt(req.params.id, 10) : null;
+    if (!id) return res.status(400).json({ error: { message: 'id is required' } });
+    const row = await findAgencyHolidayByIdSvc({ id });
+    if (!row) return res.status(404).json({ error: { message: 'Holiday not found' } });
+    if (!(await requirePayrollAccess(req, res, row.agency_id))) return;
+    await deleteAgencyHolidayByIdSvc({ id });
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }
