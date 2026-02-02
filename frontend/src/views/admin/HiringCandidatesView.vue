@@ -1385,13 +1385,13 @@ onMounted(async () => {
   overflow: auto;
 }
 .markdown :deep(table) {
-  display: block; /* allow horizontal scrolling without affecting layout */
-  max-width: 100%;
-  width: 100%;
+  /* Keep semantic table layout; scrolling is handled by the markdown container. */
+  display: table;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   margin: 10px 0;
   table-layout: auto;
-  overflow-x: auto;
 }
 .markdown :deep(th),
 .markdown :deep(td) {
@@ -1401,6 +1401,24 @@ onMounted(async () => {
   vertical-align: top;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+.markdown :deep(th) {
+  white-space: nowrap;
+}
+.markdown :deep(td) {
+  white-space: normal;
+}
+.markdown :deep(th:nth-child(1)),
+.markdown :deep(td:nth-child(1)) {
+  min-width: 220px;
+}
+.markdown :deep(th:nth-child(2)),
+.markdown :deep(td:nth-child(2)) {
+  min-width: 220px;
+}
+.markdown :deep(th:nth-child(3)),
+.markdown :deep(td:nth-child(3)) {
+  min-width: 360px;
 }
 .markdown :deep(th:last-child),
 .markdown :deep(td:last-child) {
