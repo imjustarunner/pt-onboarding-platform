@@ -122,8 +122,10 @@ import AssetsManagement from './AssetsManagement.vue';
 import OnboardingPackageManagement from './OnboardingPackageManagement.vue';
 import ArchiveManagement from './ArchiveManagement.vue';
 import ClientCatalogManagement from './ClientCatalogManagement.vue';
+import ClientSettingsManagement from './ClientSettingsManagement.vue';
 import SchoolCatalogManagement from './SchoolCatalogManagement.vue';
 import ProviderCatalogManagement from './ProviderCatalogManagement.vue';
+import ProviderSettingsManagement from './ProviderSettingsManagement.vue';
 import ProviderSchedulingManagement from './ProviderSchedulingManagement.vue';
 import AvailabilityIntakeManagement from './AvailabilityIntakeManagement.vue';
 import ViewportPreviewSettings from './ViewportPreviewSettings.vue';
@@ -223,6 +225,16 @@ const allCategories = [
         excludeSupervisor: true
       },
       {
+        id: 'client-settings-v2',
+        label: 'Client Settings (v2)',
+        icon: '🧾',
+        component: 'ClientSettingsManagement',
+        requiresAgency: true,
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
         id: 'school-settings',
         label: 'School Settings',
         icon: '🏫',
@@ -237,6 +249,16 @@ const allCategories = [
         label: 'Provider Settings',
         icon: '🧑‍⚕️',
         component: 'ProviderCatalogManagement',
+        requiresAgency: true,
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['support', 'clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
+        id: 'provider-settings-v2',
+        label: 'Provider Settings (v2)',
+        icon: '🧑‍⚕️',
+        component: 'ProviderSettingsManagement',
         requiresAgency: true,
         roles: ['super_admin', 'admin'],
         excludeRoles: ['support', 'clinical_practice_assistant'],
@@ -472,8 +494,10 @@ const componentMap = {
   OnboardingPackageManagement,
   ArchiveManagement,
   ClientCatalogManagement,
+  ClientSettingsManagement,
   SchoolCatalogManagement,
   ProviderCatalogManagement,
+  ProviderSettingsManagement,
   ProviderSchedulingManagement,
   AvailabilityIntakeManagement,
   ViewportPreviewSettings,
