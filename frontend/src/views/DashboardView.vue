@@ -96,7 +96,7 @@
     >
       <div class="top-snapshot-head">
         <div class="top-snapshot-title">My Snapshot</div>
-        <button type="button" class="btn btn-secondary btn-sm" @click="toggleTopCardCollapsed">
+        <button type="button" class="btn btn-secondary btn-sm top-snapshot-toggle" @click="toggleTopCardCollapsed">
           {{ topCardCollapsed ? 'Expand' : 'Collapse' }}
         </button>
       </div>
@@ -1379,6 +1379,17 @@ h1 {
 .top-snapshot-title {
   font-weight: 800;
   color: var(--text-primary);
+}
+.top-snapshot-toggle {
+  /* Some global `.btn` rules make buttons stretch full-width. Keep this one compact. */
+  width: auto !important;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 4px 10px;
 }
 
 /* Split view: rail + detail */
