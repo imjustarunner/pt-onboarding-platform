@@ -11,7 +11,7 @@ ALTER TABLE platform_branding
 ALTER TABLE support_tickets
   ADD COLUMN ai_summary TEXT NULL;
 
--- 3) FAQ table (agency-scoped; never includes client identifiers).
+-- 3) FAQ table (agency-scoped, never includes client identifiers).
 CREATE TABLE IF NOT EXISTS school_portal_faqs (
   id INT AUTO_INCREMENT PRIMARY KEY,
   agency_id INT NOT NULL,
