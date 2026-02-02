@@ -576,7 +576,7 @@ app.use((err, req, res, next) => {
     return res.status(400).json({
       error: {
         message:
-          'Invalid reference value (foreign key constraint). Please verify the selected agency/icon still exists.',
+          'Invalid reference value (foreign key constraint). Please verify the referenced record still exists (agency/user/pay period/etc).',
         ...(config.nodeEnv === 'development' && {
           code: err.code,
           sqlMessage: err.sqlMessage,
