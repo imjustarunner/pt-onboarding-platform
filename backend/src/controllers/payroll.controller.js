@@ -4322,17 +4322,46 @@ export const toolComparePayrollFiles = [
         Number((Number(a?.DRAFT || 0)).toFixed(2)) === Number((Number(b?.DRAFT || 0)).toFixed(2)) &&
         Number((Number(a?.FINALIZED || 0)).toFixed(2)) === Number((Number(b?.FINALIZED || 0)).toFixed(2));
 
+      const sumUnpaid = (unitsByStatus) =>
+        Number((Number(unitsByStatus?.NO_NOTE || 0) + Number(unitsByStatus?.DRAFT || 0)).toFixed(2));
+      const sumFinal = (unitsByStatus) => Number((Number(unitsByStatus?.FINALIZED || 0)).toFixed(2));
+      const computeLateAddedMetrics = ({ before, after }) => {
+        if (!after?.unitsByStatus) return null;
+        const prevUnpaid = before?.unitsByStatus ? sumUnpaid(before.unitsByStatus) : 0;
+        const currUnpaid = sumUnpaid(after.unitsByStatus);
+        const unpaidDrop = Number(Math.max(0, prevUnpaid - currUnpaid).toFixed(2));
+        const prevFinal = before?.unitsByStatus ? sumFinal(before.unitsByStatus) : 0;
+        const currFinal = sumFinal(after.unitsByStatus);
+        const finalizedDelta = Number(Math.max(0, currFinal - prevFinal).toFixed(2));
+        const lateNoteCompletionUnits = Number(Math.max(0, Math.min(unpaidDrop, finalizedDelta)).toFixed(2));
+        const lateAddedFinalizedUnits = Number(Math.max(0, finalizedDelta - lateNoteCompletionUnits).toFixed(2));
+        return {
+          prevUnpaid,
+          currUnpaid,
+          unpaidDrop,
+          prevFinal,
+          currFinal,
+          finalizedDelta,
+          lateNoteCompletionUnits,
+          lateAddedFinalizedUnits
+        };
+      };
+
+      let lateAddedFinalizedUnitsTotal = 0;
+
       for (const k of keys) {
         const a = idx1.get(k) || null;
         const b = idx2.get(k) || null;
         if (!a && b) {
           added++;
-          changes.push({ changeType: 'added', before: null, after: b });
+          const metrics = computeLateAddedMetrics({ before: null, after: b });
+          if (metrics?.lateAddedFinalizedUnits) lateAddedFinalizedUnitsTotal += Number(metrics.lateAddedFinalizedUnits || 0);
+          changes.push({ changeType: 'added', before: null, after: b, metrics });
           continue;
         }
         if (a && !b) {
           removed++;
-          changes.push({ changeType: 'removed', before: a, after: null });
+          changes.push({ changeType: 'removed', before: a, after: null, metrics: null });
           continue;
         }
         // both present
@@ -4340,7 +4369,9 @@ export const toolComparePayrollFiles = [
           unchanged++;
         } else {
           changed++;
-          changes.push({ changeType: 'changed', before: a, after: b });
+          const metrics = computeLateAddedMetrics({ before: a, after: b });
+          if (metrics?.lateAddedFinalizedUnits) lateAddedFinalizedUnitsTotal += Number(metrics.lateAddedFinalizedUnits || 0);
+          changes.push({ changeType: 'changed', before: a, after: b, metrics });
         }
       }
 
@@ -4365,7 +4396,10 @@ export const toolComparePayrollFiles = [
           added,
           removed,
           changed,
-          unchanged
+          unchanged,
+          // Informational: additional finalized units that appear “new” beyond unpaid drop.
+          // This helps catch “late added services” even when they share the same stable key.
+          lateAddedFinalizedUnitsTotal: Number(lateAddedFinalizedUnitsTotal.toFixed(2))
         },
         // Return full list; frontend can truncate display if needed.
         changes

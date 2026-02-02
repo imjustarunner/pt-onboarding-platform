@@ -853,6 +853,9 @@
                 {{ payrollToolsCompareResult.summary?.added || 0 }} added •
                 {{ payrollToolsCompareResult.summary?.removed || 0 }} removed •
                 {{ payrollToolsCompareResult.summary?.unchanged || 0 }} unchanged
+                <span v-if="Number(payrollToolsCompareResult.summary?.lateAddedFinalizedUnitsTotal || 0) > 0">
+                  • <strong>Late added FINAL:</strong> {{ fmtNum(payrollToolsCompareResult.summary?.lateAddedFinalizedUnitsTotal || 0) }}
+                </span>
               </div>
 
               <div v-if="payrollToolsCompareMode === 'summary'" class="table-wrap" style="margin-top: 10px;">
@@ -904,24 +907,44 @@
                       <th class="right">Doc2 NO_NOTE</th>
                       <th class="right">Doc2 DRAFT</th>
                       <th class="right">Doc2 FINAL</th>
+                      <th class="right">Late add FINAL</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(c, idx) in payrollToolsCompareRows" :key="`cmp-${idx}`">
-                      <td><strong>{{ c.changeType }}</strong></td>
-                      <td>{{ (c.after || c.before)?.providerName || '—' }}</td>
-                      <td>{{ (c.after || c.before)?.patientFirstName || '—' }}</td>
-                      <td>{{ (c.after || c.before)?.serviceCode || '—' }}</td>
-                      <td>{{ (c.after || c.before)?.dos || '—' }}</td>
-                      <td class="right">{{ fmtNum((c.before?.unitsByStatus?.NO_NOTE || 0)) }}</td>
-                      <td class="right">{{ fmtNum((c.before?.unitsByStatus?.DRAFT || 0)) }}</td>
-                      <td class="right">{{ fmtNum((c.before?.unitsByStatus?.FINALIZED || 0)) }}</td>
-                      <td class="right">{{ fmtNum((c.after?.unitsByStatus?.NO_NOTE || 0)) }}</td>
-                      <td class="right">{{ fmtNum((c.after?.unitsByStatus?.DRAFT || 0)) }}</td>
-                      <td class="right">{{ fmtNum((c.after?.unitsByStatus?.FINALIZED || 0)) }}</td>
-                    </tr>
+                    <template v-for="(c, idx) in payrollToolsCompareRows" :key="`cmp-${idx}`">
+                      <tr>
+                        <td>
+                          <strong v-if="c.changeType === 'added'">late_added</strong>
+                          <strong v-else>{{ c.changeType }}</strong>
+                        </td>
+                        <td>{{ (c.after || c.before)?.providerName || '—' }}</td>
+                        <td>{{ (c.after || c.before)?.patientFirstName || '—' }}</td>
+                        <td>{{ (c.after || c.before)?.serviceCode || '—' }}</td>
+                        <td>{{ (c.after || c.before)?.dos || '—' }}</td>
+                        <td class="right">{{ fmtNum((c.before?.unitsByStatus?.NO_NOTE || 0)) }}</td>
+                        <td class="right">{{ fmtNum((c.before?.unitsByStatus?.DRAFT || 0)) }}</td>
+                        <td class="right">{{ fmtNum((c.before?.unitsByStatus?.FINALIZED || 0)) }}</td>
+                        <td class="right">{{ fmtNum((c.after?.unitsByStatus?.NO_NOTE || 0)) }}</td>
+                        <td class="right">{{ fmtNum((c.after?.unitsByStatus?.DRAFT || 0)) }}</td>
+                        <td class="right">{{ fmtNum((c.after?.unitsByStatus?.FINALIZED || 0)) }}</td>
+                        <td class="right">
+                          <strong v-if="Number(c?.metrics?.lateAddedFinalizedUnits || 0) > 0">{{ fmtNum(c.metrics.lateAddedFinalizedUnits) }}</strong>
+                          <span v-else class="muted">—</span>
+                        </td>
+                      </tr>
+                      <tr v-if="c.changeType === 'added' || Number(c?.metrics?.lateAddedFinalizedUnits || 0) > 0">
+                        <td colspan="12" class="muted">
+                          <span v-if="c.changeType === 'added'">
+                            Late added service (present only in Doc2). If FINALIZED it should be paid; if DRAFT it should be reviewed; if NO_NOTE it should be carried forward.
+                          </span>
+                          <span v-else>
+                            Late added FINAL indicates finalized units beyond the unpaid drop (helps catch new services added late).
+                          </span>
+                        </td>
+                      </tr>
+                    </template>
                     <tr v-if="!(payrollToolsCompareRows || []).length">
-                      <td colspan="11" class="muted">No rows in this filter.</td>
+                      <td colspan="12" class="muted">No rows in this filter.</td>
                     </tr>
                   </tbody>
                 </table>
