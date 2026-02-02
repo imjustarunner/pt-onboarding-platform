@@ -2653,9 +2653,9 @@
                 <tr v-for="r in workspaceMatchedRows" :key="stagingKey(r)" :class="{ 'carryover-row': (r.carryover?.oldDoneNotesUnits || 0) > 0 }">
                   <td>{{ r.lastName ? `${r.lastName}, ${r.firstName || ''}` : (r.providerName || '—') }}</td>
                   <td>{{ r.serviceCode }}</td>
-                  <td class="right">{{ fmtNum(r.raw.noNoteUnits) }}</td>
-                  <td class="right">{{ fmtNum(r.raw.draftUnits) }}</td>
-                  <td class="right">{{ fmtNum(r.raw.finalizedUnits) }}</td>
+                  <td class="right">{{ fmtNum(r.raw?.noNoteUnits ?? 0) }}</td>
+                  <td class="right">{{ fmtNum(r.raw?.draftUnits ?? 0) }}</td>
+                  <td class="right">{{ fmtNum(r.raw?.finalizedUnits ?? 0) }}</td>
                   <td class="right">
                     <input
                       v-model.number="stagingEdits[stagingKey(r)].noNoteUnits"
