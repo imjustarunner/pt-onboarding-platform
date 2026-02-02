@@ -2658,7 +2658,7 @@
                   <td class="right">{{ fmtNum(r.raw?.finalizedUnits ?? 0) }}</td>
                   <td class="right">
                     <input
-                      v-model.number="stagingEdits[stagingKey(r)].noNoteUnits"
+                      v-model.number="(stagingEdits[stagingKey(r)] || (stagingEdits[stagingKey(r)] = { noNoteUnits: 0, draftUnits: 0, finalizedUnits: 0 })).noNoteUnits"
                       class="stage-num-input"
                       type="number"
                       inputmode="numeric"
@@ -2668,7 +2668,7 @@
                   </td>
                   <td class="right">
                     <input
-                      v-model.number="stagingEdits[stagingKey(r)].draftUnits"
+                      v-model.number="(stagingEdits[stagingKey(r)] || (stagingEdits[stagingKey(r)] = { noNoteUnits: 0, draftUnits: 0, finalizedUnits: 0 })).draftUnits"
                       class="stage-num-input"
                       type="number"
                       inputmode="numeric"
@@ -2678,7 +2678,7 @@
                   </td>
                   <td class="right">
                     <input
-                      v-model.number="stagingEdits[stagingKey(r)].finalizedUnits"
+                      v-model.number="(stagingEdits[stagingKey(r)] || (stagingEdits[stagingKey(r)] = { noNoteUnits: 0, draftUnits: 0, finalizedUnits: 0 })).finalizedUnits"
                       class="stage-num-input"
                       type="number"
                       inputmode="numeric"
