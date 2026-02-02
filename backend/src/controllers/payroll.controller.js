@@ -11443,6 +11443,15 @@ export const patchMileageClaim = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'targetPayrollPeriodId is required' } });
       }
 
+      const targetPeriod = await PayrollPeriod.findById(targetPayrollPeriodId);
+      if (!targetPeriod) return res.status(404).json({ error: { message: 'Target pay period not found' } });
+      if (Number(targetPeriod.agency_id) !== Number(claim.agency_id)) {
+        return res.status(400).json({ error: { message: 'Target pay period does not belong to this agency' } });
+      }
+      if (isEffectivelyPostedOrFinalized(targetPeriod)) {
+        return res.status(409).json({ error: { message: 'Target pay period is posted/finalized' } });
+      }
+
       const hardStopPolicy =
         String(claim.claim_type || '').toLowerCase() === 'school_travel'
           ? 'in_school'
@@ -11454,6 +11463,7 @@ export const patchMileageClaim = async (req, res, next) => {
         effectiveDateYmd: claim.drive_date,
         submittedAt: claim.created_at,
         targetPayrollPeriodId,
+        targetPeriodRow: targetPeriod,
         officeLocationId: claim.office_location_id,
         hardStopPolicy
       });

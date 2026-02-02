@@ -7015,7 +7015,25 @@ const approveMileageClaim = async (c) => {
       pendingMileageError.value = 'Target pay period is posted (locked). Choose an open pay period.';
       return;
     }
-    await api.patch(`/payroll/mileage-claims/${c.id}`, { action: 'approve', tierLevel, targetPayrollPeriodId });
+    try {
+      await api.patch(`/payroll/mileage-claims/${c.id}`, { action: 'approve', tierLevel, targetPayrollPeriodId });
+    } catch (e) {
+      const status = e.response?.status || 0;
+      const msg = e.response?.data?.error?.message || e.message || '';
+      const looksLikeDeadline =
+        String(msg).toLowerCase().includes('deadline') ||
+        String(msg).toLowerCase().includes('submitted after') ||
+        String(msg).toLowerCase().includes('cannot be added to an earlier pay period');
+      if (status === 409 && looksLikeDeadline) {
+        const ok = window.confirm(
+          'This claim was submitted after the cutoff for this pay period.\n\nApprove anyway using an admin override?'
+        );
+        if (!ok) throw e;
+        await api.patch(`/payroll/mileage-claims/${c.id}`, { action: 'approve', tierLevel, targetPayrollPeriodId, overrideDeadline: true });
+      } else {
+        throw e;
+      }
+    }
     await loadPendingMileageClaims();
     await loadPeriodDetails();
     await loadApprovedMileageClaimsAmount();
