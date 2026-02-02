@@ -5940,6 +5940,14 @@ export const previewPayrollCarryover = async (req, res, next) => {
       const normProviderKey = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
       const normCode = (v) => String(v || '').trim().toUpperCase();
 
+      const statusKey = (r) => String(r?.note_status || '').trim().toUpperCase();
+      const compareBucket = (r) => {
+        const st = statusKey(r);
+        if (st === 'NO_NOTE') return 'NO_NOTE';
+        if (st === 'DRAFT') return 'DRAFT';
+        return 'FINALIZED';
+      };
+
       const addImportRow = ({ totalsUser, totalsProvider, byRowKey, r }) => {
         const userId = Number(r?.user_id || 0);
         const serviceCodeRaw = String(r?.service_code || '').trim();
@@ -6004,6 +6012,49 @@ export const previewPayrollCarryover = async (req, res, next) => {
         }
       }
 
+      // Late-added services: rows present in the compare import that did not exist in the baseline import
+      // (new fingerprints). These can represent newly entered services that should be handled explicitly:
+      // - FINALIZED: paid (carry to current pay period)
+      // - DRAFT: reviewed (do NOT auto-carry)
+      // - NO_NOTE: pass forward (do NOT auto-carry)
+      const lateAddedByUserCode = new Map(); // k = `${userId}:${CODE}` -> { userId, serviceCode, providerName, noNote, draft, finalized }
+      const lateAddedByProviderCode = new Map(); // k = `${providerKey}:${CODE}` -> same fields
+      for (const r of curImportRows || []) {
+        const providerName = String(r?.provider_name || '').trim() || null;
+        const providerKey = providerName ? normProviderKey(providerName) : null;
+        const code = normCode(String(r?.service_code || '').trim());
+        if (!code) continue;
+        const units = Number(r?.unit_count || 0);
+        if (!Number.isFinite(units) || units <= 0) continue;
+        const rowKey = r?.row_fingerprint || computeRowFingerprint({
+          agencyId: prior.agency_id,
+          clinicianName: providerName || '',
+          patientFirstName: r?.patient_first_name || '',
+          serviceCode: code,
+          serviceDate: r?.service_date
+        });
+        if (!rowKey) continue;
+        if (byRowKeyBase.has(rowKey)) continue; // existed already; not late-added
+
+        const bucket = compareBucket(r); // NO_NOTE | DRAFT | FINALIZED
+        const userId = Number(r?.user_id || 0);
+        if (userId > 0) {
+          const k = `${userId}:${code}`;
+          if (!lateAddedByUserCode.has(k)) lateAddedByUserCode.set(k, { userId, serviceCode: code, providerName, noNote: 0, draft: 0, finalized: 0, sample: r });
+          const t = lateAddedByUserCode.get(k);
+          if (bucket === 'NO_NOTE') t.noNote += units;
+          else if (bucket === 'DRAFT') t.draft += units;
+          else t.finalized += units;
+        } else if (providerKey) {
+          const k2 = `${providerKey}:${code}`;
+          if (!lateAddedByProviderCode.has(k2)) lateAddedByProviderCode.set(k2, { providerKey, userId: 0, serviceCode: code, providerName, noNote: 0, draft: 0, finalized: 0, sample: r });
+          const t2 = lateAddedByProviderCode.get(k2);
+          if (bucket === 'NO_NOTE') t2.noNote += units;
+          else if (bucket === 'DRAFT') t2.draft += units;
+          else t2.finalized += units;
+        }
+      }
+
       // Build deltas list for UI:
       // - user-matched rows first
       // - provider-only rows (userId=0) still shown for tracking visibility
@@ -6044,6 +6095,68 @@ export const previewPayrollCarryover = async (req, res, next) => {
           type: 'late_note_completion',
           flagged: 0
         });
+      }
+
+      // Add late-added service lines (these are separate from late-note completion).
+      // Only FINALIZED late-added units get a carryoverFinalizedUnits value (paid).
+      for (const [k, t] of lateAddedByUserCode.entries()) {
+        const base = totalsByUserCodeBase.get(k) || { unpaid: 0, finalized: 0, providerName: null };
+        const cur = totalsByUserCodeCur.get(k) || { unpaid: 0, finalized: 0, providerName: null };
+        const finalizedUnits = Number((t.finalized || 0).toFixed(2));
+        const draftUnits = Number((t.draft || 0).toFixed(2));
+        const noNoteUnits = Number((t.noNote || 0).toFixed(2));
+        const any = finalizedUnits > 1e-9 || draftUnits > 1e-9 || noNoteUnits > 1e-9;
+        if (!any) continue;
+        // Emit one row per bucket that has units so the UI can show “Late added service (X)”.
+        const emit = (status, units, carryUnits) => {
+          if (!(units > 1e-9)) return;
+          outDeltas.push({
+            userId: Number(t.userId),
+            serviceCode: String(t.serviceCode || '').trim().toUpperCase(),
+            providerName: t.providerName || base.providerName || cur.providerName || null,
+            prevUnpaidUnits: Number((Number(base.unpaid || 0)).toFixed(2)),
+            currUnpaidUnits: Number((Number(cur.unpaid || 0)).toFixed(2)),
+            prevFinalizedUnits: Number((Number(base.finalized || 0)).toFixed(2)),
+            currFinalizedUnits: Number((Number(cur.finalized || 0)).toFixed(2)),
+            finalizedDelta: units,
+            carryoverFinalizedUnits: Number(carryUnits || 0),
+            type: 'late_added_service',
+            lateAddedStatus: status,
+            flagged: status === 'FINALIZED' ? 0 : 1
+          });
+        };
+        emit('FINALIZED', finalizedUnits, finalizedUnits);
+        emit('DRAFT', draftUnits, 0);
+        emit('NO_NOTE', noNoteUnits, 0);
+      }
+      for (const [k, t] of lateAddedByProviderCode.entries()) {
+        const base = totalsByProviderCodeBase.get(k) || { unpaid: 0, finalized: 0, providerName: null };
+        const cur = totalsByProviderCodeCur.get(k) || { unpaid: 0, finalized: 0, providerName: null };
+        const finalizedUnits = Number((t.finalized || 0).toFixed(2));
+        const draftUnits = Number((t.draft || 0).toFixed(2));
+        const noNoteUnits = Number((t.noNote || 0).toFixed(2));
+        const any = finalizedUnits > 1e-9 || draftUnits > 1e-9 || noNoteUnits > 1e-9;
+        if (!any) continue;
+        const emit = (status, units, carryUnits) => {
+          if (!(units > 1e-9)) return;
+          outDeltas.push({
+            userId: 0,
+            serviceCode: String(t.serviceCode || '').trim().toUpperCase(),
+            providerName: t.providerName || base.providerName || cur.providerName || t.providerKey || null,
+            prevUnpaidUnits: Number((Number(base.unpaid || 0)).toFixed(2)),
+            currUnpaidUnits: Number((Number(cur.unpaid || 0)).toFixed(2)),
+            prevFinalizedUnits: Number((Number(base.finalized || 0)).toFixed(2)),
+            currFinalizedUnits: Number((Number(cur.finalized || 0)).toFixed(2)),
+            finalizedDelta: units,
+            carryoverFinalizedUnits: Number(carryUnits || 0),
+            type: 'late_added_service',
+            lateAddedStatus: status,
+            flagged: status === 'FINALIZED' ? 0 : 1
+          });
+        };
+        emit('FINALIZED', finalizedUnits, finalizedUnits);
+        emit('DRAFT', draftUnits, 0);
+        emit('NO_NOTE', noNoteUnits, 0);
       }
       deltas = outDeltas;
 

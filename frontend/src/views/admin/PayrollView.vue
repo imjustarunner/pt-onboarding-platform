@@ -3898,6 +3898,10 @@
                     <td>
                       <span v-if="d.type === 'manual'">Manual entry</span>
                       <span v-else-if="d.type === 'late_note_completion'">Late note completion</span>
+                      <span v-else-if="d.type === 'late_added_service'">
+                        Late added service
+                        <span v-if="d.lateAddedStatus" class="muted">({{ d.lateAddedStatus }})</span>
+                      </span>
                       <span v-else>—</span>
                       <button
                         v-if="d.type === 'manual'"
