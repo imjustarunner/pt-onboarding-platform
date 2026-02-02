@@ -6,6 +6,7 @@ import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTrigge
 import NotificationEvent from '../models/NotificationEvent.model.js';
 
 const TRIGGER_KEY = 'payroll_unpaid_notes_2_periods_old';
+const MISSING_NOTES_TRIGGER_KEY = 'payroll_missing_notes_reminder';
 
 function resolveSetting(trigger, setting) {
   const enabled =
@@ -208,6 +209,89 @@ class PayrollNotesAgingService {
     }
 
     return { ok: true, createdCount, stalePeriodId };
+  }
+
+  /**
+   * When a payroll period is posted, remind providers if they still have NO_NOTE/DRAFT units
+   * in that pay period. This is a lightweight “final reminder” to ensure documentation is completed
+   * (especially missed appointment notes) before/at the end of the pay period.
+   *
+   * Creates ONE notification per impacted provider, de-duped via notification_events.
+   */
+  static async emitMissingNotesReminderOnPost({ agencyId, payrollPeriodId }) {
+    if (!agencyId || !payrollPeriodId) return { ok: false, reason: 'missing_params' };
+
+    const trigger = await NotificationTrigger.findByKey(MISSING_NOTES_TRIGGER_KEY);
+    if (!trigger) return { ok: false, reason: 'trigger_missing' };
+
+    const allSettings = await AgencyNotificationTriggerSetting.listForAgency(agencyId);
+    const setting = (allSettings || []).find((s) => s.triggerKey === MISSING_NOTES_TRIGGER_KEY) || null;
+    const resolved = resolveSetting(trigger, setting);
+    if (!resolved.enabled) return { ok: true, skipped: true, reason: 'disabled' };
+
+    const postedPeriod = await PayrollPeriod.findById(payrollPeriodId);
+    if (!postedPeriod || Number(postedPeriod.agency_id) !== Number(agencyId)) {
+      return { ok: false, reason: 'period_not_found' };
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT ps.user_id,
+              ps.no_note_units,
+              ps.draft_units,
+              u.first_name,
+              u.last_name,
+              u.email
+       FROM payroll_summaries ps
+       JOIN users u ON ps.user_id = u.id
+       WHERE ps.agency_id = ?
+         AND ps.payroll_period_id = ?
+         AND (COALESCE(ps.no_note_units, 0) + COALESCE(ps.draft_units, 0)) > 0`,
+      [agencyId, payrollPeriodId]
+    );
+
+    let createdCount = 0;
+    for (const r of rows || []) {
+      const providerUserId = Number(r.user_id);
+      const noNote = Number(r.no_note_units || 0);
+      const draft = Number(r.draft_units || 0);
+      const total = noNote + draft;
+      if (!providerUserId || total <= 0) continue;
+
+      const inserted = await NotificationEvent.tryCreate({
+        agencyId,
+        triggerKey: MISSING_NOTES_TRIGGER_KEY,
+        payrollPeriodId,
+        providerUserId,
+        stalePeriodId: null,
+        recipientUserId: providerUserId
+      });
+      if (!inserted) continue;
+
+      const providerName = `${String(r.first_name || '').trim()} ${String(r.last_name || '').trim()}`.trim() || r.email || `User ${providerUserId}`;
+      const start = fmtYmd(postedPeriod.period_start);
+      const end = fmtYmd(postedPeriod.period_end);
+
+      await Notification.create({
+        type: 'payroll_missing_notes_reminder',
+        severity: 'warning',
+        title: 'Notes need attention',
+        message: `User ${providerName} has notes needing attention for ${start} to ${end}: No Note ${noNote}, Draft ${draft}. Please make sure all missed appointment notes are written prior to the end of the pay period.`,
+        audienceJson: {
+          provider: !!resolved.recipients?.provider,
+          supervisor: !!resolved.recipients?.supervisor,
+          clinicalPracticeAssistant: !!resolved.recipients?.clinicalPracticeAssistant,
+          admin: !!resolved.recipients?.admin
+        },
+        userId: providerUserId,
+        agencyId,
+        relatedEntityType: 'user',
+        relatedEntityId: providerUserId
+      });
+
+      createdCount += 1;
+    }
+
+    return { ok: true, createdCount };
   }
 }
 

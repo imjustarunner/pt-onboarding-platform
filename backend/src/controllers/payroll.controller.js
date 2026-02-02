@@ -4916,12 +4916,20 @@ export const createPayrollTodoTemplate = async (req, res, next) => {
     const scopeRaw = String(req.body?.scope || 'agency').trim().toLowerCase();
     const scope = scopeRaw === 'provider' ? 'provider' : 'agency';
     const targetUserId = req.body?.targetUserId ? parseIdLoose(req.body.targetUserId) : 0;
-    const startPayrollPeriodId = req.body?.startPayrollPeriodId ? parseIdLoose(req.body.startPayrollPeriodId) : 0;
+    const startPayrollPeriodIdRaw = (req.body?.startPayrollPeriodId === undefined) ? null : req.body.startPayrollPeriodId;
+    const startPayrollPeriodIdParsed = startPayrollPeriodIdRaw === null ? null : parseIdLoose(startPayrollPeriodIdRaw);
+    const startPayrollPeriodId = (startPayrollPeriodIdParsed && startPayrollPeriodIdParsed > 0) ? startPayrollPeriodIdParsed : null;
     const isActive = (req.body?.isActive === undefined || req.body?.isActive === null) ? 1 : (req.body.isActive ? 1 : 0);
 
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
     if (scope === 'provider' && !(targetUserId > 0)) {
       return res.status(400).json({ error: { message: 'targetUserId is required for provider-scoped templates' } });
+    }
+    if (startPayrollPeriodId) {
+      const startPeriod = await PayrollPeriod.findById(startPayrollPeriodId);
+      if (!startPeriod || Number(startPeriod.agency_id) !== Number(agencyId)) {
+        return res.status(400).json({ error: { message: 'startPayrollPeriodId must be a pay period that belongs to this agency' } });
+      }
     }
 
     const id = await PayrollTodoTemplate.create({
@@ -4930,7 +4938,7 @@ export const createPayrollTodoTemplate = async (req, res, next) => {
       description,
       scope,
       targetUserId: scope === 'provider' ? targetUserId : 0,
-      startPayrollPeriodId: startPayrollPeriodId || 0,
+      startPayrollPeriodId,
       createdByUserId: req.user.id,
       updatedByUserId: req.user.id
     });
@@ -4965,12 +4973,20 @@ export const patchPayrollTodoTemplate = async (req, res, next) => {
     const scopeRaw = String(req.body?.scope || 'agency').trim().toLowerCase();
     const scope = scopeRaw === 'provider' ? 'provider' : 'agency';
     const targetUserId = req.body?.targetUserId ? parseIdLoose(req.body.targetUserId) : 0;
-    const startPayrollPeriodId = req.body?.startPayrollPeriodId ? parseIdLoose(req.body.startPayrollPeriodId) : 0;
+    const startPayrollPeriodIdRaw = (req.body?.startPayrollPeriodId === undefined) ? null : req.body.startPayrollPeriodId;
+    const startPayrollPeriodIdParsed = startPayrollPeriodIdRaw === null ? null : parseIdLoose(startPayrollPeriodIdRaw);
+    const startPayrollPeriodId = (startPayrollPeriodIdParsed && startPayrollPeriodIdParsed > 0) ? startPayrollPeriodIdParsed : null;
     const isActive = (req.body?.isActive === undefined || req.body?.isActive === null) ? 1 : (req.body.isActive ? 1 : 0);
 
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
     if (scope === 'provider' && !(targetUserId > 0)) {
       return res.status(400).json({ error: { message: 'targetUserId is required for provider-scoped templates' } });
+    }
+    if (startPayrollPeriodId) {
+      const startPeriod = await PayrollPeriod.findById(startPayrollPeriodId);
+      if (!startPeriod || Number(startPeriod.agency_id) !== Number(agencyId)) {
+        return res.status(400).json({ error: { message: 'startPayrollPeriodId must be a pay period that belongs to this agency' } });
+      }
     }
 
     await PayrollTodoTemplate.update({
@@ -4980,7 +4996,7 @@ export const patchPayrollTodoTemplate = async (req, res, next) => {
       description,
       scope,
       targetUserId: scope === 'provider' ? targetUserId : 0,
-      startPayrollPeriodId: startPayrollPeriodId || 0,
+      startPayrollPeriodId,
       isActive,
       updatedByUserId: req.user.id
     });
@@ -6077,6 +6093,139 @@ export const previewPayrollCarryover = async (req, res, next) => {
       return { ...d, firstName: u?.first_name || null, lastName: u?.last_name || null };
     });
 
+    // Draft review (destination/current pay period): flag DRAFT rows that likely require manual confirmation
+    // when applying Process Changes (e.g. NO_NOTE -> DRAFT, or prior DRAFT not payable still DRAFT).
+    let draftReview = [];
+    try {
+      // Look back up to 2 prior pay periods for the same agency.
+      const curStart = String(period?.period_start || '').slice(0, 10);
+      if (curStart) {
+        const [prevPeriods] = await pool.execute(
+          `SELECT id, period_start, period_end
+           FROM payroll_periods
+           WHERE agency_id = ?
+             AND period_end < ?
+           ORDER BY period_end DESC
+           LIMIT 2`,
+          [period.agency_id, curStart]
+        );
+        const prevIds = (prevPeriods || []).map((p) => Number(p?.id || 0)).filter((x) => x > 0);
+
+        if (prevIds.length) {
+          const [curDraftRows] = await pool.execute(
+            `SELECT
+               id,
+               user_id,
+               provider_name,
+               patient_first_name,
+               service_code,
+               service_date,
+               note_status,
+               draft_payable,
+               unit_count,
+               row_fingerprint
+             FROM payroll_import_rows
+             WHERE payroll_period_id = ?
+               AND UPPER(note_status) = 'DRAFT'`,
+            [payrollPeriodId]
+          );
+
+          const fps = Array.from(new Set((curDraftRows || []).map((r) => String(r?.row_fingerprint || '').trim()).filter(Boolean)));
+          if (fps.length) {
+            const fpPlaceholders = fps.map(() => '?').join(',');
+            const prevPlaceholders = prevIds.map(() => '?').join(',');
+            const [prevRows] = await pool.execute(
+              `SELECT
+                 pir.row_fingerprint,
+                 pir.payroll_period_id,
+                 pir.note_status,
+                 pir.draft_payable,
+                 pp.period_start,
+                 pp.period_end
+               FROM payroll_import_rows pir
+               JOIN payroll_periods pp ON pp.id = pir.payroll_period_id
+               WHERE pir.row_fingerprint IN (${fpPlaceholders})
+                 AND pir.payroll_period_id IN (${prevPlaceholders})
+               ORDER BY pp.period_end DESC`,
+              [...fps, ...prevIds]
+            );
+
+            const prevByFp = new Map(); // fp -> [{ payrollPeriodId, periodStart, periodEnd, noteStatus, draftPayable }]
+            for (const pr of prevRows || []) {
+              const fp = String(pr?.row_fingerprint || '').trim();
+              if (!fp) continue;
+              if (!prevByFp.has(fp)) prevByFp.set(fp, []);
+              prevByFp.get(fp).push({
+                payrollPeriodId: Number(pr?.payroll_period_id || 0),
+                periodStart: String(pr?.period_start || '').slice(0, 10),
+                periodEnd: String(pr?.period_end || '').slice(0, 10),
+                noteStatus: String(pr?.note_status || '').trim().toUpperCase(),
+                draftPayable: Number(pr?.draft_payable || 0) ? 1 : 0
+              });
+            }
+
+            const clientHint = (row) => {
+              const raw = String(row?.patient_first_name || '').trim();
+              if (!raw) return '';
+              const firstToken = raw.split(/\s+/)[0] || '';
+              return String(firstToken || '').slice(0, 3).toUpperCase();
+            };
+
+            draftReview = (curDraftRows || [])
+              .map((r) => {
+                const fp = String(r?.row_fingerprint || '').trim();
+                if (!fp) return null;
+                const prior = prevByFp.get(fp) || [];
+                if (!prior.length) return null;
+
+                // Require confirmation when we see:
+                // - A prior NO_NOTE instance for this same fingerprint (NO_NOTE -> DRAFT pattern)
+                // - A prior DRAFT that was explicitly marked not payable (draft_payable=0), and it's still DRAFT now
+                const reasons = [];
+                for (const p of prior) {
+                  if (p.noteStatus === 'NO_NOTE') {
+                    if (!reasons.includes('prior_no_note')) reasons.push('prior_no_note');
+                  }
+                  if (p.noteStatus === 'DRAFT' && Number(p.draftPayable || 0) === 0) {
+                    if (!reasons.includes('prior_draft_unpaid')) reasons.push('prior_draft_unpaid');
+                  }
+                }
+                if (!reasons.length) return null;
+
+                return {
+                  rowId: Number(r?.id || 0),
+                  userId: Number(r?.user_id || 0),
+                  providerName: String(r?.provider_name || '').trim() || null,
+                  serviceCode: String(r?.service_code || '').trim() || null,
+                  serviceDate: String(r?.service_date || '').slice(0, 10) || null,
+                  unitCount: Number(r?.unit_count || 0),
+                  noteStatus: 'DRAFT',
+                  draftPayable: Number(r?.draft_payable || 0) ? 1 : 0,
+                  patientFirstName: String(r?.patient_first_name || '').trim() || null,
+                  clientHint: clientHint(r) || null,
+                  rowFingerprint: fp,
+                  reasons,
+                  prior
+                };
+              })
+              .filter(Boolean);
+
+            // Stable display order for the UI.
+            draftReview.sort((a, b) => {
+              const pn = String(a?.providerName || '').localeCompare(String(b?.providerName || ''));
+              if (pn) return pn;
+              const dos = String(a?.serviceDate || '').localeCompare(String(b?.serviceDate || ''));
+              if (dos) return dos;
+              return String(a?.serviceCode || '').localeCompare(String(b?.serviceCode || ''));
+            });
+          }
+        }
+      }
+    } catch {
+      // Best-effort; do not block carryover preview.
+      draftReview = [];
+    }
+
     // Persist the "prior still unpaid" snapshot for this CURRENT payroll period (red column in staging),
     // so it can be edited and reflected in pay output/pay stubs.
     try {
@@ -6107,7 +6256,8 @@ export const previewPayrollCarryover = async (req, res, next) => {
       baselineRunId: baselineId,
       compareRunId: compareId,
       deltas: out,
-      stillUnpaid: outStillUnpaid
+      stillUnpaid: outStillUnpaid,
+      draftReview
     });
   } catch (e) {
     next(e);
@@ -6812,6 +6962,16 @@ export const postPayrollPeriod = async (req, res, next) => {
       // Do not block posting payroll if notifications fail.
     }
 
+    // Best-effort: reminder to providers if notes still need attention in this posted period.
+    try {
+      await PayrollNotesAgingService.emitMissingNotesReminderOnPost({
+        agencyId: period.agency_id,
+        payrollPeriodId
+      });
+    } catch {
+      // Do not block posting payroll if notifications fail.
+    }
+
     // Best-effort: accrue PTO balances for this posted pay period.
     try {
       await runPtoAccrualForPostedPeriod({
@@ -6946,7 +7106,7 @@ export const unpostPayrollPeriod = async (req, res, next) => {
         `DELETE FROM notification_events
          WHERE agency_id = ?
            AND payroll_period_id = ?
-           AND trigger_key IN ('payroll_unpaid_notes_2_periods_old')`,
+           AND trigger_key IN ('payroll_unpaid_notes_2_periods_old', 'payroll_missing_notes_reminder')`,
         [agencyId, payrollPeriodId]
       );
       clearedNotificationEvents = Number(delEvtRes?.affectedRows || 0);

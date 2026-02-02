@@ -47,6 +47,8 @@ class Notification {
     'medcancel_claim_returned',
     // Payroll: documentation aging
     'payroll_unpaid_notes_2_periods_old',
+    // Payroll: reminder when period is posted and notes still need attention
+    'payroll_missing_notes_reminder',
     // Payroll: supervisor reminders (unsigned draft notes)
     'payroll_unsigned_draft_notes',
     // Payroll: Direct/Indirect ratio yellow or red (hourly workers)

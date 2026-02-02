@@ -19,7 +19,7 @@ class PayrollTodoTemplate {
     description = null,
     scope = 'agency',
     targetUserId = 0,
-    startPayrollPeriodId = 0,
+    startPayrollPeriodId = null,
     createdByUserId,
     updatedByUserId
   }) {
@@ -33,7 +33,7 @@ class PayrollTodoTemplate {
         description,
         scope,
         Number(targetUserId || 0),
-        Number(startPayrollPeriodId || 0),
+        startPayrollPeriodId ? Number(startPayrollPeriodId) : null,
         createdByUserId,
         updatedByUserId
       ]
@@ -48,7 +48,7 @@ class PayrollTodoTemplate {
     description = null,
     scope = 'agency',
     targetUserId = 0,
-    startPayrollPeriodId = 0,
+    startPayrollPeriodId = null,
     isActive = 1,
     updatedByUserId
   }) {
@@ -68,7 +68,7 @@ class PayrollTodoTemplate {
         description,
         scope,
         Number(targetUserId || 0),
-        Number(startPayrollPeriodId || 0),
+        startPayrollPeriodId ? Number(startPayrollPeriodId) : null,
         Number(isActive) ? 1 : 0,
         updatedByUserId,
         id,

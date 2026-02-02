@@ -3587,14 +3587,25 @@
               <table v-if="rawMode !== 'missed_appts_paid_in_full'" class="table">
                 <thead>
                   <tr>
-                    <th>Provider Name</th>
-                    <th>Service Code</th>
-                    <th>DOS</th>
+                    <th class="th-sortable" @click="toggleRawSort('provider_name')">
+                      Provider Name <span class="th-sort-indicator">{{ rawSortIndicator('provider_name') }}</span>
+                    </th>
+                    <th class="th-sortable" @click="toggleRawSort('client')">
+                      Client <span class="th-sort-indicator">{{ rawSortIndicator('client') }}</span>
+                    </th>
+                    <th class="th-sortable" @click="toggleRawSort('service_code')">
+                      Service Code <span class="th-sort-indicator">{{ rawSortIndicator('service_code') }}</span>
+                    </th>
+                    <th class="th-sortable" @click="toggleRawSort('service_date')">
+                      DOS <span class="th-sort-indicator">{{ rawSortIndicator('service_date') }}</span>
+                    </th>
                     <th class="right">
                       <span v-if="rawMode === 'draft_audit'">Units</span>
                       <span v-else>Minutes</span>
                     </th>
-                    <th>Note Status</th>
+                    <th class="th-sortable" @click="toggleRawSort('note_status')">
+                      Note Status <span class="th-sort-indicator">{{ rawSortIndicator('note_status') }}</span>
+                    </th>
                     <th v-if="rawMode === 'draft_audit'">Draft Payable?</th>
                     <th v-else>Status</th>
                   </tr>
@@ -3602,6 +3613,7 @@
                 <tbody>
                   <tr v-for="r in rawModeRowsLimited" :key="r.id">
                     <td>{{ r.provider_name }}</td>
+                    <td class="muted">{{ rawClientHint(r) || '—' }}</td>
                     <td>{{ r.service_code }}</td>
                     <td class="muted">{{ ymd(r.service_date) }}</td>
                     <td class="right">
@@ -3658,7 +3670,7 @@
                     </td>
                   </tr>
                   <tr v-if="!rawModeRows.length">
-                    <td colspan="6" class="muted">No rows found.</td>
+                    <td colspan="7" class="muted">No rows found.</td>
                   </tr>
                 </tbody>
               </table>
@@ -3688,17 +3700,28 @@
                 class="actions"
                 style="margin-top: 10px; justify-content: space-between; align-items: center;"
               >
-                <div class="hint" v-if="rawModeRows.length">
-                  Showing {{ Math.min(rawModeRows.length, rawRowLimit) }} of {{ rawModeRows.length }} rows.
+                <div style="display: flex; align-items: center; gap: 10px;" v-if="rawModeRows.length">
+                  <div class="hint">
+                    Showing {{ Math.min(rawModeRows.length, rawRowLimit) }} of {{ rawModeRows.length }} rows.
+                  </div>
+                  <label class="muted" style="display: inline-flex; align-items: center; gap: 6px;">
+                    Show
+                    <select v-model.number="rawRowLimit">
+                      <option :value="200">200</option>
+                      <option :value="500">500</option>
+                      <option :value="1000">1000</option>
+                      <option :value="rawModeRows.length">All</option>
+                    </select>
+                  </label>
                 </div>
-                <button
-                  v-if="rawModeRows.length > rawRowLimit"
-                  type="button"
-                  class="btn btn-secondary btn-sm"
-                  @click="showNextRawRows"
-                >
-                  Show next 200
-                </button>
+                <div class="actions" style="margin: 0;" v-if="rawModeRows.length > rawRowLimit">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="showNextRawRows">
+                    Show next 200
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" style="margin-left: 8px;" @click="rawRowLimit = rawModeRows.length">
+                    Show all
+                  </button>
+                </div>
               </div>
             </div>
             </div>
@@ -3770,6 +3793,82 @@
               </div>
               <div class="hint" style="margin-top: 6px;">
                 Next: open <strong>Payroll Stage</strong> and verify the destination staging rows (especially H0031/H0032) before running payroll.
+              </div>
+            </div>
+
+            <div v-if="!isPeriodPosted && (carryoverDraftReviewFiltered || []).length" class="card" style="margin-top: 10px;">
+              <h3 class="section-title" style="margin-top: 0;">Draft items needing confirmation</h3>
+              <div class="hint">
+                These are <strong>DRAFT</strong> rows in the <strong>current</strong> pay period that match a prior <strong>NO_NOTE</strong> or a prior <strong>DRAFT not payable</strong>.
+                Confirm whether each draft should be payable. Finalized rows are not shown here.
+              </div>
+
+              <div class="field-row" style="grid-template-columns: 1fr auto; align-items: end; margin-top: 10px;">
+                <div class="field">
+                  <label>Search</label>
+                  <input v-model="carryoverDraftReviewSearch" type="text" placeholder="Search provider / code / DOS / client…" />
+                </div>
+                <div class="hint muted">Showing {{ carryoverDraftReviewFiltered.length }} row(s)</div>
+              </div>
+
+              <div class="table-wrap" style="margin-top: 10px;">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th style="width: 90px;">Client</th>
+                      <th style="width: 110px;">Code</th>
+                      <th style="width: 120px;">DOS</th>
+                      <th class="right" style="width: 110px;">Units</th>
+                      <th style="width: 170px;">Current draft payable?</th>
+                      <th>Why flagged</th>
+                      <th style="width: 210px;">Prior</th>
+                      <th style="width: 240px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in carryoverDraftReviewFiltered" :key="r.rowId">
+                      <td>{{ r.providerName || '—' }}</td>
+                      <td class="muted">{{ r.clientHint || '—' }}</td>
+                      <td>{{ r.serviceCode || '—' }}</td>
+                      <td class="muted">{{ r.serviceDate || '—' }}</td>
+                      <td class="right">{{ fmtNum(Number(r.unitCount || 0)) }}</td>
+                      <td>
+                        <span v-if="Number(r.draftPayable) === 1">Payable</span>
+                        <span v-else class="muted">Not payable</span>
+                      </td>
+                      <td>
+                        <div v-for="(c, idx) in (r.reasons || [])" :key="`${r.rowId}:reason:${idx}`" class="muted">
+                          - {{ carryoverDraftReasonLabel(c) }}
+                        </div>
+                      </td>
+                      <td class="muted">
+                        <div v-for="(p, idx) in (r.prior || []).slice(0, 2)" :key="`${r.rowId}:prior:${idx}`">
+                          {{ p.periodStart }}→{{ p.periodEnd }} • {{ p.noteStatus }}{{ p.noteStatus === 'DRAFT' ? (p.draftPayable ? ' (payable)' : ' (not payable)') : '' }}
+                        </div>
+                      </td>
+                      <td class="right">
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          type="button"
+                          @click="setDraftPayableByRowId(r.rowId, true)"
+                          :disabled="updatingDraftPayable || updatingCarryoverDraftRowId === r.rowId"
+                        >
+                          Mark payable
+                        </button>
+                        <button
+                          class="btn btn-secondary btn-sm"
+                          type="button"
+                          style="margin-left: 8px;"
+                          @click="setDraftPayableByRowId(r.rowId, false)"
+                          :disabled="updatingDraftPayable || updatingCarryoverDraftRowId === r.rowId"
+                        >
+                          Mark not payable
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
             <div v-if="carryoverLoading" class="muted">Computing differences...</div>
@@ -4675,6 +4774,8 @@ const missedAppointmentsPaidInFull = ref([]); // display-only flags from billing
 const rawDraftSearch = ref('');
 const rawDraftOnly = ref(true);
 const rawRowLimit = ref(200);
+const rawSortColumn = ref('service_date'); // provider_name | client | service_code | service_date | unit_count | note_status | draft_payable
+const rawSortDirection = ref('desc'); // asc | desc
 const rawProcessChecklistByRowId = ref({}); // UI-only checklist (not saved anywhere)
 const rawPostedProcessingUnlocked = ref(false);
 const updatingDraftPayable = ref(false);
@@ -4781,6 +4882,9 @@ const carryoverCompareRunId = ref(null);
 const carryoverLoading = ref(false);
 const carryoverError = ref('');
 const carryoverPreview = ref([]);
+const carryoverDraftReview = ref([]); // destination/current period DRAFT rows that likely need draft-pay confirmation
+const carryoverDraftReviewSearch = ref('');
+const updatingCarryoverDraftRowId = ref(null);
 const carryoverPriorStillUnpaid = ref([]); // rows in the prior period that are STILL unpaid after the comparison run
 const carryoverPriorStillUnpaidMeta = ref(null); // { priorPeriodId, baselineRunId, compareRunId }
 const loadingPriorStillUnpaidForStage = ref(false);
@@ -5226,7 +5330,8 @@ const saveEditTodoTemplate = async () => {
   const description = String(editTodoTemplateDraft.value?.description || '').trim();
   const scope = String(editTodoTemplateDraft.value?.scope || 'agency') === 'provider' ? 'provider' : 'agency';
   const targetUserId = Number(editTodoTemplateDraft.value?.targetUserId || 0);
-  const startPayrollPeriodId = Number(editTodoTemplateDraft.value?.startPayrollPeriodId || 0);
+  const startPayrollPeriodIdRaw = editTodoTemplateDraft.value?.startPayrollPeriodId;
+  const startPayrollPeriodId = startPayrollPeriodIdRaw ? Number(startPayrollPeriodIdRaw) : null;
   const isActive = !!editTodoTemplateDraft.value?.isActive;
   if (!title) return;
   if (scope === 'provider' && !(targetUserId > 0)) return;
@@ -5239,7 +5344,7 @@ const saveEditTodoTemplate = async () => {
       description: description || null,
       scope,
       targetUserId: scope === 'provider' ? targetUserId : 0,
-      startPayrollPeriodId: startPayrollPeriodId || 0,
+      startPayrollPeriodId: startPayrollPeriodId || null,
       isActive
     });
     await loadTodoTemplates();
@@ -5298,7 +5403,8 @@ const createTodoTemplate = async () => {
   const description = String(templateDraft.value?.description || '').trim();
   const scope = String(templateDraft.value?.scope || 'agency') === 'provider' ? 'provider' : 'agency';
   const targetUserId = Number(templateDraft.value?.targetUserId || 0);
-  const startPayrollPeriodId = Number(templateDraft.value?.startPayrollPeriodId || 0);
+  const startPayrollPeriodIdRaw = templateDraft.value?.startPayrollPeriodId;
+  const startPayrollPeriodId = startPayrollPeriodIdRaw ? Number(startPayrollPeriodIdRaw) : null;
   const isActive = templateDraft.value?.isActive ? true : false;
   if (!title) return;
   if (scope === 'provider' && !(targetUserId > 0)) return;
@@ -5311,7 +5417,7 @@ const createTodoTemplate = async () => {
       description: description || null,
       scope,
       targetUserId: scope === 'provider' ? targetUserId : 0,
-      startPayrollPeriodId: startPayrollPeriodId || 0,
+      startPayrollPeriodId: startPayrollPeriodId || null,
       isActive
     });
     templateDraft.value = { scope: 'agency', targetUserId: null, startPayrollPeriodId: null, title: '', description: '', isActive: true };
@@ -7722,6 +7828,32 @@ const showNextRawRows = () => {
   rawRowLimit.value = Number(rawRowLimit.value || 0) + 200;
 };
 
+const rawClientHint = (r) => {
+  const raw = String(r?.patient_first_name || '').trim();
+  if (!raw) return '';
+  const firstToken = raw.split(/\s+/)[0] || '';
+  return String(firstToken || '').slice(0, 3).toUpperCase();
+};
+
+const toggleRawSort = (column) => {
+  const col = String(column || '').trim();
+  if (!col) return;
+  if (rawSortColumn.value === col) {
+    rawSortDirection.value = rawSortDirection.value === 'asc' ? 'desc' : 'asc';
+    return;
+  }
+  rawSortColumn.value = col;
+  // Default direction: numbers/dates descend, strings ascend.
+  if (col === 'service_date' || col === 'unit_count' || col === 'draft_payable') rawSortDirection.value = 'desc';
+  else rawSortDirection.value = 'asc';
+};
+
+const rawSortIndicator = (column) => {
+  const col = String(column || '').trim();
+  if (!col || rawSortColumn.value !== col) return '';
+  return rawSortDirection.value === 'asc' ? '↑' : '↓';
+};
+
 const setRawProcessChecked = (rowId, checked) => {
   const id = Number(rowId || 0);
   if (!Number.isFinite(id) || id <= 0) return;
@@ -7784,7 +7916,25 @@ const rawModeRows = computed(() => {
       const rb = processedRank(b);
       if (ra !== rb) return ra - rb;
     }
-    return String(b.service_date || '').localeCompare(String(a.service_date || ''));
+    const dir = rawSortDirection.value === 'asc' ? 1 : -1;
+    const col = String(rawSortColumn.value || 'service_date');
+    const s = (v) => String(v || '').trim().toLowerCase();
+    const dateStr = (v) => String(v || '').slice(0, 10); // YYYY-MM-DD
+
+    let cmp = 0;
+    if (col === 'provider_name') cmp = s(a?.provider_name).localeCompare(s(b?.provider_name));
+    else if (col === 'client') cmp = s(rawClientHint(a)).localeCompare(s(rawClientHint(b)));
+    else if (col === 'service_code') cmp = s(a?.service_code).localeCompare(s(b?.service_code));
+    else if (col === 'note_status') cmp = s(a?.note_status).localeCompare(s(b?.note_status));
+    else if (col === 'unit_count') cmp = (Number(a?.unit_count || 0) - Number(b?.unit_count || 0));
+    else if (col === 'draft_payable') cmp = (Number(a?.draft_payable || 0) - Number(b?.draft_payable || 0));
+    else cmp = dateStr(a?.service_date).localeCompare(dateStr(b?.service_date));
+
+    if (cmp) return cmp * dir;
+    // Tie-breaker: most recent DOS first, then provider name.
+    const dos = dateStr(b?.service_date).localeCompare(dateStr(a?.service_date));
+    if (dos) return dos;
+    return s(a?.provider_name).localeCompare(s(b?.provider_name));
   });
   return rows;
 });
@@ -7800,18 +7950,50 @@ const missedAppointmentsPaidInFullRows = computed(() => {
   return rows;
 });
 
-const toggleDraftPayable = async (row, nextVal) => {
-  if (!row?.id) return;
+const carryoverDraftReviewFiltered = computed(() => {
+  const all = Array.isArray(carryoverDraftReview.value) ? carryoverDraftReview.value : [];
+  const q = String(carryoverDraftReviewSearch.value || '').trim().toLowerCase();
+  if (!q) return all;
+  return all.filter((r) => {
+    const prov = String(r?.providerName || '').toLowerCase();
+    const code = String(r?.serviceCode || '').toLowerCase();
+    const dos = String(r?.serviceDate || '').toLowerCase();
+    const client = String(r?.clientHint || '').toLowerCase();
+    return prov.includes(q) || code.includes(q) || dos.includes(q) || client.includes(q);
+  });
+});
+
+const carryoverDraftReasonLabel = (code) => {
+  const c = String(code || '').trim().toLowerCase();
+  if (c === 'prior_no_note') return 'Was NO_NOTE in a prior pay period';
+  if (c === 'prior_draft_unpaid') return 'Was DRAFT not payable in a prior pay period';
+  return String(code || '');
+};
+
+const setDraftPayableByRowId = async (rowId, nextVal) => {
+  const id = Number(rowId || 0);
+  if (!Number.isFinite(id) || id <= 0) return;
   if (isPeriodPosted.value) return;
   try {
     updatingDraftPayable.value = true;
+    updatingCarryoverDraftRowId.value = id;
     rawDraftError.value = '';
-    const resp = await api.patch(`/payroll/import-rows/${row.id}`, { draftPayable: !!nextVal });
-    // Update local row state
-    const idx = (rawImportRows.value || []).findIndex((r) => r.id === row.id);
+    carryoverError.value = '';
+
+    const resp = await api.patch(`/payroll/import-rows/${id}`, { draftPayable: !!nextVal });
+
+    // Update local raw row state
+    const idx = (rawImportRows.value || []).findIndex((r) => Number(r?.id) === id);
     if (idx >= 0) {
       rawImportRows.value[idx] = { ...rawImportRows.value[idx], draft_payable: nextVal ? 1 : 0 };
     }
+
+    // Update local carryover draft review state
+    const didx = (carryoverDraftReview.value || []).findIndex((r) => Number(r?.rowId) === id);
+    if (didx >= 0) {
+      carryoverDraftReview.value[didx] = { ...carryoverDraftReview.value[didx], draftPayable: nextVal ? 1 : 0 };
+    }
+
     // If period already ran, backend can return refreshed summaries.
     if (resp?.data?.period) selectedPeriod.value = resp.data.period;
     if (Array.isArray(resp?.data?.summaries)) {
@@ -7829,10 +8011,18 @@ const toggleDraftPayable = async (row, nextVal) => {
     }
     await loadStaging();
   } catch (e) {
-    rawDraftError.value = e.response?.data?.error?.message || e.message || 'Failed to update draft payable';
+    const msg = e.response?.data?.error?.message || e.message || 'Failed to update draft payable';
+    rawDraftError.value = msg;
+    carryoverError.value = msg;
   } finally {
+    updatingCarryoverDraftRowId.value = null;
     updatingDraftPayable.value = false;
   }
+};
+
+const toggleDraftPayable = async (row, nextVal) => {
+  if (!row?.id) return;
+  await setDraftPayableByRowId(row.id, nextVal);
 };
 
 const updateRawMinutes = async (row, nextValRaw) => {
@@ -8566,6 +8756,7 @@ const loadCarryoverPreview = async () => {
   try {
     carryoverLoading.value = true;
     carryoverError.value = '';
+    carryoverDraftReview.value = [];
     const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/carryover/preview`, {
       params: {
         priorPeriodId: carryoverPriorPeriodId.value,
@@ -8579,6 +8770,7 @@ const loadCarryoverPreview = async () => {
       firstName: d.firstName,
       lastName: d.lastName
     }));
+    carryoverDraftReview.value = Array.isArray(resp.data?.draftReview) ? resp.data.draftReview : [];
 
     // Track rows that are STILL unpaid in the prior period after the selected comparison run.
     // Backend provides this explicitly because `deltas` only includes rows where finalized increased.
@@ -8624,6 +8816,8 @@ watch(carryoverPriorPeriodId, async () => {
     carryoverLoading.value = true;
     carryoverError.value = '';
     carryoverPreview.value = [];
+    carryoverDraftReview.value = [];
+    carryoverDraftReviewSearch.value = '';
     carryoverPriorStillUnpaid.value = [];
     carryoverPriorStillUnpaidMeta.value = null;
     await loadCarryoverRuns();
@@ -9726,6 +9920,15 @@ const processRunAndCompare = async () => {
 </script>
 
 <style scoped>
+.th-sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.th-sort-indicator {
+  margin-left: 6px;
+  opacity: 0.7;
+  font-size: 12px;
+}
 .grid {
   display: grid;
   grid-template-columns: 1fr 2fr;
