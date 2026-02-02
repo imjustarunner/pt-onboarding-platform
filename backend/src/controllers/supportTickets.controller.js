@@ -5,6 +5,50 @@ import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js'
 import AgencySchool from '../models/AgencySchool.model.js';
 import Notification from '../models/Notification.model.js';
 
+async function hasSupportTicketMessagesTable() {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_ticket_messages'"
+    );
+    return Number(rows?.[0]?.cnt || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function maybeGenerateGeminiSummary({ question, answer }) {
+  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
+  if (!apiKey) return null;
+  let GoogleGenerativeAI;
+  try {
+    ({ GoogleGenerativeAI } = await import('@google/generative-ai'));
+  } catch {
+    return null;
+  }
+
+  const modelName = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: modelName });
+  const prompt = [
+    'Summarize this question and answer in 1-3 sentences.',
+    'Do NOT include any client identifiers, initials, or PHI.',
+    '',
+    'Question:',
+    String(question || '').trim(),
+    '',
+    'Answer:',
+    String(answer || '').trim()
+  ].join('\n');
+  try {
+    const result = await model.generateContent(prompt);
+    const text = result?.response?.text?.() || '';
+    const cleaned = String(text || '').trim();
+    return cleaned ? cleaned.slice(0, 900) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveActiveAgencyIdForOrg(orgId) {
   return (
     (await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId)) ||
@@ -36,6 +80,52 @@ async function ensureOrgAccess(req, schoolOrganizationId) {
   }
 
   return { ok: true, org, schoolOrganizationId: sid };
+}
+
+async function ensureClientInOrg({ clientId, schoolOrganizationId }) {
+  const cid = parseInt(clientId, 10);
+  const sid = parseInt(schoolOrganizationId, 10);
+  if (!cid) return { ok: false, status: 400, message: 'Invalid clientId' };
+  if (!sid) return { ok: false, status: 400, message: 'Invalid schoolOrganizationId' };
+
+  const [cRows] = await pool.execute(
+    `SELECT id, organization_id, status
+     FROM clients
+     WHERE id = ?
+     LIMIT 1`,
+    [cid]
+  );
+  const c = cRows?.[0] || null;
+  if (!c) return { ok: false, status: 404, message: 'Client not found' };
+  if (String(c.status || '').toUpperCase() === 'ARCHIVED') {
+    return { ok: false, status: 409, message: 'Client is archived' };
+  }
+
+  // Prefer multi-org assignment table if present; fall back to legacy clients.organization_id.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_organization_assignments
+       WHERE client_id = ?
+         AND organization_id = ?
+         AND is_active = TRUE
+       LIMIT 1`,
+      [cid, sid]
+    );
+    if (rows?.[0]) return { ok: true, clientId: cid };
+    return { ok: false, status: 403, message: 'Client is not assigned to this organization' };
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+    // Legacy fallback
+    if (parseInt(c.organization_id, 10) === sid) return { ok: true, clientId: cid };
+    return { ok: false, status: 403, message: 'Client is not assigned to this organization' };
+  }
 }
 
 const isAgencyAdminUser = (req) => {
@@ -145,6 +235,8 @@ export const createSupportTicket = async (req, res, next) => {
   try {
     const schoolOrganizationId = parseInt(req.body?.schoolOrganizationId, 10);
     const subject = req.body?.subject ? String(req.body.subject).trim().slice(0, 255) : null;
+    const clientIdRaw = req.body?.clientId ?? null;
+    const clientId = clientIdRaw !== null && clientIdRaw !== undefined ? parseInt(clientIdRaw, 10) : null;
     const question = String(req.body?.question || '').trim();
     if (!schoolOrganizationId || !question) {
       return res.status(400).json({ error: { message: 'schoolOrganizationId and question are required' } });
@@ -155,7 +247,14 @@ export const createSupportTicket = async (req, res, next) => {
 
     // School Portal: allow school_staff and providers to create tickets to admin/staff/support.
     const role = String(req.user?.role || '').toLowerCase();
-    if (role !== 'school_staff' && role !== 'provider') {
+    if (clientId) {
+      // Client-scoped tickets: school staff only (per product decision).
+      if (role !== 'school_staff') {
+        return res.status(403).json({ error: { message: 'Only school staff can submit client tickets' } });
+      }
+      const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
+      if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
+    } else if (role !== 'school_staff' && role !== 'provider') {
       return res.status(403).json({ error: { message: 'Only school staff and providers can submit support tickets here' } });
     }
 
@@ -163,13 +262,26 @@ export const createSupportTicket = async (req, res, next) => {
 
     const [result] = await pool.execute(
       `INSERT INTO support_tickets
-        (school_organization_id, created_by_user_id, agency_id, subject, question, status)
-       VALUES (?, ?, ?, ?, ?, 'open')`,
-      [schoolOrganizationId, req.user.id, agencyId ? parseInt(agencyId, 10) : null, subject, question]
+        (school_organization_id, client_id, created_by_user_id, agency_id, subject, question, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'open')`,
+      [schoolOrganizationId, clientId || null, req.user.id, agencyId ? parseInt(agencyId, 10) : null, subject, question]
     );
 
     const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [result.insertId]);
     const created = rows?.[0] || null;
+
+    // Best-effort: persist the initial question as a message row when the table exists.
+    try {
+      if (created?.id && (await hasSupportTicketMessagesTable())) {
+        await pool.execute(
+          `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
+           VALUES (?, NULL, ?, ?, ?)`,
+          [created.id, req.user.id, String(req.user?.role || ''), question]
+        );
+      }
+    } catch {
+      // best-effort; do not block creation
+    }
 
     // Create an in-app notification for agency admins/staff/CPAs if configured.
     // This powers the ticketing notifications card in the admin notifications UI.
@@ -226,6 +338,160 @@ export const createSupportTicket = async (req, res, next) => {
     }
 
     res.status(201).json(created);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getClientSupportTicketThread = async (req, res, next) => {
+  try {
+    const schoolOrganizationId = parseInt(req.query?.schoolOrganizationId, 10);
+    const clientId = parseInt(req.query?.clientId, 10);
+    if (!schoolOrganizationId || !clientId) {
+      return res.status(400).json({ error: { message: 'schoolOrganizationId and clientId are required' } });
+    }
+
+    const access = await ensureOrgAccess(req, schoolOrganizationId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    // Only allow school staff + agency admin/support/staff to view client threads.
+    const role = String(req.user?.role || '').toLowerCase();
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
+    if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
+
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM support_tickets
+       WHERE school_organization_id = ?
+         AND client_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [schoolOrganizationId, clientId]
+    );
+    const ticket = rows?.[0] || null;
+
+    let messages = [];
+    if (ticket?.id && (await hasSupportTicketMessagesTable())) {
+      const [mRows] = await pool.execute(
+        `SELECT m.*,
+                u.first_name AS author_first_name,
+                u.last_name AS author_last_name
+         FROM support_ticket_messages m
+         LEFT JOIN users u ON u.id = m.author_user_id
+         WHERE m.ticket_id = ?
+         ORDER BY m.created_at ASC, m.id ASC`,
+        [ticket.id]
+      );
+      messages = Array.isArray(mRows) ? mRows : [];
+    }
+
+    res.json({ ticket, messages });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listSupportTicketMessages = async (req, res, next) => {
+  try {
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = rows?.[0] || null;
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    if (!(await hasSupportTicketMessagesTable())) {
+      return res.json({ ticket, messages: [] });
+    }
+
+    const [mRows] = await pool.execute(
+      `SELECT m.*,
+              u.first_name AS author_first_name,
+              u.last_name AS author_last_name
+       FROM support_ticket_messages m
+       LEFT JOIN users u ON u.id = m.author_user_id
+       WHERE m.ticket_id = ?
+       ORDER BY m.created_at ASC, m.id ASC`,
+      [ticketId]
+    );
+    res.json({ ticket, messages: Array.isArray(mRows) ? mRows : [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createSupportTicketMessage = async (req, res, next) => {
+  try {
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const body = String(req.body?.body || '').trim();
+    const parentMessageIdRaw = req.body?.parentMessageId ?? null;
+    const parentMessageId =
+      parentMessageIdRaw === null || parentMessageIdRaw === undefined || String(parentMessageIdRaw).trim() === ''
+        ? null
+        : parseInt(parentMessageIdRaw, 10);
+    if (!body) return res.status(400).json({ error: { message: 'body is required' } });
+
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = rows?.[0] || null;
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    if (!(await hasSupportTicketMessagesTable())) {
+      return res.status(409).json({ error: { message: 'Ticket messages are not enabled (missing migration)' } });
+    }
+
+    const role = String(req.user?.role || '').toLowerCase();
+
+    // Client-scoped tickets: allow school_staff and agency admin/support/staff to post.
+    if (ticket.client_id) {
+      const canPost = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+      if (!canPost) return res.status(403).json({ error: { message: 'Access denied' } });
+      // Validate client still belongs to org (avoids cross-org leakage)
+      const okClient = await ensureClientInOrg({ clientId: ticket.client_id, schoolOrganizationId: ticket.school_organization_id });
+      if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
+    }
+
+    // Parent pointer is best-effort; if invalid, treat as top-level.
+    let parentId = null;
+    if (parentMessageId && Number.isFinite(parentMessageId) && parentMessageId > 0) {
+      try {
+        const [pRows] = await pool.execute(
+          `SELECT id FROM support_ticket_messages WHERE id = ? AND ticket_id = ? LIMIT 1`,
+          [parentMessageId, ticketId]
+        );
+        if (pRows?.[0]?.id) parentId = parentMessageId;
+      } catch {
+        parentId = null;
+      }
+    }
+
+    await pool.execute(
+      `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
+       VALUES (?, ?, ?, ?, ?)`,
+      [ticketId, parentId, req.user.id, String(req.user?.role || ''), body]
+    );
+
+    // If a school staff member responds on a closed ticket, reopen it.
+    if (role === 'school_staff' && String(ticket.status || '').toLowerCase() === 'closed') {
+      try {
+        await pool.execute(`UPDATE support_tickets SET status = 'open' WHERE id = ?`, [ticketId]);
+      } catch {
+        // ignore
+      }
+    }
+
+    // Return updated thread
+    return await listSupportTicketMessages(req, res, next);
   } catch (e) {
     next(e);
   }
@@ -289,6 +555,31 @@ export const answerSupportTicket = async (req, res, next) => {
        WHERE id = ?`,
       [answer, status, req.user.id, ticketId]
     );
+
+    // Best-effort: store an AI summary when closing.
+    if (status === 'closed') {
+      try {
+        const summary = await maybeGenerateGeminiSummary({ question: ticket?.question || '', answer });
+        if (summary) {
+          await pool.execute(`UPDATE support_tickets SET ai_summary = ? WHERE id = ?`, [summary, ticketId]);
+        }
+      } catch {
+        // ignore; best-effort only
+      }
+    }
+
+    // Best-effort: also append the answer as a message in the thread (when enabled).
+    try {
+      if (await hasSupportTicketMessagesTable()) {
+        await pool.execute(
+          `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
+           VALUES (?, NULL, ?, ?, ?)`,
+          [ticketId, req.user.id, String(req.user?.role || ''), answer]
+        );
+      }
+    } catch {
+      // best-effort only
+    }
 
     const [rows2] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
     res.json(rows2?.[0] || null);
