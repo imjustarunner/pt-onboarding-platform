@@ -50,6 +50,7 @@ import StorageService from '../services/storage.service.js';
 import { GoogleDriveService } from '../services/googleDrive.service.js';
 import { accruePrelicensedSupervisionFromPayroll } from '../services/supervision.service.js';
 import { getUserCompensationForAgency } from '../models/PayrollCompensation.service.js';
+import { getAgencyMedcancelPolicy, upsertAgencyMedcancelPolicy } from '../services/payrollMedcancelPolicy.service.js';
 import { payrollDefaultsForCode } from '../services/payrollServiceCodeDefaults.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import { getDrivingDistanceMeters, metersToMiles } from '../services/googleDistance.service.js';
@@ -4860,9 +4861,19 @@ export const listPayrollTodoTemplates = async (req, res, next) => {
   }
 };
 
+function parseIdLoose(v) {
+  // Accept numbers/strings (e.g. "12") and also objects (e.g. { id: 12 }) from older clients.
+  let raw = v;
+  if (raw && typeof raw === 'object' && raw.id !== undefined && raw.id !== null) raw = raw.id;
+  const n = raw === 0 || raw === '0' ? 0 : parseInt(raw, 10);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+
 export const createPayrollTodoTemplate = async (req, res, next) => {
   try {
-    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : null;
+    const agencyIdRaw = req.body?.agencyId ?? req.query?.agencyId ?? null;
+    const agencyId = parseIdLoose(agencyIdRaw);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await requirePayrollAccess(req, res, agencyId))) return;
 
@@ -4870,8 +4881,8 @@ export const createPayrollTodoTemplate = async (req, res, next) => {
     const description = req.body?.description === null || req.body?.description === undefined ? null : String(req.body.description);
     const scopeRaw = String(req.body?.scope || 'agency').trim().toLowerCase();
     const scope = scopeRaw === 'provider' ? 'provider' : 'agency';
-    const targetUserId = req.body?.targetUserId ? parseInt(req.body.targetUserId, 10) : 0;
-    const startPayrollPeriodId = req.body?.startPayrollPeriodId ? parseInt(req.body.startPayrollPeriodId, 10) : 0;
+    const targetUserId = req.body?.targetUserId ? parseIdLoose(req.body.targetUserId) : 0;
+    const startPayrollPeriodId = req.body?.startPayrollPeriodId ? parseIdLoose(req.body.startPayrollPeriodId) : 0;
     const isActive = (req.body?.isActive === undefined || req.body?.isActive === null) ? 1 : (req.body.isActive ? 1 : 0);
 
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
@@ -4910,7 +4921,8 @@ export const patchPayrollTodoTemplate = async (req, res, next) => {
   try {
     const id = parseInt(req.params.templateId, 10);
     if (!id) return res.status(400).json({ error: { message: 'templateId is required' } });
-    const agencyId = req.body?.agencyId ? parseInt(req.body.agencyId, 10) : (req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null);
+    const agencyIdRaw = req.body?.agencyId ?? req.query?.agencyId ?? null;
+    const agencyId = parseIdLoose(agencyIdRaw);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await requirePayrollAccess(req, res, agencyId))) return;
 
@@ -4918,8 +4930,8 @@ export const patchPayrollTodoTemplate = async (req, res, next) => {
     const description = req.body?.description === null || req.body?.description === undefined ? null : String(req.body.description);
     const scopeRaw = String(req.body?.scope || 'agency').trim().toLowerCase();
     const scope = scopeRaw === 'provider' ? 'provider' : 'agency';
-    const targetUserId = req.body?.targetUserId ? parseInt(req.body.targetUserId, 10) : 0;
-    const startPayrollPeriodId = req.body?.startPayrollPeriodId ? parseInt(req.body.startPayrollPeriodId, 10) : 0;
+    const targetUserId = req.body?.targetUserId ? parseIdLoose(req.body.targetUserId) : 0;
+    const startPayrollPeriodId = req.body?.startPayrollPeriodId ? parseIdLoose(req.body.startPayrollPeriodId) : 0;
     const isActive = (req.body?.isActive === undefined || req.body?.isActive === null) ? 1 : (req.body.isActive ? 1 : 0);
 
     if (!title) return res.status(400).json({ error: { message: 'title is required' } });
@@ -7718,6 +7730,37 @@ export const listMyAssignedSchoolsForPayroll = async (req, res, next) => {
          AND psa.is_active = TRUE
        ORDER BY s.name ASC`,
       [agencyId, req.user.id]
+    );
+
+    res.json(schools || []);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listUserAssignedSchoolsForPayroll = async (req, res, next) => {
+  try {
+    const targetUserId = req.params.userId ? parseInt(req.params.userId, 10) : null;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!targetUserId) return res.status(400).json({ error: { message: 'userId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    if (!(await requireTargetUserInAgency({ res, agencyId, targetUserId }))) return;
+
+    const [schools] = await pool.execute(
+      `SELECT DISTINCT
+              psa.school_organization_id AS schoolOrganizationId,
+              s.name AS name
+       FROM provider_school_assignments psa
+       JOIN agencies s ON s.id = psa.school_organization_id
+       JOIN organization_affiliations oa
+         ON oa.organization_id = psa.school_organization_id
+        AND oa.agency_id = ?
+        AND oa.is_active = TRUE
+       WHERE psa.provider_user_id = ?
+         AND psa.is_active = TRUE
+       ORDER BY s.name ASC`,
+      [agencyId, targetUserId]
     );
 
     res.json(schools || []);
@@ -10529,6 +10572,60 @@ export const listMedcancelClaims = async (req, res, next) => {
   }
 };
 
+export const getMedcancelPolicy = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const inSchoolEnabled = await isAgencyFeatureEnabled(agencyId, 'inSchoolSubmissionsEnabled', true);
+    const medcancelEnabledForAgency = inSchoolEnabled && (await isAgencyFeatureEnabled(agencyId, 'medcancelEnabled', true));
+    const out = await getAgencyMedcancelPolicy({ agencyId });
+    res.json({ ok: true, agencyId, enabled: medcancelEnabledForAgency, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const putMedcancelPolicy = async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const agencyId = body.agencyId ? parseInt(body.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    const policy = body.policy && typeof body.policy === 'object' ? body.policy : {};
+    const out = await upsertAgencyMedcancelPolicy({ agencyId, policy });
+    const inSchoolEnabled = await isAgencyFeatureEnabled(agencyId, 'inSchoolSubmissionsEnabled', true);
+    const medcancelEnabledForAgency = inSchoolEnabled && (await isAgencyFeatureEnabled(agencyId, 'medcancelEnabled', true));
+    res.json({ ok: true, agencyId, enabled: medcancelEnabledForAgency, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getMyMedcancelPolicy = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    // Ensure membership for non-admins.
+    if (!isAdminRole(req.user.role)) {
+      const ok = await userHasAgencyAccess({ userId, agencyId });
+      if (!ok) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    }
+
+    const inSchoolEnabled = await isAgencyFeatureEnabled(agencyId, 'inSchoolSubmissionsEnabled', true);
+    const medcancelEnabledForAgency = inSchoolEnabled && (await isAgencyFeatureEnabled(agencyId, 'medcancelEnabled', true));
+    const out = await getAgencyMedcancelPolicy({ agencyId });
+    res.json({ ok: true, agencyId, enabled: medcancelEnabledForAgency, ...out });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const patchMedcancelClaim = async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -10569,24 +10666,27 @@ export const patchMedcancelClaim = async (req, res, next) => {
         return res.status(409).json({ error: { message: 'Med Cancel rate schedule is not configured for this provider' } });
       }
 
-      const baseRates =
-        schedule === 'high'
-          ? { '90832': 10, '90834': 15, '90837': 20 }
-          : { '90832': 5, '90834': 7.5, '90837': 10 };
+      const { policy } = await getAgencyMedcancelPolicy({ agencyId: claim.agency_id });
+      const scheduleRatesRaw = (policy?.schedules && typeof policy.schedules === 'object')
+        ? (schedule === 'high' ? policy.schedules.high : policy.schedules.low)
+        : null;
+      const scheduleRates = scheduleRatesRaw && typeof scheduleRatesRaw === 'object' ? scheduleRatesRaw : {};
 
       let appliedAmount = 0;
       for (const it of items) {
         const code = String(it.missed_service_code || '').trim();
-        const base = Number(baseRates[code] || 0);
+        const base = Number(scheduleRates[code] || 0);
         if (!(base > 0)) {
-          return res.status(409).json({ error: { message: `Unsupported missed service code: ${code}` } });
+          return res.status(409).json({
+            error: { message: `Unsupported missed service code (no configured rate for schedule "${schedule}"): ${code}` }
+          });
         }
         appliedAmount += base;
       }
       appliedAmount = Math.round(appliedAmount * 100) / 100;
       const units = items.length;
       const rateAmount = units > 0 ? Math.round(((appliedAmount / units) * 10000)) / 10000 : 0;
-      const serviceCode = 'MEDCANCEL';
+      const serviceCode = String(policy?.serviceCode || 'MEDCANCEL').trim().toUpperCase() || 'MEDCANCEL';
       const updated = await PayrollMedcancelClaim.approve({
         id,
         approverUserId: req.user.id,

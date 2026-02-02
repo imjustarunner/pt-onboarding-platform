@@ -1869,6 +1869,92 @@
           <!-- Payroll Tab (agency-only) -->
           <div v-show="activeTab === 'payroll'" class="tab-content">
             <div class="settings-section-divider">
+              <h4>Med Cancel (Payroll)</h4>
+              <p class="section-description">
+                Configure the pay service code and per-missed-service rates for providers marked “Low” or “High”.
+              </p>
+            </div>
+
+            <div v-if="medcancelPolicyError" class="error-modal">
+              <strong>Error:</strong> {{ medcancelPolicyError }}
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end;">
+              <div class="filters-group" style="min-width: 240px;">
+                <label class="filters-label">Pay service code</label>
+                <input v-model="medcancelPolicyDraft.serviceCode" class="filters-input" type="text" :disabled="medcancelPolicyLoading || medcancelPolicySaving" />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadMedcancelPolicy" :disabled="medcancelPolicyLoading || !editingAgency?.id">
+                  {{ medcancelPolicyLoading ? 'Loading…' : 'Reload' }}
+                </button>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="saveMedcancelPolicy" :disabled="medcancelPolicySaving || !editingAgency?.id">
+                  {{ medcancelPolicySaving ? 'Saving…' : 'Save Med Cancel policy' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
+              <div class="filters-group" style="min-width: 260px;">
+                <label class="filters-label">Add missed service code</label>
+                <input v-model="newMedcancelMissedServiceCode" class="filters-input" type="text" placeholder="e.g., 90832" :disabled="medcancelPolicyLoading || medcancelPolicySaving" />
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="addMedcancelMissedServiceCode" :disabled="medcancelPolicyLoading || medcancelPolicySaving || !String(newMedcancelMissedServiceCode||'').trim()">
+                  Add
+                </button>
+              </div>
+            </div>
+
+            <div class="table-wrap" style="margin-top: 10px;">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Missed service code</th>
+                    <th class="right">Low ($)</th>
+                    <th class="right">High ($)</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="code in medcancelMissedServiceCodes" :key="code">
+                    <td><strong>{{ code }}</strong></td>
+                    <td class="right">
+                      <input
+                        v-model.number="medcancelPolicyDraft.schedules.low[code]"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        style="width: 140px;"
+                        :disabled="medcancelPolicyLoading || medcancelPolicySaving"
+                      />
+                    </td>
+                    <td class="right">
+                      <input
+                        v-model.number="medcancelPolicyDraft.schedules.high[code]"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        style="width: 140px;"
+                        :disabled="medcancelPolicyLoading || medcancelPolicySaving"
+                      />
+                    </td>
+                    <td class="right">
+                      <button type="button" class="btn btn-danger btn-sm" @click="removeMedcancelMissedServiceCode(code)" :disabled="medcancelPolicyLoading || medcancelPolicySaving">
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                  <tr v-if="!medcancelMissedServiceCodes.length">
+                    <td colspan="4" class="muted">No missed service codes configured.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="settings-section-divider">
               <h4>Mileage Rates (Tier 1/2/3)</h4>
               <p class="section-description">
                 Set per-mile reimbursement rates used for approving School Mileage submissions.
@@ -2577,6 +2663,26 @@ const mileageRatesError = ref('');
 const mileageRatesDraft = ref({ tier1: 0, tier2: 0, tier3: 0 });
 const mileageRatesLoadedAgencyId = ref(null);
 
+// Med Cancel policy (agency-only; rates + pay service code)
+const medcancelPolicyLoading = ref(false);
+const medcancelPolicySaving = ref(false);
+const medcancelPolicyError = ref('');
+const medcancelPolicyDraft = ref({
+  serviceCode: 'MEDCANCEL',
+  schedules: {
+    low: { '90832': 5, '90834': 7.5, '90837': 10 },
+    high: { '90832': 10, '90834': 15, '90837': 20 }
+  }
+});
+const newMedcancelMissedServiceCode = ref('');
+const medcancelMissedServiceCodes = computed(() => {
+  const pol = medcancelPolicyDraft.value || {};
+  const low = pol?.schedules?.low && typeof pol.schedules.low === 'object' ? Object.keys(pol.schedules.low) : [];
+  const high = pol?.schedules?.high && typeof pol.schedules.high === 'object' ? Object.keys(pol.schedules.high) : [];
+  const all = new Set([...low, ...high].map((s) => String(s || '').trim()).filter(Boolean));
+  return Array.from(all.values()).sort((a, b) => a.localeCompare(b));
+});
+
 // PTO policy (agency-only)
 const ptoPolicyLoading = ref(false);
 const savingPtoPolicy = ref(false);
@@ -2804,11 +2910,94 @@ const saveNotificationTrigger = async (triggerRow) => {
 const openPayrollTab = async () => {
   activeTab.value = 'payroll';
   await loadMileageRates();
+  await loadMedcancelPolicy();
   await loadPtoPolicy();
   await loadSupervisionPolicy();
   await loadPayrollRules();
   await loadOtherRateTitles();
   await loadOfficeLocations();
+};
+
+const loadMedcancelPolicy = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    medcancelPolicyLoading.value = true;
+    medcancelPolicyError.value = '';
+    const resp = await api.get('/payroll/medcancel-policy', { params: { agencyId: editingAgency.value.id } });
+    const pol = resp.data?.policy || {};
+    medcancelPolicyDraft.value = {
+      serviceCode: String(pol?.serviceCode || 'MEDCANCEL').trim().toUpperCase() || 'MEDCANCEL',
+      schedules: {
+        low: (pol?.schedules?.low && typeof pol.schedules.low === 'object') ? pol.schedules.low : {},
+        high: (pol?.schedules?.high && typeof pol.schedules.high === 'object') ? pol.schedules.high : {}
+      }
+    };
+  } catch (e) {
+    medcancelPolicyError.value = e.response?.data?.error?.message || e.message || 'Failed to load Med Cancel policy';
+  } finally {
+    medcancelPolicyLoading.value = false;
+  }
+};
+
+const addMedcancelMissedServiceCode = () => {
+  const code = String(newMedcancelMissedServiceCode.value || '').trim();
+  if (!code) return;
+  const next = JSON.parse(JSON.stringify(medcancelPolicyDraft.value || {}));
+  if (!next.schedules) next.schedules = { low: {}, high: {} };
+  if (!next.schedules.low) next.schedules.low = {};
+  if (!next.schedules.high) next.schedules.high = {};
+  if (next.schedules.low[code] === undefined) next.schedules.low[code] = 0;
+  if (next.schedules.high[code] === undefined) next.schedules.high[code] = 0;
+  medcancelPolicyDraft.value = next;
+  newMedcancelMissedServiceCode.value = '';
+};
+
+const removeMedcancelMissedServiceCode = (code) => {
+  const k = String(code || '').trim();
+  if (!k) return;
+  const next = JSON.parse(JSON.stringify(medcancelPolicyDraft.value || {}));
+  if (next?.schedules?.low) delete next.schedules.low[k];
+  if (next?.schedules?.high) delete next.schedules.high[k];
+  medcancelPolicyDraft.value = next;
+};
+
+const saveMedcancelPolicy = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    medcancelPolicySaving.value = true;
+    medcancelPolicyError.value = '';
+    const toNum = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n * 10000) / 10000 : 0;
+    };
+    const pol = medcancelPolicyDraft.value || {};
+    const low = pol?.schedules?.low && typeof pol.schedules.low === 'object' ? pol.schedules.low : {};
+    const high = pol?.schedules?.high && typeof pol.schedules.high === 'object' ? pol.schedules.high : {};
+    const normalizeMap = (m) => {
+      const out = {};
+      for (const [k, v] of Object.entries(m || {})) {
+        const code = String(k || '').trim();
+        if (!code) continue;
+        out[code] = toNum(v);
+      }
+      return out;
+    };
+    await api.put('/payroll/medcancel-policy', {
+      agencyId: editingAgency.value.id,
+      policy: {
+        serviceCode: String(pol?.serviceCode || 'MEDCANCEL').trim().toUpperCase() || 'MEDCANCEL',
+        schedules: {
+          low: normalizeMap(low),
+          high: normalizeMap(high)
+        }
+      }
+    });
+    await loadMedcancelPolicy();
+  } catch (e) {
+    medcancelPolicyError.value = e.response?.data?.error?.message || e.message || 'Failed to save Med Cancel policy';
+  } finally {
+    medcancelPolicySaving.value = false;
+  }
 };
 
 const loadSupervisionPolicy = async () => {

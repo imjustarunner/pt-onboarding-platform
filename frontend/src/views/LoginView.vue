@@ -167,9 +167,12 @@ onMounted(async () => {
     await fetchLoginTheme(loginSlug.value);
     await loadOrgPolicy();
   } else {
-    // Platform login: ensure no stale org theme sticks around
-    brandingStore.clearPortalTheme();
-    // Initialize portal theme if on subdomain (separate from slug-based org logins)
+    // Platform login: ensure no stale org theme sticks around.
+    // On custom-domain portals (or <portal>.app.<base> portals), /login should remain branded.
+    if (!brandingStore.portalHostPortalUrl) {
+      brandingStore.clearPortalTheme();
+    }
+    // Initialize portal theme if on subdomain/custom domain (separate from slug-based org logins)
     await brandingStore.initializePortalTheme();
   }
 });
@@ -182,7 +185,12 @@ watch(loginSlug, async (newSlug, oldSlug) => {
   }
   if (!newSlug && oldSlug) {
     loginTheme.value = null;
-    brandingStore.clearPortalTheme();
+    // Returning to /login: keep portal branding on portal hosts; otherwise clear.
+    if (!brandingStore.portalHostPortalUrl) {
+      brandingStore.clearPortalTheme();
+    } else {
+      await brandingStore.initializePortalTheme();
+    }
     orgPolicy.value = { googleSsoEnabled: false };
   }
 });

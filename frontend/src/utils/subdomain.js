@@ -9,6 +9,8 @@
  * - itsco.app.plottwistco.com -> "itsco"
  * - nextleveluplcc.app.plottwistco.com -> "nextleveluplcc"
  * - app.plottwistco.com -> null
+ * - app.agency.health -> null
+ * - school1.app.agency.health -> "school1"
  * - localhost -> null
  * - onboarding-frontend-378990906760.us-west3.run.app -> null (Cloud Run URL)
  * 
@@ -31,10 +33,17 @@ export function getSubdomain() {
   // Split hostname by dots
   const parts = hostname.split('.');
   
-  // If we have at least 3 parts (subdomain.domain.tld), return the first part
-  // For example: itsco.app.plottwistco.com -> ["itsco", "app", "plottwistco", "com"]
-  if (parts.length >= 3) {
-    return parts[0].toLowerCase();
+  // Only treat hostnames in the pattern:
+  //   <portal>.app.<base-domain>
+  // Examples:
+  // - itsco.app.plottwistco.com -> ["itsco","app","plottwistco","com"] -> "itsco"
+  // - school1.app.agency.health -> ["school1","app","agency","health"] -> "school1"
+  //
+  // This avoids incorrectly treating "app.agency2.com" as portal="app".
+  if (parts.length >= 4 && parts[1].toLowerCase() === 'app') {
+    const portal = String(parts[0] || '').toLowerCase();
+    if (!portal || portal === 'app' || portal === 'www') return null;
+    return portal;
   }
   
   return null;

@@ -640,6 +640,92 @@ class Agency {
     return await this.findBySlug(normalized);
   }
 
+  /**
+   * Resolve an organization by custom hostname (e.g., "app.agency2.com").
+   * This enables BYOD/custom-domain portals where the org slug is not present in the URL path.
+   */
+  static async findByCustomDomain(hostname) {
+    const raw = String(hostname || '').trim();
+    if (!raw) return null;
+
+    // Normalize: lowercase, strip port, strip trailing dot.
+    let normalized = raw.toLowerCase();
+    normalized = normalized.replace(/:\d+$/, '');
+    normalized = normalized.replace(/\.$/, '');
+
+    // Preferred: lookup via agency_custom_domains table (avoids agencies index limit).
+    let hasDomainTable = false;
+    try {
+      const [tables] = await pool.execute(
+        "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agency_custom_domains'"
+      );
+      hasDomainTable = Number(tables?.[0]?.cnt || 0) > 0;
+    } catch (e) {
+      hasDomainTable = false;
+    }
+
+    const tryLookupTable = async (h) => {
+      const [rows] = await pool.execute(
+        `SELECT a.*
+         FROM agency_custom_domains d
+         JOIN agencies a ON a.id = d.agency_id
+         WHERE d.hostname = ? AND d.is_active = TRUE AND a.is_active = TRUE
+         LIMIT 1`,
+        [h]
+      );
+      return rows?.[0] || null;
+    };
+
+    if (hasDomainTable) {
+      let agency = await tryLookupTable(normalized);
+      if (agency) return agency;
+
+      if (normalized.startsWith('www.')) {
+        agency = await tryLookupTable(normalized.substring('www.'.length));
+        if (agency) return agency;
+      } else {
+        agency = await tryLookupTable(`www.${normalized}`);
+        if (agency) return agency;
+      }
+
+      return null;
+    }
+
+    // Fallback: legacy column on agencies (may exist in some DBs).
+    let hasCustomDomain = false;
+    try {
+      const [columns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'custom_domain'"
+      );
+      hasCustomDomain = (columns || []).length > 0;
+    } catch (e) {
+      hasCustomDomain = false;
+    }
+    if (!hasCustomDomain) return null;
+
+    const tryLookup = async (h) => {
+      const [rows] = await pool.execute(
+        'SELECT * FROM agencies WHERE custom_domain = ? AND is_active = TRUE',
+        [h]
+      );
+      return rows?.[0] || null;
+    };
+
+    let agency = await tryLookup(normalized);
+    if (agency) return agency;
+
+    // Be forgiving about common www aliases.
+    if (normalized.startsWith('www.')) {
+      agency = await tryLookup(normalized.substring('www.'.length));
+      if (agency) return agency;
+    } else {
+      agency = await tryLookup(`www.${normalized}`);
+      if (agency) return agency;
+    }
+
+    return null;
+  }
+
   static async create(agencyData) {
     const {
       name,
@@ -662,6 +748,7 @@ class Agency {
       phoneNumber,
       phoneExtension,
       portalUrl,
+      customDomain,
       themeSettings,
       customParameters,
       organizationType,
@@ -743,6 +830,27 @@ class Agency {
       hasPortalConfig = columns.length > 0;
     } catch (e) {
       hasPortalConfig = false;
+    }
+
+    // Optional / newer: custom_domain column and/or separate mapping table
+    let hasCustomDomain = false;
+    try {
+      const [columns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'custom_domain'"
+      );
+      hasCustomDomain = (columns || []).length > 0;
+    } catch (e) {
+      hasCustomDomain = false;
+    }
+
+    let hasDomainTable = false;
+    try {
+      const [tables] = await pool.execute(
+        "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agency_custom_domains'"
+      );
+      hasDomainTable = Number(tables?.[0]?.cnt || 0) > 0;
+    } catch {
+      hasDomainTable = false;
     }
     
     // Check if organization_type column exists
@@ -842,7 +950,19 @@ class Agency {
     
     if (hasPortalConfig) {
       insertFields.push('onboarding_team_email', 'phone_number', 'phone_extension', 'portal_url', 'theme_settings');
-      insertValues.push(onboardingTeamEmail || null, phoneNumber || null, phoneExtension || null, portalUrl ? portalUrl.toLowerCase() : null, themeSettings ? JSON.stringify(themeSettings) : null);
+      insertValues.push(
+        onboardingTeamEmail || null,
+        phoneNumber || null,
+        phoneExtension || null,
+        portalUrl ? String(portalUrl).toLowerCase() : null,
+        themeSettings ? JSON.stringify(themeSettings) : null
+      );
+
+      if (hasCustomDomain) {
+        const cd = customDomain ? String(customDomain).trim().toLowerCase() : null;
+        insertFields.push('custom_domain');
+        insertValues.push(cd || null);
+      }
     }
     
     // Check which notification icon columns exist (optional, best-effort)
@@ -1058,11 +1178,30 @@ class Agency {
       `INSERT INTO agencies (${insertFields.join(', ')}) VALUES (${placeholders})`,
       insertValues
     );
-    return this.findById(result.insertId);
+    const created = await this.findById(result.insertId);
+
+    // Best-effort: write to mapping table (canonical) if present.
+    try {
+      if (hasDomainTable) {
+        const cd = customDomain ? String(customDomain).trim().toLowerCase() : null;
+        if (cd) {
+          await pool.execute(
+            `INSERT INTO agency_custom_domains (agency_id, hostname, is_active)
+             VALUES (?, ?, TRUE)
+             ON DUPLICATE KEY UPDATE agency_id = VALUES(agency_id), is_active = TRUE`,
+            [result.insertId, cd]
+          );
+        }
+      }
+    } catch {
+      // ignore; best-effort only
+    }
+
+    return created;
   }
 
   static async update(id, agencyData) {
-    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
@@ -1834,6 +1973,26 @@ class Agency {
     } catch (e) {
       hasPortalConfig = false;
     }
+
+    let hasCustomDomain = false;
+    try {
+      const [columns] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'custom_domain'"
+      );
+      hasCustomDomain = (columns || []).length > 0;
+    } catch (e) {
+      hasCustomDomain = false;
+    }
+
+    let hasDomainTable = false;
+    try {
+      const [tables] = await pool.execute(
+        "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agency_custom_domains'"
+      );
+      hasDomainTable = Number(tables?.[0]?.cnt || 0) > 0;
+    } catch {
+      hasDomainTable = false;
+    }
     
     if (hasPortalConfig) {
       if (onboardingTeamEmail !== undefined) {
@@ -1850,7 +2009,12 @@ class Agency {
       }
       if (portalUrl !== undefined) {
         updates.push('portal_url = ?');
-        values.push(portalUrl ? portalUrl.toLowerCase() : null);
+        values.push(portalUrl ? String(portalUrl).toLowerCase() : null);
+      }
+      if (hasCustomDomain && customDomain !== undefined) {
+        const cd = customDomain ? String(customDomain).trim().toLowerCase() : null;
+        updates.push('custom_domain = ?');
+        values.push(cd || null);
       }
     if (themeSettings !== undefined) {
       updates.push('theme_settings = ?');
@@ -1906,13 +2070,57 @@ class Agency {
     }
     }
 
-    if (updates.length === 0) return this.findById(id);
+    if (updates.length === 0) {
+      // Still allow mapping-table update when only customDomain changed (and agencies column missing).
+      if (hasDomainTable && customDomain !== undefined) {
+        try {
+          const cd = customDomain ? String(customDomain).trim().toLowerCase() : null;
+          if (!cd) {
+            await pool.execute(
+              'UPDATE agency_custom_domains SET is_active = FALSE WHERE agency_id = ?',
+              [id]
+            );
+          } else {
+            await pool.execute(
+              `INSERT INTO agency_custom_domains (agency_id, hostname, is_active)
+               VALUES (?, ?, TRUE)
+               ON DUPLICATE KEY UPDATE agency_id = VALUES(agency_id), is_active = TRUE`,
+              [id, cd]
+            );
+          }
+        } catch {
+          // ignore
+        }
+      }
+      return this.findById(id);
+    }
 
     values.push(id);
     await pool.execute(
       `UPDATE agencies SET ${updates.join(', ')} WHERE id = ?`,
       values
     );
+    // Best-effort: keep mapping table in sync.
+    if (hasDomainTable && customDomain !== undefined) {
+      try {
+        const cd = customDomain ? String(customDomain).trim().toLowerCase() : null;
+        if (!cd) {
+          await pool.execute(
+            'UPDATE agency_custom_domains SET is_active = FALSE WHERE agency_id = ?',
+            [id]
+          );
+        } else {
+          await pool.execute(
+            `INSERT INTO agency_custom_domains (agency_id, hostname, is_active)
+             VALUES (?, ?, TRUE)
+             ON DUPLICATE KEY UPDATE agency_id = VALUES(agency_id), is_active = TRUE`,
+            [id, cd]
+          );
+        }
+      } catch {
+        // ignore
+      }
+    }
     return this.findById(id);
   }
 

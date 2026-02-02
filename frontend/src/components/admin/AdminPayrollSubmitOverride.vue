@@ -1199,14 +1199,11 @@ const fmtNum = (v) => Number(v || 0).toLocaleString(undefined, { maximumFraction
 const apiBase = computed(() => (props.userId ? `/payroll/users/${props.userId}` : '/payroll/users/0'));
 
 const loadMileageSchools = async () => {
-  if (!props.agencyId) return;
+  if (!props.agencyId || !props.userId) return;
   try {
-    const resp = await api.get('/payroll/agency-schools', { params: { agencyId: props.agencyId } });
-    // Normalize to match provider UI shape.
-    mileageSchools.value = (resp.data || []).map((s) => ({
-      schoolOrganizationId: s.schoolOrganizationId || s.school_organization_id || s.id,
-      name: s.name || s.organization_name || s.schoolName || 'School'
-    }));
+    // Use the provider's assigned schools so distance calculation uses the right Home↔School baseline.
+    const resp = await api.get(`${apiBase.value}/assigned-schools`, { params: { agencyId: props.agencyId } });
+    mileageSchools.value = resp.data || [];
   } catch {
     mileageSchools.value = [];
   }

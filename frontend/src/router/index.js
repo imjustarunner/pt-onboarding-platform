@@ -11,6 +11,7 @@ const getDefaultOrganizationSlug = () => {
   try {
     const agencyStore = useAgencyStore();
     const authStore = useAuthStore();
+    const brandingStore = useBrandingStore();
 
     const fromStore = agencyStore.currentAgency?.slug;
     if (fromStore) return fromStore;
@@ -23,6 +24,10 @@ const getDefaultOrganizationSlug = () => {
 
     const fromLocal = JSON.parse(localStorage.getItem('currentAgency') || 'null')?.slug;
     if (fromLocal) return fromLocal;
+
+    // Custom-domain portals: host resolves to portalUrl (portal_url or slug).
+    const fromPortalHost = brandingStore.portalHostPortalUrl;
+    if (fromPortalHost) return fromPortalHost;
   } catch (e) {
     // ignore
   }
@@ -936,12 +941,17 @@ router.beforeEach(async (to, from, next) => {
 
   // Prevent stale org branding “flash” when leaving a branded portal.
   if (!to.meta.organizationSlug && from.meta.organizationSlug) {
-    brandingStore.clearPortalTheme();
+    // On custom-domain portals, /login should remain branded (portalHostPortalUrl is set at boot).
+    if (!brandingStore.portalHostPortalUrl) {
+      brandingStore.clearPortalTheme();
+    }
   }
 
   // Prevent stale org branding “flash” when going to platform login
   if (to.path === '/login') {
-    brandingStore.clearPortalTheme();
+    if (!brandingStore.portalHostPortalUrl) {
+      brandingStore.clearPortalTheme();
+    }
   }
 
   // On slug-prefixed routes, load org context + apply branding.

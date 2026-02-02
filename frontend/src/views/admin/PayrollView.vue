@@ -4224,14 +4224,22 @@ const payrollToolsCompareSort = ref('human'); // human | change | code | date
 const submitOnBehalfSearch = ref('');
 const submitOnBehalfUserId = ref(null);
 const submitOnBehalfUsers = computed(() => {
-  const q = String(submitOnBehalfSearch.value || '').trim().toLowerCase();
+  const qRaw = String(submitOnBehalfSearch.value || '').trim().toLowerCase();
   const list = sortedAgencyUsers.value || [];
-  if (!q) return list;
+  if (!qRaw) return list;
+  // Support multi-word searches like "john sm" or "smith john".
+  const tokens = qRaw
+    .replace(/,+/g, ' ')
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  if (!tokens.length) return list;
   return list.filter((u) => {
     const first = String(u?.first_name || '').trim().toLowerCase();
     const last = String(u?.last_name || '').trim().toLowerCase();
     const email = String(u?.email || '').trim().toLowerCase();
-    return first.includes(q) || last.includes(q) || `${last}, ${first}`.includes(q) || email.includes(q);
+    const hay = `${first} ${last} ${last}, ${first} ${email}`.trim();
+    return tokens.every((t) => hay.includes(t));
   });
 });
 const submitOnBehalfUserName = computed(() => {

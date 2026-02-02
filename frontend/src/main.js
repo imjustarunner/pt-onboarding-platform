@@ -43,12 +43,22 @@ async function bootstrap() {
   const agencyStore = useAgencyStore(pinia);
 
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
-  const isPlatformLogin = path === '/login';
+  const isLogin = path === '/login';
 
+  // Best-effort: initialize portal theme based on host (subdomain or custom domain).
+  // This enables branded /login on custom domains like app.agency2.com.
+  await brandingStore.initializePortalTheme();
+
+  const isPlatformLogin = isLogin && !brandingStore.portalHostPortalUrl;
+
+  if (isLogin) {
+    // Always clear org selection on login screens to avoid stale state.
+    agencyStore.setCurrentAgency(null);
+  }
   if (isPlatformLogin) {
     // Ensure stale org theme/agency context doesn't affect the platform login.
     brandingStore.clearPortalTheme();
-    agencyStore.setCurrentAgency(null);
+    brandingStore.clearPortalHostOverride();
   }
 
   // Always fetch platform branding early so /login renders correctly immediately.

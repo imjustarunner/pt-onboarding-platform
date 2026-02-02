@@ -1960,6 +1960,9 @@ const submitMedcancelError = ref('');
 const medcancelClaims = ref([]);
 const medcancelClaimsLoading = ref(false);
 const medcancelClaimsError = ref('');
+const medcancelPolicyLoading = ref(false);
+const medcancelPolicyError = ref('');
+const medcancelPolicy = ref(null);
 
 const ptoLoading = ref(false);
 const ptoError = ref('');
@@ -2114,14 +2117,15 @@ const dateYmd = (v) => {
 const medcancelEstimatedAmount = computed(() => {
   const schedule = String(authStore.user?.medcancelRateSchedule || '').toLowerCase();
   const items = Array.isArray(medcancelForm.value.items) ? medcancelForm.value.items : [];
-  const rates =
+  const pol = medcancelPolicy.value?.policy || medcancelPolicy.value || null;
+  const scheduleRates =
     schedule === 'high'
-      ? { '90832': 10, '90834': 15, '90837': 20 }
-      : { '90832': 5, '90834': 7.5, '90837': 10 };
+      ? (pol?.schedules?.high || {})
+      : (pol?.schedules?.low || {});
   let sum = 0;
   for (const it of items) {
     const code = String(it?.missedServiceCode || '').trim();
-    sum += Number(rates[code] || 0);
+    sum += Number(scheduleRates?.[code] || 0);
   }
   sum = Math.round(sum * 100) / 100;
   return Number.isFinite(sum) ? sum : 0;
@@ -2129,15 +2133,16 @@ const medcancelEstimatedAmount = computed(() => {
 
 const medcancelEstimatedAmountForClaim = (c) => {
   const schedule = String(authStore.user?.medcancelRateSchedule || '').toLowerCase();
-  const rates =
+  const pol = medcancelPolicy.value?.policy || medcancelPolicy.value || null;
+  const scheduleRates =
     schedule === 'high'
-      ? { '90832': 10, '90834': 15, '90837': 20 }
-      : { '90832': 5, '90834': 7.5, '90837': 10 };
+      ? (pol?.schedules?.high || {})
+      : (pol?.schedules?.low || {});
   const items = Array.isArray(c?.items) ? c.items : [];
   let sum = 0;
   for (const it of items) {
     const code = String(it?.missed_service_code || it?.missedServiceCode || it?.missedServiceCodeRaw || '').trim();
-    sum += Number(rates[code] || 0);
+    sum += Number(scheduleRates?.[code] || 0);
   }
   sum = Math.round(sum * 100) / 100;
   return Number.isFinite(sum) ? sum : 0;
@@ -3452,6 +3457,21 @@ const loadMedcancelClaims = async () => {
   }
 };
 
+const loadMedcancelPolicy = async () => {
+  if (!agencyId.value) return;
+  try {
+    medcancelPolicyLoading.value = true;
+    medcancelPolicyError.value = '';
+    const resp = await api.get('/payroll/me/medcancel-policy', { params: { agencyId: agencyId.value } });
+    medcancelPolicy.value = resp.data || null;
+  } catch (e) {
+    medcancelPolicyError.value = e.response?.data?.error?.message || e.message || 'Failed to load MedCancel policy';
+    medcancelPolicy.value = null;
+  } finally {
+    medcancelPolicyLoading.value = false;
+  }
+};
+
 const loadPto = async () => {
   if (!agencyId.value) return;
   try {
@@ -3736,10 +3756,13 @@ watch(agencyId, async () => {
   await loadMileageSchools();
   await loadMileageOffices();
   if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
+    await loadMedcancelPolicy();
     await loadMedcancelClaims();
   } else {
     medcancelClaims.value = [];
     medcancelClaimsError.value = '';
+    medcancelPolicy.value = null;
+    medcancelPolicyError.value = '';
   }
   await loadPto();
   await loadPtoRequests();
@@ -3801,6 +3824,7 @@ onMounted(async () => {
   await load();
   await loadMileageClaims();
   if (authStore.user?.medcancelEnabled && medcancelEnabledForAgency.value) {
+    await loadMedcancelPolicy();
     await loadMedcancelClaims();
   }
   await loadPto();

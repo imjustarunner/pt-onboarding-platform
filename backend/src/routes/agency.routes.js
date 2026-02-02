@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, deleteAgencyHard, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations } from '../controllers/agency.controller.js';
+import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, deleteAgencyHard, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations, resolvePortalByHost } from '../controllers/agency.controller.js';
 import { getAgencyAnnouncements, updateAgencyAnnouncements, getAgencyDashboardBanner } from '../controllers/agencyAnnouncements.controller.js';
 import { listAgencyNotificationTriggers, updateAgencyNotificationTrigger } from '../controllers/agencyNotificationTriggers.controller.js';
 import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
@@ -22,6 +22,17 @@ const validateCreateAgency = [
   body('slug').trim().notEmpty().withMessage('Slug is required').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
   body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning']).withMessage('organizationType must be one of: agency, school, program, learning'),
   body('affiliatedAgencyId').optional().isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
+  body('customDomain').optional({ nullable: true, checkFalsy: true }).custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    const v = String(value).trim();
+    if (!v) return true;
+    // Hostname only (no scheme/path)
+    if (v.includes('://')) return false;
+    if (v.includes('/') || v.includes('?') || v.includes('#')) return false;
+    // Basic hostname chars (allow dots + hyphens). Keep it permissive but safe.
+    if (!/^[a-zA-Z0-9.-]+(:\d+)?$/.test(v)) return false;
+    return true;
+  }).withMessage('customDomain must be a hostname like "app.agency2.com" (no https://, no path)'),
   body('logoUrl').optional().custom((value) => {
     if (!value || value === null || value === '') return true;
     try {
@@ -140,6 +151,15 @@ const validateUpdateAgency = [
   body('slug').optional().trim().notEmpty().withMessage('Slug cannot be empty').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
   body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning']).withMessage('organizationType must be one of: agency, school, program, learning'),
   body('affiliatedAgencyId').optional().isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
+  body('customDomain').optional({ nullable: true, checkFalsy: true }).custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    const v = String(value).trim();
+    if (!v) return true;
+    if (v.includes('://')) return false;
+    if (v.includes('/') || v.includes('?') || v.includes('#')) return false;
+    if (!/^[a-zA-Z0-9.-]+(:\d+)?$/.test(v)) return false;
+    return true;
+  }).withMessage('customDomain must be a hostname like "app.agency2.com" (no https://, no path)'),
   body('logoUrl').optional().custom((value) => {
     // Allow null, undefined, or empty string
     if (!value || value === null || value === '' || value === undefined) return true;
@@ -269,6 +289,7 @@ const validateUpdateAgency = [
 ];
 
 // Public routes (no auth required) - must come before /:id route
+router.get('/resolve', resolvePortalByHost);
 router.get('/slug/:slug', getAgencyBySlug); // Get organization by slug (supports all organization types)
 router.get('/portal/:portalUrl', getAgencyByPortalUrl);
 router.get('/portal/:portalUrl/theme', getThemeByPortalUrl);

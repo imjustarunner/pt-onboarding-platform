@@ -99,6 +99,8 @@ export const useBrandingStore = defineStore('branding', () => {
   };
 
   // Portal agency (detected from subdomain)
+  // For BYOD/custom domains we resolve the portal identifier from the request host via backend.
+  const portalHostPortalUrl = ref(null); // e.g., "agency2" (portal_url or slug)
   const portalAgency = ref(null);
   
   // Theme settings from portal agency
@@ -298,12 +300,56 @@ export const useBrandingStore = defineStore('branding', () => {
     root.style.removeProperty('--agency-font-family');
     root.style.removeProperty('--agency-login-background');
   };
+
+  const clearPortalHostOverride = () => {
+    portalHostPortalUrl.value = null;
+    try {
+      const host = window.location.hostname;
+      sessionStorage.removeItem(`__pt_portal_host__:${host}`);
+    } catch {
+      // ignore
+    }
+  };
   
   // Initialize portal theme on app load
   const initializePortalTheme = async () => {
-    const portalUrl = getPortalUrl();
-    if (portalUrl) {
-      await fetchAgencyTheme(portalUrl);
+    // 1) Subdomain pattern: <portal>.app.<base-domain>
+    const subdomainPortal = getPortalUrl();
+    if (subdomainPortal) {
+      portalHostPortalUrl.value = subdomainPortal;
+      await fetchAgencyTheme(subdomainPortal);
+      return;
+    }
+
+    // 2) Custom domain pattern: app.agency2.com -> resolve via backend by Host header.
+    try {
+      const host = window.location.hostname;
+      const cacheKey = `__pt_portal_host__:${host}`;
+      const cachedRaw = sessionStorage.getItem(cacheKey);
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw);
+        const cachedPortal = String(cached?.portalUrl || '').trim();
+        if (cachedPortal) {
+          portalHostPortalUrl.value = cachedPortal;
+          await fetchAgencyTheme(cachedPortal);
+          return;
+        }
+      }
+
+      // Call backend (same-origin) to resolve host -> portalUrl
+      const resp = await api.get('/agencies/resolve', { params: { _t: Date.now() } });
+      const resolved = String(resp?.data?.portalUrl || '').trim();
+      if (resolved) {
+        portalHostPortalUrl.value = resolved;
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify({ portalUrl: resolved, ts: Date.now() }));
+        } catch {
+          // ignore
+        }
+        await fetchAgencyTheme(resolved);
+      }
+    } catch {
+      // best effort; do not block app load
     }
   };
 
@@ -823,6 +869,7 @@ export const useBrandingStore = defineStore('branding', () => {
     fetchPlatformBranding,
     portalAgency,
     portalTheme,
+    portalHostPortalUrl,
     themeSettings,
     loginBackground,
     fontFamily,
@@ -832,6 +879,7 @@ export const useBrandingStore = defineStore('branding', () => {
     setPortalThemeData,
     setPortalThemeFromLoginTheme,
     clearPortalTheme,
+    clearPortalHostOverride,
     getNotificationIconUrl,
     getDashboardCardIconUrl,
     getSchoolPortalCardIconUrl,

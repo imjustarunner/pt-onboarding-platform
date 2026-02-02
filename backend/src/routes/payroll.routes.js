@@ -68,6 +68,9 @@ import {
   ,deleteMyMedcancelClaim
   ,listMedcancelClaims
   ,patchMedcancelClaim
+  ,getMedcancelPolicy
+  ,putMedcancelPolicy
+  ,getMyMedcancelPolicy
   ,getSupervisionPolicy
   ,putSupervisionPolicy
   ,listSupervisionAccountsForAgency
@@ -98,6 +101,7 @@ import {
   ,createOfficeLocationForPayroll
   ,updateOfficeLocationForPayroll
   ,listMyAssignedSchoolsForPayroll
+  ,listUserAssignedSchoolsForPayroll
   ,getPayrollOtherRateTitles
   ,putPayrollOtherRateTitlesForAgency
   ,putPayrollOtherRateTitlesForUser
@@ -198,6 +202,9 @@ router.post('/me/medcancel-claims', createMyMedcancelClaim);
 router.post('/users/:userId/medcancel-claims', createUserMedcancelClaim);
 router.get('/me/medcancel-claims', listMyMedcancelClaims);
 router.delete('/me/medcancel-claims/:id', deleteMyMedcancelClaim);
+router.get('/me/medcancel-policy', getMyMedcancelPolicy);
+router.get('/medcancel-policy', getMedcancelPolicy);
+router.put('/medcancel-policy', putMedcancelPolicy);
 router.post('/me/reimbursement-claims', ...createMyReimbursementClaim);
 router.post('/users/:userId/reimbursement-claims', ...createUserReimbursementClaim);
 router.get('/me/reimbursement-claims', listMyReimbursementClaims);
@@ -213,6 +220,7 @@ router.post('/users/:userId/time-claims', createUserTimeClaim);
 router.get('/me/time-claims', listMyTimeClaims);
 router.delete('/me/time-claims/:id', deleteMyTimeClaim);
 router.get('/me/assigned-schools', listMyAssignedSchoolsForPayroll);
+router.get('/users/:userId/assigned-schools', listUserAssignedSchoolsForPayroll);
 router.get('/other-rate-titles', getPayrollOtherRateTitles);
 router.put('/other-rate-titles', putPayrollOtherRateTitlesForAgency);
 router.put('/other-rate-titles/users/:userId', putPayrollOtherRateTitlesForUser);
