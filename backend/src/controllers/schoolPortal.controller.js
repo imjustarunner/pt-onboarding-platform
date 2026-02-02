@@ -852,3 +852,64 @@ export const removeSchoolStaff = async (req, res, next) => {
     next(e);
   }
 };
+
+/**
+ * School Portal FAQ (non-client-specific).
+ * GET /api/school-portal/:organizationId/faq
+ *
+ * Returns published FAQs for the affiliated agency of this school/program/learning org.
+ */
+export const listSchoolPortalFaq = async (req, res, next) => {
+  try {
+    const { organizationId } = req.params;
+    const orgId = parseInt(organizationId, 10);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    const organization = await Agency.findById(orgId);
+    if (!organization) return res.status(404).json({ error: { message: 'Organization not found' } });
+    const orgType = String(organization.organization_type || 'agency').toLowerCase();
+    const allowedTypes = ['school', 'program', 'learning'];
+    if (!allowedTypes.includes(orgType)) {
+      return res.status(400).json({
+        error: { message: `This endpoint is only available for organizations of type: ${allowedTypes.join(', ')}` }
+      });
+    }
+
+    // Access rules match other school portal read endpoints.
+    if (userRole !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: userRole, schoolOrganizationId: orgId });
+      if (!ok) {
+        return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+      }
+    }
+
+    const activeAgencyId = await resolveActiveAgencyIdForOrg(orgId);
+    if (!activeAgencyId) return res.json([]);
+
+    // Best-effort: if the FAQ table is not migrated yet, return empty list.
+    try {
+      const [tables] = await pool.execute(
+        "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'school_portal_faqs'"
+      );
+      const has = Number(tables?.[0]?.cnt || 0) > 0;
+      if (!has) return res.json([]);
+    } catch {
+      return res.json([]);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT id, subject, question, answer, ai_summary
+       FROM school_portal_faqs
+       WHERE agency_id = ?
+         AND LOWER(status) = 'published'
+       ORDER BY COALESCE(subject, '') ASC, id DESC`,
+      [parseInt(activeAgencyId, 10)]
+    );
+    res.json(rows || []);
+  } catch (e) {
+    next(e);
+  }
+};

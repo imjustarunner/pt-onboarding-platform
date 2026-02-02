@@ -90,6 +90,7 @@ import clientRoutes from './routes/client.routes.js';
 import guardianPortalRoutes from './routes/guardianPortal.routes.js';
 import providerSelfRoutes from './routes/providerSelf.routes.js';
 import supportTicketsRoutes from './routes/supportTickets.routes.js';
+import faqRoutes from './routes/faq.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import officeSettingsRoutes from './routes/officeSettings.routes.js';
 import officeSlotActionsRoutes from './routes/officeSlotActions.routes.js';
@@ -548,6 +549,7 @@ app.use('/api/bulk-school-upload', bulkSchoolUploadRoutes);
 app.use('/api/provider-scheduling', providerSchedulingRoutes);
 app.use('/api/provider-self', providerSelfRoutes);
 app.use('/api/support-tickets', supportTicketsRoutes);
+app.use('/api/faqs', faqRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/phi-documents', phiDocumentsRoutes);
 

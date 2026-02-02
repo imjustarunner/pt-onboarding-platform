@@ -164,6 +164,10 @@
           <IconSelector v-model="schoolPortalIcons.contactAdminIconId" />
         </div>
         <div class="icon-setting-item">
+          <label>FAQ</label>
+          <IconSelector v-model="schoolPortalIcons.faqIconId" />
+        </div>
+        <div class="icon-setting-item">
           <label>School staff</label>
           <IconSelector v-model="schoolPortalIcons.schoolStaffIconId" />
         </div>
@@ -257,6 +261,7 @@ const schoolPortalIcons = ref({
   rosterIconId: null,
   skillsGroupsIconId: null,
   contactAdminIconId: null,
+  faqIconId: null,
   schoolStaffIconId: null,
   parentQrIconId: null,
   parentSignIconId: null,
@@ -299,6 +304,7 @@ const fetchSettings = async () => {
         rosterIconId: pb.school_portal_roster_icon_id ?? null,
         skillsGroupsIconId: pb.school_portal_skills_groups_icon_id ?? null,
         contactAdminIconId: pb.school_portal_contact_admin_icon_id ?? null,
+        faqIconId: pb.school_portal_faq_icon_id ?? null,
         schoolStaffIconId: pb.school_portal_school_staff_icon_id ?? null,
         parentQrIconId: pb.school_portal_parent_qr_icon_id ?? null,
         parentSignIconId: pb.school_portal_parent_sign_icon_id ?? null,
@@ -347,6 +353,7 @@ const saveSchoolPortalIcons = async () => {
       schoolPortalRosterIconId: schoolPortalIcons.value.rosterIconId,
       schoolPortalSkillsGroupsIconId: schoolPortalIcons.value.skillsGroupsIconId,
       schoolPortalContactAdminIconId: schoolPortalIcons.value.contactAdminIconId,
+      schoolPortalFaqIconId: schoolPortalIcons.value.faqIconId,
       schoolPortalSchoolStaffIconId: schoolPortalIcons.value.schoolStaffIconId,
       schoolPortalParentQrIconId: schoolPortalIcons.value.parentQrIconId,
       schoolPortalParentSignIconId: schoolPortalIcons.value.parentSignIconId,

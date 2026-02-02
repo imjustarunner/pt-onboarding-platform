@@ -1812,10 +1812,15 @@
                 <IconSelector v-model="agencyForm.schoolPortalUploadPacketIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Upload packet" card in school portals</small>
               </div>
-          <div class="form-group">
+              <div class="dashboard-icon-item">
                 <label>Documents Card Icon</label>
                 <IconSelector v-model="agencyForm.schoolPortalPublicDocumentsIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Documents" card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>FAQ Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalFaqIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "FAQ" card in school portals</small>
               </div>
             </div>
             
@@ -3684,6 +3689,7 @@ const ICON_TEMPLATE_FIELDS = [
   'schoolPortalRosterIconId',
   'schoolPortalSkillsGroupsIconId',
   'schoolPortalContactAdminIconId',
+  'schoolPortalFaqIconId',
   'schoolPortalSchoolStaffIconId',
   'schoolPortalParentQrIconId',
   'schoolPortalParentSignIconId',
@@ -3755,6 +3761,7 @@ const defaultAgencyForm = () => ({
   schoolPortalRosterIconId: null,
   schoolPortalSkillsGroupsIconId: null,
   schoolPortalContactAdminIconId: null,
+  schoolPortalFaqIconId: null,
   schoolPortalSchoolStaffIconId: null,
   schoolPortalParentQrIconId: null,
   schoolPortalParentSignIconId: null,
@@ -4912,6 +4919,7 @@ const editAgency = async (agency) => {
     schoolPortalRosterIconId: agency.school_portal_roster_icon_id ?? null,
     schoolPortalSkillsGroupsIconId: agency.school_portal_skills_groups_icon_id ?? null,
     schoolPortalContactAdminIconId: agency.school_portal_contact_admin_icon_id ?? null,
+    schoolPortalFaqIconId: agency.school_portal_faq_icon_id ?? null,
     schoolPortalSchoolStaffIconId: agency.school_portal_school_staff_icon_id ?? null,
     schoolPortalParentQrIconId: agency.school_portal_parent_qr_icon_id ?? null,
     schoolPortalParentSignIconId: agency.school_portal_parent_sign_icon_id ?? null,
@@ -5543,6 +5551,7 @@ const saveAgency = async () => {
       schoolPortalRosterIconId: agencyForm.value.schoolPortalRosterIconId ?? null,
       schoolPortalSkillsGroupsIconId: agencyForm.value.schoolPortalSkillsGroupsIconId ?? null,
       schoolPortalContactAdminIconId: agencyForm.value.schoolPortalContactAdminIconId ?? null,
+      schoolPortalFaqIconId: agencyForm.value.schoolPortalFaqIconId ?? null,
       schoolPortalSchoolStaffIconId: agencyForm.value.schoolPortalSchoolStaffIconId ?? null,
       schoolPortalParentQrIconId: agencyForm.value.schoolPortalParentQrIconId ?? null,
       schoolPortalParentSignIconId: agencyForm.value.schoolPortalParentSignIconId ?? null,

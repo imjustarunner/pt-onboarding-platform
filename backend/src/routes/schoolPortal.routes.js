@@ -1,5 +1,5 @@
 import express from 'express';
-import { getSchoolClients, getProviderMyRoster, getSchoolPortalAffiliation, getSchoolPortalStats, listSchoolStaff, removeSchoolStaff } from '../controllers/schoolPortal.controller.js';
+import { getSchoolClients, getProviderMyRoster, getSchoolPortalAffiliation, getSchoolPortalStats, listSchoolStaff, removeSchoolStaff, listSchoolPortalFaq } from '../controllers/schoolPortal.controller.js';
 import {
   listSchoolProvidersForScheduling,
   listScheduleEntries,
@@ -52,6 +52,7 @@ router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 router.get('/:organizationId/stats', authenticate, getSchoolPortalStats);
 router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);
 router.delete('/:organizationId/school-staff/:userId', authenticate, removeSchoolStaff);
+router.get('/:organizationId/faq', authenticate, listSchoolPortalFaq);
 
 // School portal: shared public documents library (non-PHI)
 router.get('/:organizationId/public-documents', authenticate, listSchoolPublicDocuments);
