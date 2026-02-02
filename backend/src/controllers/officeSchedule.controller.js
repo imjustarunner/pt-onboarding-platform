@@ -1,3 +1,4 @@
+import pool from '../config/database.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import OfficeRoom from '../models/OfficeRoom.model.js';
@@ -6,6 +7,7 @@ import OfficeRoomAssignment from '../models/OfficeRoomAssignment.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
+import OfficeBookingRequest from '../models/OfficeBookingRequest.model.js';
 import User from '../models/User.model.js';
 import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
@@ -18,6 +20,83 @@ function formatClinicianName(firstName, lastName) {
   const li = (lastName || '').trim().slice(0, 1);
   const ln = li ? `${li}.` : '';
   return `${firstName || ''} ${ln}`.trim();
+}
+
+function localYmdInTz(dateLike, timeZone) {
+  try {
+    const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
+    if (Number.isNaN(d.getTime())) return '';
+    // en-CA yields YYYY-MM-DD
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  } catch {
+    return '';
+  }
+}
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function weekdayHourInTz(dateLike, timeZone) {
+  const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      weekday: 'long',
+      hour: '2-digit',
+      hour12: false
+    }).formatToParts(d);
+    const weekday = parts.find((p) => p.type === 'weekday')?.value || '';
+    const hourStr = parts.find((p) => p.type === 'hour')?.value || '';
+    const hour = parseInt(hourStr, 10);
+    const idx = WEEKDAY_NAMES.indexOf(weekday);
+    if (idx < 0 || !Number.isInteger(hour)) return null;
+    return { weekdayName: weekday, weekdayIndex: idx, hour };
+  } catch {
+    return null;
+  }
+}
+
+async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, officeTimeZone }) {
+  // If any event overlaps this window, it is not open.
+  const [eventRows] = await pool.execute(
+    `SELECT 1
+     FROM office_events
+     WHERE room_id = ?
+       AND start_at < ?
+       AND end_at > ?
+       AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+     LIMIT 1`,
+    [roomId, endAt, startAt]
+  );
+  if (eventRows?.[0]) return false;
+
+  // If a legacy assignment overlaps, treat as not open.
+  const [assignRows] = await pool.execute(
+    `SELECT 1
+     FROM office_room_assignments
+     WHERE room_id = ?
+       AND start_at < ?
+       AND (end_at IS NULL OR end_at > ?)
+     LIMIT 1`,
+    [roomId, endAt, startAt]
+  );
+  if (assignRows?.[0]) return false;
+
+  // If a standing assignment is active for this slot, treat as not open.
+  // (Materializer usually creates events for these, but this is a safe guard.)
+  const tz = officeTimeZone || 'America/New_York';
+  const wh = weekdayHourInTz(startAt, tz);
+  if (wh) {
+    const st = await OfficeStandingAssignment.findActiveBySlot({
+      officeLocationId,
+      roomId,
+      weekday: wh.weekdayIndex,
+      hour: wh.hour
+    });
+    if (st?.id) return false;
+  }
+
+  return true;
 }
 
 async function userHasBlockingExpiredCredential(userId) {
@@ -169,9 +248,19 @@ export const getWeeklyGrid = async (req, res, next) => {
                 : st === 'ASSIGNED_TEMPORARY'
                   ? 'assigned_temporary'
                   : 'assigned_available';
-            const first = String(e.booked_provider_first_name || '').trim();
-            const li = String(e.booked_provider_last_name || '').trim().slice(0, 1);
-            const initials = `${first.slice(0, 1)}${li}`.toUpperCase();
+            const bookedFirst = String(e.booked_provider_first_name || '').trim();
+            const bookedLast = String(e.booked_provider_last_name || '').trim();
+            const bookedLi = bookedLast.slice(0, 1);
+            const bookedInitials = `${bookedFirst.slice(0, 1)}${bookedLi}`.toUpperCase();
+
+            const assignedFirst = String(e.assigned_provider_first_name || '').trim();
+            const assignedLast = String(e.assigned_provider_last_name || '').trim();
+            const assignedLi = assignedLast.slice(0, 1);
+            const assignedInitials = `${assignedFirst.slice(0, 1)}${assignedLi}`.toUpperCase();
+
+            const assignedProviderName = assignedFirst || assignedLast ? formatClinicianName(assignedFirst, assignedLast) : '';
+            const bookedProviderName = bookedFirst || bookedLast ? formatClinicianName(bookedFirst, bookedLast) : '';
+            const displayInitials = bookedInitials || assignedInitials || null;
             slots.push({
               roomId: room.id,
               date,
@@ -181,7 +270,11 @@ export const getWeeklyGrid = async (req, res, next) => {
               standingAssignmentId: e.standing_assignment_id || null,
               bookingPlanId: e.booking_plan_id || null,
               providerId: e.assigned_provider_id || e.booked_provider_id || null,
-              providerInitials: initials || null
+              providerInitials: displayInitials,
+              assignedProviderId: e.assigned_provider_id || null,
+              bookedProviderId: e.booked_provider_id || null,
+              assignedProviderName: assignedProviderName || null,
+              bookedProviderName: bookedProviderName || null
             });
             continue;
           }
@@ -195,13 +288,91 @@ export const getWeeklyGrid = async (req, res, next) => {
               state: 'assigned_available',
               eventId: null,
               providerId: a.assigned_user_id,
-              providerInitials: initials || null
+              providerInitials: initials || null,
+              assignedProviderId: a.assigned_user_id,
+              bookedProviderId: null,
+              assignedProviderName: formatClinicianName(a.first_name, a.last_name) || null,
+              bookedProviderName: null
             });
             continue;
           }
-          slots.push({ roomId: room.id, date, hour, state: 'open', eventId: null, providerId: null, providerInitials: null });
+          slots.push({
+            roomId: room.id,
+            date,
+            hour,
+            state: 'open',
+            eventId: null,
+            providerId: null,
+            providerInitials: null,
+            assignedProviderId: null,
+            bookedProviderId: null,
+            assignedProviderName: null,
+            bookedProviderName: null
+          });
         }
       }
+    }
+
+    // Attach recurrence/frequency metadata to support modern office layout UIs.
+    // - standingAssignmentId => office_standing_assignments.assigned_frequency (WEEKLY/BIWEEKLY)
+    // - bookingPlanId => office_booking_plans.booked_frequency (WEEKLY/BIWEEKLY/MONTHLY)
+    const standingIds = Array.from(
+      new Set((slots || []).map((s) => parseInt(s?.standingAssignmentId, 10)).filter((n) => Number.isInteger(n) && n > 0))
+    );
+    const planIds = Array.from(
+      new Set((slots || []).map((s) => parseInt(s?.bookingPlanId, 10)).filter((n) => Number.isInteger(n) && n > 0))
+    );
+
+    const assignedFreqByStandingId = new Map();
+    if (standingIds.length) {
+      const placeholders = standingIds.map(() => '?').join(',');
+      const [rows] = await pool.execute(
+        `SELECT id, assigned_frequency
+         FROM office_standing_assignments
+         WHERE id IN (${placeholders})`,
+        standingIds
+      );
+      for (const r of rows || []) assignedFreqByStandingId.set(Number(r.id), String(r.assigned_frequency || '').toUpperCase());
+    }
+
+    const bookedFreqByPlanId = new Map();
+    if (planIds.length) {
+      const placeholders = planIds.map(() => '?').join(',');
+      const [rows] = await pool.execute(
+        `SELECT id, booked_frequency
+         FROM office_booking_plans
+         WHERE id IN (${placeholders})`,
+        planIds
+      );
+      for (const r of rows || []) bookedFreqByPlanId.set(Number(r.id), String(r.booked_frequency || '').toUpperCase());
+    }
+
+    const frequencyMeta = ({ assignedFrequency, bookedFrequency, state }) => {
+      const normalize = (v) => String(v || '').trim().toUpperCase();
+      const f = normalize(bookedFrequency) || normalize(assignedFrequency);
+      if (f === 'WEEKLY') return { frequency: f, frequencyLabel: 'Weekly', frequencyBadge: 'W' };
+      if (f === 'BIWEEKLY') return { frequency: f, frequencyLabel: 'Biweekly', frequencyBadge: 'BW' };
+      if (f === 'MONTHLY') return { frequency: f, frequencyLabel: 'Monthly', frequencyBadge: 'M' };
+      // If a slot is booked/assigned but not tied to a standing assignment or booking plan,
+      // treat it as a one-off occurrence for display purposes.
+      const st = String(state || '');
+      if (st === 'assigned_booked' || st === 'assigned_temporary' || st === 'assigned_available') {
+        return { frequency: 'ONCE', frequencyLabel: 'Once', frequencyBadge: '1x' };
+      }
+      return { frequency: null, frequencyLabel: null, frequencyBadge: null };
+    };
+
+    for (const s of slots) {
+      const standingId = Number(s.standingAssignmentId || 0) || null;
+      const planId = Number(s.bookingPlanId || 0) || null;
+      const assignedFrequency = standingId ? assignedFreqByStandingId.get(standingId) || null : null;
+      const bookedFrequency = planId ? bookedFreqByPlanId.get(planId) || null : null;
+      const meta = frequencyMeta({ assignedFrequency, bookedFrequency, state: s.state });
+      s.assignedFrequency = assignedFrequency;
+      s.bookedFrequency = bookedFrequency;
+      s.frequency = meta.frequency;
+      s.frequencyLabel = meta.frequencyLabel;
+      s.frequencyBadge = meta.frequencyBadge;
     }
 
     res.json({
@@ -546,6 +717,336 @@ export const denyRequest = async (req, res, next) => {
     });
 
     res.json({ request: updatedReq });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createOfficeBookingRequest = async (req, res, next) => {
+  try {
+    const blocked = await userHasBlockingExpiredCredential(req.user.id);
+    if (blocked) {
+      return res.status(403).json({ error: { message: 'Scheduling is restricted due to an expired blocking credential' } });
+    }
+
+    const officeLocationId = req.body?.officeLocationId ? parseInt(req.body.officeLocationId, 10) : null;
+    const roomId = req.body?.roomId ? parseInt(req.body.roomId, 10) : null;
+    const startAt = req.body?.startAt || null;
+    const endAt = req.body?.endAt || null;
+    const recurrence = String(req.body?.recurrence || 'ONCE').trim().toUpperCase();
+    const openToAlternativeRoom = req.body?.openToAlternativeRoom === true || req.body?.open_to_alternative_room === true;
+    const notes = String(req.body?.notes || req.body?.requesterNotes || '').trim().slice(0, 2000) || null;
+
+    const allowedRecurrence = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']);
+    const normalizedRecurrence = allowedRecurrence.has(recurrence) ? recurrence : 'ONCE';
+
+    if (!officeLocationId || !startAt || !endAt) {
+      return res.status(400).json({ error: { message: 'officeLocationId, startAt, and endAt are required' } });
+    }
+
+    const loc = await OfficeLocation.findById(parseInt(officeLocationId));
+    if (!loc) return res.status(404).json({ error: { message: 'Office location not found' } });
+
+    // Must belong to an agency assigned to the office (unless super_admin)
+    if (req.user.role !== 'super_admin') {
+      const userAgencies = await User.getAgencies(req.user.id);
+      const ok = await OfficeLocationAgency.userHasAccess({
+        officeLocationId: loc.id,
+        agencyIds: userAgencies.map((a) => a.id)
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    // Room is optional (open-to-alternative). If provided it must match location.
+    let room = null;
+    if (roomId) {
+      room = await OfficeRoom.findById(roomId);
+      if (!room || Number(room.location_id) !== Number(loc.id)) {
+        return res.status(400).json({ error: { message: 'Invalid room for office location' } });
+      }
+    }
+
+    // Same-day auto-book for ONCE requests on open rooms (kiosk intent).
+    const tz = loc.timezone || 'America/New_York';
+    const startYmd = localYmdInTz(startAt, tz);
+    const todayYmd = localYmdInTz(new Date(), tz);
+    const isSameDay = !!(startYmd && todayYmd && startYmd === todayYmd);
+
+    if (normalizedRecurrence === 'ONCE' && isSameDay) {
+      // Materialize the containing week so standing assignments appear as occupied.
+      try {
+        const ws = startOfWeekISO(startYmd);
+        if (ws) {
+          await OfficeScheduleMaterializer.materializeWeek({
+            officeLocationId: loc.id,
+            weekStartRaw: ws,
+            createdByUserId: req.user.id
+          });
+        }
+      } catch {
+        // ignore
+      }
+
+      const rooms = await OfficeRoom.findByLocation(loc.id);
+      const candidates = room && !openToAlternativeRoom ? [room] : rooms;
+      let chosen = null;
+      for (const r of candidates) {
+        // eslint-disable-next-line no-await-in-loop
+        const open = await isRoomOpenAt({
+          officeLocationId: loc.id,
+          roomId: r.id,
+          startAt,
+          endAt,
+          officeTimeZone: tz
+        });
+        if (open) {
+          chosen = r;
+          break;
+        }
+      }
+
+      if (chosen) {
+        const [eventRows] = await pool.execute(
+          `SELECT 1
+           FROM office_events
+           WHERE room_id = ?
+             AND start_at < ?
+             AND end_at > ?
+             AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
+           LIMIT 1`,
+          [chosen.id, endAt, startAt]
+        );
+        if (eventRows?.[0]) {
+          return res.status(409).json({ error: { message: 'That office slot is no longer available.' } });
+        }
+
+        const ev = await OfficeEvent.create({
+          officeLocationId: loc.id,
+          roomId: chosen.id,
+          startAt,
+          endAt,
+          status: 'BOOKED',
+          assignedProviderId: null,
+          bookedProviderId: req.user.id,
+          source: 'PROVIDER_REQUEST',
+          recurrenceGroupId: null,
+          notes,
+          createdByUserId: req.user.id,
+          approvedByUserId: req.user.id
+        });
+        return res.status(201).json({ ok: true, kind: 'auto_booked', event: ev });
+      }
+    }
+
+    const created = await OfficeBookingRequest.create({
+      requestType: 'PROVIDER_REQUEST',
+      officeLocationId: loc.id,
+      roomId: room?.id || null,
+      requestedProviderId: req.user.id,
+      startAt,
+      endAt,
+      recurrence: normalizedRecurrence,
+      openToAlternativeRoom: !!openToAlternativeRoom || !room?.id,
+      requesterNotes: notes
+    });
+
+    res.status(201).json({ ok: true, kind: 'request', request: created });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listPendingOfficeBookingRequests = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only CPA/admin can view pending booking requests' } });
+    }
+
+    const userAgencies = await User.getAgencies(req.user.id);
+    const agencyIds = userAgencies.map((a) => a.id);
+    if (req.user.role === 'super_admin' && agencyIds.length === 0) {
+      // super_admin without explicit agencies: return none by default
+      return res.json([]);
+    }
+
+    const officeLocationId = req.query.officeLocationId ? parseInt(req.query.officeLocationId, 10) : null;
+    const rows = await OfficeBookingRequest.listPendingForAgencies(agencyIds, { officeLocationId });
+    res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const approveOfficeBookingRequest = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only CPA/admin can approve booking requests' } });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid request id' } });
+
+    const reqRow = await OfficeBookingRequest.findById(id);
+    if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
+    if (String(reqRow.status || '').toUpperCase() !== 'PENDING') {
+      return res.status(409).json({ error: { message: 'Request is not pending' } });
+    }
+
+    const loc = await OfficeLocation.findById(reqRow.office_location_id);
+    if (!loc) return res.status(404).json({ error: { message: 'Office location not found' } });
+    if (req.user.role !== 'super_admin') {
+      const userAgencies = await User.getAgencies(req.user.id);
+      const ok = await OfficeLocationAgency.userHasAccess({
+        officeLocationId: loc.id,
+        agencyIds: userAgencies.map((a) => a.id)
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const recurrence = String(reqRow.recurrence || 'ONCE').toUpperCase();
+    const allowedRecurrence = new Set(['ONCE', 'WEEKLY', 'BIWEEKLY', 'MONTHLY']);
+    const normalizedRecurrence = allowedRecurrence.has(recurrence) ? recurrence : 'ONCE';
+
+    const requestedRoomId = reqRow.room_id ? Number(reqRow.room_id) : null;
+    const rooms = await OfficeRoom.findByLocation(loc.id);
+    const requestedRoom = requestedRoomId ? rooms.find((r) => Number(r.id) === requestedRoomId) : null;
+    const allowAlt = !!reqRow.open_to_alternative_room;
+    const candidates = requestedRoom && !allowAlt ? [requestedRoom] : rooms;
+
+    // Ensure week events are materialized so standing assignments appear as occupied.
+    try {
+      const ymd = String(reqRow.start_at || '').slice(0, 10);
+      const ws = startOfWeekISO(ymd);
+      if (ws) {
+        await OfficeScheduleMaterializer.materializeWeek({
+          officeLocationId: loc.id,
+          weekStartRaw: ws,
+          createdByUserId: req.user.id
+        });
+      }
+    } catch {
+      // ignore
+    }
+
+    const tz = loc.timezone || 'America/New_York';
+    let chosen = null;
+    for (const r of candidates) {
+      // eslint-disable-next-line no-await-in-loop
+      const open = await isRoomOpenAt({
+        officeLocationId: loc.id,
+        roomId: r.id,
+        startAt: reqRow.start_at,
+        endAt: reqRow.end_at,
+        officeTimeZone: tz
+      });
+      if (open) {
+        chosen = r;
+        break;
+      }
+    }
+    if (!chosen) {
+      return res.status(409).json({ error: { message: 'No open room is available for that time.' } });
+    }
+
+    const wh = weekdayHourInTz(reqRow.start_at, tz);
+    if (!wh) return res.status(400).json({ error: { message: 'Invalid start time' } });
+
+    let createdEvent = null;
+    let createdStandingAssignment = null;
+    let createdBookingPlan = null;
+
+    if (normalizedRecurrence === 'ONCE') {
+      createdEvent = await OfficeEvent.create({
+        officeLocationId: loc.id,
+        roomId: chosen.id,
+        startAt: reqRow.start_at,
+        endAt: reqRow.end_at,
+        status: 'BOOKED',
+        assignedProviderId: null,
+        bookedProviderId: reqRow.requested_provider_id,
+        source: 'PROVIDER_REQUEST',
+        recurrenceGroupId: null,
+        notes: reqRow.requester_notes || null,
+        createdByUserId: req.user.id,
+        approvedByUserId: req.user.id
+      });
+    } else {
+      const assignedFrequency = normalizedRecurrence === 'BIWEEKLY' ? 'BIWEEKLY' : 'WEEKLY';
+      createdStandingAssignment = await OfficeStandingAssignment.create({
+        officeLocationId: loc.id,
+        roomId: chosen.id,
+        providerId: reqRow.requested_provider_id,
+        weekday: wh.weekdayIndex,
+        hour: wh.hour,
+        assignedFrequency,
+        createdByUserId: req.user.id
+      });
+      createdBookingPlan = await OfficeBookingPlan.upsertActive({
+        standingAssignmentId: createdStandingAssignment.id,
+        bookedFrequency: normalizedRecurrence,
+        bookingStartDate: String(reqRow.start_at || '').slice(0, 10),
+        createdByUserId: req.user.id
+      });
+    }
+
+    const updatedReq = await OfficeBookingRequest.markDecided({
+      requestId: reqRow.id,
+      status: 'APPROVED',
+      decidedByUserId: req.user.id,
+      approverComment: req.body?.approverComment ? String(req.body.approverComment).slice(0, 2000) : null
+    });
+
+    try {
+      if (createdEvent?.id) await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: createdEvent.id });
+    } catch {
+      // ignore
+    }
+
+    res.json({
+      ok: true,
+      request: updatedReq,
+      event: createdEvent,
+      standingAssignment: createdStandingAssignment,
+      bookingPlan: createdBookingPlan
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const denyOfficeBookingRequest = async (req, res, next) => {
+  try {
+    if (!canManageSchedule(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only CPA/admin can deny booking requests' } });
+    }
+
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid request id' } });
+
+    const reqRow = await OfficeBookingRequest.findById(id);
+    if (!reqRow) return res.status(404).json({ error: { message: 'Request not found' } });
+    if (String(reqRow.status || '').toUpperCase() !== 'PENDING') {
+      return res.status(409).json({ error: { message: 'Request is not pending' } });
+    }
+
+    const loc = await OfficeLocation.findById(reqRow.office_location_id);
+    if (!loc) return res.status(404).json({ error: { message: 'Office location not found' } });
+    if (req.user.role !== 'super_admin') {
+      const userAgencies = await User.getAgencies(req.user.id);
+      const ok = await OfficeLocationAgency.userHasAccess({
+        officeLocationId: loc.id,
+        agencyIds: userAgencies.map((a) => a.id)
+      });
+      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const updatedReq = await OfficeBookingRequest.markDecided({
+      requestId: reqRow.id,
+      status: 'DENIED',
+      decidedByUserId: req.user.id,
+      approverComment: req.body?.approverComment ? String(req.body.approverComment).slice(0, 2000) : null
+    });
+    res.json({ ok: true, request: updatedReq });
   } catch (e) {
     next(e);
   }

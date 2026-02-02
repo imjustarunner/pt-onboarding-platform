@@ -6,6 +6,39 @@ class OfficeStandingAssignment {
     return rows?.[0] || null;
   }
 
+  static async create({
+    officeLocationId,
+    roomId,
+    providerId,
+    weekday,
+    hour,
+    assignedFrequency = 'WEEKLY',
+    createdByUserId
+  }) {
+    const [result] = await pool.execute(
+      `INSERT INTO office_standing_assignments
+        (office_location_id, room_id, provider_id, weekday, hour, assigned_frequency, availability_mode, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'AVAILABLE', ?)`,
+      [officeLocationId, roomId, providerId, weekday, hour, assignedFrequency, createdByUserId]
+    );
+    return this.findById(result.insertId);
+  }
+
+  static async findActiveBySlot({ officeLocationId, roomId, weekday, hour }) {
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM office_standing_assignments
+       WHERE office_location_id = ?
+         AND room_id = ?
+         AND weekday = ?
+         AND hour = ?
+         AND is_active = TRUE
+       LIMIT 1`,
+      [officeLocationId, roomId, weekday, hour]
+    );
+    return rows?.[0] || null;
+  }
+
   static async listByOffice(officeLocationId) {
     const [rows] = await pool.execute(
       `SELECT

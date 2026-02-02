@@ -83,10 +83,10 @@
           </div>
         </div>
 
-        <div class="card" style="margin-top: 16px;">
+        <div class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Security</h3>
-            <button class="btn btn-secondary btn-large" @click="router.push('/change-password')">
+            <button class="btn btn-secondary btn-compact" @click="router.push('/change-password')">
               Change Password
             </button>
           </div>
@@ -95,10 +95,10 @@
           </div>
         </div>
 
-        <div class="card" style="margin-top: 16px;">
+        <div class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Preferred Name (display only)</h3>
-            <button class="btn btn-primary btn-large" @click="savePreferredName" :disabled="savingPreferredName">
+            <button class="btn btn-primary btn-compact" @click="savePreferredName" :disabled="savingPreferredName">
               {{ savingPreferredName ? 'Saving...' : 'Save Preferred Name' }}
             </button>
           </div>
@@ -114,13 +114,13 @@
           </div>
         </div>
 
-        <div class="card" style="margin-top: 16px;">
+        <div class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
             <h3 style="margin: 0;">Home Address</h3>
             <div style="display:flex; gap: 10px; flex-wrap: wrap;">
               <button
                 v-if="!editingHomeAddress"
-                class="btn btn-secondary btn-large"
+                class="btn btn-secondary btn-compact"
                 type="button"
                 @click="startEditingHomeAddress"
               >
@@ -128,7 +128,7 @@
               </button>
               <button
                 v-else
-                class="btn btn-primary btn-large"
+                class="btn btn-primary btn-compact"
                 type="button"
                 @click="saveHomeAddress"
                 :disabled="savingHomeAddress"
@@ -137,7 +137,7 @@
               </button>
               <button
                 v-if="editingHomeAddress"
-                class="btn btn-secondary btn-large"
+                class="btn btn-secondary btn-compact"
                 type="button"
                 @click="cancelEditingHomeAddress"
                 :disabled="savingHomeAddress"
@@ -927,6 +927,40 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 16px;
+}
+
+.compact-card {
+  padding: 12px 14px !important;
+}
+
+.compact-card .section-header {
+  margin-bottom: 10px;
+  gap: 12px;
+}
+
+.compact-card h3 {
+  font-size: 16px;
+}
+
+.compact-card .hint {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.btn-compact {
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.compact-card .fields-grid {
+  gap: 12px;
+}
+
+.compact-card .field-item input,
+.compact-card .field-item select,
+.compact-card .field-item textarea {
+  padding: 8px 10px;
 }
 
 .category-tabs {

@@ -6,6 +6,10 @@ import {
   listRooms,
   getAvailability,
   getWeeklyGrid,
+  createOfficeBookingRequest,
+  listPendingOfficeBookingRequests,
+  approveOfficeBookingRequest,
+  denyOfficeBookingRequest,
   createBookingRequest,
   listPendingRequests,
   approveRequest,
@@ -34,10 +38,17 @@ router.get('/locations/:locationId/weekly-grid', getWeeklyGrid);
 // User booking request
 router.post('/requests', createBookingRequest);
 
+// Office booking requests (frequency-aware, supports kiosk auto-book for same-day open slots)
+router.post('/booking-requests', createOfficeBookingRequest);
+
 // Approvals (CPA/Admin)
 router.get('/requests/pending', listPendingRequests);
 router.post('/requests/:id/approve', approveRequest);
 router.post('/requests/:id/deny', denyRequest);
+
+router.get('/booking-requests/pending', listPendingOfficeBookingRequests);
+router.post('/booking-requests/:id/approve', approveOfficeBookingRequest);
+router.post('/booking-requests/:id/deny', denyOfficeBookingRequest);
 
 // Admin utilities
 router.post('/locations', createLocation);

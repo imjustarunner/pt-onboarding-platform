@@ -1924,7 +1924,11 @@ const submitterLabel = (row) => {
 
 const agencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
-  return a?.id || null;
+  // `currentAgency` is persisted to localStorage and can be hydrated; ensure we always return a plain number id.
+  // Some call sites depend on this for query params (backend requires `agencyId`).
+  const raw = a?.id?.value ?? a?.id ?? null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
 });
 
 const periods = ref([]);

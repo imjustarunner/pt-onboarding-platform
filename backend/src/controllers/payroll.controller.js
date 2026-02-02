@@ -7755,7 +7755,27 @@ export const getPayrollOtherRateTitles = async (req, res, next) => {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
     const userId = req.query.userId ? parseInt(req.query.userId, 10) : null;
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    // READ access is needed by provider-facing views (e.g. My Compensation).
+    // Do NOT require full payroll permissions just to read the label strings.
+    // Rules:
+    // - Any user assigned to this agency can read the agency-level titles.
+    // - Per-user overrides are only readable for:
+    //    - the user themselves, OR
+    //    - admins/support/super_admin (payroll managers).
+    const isAdminish = isAdminRole(req.user?.role);
+    if (!isAdminish) {
+      const [mem] = await pool.execute(
+        'SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+        [req.user?.id, agencyId]
+      );
+      if (!mem || mem.length === 0) {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    } else {
+      // Keep behavior consistent for privileged views: require payroll access for agency context
+      // (prevents accidental leakage across agencies for multi-agency admins with limited payroll access).
+      if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    }
 
     // Defaults
     const base = { title1: 'Other 1', title2: 'Other 2', title3: 'Other 3' };
@@ -7775,7 +7795,9 @@ export const getPayrollOtherRateTitles = async (req, res, next) => {
       agencyRow = null;
     }
 
-    if (userId) {
+    const canReadUserOverride =
+      !!userId && (Number(userId) === Number(req.user?.id || 0) || isAdminish);
+    if (canReadUserOverride) {
       try {
         const [uRows] = await pool.execute(
           `SELECT title_1, title_2, title_3

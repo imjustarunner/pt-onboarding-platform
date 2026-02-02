@@ -3,56 +3,171 @@
     <div class="sched-toolbar">
       <div class="sched-toolbar-top">
         <h2 class="sched-week-title">Week of {{ weekStart }}</h2>
+        <div class="sched-week-meta">
+          <div class="sched-today-label">Today {{ todayMmdd }}</div>
+          <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="goToTodayWeek" :disabled="loading">Today</button>
+        </div>
       </div>
       <div class="sched-toolbar-main">
         <div class="sched-toolbar-left">
+          <div class="sched-view-switch" role="tablist" aria-label="Schedule view">
+            <button
+              v-for="opt in viewModeOptions"
+              :key="`view-${opt.id}`"
+              type="button"
+              class="sched-seg"
+              role="tab"
+              :aria-selected="String(viewMode === opt.id)"
+              :class="{ on: viewMode === opt.id }"
+              :disabled="loading"
+              @click="viewMode = opt.id"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
           <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="prevWeek" :disabled="loading">← Prev</button>
           <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="nextWeek" :disabled="loading">Next →</button>
         </div>
 
         <div class="sched-toolbar-right">
-          <label class="sched-toggle">
-            <input type="checkbox" v-model="showGoogleBusy" :disabled="loading" />
-            <span>Google busy</span>
+          <label class="sched-inline">
+            <span>Office</span>
+            <select v-model.number="selectedOfficeLocationId" class="sched-select" :disabled="loading || officeGridLoading">
+              <option :value="0">None</option>
+              <option v-for="o in officeLocations" :key="`sched-office-${o.id}`" :value="Number(o.id)">{{ o.name }}</option>
+            </select>
           </label>
 
-          <label class="sched-toggle">
-            <input type="checkbox" v-model="showGoogleEvents" :disabled="loading" />
-            <span>Google titles</span>
-          </label>
+          <button
+            v-if="selectedOfficeLocationId"
+            class="sched-icon-btn"
+            type="button"
+            title="Clear office selection"
+            :disabled="loading || officeGridLoading"
+            @click="selectedOfficeLocationId = 0"
+          >
+            ✕
+          </button>
 
-          <label class="sched-toggle">
-            <input type="checkbox" v-model="hideWeekend" :disabled="loading" />
-            <span>Hide weekends</span>
-          </label>
+          <button
+            type="button"
+            class="sched-pill"
+            :class="{ on: showGoogleBusy }"
+            role="switch"
+            :aria-checked="String(!!showGoogleBusy)"
+            :disabled="loading"
+            @click="showGoogleBusy = !showGoogleBusy"
+          >
+            Google busy
+          </button>
+
+          <button
+            type="button"
+            class="sched-pill"
+            :class="{ on: showGoogleEvents }"
+            role="switch"
+            :aria-checked="String(!!showGoogleEvents)"
+            :disabled="loading"
+            @click="showGoogleEvents = !showGoogleEvents"
+            title="Shows event titles (sensitive)"
+          >
+            Google titles
+          </button>
+
+          <button
+            type="button"
+            class="sched-pill"
+            :class="{ on: hideWeekend }"
+            role="switch"
+            :aria-checked="String(!!hideWeekend)"
+            :disabled="loading"
+            @click="hideWeekend = !hideWeekend"
+          >
+            Hide weekends
+          </button>
+
+          <button
+            v-if="!calendarsHidden"
+            class="sched-pill"
+            type="button"
+            :disabled="loading"
+            @click="hideAllCalendars"
+            title="Hide all calendar overlays (keeps office overlay)"
+          >
+            Hide calendars
+          </button>
+          <button
+            v-else
+            class="sched-pill on"
+            type="button"
+            :disabled="loading"
+            @click="showAllCalendars"
+            title="Restore calendar overlays"
+          >
+            Show calendars
+          </button>
 
           <button class="btn btn-secondary btn-sm sched-btn" type="button" @click="load" :disabled="loading">Refresh</button>
         </div>
       </div>
 
+      <div v-if="selectedOfficeLocationId && officeGridError" class="error" style="margin-top: 10px;">
+        {{ officeGridError }}
+      </div>
+      <div v-else-if="selectedOfficeLocationId && officeGridLoading" class="loading" style="margin-top: 10px;">
+        Loading office availability…
+      </div>
+
       <div v-if="externalCalendarsAvailable.length" class="sched-toolbar-secondary">
         <div class="sched-calendars">
           <div class="sched-calendars-label">EHR calendars</div>
-          <label v-for="c in externalCalendarsAvailable" :key="`cal-${c.id}`" class="sched-toggle">
-            <input
-              type="checkbox"
-              v-model="selectedExternalCalendarIds"
-              :value="Number(c.id)"
-              :disabled="loading"
-            />
-            <span>{{ c.label }}</span>
-          </label>
+          <div class="sched-calendars-actions">
+            <button type="button" class="sched-chip" :disabled="loading" @click="selectAllExternalCalendars">All</button>
+            <button type="button" class="sched-chip" :disabled="loading" @click="clearExternalCalendars">None</button>
+          </div>
+          <button
+            v-for="c in externalCalendarsAvailable"
+            :key="`cal-${c.id}`"
+            type="button"
+            class="sched-chip"
+            :class="{ on: selectedExternalCalendarIds.includes(Number(c.id)) }"
+            :disabled="loading"
+            @click="toggleExternalCalendar(Number(c.id))"
+          >
+            {{ c.label }}
+          </button>
         </div>
       </div>
     </div>
 
-    <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
-    <div v-if="loading" class="loading" style="margin-top: 10px;">Loading schedule…</div>
-    <div v-if="overlayErrorText" class="error" style="margin-top: 10px;">
-      {{ overlayErrorText }}
+    <!-- Office layout view (room-by-room weekly board) -->
+    <div v-if="viewMode === 'office_layout'" class="sched-grid-wrap">
+      <div v-if="!selectedOfficeLocationId" class="hint" style="margin-top: 10px;">
+        Select an office above to view the room-by-room weekly layout.
+      </div>
+      <div v-else-if="officeGridError" class="error" style="margin-top: 10px;">{{ officeGridError }}</div>
+      <div v-else-if="officeGridLoading" class="loading" style="margin-top: 10px;">Loading office availability…</div>
+      <OfficeWeeklyRoomGrid
+        v-else
+        :office-grid="officeGrid"
+        :today-ymd="todayLocalYmd"
+        :can-book="canCreateRequests"
+        @cell-click="onOfficeLayoutCellClick"
+      />
     </div>
 
-    <div v-else-if="summary" class="sched-grid-wrap">
+    <!-- Open finder view (existing personal grid) -->
+    <template v-else>
+      <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
+      <div v-if="loading" class="loading" style="margin-top: 10px;">Loading schedule…</div>
+      <div v-if="googleBusyDisabledHint" class="hint" style="margin-top: 10px;">
+        {{ googleBusyDisabledHint }}
+      </div>
+      <div v-if="overlayErrorText" class="error" style="margin-top: 10px;">
+        {{ overlayErrorText }}
+      </div>
+
+      <div v-else-if="summary" class="sched-grid-wrap">
       <div class="legend">
         <div class="legend-item"><span class="swatch swatch-request"></span> Pending request</div>
         <div class="legend-item"><span class="swatch swatch-school"></span> School assigned</div>
@@ -67,7 +182,7 @@
 
       <div class="sched-grid" :style="gridStyle">
         <div class="sched-head-cell"></div>
-        <div v-for="d in visibleDays" :key="d" class="sched-head-cell">
+        <div v-for="d in visibleDays" :key="d" class="sched-head-cell" :class="{ 'sched-head-today': isTodayDay(d) }">
           <div class="sched-head-day">
             <div class="sched-head-dow">{{ d }}</div>
             <div class="sched-head-date">{{ dayDateLabel(d) }}</div>
@@ -77,15 +192,26 @@
         <template v-for="h in hours" :key="`h-${h}`">
           <div class="sched-hour">{{ hourLabel(h) }}</div>
 
-          <button
+          <div
             v-for="d in visibleDays"
             :key="`c-${d}-${h}`"
-            type="button"
             class="sched-cell"
-            :class="{ clickable: canCreateRequests }"
+            :class="{ clickable: canCreateRequests, 'sched-cell-today': isTodayDay(d) }"
             @click="onCellClick(d, h)"
+            role="button"
+            :tabindex="0"
+            @keydown.enter.prevent="onCellClick(d, h)"
+            @keydown.space.prevent="onCellClick(d, h)"
           >
             <div v-if="availabilityClass(d, h)" class="cell-avail" :class="availabilityClass(d, h)"></div>
+            <div
+              v-if="selectedOfficeLocationId && officeOverlay(d, h)"
+              class="cell-office-overlay"
+              :style="officeOverlayStyle"
+              :title="officeOverlayTitle(d, h)"
+            >
+              {{ officeOverlay(d, h) }}
+            </div>
             <div class="cell-blocks">
               <div
                 v-for="b in cellBlocks(d, h)"
@@ -93,20 +219,22 @@
                 class="cell-block"
                 :class="`cell-block-${b.kind}`"
                 :title="b.title"
+                :style="cellBlockStyle(b)"
                 @click="onCellBlockClick($event, b, d, h)"
               >
                 <span class="cell-block-text">{{ b.shortLabel }}</span>
               </div>
             </div>
-          </button>
+          </div>
         </template>
       </div>
-    </div>
+      </div>
+    </template>
 
     <div v-if="showRequestModal" class="modal-backdrop" @click.self="closeModal">
       <div class="modal">
         <div class="modal-head">
-          <div class="modal-title">Request additional availability</div>
+          <div class="modal-title">Request / book time</div>
           <button class="btn btn-secondary btn-sm" type="button" @click="closeModal">Close</button>
         </div>
 
@@ -117,7 +245,7 @@
         <div class="modal-body">
           <label class="lbl">Request type</label>
           <select v-model="requestType" class="input">
-            <option value="office">Additional office availability request</option>
+            <option value="office">Office booking</option>
             <option value="school" :disabled="!canUseSchool(modalDay, modalHour, modalEndHour)">School daytime availability</option>
             <option value="supervision" :disabled="supervisorsLoading || supervisors.length === 0">Supervision (adds to Google Calendar)</option>
           </select>
@@ -146,6 +274,42 @@
             </label>
           </div>
 
+          <div v-if="requestType === 'office'" style="margin-top: 10px;">
+            <div v-if="!selectedOfficeLocationId" class="muted">
+              Select an office from the toolbar above to view open/assigned/booked time and place a booking request.
+            </div>
+            <template v-else>
+              <label class="lbl">Frequency</label>
+              <select v-model="officeBookingRecurrence" class="input">
+                <option value="ONCE">Once</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="BIWEEKLY">Biweekly</option>
+                <option value="MONTHLY">Monthly</option>
+              </select>
+
+              <label class="lbl" style="margin-top: 10px;">Room</label>
+              <div v-if="officeGridLoading" class="muted">Loading rooms…</div>
+              <div v-else-if="officeGridError" class="error">{{ officeGridError }}</div>
+              <div v-else class="office-room-picker">
+                <label class="office-room-option">
+                  <input type="radio" name="office-room" :value="0" v-model.number="selectedOfficeRoomId" />
+                  <span class="office-room-label">Any open room</span>
+                </label>
+                <label
+                  v-for="opt in modalOfficeRoomOptions"
+                  :key="`room-opt-${opt.roomId}`"
+                  class="office-room-option"
+                  :class="{ disabled: !opt.requestable }"
+                >
+                  <input type="radio" name="office-room" :value="opt.roomId" v-model.number="selectedOfficeRoomId" :disabled="!opt.requestable" />
+                  <span class="office-room-label">{{ opt.label }}</span>
+                  <span class="office-room-meta">{{ opt.stateLabel }}</span>
+                </label>
+              </div>
+              <div v-if="officeBookingHint" class="muted" style="margin-top: 6px;">{{ officeBookingHint }}</div>
+            </template>
+          </div>
+
           <label class="lbl" style="margin-top: 10px;">End time</label>
           <select v-model.number="modalEndHour" class="input">
             <option v-for="h in endHourOptions" :key="`end-${h}`" :value="h">
@@ -166,6 +330,7 @@
             @click="submitRequest"
             :disabled="
               submitting ||
+              (requestType === 'office' && !officeBookingValid) ||
               (requestType === 'school' && !canUseSchool(modalDay, modalHour, modalEndHour)) ||
               (requestType === 'supervision' && (supervisorsLoading || supervisors.length === 0 || !selectedSupervisorId))
             "
@@ -299,6 +464,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 
 const props = defineProps({
   userId: { type: Number, required: true },
@@ -436,11 +602,153 @@ const loading = ref(false);
 const error = ref('');
 const summary = ref(null);
 
-const showGoogleBusy = ref(false);
+// ---- Overlay visibility (persisted locally for providers) ----
+// Defaults for provider UX:
+// - Google busy: ON
+// - Google titles: OFF (sensitive)
+// - External/EHR calendars: ALL ON (once available list is loaded)
+const showGoogleBusy = ref(true);
 const showGoogleEvents = ref(false);
-const selectedExternalCalendarIds = ref([]);
+const selectedExternalCalendarIds = ref([]); // populated from available list once loaded
 const hideWeekend = ref(props.mode === 'self');
 const initializedOverlayDefaults = ref(false);
+
+const viewMode = ref('open_finder'); // 'open_finder' | 'office_layout' (office_layout implemented later)
+
+const overlayPrefsKey = computed(() => {
+  if (props.mode !== 'self') return '';
+  const uid = Number(authStore.user?.id || props.userId || 0);
+  const agencyId = Number(props.agencyId || 0);
+  if (!uid || !agencyId) return '';
+  return `schedule.overlayPrefs.v1:${uid}:${agencyId}`;
+});
+
+const lastCalendarPrefs = ref(null); // { showGoogleBusy, showGoogleEvents, selectedExternalCalendarIds }
+const overlayPrefsLoaded = ref(false);
+const shouldDefaultSelectAllExternal = ref(false);
+
+const coerceIdArray = (arr) =>
+  (Array.isArray(arr) ? arr : [])
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+const loadOverlayPrefs = () => {
+  if (!overlayPrefsKey.value) return null;
+  try {
+    const raw = window?.localStorage?.getItem?.(overlayPrefsKey.value);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveOverlayPrefs = () => {
+  if (!overlayPrefsKey.value) return;
+  try {
+    const payload = {
+      showGoogleBusy: !!showGoogleBusy.value,
+      showGoogleEvents: !!showGoogleEvents.value,
+      selectedExternalCalendarIds: coerceIdArray(selectedExternalCalendarIds.value),
+      hideWeekend: !!hideWeekend.value,
+      viewMode: String(viewMode.value || 'open_finder'),
+      lastCalendarPrefs: lastCalendarPrefs.value
+        ? {
+            showGoogleBusy: !!lastCalendarPrefs.value.showGoogleBusy,
+            showGoogleEvents: !!lastCalendarPrefs.value.showGoogleEvents,
+            selectedExternalCalendarIds: coerceIdArray(lastCalendarPrefs.value.selectedExternalCalendarIds)
+          }
+        : null
+    };
+    window?.localStorage?.setItem?.(overlayPrefsKey.value, JSON.stringify(payload));
+  } catch {
+    // ignore best-effort persistence
+  }
+};
+
+const calendarsHidden = computed(
+  () =>
+    !showGoogleBusy.value &&
+    !showGoogleEvents.value &&
+    (Array.isArray(selectedExternalCalendarIds.value) ? selectedExternalCalendarIds.value : []).length === 0
+);
+
+const selectAllExternalCalendars = () => {
+  selectedExternalCalendarIds.value = (externalCalendarsAvailable.value || []).map((c) => Number(c.id)).filter((n) => Number.isFinite(n) && n > 0);
+};
+
+const clearExternalCalendars = () => {
+  selectedExternalCalendarIds.value = [];
+};
+
+const toggleExternalCalendar = (id) => {
+  const n = Number(id || 0);
+  if (!Number.isFinite(n) || n <= 0) return;
+  const cur = new Set((selectedExternalCalendarIds.value || []).map((x) => Number(x)));
+  if (cur.has(n)) cur.delete(n);
+  else cur.add(n);
+  selectedExternalCalendarIds.value = Array.from(cur.values());
+};
+
+const hideAllCalendars = () => {
+  // Preserve the last visible configuration so "Show calendars" can restore it.
+  lastCalendarPrefs.value = {
+    showGoogleBusy: !!showGoogleBusy.value,
+    showGoogleEvents: !!showGoogleEvents.value,
+    selectedExternalCalendarIds: (selectedExternalCalendarIds.value || []).slice()
+  };
+  showGoogleBusy.value = false;
+  showGoogleEvents.value = false;
+  selectedExternalCalendarIds.value = [];
+};
+
+const showAllCalendars = () => {
+  const p = lastCalendarPrefs.value;
+  if (p) {
+    showGoogleBusy.value = p.showGoogleBusy !== undefined ? !!p.showGoogleBusy : true;
+    showGoogleEvents.value = p.showGoogleEvents !== undefined ? !!p.showGoogleEvents : false;
+    selectedExternalCalendarIds.value = coerceIdArray(p.selectedExternalCalendarIds);
+    // If the restored selection is empty, default to ALL externals so "show" actually shows something.
+    if (!selectedExternalCalendarIds.value.length && externalCalendarsAvailable.value.length) {
+      selectAllExternalCalendars();
+    }
+    return;
+  }
+  // Fallback defaults.
+  showGoogleBusy.value = true;
+  showGoogleEvents.value = false;
+  if (externalCalendarsAvailable.value.length) selectAllExternalCalendars();
+};
+
+const viewModeOptions = [
+  { id: 'open_finder', label: 'Open finder' },
+  { id: 'office_layout', label: 'Office layout' }
+];
+
+// Load persisted overlay prefs once (provider view only).
+try {
+  if (props.mode === 'self') {
+    const saved = loadOverlayPrefs();
+    if (saved) {
+      showGoogleBusy.value = saved.showGoogleBusy !== undefined ? !!saved.showGoogleBusy : true;
+      showGoogleEvents.value = saved.showGoogleEvents !== undefined ? !!saved.showGoogleEvents : false;
+      selectedExternalCalendarIds.value = coerceIdArray(saved.selectedExternalCalendarIds);
+      hideWeekend.value = saved.hideWeekend !== undefined ? !!saved.hideWeekend : true;
+      viewMode.value = saved.viewMode === 'office_layout' ? 'office_layout' : 'open_finder';
+      lastCalendarPrefs.value = saved.lastCalendarPrefs ? { ...saved.lastCalendarPrefs } : null;
+      // If saved selection is empty, we do NOT auto-select all — user explicitly hid calendars.
+      shouldDefaultSelectAllExternal.value = false;
+    } else {
+      // First-load defaults (select-all external happens once calendars list is known).
+      showGoogleBusy.value = true;
+      showGoogleEvents.value = false;
+      shouldDefaultSelectAllExternal.value = true;
+    }
+  }
+} finally {
+  overlayPrefsLoaded.value = true;
+}
 
 const visibleDays = computed(() => (hideWeekend.value ? ALL_DAYS.slice(0, 5) : ALL_DAYS.slice()));
 
@@ -470,6 +778,12 @@ const localYmd = (d) => {
   const dd = pad2(d.getDate());
   return `${yy}-${mm}-${dd}`;
 };
+
+const todayLocalYmd = computed(() => localYmd(new Date()));
+const todayMmdd = computed(() => {
+  const d = new Date();
+  return `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`;
+});
 
 const toLocalDateNoon = (dateLike) => {
   // IMPORTANT: `new Date('YYYY-MM-DD')` parses as UTC and can shift the local day.
@@ -512,6 +826,38 @@ const dayDateLabel = (dayName) => {
 };
 
 const weekStart = ref(startOfWeekMondayYmd(props.weekStartYmd || new Date()));
+
+const isTodayDay = (dayName) => {
+  const idx = ALL_DAYS.indexOf(String(dayName || ''));
+  if (idx < 0) return false;
+  const ymd = addDaysYmd(weekStart.value, idx);
+  return ymd === todayLocalYmd.value;
+};
+
+const dayNameForDateYmd = (dateYmd) => {
+  const g = officeGrid.value;
+  const d = String(dateYmd || '').slice(0, 10);
+  if (g && Array.isArray(g.days)) {
+    const idx = g.days.findIndex((x) => String(x || '').slice(0, 10) === d);
+    if (idx >= 0) return ALL_DAYS[idx] || null;
+  }
+  // Fallback: compute from weekStart (assumes same week)
+  const ws = String(weekStart.value || '').slice(0, 10);
+  const a = new Date(`${ws}T00:00:00`);
+  const b = new Date(`${d}T00:00:00`);
+  const diff = Math.floor((b - a) / (1000 * 60 * 60 * 24));
+  return ALL_DAYS[diff] || null;
+};
+
+const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId }) => {
+  if (!canCreateRequests.value) return;
+  const dn = dayNameForDateYmd(dateYmd);
+  if (!dn) return;
+  // Reuse existing booking modal behavior (supports multi-hour + recurrence).
+  onCellClick(dn, Number(hour));
+  // Preselect the clicked room (if it's requestable for the default 1-hour range, it will remain valid).
+  selectedOfficeRoomId.value = Number(roomId || 0) || 0;
+};
 
 const effectiveAgencyId = computed(() => {
   const n = Number(props.agencyId || 0);
@@ -576,6 +922,12 @@ const availabilityClass = (dayName, hour) => {
   if (hasO) return 'cell-avail-office';
   return '';
 };
+
+// If Google busy is enabled but the backend reports an auth/impersonation failure (invalid_grant),
+// auto-disable it so the schedule does not feel “broken” on load.
+const googleBusyDisabledHint = ref('');
+const autoDisabledGoogleBusy = ref(false);
+const isGoogleInvalidGrant = (msg) => String(msg || '').toLowerCase().includes('invalid_grant');
 
 const load = async () => {
   if (!props.userId) return;
@@ -678,6 +1030,24 @@ const load = async () => {
 
       summary.value = merged;
     }
+
+    // Fail-soft Google busy: if the user’s email cannot be impersonated (invalid_grant),
+    // turn off Google busy and persist the preference.
+    if (props.mode === 'self' && showGoogleBusy.value && !autoDisabledGoogleBusy.value) {
+      const errMsg = String(summary.value?.googleBusyError || '').trim();
+      if (errMsg && isGoogleInvalidGrant(errMsg)) {
+        autoDisabledGoogleBusy.value = true;
+        googleBusyDisabledHint.value =
+          'Google busy is unavailable for your account (Google Workspace could not validate your email). We turned it off for now.';
+        // Hide immediately, then the watcher will reload without Google busy.
+        showGoogleBusy.value = false;
+        try {
+          if (summary.value && typeof summary.value === 'object') summary.value.googleBusyError = null;
+        } catch {
+          // ignore
+        }
+      }
+    }
   } catch (e) {
     summary.value = null;
     error.value = e.response?.data?.error?.message || 'Failed to load schedule';
@@ -688,14 +1058,6 @@ const load = async () => {
 
 watch([() => props.userId, effectiveAgencyIds], () => load(), { immediate: true });
 watch([showGoogleBusy, showGoogleEvents, selectedExternalCalendarIds], () => load(), { deep: true });
-
-watch(
-  () => authStore.user?.id,
-  () => {
-    void loadMyScheduleColors();
-  },
-  { immediate: true }
-);
 
 watch(
   () => props.weekStartYmd,
@@ -712,6 +1074,19 @@ watch(
 watch(externalCalendarsAvailable, (next) => {
   // Drop selections that no longer exist in the available list.
   const allowed = new Set((next || []).map((c) => Number(c.id)));
+
+  // Provider defaults: if no saved prefs exist, default ALL external calendars on once we know what's available.
+  if (
+    props.mode === 'self' &&
+    overlayPrefsLoaded.value &&
+    shouldDefaultSelectAllExternal.value &&
+    (selectedExternalCalendarIds.value || []).length === 0 &&
+    allowed.size > 0
+  ) {
+    selectedExternalCalendarIds.value = Array.from(allowed.values());
+    shouldDefaultSelectAllExternal.value = false;
+  }
+
   const current = (selectedExternalCalendarIds.value || []).map((n) => Number(n)).filter((n) => allowed.has(n));
   if (current.length !== (selectedExternalCalendarIds.value || []).length) {
     selectedExternalCalendarIds.value = current;
@@ -726,7 +1101,16 @@ watch(externalCalendarsAvailable, (next) => {
     showGoogleBusy.value = true;
     initializedOverlayDefaults.value = true;
   }
+
+  // Persist (best-effort) once the available list stabilizes and any defaulting/cleanup is applied.
+  if (props.mode === 'self' && overlayPrefsLoaded.value) saveOverlayPrefs();
 });
+
+// Persist overlay/view settings (provider UX only).
+watch([showGoogleBusy, showGoogleEvents, selectedExternalCalendarIds, hideWeekend, viewMode], () => {
+  if (props.mode !== 'self' || !overlayPrefsLoaded.value) return;
+  saveOverlayPrefs();
+}, { deep: true });
 
 const prevWeek = () => {
   weekStart.value = addDaysYmd(weekStart.value, -7);
@@ -735,6 +1119,13 @@ const prevWeek = () => {
 };
 const nextWeek = () => {
   weekStart.value = addDaysYmd(weekStart.value, 7);
+  emit('update:weekStartYmd', weekStart.value);
+  load();
+};
+const goToTodayWeek = () => {
+  const monday = startOfWeekMondayYmd(new Date());
+  if (!monday) return;
+  weekStart.value = monday;
   emit('update:weekStartYmd', weekStart.value);
   load();
 };
@@ -1051,8 +1442,9 @@ const schoolTitle = (dayName, hour) => {
   const nameSuffix = names.length ? ` (${names.join(', ')})` : '';
   return `School assigned${agencySuffix(ids)}${nameSuffix} — ${dayName} ${hourLabel(hour)}`;
 };
-const officeTitle = (dayName, hour) => {
+const officeTopEvent = (dayName, hour) => {
   const s = summary.value;
+  if (!s) return null;
   const hits = (s?.officeEvents || []).filter((e) => {
     const startRaw = String(e.startAt || '').trim();
     if (!startRaw) return false;
@@ -1062,7 +1454,11 @@ const officeTitle = (dayName, hour) => {
     const dn = ALL_DAYS[idx] || null;
     return dn === dayName && startLocal.getHours() === Number(hour);
   });
-  const top = hits.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0];
+  const top = hits.sort((a, b) => stateRank(b.slotState) - stateRank(a.slotState))[0] || null;
+  return top;
+};
+const officeTitle = (dayName, hour) => {
+  const top = officeTopEvent(dayName, hour);
   if (!top) return `Office — ${dayName} ${hourLabel(hour)}`;
   const room = top.roomLabel || 'Office';
   const bld = top.buildingName || 'Office location';
@@ -1102,12 +1498,14 @@ const cellBlocks = (dayName, hour) => {
 
   // Office assignment state
   const st = String(officeState(dayName, hour) || '').toUpperCase();
+  const top = ['ASSIGNED_BOOKED', 'ASSIGNED_TEMPORARY', 'ASSIGNED_AVAILABLE'].includes(st) ? officeTopEvent(dayName, hour) : null;
+  const buildingId = top?.buildingId ? Number(top.buildingId) : null;
   if (st === 'ASSIGNED_BOOKED') {
-    blocks.push({ key: 'office-booked', kind: 'ob', shortLabel: 'Booked', title: officeTitle(dayName, hour) });
+    blocks.push({ key: 'office-booked', kind: 'ob', shortLabel: 'Booked', title: officeTitle(dayName, hour), buildingId });
   } else if (st === 'ASSIGNED_TEMPORARY') {
-    blocks.push({ key: 'office-temp', kind: 'ot', shortLabel: 'Temp', title: officeTitle(dayName, hour) });
+    blocks.push({ key: 'office-temp', kind: 'ot', shortLabel: 'Temp', title: officeTitle(dayName, hour), buildingId });
   } else if (st === 'ASSIGNED_AVAILABLE') {
-    blocks.push({ key: 'office-assigned', kind: 'oa', shortLabel: 'Office', title: officeTitle(dayName, hour) });
+    blocks.push({ key: 'office-assigned', kind: 'oa', shortLabel: 'Office', title: officeTitle(dayName, hour), buildingId });
   }
 
   // Assigned school
@@ -1188,6 +1586,112 @@ const requestNotes = ref('');
 const submitting = ref(false);
 const modalError = ref('');
 
+// Office booking request (office-schedule/booking-requests)
+const officeBookingRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | MONTHLY
+const selectedOfficeRoomId = ref(0); // 0 = any open room
+
+const modalOfficeRoomOptions = computed(() => {
+  const g = officeGrid.value;
+  const officeId = Number(selectedOfficeLocationId.value || 0);
+  if (!officeId || !g || !Array.isArray(g.rooms) || !Array.isArray(g.slots)) return [];
+
+  const dayIdx = ALL_DAYS.indexOf(String(modalDay.value));
+  if (dayIdx < 0) return [];
+  const date = addDaysYmd(weekStart.value, dayIdx);
+  const startH = Number(modalHour.value);
+  const endH = Number(modalEndHour.value);
+  if (!(endH > startH)) return [];
+
+  const byKey = new Map();
+  for (const s of g.slots || []) {
+    byKey.set(`${s.roomId}|${s.date}|${s.hour}`, s);
+  }
+
+  const stateLabel = (state, slot) => {
+    const st = String(state || '');
+    if (st === 'open') return 'Open';
+    if (st === 'assigned_available') {
+      const who = slot?.assignedProviderName || slot?.providerInitials || '';
+      return who ? `Assigned available • ${who}` : 'Assigned available';
+    }
+    if (st === 'assigned_temporary') {
+      const who = slot?.assignedProviderName || slot?.providerInitials || '';
+      return who ? `Temporary • ${who}` : 'Temporary';
+    }
+    if (st === 'assigned_booked') {
+      const who = slot?.bookedProviderName || slot?.providerInitials || '';
+      return who ? `Booked • ${who}` : 'Booked';
+    }
+    return st || '—';
+  };
+
+  const isRequestableState = (st) => st === 'open' || st === 'assigned_available';
+
+  const out = (g.rooms || []).map((r) => {
+    const roomId = Number(r.id);
+    const label = `${r.roomNumber ? `#${r.roomNumber} ` : ''}${r.label || r.name || `Room ${roomId}`}`.trim();
+    let firstState = null;
+    let requestable = true;
+    let representativeSlot = null;
+
+    for (let h = startH; h < endH; h++) {
+      const s = byKey.get(`${roomId}|${date}|${h}`) || null;
+      const st = String(s?.state || '');
+      if (!st) {
+        requestable = false;
+        firstState = firstState || 'unknown';
+        continue;
+      }
+      if (!firstState) {
+        firstState = st;
+        representativeSlot = s;
+      } else if (firstState !== st) {
+        // Mixed states across the range – treat as not requestable to avoid partial bookings.
+        requestable = false;
+      }
+      if (!isRequestableState(st)) requestable = false;
+      if (!requestable) {
+        // still finish loop to determine a meaningful representative slot
+      }
+    }
+
+    const st = firstState || 'unknown';
+    return {
+      roomId,
+      label,
+      state: st,
+      stateLabel: stateLabel(st, representativeSlot),
+      requestable
+    };
+  });
+
+  return out.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+});
+
+const officeBookingValid = computed(() => {
+  if (requestType.value !== 'office') return true;
+  const officeId = Number(selectedOfficeLocationId.value || 0);
+  if (!officeId) return false;
+  const endH = Number(modalEndHour.value);
+  const startH = Number(modalHour.value);
+  if (!(endH > startH)) return false;
+  // If a specific room is picked, it must be requestable in the options list.
+  const rid = Number(selectedOfficeRoomId.value || 0);
+  if (!rid) return true; // any open room
+  const opt = (modalOfficeRoomOptions.value || []).find((x) => Number(x.roomId) === rid);
+  return !!opt?.requestable;
+});
+
+const officeBookingHint = computed(() => {
+  if (requestType.value !== 'office') return '';
+  const officeId = Number(selectedOfficeLocationId.value || 0);
+  if (!officeId) return '';
+  if (officeBookingRecurrence.value === 'ONCE') {
+    return 'Same-day “Once” requests auto-book if an open room exists; otherwise they go to approvals.';
+  }
+  return 'Weekly/Biweekly/Monthly requests go to approvals and will create a booking plan on approval.';
+});
+
 const supervisorsLoading = ref(false);
 const supervisors = ref([]);
 const selectedSupervisorId = ref(0);
@@ -1247,6 +1751,8 @@ const onCellClick = (dayName, hour) => {
   requestType.value = 'office';
   requestNotes.value = '';
   modalError.value = '';
+  officeBookingRecurrence.value = 'ONCE';
+  selectedOfficeRoomId.value = 0;
   selectedSupervisorId.value = 0;
   createMeetLink.value = true;
   showRequestModal.value = true;
@@ -1263,6 +1769,121 @@ const officeAssignBuildingId = ref(0);
 const officeAssignRoomId = ref(0);
 const officeLocations = ref([]);
 const officeRooms = ref([]);
+
+// ---- Provider office overlay (selected office location weekly grid) ----
+const selectedOfficeLocationId = ref(0);
+const officeGridLoading = ref(false);
+const officeGridError = ref('');
+const officeGrid = ref(null); // { location, weekStart, days, hours, rooms, slots }
+
+const officePalette = [
+  '#2563eb', // blue
+  '#16a34a', // green
+  '#dc2626', // red
+  '#9333ea', // purple
+  '#ea580c', // orange
+  '#0f766e', // teal
+  '#4f46e5', // indigo
+  '#b45309' // amber
+];
+
+const officeColorById = (id) => {
+  const n = Number(id || 0);
+  if (!Number.isFinite(n) || n <= 0) return '#64748b';
+  return officePalette[n % officePalette.length];
+};
+
+const officeOverlayStyle = computed(() => {
+  const id = Number(selectedOfficeLocationId.value || 0);
+  return { '--officeOverlayColor': officeColorById(id) };
+});
+
+const loadSelectedOfficeGrid = async () => {
+  const id = Number(selectedOfficeLocationId.value || 0);
+  if (!id) {
+    officeGrid.value = null;
+    officeGridError.value = '';
+    return;
+  }
+  try {
+    officeGridLoading.value = true;
+    officeGridError.value = '';
+    const r = await api.get(`/office-schedule/locations/${id}/weekly-grid`, {
+      params: { weekStart: weekStart.value },
+      skipGlobalLoading: true
+    });
+    officeGrid.value = r.data || null;
+  } catch (e) {
+    officeGrid.value = null;
+    officeGridError.value = e.response?.data?.error?.message || 'Failed to load office availability';
+  } finally {
+    officeGridLoading.value = false;
+  }
+};
+
+watch([selectedOfficeLocationId, weekStart], () => {
+  void loadSelectedOfficeGrid();
+});
+
+const officeOverlayKey = (dateYmd, hour) => `${String(dateYmd).slice(0, 10)}|${Number(hour)}`;
+
+const officeOverlayStats = computed(() => {
+  const g = officeGrid.value;
+  if (!g || !Array.isArray(g.slots) || !Array.isArray(g.rooms)) return new Map();
+  const roomCount = (g.rooms || []).length;
+  const m = new Map();
+  for (const s of g.slots || []) {
+    const k = officeOverlayKey(s.date, s.hour);
+    if (!m.has(k)) {
+      m.set(k, { open: 0, assigned_available: 0, assigned_temporary: 0, assigned_booked: 0, totalRooms: roomCount });
+    }
+    const rec = m.get(k);
+    const st = String(s.state || '');
+    if (st === 'open') rec.open += 1;
+    else if (st === 'assigned_available') rec.assigned_available += 1;
+    else if (st === 'assigned_temporary') rec.assigned_temporary += 1;
+    else if (st === 'assigned_booked') rec.assigned_booked += 1;
+  }
+  return m;
+});
+
+const officeOverlay = (dayName, hour) => {
+  const id = Number(selectedOfficeLocationId.value || 0);
+  if (!id) return '';
+  const dayIdx = ALL_DAYS.indexOf(String(dayName));
+  if (dayIdx < 0) return '';
+  const date = addDaysYmd(weekStart.value, dayIdx);
+  const rec = officeOverlayStats.value.get(officeOverlayKey(date, hour));
+  if (!rec) return '';
+  if (rec.open > 0) return `Open ${rec.open}`;
+  if (rec.assigned_available > 0) return `Avail ${rec.assigned_available}`;
+  if (rec.assigned_temporary > 0) return `Temp ${rec.assigned_temporary}`;
+  if (rec.assigned_booked > 0) return 'Booked';
+  return '';
+};
+
+const officeOverlayTitle = (dayName, hour) => {
+  const dayIdx = ALL_DAYS.indexOf(String(dayName));
+  if (dayIdx < 0) return '';
+  const date = addDaysYmd(weekStart.value, dayIdx);
+  const rec = officeOverlayStats.value.get(officeOverlayKey(date, hour));
+  if (!rec) return '';
+  return [
+    `Office availability — ${dayName} ${hourLabel(hour)}`,
+    `Open: ${rec.open}`,
+    `Assigned available: ${rec.assigned_available}`,
+    `Assigned temporary: ${rec.assigned_temporary}`,
+    `Assigned booked: ${rec.assigned_booked}`
+  ].join('\n');
+};
+
+const cellBlockStyle = (b) => {
+  const kind = String(b?.kind || '');
+  if (!['oa', 'ot', 'ob'].includes(kind)) return {};
+  const id = Number(b?.buildingId || 0);
+  if (!id) return {};
+  return { '--officeAccent': officeColorById(id) };
+};
 
 const officeAssignEndHourOptions = computed(() => {
   const start = Number(officeAssignStartHour.value || 0);
@@ -1281,6 +1902,16 @@ const loadOfficeLocations = async () => {
     officeLocations.value = [];
   }
 };
+
+// Must run after `loadOfficeLocations` + `officeLocations` are declared (avoids TDZ ReferenceError).
+watch(
+  () => authStore.user?.id,
+  () => {
+    void loadMyScheduleColors();
+    if (!officeLocations.value.length) void loadOfficeLocations();
+  },
+  { immediate: true }
+);
 
 const loadOfficeRooms = async (buildingId) => {
   const id = Number(buildingId || 0);
@@ -1372,14 +2003,31 @@ const submitRequest = async () => {
     if (!(endH > h)) throw new Error('End time must be after start time.');
 
     if (requestType.value === 'office') {
-      const weekday = weekdayToIndex(dn);
-      if (weekday === null) throw new Error('Invalid weekday');
-      await api.post('/availability/office-requests', {
-        agencyId: effectiveAgencyId.value,
-        preferredOfficeIds: [],
-        notes: requestNotes.value || '',
-        slots: [{ weekday, startHour: h, endHour: endH }]
+      const officeId = Number(selectedOfficeLocationId.value || 0);
+      if (!officeId) throw new Error('Select an office first.');
+      if (!officeBookingValid.value) throw new Error('Select an available room (or choose “Any open room”).');
+
+      const dayIdx = ALL_DAYS.indexOf(String(dn));
+      if (dayIdx < 0) throw new Error('Invalid day');
+      const dateYmd = addDaysYmd(weekStart.value, dayIdx);
+      const startAt = `${dateYmd}T${pad2(h)}:00:00`;
+      const endAt = `${dateYmd}T${pad2(endH)}:00:00`;
+      const roomId = Number(selectedOfficeRoomId.value || 0) || null;
+
+      const r = await api.post('/office-schedule/booking-requests', {
+        officeLocationId: officeId,
+        roomId,
+        startAt,
+        endAt,
+        recurrence: String(officeBookingRecurrence.value || 'ONCE'),
+        openToAlternativeRoom: !roomId,
+        notes: requestNotes.value || ''
       });
+
+      // If it auto-booked, refresh the office grid immediately so the overlay updates.
+      if (r?.data?.kind === 'auto_booked') {
+        await loadSelectedOfficeGrid();
+      }
     } else if (requestType.value === 'school') {
       if (!canUseSchool(dn, h, endH)) throw new Error('School daytime availability must be on weekdays and between 06:00 and 18:00.');
       await api.post('/availability/school-requests', {
@@ -1602,7 +2250,9 @@ watch(modalHour, () => {
 .sched-toolbar { margin-top: 10px; }
 .sched-toolbar-top {
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 8px;
 }
 .sched-week-title {
@@ -1612,6 +2262,18 @@ watch(modalHour, () => {
   color: var(--text-primary);
   letter-spacing: -0.01em;
   line-height: 1.2;
+}
+.sched-week-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.sched-today-label {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 .sched-toolbar-main {
   display: flex;
@@ -1643,6 +2305,108 @@ watch(modalHour, () => {
   gap: 6px;
   font-size: 13px;
   color: var(--text-secondary);
+}
+.sched-pill {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-secondary);
+  font-weight: 800;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.06s ease;
+}
+.sched-pill:hover { transform: translateY(-0.5px); }
+.sched-pill:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+.sched-pill.on {
+  background: rgba(59, 130, 246, 0.10);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: rgba(37, 99, 235, 0.95);
+}
+.sched-chip {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-secondary);
+  font-weight: 800;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.sched-chip:hover { border-color: rgba(59, 130, 246, 0.35); }
+.sched-chip:disabled { opacity: 0.55; cursor: not-allowed; }
+.sched-chip.on {
+  background: rgba(242, 153, 74, 0.14);
+  border-color: rgba(242, 153, 74, 0.42);
+  color: rgba(146, 64, 14, 0.95);
+}
+.sched-calendars-actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  margin-right: 6px;
+}
+.sched-icon-btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-secondary);
+  font-weight: 900;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.sched-icon-btn:hover { border-color: rgba(59, 130, 246, 0.35); }
+.sched-icon-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.sched-view-switch {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px;
+  gap: 2px;
+}
+.sched-seg {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 900;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sched-seg.on {
+  background: #fff;
+  color: var(--text-primary);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
+}
+.sched-seg:disabled { opacity: 0.55; cursor: not-allowed; }
+.sched-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 800;
+}
+.sched-select {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  padding: 6px 10px;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 220px;
 }
 .sched-calendars {
   display: inline-flex;
@@ -1708,6 +2472,9 @@ watch(modalHour, () => {
   align-items: center;
   justify-content: center;
 }
+.sched-head-today {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.16), rgba(59, 130, 246, 0.06));
+}
 .sched-grid > .sched-head-cell:first-child {
   border-left: none;
 }
@@ -1743,6 +2510,9 @@ watch(modalHour, () => {
   position: relative;
   overflow: hidden;
 }
+.sched-cell-today {
+  background: rgba(59, 130, 246, 0.05);
+}
 .sched-cell.clickable {
   cursor: pointer;
 }
@@ -1775,6 +2545,21 @@ watch(modalHour, () => {
 .cell-avail-both {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(59, 130, 246, 0.18));
 }
+.cell-office-overlay {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+  pointer-events: none;
+  font-size: 10px;
+  font-weight: 900;
+  color: rgba(15, 23, 42, 0.92);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  border-radius: 999px;
+  padding: 1px 6px;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--officeOverlayColor, #64748b) 24%, transparent);
+}
 .cell-block {
   flex: 1 1 0;
   min-width: 0;
@@ -1802,6 +2587,42 @@ watch(modalHour, () => {
 .cell-block-oa { background: var(--sched-oa-bg, rgba(39, 174, 96, 0.22)); border-color: var(--sched-oa-border, rgba(39, 174, 96, 0.55)); }
 .cell-block-ot { background: var(--sched-ot-bg, rgba(242, 153, 74, 0.24)); border-color: var(--sched-ot-border, rgba(242, 153, 74, 0.58)); }
 .cell-block-ob { background: var(--sched-ob-bg, rgba(235, 87, 87, 0.22)); border-color: var(--sched-ob-border, rgba(235, 87, 87, 0.58)); }
+.cell-block-oa,
+.cell-block-ot,
+.cell-block-ob {
+  box-shadow: inset 3px 0 0 var(--officeAccent, transparent);
+}
+
+.office-room-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.8);
+}
+.office-room-option {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.office-room-option.disabled {
+  opacity: 0.55;
+}
+.office-room-label {
+  font-weight: 800;
+}
+.office-room-meta {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
 .cell-block-gbusy { background: var(--sched-gbusy-bg, rgba(17, 24, 39, 0.14)); border-color: var(--sched-gbusy-border, rgba(17, 24, 39, 0.42)); color: rgba(17, 24, 39, 0.9); }
 .cell-block-gevt { background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.35); cursor: pointer; }
 .cell-block-ebusy { background: var(--sched-ebusy-bg, rgba(107, 114, 128, 0.16)); border-color: var(--sched-ebusy-border, rgba(107, 114, 128, 0.45)); color: rgba(17, 24, 39, 0.9); }

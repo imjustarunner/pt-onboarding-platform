@@ -100,7 +100,7 @@
           {{ topCardCollapsed ? 'Expand' : 'Collapse' }}
         </button>
       </div>
-      <ProviderTopSummaryCard v-if="!topCardCollapsed" />
+      <ProviderTopSummaryCard v-if="!topCardCollapsed" @open-last-paycheck="openLastPaycheckModal" />
     </div>
 
     <!-- Dashboard Shell: left rail + right detail -->
@@ -499,6 +499,12 @@
     </div>
 
     <SupervisionModal v-if="showSupervisionModal" @close="showSupervisionModal = false" />
+    <LastPaycheckModal
+      v-if="showLastPaycheckModal"
+      :agency-id="Number(currentAgencyId)"
+      :payroll-period-id="lastPaycheckPayrollPeriodId"
+      @close="closeLastPaycheckModal"
+    />
   </div>
 </template>
 
@@ -526,6 +532,7 @@ import MyCompensationTab from '../components/dashboard/MyCompensationTab.vue';
 import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
 import SupervisionModal from '../components/supervision/SupervisionModal.vue';
+import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import { isSupervisor } from '../utils/helpers.js';
 
 const props = defineProps({
@@ -563,6 +570,21 @@ const tierBadgeText = ref('');
 const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 
 const showSupervisionModal = ref(false);
+const showLastPaycheckModal = ref(false);
+const lastPaycheckPayrollPeriodId = ref(null);
+
+const openLastPaycheckModal = ({ payrollPeriodId } = {}) => {
+  const agencyId = Number(currentAgencyId.value || 0);
+  const pid = Number(payrollPeriodId || 0);
+  if (!agencyId || !pid) return;
+  lastPaycheckPayrollPeriodId.value = pid;
+  showLastPaycheckModal.value = true;
+};
+
+const closeLastPaycheckModal = () => {
+  showLastPaycheckModal.value = false;
+  lastPaycheckPayrollPeriodId.value = null;
+};
 
 // Supervisor schedule picker (inside My Schedule card)
 const scheduleViewMode = ref('self'); // 'self' | 'supervisee'

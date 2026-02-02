@@ -112,13 +112,11 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 
-const router = useRouter();
-const route = useRoute();
+const emit = defineEmits(['open-last-paycheck']);
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
@@ -195,13 +193,7 @@ const load = async () => {
 const openLastPaycheck = () => {
   const pid = summary.value?.lastPaycheck?.payrollPeriodId || null;
   if (!pid) return;
-  router.replace({
-    query: {
-      ...route.query,
-      tab: 'payroll',
-      expandPayrollPeriodId: String(pid)
-    }
-  });
+  emit('open-last-paycheck', { payrollPeriodId: Number(pid) });
 };
 
 onMounted(load);

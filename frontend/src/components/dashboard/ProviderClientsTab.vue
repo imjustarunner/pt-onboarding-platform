@@ -19,6 +19,9 @@
             </option>
           </select>
         </label>
+        <button class="btn btn-secondary btn-sm" type="button" @click="toggleClientLabelMode" :disabled="loading">
+          {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show IDs' }}
+        </button>
         <button class="btn btn-secondary btn-sm" type="button" @click="load" :disabled="loading">
           {{ loading ? 'Loading…' : 'Refresh' }}
         </button>
@@ -36,7 +39,7 @@
       :organization-id="Number(selectedSchoolOrgId)"
       :organization-name="selectedSchoolName"
       roster-scope="provider"
-      client-label-mode="codes"
+      :client-label-mode="clientLabelMode"
       :psychotherapy-totals-by-client-id="psychotherapyTotalsByClientId"
       :show-search="true"
       search-placeholder="Search clients…"
@@ -63,6 +66,7 @@ const agencyId = computed(() => {
 const schools = ref([]);
 const selectedSchoolOrgId = ref(null);
 const selectedFiscalYearStart = ref('');
+const clientLabelMode = ref('codes'); // 'codes' | 'initials'
 
 const selectedSchoolName = computed(() => {
   const id = selectedSchoolOrgId.value;
@@ -110,6 +114,15 @@ const buildTotalsByClientId = (resp) => {
   return m;
 };
 
+const toggleClientLabelMode = () => {
+  clientLabelMode.value = clientLabelMode.value === 'initials' ? 'codes' : 'initials';
+  try {
+    window.localStorage.setItem('dashboardClientLabelMode', clientLabelMode.value);
+  } catch {
+    // ignore
+  }
+};
+
 const loadSchools = async () => {
   if (!agencyId.value) return;
   const r = await api.get('/payroll/me/assigned-schools', { params: { agencyId: agencyId.value } });
@@ -146,7 +159,15 @@ const load = async () => {
   }
 };
 
-onMounted(load);
+onMounted(() => {
+  try {
+    const saved = window.localStorage.getItem('dashboardClientLabelMode');
+    if (saved === 'codes' || saved === 'initials') clientLabelMode.value = saved;
+  } catch {
+    // ignore
+  }
+  load();
+});
 watch(() => agencyId.value, load);
 watch(() => selectedFiscalYearStart.value, () => loadCompliance().catch(() => {}));
 </script>

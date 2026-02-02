@@ -3,6 +3,10 @@
     <div class="sched-toolbar">
       <div class="sched-toolbar-top">
         <h3 class="sched-week-title">{{ weekTitle }}</h3>
+        <div class="sched-week-meta">
+          <div class="sched-today-label">Today {{ todayMmdd }}</div>
+          <button class="btn btn-secondary btn-sm" type="button" @click="goToToday">Today</button>
+        </div>
       </div>
       <div class="sched-toolbar-main">
         <div class="sched-toolbar-left">
@@ -11,14 +15,27 @@
           <button class="btn btn-secondary btn-sm" type="button" @click="load">Refresh</button>
         </div>
         <div class="sched-toolbar-right">
-          <label class="sched-toggle">
-            <input type="checkbox" v-model="showGoogleBusy" />
-            <span>Google busy</span>
-          </label>
-          <label class="sched-toggle">
-            <input type="checkbox" v-model="showGoogleEvents" />
-            <span>Google titles (sensitive)</span>
-          </label>
+          <button
+            type="button"
+            class="sched-pill"
+            :class="{ on: showGoogleBusy }"
+            role="switch"
+            :aria-checked="String(!!showGoogleBusy)"
+            @click="showGoogleBusy = !showGoogleBusy"
+          >
+            Google busy
+          </button>
+          <button
+            type="button"
+            class="sched-pill"
+            :class="{ on: showGoogleEvents }"
+            role="switch"
+            :aria-checked="String(!!showGoogleEvents)"
+            @click="showGoogleEvents = !showGoogleEvents"
+            title="Shows event titles (sensitive)"
+          >
+            Google titles
+          </button>
         </div>
       </div>
       <div v-if="overlayErrorText" class="hint" style="margin-top: 8px;">
@@ -32,7 +49,7 @@
 
     <div v-else class="sched-grid" :style="gridStyle">
       <div class="sched-head-cell"></div>
-      <div v-for="d in ALL_DAYS" :key="d" class="sched-head-cell">
+      <div v-for="d in ALL_DAYS" :key="d" class="sched-head-cell" :class="{ 'sched-head-today': isTodayDay(d) }">
         <div class="sched-head-day">
           <div class="sched-head-dow">{{ d }}</div>
           <div class="sched-head-date">{{ dayDateLabel(d) }}</div>
@@ -41,7 +58,7 @@
 
       <template v-for="h in hours" :key="`h-${h}`">
         <div class="sched-hour">{{ hourLabel(h) }}</div>
-        <div v-for="d in ALL_DAYS" :key="`c-${d}-${h}`" class="sched-cell">
+        <div v-for="d in ALL_DAYS" :key="`c-${d}-${h}`" class="sched-cell" :class="{ 'sched-cell-today': isTodayDay(d) }">
           <div class="cell-blocks">
             <div
               v-for="b in cellBlocks(d, h)"
@@ -77,26 +94,47 @@ const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 const hours = Array.from({ length: 15 }, (_, i) => 7 + i); // 7..21
 
 const pad2 = (n) => String(n).padStart(2, '0');
-const todayYmd = () => new Date().toISOString().slice(0, 10);
+const localYmd = (d) => {
+  const yy = d.getFullYear();
+  const mm = pad2(d.getMonth() + 1);
+  const dd = pad2(d.getDate());
+  return `${yy}-${mm}-${dd}`;
+};
+const todayYmd = () => localYmd(new Date());
+const todayMmdd = computed(() => {
+  const d = new Date();
+  return `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`;
+});
 const startOfWeekMondayYmd = (ymd) => {
   const s = String(ymd || '').slice(0, 10);
-  const d = new Date(`${s}T00:00:00`);
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T12:00:00`) : new Date();
   if (Number.isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
   const day = d.getDay(); // 0 Sun .. 6 Sat
   const offset = (day + 6) % 7; // days since Monday
   d.setDate(d.getDate() - offset);
-  return d.toISOString().slice(0, 10);
+  return localYmd(d);
 };
 const addDaysYmd = (ymd, n) => {
-  const d = new Date(`${String(ymd).slice(0, 10)}T00:00:00`);
+  const s = String(ymd || '').slice(0, 10);
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T12:00:00`) : new Date();
+  d.setHours(0, 0, 0, 0);
   d.setDate(d.getDate() + Number(n || 0));
-  return d.toISOString().slice(0, 10);
+  return localYmd(d);
 };
 
 const effectiveWeekStart = computed(() => startOfWeekMondayYmd(props.weekStartYmd || todayYmd()) || startOfWeekMondayYmd(todayYmd()));
 const shiftWeek = (deltaDays) => {
   const next = addDaysYmd(effectiveWeekStart.value, deltaDays);
   emit('update:weekStartYmd', next);
+};
+const goToToday = () => emit('update:weekStartYmd', startOfWeekMondayYmd(todayYmd()));
+
+const isTodayDay = (dayName) => {
+  const idx = ALL_DAYS.indexOf(String(dayName || ''));
+  if (idx < 0) return false;
+  const ymd = addDaysYmd(effectiveWeekStart.value, idx);
+  return ymd === todayYmd();
 };
 
 const effectiveAgencyIds = computed(() => {
@@ -440,11 +478,32 @@ const onBlockClick = (e, b) => {
 <style scoped>
 .sched-wrap { width: 100%; }
 .sched-toolbar { margin-top: 10px; }
-.sched-toolbar-top { display: flex; justify-content: center; margin-bottom: 8px; }
+.sched-toolbar-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
 .sched-week-title { margin: 0; font-size: 18px; font-weight: 900; color: var(--text-primary); }
+.sched-week-meta { display: inline-flex; align-items: center; gap: 10px; }
+.sched-today-label { font-size: 12px; font-weight: 900; color: var(--text-secondary); white-space: nowrap; }
 .sched-toolbar-main { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 .sched-toolbar-left, .sched-toolbar-right { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .sched-toggle { display: inline-flex; gap: 8px; align-items: center; font-size: 12px; color: var(--text-secondary); font-weight: 800; }
+
+.sched-pill {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text-secondary);
+  font-weight: 900;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sched-pill.on {
+  background: rgba(59, 130, 246, 0.10);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: rgba(37, 99, 235, 0.95);
+}
+.sched-head-today { background: linear-gradient(180deg, rgba(59, 130, 246, 0.16), rgba(59, 130, 246, 0.06)); }
+.sched-cell-today { background: rgba(59, 130, 246, 0.05); }
 
 .sched-grid {
   margin-top: 10px;

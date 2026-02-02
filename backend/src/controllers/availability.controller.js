@@ -205,23 +205,10 @@ export const getMyAvailabilityPending = async (req, res, next) => {
       });
     }
 
-    const supervised = await isUserSupervised({ providerId, agencyId });
     const cycleStart = startOfWeekMonday(new Date());
     const cycleEnd = addDays(cycleStart, 13);
     const week1Start = toYmd(cycleStart);
     const week2Start = toYmd(addDays(cycleStart, 7));
-
-    let confirmation = null;
-    if (supervised) {
-      const [rows] = await pool.execute(
-        `SELECT *
-         FROM supervised_availability_confirmations
-         WHERE agency_id = ? AND provider_id = ? AND cycle_start_date = ?
-         LIMIT 1`,
-        [agencyId, providerId, week1Start]
-      );
-      confirmation = rows?.[0] || null;
-    }
 
     // Skill Builder weekly availability (recurring blocks + weekly confirmation)
     const skillBuilderEligible = await getSkillBuilderEligibility(providerId);
@@ -229,8 +216,8 @@ export const getMyAvailabilityPending = async (req, res, next) => {
       eligible: skillBuilderEligible,
       requiredHoursPerWeek: 6,
       totalHoursPerWeek: 0,
-      confirmedAt: null,
-      needsConfirmation: false,
+      confirmations: [], // [{ weekStartDate, confirmedAt }]
+      needsConfirmation: false, // true when any of the next-two-weeks confirmations are missing
       blocks: []
     };
     if (skillBuilderEligible) {
@@ -260,19 +247,27 @@ export const getMyAvailabilityPending = async (req, res, next) => {
           else totalMinutes += minutesBetween(String(b.start_time || ''), String(b.end_time || ''));
         }
         const [confRows] = await pool.execute(
-          `SELECT confirmed_at
+          `SELECT week_start_date, confirmed_at
            FROM provider_skill_builder_availability_confirmations
-           WHERE agency_id = ? AND provider_id = ? AND week_start_date = ?
-           LIMIT 1`,
-          [agencyId, providerId, week1Start]
+           WHERE agency_id = ? AND provider_id = ? AND week_start_date IN (?, ?)
+           ORDER BY week_start_date ASC`,
+          [agencyId, providerId, week1Start, week2Start]
         );
-        const confirmedAt = confRows?.[0]?.confirmed_at || null;
+        const byWeek = new Map();
+        for (const r of confRows || []) {
+          const wk = String(r.week_start_date || '').slice(0, 10);
+          byWeek.set(wk, r.confirmed_at || null);
+        }
+        const confirmations = [
+          { weekStartDate: week1Start, confirmedAt: byWeek.get(week1Start) || null },
+          { weekStartDate: week2Start, confirmedAt: byWeek.get(week2Start) || null }
+        ];
         skillBuilder = {
           eligible: true,
           requiredHoursPerWeek: 6,
           totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100,
-          confirmedAt,
-          needsConfirmation: !confirmedAt,
+          confirmations,
+          needsConfirmation: confirmations.some((c) => !c.confirmedAt),
           blocks
         };
       } catch (e) {
@@ -290,20 +285,11 @@ export const getMyAvailabilityPending = async (req, res, next) => {
       officeRequests: officeReqs,
       schoolRequests: schoolReqs,
       skillBuilder,
-      supervised: {
-        isSupervised: supervised,
+      cycle: {
+        // For biweekly confirmation UX (current + next week)
         cycleStartDate: week1Start,
         cycleEndDate: toYmd(cycleEnd),
-        weekStartDates: [week1Start, week2Start],
-        rules: {
-          afterSchool: { start: '14:30', end: '17:00' },
-          weekend: { start: '11:30', end: '15:30' },
-          perWeekMinimum: {
-            optionA: '3 blocks including at least one weekend day',
-            optionB: '4 blocks (no weekend required)'
-          }
-        },
-        confirmedAt: confirmation?.confirmed_at || null
+        weekStartDates: [week1Start, week2Start]
       }
     });
   } catch (e) {
@@ -744,6 +730,7 @@ export const submitMySkillBuilderAvailability = async (req, res, next) => {
 
     const cycleStart = startOfWeekMonday(new Date());
     const weekStart = toYmd(cycleStart);
+    const nextWeekStart = toYmd(addDays(cycleStart, 7));
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
@@ -762,17 +749,24 @@ export const submitMySkillBuilderAvailability = async (req, res, next) => {
       );
     }
 
-    // Upsert weekly confirmation for this week
-    await conn.execute(
-      `INSERT INTO provider_skill_builder_availability_confirmations
-        (agency_id, provider_id, week_start_date, confirmed_at)
-       VALUES (?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE confirmed_at = VALUES(confirmed_at)`,
-      [agencyId, providerId, weekStart]
-    );
+    // Biweekly confirmation: confirm current week + next week (providers are prompted every 2 weeks).
+    for (const wk of [weekStart, nextWeekStart]) {
+      // eslint-disable-next-line no-await-in-loop
+      await conn.execute(
+        `INSERT INTO provider_skill_builder_availability_confirmations
+          (agency_id, provider_id, week_start_date, confirmed_at)
+         VALUES (?, ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE confirmed_at = VALUES(confirmed_at)`,
+        [agencyId, providerId, wk]
+      );
+    }
 
     await conn.commit();
-    res.json({ ok: true, weekStartDate: weekStart, totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100 });
+    res.json({
+      ok: true,
+      weekStartDates: [weekStart, nextWeekStart],
+      totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100
+    });
   } catch (e) {
     if (conn) {
       try { await conn.rollback(); } catch { /* ignore */ }
@@ -826,19 +820,31 @@ export const confirmMySkillBuilderAvailability = async (req, res, next) => {
 
     const cycleStart = startOfWeekMonday(new Date());
     const weekStart = toYmd(cycleStart);
+    const nextWeekStart = toYmd(addDays(cycleStart, 7));
+    const requested = Array.isArray(req.body?.weekStartDates) ? req.body.weekStartDates : null;
+    const allowed = new Set([weekStart, nextWeekStart]);
+    const weekStartDates = requested
+      ? [...new Set(requested.map((x) => String(x || '').slice(0, 10)).filter((x) => allowed.has(x)))]
+      : [weekStart, nextWeekStart];
+    if (weekStartDates.length === 0) {
+      return res.status(400).json({ error: { message: 'weekStartDates must include the current and/or next week start date' } });
+    }
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
-    await conn.execute(
-      `INSERT INTO provider_skill_builder_availability_confirmations
-        (agency_id, provider_id, week_start_date, confirmed_at)
-       VALUES (?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE confirmed_at = VALUES(confirmed_at)`,
-      [agencyId, providerId, weekStart]
-    );
+    for (const wk of weekStartDates) {
+      // eslint-disable-next-line no-await-in-loop
+      await conn.execute(
+        `INSERT INTO provider_skill_builder_availability_confirmations
+          (agency_id, provider_id, week_start_date, confirmed_at)
+         VALUES (?, ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE confirmed_at = VALUES(confirmed_at)`,
+        [agencyId, providerId, wk]
+      );
+    }
     await conn.commit();
 
-    res.json({ ok: true, weekStartDate: weekStart, totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100 });
+    res.json({ ok: true, weekStartDates, totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100 });
   } catch (e) {
     if (conn) {
       try { await conn.rollback(); } catch { /* ignore */ }
@@ -1738,36 +1744,61 @@ export const searchAvailability = async (req, res, next) => {
       schoolReqParams
     );
 
-    // Supervised availability blocks (confirmed) for weekStartDate
+    // Skill Builder confirmations for weekStartDate
     const skillJoin =
       skillIds.length > 0
         ? `JOIN provider_available_skills pas ON pas.provider_id = c.provider_id AND pas.agency_id = c.agency_id AND pas.skill_id IN (${skillIds.map(() => '?').join(',')})`
         : '';
     const skillParams = skillIds.length > 0 ? skillIds : [];
 
-    const [supervisedRows] = await pool.execute(
+    const [skillBuilderConfirmRows] = await pool.execute(
       `SELECT
          c.provider_id,
          u.first_name,
          u.last_name,
-         c.cycle_start_date,
-         c.cycle_end_date,
-         c.confirmed_at,
-         b.week_start_date,
-         b.day_of_week,
-         b.block_type,
-         b.start_time,
-         b.end_time
-       FROM supervised_availability_confirmations c
-       JOIN supervised_availability_blocks b ON b.confirmation_id = c.id
+         c.week_start_date,
+         c.confirmed_at
+       FROM provider_skill_builder_availability_confirmations c
        ${skillJoin}
        JOIN users u ON u.id = c.provider_id
        WHERE c.agency_id = ?
          AND c.confirmed_at IS NOT NULL
-         AND b.week_start_date = ?
+         AND c.week_start_date = ?
        ORDER BY u.last_name ASC, u.first_name ASC`,
       [...skillParams, agencyId, weekStartDate]
     );
+
+    const skillBuilderProviderIds = Array.from(
+      new Set((skillBuilderConfirmRows || []).map((r) => Number(r.provider_id)).filter((n) => Number.isInteger(n) && n > 0))
+    );
+    let skillBuilderBlocksByProvider = new Map();
+    if (skillBuilderProviderIds.length) {
+      const placeholders = skillBuilderProviderIds.map(() => '?').join(',');
+      const [blockRows] = await pool.execute(
+        `SELECT provider_id, day_of_week, block_type, start_time, end_time, depart_from, depart_time, is_booked
+         FROM provider_skill_builder_availability
+         WHERE agency_id = ?
+           AND provider_id IN (${placeholders})
+         ORDER BY provider_id ASC,
+                  FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'),
+                  start_time ASC`,
+        [agencyId, ...skillBuilderProviderIds]
+      );
+      skillBuilderBlocksByProvider = (blockRows || []).reduce((acc, b) => {
+        const pid = Number(b.provider_id);
+        if (!acc.has(pid)) acc.set(pid, []);
+        acc.get(pid).push({
+          dayOfWeek: b.day_of_week,
+          blockType: b.block_type,
+          startTime: String(b.start_time || '').slice(0, 5),
+          endTime: String(b.end_time || '').slice(0, 5),
+          departFrom: String(b.depart_from || '').trim(),
+          departTime: b.depart_time ? String(b.depart_time).slice(0, 5) : '',
+          isBooked: b.is_booked === true || b.is_booked === 1 || b.is_booked === '1'
+        });
+        return acc;
+      }, new Map());
+    }
 
     // Optional: office availability grid (provider_in_office_availability) if officeId provided
     let inOffice = [];
@@ -1789,26 +1820,19 @@ export const searchAvailability = async (req, res, next) => {
     }
 
     // Shape results
-    const supervisedByProvider = new Map();
-    for (const r of supervisedRows || []) {
+    const skillBuilderByProvider = new Map();
+    for (const r of skillBuilderConfirmRows || []) {
       const pid = Number(r.provider_id);
-      if (!supervisedByProvider.has(pid)) {
-        supervisedByProvider.set(pid, {
+      if (!skillBuilderByProvider.has(pid)) {
+        const wk = String(r.week_start_date || '').slice(0, 10);
+        skillBuilderByProvider.set(pid, {
           providerId: pid,
           providerName: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          weekStartDate: wk,
           confirmedAt: r.confirmed_at,
-          cycleStartDate: String(r.cycle_start_date || '').slice(0, 10),
-          cycleEndDate: String(r.cycle_end_date || '').slice(0, 10),
-          weekStartDate: String(r.week_start_date || '').slice(0, 10),
-          blocks: []
+          blocks: skillBuilderBlocksByProvider.get(pid) || []
         });
       }
-      supervisedByProvider.get(pid).blocks.push({
-        dayOfWeek: r.day_of_week,
-        blockType: r.block_type,
-        startTime: String(r.start_time || '').slice(0, 5),
-        endTime: String(r.end_time || '').slice(0, 5)
-      });
     }
 
     res.json({
@@ -1831,7 +1855,7 @@ export const searchAvailability = async (req, res, next) => {
         notes: r.notes || '',
         createdAt: r.created_at
       })),
-      supervisedAvailability: Array.from(supervisedByProvider.values()),
+      skillBuilderAvailability: Array.from(skillBuilderByProvider.values()),
       inOfficeAvailability: inOffice
     });
   } catch (e) {

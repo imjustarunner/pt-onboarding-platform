@@ -6,6 +6,7 @@ export const useAgencyStore = defineStore('agency', () => {
   const agencies = ref([]);
   const userAgencies = ref([]);
   const tracks = ref([]);
+  let userAgenciesInFlight = null;
   const safeJsonParse = (raw, fallback) => {
     try {
       return JSON.parse(raw);
@@ -103,6 +104,8 @@ export const useAgencyStore = defineStore('agency', () => {
   };
 
   const fetchUserAgencies = async () => {
+    if (userAgenciesInFlight) return await userAgenciesInFlight;
+    userAgenciesInFlight = (async () => {
     try {
       const { useAuthStore } = await import('./auth');
       const authStore = useAuthStore();
@@ -120,20 +123,20 @@ export const useAgencyStore = defineStore('agency', () => {
           }
         });
         
-        const agencies = (await Promise.all(agencyPromises)).filter(a => a !== null);
-        userAgencies.value = agencies;
-        agencies.value = agencies;
+        const agencyList = (await Promise.all(agencyPromises)).filter(a => a !== null);
+        userAgencies.value = agencyList;
+        agencies.value = agencyList;
         
         // Store agencies in localStorage for login redirect after logout
         const { storeUserAgencies } = await import('../utils/loginRedirect');
-        storeUserAgencies(agencies);
+        storeUserAgencies(agencyList);
         
         // If no current agency is set and user has agencies, set the first one
         if (!currentAgency.value && userAgencies.value.length > 0) {
           setCurrentAgency(userAgencies.value[0]);
         }
         
-        return agencies;
+        return agencyList;
       } else {
         // Regular users - use the API endpoint
         const response = await api.get('/users/me/agencies');
@@ -160,6 +163,12 @@ export const useAgencyStore = defineStore('agency', () => {
     } catch (error) {
       console.error('Failed to fetch user agencies:', error);
       return [];
+    }
+    })();
+    try {
+      return await userAgenciesInFlight;
+    } finally {
+      userAgenciesInFlight = null;
     }
   };
 

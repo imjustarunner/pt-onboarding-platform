@@ -39,4 +39,3 @@ export const agentLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => `agent:${req.user?.id || req.ip}`,
 });
-

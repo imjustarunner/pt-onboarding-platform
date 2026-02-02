@@ -306,4 +306,3 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     next(e);
   }
 };
-

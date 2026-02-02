@@ -159,7 +159,11 @@
 
           <div v-if="searchResult" class="search-results">
             <h3>Results</h3>
-            <div class="muted">Office Requests: {{ searchResult.officeRequests.length }} • School Requests: {{ searchResult.schoolRequests.length }} • Supervised: {{ searchResult.supervisedAvailability.length }}</div>
+            <div class="muted">
+              Office Requests: {{ searchResult.officeRequests.length }} •
+              School Requests: {{ searchResult.schoolRequests.length }} •
+              Skill Builder: {{ searchResult.skillBuilderAvailability.length }}
+            </div>
 
             <div class="subhead">Office requests</div>
             <div v-if="searchResult.officeRequests.length === 0" class="muted">None</div>
@@ -173,16 +177,16 @@
               <li v-for="x in searchResult.schoolRequests" :key="x.id">{{ x.providerName }} — {{ x.notes || 'No notes' }}</li>
             </ul>
 
-            <div class="subhead">Supervised availability ({{ searchResult.filters.weekStart }})</div>
-            <div v-if="searchResult.supervisedAvailability.length === 0" class="muted">None</div>
+            <div class="subhead">Skill Builder availability confirmations ({{ searchResult.filters.weekStart }})</div>
+            <div v-if="searchResult.skillBuilderAvailability.length === 0" class="muted">None</div>
             <div v-else class="list">
-              <div v-for="p in searchResult.supervisedAvailability" :key="p.providerId" class="row">
+              <div v-for="p in searchResult.skillBuilderAvailability" :key="p.providerId" class="row">
                 <div class="main">
                   <div class="title">{{ p.providerName }}</div>
                   <div class="meta">Confirmed: {{ new Date(p.confirmedAt).toLocaleString() }}</div>
                   <div class="meta">
                     <span v-for="(b, idx) in p.blocks" :key="idx" class="pill">
-                      {{ b.dayOfWeek }} {{ b.startTime }}–{{ b.endTime }} ({{ b.blockType }})
+                      {{ b.dayOfWeek }} {{ b.startTime }}–{{ b.endTime }} ({{ b.blockType }}) <span v-if="b.departFrom">• {{ b.departFrom }}</span>
                     </span>
                   </div>
                 </div>

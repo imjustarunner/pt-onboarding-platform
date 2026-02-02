@@ -2,8 +2,8 @@
   <div class="container approvals-view">
     <div class="header">
       <div>
-        <h2>Room Approvals</h2>
-        <p class="subtitle">Approve or deny pending room booking requests.</p>
+        <h2>Office booking approvals</h2>
+        <p class="subtitle">Approve or deny pending office booking requests (including recurrence).</p>
       </div>
       <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
     </div>
@@ -18,26 +18,28 @@
           <tr>
             <th>Location</th>
             <th>Room</th>
-            <th>User</th>
+            <th>Provider</th>
             <th>Window</th>
+            <th>Frequency</th>
             <th>Notes</th>
             <th class="actions-col">Actions</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="r in requests" :key="r.id">
-            <td>{{ r.location_name }}</td>
-            <td>{{ r.room_name }}</td>
+            <td>{{ r.office_location_name }}</td>
+            <td>{{ r.room_name || 'Any open room' }}</td>
             <td>
               <div class="user">
-                <div class="name">{{ r.user_first_name }} {{ r.user_last_name }}</div>
-                <div class="email">{{ r.user_email }}</div>
+                <div class="name">{{ r.requester_first_name }} {{ r.requester_last_name }}</div>
+                <div class="email">{{ r.requester_email }}</div>
               </div>
             </td>
             <td class="mono">
               {{ formatDateTime(r.start_at) }} → {{ formatDateTime(r.end_at) }}
             </td>
-            <td class="notes">{{ r.notes || '—' }}</td>
+            <td class="mono">{{ String(r.recurrence || 'ONCE') }}</td>
+            <td class="notes">{{ r.requester_notes || '—' }}</td>
             <td class="actions-col">
               <button class="btn btn-primary btn-sm" @click="approve(r)" :disabled="actingId === r.id">Approve</button>
               <button class="btn btn-danger btn-sm" @click="deny(r)" :disabled="actingId === r.id">Deny</button>
@@ -75,7 +77,7 @@ const load = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get('/office-schedule/requests/pending');
+    const resp = await api.get('/office-schedule/booking-requests/pending');
     requests.value = resp.data || [];
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load requests';
@@ -87,7 +89,7 @@ const load = async () => {
 const approve = async (r) => {
   try {
     actingId.value = r.id;
-    await api.post(`/office-schedule/requests/${r.id}/approve`);
+    await api.post(`/office-schedule/booking-requests/${r.id}/approve`);
     await load();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to approve request';
@@ -99,7 +101,7 @@ const approve = async (r) => {
 const deny = async (r) => {
   try {
     actingId.value = r.id;
-    await api.post(`/office-schedule/requests/${r.id}/deny`);
+    await api.post(`/office-schedule/booking-requests/${r.id}/deny`);
     await load();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to deny request';

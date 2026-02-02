@@ -421,24 +421,24 @@ class Agency {
         let profiles = null;
         try {
           const [rows] = await pool.execute(
-            `SELECT
-               district_name,
-               school_number,
-               itsco_email,
-               school_days_times,
+          `SELECT
+             district_name,
+             school_number,
+             itsco_email,
+             school_days_times,
                bell_schedule_start_time,
                bell_schedule_end_time,
-               school_address,
-               location_label,
-               primary_contact_name,
-               primary_contact_email,
-               primary_contact_role,
-               secondary_contact_text
-             FROM school_profiles
-             WHERE school_organization_id = ?
-             LIMIT 1`,
-            [id]
-          );
+             school_address,
+             location_label,
+             primary_contact_name,
+             primary_contact_email,
+             primary_contact_role,
+             secondary_contact_text
+           FROM school_profiles
+           WHERE school_organization_id = ?
+           LIMIT 1`,
+          [id]
+        );
           profiles = rows;
         } catch (e) {
           // Backward-compatible: bell schedule columns may not exist yet.
@@ -867,7 +867,7 @@ class Agency {
       err.status = 409;
       throw err;
     }
-
+    
     if (hasNotificationIcons) {
       insertFields.push(
         'status_expired_icon_id',
@@ -1774,7 +1774,7 @@ class Agency {
       err.status = 409;
       throw err;
     }
-
+    
     if (hasNotificationIcons) {
       if (statusExpiredIconId !== undefined) {
         updates.push('status_expired_icon_id = ?');

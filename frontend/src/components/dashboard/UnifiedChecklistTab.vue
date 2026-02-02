@@ -266,8 +266,10 @@ const formatDate = (dateString) => {
 };
 
 onMounted(async () => {
-  // Fetch agencies first so we can display agency names
-  await agencyStore.fetchUserAgencies();
+  // Agencies are already fetched globally (BrandingProvider). Avoid duplicate fetches/races.
+  if (!Array.isArray(agencyStore.userAgencies) || agencyStore.userAgencies.length === 0) {
+    await agencyStore.fetchUserAgencies();
+  }
   await fetchChecklist();
 });
 </script>

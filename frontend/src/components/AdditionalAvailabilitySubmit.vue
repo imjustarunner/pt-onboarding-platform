@@ -1,6 +1,8 @@
 <template>
   <div class="avail-wrap">
-    <div class="hint">Submit additional availability for office or school. If you are supervised, confirm your 2-week block availability here too.</div>
+    <div class="hint">
+      Submit additional availability for office or school. Skill Builders availability is confirmed biweekly (current + next week) so you can keep a consistent set of time/day blocks.
+    </div>
 
     <div v-if="error" class="error-box">{{ error }}</div>
     <div v-if="loading" class="muted" style="margin-top: 10px;">Loading…</div>
@@ -95,13 +97,23 @@
             <div>
               <div class="title">Skill Builders availability (required)</div>
               <div class="muted">
-                You must submit (or confirm) at least <strong>6 hours/week of direct time</strong>.
+                You must maintain at least <strong>6 hours/week of direct time</strong>, and confirm it <strong>every 2 weeks</strong> (current + next week).
               </div>
             </div>
           </div>
 
-          <div v-if="pending.skillBuilder.confirmedAt" class="notice">
-            Confirmed for this week at {{ new Date(pending.skillBuilder.confirmedAt).toLocaleString() }}.
+          <div class="notice" v-if="pending.cycle?.weekStartDates?.length">
+            <div class="muted" style="margin-bottom: 6px;">
+              Next two weeks:
+              <strong>{{ pending.cycle.weekStartDates[0] }}</strong> and <strong>{{ pending.cycle.weekStartDates[1] }}</strong>
+            </div>
+            <div class="muted">
+              Confirmation status:
+              <span v-for="c in (pending.skillBuilder.confirmations || [])" :key="c.weekStartDate" class="pill-inline">
+                {{ c.weekStartDate }} —
+                <strong>{{ c.confirmedAt ? 'confirmed' : 'needs confirm' }}</strong>
+              </span>
+            </div>
           </div>
 
           <div class="form">
@@ -139,60 +151,11 @@
 
             <div class="actions" style="gap: 8px;">
               <button class="btn btn-secondary" @click="confirmSkillBuilder" :disabled="saving || !!skillBuilderValidationError">
-                Confirm current availability
+                Confirm next 2 weeks
               </button>
               <button class="btn btn-primary" @click="submitSkillBuilder" :disabled="saving || !!skillBuilderValidationError">
                 Save / Submit availability
               </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Supervised biweekly confirmation -->
-        <div class="card" v-if="pending.supervised?.isSupervised">
-          <div class="card-head">
-            <div>
-              <div class="title">Supervised 2‑week availability confirmation</div>
-              <div class="muted">
-                Week requirement: {{ pending.supervised.rules.perWeekMinimum.optionA }} or {{ pending.supervised.rules.perWeekMinimum.optionB }}.
-              </div>
-            </div>
-          </div>
-
-          <div v-if="pending.supervised.confirmedAt" class="notice">
-            Confirmed for this cycle at {{ new Date(pending.supervised.confirmedAt).toLocaleString() }}.
-          </div>
-
-          <div class="form">
-            <div class="week-grid">
-              <div v-for="wk in pending.supervised.weekStartDates" :key="wk" class="week">
-                <div class="week-title">Week starting {{ wk }}</div>
-                <div class="checks">
-                  <div class="check-group">
-                    <div class="lbl-sm">After school (Mon–Fri)</div>
-                    <label v-for="d in ['Monday','Tuesday','Wednesday','Thursday','Friday']" :key="`${wk}-${d}-AS`" class="chk">
-                      <input type="checkbox" :checked="isSelected(wk, d, 'AFTER_SCHOOL')" @change="toggle(wk, d, 'AFTER_SCHOOL')" />
-                      <span>{{ d }}</span>
-                    </label>
-                  </div>
-                  <div class="check-group">
-                    <div class="lbl-sm">Weekend (Sat/Sun)</div>
-                    <label v-for="d in ['Saturday','Sunday']" :key="`${wk}-${d}-WE`" class="chk">
-                      <input type="checkbox" :checked="isSelected(wk, d, 'WEEKEND')" @change="toggle(wk, d, 'WEEKEND')" />
-                      <span>{{ d }}</span>
-                    </label>
-                  </div>
-                </div>
-                <div class="muted" style="margin-top: 6px;">
-                  Selected: {{ weekCount(wk) }} (weekend: {{ weekHasWeekend(wk) ? 'yes' : 'no' }})
-                </div>
-              </div>
-            </div>
-
-            <div v-if="supervisedValidationError" class="error-box" style="margin-top: 10px;">{{ supervisedValidationError }}</div>
-
-            <div class="actions">
-              <button class="btn btn-primary" @click="submitSupervised" :disabled="saving">Confirm 2‑week availability</button>
             </div>
           </div>
         </div>
@@ -221,7 +184,7 @@ const pending = reactive({
   officeRequests: [],
   schoolRequests: [],
   skillBuilder: null,
-  supervised: null
+  cycle: null
 });
 
 const offices = ref([]);
@@ -311,32 +274,6 @@ const skillBuilderValidationError = computed(() => {
   return '';
 });
 
-const selection = ref(new Set()); // key = `${weekStart}|${day}|${type}`
-const keyFor = (wk, day, type) => `${wk}|${day}|${type}`;
-const isSelected = (wk, day, type) => selection.value.has(keyFor(wk, day, type));
-const toggle = (wk, day, type) => {
-  const k = keyFor(wk, day, type);
-  if (selection.value.has(k)) selection.value.delete(k);
-  else selection.value.add(k);
-  // force reactivity for Set
-  selection.value = new Set(selection.value);
-};
-
-const weekBlocks = (wk) => Array.from(selection.value).filter((k) => k.startsWith(`${wk}|`));
-const weekCount = (wk) => weekBlocks(wk).length;
-const weekHasWeekend = (wk) => weekBlocks(wk).some((k) => k.includes('|Saturday|') || k.includes('|Sunday|'));
-
-const supervisedValidationError = computed(() => {
-  if (!pending.supervised?.isSupervised) return '';
-  for (const wk of pending.supervised.weekStartDates || []) {
-    const c = weekCount(wk);
-    const hasWknd = weekHasWeekend(wk);
-    const ok = c >= 4 || (c >= 3 && hasWknd);
-    if (!ok) return `Week starting ${wk} must have either 3 blocks including a weekend day, or 4 blocks.`;
-  }
-  return '';
-});
-
 const refresh = async () => {
   try {
     loading.value = true;
@@ -350,7 +287,7 @@ const refresh = async () => {
     pending.officeRequests = pendingResp.data?.officeRequests || [];
     pending.schoolRequests = pendingResp.data?.schoolRequests || [];
     pending.skillBuilder = pendingResp.data?.skillBuilder || null;
-    pending.supervised = pendingResp.data?.supervised || null;
+    pending.cycle = pendingResp.data?.cycle || null;
 
     offices.value = officesResp.data || [];
     // Seed skill builder form from saved blocks (if any)
@@ -438,31 +375,11 @@ const confirmSkillBuilder = async () => {
     }
     saving.value = true;
     error.value = '';
-    await api.post('/availability/me/skill-builder/confirm', { agencyId: props.agencyId });
+    const weekStartDates = pending.cycle?.weekStartDates || null;
+    await api.post('/availability/me/skill-builder/confirm', { agencyId: props.agencyId, weekStartDates });
     await refresh();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to confirm Skill Builder availability';
-  } finally {
-    saving.value = false;
-  }
-};
-
-const submitSupervised = async () => {
-  try {
-    if (supervisedValidationError.value) {
-      error.value = supervisedValidationError.value;
-      return;
-    }
-    saving.value = true;
-    error.value = '';
-    const blocks = Array.from(selection.value).map((k) => {
-      const [weekStartDate, dayOfWeek, blockType] = k.split('|');
-      return { weekStartDate, dayOfWeek, blockType };
-    });
-    await api.post('/availability/me/supervised/confirm', { agencyId: props.agencyId, blocks });
-    await refresh();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to confirm supervised availability';
   } finally {
     saving.value = false;
   }
@@ -489,13 +406,7 @@ onMounted(refresh);
 .actions { display: flex; justify-content: flex-end; margin-top: 10px; }
 .btn-sm { padding: 8px 10px; font-size: 13px; }
 .notice { background: var(--bg-alt); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; color: var(--text-secondary); }
+.pill-inline { display: inline-block; margin-left: 8px; }
 .error-box { background: #fee; border: 1px solid #fcc; padding: 10px 12px; border-radius: 8px; margin-top: 10px; }
-.week-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
-@media (min-width: 900px) { .week-grid { grid-template-columns: 1fr 1fr; } }
-.week { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--bg-alt); }
-.week-title { font-weight: 900; }
-.checks { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 8px; }
-@media (min-width: 900px) { .checks { grid-template-columns: 1fr 1fr; } }
-.chk { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text-primary); margin: 4px 0; }
 </style>
 

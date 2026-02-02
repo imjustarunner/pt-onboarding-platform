@@ -49,11 +49,14 @@ class OfficeEvent {
          r.name AS room_name,
          r.room_number AS room_number,
          r.label AS room_label,
-         u.first_name AS booked_provider_first_name,
-         u.last_name AS booked_provider_last_name
+         bu.first_name AS booked_provider_first_name,
+         bu.last_name AS booked_provider_last_name,
+         au.first_name AS assigned_provider_first_name,
+         au.last_name AS assigned_provider_last_name
        FROM office_events e
        JOIN office_rooms r ON e.room_id = r.id
-       LEFT JOIN users u ON e.booked_provider_id = u.id
+       LEFT JOIN users bu ON e.booked_provider_id = bu.id
+       LEFT JOIN users au ON e.assigned_provider_id = au.id
        WHERE e.office_location_id = ?
          AND e.start_at < ?
          AND e.end_at > ?`,
