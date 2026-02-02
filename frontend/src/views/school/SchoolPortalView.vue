@@ -121,7 +121,7 @@
             <div class="nav-label">Days</div>
           </button>
 
-          <button data-tour="school-nav-roster" class="nav-item" type="button" @click="portalMode = 'roster'" :class="{ active: portalMode === 'roster' }">
+          <button data-tour="school-nav-roster" class="nav-item" type="button" @click="openRosterPanel()" :class="{ active: portalMode === 'roster' }">
             <div class="nav-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('roster', cardIconOrg)"
@@ -173,6 +173,19 @@
             <div class="nav-label">Docs/Links</div>
           </button>
 
+          <button data-tour="school-nav-faq" class="nav-item" type="button" @click="portalMode = 'faq'" :class="{ active: portalMode === 'faq' }">
+            <div class="nav-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">FQ</div>
+            </div>
+            <div class="nav-label">FAQ</div>
+          </button>
+
           <button data-tour="school-nav-help" class="nav-item" type="button" @click="showHelpDesk = true">
             <div class="nav-icon">
               <img
@@ -197,30 +210,30 @@
         <div class="home-snapshot" data-tour="school-home-snapshot">
           <div class="home-snapshot-title">At a glance</div>
           <div class="home-snapshot-grid">
-            <div class="home-pill">
+            <button class="home-pill home-pill-clickable" type="button" @click="openDaysPanel">
               <div class="home-pill-k">{{ atGlance.days }}</div>
               <div class="home-pill-v">Days supported</div>
-            </div>
-            <div class="home-pill">
+            </button>
+            <button class="home-pill home-pill-clickable" type="button" @click="openRosterPanel()">
               <div class="home-pill-k">{{ atGlance.clients }}</div>
               <div class="home-pill-v">Clients being seen</div>
-            </div>
-            <div class="home-pill">
+            </button>
+            <button class="home-pill home-pill-clickable" type="button" @click="openProvidersPanel">
               <div class="home-pill-k">{{ atGlance.slots }}</div>
               <div class="home-pill-v">Slots available</div>
-            </div>
-            <div class="home-pill">
+            </button>
+            <button class="home-pill home-pill-clickable" type="button" @click="openRosterPanel('pending')">
               <div class="home-pill-k">{{ atGlance.pending }}</div>
               <div class="home-pill-v">Pending clients</div>
-            </div>
-            <div class="home-pill">
+            </button>
+            <button class="home-pill home-pill-clickable" type="button" @click="openRosterPanel('waitlist')">
               <div class="home-pill-k">{{ atGlance.waitlist }}</div>
               <div class="home-pill-v">Waitlist clients</div>
-            </div>
-            <div class="home-pill">
+            </button>
+            <button class="home-pill home-pill-clickable" type="button" @click="portalMode = 'school_staff'">
               <div class="home-pill-k">{{ atGlance.staff }}</div>
               <div class="home-pill-v">School staff users</div>
-            </div>
+            </button>
           </div>
         </div>
 
@@ -325,6 +338,23 @@
             </div>
             <div class="dash-card-title">Docs / Links</div>
             <div class="dash-card-desc">Shared calendars and school-wide reference docs/links.</div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+            </div>
+          </button>
+
+          <button data-tour="school-home-card-faq" class="dash-card" type="button" @click="portalMode = 'faq'">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('faq', cardIconOrg)"
+                alt="FAQ icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">FQ</div>
+            </div>
+            <div class="dash-card-title">FAQ</div>
+            <div class="dash-card-desc">Common questions and answers.</div>
             <div class="dash-card-meta">
               <span class="dash-card-cta">Open</span>
             </div>
@@ -484,6 +514,13 @@
         </div>
           </div>
 
+          <div v-else-if="portalMode === 'faq'">
+        <div data-tour="school-faq-panel">
+          <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
+          <FaqPanel v-else :school-organization-id="organizationId" />
+        </div>
+          </div>
+
           <div v-else-if="portalMode === 'roster'" class="roster">
         <div class="roster-header" data-tour="school-roster-header">
           <h2 style="margin: 0;">{{ isProvider ? 'My roster' : 'School roster' }}</h2>
@@ -498,6 +535,7 @@
             :roster-scope="isProvider ? 'provider' : 'school'"
             :client-label-mode="clientLabelMode"
             edit-mode="inline"
+            v-model:statusFilterKey="rosterStatusFilterKey"
             @edit-client="openAdminClientEditor"
           />
           <div v-else class="empty-state">Organization not loaded.</div>
@@ -637,6 +675,7 @@ import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPane
 import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersDirectoryPanel.vue';
 import SchoolStaffPanel from '../../components/school/redesign/SchoolStaffPanel.vue';
 import PublicDocumentsPanel from '../../components/school/redesign/PublicDocumentsPanel.vue';
+import FaqPanel from '../../components/school/redesign/FaqPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
@@ -679,7 +718,8 @@ const comingSoonTitle = computed(() => {
   return 'Coming soon';
 });
 const selectedClient = ref(null);
-const portalMode = ref('home'); // home | providers | days | roster | skills | school_staff | documents
+const portalMode = ref('home'); // home | providers | days | roster | skills | school_staff | documents | faq
+const rosterStatusFilterKey = ref(''); // client_status_key filter for roster panel (pending/waitlist)
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
 const cardIconOrg = ref(null); // affiliated agency record (for School Portal card icon overrides)
@@ -707,6 +747,11 @@ const applyRequestedPortalMode = async (mode) => {
   if (['roster', 'skills', 'school_staff'].includes(m)) {
     portalMode.value = m;
   }
+};
+
+const openRosterPanel = (statusKey = '') => {
+  rosterStatusFilterKey.value = String(statusKey || '').trim().toLowerCase();
+  portalMode.value = 'roster';
 };
 
 const atGlance = computed(() => {
@@ -1371,6 +1416,17 @@ watch(() => store.selectedWeekday, async (weekday) => {
   gap: 10px;
   white-space: nowrap;
   flex: 0 0 auto;
+}
+
+.home-pill-clickable {
+  cursor: pointer;
+  appearance: none;
+  font: inherit;
+  text-align: left;
+}
+
+.home-pill-clickable:hover {
+  border-color: var(--primary);
 }
 .home-pill-k {
   font-weight: 900;

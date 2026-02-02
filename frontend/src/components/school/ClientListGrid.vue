@@ -14,6 +14,10 @@
 
     <div v-else class="clients-table-wrapper">
       <div v-if="showSearch" class="table-toolbar">
+        <div v-if="activeStatusFilterLabel" class="active-filter-row">
+          <span class="active-filter-pill">Status: {{ activeStatusFilterLabel }}</span>
+          <button class="btn-link" type="button" @click="clearStatusFilter">Clear</button>
+        </div>
         <input
           v-model="searchQuery"
           class="table-search"
@@ -127,10 +131,11 @@
       </div>
     </div>
 
-    <SchoolClientChatModal
+    <ClientTicketThreadModal
       v-if="selectedClient"
       :client="selectedClient"
       :schoolOrganizationId="organizationId"
+      :client-label-mode="clientLabelMode"
       @close="selectedClient = null"
     />
   </div>
@@ -140,7 +145,7 @@
 import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
-import SchoolClientChatModal from './SchoolClientChatModal.vue';
+import ClientTicketThreadModal from './ClientTicketThreadModal.vue';
 import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
@@ -181,10 +186,18 @@ const props = defineProps({
   organizationName: {
     type: String,
     default: ''
+  },
+  /**
+   * Optional roster status filter (client_status_key), e.g. 'pending' or 'waitlist'.
+   * When set, the grid will only show clients matching the filter.
+   */
+  statusFilterKey: {
+    type: String,
+    default: ''
   }
 });
 
-const emit = defineEmits(['edit-client']);
+const emit = defineEmits(['edit-client', 'update:statusFilterKey']);
 
 const clients = ref([]);
 const loading = ref(false);
@@ -309,9 +322,25 @@ const sortValue = (client, key) => {
 
 const normalize = (v) => String(v || '').trim().toLowerCase();
 
+const activeStatusFilterKey = computed(() => normalize(props.statusFilterKey));
+const activeStatusFilterLabel = computed(() => {
+  const k = activeStatusFilterKey.value;
+  if (!k) return '';
+  if (k === 'pending') return 'Pending';
+  if (k === 'waitlist') return 'Waitlist';
+  return k.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+});
+
+const statusFilteredClients = computed(() => {
+  const k = activeStatusFilterKey.value;
+  const list = Array.isArray(clients.value) ? clients.value : [];
+  if (!k) return list;
+  return list.filter((c) => normalize(c?.client_status_key) === k);
+});
+
 const filteredClients = computed(() => {
   const q = normalize(searchQuery.value);
-  const list = Array.isArray(clients.value) ? clients.value : [];
+  const list = Array.isArray(statusFilteredClients.value) ? statusFilteredClients.value : [];
   if (!q) return list;
   return list.filter((client) => {
     const hay = [
@@ -327,6 +356,10 @@ const filteredClients = computed(() => {
     return normalize(hay).includes(q);
   });
 });
+
+const clearStatusFilter = () => {
+  emit('update:statusFilterKey', '');
+};
 
 const sortedClients = computed(() => {
   const list = Array.isArray(filteredClients.value) ? filteredClients.value.slice() : [];
@@ -504,7 +537,36 @@ onMounted(() => {
 .table-toolbar {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   margin-bottom: 8px;
+}
+
+.active-filter-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: 10px;
+}
+
+.active-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.btn-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 0.75rem;
 }
 .table-search {
   width: 320px;
