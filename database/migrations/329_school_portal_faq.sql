@@ -7,7 +7,7 @@ ALTER TABLE agencies
 ALTER TABLE platform_branding
   ADD COLUMN school_portal_faq_icon_id INT NULL;
 
--- 2) Optional AI summary for closed/answered support tickets (best-effort; no PHI should be included).
+-- 2) Optional AI summary for closed/answered support tickets (best-effort, no PHI should be included)
 ALTER TABLE support_tickets
   ADD COLUMN ai_summary TEXT NULL;
 
