@@ -90,7 +90,10 @@ export async function ensurePtoAccount({
 }
 
 function ymd(d) {
-  return String(d || '').slice(0, 10);
+  if (!d) return '';
+  // MySQL drivers sometimes return DATE/DATETIME columns as JS Date objects.
+  if (d instanceof Date && !Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return String(d).slice(0, 10);
 }
 
 function todayYmd() {

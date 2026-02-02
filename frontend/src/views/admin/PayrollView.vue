@@ -2084,8 +2084,11 @@
                       <td>
                         {{
                           (() => {
-                            const items = Array.isArray(r.items) ? r.items : [];
-                            const dates = items.map((it) => String(it.request_date || '').slice(0, 10)).filter(Boolean).sort();
+                            const items = Array.isArray(r?.items) ? r.items : [];
+                            const dates = items
+                              .map((it) => String(it?.request_date || it?.requestDate || '').slice(0, 10))
+                              .filter(Boolean)
+                              .sort();
                             return dates[0] || '—';
                           })()
                         }}
@@ -4801,6 +4804,8 @@ const pendingMileageError = ref('');
 const approvingMileageClaimId = ref(null);
 const mileageTierByClaimId = ref({});
 const mileageTargetPeriodByClaimId = ref({});
+// Preserve the user's view when approving (all pending vs this period only)
+const pendingMileageMode = ref('period'); // 'period' | 'all'
 
 const showMileageDetailsModal = ref(false);
 const selectedMileageClaim = ref(null);
@@ -4810,29 +4815,34 @@ const pendingMedcancelLoading = ref(false);
 const pendingMedcancelError = ref('');
 const approvingMedcancelClaimId = ref(null);
 const medcancelTargetPeriodByClaimId = ref({});
+const pendingMedcancelMode = ref('period'); // 'period' | 'all'
 
 const pendingReimbursementClaims = ref([]);
 const pendingReimbursementLoading = ref(false);
 const pendingReimbursementError = ref('');
 const approvingReimbursementClaimId = ref(null);
 const reimbursementTargetPeriodByClaimId = ref({});
+const pendingReimbursementMode = ref('period'); // 'period' | 'all'
 
 const pendingTimeClaims = ref([]);
 const pendingTimeLoading = ref(false);
 const pendingTimeError = ref('');
 const approvingTimeClaimId = ref(null);
 const timeTargetPeriodByClaimId = ref({});
+const pendingTimeMode = ref('period'); // 'period' | 'all'
 
 const pendingHolidayBonusClaims = ref([]);
 const pendingHolidayBonusLoading = ref(false);
 const pendingHolidayBonusError = ref('');
 const updatingHolidayBonusClaimId = ref(null);
+const pendingHolidayBonusMode = ref('period'); // 'period' | 'all'
 
 const pendingPtoRequests = ref([]);
 const pendingPtoLoading = ref(false);
 const pendingPtoError = ref('');
 const approvingPtoRequestId = ref(null);
 const ptoBalancesByUserId = ref({}); // userId -> { sickHours, trainingHours }
+const pendingPtoMode = ref('period'); // 'period' | 'all'
 
 const serviceCodeRules = ref([]);
 const serviceCodeRulesLoading = ref(false);
@@ -5779,7 +5789,7 @@ const unapproveMileageClaim = async (c) => {
     approvedMileageListError.value = '';
     await api.patch(`/payroll/mileage-claims/${c.id}`, { action: 'unapprove' });
     await loadApprovedMileageClaimsList();
-    await loadAllPendingMileageClaims();
+    await reloadPendingMileageClaims();
   } catch (e) {
     approvedMileageListError.value = e.response?.data?.error?.message || e.message || 'Failed to unapprove mileage claim';
   } finally {
@@ -5840,7 +5850,7 @@ const unapproveMedcancelClaim = async (c) => {
     approvedMedcancelListError.value = '';
     await api.patch(`/payroll/medcancel-claims/${c.id}`, { action: 'unapprove' });
     await loadApprovedMedcancelClaimsList();
-    await loadAllPendingMedcancelClaims();
+    await reloadPendingMedcancelClaims();
     await loadPeriodDetails();
     await loadApprovedMedcancelClaimsAmount();
   } catch (e) {
@@ -5906,13 +5916,14 @@ const loadApprovedTimeClaimsList = async () => {
 
 const loadPendingReimbursementClaims = async () => {
   if (!agencyId.value || !selectedPeriodId.value) return;
+  pendingReimbursementMode.value = 'period';
   try {
     pendingReimbursementLoading.value = true;
     pendingReimbursementError.value = '';
     const resp = await api.get('/payroll/reimbursement-claims', {
       params: { agencyId: agencyId.value, status: 'submitted', targetPeriodId: selectedPeriodId.value }
     });
-    pendingReimbursementClaims.value = resp.data || [];
+    pendingReimbursementClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
     const next = { ...(reimbursementTargetPeriodByClaimId.value || {}) };
     for (const c of pendingReimbursementClaims.value || []) {
       if (!c?.id) continue;
@@ -5929,13 +5940,14 @@ const loadPendingReimbursementClaims = async () => {
 
 const loadAllPendingReimbursementClaims = async () => {
   if (!agencyId.value) return;
+  pendingReimbursementMode.value = 'all';
   try {
     pendingReimbursementLoading.value = true;
     pendingReimbursementError.value = '';
     const resp = await api.get('/payroll/reimbursement-claims', {
       params: { agencyId: agencyId.value, status: 'submitted' }
     });
-    pendingReimbursementClaims.value = resp.data || [];
+    pendingReimbursementClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
     const next = { ...(reimbursementTargetPeriodByClaimId.value || {}) };
     for (const c of pendingReimbursementClaims.value || []) {
       if (!c?.id) continue;
@@ -5950,15 +5962,21 @@ const loadAllPendingReimbursementClaims = async () => {
   }
 };
 
+const reloadPendingReimbursementClaims = async () => {
+  if (pendingReimbursementMode.value === 'all') return await loadAllPendingReimbursementClaims();
+  return await loadPendingReimbursementClaims();
+};
+
 const loadPendingTimeClaims = async () => {
   if (!agencyId.value || !selectedPeriodId.value) return;
+  pendingTimeMode.value = 'period';
   try {
     pendingTimeLoading.value = true;
     pendingTimeError.value = '';
     const resp = await api.get('/payroll/time-claims', {
       params: { agencyId: agencyId.value, status: 'submitted', targetPeriodId: selectedPeriodId.value }
     });
-    pendingTimeClaims.value = resp.data || [];
+    pendingTimeClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
     const next = { ...(timeTargetPeriodByClaimId.value || {}) };
     const bNext = { ...(timeBucketByClaimId.value || {}) };
     const hNext = { ...(timeCreditsHoursByClaimId.value || {}) };
@@ -5984,13 +6002,14 @@ const loadPendingTimeClaims = async () => {
 
 const loadAllPendingTimeClaims = async () => {
   if (!agencyId.value) return;
+  pendingTimeMode.value = 'all';
   try {
     pendingTimeLoading.value = true;
     pendingTimeError.value = '';
     const resp = await api.get('/payroll/time-claims', {
       params: { agencyId: agencyId.value, status: 'submitted' }
     });
-    pendingTimeClaims.value = resp.data || [];
+    pendingTimeClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
     const next = { ...(timeTargetPeriodByClaimId.value || {}) };
     const bNext = { ...(timeBucketByClaimId.value || {}) };
     const hNext = { ...(timeCreditsHoursByClaimId.value || {}) };
@@ -6014,15 +6033,21 @@ const loadAllPendingTimeClaims = async () => {
   }
 };
 
+const reloadPendingTimeClaims = async () => {
+  if (pendingTimeMode.value === 'all') return await loadAllPendingTimeClaims();
+  return await loadPendingTimeClaims();
+};
+
 const loadPendingHolidayBonusClaims = async () => {
   if (!agencyId.value || !selectedPeriodId.value) return;
+  pendingHolidayBonusMode.value = 'period';
   try {
     pendingHolidayBonusLoading.value = true;
     pendingHolidayBonusError.value = '';
     const resp = await api.get('/payroll/holiday-bonus-claims', {
       params: { agencyId: agencyId.value, status: 'submitted', payrollPeriodId: selectedPeriodId.value }
     });
-    pendingHolidayBonusClaims.value = resp.data || [];
+    pendingHolidayBonusClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
   } catch (e) {
     pendingHolidayBonusError.value = e.response?.data?.error?.message || e.message || 'Failed to load pending holiday bonuses';
     pendingHolidayBonusClaims.value = [];
@@ -6033,13 +6058,14 @@ const loadPendingHolidayBonusClaims = async () => {
 
 const loadAllPendingHolidayBonusClaims = async () => {
   if (!agencyId.value) return;
+  pendingHolidayBonusMode.value = 'all';
   try {
     pendingHolidayBonusLoading.value = true;
     pendingHolidayBonusError.value = '';
     const resp = await api.get('/payroll/holiday-bonus-claims', {
       params: { agencyId: agencyId.value, status: 'submitted' }
     });
-    pendingHolidayBonusClaims.value = resp.data || [];
+    pendingHolidayBonusClaims.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
   } catch (e) {
     pendingHolidayBonusError.value = e.response?.data?.error?.message || e.message || 'Failed to load pending holiday bonuses';
     pendingHolidayBonusClaims.value = [];
@@ -6048,13 +6074,18 @@ const loadAllPendingHolidayBonusClaims = async () => {
   }
 };
 
+const reloadPendingHolidayBonusClaims = async () => {
+  if (pendingHolidayBonusMode.value === 'all') return await loadAllPendingHolidayBonusClaims();
+  return await loadPendingHolidayBonusClaims();
+};
+
 const approveHolidayBonusClaim = async (c) => {
   if (!c?.id) return;
   try {
     updatingHolidayBonusClaimId.value = c.id;
     pendingHolidayBonusError.value = '';
     await api.patch(`/payroll/holiday-bonus-claims/${c.id}`, { action: 'approve' });
-    await loadPendingHolidayBonusClaims();
+    await reloadPendingHolidayBonusClaims();
     await loadApprovedHolidayBonusClaimsList();
     await loadApprovedHolidayBonusClaimsAmount();
     await loadPeriodDetails();
@@ -6073,7 +6104,7 @@ const rejectHolidayBonusClaim = async (c) => {
     updatingHolidayBonusClaimId.value = c.id;
     pendingHolidayBonusError.value = '';
     await api.patch(`/payroll/holiday-bonus-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() });
-    await loadPendingHolidayBonusClaims();
+    await reloadPendingHolidayBonusClaims();
     await loadPeriodDetails();
   } catch (e) {
     pendingHolidayBonusError.value = e.response?.data?.error?.message || e.message || 'Failed to reject holiday bonus';
@@ -6091,7 +6122,7 @@ const unapproveHolidayBonusClaim = async (c) => {
     approvedHolidayBonusListError.value = '';
     await api.patch(`/payroll/holiday-bonus-claims/${c.id}`, { action: 'unapprove' });
     await loadApprovedHolidayBonusClaimsList();
-    await loadPendingHolidayBonusClaims();
+    await reloadPendingHolidayBonusClaims();
     await loadApprovedHolidayBonusClaimsAmount();
     await loadPeriodDetails();
   } catch (e) {
@@ -6114,7 +6145,7 @@ const isPtoRequestInSelectedPeriod = (r) => {
   });
 };
 
-const loadAllPendingPtoRequests = async () => {
+const fetchAllPendingPtoRequests = async () => {
   if (!agencyId.value) return;
   try {
     pendingPtoLoading.value = true;
@@ -6122,7 +6153,7 @@ const loadAllPendingPtoRequests = async () => {
     const resp = await api.get('/payroll/pto-requests', {
       params: { agencyId: agencyId.value, status: 'submitted' }
     });
-    pendingPtoRequests.value = resp.data || [];
+    pendingPtoRequests.value = (resp.data || []).filter((r) => !!r && typeof r === 'object');
 
     // Fetch balances for preview (starting balance / projected balance).
     const ids = Array.from(
@@ -6153,10 +6184,21 @@ const loadAllPendingPtoRequests = async () => {
   }
 };
 
+const loadAllPendingPtoRequests = async () => {
+  pendingPtoMode.value = 'all';
+  await fetchAllPendingPtoRequests();
+};
+
 const loadPendingPtoRequests = async () => {
-  await loadAllPendingPtoRequests();
+  pendingPtoMode.value = 'period';
+  await fetchAllPendingPtoRequests();
   if (!selectedPeriodId.value) return;
   pendingPtoRequests.value = (pendingPtoRequests.value || []).filter(isPtoRequestInSelectedPeriod);
+};
+
+const reloadPendingPtoRequests = async () => {
+  if (pendingPtoMode.value === 'all') return await loadAllPendingPtoRequests();
+  return await loadPendingPtoRequests();
 };
 
 const ptoBalancePreviewForRequest = (r) => {
@@ -6200,7 +6242,7 @@ const approvePtoRequest = async (r) => {
         throw e;
       }
     }
-    await loadAllPendingPtoRequests();
+    await reloadPendingPtoRequests();
     // Refresh balances for this user so previews reflect the approval.
     try {
       const uid = Number(r?.user_id || 0);
@@ -6231,7 +6273,7 @@ const rejectPtoRequest = async (r) => {
     approvingPtoRequestId.value = r.id;
     pendingPtoError.value = '';
     await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'reject', rejectionReason: String(reason).trim() });
-    await loadAllPendingPtoRequests();
+    await reloadPendingPtoRequests();
   } catch (e) {
     pendingPtoError.value = e.response?.data?.error?.message || e.message || 'Failed to reject PTO request';
   } finally {
@@ -6247,7 +6289,7 @@ const returnPtoRequest = async (r) => {
     approvingPtoRequestId.value = r.id;
     pendingPtoError.value = '';
     await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'return', reason: String(reason).trim() });
-    await loadAllPendingPtoRequests();
+    await reloadPendingPtoRequests();
   } catch (e) {
     pendingPtoError.value = e.response?.data?.error?.message || e.message || 'Failed to send back PTO request';
   } finally {
@@ -6282,7 +6324,7 @@ const approveTimeClaim = async (c) => {
       creditsHours,
       appliedAmount
     });
-    await loadAllPendingTimeClaims();
+    await reloadPendingTimeClaims();
     await loadApprovedTimeClaimsList();
     await loadApprovedTimeClaimsAmount();
   } catch (e) {
@@ -6300,7 +6342,7 @@ const rejectTimeClaim = async (c) => {
     approvingTimeClaimId.value = c.id;
     pendingTimeError.value = '';
     await api.patch(`/payroll/time-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() });
-    await loadAllPendingTimeClaims();
+    await reloadPendingTimeClaims();
   } catch (e) {
     pendingTimeError.value = e.response?.data?.error?.message || e.message || 'Failed to reject time claim';
   } finally {
@@ -6316,7 +6358,7 @@ const returnTimeClaim = async (c) => {
     approvingTimeClaimId.value = c.id;
     pendingTimeError.value = '';
     await api.patch(`/payroll/time-claims/${c.id}`, { action: 'return', note: String(note).trim() });
-    await loadAllPendingTimeClaims();
+    await reloadPendingTimeClaims();
     await loadApprovedTimeClaimsList();
     await loadApprovedTimeClaimsAmount();
   } catch (e) {
@@ -6335,7 +6377,7 @@ const unapproveTimeClaim = async (c) => {
     approvedTimeListError.value = '';
     await api.patch(`/payroll/time-claims/${c.id}`, { action: 'unapprove' });
     await loadApprovedTimeClaimsList();
-    await loadAllPendingTimeClaims();
+    await reloadPendingTimeClaims();
     await loadApprovedTimeClaimsAmount();
   } catch (e) {
     approvedTimeListError.value = e.response?.data?.error?.message || e.message || 'Failed to unapprove time claim';
@@ -6374,7 +6416,7 @@ const approveReimbursementClaim = async (c) => {
     approvingReimbursementClaimId.value = c.id;
     pendingReimbursementError.value = '';
     await api.patch(`/payroll/reimbursement-claims/${c.id}`, { action: 'approve', targetPayrollPeriodId });
-    await loadAllPendingReimbursementClaims();
+    await reloadPendingReimbursementClaims();
     await loadApprovedReimbursementClaimsList();
     await loadApprovedReimbursementClaimsAmount();
   } catch (e) {
@@ -6392,7 +6434,7 @@ const rejectReimbursementClaim = async (c) => {
     approvingReimbursementClaimId.value = c.id;
     pendingReimbursementError.value = '';
     await api.patch(`/payroll/reimbursement-claims/${c.id}`, { action: 'reject', rejectionReason: String(reason).trim() });
-    await loadAllPendingReimbursementClaims();
+    await reloadPendingReimbursementClaims();
   } catch (e) {
     pendingReimbursementError.value = e.response?.data?.error?.message || e.message || 'Failed to reject reimbursement';
   } finally {
@@ -6408,7 +6450,7 @@ const returnReimbursementClaim = async (c) => {
     approvingReimbursementClaimId.value = c.id;
     pendingReimbursementError.value = '';
     await api.patch(`/payroll/reimbursement-claims/${c.id}`, { action: 'return', note: String(note).trim() });
-    await loadAllPendingReimbursementClaims();
+    await reloadPendingReimbursementClaims();
     await loadApprovedReimbursementClaimsList();
     await loadApprovedReimbursementClaimsAmount();
   } catch (e) {
@@ -6427,7 +6469,7 @@ const unapproveReimbursementClaim = async (c) => {
     approvedReimbursementListError.value = '';
     await api.patch(`/payroll/reimbursement-claims/${c.id}`, { action: 'unapprove' });
     await loadApprovedReimbursementClaimsList();
-    await loadAllPendingReimbursementClaims();
+    await reloadPendingReimbursementClaims();
     await loadApprovedReimbursementClaimsAmount();
   } catch (e) {
     approvedReimbursementListError.value = e.response?.data?.error?.message || e.message || 'Failed to unapprove reimbursement';
@@ -7396,6 +7438,7 @@ const saveMileageRates = async () => {
 
 const loadPendingMileageClaims = async () => {
   if (!agencyId.value || !selectedPeriodId.value) return;
+  pendingMileageMode.value = 'period';
   try {
     pendingMileageLoading.value = true;
     pendingMileageError.value = '';
@@ -7406,7 +7449,7 @@ const loadPendingMileageClaims = async () => {
         suggestedPeriodId: selectedPeriodId.value
       }
     });
-    const rows = resp.data || [];
+    const rows = (resp.data || []).filter((r) => !!r && typeof r === 'object');
     pendingMileageClaims.value = rows;
 
     // Seed defaults for per-row controls
@@ -7428,6 +7471,7 @@ const loadPendingMileageClaims = async () => {
 
 const loadAllPendingMileageClaims = async () => {
   if (!agencyId.value) return;
+  pendingMileageMode.value = 'all';
   try {
     pendingMileageLoading.value = true;
     pendingMileageError.value = '';
@@ -7437,7 +7481,7 @@ const loadAllPendingMileageClaims = async () => {
         status: 'submitted'
       }
     });
-    const rows = resp.data || [];
+    const rows = (resp.data || []).filter((r) => !!r && typeof r === 'object');
     pendingMileageClaims.value = rows;
 
     const nextTier = { ...(mileageTierByClaimId.value || {}) };
@@ -7454,6 +7498,11 @@ const loadAllPendingMileageClaims = async () => {
   } finally {
     pendingMileageLoading.value = false;
   }
+};
+
+const reloadPendingMileageClaims = async () => {
+  if (pendingMileageMode.value === 'all') return await loadAllPendingMileageClaims();
+  return await loadPendingMileageClaims();
 };
 
 const openMileageDetails = (c) => {
@@ -7496,7 +7545,7 @@ const approveMileageClaim = async (c) => {
         throw e;
       }
     }
-    await loadPendingMileageClaims();
+    await reloadPendingMileageClaims();
     await loadPeriodDetails();
     await loadApprovedMileageClaimsAmount();
     await loadApprovedMileageClaimsList();
@@ -7513,7 +7562,7 @@ const deferMileageClaim = async (c) => {
     approvingMileageClaimId.value = c.id;
     pendingMileageError.value = '';
     await api.patch(`/payroll/mileage-claims/${c.id}`, { action: 'defer' });
-    await loadPendingMileageClaims();
+    await reloadPendingMileageClaims();
   } catch (e) {
     pendingMileageError.value = e.response?.data?.error?.message || e.message || 'Failed to defer mileage claim';
   } finally {
@@ -7529,7 +7578,7 @@ const rejectMileageClaim = async (c) => {
     approvingMileageClaimId.value = c.id;
     pendingMileageError.value = '';
     await api.patch(`/payroll/mileage-claims/${c.id}`, { action: 'reject', rejectionReason: reason });
-    await loadPendingMileageClaims();
+    await reloadPendingMileageClaims();
   } catch (e) {
     pendingMileageError.value = e.response?.data?.error?.message || e.message || 'Failed to reject mileage claim';
   } finally {
@@ -7545,7 +7594,7 @@ const returnMileageClaim = async (c) => {
     approvingMileageClaimId.value = c.id;
     pendingMileageError.value = '';
     await api.patch(`/payroll/mileage-claims/${c.id}`, { action: 'return', note: String(note).trim() });
-    await loadAllPendingMileageClaims();
+    await reloadPendingMileageClaims();
   } catch (e) {
     pendingMileageError.value = e.response?.data?.error?.message || e.message || 'Failed to send back mileage claim';
   } finally {
@@ -7555,6 +7604,7 @@ const returnMileageClaim = async (c) => {
 
 const loadPendingMedcancelClaims = async () => {
   if (!agencyId.value || !selectedPeriodId.value) return;
+  pendingMedcancelMode.value = 'period';
   try {
     pendingMedcancelLoading.value = true;
     pendingMedcancelError.value = '';
@@ -7565,7 +7615,7 @@ const loadPendingMedcancelClaims = async () => {
         suggestedPeriodId: selectedPeriodId.value
       }
     });
-    const rows = resp.data || [];
+    const rows = (resp.data || []).filter((r) => !!r && typeof r === 'object');
     pendingMedcancelClaims.value = rows;
 
     // Seed defaults for per-row controls
@@ -7584,6 +7634,7 @@ const loadPendingMedcancelClaims = async () => {
 
 const loadAllPendingMedcancelClaims = async () => {
   if (!agencyId.value) return;
+  pendingMedcancelMode.value = 'all';
   try {
     pendingMedcancelLoading.value = true;
     pendingMedcancelError.value = '';
@@ -7593,7 +7644,7 @@ const loadAllPendingMedcancelClaims = async () => {
         status: 'submitted'
       }
     });
-    const rows = resp.data || [];
+    const rows = (resp.data || []).filter((r) => !!r && typeof r === 'object');
     pendingMedcancelClaims.value = rows;
 
     const nextTarget = { ...(medcancelTargetPeriodByClaimId.value || {}) };
@@ -7607,6 +7658,11 @@ const loadAllPendingMedcancelClaims = async () => {
   } finally {
     pendingMedcancelLoading.value = false;
   }
+};
+
+const reloadPendingMedcancelClaims = async () => {
+  if (pendingMedcancelMode.value === 'all') return await loadAllPendingMedcancelClaims();
+  return await loadPendingMedcancelClaims();
 };
 
 const approveMedcancelClaim = async (c) => {
@@ -7638,7 +7694,7 @@ const approveMedcancelClaim = async (c) => {
         throw e;
       }
     }
-    await loadPendingMedcancelClaims();
+    await reloadPendingMedcancelClaims();
     await loadPeriodDetails();
     await loadApprovedMedcancelClaimsAmount();
     await loadApprovedMedcancelClaimsList();
@@ -7655,7 +7711,7 @@ const deferMedcancelClaim = async (c) => {
     approvingMedcancelClaimId.value = c.id;
     pendingMedcancelError.value = '';
     await api.patch(`/payroll/medcancel-claims/${c.id}`, { action: 'defer' });
-    await loadPendingMedcancelClaims();
+    await reloadPendingMedcancelClaims();
   } catch (e) {
     pendingMedcancelError.value = e.response?.data?.error?.message || e.message || 'Failed to defer MedCancel claim';
   } finally {
@@ -7671,7 +7727,7 @@ const rejectMedcancelClaim = async (c) => {
     approvingMedcancelClaimId.value = c.id;
     pendingMedcancelError.value = '';
     await api.patch(`/payroll/medcancel-claims/${c.id}`, { action: 'reject', rejectionReason: reason });
-    await loadPendingMedcancelClaims();
+    await reloadPendingMedcancelClaims();
   } catch (e) {
     pendingMedcancelError.value = e.response?.data?.error?.message || e.message || 'Failed to reject MedCancel claim';
   } finally {
@@ -7687,7 +7743,7 @@ const returnMedcancelClaim = async (c) => {
     approvingMedcancelClaimId.value = c.id;
     pendingMedcancelError.value = '';
     await api.patch(`/payroll/medcancel-claims/${c.id}`, { action: 'return', note: String(note).trim() });
-    await loadAllPendingMedcancelClaims();
+    await reloadPendingMedcancelClaims();
   } catch (e) {
     pendingMedcancelError.value = e.response?.data?.error?.message || e.message || 'Failed to send back Med Cancel claim';
   } finally {
@@ -8339,8 +8395,8 @@ const loadStaging = async () => {
     stagingLoading.value = true;
     stagingError.value = '';
     const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/staging`);
-    stagingMatched.value = resp.data?.matched || [];
-    stagingUnmatched.value = resp.data?.unmatched || [];
+    stagingMatched.value = (resp.data?.matched || []).filter((r) => !!r && typeof r === 'object');
+    stagingUnmatched.value = (resp.data?.unmatched || []).filter((r) => !!r && typeof r === 'object');
     tierByUserId.value = resp.data?.tierByUserId || {};
     // Use persisted prior-unpaid snapshot (red column) if present.
     if (Array.isArray(resp.data?.priorStillUnpaid)) {
@@ -8566,6 +8622,7 @@ const restoreSelectionFromStorage = async () => {
 const seedStagingEdits = () => {
   const next = {};
   for (const r of stagingMatched.value || []) {
+    if (!r?.userId || !r?.serviceCode) continue;
     const base = r.override ? {
       noNoteUnits: Number(r.override.noNoteUnits ?? 0),
       draftUnits: Number(r.override.draftUnits ?? 0),

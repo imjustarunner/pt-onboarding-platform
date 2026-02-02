@@ -4911,6 +4911,24 @@ export const createPayrollTodoTemplate = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await requirePayrollAccess(req, res, agencyId))) return;
 
+    // Guard against sessions that lack a valid users-table id (would fail FK constraints).
+    const requesterId = parseIdLoose(req.user?.id);
+    if (!requesterId || requesterId <= 0) {
+      return res.status(401).json({
+        error: {
+          message: 'Your session is missing a valid user id. Please sign out and sign back in, then try again.'
+        }
+      });
+    }
+    const requester = await User.findById(requesterId);
+    if (!requester) {
+      return res.status(401).json({
+        error: {
+          message: 'User not found for this session. Please sign out and sign back in, then try again.'
+        }
+      });
+    }
+
     const title = String(req.body?.title || '').trim().slice(0, 180);
     const description = req.body?.description === null || req.body?.description === undefined ? null : String(req.body.description);
     const scopeRaw = String(req.body?.scope || 'agency').trim().toLowerCase();
@@ -4939,8 +4957,8 @@ export const createPayrollTodoTemplate = async (req, res, next) => {
       scope,
       targetUserId: scope === 'provider' ? targetUserId : 0,
       startPayrollPeriodId,
-      createdByUserId: req.user.id,
-      updatedByUserId: req.user.id
+      createdByUserId: requesterId,
+      updatedByUserId: requesterId
     });
 
     // Best-effort: if a start period is set, materialize it immediately.
@@ -4967,6 +4985,24 @@ export const patchPayrollTodoTemplate = async (req, res, next) => {
     const agencyId = parseIdLoose(agencyIdRaw);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await requirePayrollAccess(req, res, agencyId))) return;
+
+    // Guard against sessions that lack a valid users-table id (would fail FK constraints).
+    const requesterId = parseIdLoose(req.user?.id);
+    if (!requesterId || requesterId <= 0) {
+      return res.status(401).json({
+        error: {
+          message: 'Your session is missing a valid user id. Please sign out and sign back in, then try again.'
+        }
+      });
+    }
+    const requester = await User.findById(requesterId);
+    if (!requester) {
+      return res.status(401).json({
+        error: {
+          message: 'User not found for this session. Please sign out and sign back in, then try again.'
+        }
+      });
+    }
 
     const title = String(req.body?.title || '').trim().slice(0, 180);
     const description = req.body?.description === null || req.body?.description === undefined ? null : String(req.body.description);
@@ -4998,7 +5034,7 @@ export const patchPayrollTodoTemplate = async (req, res, next) => {
       targetUserId: scope === 'provider' ? targetUserId : 0,
       startPayrollPeriodId,
       isActive,
-      updatedByUserId: req.user.id
+      updatedByUserId: requesterId
     });
 
     res.json({ ok: true });
