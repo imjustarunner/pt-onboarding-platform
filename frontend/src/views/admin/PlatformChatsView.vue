@@ -13,6 +13,7 @@
             <option v-for="a in agencyOptions" :key="a.id" :value="String(a.id)">{{ a.name }}</option>
           </select>
         </div>
+        <button class="btn btn-primary" @click="openNewChat" :disabled="loading || !agencyId">New chat</button>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
       </div>
     </div>
@@ -38,7 +39,7 @@
         >
           <div class="thread-top">
             <div class="thread-name">
-              {{ t.other_participant ? `${t.other_participant.first_name} ${t.other_participant.last_name}` : `Thread #${t.thread_id}` }}
+              {{ threadLabel(t) }}
             </div>
             <span v-if="t.unread_count" class="pill">{{ t.unread_count }}</span>
           </div>
@@ -126,6 +127,53 @@
       </div>
     </div>
   </div>
+
+  <div v-if="newChatOpen" class="modal-overlay" @click.self="closeNewChat">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Start a chat</div>
+          <div class="modal-subtitle">Pick 1 person for a direct message, or 2+ people for a group.</div>
+        </div>
+        <button class="btn btn-secondary btn-xs" type="button" @click="closeNewChat">Close</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-toolbar">
+          <input v-model="newChatQ" class="modal-search" placeholder="Search by name or email…" />
+          <div class="modal-selected">
+            Selected: <strong>{{ selectedNewChatUserIds.length }}</strong>
+          </div>
+        </div>
+
+        <div v-if="newChatLoading" class="muted">Loading people…</div>
+        <div v-else-if="newChatError" class="error">{{ newChatError }}</div>
+
+        <div v-else class="people-list">
+          <label v-for="u in filteredNewChatPeople" :key="u.id" class="person-row">
+            <input
+              type="checkbox"
+              :value="u.id"
+              v-model="selectedNewChatUserIds"
+              :disabled="sending"
+            />
+            <div class="person-main">
+              <div class="person-name">{{ u.first_name }} {{ u.last_name }}</div>
+              <div class="person-meta">{{ u.email }} <span class="dot" :class="`dot-${u.status || 'offline'}`"></span></div>
+            </div>
+          </label>
+          <div v-if="filteredNewChatPeople.length === 0" class="muted">No matches.</div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" @click="clearNewChatSelection" :disabled="sending">Clear</button>
+        <button class="btn btn-primary" type="button" @click="startNewChat" :disabled="sending || selectedNewChatUserIds.length === 0">
+          Start
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -183,10 +231,95 @@ const selectedAgencyId = ref('');
 
 const activeThreadLabel = computed(() => {
   if (!activeThread.value) return 'Messages';
-  const other = activeThread.value.other_participant;
-  if (!other) return `Thread #${activeThread.value.thread_id}`;
-  return `${other.first_name} ${other.last_name}`;
+  return threadLabel(activeThread.value);
 });
+
+const threadLabel = (t) => {
+  if (!t) return 'Thread';
+  const type = String(t.thread_type || 'direct');
+  if (type === 'group') {
+    const parts = (t.participants || []).filter((p) => Number(p?.id) !== Number(meId.value));
+    if (parts.length === 0) return `Group #${t.thread_id}`;
+    const names = parts.map((p) => `${p.first_name || ''} ${p.last_name || ''}`.trim()).filter(Boolean);
+    const shown = names.slice(0, 3);
+    const extra = names.length - shown.length;
+    return extra > 0 ? `Group: ${shown.join(', ')} +${extra}` : `Group: ${shown.join(', ')}`;
+  }
+  const other = t.other_participant;
+  if (!other) return `Thread #${t.thread_id}`;
+  return `${other.first_name} ${other.last_name}`;
+};
+
+// New chat modal
+const newChatOpen = ref(false);
+const newChatLoading = ref(false);
+const newChatError = ref('');
+const newChatPeople = ref([]);
+const newChatQ = ref('');
+const selectedNewChatUserIds = ref([]);
+
+const filteredNewChatPeople = computed(() => {
+  const q = String(newChatQ.value || '').trim().toLowerCase();
+  const list = (newChatPeople.value || []).filter((u) => Number(u?.id) !== Number(meId.value));
+  if (!q) return list;
+  return list.filter((u) => {
+    const name = `${u.first_name || ''} ${u.last_name || ''}`.trim().toLowerCase();
+    const email = String(u.email || '').toLowerCase();
+    return name.includes(q) || email.includes(q);
+  });
+});
+
+const openNewChat = async () => {
+  if (!agencyId.value) return;
+  newChatOpen.value = true;
+  newChatError.value = '';
+  newChatQ.value = '';
+  selectedNewChatUserIds.value = [];
+  try {
+    newChatLoading.value = true;
+    const resp = await api.get(`/presence/agency/${agencyId.value}`, { skipGlobalLoading: true });
+    newChatPeople.value = resp.data || [];
+  } catch (e) {
+    newChatError.value = e.response?.data?.error?.message || 'Failed to load people';
+    newChatPeople.value = [];
+  } finally {
+    newChatLoading.value = false;
+  }
+};
+
+const closeNewChat = () => {
+  newChatOpen.value = false;
+};
+
+const clearNewChatSelection = () => {
+  selectedNewChatUserIds.value = [];
+};
+
+const startNewChat = async () => {
+  if (!agencyId.value) return;
+  const ids = [...new Set((selectedNewChatUserIds.value || []).map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (ids.length === 0) return;
+  try {
+    sending.value = true;
+    newChatError.value = '';
+    let threadId = null;
+    if (ids.length === 1) {
+      const resp = await api.post('/chat/threads/direct', { agencyId: agencyId.value, otherUserId: ids[0] }, { skipGlobalLoading: true });
+      threadId = resp.data?.threadId ?? null;
+    } else {
+      const resp = await api.post('/chat/threads/group', { agencyId: agencyId.value, userIds: ids }, { skipGlobalLoading: true });
+      threadId = resp.data?.threadId ?? null;
+    }
+    closeNewChat();
+    await loadThreads();
+    const t = (threads.value || []).find((x) => Number(x.thread_id) === Number(threadId));
+    if (t) await selectThread(t);
+  } catch (e) {
+    newChatError.value = e.response?.data?.error?.message || 'Failed to start chat';
+  } finally {
+    sending.value = false;
+  }
+};
 
 const onAgencyPicked = async () => {
   const id = parseInt(String(selectedAgencyId.value || ''), 10);
@@ -503,5 +636,71 @@ textarea { width: 100%; border: 1px solid var(--border); border-radius: 10px; pa
 .error { color: #b91c1c; }
 .empty { color: var(--text-secondary); border: 1px dashed var(--border); padding: 14px; border-radius: 12px; background: #fafafa; }
 @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } .messages { min-height: auto; } }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.modal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: hidden;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+}
+.modal-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.modal-title { font-weight: 900; }
+.modal-subtitle { margin-top: 4px; color: var(--text-secondary); font-size: 12px; }
+.modal-body { padding: 12px 14px; overflow: auto; }
+.modal-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.modal-search {
+  flex: 1;
+  min-width: 220px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.modal-selected { color: var(--text-secondary); font-size: 13px; }
+.people-list { display: flex; flex-direction: column; gap: 8px; }
+.person-row {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+}
+.person-row:hover { border-color: var(--primary); }
+.person-row input { width: 16px; height: 16px; }
+.person-main { flex: 1; min-width: 0; }
+.person-name { font-weight: 800; }
+.person-meta { color: var(--text-secondary); font-size: 12px; display: flex; align-items: center; gap: 10px; }
+.dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; border: 1px solid rgba(15, 23, 42, 0.12); }
+.dot-online { background: #22c55e; }
+.dot-idle { background: #f59e0b; }
+.dot-offline { background: #9ca3af; }
+.modal-footer {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
 </style>
 

@@ -33,6 +33,26 @@ async function assertThreadAccess(reqUserId, threadId) {
   return true;
 }
 
+async function assertUsersInAgency(agencyId, userIds) {
+  const ids = [...new Set((userIds || []).map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT user_id
+     FROM user_agencies
+     WHERE agency_id = ? AND user_id IN (${placeholders})`,
+    [agencyId, ...ids]
+  );
+  const ok = new Set((rows || []).map((r) => Number(r.user_id)));
+  const missing = ids.filter((id) => !ok.has(id));
+  if (missing.length) {
+    const err = new Error('One or more users are not in the selected agency');
+    err.status = 400;
+    throw err;
+  }
+  return ids;
+}
+
 async function findOrCreateDirectThread(agencyId, organizationId, userAId, userBId) {
   // Find a direct thread in this agency that has exactly these 2 participants.
   const [rows] = await pool.execute(
@@ -59,6 +79,33 @@ async function findOrCreateDirectThread(agencyId, organizationId, userAId, userB
     'INSERT INTO chat_thread_participants (thread_id, user_id) VALUES (?, ?), (?, ?)',
     [threadId, userAId, threadId, userBId]
   );
+  return threadId;
+}
+
+async function createGroupThreadInDb(agencyId, organizationId, participantUserIds) {
+  const unique = [...new Set(participantUserIds.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0))];
+  if (unique.length < 3) {
+    const err = new Error('Group threads require at least 3 participants (including you)');
+    err.status = 400;
+    throw err;
+  }
+
+  const [ins] = await pool.execute(
+    'INSERT INTO chat_threads (agency_id, organization_id, thread_type) VALUES (?, ?, ?)',
+    [agencyId, organizationId || null, 'group']
+  );
+  const threadId = ins.insertId;
+
+  const values = unique.map(() => '(?, ?)').join(',');
+  const params = [];
+  for (const uid of unique) {
+    params.push(threadId, uid);
+  }
+  await pool.execute(
+    `INSERT INTO chat_thread_participants (thread_id, user_id) VALUES ${values}`,
+    params
+  );
+
   return threadId;
 }
 
@@ -138,6 +185,7 @@ export const listMyThreads = async (req, res, next) => {
       `SELECT t.id AS thread_id,
               t.agency_id,
               t.organization_id,
+              t.thread_type,
               t.updated_at,
               lm.id AS last_message_id,
               lm.body AS last_message_body,
@@ -195,11 +243,13 @@ export const listMyThreads = async (req, res, next) => {
 
     const threads = (rows || []).map((r) => {
       const participants = participantsByThread[r.thread_id] || [];
-      const other = participants.find((p) => p.user_id !== userId) || null;
+      const others = participants.filter((p) => p.user_id !== userId);
+      const other = others[0] || null;
       return {
         thread_id: r.thread_id,
         agency_id: r.agency_id,
         organization_id: r.organization_id || null,
+        thread_type: r.thread_type || 'direct',
         updated_at: r.updated_at,
         unread_count: Number(r.unread_count || 0),
         last_message: r.last_message_id
@@ -210,6 +260,13 @@ export const listMyThreads = async (req, res, next) => {
               sender_user_id: r.last_message_sender_user_id
             }
           : null,
+        participants: (others || []).map((p) => ({
+          id: p.user_id,
+          first_name: p.first_name,
+          last_name: p.last_name,
+          email: p.email,
+          role: p.role
+        })),
         other_participant: other
           ? {
               id: other.user_id,
@@ -267,6 +324,51 @@ export const createOrGetDirectThread = async (req, res, next) => {
     } catch {
       // ignore (table may not exist yet in some envs)
     }
+    res.status(201).json({ threadId });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createGroupThread = async (req, res, next) => {
+  try {
+    const agencyId = req.body.agencyId ? parseInt(req.body.agencyId, 10) : null;
+    const organizationId = req.body.organizationId ? parseInt(req.body.organizationId, 10) : null;
+    const raw = req.body?.userIds ?? req.body?.participantUserIds ?? [];
+    if (!agencyId || !Array.isArray(raw)) {
+      return res.status(400).json({ error: { message: 'agencyId and userIds are required' } });
+    }
+
+    // Allow org-scoped group creation (same guard as direct threads)
+    if (organizationId) {
+      const active = await resolveActiveAgencyIdForOrg(organizationId);
+      if (active && Number(active) !== Number(agencyId)) {
+        return res.status(400).json({ error: { message: 'organizationId is not affiliated to this agency' } });
+      }
+    }
+    await assertAgencyOrOrgAccess(req.user, agencyId, organizationId);
+
+    const me = Number(req.user.id);
+    const others = [...new Set(raw.map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n) && n > 0 && n !== me))];
+    if (others.length < 2) {
+      return res.status(400).json({ error: { message: 'Select at least 2 other users to start a group' } });
+    }
+    if (others.length > 30) {
+      return res.status(400).json({ error: { message: 'Group size is too large' } });
+    }
+
+    // Ensure ALL participants are in the agency (including me).
+    await assertUsersInAgency(agencyId, [me, ...others]);
+
+    const threadId = await createGroupThreadInDb(agencyId, organizationId, [me, ...others]);
+
+    // If the creator previously deleted/hid this thread (unlikely on create), ensure it is visible.
+    try {
+      await pool.execute('DELETE FROM chat_thread_deletes WHERE thread_id = ? AND user_id = ?', [threadId, me]);
+    } catch {
+      // ignore
+    }
+
     res.status(201).json({ threadId });
   } catch (e) {
     next(e);

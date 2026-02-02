@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   bulkDeleteForMe,
+  createGroupThread,
   createOrGetDirectThread,
   deleteForMe,
   deleteThreadForMe,
@@ -18,6 +19,7 @@ router.use(authenticate);
 
 router.get('/threads', listMyThreads);
 router.post('/threads/direct', createOrGetDirectThread);
+router.post('/threads/group', createGroupThread);
 router.get('/threads/:threadId/meta', getThreadMeta);
 router.post('/threads/:threadId/delete-for-me', deleteThreadForMe);
 router.get('/threads/:threadId/messages', listMessages);
