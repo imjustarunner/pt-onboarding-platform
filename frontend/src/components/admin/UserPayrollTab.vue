@@ -151,7 +151,7 @@
 
         <div class="template-card" style="margin-top: 10px;">
           <div class="template-title">Hourly rate card (fallback)</div>
-          <div class="muted" style="margin-top: 6px;">Used when no per-code rate override exists (unless provider is fee-for-service).</div>
+          <div class="muted" style="margin-top: 6px;">Used when no per-code rate override exists.</div>
           <div class="table-wrap" style="margin-top: 10px;">
             <table class="table rate-card-table">
               <thead>
