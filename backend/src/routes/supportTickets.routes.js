@@ -4,6 +4,9 @@ import {
   listMySupportTickets,
   listSupportTicketsQueue,
   createSupportTicket,
+  getClientSupportTicketThread,
+  listSupportTicketMessages,
+  createSupportTicketMessage,
   answerSupportTicket,
   claimSupportTicket,
   unclaimSupportTicket
@@ -15,11 +18,18 @@ router.use(authenticate);
 // School staff: list own tickets
 router.get('/mine', listMySupportTickets);
 
+// School Portal: client-scoped thread lookup (school staff + agency staff/admin)
+router.get('/client-thread', getClientSupportTicketThread);
+
 // Admin/support: queue (optionally filter by schoolOrganizationId/status)
 router.get('/', listSupportTicketsQueue);
 
 // School staff: create ticket
 router.post('/', createSupportTicket);
+
+// Thread messages (client-scoped + future general ticket threading)
+router.get('/:id/messages', listSupportTicketMessages);
+router.post('/:id/messages', createSupportTicketMessage);
 
 // Admin/support: answer ticket
 router.post('/:id/answer', answerSupportTicket);
