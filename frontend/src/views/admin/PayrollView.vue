@@ -1110,7 +1110,7 @@
         </div>
         <div class="card" style="padding: 10px;">
           <div class="hint muted">Rows inserted</div>
-          <div style="font-size: 18px;"><strong>{{ fmtInt(processChangesAggregateTotals.rowsInsertedTotal) }}</strong></div>
+          <div style="font-size: 18px;"><strong>{{ fmtNum(processChangesAggregateTotals.rowsInsertedTotal) }}</strong></div>
         </div>
       </div>
 
@@ -1132,7 +1132,7 @@
               <td>{{ r.priorPeriodLabel || (r.priorPeriodId ? `Period #${r.priorPeriodId}` : '—') }}</td>
               <td>{{ r.destinationPeriodLabel || (r.destinationPeriodId ? `Period #${r.destinationPeriodId}` : '—') }}</td>
               <td class="right"><strong>{{ fmtNum(r.unitsApplied || 0) }}</strong></td>
-              <td class="right">{{ fmtInt(r.rowsInserted || 0) }}</td>
+              <td class="right">{{ fmtNum(r.rowsInserted || 0) }}</td>
               <td class="muted">{{ String(r.appliedAt || '').slice(0, 19) || '—' }}</td>
             </tr>
           </tbody>
