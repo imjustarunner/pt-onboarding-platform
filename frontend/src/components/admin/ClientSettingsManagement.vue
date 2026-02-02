@@ -5,8 +5,19 @@
         <h2 style="margin:0;">Client Settings</h2>
         <p class="hint">These lists are agency-scoped and drive validation, imports, and filtering.</p>
       </div>
-      <div class="agency-pill" v-if="currentAgencyName">
-        {{ currentAgencyName }}
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button
+          class="btn btn-secondary"
+          type="button"
+          @click="showJobsModal = true"
+          :disabled="!currentAgencyId"
+          title="View and rollback recent preview jobs"
+        >
+          Recent preview jobs…
+        </button>
+        <div class="agency-pill" v-if="currentAgencyName">
+          {{ currentAgencyName }}
+        </div>
       </div>
     </div>
 
@@ -61,6 +72,14 @@
         </div>
       </div>
     </div>
+
+    <RecentBulkImportJobsModal
+      v-if="showJobsModal && currentAgencyId"
+      :agency-id="currentAgencyId"
+      :agency-name="currentAgencyName"
+      @close="showJobsModal = false"
+      @rolled-back="() => {}"
+    />
   </div>
 </template>
 
@@ -68,6 +87,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import RecentBulkImportJobsModal from './RecentBulkImportJobsModal.vue';
 
 const agencyStore = useAgencyStore();
 const loading = ref(false);
@@ -84,6 +104,7 @@ const tabs = [
 const activeTab = ref('client_statuses');
 const items = ref([]);
 const newItem = ref({ display_name: '', description: '' });
+const showJobsModal = ref(false);
 
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
 const currentAgencyName = computed(() => agencyStore.currentAgency?.name || '');
