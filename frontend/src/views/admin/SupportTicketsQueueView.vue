@@ -92,6 +92,16 @@
             <button class="btn btn-secondary btn-sm" type="button" @click="toggleAnswer(t.id)">
               {{ openAnswerId === t.id ? 'Close' : 'Answer' }}
             </button>
+            <button
+              v-if="t.answer && (String(t.status || '').toLowerCase() === 'answered' || String(t.status || '').toLowerCase() === 'closed')"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="convertToFaq(t)"
+              :disabled="convertingFaqId === t.id"
+              title="Create a pending School Portal FAQ entry from this ticket"
+            >
+              {{ convertingFaqId === t.id ? 'Creating…' : 'To FAQ' }}
+            </button>
           </div>
         </div>
 
@@ -161,6 +171,7 @@ const submitting = ref(false);
 const answerError = ref('');
 const claimingId = ref(null);
 const unclaimingId = ref(null);
+const convertingFaqId = ref(null);
 
 const syncFromQuery = () => {
   const qSchool = route.query?.schoolOrganizationId;
@@ -297,6 +308,20 @@ const submitAnswer = async (t) => {
     answerError.value = e.response?.data?.error?.message || 'Failed to submit answer';
   } finally {
     submitting.value = false;
+  }
+};
+
+const convertToFaq = async (t) => {
+  try {
+    if (!t?.id) return;
+    convertingFaqId.value = t.id;
+    await api.post('/faqs/from-ticket', { ticketId: t.id });
+    alert('Created a pending FAQ entry. You can edit/publish it under Admin → FAQ.');
+  } catch (e) {
+    const msg = e.response?.data?.error?.message || 'Failed to create FAQ from ticket';
+    alert(msg);
+  } finally {
+    convertingFaqId.value = null;
   }
 };
 

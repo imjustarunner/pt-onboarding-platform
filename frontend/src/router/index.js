@@ -662,6 +662,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
   },
   {
+    path: '/admin/faqs',
+    name: 'FaqManagement',
+    component: () => import('../views/admin/FaqManagementView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+  },
+  {
     path: '/admin/communications',
     name: 'CommunicationsFeed',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),
