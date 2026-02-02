@@ -407,9 +407,13 @@
               <h3 class="card-title" style="margin: 0 0 6px 0;">Current step actions</h3>
 
               <div v-if="wizardStep?.key === 'prior'" class="hint">
-                Submit/complete the prior payroll cycle before continuing (skipped automatically on first payroll).
+                Start here: <strong>Process Changes</strong> for any prior pay periods you edited (late notes, manual pay fixes, etc).
+                <div class="hint" style="margin-top: 6px;">
+                  You can run this more than once before continuing — for example, process <strong>two pay periods ago</strong> first, then process <strong>one pay period ago</strong>.
+                  Each time, upload the updated report for that prior period and choose the correct prior pay period.
+                </div>
                 <div class="actions" style="margin-top: 10px; justify-content: flex-start;">
-                  <button class="btn btn-secondary" type="button" @click="openPreviewPostModalV2" :disabled="!selectedPeriodId">Open Preview Post</button>
+                  <button class="btn btn-secondary" type="button" @click="wizardGoToProcessChanges" :disabled="!selectedPeriodId">Go to Process Changes</button>
                 </div>
               </div>
 
@@ -1056,7 +1060,7 @@
               <label>Existing prior pay period</label>
               <select v-model="processExistingPeriodId">
                 <option :value="null" disabled>Select a pay period…</option>
-                <option v-for="p in periods" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
+                <option v-for="p in processPriorPeriodOptions" :key="p.id" :value="p.id">{{ periodRangeLabel(p) }}</option>
               </select>
             </div>
             <div class="field" v-else-if="processChoiceMode === 'detected'">
@@ -4533,6 +4537,26 @@ const processDetectedHint = ref('');
 const processSourcePeriodId = ref(null);
 const processSourcePeriodLabel = ref('');
 
+const processPriorPeriodOptions = computed(() => {
+  const dest = selectedPeriodForUi.value || selectedPeriod.value || null;
+  const destStart = String(dest?.period_start || '').slice(0, 10);
+  const destId = Number(selectedPeriodId.value || 0);
+  const list = Array.isArray(periods.value) ? periods.value : [];
+  const filtered = list.filter((p) => {
+    if (!p?.id) return false;
+    const pid = Number(p.id || 0);
+    if (destId && pid === destId) return false;
+    if (String(p?.status || '').toLowerCase() === 'draft') return false;
+    if (destStart) {
+      const end = String(p?.period_end || '').slice(0, 10);
+      if (end && end >= destStart) return false;
+    }
+    return true;
+  });
+  filtered.sort((a, b) => String(b?.period_end || '').localeCompare(String(a?.period_end || '')));
+  return filtered;
+});
+
 const processConfirmOpen = ref(false);
 const processDetectResult = ref(null); // { detected, existingPeriodId }
 const processChoiceMode = ref('detected'); // 'detected' | 'existing'
@@ -5183,6 +5207,14 @@ const openPayrollWizard = async () => {
   if (!selectedPeriodId.value) return;
   showPayrollWizardModal.value = true;
   await loadPayrollWizardProgress();
+  // Always start the wizard at the beginning (Process Changes). This avoids reopening at the end
+  // due to saved stepIdx from a prior run of the wizard.
+  wizardStepIdx.value = 0;
+  try {
+    await savePayrollWizardProgress();
+  } catch {
+    // best-effort; don't block opening the wizard if progress save fails
+  }
 };
 
 const wizardNext = async () => {
@@ -6749,6 +6781,10 @@ const fmtMoney = (v) => {
 const fmtNum = (v) => {
   const n = Number(v || 0);
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+};
+const fmtInt = (v) => {
+  const n = Number(v || 0);
+  return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 };
 
 const nameForUserId = (uid) => {
@@ -9123,6 +9159,10 @@ const processAutoImport = async () => {
     }
     processChoiceMode.value = 'detected';
     processExistingPeriodId.value = processDetectResult.value?.existingPeriodId || null;
+    // Ensure suggested match is actually a valid "prior period" option for this destination period.
+    if (processExistingPeriodId.value && !(processPriorPeriodOptions.value || []).some((p) => Number(p?.id) === Number(processExistingPeriodId.value))) {
+      processExistingPeriodId.value = null;
+    }
     processConfirmOpen.value = true;
   } catch (e) {
     processError.value = e.response?.data?.error?.message || e.message || 'Failed to auto-detect/import prior pay period';
