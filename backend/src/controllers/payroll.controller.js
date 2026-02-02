@@ -11931,6 +11931,38 @@ export const getMyCurrentTier = async (req, res, next) => {
   }
 };
 
+export const getUserCurrentTier = async (req, res, next) => {
+  try {
+    const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    const userId = req.params.userId ? parseInt(req.params.userId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
+    if (!(await requirePayrollAccess(req, res, agencyId))) return;
+    if (!(await requireTargetUserInAgency({ res, agencyId, targetUserId: userId }))) return;
+
+    const rows = await PayrollSummary.listForUser({ userId, agencyId, limit: 5, offset: 0 });
+    const latest = (rows || []).find((r) => {
+      const st = String(r.status || '').toLowerCase();
+      return st === 'posted' || st === 'finalized';
+    }) || null;
+
+    const tier = latest?.breakdown?.__tier || null;
+    const graceActive = Number(latest?.grace_active || 0) ? true : false;
+    res.json({
+      ok: true,
+      agencyId,
+      userId,
+      payrollPeriodId: latest?.payroll_period_id || null,
+      periodStart: latest?.period_start || null,
+      periodEnd: latest?.period_end || null,
+      graceActive,
+      tier
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const getMyCompensation = async (req, res, next) => {
   try {
     const userId = req.user?.id;

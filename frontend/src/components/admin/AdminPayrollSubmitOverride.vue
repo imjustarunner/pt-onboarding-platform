@@ -46,6 +46,38 @@
     </div>
 
     <div v-if="submitSuccess" class="success-box" style="margin-top: 10px;">{{ submitSuccess }}</div>
+
+    <div v-if="(sessionSubmissions || []).length" class="card" style="margin-top: 10px;">
+      <div class="section-header" style="margin: 0;">
+        <h3 class="card-title" style="margin: 0;">This session’s submissions</h3>
+        <div class="actions" style="margin: 0; justify-content: flex-end;">
+          <button class="btn btn-secondary btn-sm" type="button" @click="clearSessionSubmissions">Clear list</button>
+        </div>
+      </div>
+      <div class="hint" style="margin-top: 6px;">
+        Keeps a running list while you submit on behalf, so you don’t lose your place.
+      </div>
+      <div class="table-wrap" style="margin-top: 10px;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="width: 170px;">Time</th>
+              <th style="width: 170px;">Type</th>
+              <th>Details</th>
+              <th style="width: 120px;" class="right">ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(e, idx) in sessionSubmissions" :key="`${e.ts}-${idx}`">
+              <td class="muted">{{ fmtTsLocal(e.ts) }}</td>
+              <td><strong>{{ e.type }}</strong></td>
+              <td>{{ e.details || '—' }}</td>
+              <td class="right">{{ e.id || '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- Mileage submission modal -->
@@ -1026,6 +1058,31 @@ const props = defineProps({
 const authStore = useAuthStore();
 
 const submitSuccess = ref('');
+const sessionSubmissions = ref([]); // [{ ts, type, details, id }]
+
+const clearSessionSubmissions = () => {
+  sessionSubmissions.value = [];
+};
+
+const fmtTsLocal = (iso) => {
+  try {
+    const d = new Date(String(iso || ''));
+    if (Number.isNaN(d.getTime())) return String(iso || '');
+    return d.toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return String(iso || '');
+  }
+};
+
+const pushSessionSubmission = ({ type, details = '', id = null }) => {
+  const entry = {
+    ts: new Date().toISOString(),
+    type: String(type || '').trim() || 'Submission',
+    details: String(details || '').trim(),
+    id: (id === null || id === undefined || id === '') ? null : String(id)
+  };
+  sessionSubmissions.value = [...(sessionSubmissions.value || []), entry];
+};
 
 const showMileageModal = ref(false);
 const showMedcancelModal = ref(false);
@@ -1198,6 +1255,15 @@ const fmtNum = (v) => Number(v || 0).toLocaleString(undefined, { maximumFraction
 
 const apiBase = computed(() => (props.userId ? `/payroll/users/${props.userId}` : '/payroll/users/0'));
 
+watch(
+  () => `${props.agencyId || ''}:${props.userId || ''}`,
+  () => {
+    // Treat switching provider/org as a new "session" for the on-behalf flow.
+    submitSuccess.value = '';
+    sessionSubmissions.value = [];
+  }
+);
+
 const loadMileageSchools = async () => {
   if (!props.agencyId || !props.userId) return;
   try {
@@ -1346,7 +1412,7 @@ const submitMileage = async () => {
         }
       }
     }
-    await api.post(`${apiBase.value}/mileage-claims`, {
+    const resp = await api.post(`${apiBase.value}/mileage-claims`, {
       agencyId: props.agencyId,
       claimType: mileageForm.value.claimType || 'school_travel',
       driveDate: mileageForm.value.driveDate,
@@ -1367,6 +1433,16 @@ const submitMileage = async () => {
     showMileageModal.value = false;
     submitSuccess.value = 'Mileage submission sent successfully.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    const claimId = resp?.data?.claim?.id || resp?.data?.id || null;
+    const ct = String(mileageForm.value.claimType || '').toLowerCase() === 'school_travel' ? 'School Mileage' : 'Other Mileage';
+    const dt = String(mileageForm.value.driveDate || '').slice(0, 10);
+    pushSessionSubmission({
+      type: ct,
+      details: ct === 'School Mileage'
+        ? `Date ${dt} • School #${mileageForm.value.schoolOrganizationId || '—'} • Office #${mileageForm.value.officeLocationId || '—'}`
+        : `Date ${dt} • Miles ${String(mileageForm.value.miles || '').trim() || '—'}`,
+      id: claimId
+    });
   } catch (e) {
     const msg = e.response?.data?.error?.message || e.message || 'Failed to submit mileage';
     if (String(msg).includes('GOOGLE_MAPS_API_KEY')) {
@@ -1436,7 +1512,7 @@ const submitMedcancel = async () => {
         return;
       }
     }
-    await api.post(`${apiBase.value}/medcancel-claims`, {
+    const resp = await api.post(`${apiBase.value}/medcancel-claims`, {
       agencyId: props.agencyId,
       claimDate: medcancelForm.value.claimDate,
       schoolOrganizationId: medcancelForm.value.schoolOrganizationId,
@@ -1451,6 +1527,12 @@ const submitMedcancel = async () => {
     showMedcancelModal.value = false;
     submitSuccess.value = 'Med Cancel submission sent successfully.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    const claimId = resp?.data?.claim?.id || resp?.data?.id || null;
+    pushSessionSubmission({
+      type: 'Med Cancel',
+      details: `Date ${String(medcancelForm.value.claimDate || '').slice(0, 10)} • Items ${items.length}`,
+      id: claimId
+    });
   } catch (e) {
     submitMedcancelError.value = e.response?.data?.error?.message || e.message || 'Failed to submit MedCancel';
   } finally {
@@ -1559,13 +1641,19 @@ const submitReimbursement = async () => {
     fd.append('attestation', reimbursementForm.value.attestation ? '1' : '0');
     fd.append('receipt', reimbursementForm.value.receiptFile);
 
-    await api.post(`${apiBase.value}/reimbursement-claims`, fd, {
+    const resp = await api.post(`${apiBase.value}/reimbursement-claims`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
 
     showReimbursementModal.value = false;
     submitSuccess.value = 'Reimbursement submitted successfully.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    const claimId = resp?.data?.claim?.id || resp?.data?.id || null;
+    pushSessionSubmission({
+      type: 'Reimbursement',
+      details: `Date ${expenseDate} • ${fmtMoney(amount)}`,
+      id: claimId
+    });
   } catch (e) {
     submitReimbursementError.value = e.response?.data?.error?.message || e.message || 'Failed to submit reimbursement';
   } finally {
@@ -1664,13 +1752,19 @@ const submitCompanyCardExpense = async () => {
     fd.append('attestation', companyCardExpenseForm.value.attestation ? '1' : '0');
     fd.append('receipt', companyCardExpenseForm.value.receiptFile);
 
-    await api.post(`${apiBase.value}/company-card-expenses`, fd, {
+    const resp = await api.post(`${apiBase.value}/company-card-expenses`, fd, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
 
     showCompanyCardExpenseModal.value = false;
     submitSuccess.value = 'Company card expense submitted successfully.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    const expenseId = resp?.data?.expense?.id || resp?.data?.id || null;
+    pushSessionSubmission({
+      type: 'Company card expense',
+      details: `Date ${expenseDate} • ${fmtMoney(amount)} • ${String(companyCardExpenseForm.value.vendor || '').trim() || '—'}`,
+      id: expenseId
+    });
   } catch (e) {
     submitCompanyCardExpenseError.value = e.response?.data?.error?.message || e.message || 'Failed to submit company card expense';
   } finally {
@@ -1683,7 +1777,7 @@ const submitTimeClaim = async ({ claimType, claimDate, payload }) => {
   try {
     submittingTimeClaim.value = true;
     submitTimeClaimError.value = '';
-    await api.post(`${apiBase.value}/time-claims`, {
+    const resp = await api.post(`${apiBase.value}/time-claims`, {
       agencyId: props.agencyId,
       claimType,
       claimDate,
@@ -1691,6 +1785,13 @@ const submitTimeClaim = async ({ claimType, claimDate, payload }) => {
     });
     submitSuccess.value = 'Time claim submitted successfully.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    const claimId = resp?.data?.claim?.id || resp?.data?.id || null;
+    const typeLabel = String(claimType || '').trim() ? String(claimType).replace(/_/g, ' ') : 'time claim';
+    pushSessionSubmission({
+      type: `Time claim (${typeLabel})`,
+      details: claimDate ? `Date ${String(claimDate).slice(0, 10)}` : '',
+      id: claimId
+    });
   } catch (e) {
     submitTimeClaimError.value = e.response?.data?.error?.message || e.message || 'Failed to submit time claim';
   } finally {
@@ -1932,12 +2033,20 @@ const submitPto = async ({ requestType, form }) => {
     }
     fd.append('policyAck', JSON.stringify({ attested: true }));
 
-    await api.post(`${apiBase.value}/pto-requests`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    const resp = await api.post(`${apiBase.value}/pto-requests`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
 
     showPtoSickModal.value = false;
     showPtoTrainingModal.value = false;
     submitSuccess.value = 'PTO request submitted successfully.';
     window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
+    const reqId = resp?.data?.request?.id || resp?.data?.id || null;
+    const typeLabel = requestType === 'training' ? 'Training PTO' : 'Sick PTO';
+    const start = items?.[0]?.date || null;
+    pushSessionSubmission({
+      type: `PTO (${typeLabel})`,
+      details: `${start ? `Starts ${String(start).slice(0, 10)} • ` : ''}Items ${items.length}`,
+      id: reqId
+    });
     await loadPto();
   } catch (e) {
     submitPtoError.value = e.response?.data?.error?.message || e.message || 'Failed to submit PTO request';

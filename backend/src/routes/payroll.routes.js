@@ -29,6 +29,7 @@ import {
   getMyDashboardSummary,
   getSuperviseeDashboardSummary,
   getMyCurrentTier,
+  getUserCurrentTier,
   getMyCompensation,
   getPayrollRateCard,
   upsertPayrollRateCard,
@@ -306,6 +307,7 @@ router.get('/me/periods', listMyPayroll);
 router.get('/me/dashboard-summary', getMyDashboardSummary);
 router.get('/supervisee/:superviseeId/dashboard-summary', getSuperviseeDashboardSummary);
 router.get('/me/current-tier', getMyCurrentTier);
+router.get('/users/:userId/current-tier', getUserCurrentTier);
 router.get('/me/compensation', getMyCompensation);
 
 // ADP export (stub/job log)

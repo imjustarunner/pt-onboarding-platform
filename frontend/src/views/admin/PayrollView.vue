@@ -1514,6 +1514,9 @@
                       <div class="hint" style="margin-top: 6px;">
                         {{ submitOnBehalfUserId ? `Selected: ${submitOnBehalfUserName}` : 'Select a provider to submit requests.' }}
                       </div>
+                      <div v-if="submitOnBehalfUserId && submitOnBehalfTierUi" class="hint" style="margin-top: 6px;">
+                        {{ submitOnBehalfTierUi.label }}
+                      </div>
                     </div>
                     <div class="actions" style="margin: 0; justify-content: flex-end; gap: 8px;">
                       <button class="btn btn-secondary btn-sm" type="button" @click="clearSubmitOnBehalfProvider" :disabled="!submitOnBehalfUserId">
@@ -4223,6 +4226,10 @@ const payrollToolsCompareSort = ref('human'); // human | change | code | date
 
 const submitOnBehalfSearch = ref('');
 const submitOnBehalfUserId = ref(null);
+const submitOnBehalfTierLoading = ref(false);
+const submitOnBehalfTierError = ref('');
+const submitOnBehalfTierResp = ref(null); // { payrollPeriodId, periodStart, periodEnd, graceActive, tier }
+
 const submitOnBehalfUsers = computed(() => {
   const qRaw = String(submitOnBehalfSearch.value || '').trim().toLowerCase();
   const list = sortedAgencyUsers.value || [];
@@ -4243,6 +4250,40 @@ const submitOnBehalfUsers = computed(() => {
   });
 });
 
+const loadSubmitOnBehalfTier = async () => {
+  const uid = submitOnBehalfUserId.value ? Number(submitOnBehalfUserId.value) : null;
+  const aid = agencyId.value ? Number(agencyId.value) : null;
+  if (!uid || !aid) {
+    submitOnBehalfTierResp.value = null;
+    submitOnBehalfTierError.value = '';
+    return;
+  }
+  try {
+    submitOnBehalfTierLoading.value = true;
+    submitOnBehalfTierError.value = '';
+    const resp = await api.get(`/payroll/users/${uid}/current-tier`, { params: { agencyId: aid } });
+    submitOnBehalfTierResp.value = resp.data || null;
+  } catch (e) {
+    submitOnBehalfTierError.value = e.response?.data?.error?.message || e.message || 'Failed to load provider tier';
+    submitOnBehalfTierResp.value = null;
+  } finally {
+    submitOnBehalfTierLoading.value = false;
+  }
+};
+
+const submitOnBehalfTierUi = computed(() => {
+  const r = submitOnBehalfTierResp.value || null;
+  if (!submitOnBehalfUserId.value) return null;
+  if (submitOnBehalfTierLoading.value) return { label: 'Loading tier…' };
+  if (String(submitOnBehalfTierError.value || '').trim()) return { label: `Tier: — (${submitOnBehalfTierError.value})` };
+  const tier = r?.tier || null;
+  if (!r?.payrollPeriodId || !tier) return { label: 'Most recent tier: — (no posted payroll yet)' };
+  const grace = r?.graceActive ? 'Grace' : 'Current';
+  const tierLabel = String(tier?.label || '').trim() || `Tier ${Number(tier?.tierLevel || 0) || '—'}`;
+  const range = (r?.periodStart && r?.periodEnd) ? `${String(r.periodStart).slice(0, 10)} → ${String(r.periodEnd).slice(0, 10)}` : null;
+  return { label: `Most recent tier: ${tierLabel} (${grace})${range ? ` • ${range}` : ''}` };
+});
+
 // UX: when the search narrows to a single provider, auto-select them so the UI doesn't
 // misleadingly stay on the placeholder ("Select a provider…") while the dropdown only has one option.
 watch([showSubmitOnBehalfModal, submitOnBehalfSearch, submitOnBehalfUsers], () => {
@@ -4259,6 +4300,11 @@ watch([showSubmitOnBehalfModal, submitOnBehalfSearch, submitOnBehalfUsers], () =
   if (submitOnBehalfUserId.value && !ids.includes(submitOnBehalfUserId.value)) {
     submitOnBehalfUserId.value = null;
   }
+});
+
+watch([showSubmitOnBehalfModal, submitOnBehalfUserId, agencyId], async () => {
+  if (!showSubmitOnBehalfModal.value) return;
+  await loadSubmitOnBehalfTier();
 });
 const submitOnBehalfUserName = computed(() => {
   const id = submitOnBehalfUserId.value ? Number(submitOnBehalfUserId.value) : null;
