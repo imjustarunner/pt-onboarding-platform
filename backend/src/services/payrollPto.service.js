@@ -298,7 +298,9 @@ async function findPayrollPeriodIdForDate({ agencyId, dateYmd }) {
 export async function approvePtoRequestAndPostToPayroll({
   agencyId,
   requestId,
-  approvedByUserId
+  approvedByUserId,
+  overrideDeadline = false,
+  overrideBalance = false
 }) {
   const req = await PayrollPtoRequest.findById(requestId);
   if (!req || Number(req.agency_id) !== Number(agencyId)) throw new Error('PTO request not found');
@@ -328,16 +330,37 @@ export async function approvePtoRequestAndPostToPayroll({
     // Enforce the same soft cutoff as other payroll-impacting submissions:
     // if the request was submitted after the Sunday cutoff for that pay period,
     // it will be posted to the next eligible pay period instead of backdating.
-    const win = await computeSubmissionWindow({
-      agencyId,
-      effectiveDateYmd: d,
-      submittedAt: req.created_at,
-      timeZone: resolveClaimTimeZone(),
-      hardStopPolicy: '60_days'
-    });
-    if (!win.ok) throw new Error(win.errorMessage || `PTO request item date ${d} is past the submission deadline.`);
-    const pid = Number(win.suggestedPayrollPeriodId || 0);
-    if (!pid) throw new Error(`No payroll period found for PTO date ${d}. Create/ensure periods, then approve again.`);
+    let pid = null;
+    if (overrideDeadline) {
+      const [pRows] = await pool.execute(
+        `SELECT id, status
+         FROM payroll_periods
+         WHERE agency_id = ?
+           AND period_start <= ?
+           AND period_end >= ?
+         ORDER BY period_end ASC
+         LIMIT 1`,
+        [agencyId, d, d]
+      );
+      const p = pRows?.[0] || null;
+      if (!p?.id) throw new Error(`No payroll period found for PTO date ${d}. Create/ensure periods, then approve again.`);
+      const st = String(p.status || '').toLowerCase();
+      if (st === 'posted' || st === 'finalized') {
+        throw new Error(`PTO date ${d} falls in a posted/finalized pay period and cannot be approved into it.`);
+      }
+      pid = Number(p.id);
+    } else {
+      const win = await computeSubmissionWindow({
+        agencyId,
+        effectiveDateYmd: d,
+        submittedAt: req.created_at,
+        timeZone: resolveClaimTimeZone(),
+        hardStopPolicy: '60_days'
+      });
+      if (!win.ok) throw new Error(win.errorMessage || `PTO request item date ${d} is past the submission deadline.`);
+      pid = Number(win.suggestedPayrollPeriodId || 0);
+      if (!pid) throw new Error(`No payroll period found for PTO date ${d}. Create/ensure periods, then approve again.`);
+    }
     byPeriod.set(pid, (byPeriod.get(pid) || 0) + h);
   }
 
@@ -345,19 +368,50 @@ export async function approvePtoRequestAndPostToPayroll({
   let sickBal = Number(acct.sick_balance_hours || 0);
   let trainingBal = Number(acct.training_balance_hours || 0);
 
+  // Balance check (admin overrideable).
+  const totalRequestedHours = (items || []).reduce((a, it) => a + Number(it?.hours || 0), 0);
+  const starting = bucket === 'training' ? trainingBal : sickBal;
+  const projected = starting - totalRequestedHours;
+  if (!overrideBalance && projected < -1e-9) {
+    throw new Error(
+      `Insufficient PTO balance: starting ${starting.toFixed(2)} hours, requested ${totalRequestedHours.toFixed(2)} hours, projected ${projected.toFixed(2)} hours.`
+    );
+  }
+
   for (const it of items) {
     const d = ymd(it.request_date);
     const h = Number(it.hours || 0);
     if (!d || !(h > 0)) continue;
-    const win = await computeSubmissionWindow({
-      agencyId,
-      effectiveDateYmd: d,
-      submittedAt: req.created_at,
-      timeZone: resolveClaimTimeZone(),
-      hardStopPolicy: '60_days'
-    });
-    if (!win.ok) throw new Error(win.errorMessage || `PTO request item date ${d} is past the submission deadline.`);
-    const payrollPeriodId = Number(win.suggestedPayrollPeriodId || 0) || null;
+    let payrollPeriodId = null;
+    if (overrideDeadline) {
+      const [pRows] = await pool.execute(
+        `SELECT id, status
+         FROM payroll_periods
+         WHERE agency_id = ?
+           AND period_start <= ?
+           AND period_end >= ?
+         ORDER BY period_end ASC
+         LIMIT 1`,
+        [agencyId, d, d]
+      );
+      const p = pRows?.[0] || null;
+      if (!p?.id) throw new Error(`No payroll period found for PTO date ${d}. Create/ensure periods, then approve again.`);
+      const st = String(p.status || '').toLowerCase();
+      if (st === 'posted' || st === 'finalized') {
+        throw new Error(`PTO date ${d} falls in a posted/finalized pay period and cannot be approved into it.`);
+      }
+      payrollPeriodId = Number(p.id) || null;
+    } else {
+      const win = await computeSubmissionWindow({
+        agencyId,
+        effectiveDateYmd: d,
+        submittedAt: req.created_at,
+        timeZone: resolveClaimTimeZone(),
+        hardStopPolicy: '60_days'
+      });
+      if (!win.ok) throw new Error(win.errorMessage || `PTO request item date ${d} is past the submission deadline.`);
+      payrollPeriodId = Number(win.suggestedPayrollPeriodId || 0) || null;
+    }
     await PayrollPtoLedger.create({
       agencyId,
       userId,

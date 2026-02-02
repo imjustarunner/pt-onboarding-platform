@@ -11234,10 +11234,17 @@ export const patchPtoRequest = async (req, res, next) => {
     if (!action) return res.status(400).json({ error: { message: 'action is required' } });
 
     if (action === 'approve') {
+      const overrideDeadline = parseBool(req.body?.overrideDeadline);
+      const overrideBalance = parseBool(req.body?.overrideBalance);
+      if ((overrideDeadline || overrideBalance) && !isAdminRole(req.user?.role)) {
+        return res.status(403).json({ error: { message: 'override flags require admin role' } });
+      }
       const result = await approvePtoRequestAndPostToPayroll({
         agencyId: reqRow.agency_id,
         requestId: id,
-        approvedByUserId: req.user.id
+        approvedByUserId: req.user.id,
+        overrideDeadline,
+        overrideBalance
       });
 
       // If payroll has already been run for any affected pay period, recompute immediately

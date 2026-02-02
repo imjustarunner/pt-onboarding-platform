@@ -2003,6 +2003,8 @@
                       <th>Submitted by</th>
                       <th>Type</th>
                       <th class="right">Hours</th>
+                      <th class="right">Starting balance</th>
+                      <th class="right">New balance</th>
                       <th>First date</th>
                       <th>Proof</th>
                       <th class="right">Actions</th>
@@ -2015,6 +2017,14 @@
                       <td>{{ submitterLabel(r) }}</td>
                       <td>{{ String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
                       <td class="right">{{ fmtNum(Number(r.total_hours || 0)) }}</td>
+                      <td class="right">
+                        {{ fmtNum(ptoBalancePreviewForRequest(r).start) }}
+                      </td>
+                      <td class="right">
+                        <span :class="ptoBalancePreviewForRequest(r).next < -1e-9 ? 'warn' : ''">
+                          {{ fmtNum(ptoBalancePreviewForRequest(r).next) }}
+                        </span>
+                      </td>
                       <td>
                         {{
                           (() => {
@@ -4606,6 +4616,7 @@ const pendingPtoRequests = ref([]);
 const pendingPtoLoading = ref(false);
 const pendingPtoError = ref('');
 const approvingPtoRequestId = ref(null);
+const ptoBalancesByUserId = ref({}); // userId -> { sickHours, trainingHours }
 
 const serviceCodeRules = ref([]);
 const serviceCodeRulesLoading = ref(false);
@@ -5749,6 +5760,28 @@ const loadAllPendingPtoRequests = async () => {
       params: { agencyId: agencyId.value, status: 'submitted' }
     });
     pendingPtoRequests.value = resp.data || [];
+
+    // Fetch balances for preview (starting balance / projected balance).
+    const ids = Array.from(
+      new Set((pendingPtoRequests.value || []).map((x) => Number(x?.user_id || 0)).filter((n) => Number.isFinite(n) && n > 0))
+    );
+    const next = { ...(ptoBalancesByUserId.value || {}) };
+    await Promise.all(
+      ids
+        .filter((uid) => next[uid] === undefined)
+        .map(async (uid) => {
+          try {
+            const b = await api.get(`/payroll/users/${uid}/pto-balances`, { params: { agencyId: agencyId.value } });
+            next[uid] = {
+              sickHours: Number(b.data?.balances?.sickHours ?? 0),
+              trainingHours: Number(b.data?.balances?.trainingHours ?? 0)
+            };
+          } catch {
+            next[uid] = { sickHours: 0, trainingHours: 0 };
+          }
+        })
+    );
+    ptoBalancesByUserId.value = next;
   } catch (e) {
     pendingPtoError.value = e.response?.data?.error?.message || e.message || 'Failed to load pending PTO requests';
     pendingPtoRequests.value = [];
@@ -5763,13 +5796,62 @@ const loadPendingPtoRequests = async () => {
   pendingPtoRequests.value = (pendingPtoRequests.value || []).filter(isPtoRequestInSelectedPeriod);
 };
 
+const ptoBalancePreviewForRequest = (r) => {
+  const uid = Number(r?.user_id || 0);
+  const b = ptoBalancesByUserId.value?.[uid] || { sickHours: 0, trainingHours: 0 };
+  const hours = Number(r?.total_hours || 0);
+  const bucket = String(r?.request_type || '').toLowerCase() === 'training' ? 'training' : 'sick';
+  const start = bucket === 'training' ? Number(b.trainingHours || 0) : Number(b.sickHours || 0);
+  const requested = Number.isFinite(hours) ? hours : 0;
+  const next = start - requested;
+  return { bucket, start, requested, next };
+};
+
 const approvePtoRequest = async (r) => {
   if (!r?.id) return;
   try {
     approvingPtoRequestId.value = r.id;
     pendingPtoError.value = '';
-    await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve' });
+    try {
+      await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve' });
+    } catch (e) {
+      const status = e.response?.status || 0;
+      const msg = e.response?.data?.error?.message || e.message || '';
+      const lower = String(msg).toLowerCase();
+      const looksLikeDeadline = lower.includes('deadline') || lower.includes('cutoff') || lower.includes('past the submission deadline');
+      const looksLikeBalance = lower.includes('insufficient pto balance');
+
+      if (looksLikeBalance) {
+        const ok = window.confirm(
+          `${msg}\n\nApprove anyway using an admin override? (This can result in a negative PTO balance.)`
+        );
+        if (!ok) throw e;
+        await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', overrideBalance: true });
+      } else if ((status === 409 || status === 500) && looksLikeDeadline) {
+        const ok = window.confirm(
+          `${msg || 'This request was submitted after the cutoff for the intended pay period.'}\n\nApprove anyway using an admin override?`
+        );
+        if (!ok) throw e;
+        await api.patch(`/payroll/pto-requests/${r.id}`, { action: 'approve', overrideDeadline: true });
+      } else {
+        throw e;
+      }
+    }
     await loadAllPendingPtoRequests();
+    // Refresh balances for this user so previews reflect the approval.
+    try {
+      const uid = Number(r?.user_id || 0);
+      if (uid && agencyId.value) {
+        const b = await api.get(`/payroll/users/${uid}/pto-balances`, { params: { agencyId: agencyId.value } });
+        ptoBalancesByUserId.value = {
+          ...(ptoBalancesByUserId.value || {}),
+          [uid]: {
+            sickHours: Number(b.data?.balances?.sickHours ?? 0),
+            trainingHours: Number(b.data?.balances?.trainingHours ?? 0)
+          }
+        };
+      }
+    } catch { /* best-effort */ }
     await loadPeriodDetails();
   } catch (e) {
     pendingPtoError.value = e.response?.data?.error?.message || e.message || 'Failed to approve PTO request';
@@ -7157,7 +7239,25 @@ const approveMedcancelClaim = async (c) => {
       pendingMedcancelError.value = 'Target pay period is posted (locked). Choose an open pay period.';
       return;
     }
-    await api.patch(`/payroll/medcancel-claims/${c.id}`, { action: 'approve', targetPayrollPeriodId });
+    try {
+      await api.patch(`/payroll/medcancel-claims/${c.id}`, { action: 'approve', targetPayrollPeriodId });
+    } catch (e) {
+      const status = e.response?.status || 0;
+      const msg = e.response?.data?.error?.message || e.message || '';
+      const looksLikeDeadline =
+        String(msg).toLowerCase().includes('deadline') ||
+        String(msg).toLowerCase().includes('submitted after') ||
+        String(msg).toLowerCase().includes('cannot be added to an earlier pay period');
+      if (status === 409 && looksLikeDeadline) {
+        const ok = window.confirm(
+          'This claim was submitted after the cutoff for this pay period.\n\nApprove anyway using an admin override?'
+        );
+        if (!ok) throw e;
+        await api.patch(`/payroll/medcancel-claims/${c.id}`, { action: 'approve', targetPayrollPeriodId, overrideDeadline: true });
+      } else {
+        throw e;
+      }
+    }
     await loadPendingMedcancelClaims();
     await loadPeriodDetails();
     await loadApprovedMedcancelClaimsAmount();
@@ -9482,6 +9582,10 @@ input[type='number'] {
   border-radius: 10px;
   border: 1px solid #fcd34d;
   background: #fffbeb;
+}
+.warn {
+  color: var(--danger);
+  font-weight: 700;
 }
 .modal-backdrop {
   position: fixed;
