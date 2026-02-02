@@ -4242,6 +4242,24 @@ const submitOnBehalfUsers = computed(() => {
     return tokens.every((t) => hay.includes(t));
   });
 });
+
+// UX: when the search narrows to a single provider, auto-select them so the UI doesn't
+// misleadingly stay on the placeholder ("Select a provider…") while the dropdown only has one option.
+watch([showSubmitOnBehalfModal, submitOnBehalfSearch, submitOnBehalfUsers], () => {
+  if (!showSubmitOnBehalfModal.value) return;
+  const q = String(submitOnBehalfSearch.value || '').trim();
+  if (!q) return;
+  const matches = submitOnBehalfUsers.value || [];
+  const ids = matches.map((u) => u?.id).filter(Boolean);
+  if (ids.length === 1) {
+    submitOnBehalfUserId.value = ids[0];
+    return;
+  }
+  // If the current selection is no longer visible in the filtered results, clear it.
+  if (submitOnBehalfUserId.value && !ids.includes(submitOnBehalfUserId.value)) {
+    submitOnBehalfUserId.value = null;
+  }
+});
 const submitOnBehalfUserName = computed(() => {
   const id = submitOnBehalfUserId.value ? Number(submitOnBehalfUserId.value) : null;
   const u = (agencyUsers.value || []).find((x) => Number(x?.id) === id) || null;
