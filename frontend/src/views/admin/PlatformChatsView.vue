@@ -2,8 +2,16 @@
   <div class="container chats-view">
     <div class="header" data-tour="chats-header">
       <div>
+        <div class="back-row">
+          <button class="btn btn-secondary btn-xs" type="button" @click="goBack">
+            Back
+          </button>
+          <button class="btn btn-secondary btn-xs" type="button" @click="goToDashboard" title="Go to My Dashboard">
+            My Dashboard
+          </button>
+        </div>
         <h2 data-tour="chats-title">Platform Chats</h2>
-        <p class="subtitle" data-tour="chats-subtitle">Direct messages within the selected agency.</p>
+        <p class="subtitle" data-tour="chats-subtitle">Direct and group messages within the selected agency.</p>
       </div>
       <div class="header-actions" data-tour="chats-actions">
         <div v-if="canChooseAgency" class="agency-picker" data-tour="chats-agency-picker">
@@ -233,6 +241,26 @@ const activeThreadLabel = computed(() => {
   if (!activeThread.value) return 'Messages';
   return threadLabel(activeThread.value);
 });
+
+const dashboardPath = computed(() => {
+  const slug = String(route.params?.organizationSlug || '').trim();
+  return slug ? `/${slug}/dashboard` : '/dashboard';
+});
+
+const goToDashboard = async () => {
+  await router.push({ path: dashboardPath.value });
+};
+
+const goBack = async () => {
+  // Vue Router stores prior location in history state; when absent (new tab / direct link),
+  // fall back to My Dashboard so the user isn't "stuck" on this page.
+  const state = (typeof window !== 'undefined' && window.history) ? window.history.state : null;
+  if (state?.back) {
+    router.back();
+    return;
+  }
+  await goToDashboard();
+};
 
 const threadLabel = (t) => {
   if (!t) return 'Thread';
@@ -589,6 +617,7 @@ onMounted(async () => {
 <style scoped>
 .header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 14px; }
 .header-actions { display: flex; align-items: flex-end; gap: 10px; }
+.back-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .agency-picker { display: flex; flex-direction: column; gap: 6px; }
 .agency-picker label { font-size: 12px; font-weight: 700; color: var(--text-secondary); }
 .agency-picker select { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: white; min-width: 220px; }
