@@ -42,7 +42,10 @@ const validateCreateAgency = [
       return false;
     }
   }).withMessage('Logo URL must be a valid URL'),
-  body('colorPalette').optional().isObject().withMessage('Color palette must be an object'),
+  body('colorPalette')
+    .optional({ nullable: true })
+    .custom((value) => value === null || (typeof value === 'object' && !Array.isArray(value)))
+    .withMessage('Color palette must be an object or null'),
   body('isActive').optional().isBoolean().withMessage('isActive must be a boolean'),
   validateIconId('chatIconId'),
   validateIconId('trainingFocusDefaultIconId'),
@@ -171,7 +174,10 @@ const validateUpdateAgency = [
       return false;
     }
   }).withMessage('Logo URL must be a valid URL or empty'),
-  body('colorPalette').optional().isObject().withMessage('Color palette must be an object'),
+  body('colorPalette')
+    .optional({ nullable: true })
+    .custom((value) => value === null || (typeof value === 'object' && !Array.isArray(value)))
+    .withMessage('Color palette must be an object or null'),
   body('isActive').optional().isBoolean().withMessage('isActive must be a boolean'),
   validateIconId('chatIconId'),
   validateIconId('trainingFocusDefaultIconId'),

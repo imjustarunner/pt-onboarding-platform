@@ -5693,10 +5693,11 @@ const saveAgency = async () => {
     if (errorData) {
       if (typeof errorData === 'string') {
         errorMessage = errorData;
+      } else if (errorData.details) {
+        // Prefer express-validator "details" when present; it's more actionable than the generic message.
+        errorMessage = `Validation failed: ${errorData.details}`;
       } else if (errorData.message) {
         errorMessage = errorData.message;
-      } else if (errorData.details) {
-        errorMessage = `Validation failed: ${errorData.details}`;
       } else if (errorData.errors && Array.isArray(errorData.errors) && errorData.errors.length > 0) {
         // Validation errors from express-validator
         const validationErrors = errorData.errors.map(e => {
