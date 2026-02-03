@@ -405,6 +405,44 @@ export const getClientSupportTicketThread = async (req, res, next) => {
   }
 };
 
+export const listClientSupportTickets = async (req, res, next) => {
+  try {
+    const schoolOrganizationId = parseInt(req.query?.schoolOrganizationId, 10);
+    const clientId = parseInt(req.query?.clientId, 10);
+    if (!schoolOrganizationId || !clientId) {
+      return res.status(400).json({ error: { message: 'schoolOrganizationId and clientId are required' } });
+    }
+
+    const access = await ensureOrgAccess(req, schoolOrganizationId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    // Only allow school staff + agency admin/support/staff to view client tickets.
+    const role = String(req.user?.role || '').toLowerCase();
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
+    if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
+
+    const limitRaw = req.query?.limit ? parseInt(req.query.limit, 10) : 50;
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 200)) : 50;
+
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM support_tickets
+       WHERE school_organization_id = ?
+         AND client_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?`,
+      [schoolOrganizationId, clientId, limit]
+    );
+
+    res.json({ tickets: rows || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const listSupportTicketMessages = async (req, res, next) => {
   try {
     const ticketId = parseInt(req.params.id, 10);

@@ -35,7 +35,7 @@ describe('SchoolClientChatModal', () => {
     api.post.mockResolvedValue({ data: {} });
   });
 
-  it('defaults to Comments tab and shows school_staff guidance', async () => {
+  it('renders comments + messages panes and auto-expands on interaction', async () => {
     const wrapper = mount(SchoolClientChatModal, {
       props: {
         client: { id: 10, initials: 'AB', client_status_key: 'active', client_status_label: 'Active' },
@@ -53,13 +53,22 @@ describe('SchoolClientChatModal', () => {
     // Let onMounted() finish.
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(wrapper.find('.tab.active').text()).toContain('Comments');
+    // Both panes visible by default.
+    expect(wrapper.find('.dual').classes()).toContain('dual-active-both');
+    expect(wrapper.text()).toContain('Comments');
+    expect(wrapper.text()).toContain('Messages (ticketed)');
     expect(wrapper.text()).toContain('If you have a question about the client, please send us a message.');
-
-    const tabs = wrapper.findAll('button.tab');
-    await tabs[1].trigger('click'); // Messages
-    expect(wrapper.find('.tab.active').text()).toContain('Messages');
     expect(wrapper.text()).toContain('Messages are for questions/inquiries');
+
+    // Interacting with Messages expands it.
+    const msgPane = wrapper.find('[data-tour="school-client-modal-messages"]');
+    await msgPane.trigger('focusin');
+    expect(wrapper.find('.dual').classes()).toContain('dual-active-messages');
+
+    // Show both resets.
+    const showBoth = wrapper.find('[data-tour="school-client-modal-messages"] .btn-link');
+    await showBoth.trigger('click');
+    expect(wrapper.find('.dual').classes()).toContain('dual-active-both');
   });
 });
 

@@ -8,30 +8,20 @@
       <div class="msg-actions">
         <button v-if="!isDeleted" class="btn-link" type="button" @click="$emit('reply', node)">Reply</button>
         <button v-if="canDelete" class="btn-link danger" type="button" @click="$emit('delete', node)">Delete</button>
-        <button
-          v-if="(node.children || []).length > 0"
-          class="btn-link"
-          type="button"
-          @click="$emit('toggle', node.id)"
-        >
-          {{ isExpanded(node.id) ? 'Collapse' : 'Expand' }} ({{ node.children.length }})
-        </button>
       </div>
     </div>
 
     <div v-if="isDeleted" class="msg-deleted">Deleted message</div>
     <div v-else class="msg-body">{{ node.body }}</div>
 
-    <div v-if="(node.children || []).length > 0 && isExpanded(node.id)" class="msg-children">
+    <div v-if="(node.children || []).length > 0" class="msg-children">
       <SupportTicketThreadMessage
         v-for="c in node.children"
         :key="c.id"
         :node="c"
         :depth="depth + 1"
-        :expanded="expanded"
         :current-user-id="currentUserId"
         :current-user-role="currentUserRole"
-        @toggle="$emit('toggle', $event)"
         @reply="$emit('reply', $event)"
         @delete="$emit('delete', $event)"
       />
@@ -46,12 +36,11 @@ defineOptions({ name: 'SupportTicketThreadMessage' });
 const props = defineProps({
   node: { type: Object, required: true },
   depth: { type: Number, default: 0 },
-  expanded: { type: Object, required: true },
   currentUserId: { type: [Number, String], default: null },
   currentUserRole: { type: String, default: '' }
 });
 
-defineEmits(['toggle', 'reply', 'delete']);
+defineEmits(['reply', 'delete']);
 
 const fmt = (dt) => (dt ? new Date(dt).toLocaleString() : '');
 
@@ -63,8 +52,6 @@ const author = (m) => {
   const r = String(m?.author_role || '').trim();
   return r ? r.replace(/_/g, ' ') : 'User';
 };
-
-const isExpanded = (id) => props.expanded?.[String(id)] !== false;
 
 const isDeleted = computed(() => {
   const v = props.node?.is_deleted;

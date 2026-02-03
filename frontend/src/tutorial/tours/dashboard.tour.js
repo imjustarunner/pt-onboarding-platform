@@ -1,6 +1,6 @@
 export default {
   id: 'dashboard',
-  version: 2,
+  version: 3,
   steps: [
     {
       popover: {
@@ -324,6 +324,53 @@ export default {
         title: 'Docs / Links',
         description: 'Reference docs and links that are shared for the school organization.',
         side: 'left',
+        align: 'start'
+      }
+    },
+
+    // --- Client modal (School portal) ---
+    {
+      element: '[data-tour="school-client-modal"]',
+      popover: {
+        title: 'Client modal',
+        description: 'When you open a client, this modal helps you coordinate safely (no PHI). Comments and ticketed Messages are both visible.',
+        side: 'bottom',
+        align: 'start'
+      }
+    },
+    {
+      element: '[data-tour="school-client-modal-comments"]',
+      popover: {
+        title: 'Comments (shared notes)',
+        description: 'Use Comments for brief non-clinical updates that everyone can see. Clicking inside this side expands it for easier reading and writing.',
+        side: 'right',
+        align: 'start'
+      }
+    },
+    {
+      element: '[data-tour="school-client-modal-messages"]',
+      popover: {
+        title: 'Messages (ticketed)',
+        description: 'Use Messages for questions/inquiries. Messages create tickets with replies nested beneath each message. Clicking inside this side expands it.',
+        side: 'left',
+        align: 'start'
+      }
+    },
+    {
+      element: '[data-tour="school-client-modal-ticket-list"]',
+      popover: {
+        title: 'Ticket history',
+        description: 'Each client can have multiple tickets. Select a ticket to view its thread. Tickets show number and status for clarity.',
+        side: 'right',
+        align: 'start'
+      }
+    },
+    {
+      element: '[data-tour="school-client-modal-ticket-composer"]',
+      popover: {
+        title: 'Send a ticketed message',
+        description: 'Write a message to create a new ticket or reply within the selected ticket. Avoid PHI.',
+        side: 'top',
         align: 'start'
       }
     }

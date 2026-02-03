@@ -1,6 +1,6 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal" @click.stop>
+    <div class="modal" @click.stop data-tour="school-client-modal">
       <div class="modal-header">
         <div class="modal-header-left">
           <h2>Student: {{ client.initials }}</h2>
@@ -109,61 +109,77 @@
           <div v-if="checklistAudit" class="checklist-audit">{{ checklistAudit }}</div>
         </div>
 
-        <div class="tabs">
-          <button type="button" class="tab" :class="{ active: activeTab === 'comments' }" @click="activeTab = 'comments'">
-            Comments
-          </button>
-          <button type="button" class="tab" :class="{ active: activeTab === 'messages' }" @click="activeTab = 'messages'">
-            Messages
-          </button>
-        </div>
-
-        <div v-if="activeTab === 'comments'" class="tab-body">
-          <div v-if="isSchoolStaff" class="comment-guidance">
-            <strong>If you have a question about the client, please send us a message.</strong>
-            Comments are meant to inform everyone of any info (non clinical and no PHI) that may be beneficial for all parties to be aware (e.g., the client is on vacation).
-          </div>
-
-          <div class="comments">
-            <div v-if="comments.length === 0" class="empty">No comments yet.</div>
-            <table v-else class="comments-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Note</th>
-                  <th>Author</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="c in comments" :key="c.id">
-                  <td class="mono">{{ formatDateTime(c.created_at) }}</td>
-                  <td class="note">{{ c.message }}</td>
-                  <td>{{ c.author_name || '—' }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div class="comment-composer">
-            <textarea v-model="commentDraft" rows="3" placeholder="Add a brief comment (no PHI)..." />
-            <div class="comment-actions">
-              <button class="btn btn-primary" type="button" @click="sendComment" :disabled="commentSending || !commentDraft.trim()">
-                {{ commentSending ? 'Saving…' : 'Save comment' }}
-              </button>
-              <div v-if="commentError" class="error">{{ commentError }}</div>
+        <div class="dual" :class="dualClass">
+          <section
+            class="pane pane-comments"
+            :class="paneClass('comments')"
+            data-tour="school-client-modal-comments"
+            @click="activatePane('comments')"
+            @focusin="activatePane('comments')"
+          >
+            <div class="pane-header">
+              <div class="pane-title">Comments</div>
+              <button v-if="activePane" class="btn-link" type="button" @click.stop="activePane = null">Show both</button>
             </div>
-          </div>
-        </div>
 
-        <div v-else class="tab-body">
-          <div class="message-guidance">
-            Messages are for questions/inquiries and are tracked as tickets (no PHI).
-          </div>
-          <ClientTicketThreadPanel
-            v-if="props.schoolOrganizationId"
-            :client="props.client"
-            :school-organization-id="props.schoolOrganizationId"
-          />
+            <div v-if="isSchoolStaff" class="comment-guidance">
+              <strong>If you have a question about the client, please send us a message.</strong>
+              Comments are meant to inform everyone of any info (non clinical and no PHI) that may be beneficial for all parties to be aware (e.g., the client is on vacation).
+            </div>
+
+            <div class="comments">
+              <div v-if="comments.length === 0" class="empty">No comments yet.</div>
+              <table v-else class="comments-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Note</th>
+                    <th>Author</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="c in comments" :key="c.id">
+                    <td class="mono">{{ formatDateTime(c.created_at) }}</td>
+                    <td class="note">{{ c.message }}</td>
+                    <td>{{ c.author_name || '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="comment-composer">
+              <textarea v-model="commentDraft" rows="3" placeholder="Add a brief comment (no PHI)..." />
+              <div class="comment-actions">
+                <button class="btn btn-primary" type="button" @click="sendComment" :disabled="commentSending || !commentDraft.trim()">
+                  {{ commentSending ? 'Saving…' : 'Save comment' }}
+                </button>
+                <div v-if="commentError" class="error">{{ commentError }}</div>
+              </div>
+            </div>
+          </section>
+
+          <section
+            class="pane pane-messages"
+            :class="paneClass('messages')"
+            data-tour="school-client-modal-messages"
+            @click="activatePane('messages')"
+            @focusin="activatePane('messages')"
+          >
+            <div class="pane-header">
+              <div class="pane-title">Messages (ticketed)</div>
+              <button v-if="activePane" class="btn-link" type="button" @click.stop="activePane = null">Show both</button>
+            </div>
+
+            <div class="message-guidance">
+              Messages are for questions/inquiries and are tracked as tickets (no PHI).
+            </div>
+
+            <ClientTicketThreadPanel
+              v-if="props.schoolOrganizationId"
+              :client="props.client"
+              :school-organization-id="props.schoolOrganizationId"
+            />
+          </section>
         </div>
       </div>
     </div>
@@ -254,7 +270,20 @@ const error = ref('');
 const checklist = ref(null);
 const checklistAudit = ref('');
 
-const activeTab = ref('comments'); // 'comments' | 'messages'
+const activePane = ref(null); // null | 'comments' | 'messages'
+const dualClass = computed(() => (activePane.value ? `dual-active-${activePane.value}` : 'dual-active-both'));
+const paneClass = (pane) => {
+  const active = activePane.value;
+  return {
+    active: active === pane,
+    inactive: !!active && active !== pane
+  };
+};
+
+const activatePane = (pane) => {
+  if (activePane.value === pane) return;
+  activePane.value = pane;
+};
 
 const comments = ref([]);
 const commentDraft = ref('');
@@ -343,7 +372,7 @@ watch(
     hoveringWaitlist.value = false;
     waitlistLoading.value = false;
     waitlistNote.value = '';
-    activeTab.value = 'comments';
+    activePane.value = null;
     comments.value = [];
     commentDraft.value = '';
     commentError.value = '';
@@ -501,25 +530,51 @@ watch(
 }
 .body { padding: 16px; display: grid; grid-template-columns: 1fr; gap: 12px; }
 
-.tabs {
-  display: inline-flex;
-  gap: 8px;
-}
-.tab {
-  border: 1px solid var(--border);
-  background: var(--bg);
-  border-radius: 999px;
-  padding: 8px 12px;
-  font-weight: 900;
-  cursor: pointer;
-}
-.tab.active {
-  border-color: rgba(0, 0, 0, 0.25);
-  background: white;
-}
-.tab-body {
+.dual {
   display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
+  align-items: start;
+  min-height: 0;
+}
+.dual.dual-active-comments {
+  grid-template-columns: 1.6fr 0.9fr;
+}
+.dual.dual-active-messages {
+  grid-template-columns: 0.9fr 1.6fr;
+}
+
+.pane {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+.pane-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.pane-title {
+  font-weight: 1000;
+  color: var(--text-primary);
+}
+
+.pane.inactive {
+  opacity: 0.92;
+}
+
+.pane-comments {
+  background: rgba(59, 130, 246, 0.03);
+  border-color: rgba(59, 130, 246, 0.16);
+}
+.pane-messages {
+  background: rgba(16, 185, 129, 0.03);
+  border-color: rgba(16, 185, 129, 0.18);
 }
 .comment-guidance,
 .message-guidance {
@@ -592,6 +647,11 @@ textarea, select {
 .error { color: #c33; }
 @media (max-width: 900px) {
   .status-bar { grid-template-columns: 1fr; }
+  .dual { grid-template-columns: 1fr; }
+  .dual.dual-active-comments,
+  .dual.dual-active-messages {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
 
