@@ -2,8 +2,8 @@
   <div class="panel">
     <div class="panel-header">
       <div>
-        <h2 style="margin:0;">Announcements</h2>
-        <div class="muted">School-wide updates (never about a student).</div>
+        <h2 style="margin:0;">Notifications</h2>
+        <div class="muted">Client update notifications + school-wide announcements (never student-specific).</div>
       </div>
       <button class="btn btn-secondary btn-sm" type="button" @click="$emit('close')">Close</button>
     </div>
@@ -48,6 +48,9 @@
       >
         {{ createOpen ? 'Hide create' : 'Create announcement' }}
       </button>
+      <div v-else class="muted-small">
+        Only admins/staff can post banner announcements.
+      </div>
       <button class="btn btn-secondary btn-sm" type="button" @click="refresh" :disabled="loading">
         {{ loading ? 'Refreshing…' : 'Refresh' }}
       </button>

@@ -36,7 +36,7 @@
         @keydown.space.prevent="openNotificationsPanel"
       >
         <div class="portal-banner-inner">
-          <div class="portal-banner-track" aria-label="Announcements banner">
+          <div class="portal-banner-track" aria-label="School announcements banner">
             <span v-for="(t, idx) in bannerTexts" :key="`${idx}-${t.slice(0, 16)}`" class="portal-banner-item">
               {{ t }}
               <span class="sep" aria-hidden="true"> • </span>
@@ -228,7 +228,7 @@
                 {{ notificationsUnreadCount }}
               </span>
             </div>
-            <div class="nav-label">Announcements</div>
+            <div class="nav-label">Notifications</div>
           </button>
 
           <button data-tour="school-nav-faq" class="nav-item" type="button" @click="portalMode = 'faq'" :class="{ active: portalMode === 'faq' }">
@@ -428,7 +428,7 @@
               />
               <div v-else class="dash-card-icon-fallback" aria-hidden="true">AN</div>
             </div>
-            <div class="dash-card-title">Announcements</div>
+            <div class="dash-card-title">Notifications</div>
             <div class="dash-card-desc">
               {{ notificationsNewestSnippet || 'School-wide updates and notifications.' }}
             </div>
