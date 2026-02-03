@@ -36,12 +36,12 @@
       <div class="cell" v-if="isProvider">
         <div class="label">Incomplete notes (last pay period)</div>
         <div class="value">
-          {{ fmtNum(summary?.unpaidNotes?.lastPayPeriod?.totalNotes ?? summary?.unpaidNotes?.lastPayPeriod?.totalUnits || 0) }}
+          {{ fmtNum((summary?.unpaidNotes?.lastPayPeriod?.totalNotes ?? summary?.unpaidNotes?.lastPayPeriod?.totalUnits) || 0) }}
           <span class="muted">notes</span>
         </div>
         <div class="muted small">
-          No Note {{ fmtNum(summary?.unpaidNotes?.lastPayPeriod?.noNoteNotes ?? summary?.unpaidNotes?.lastPayPeriod?.noNoteUnits || 0) }} ·
-          Draft {{ fmtNum(summary?.unpaidNotes?.lastPayPeriod?.draftNotes ?? summary?.unpaidNotes?.lastPayPeriod?.draftUnits || 0) }}
+          No Note {{ fmtNum((summary?.unpaidNotes?.lastPayPeriod?.noNoteNotes ?? summary?.unpaidNotes?.lastPayPeriod?.noNoteUnits) || 0) }} ·
+          Draft {{ fmtNum((summary?.unpaidNotes?.lastPayPeriod?.draftNotes ?? summary?.unpaidNotes?.lastPayPeriod?.draftUnits) || 0) }}
         </div>
       </div>
 
