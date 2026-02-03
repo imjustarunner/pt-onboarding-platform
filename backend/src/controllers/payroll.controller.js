@@ -2431,7 +2431,7 @@ export const getPayrollReportHolidayHours = async (req, res, next) => {
          pir.user_id,
          u.first_name,
          u.last_name,
-         pir.provider_name,
+         MIN(pir.provider_name) AS provider_name,
          pir.service_code,
          COUNT(*) AS session_count,
          SUM(COALESCE(pir.unit_count, 0)) AS units_total,
