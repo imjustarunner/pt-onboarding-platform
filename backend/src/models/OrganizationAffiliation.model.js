@@ -12,7 +12,18 @@ class OrganizationAffiliation {
        ORDER BY org.name ASC`,
       [aId]
     );
-    return rows || [];
+    // Some legacy/manual-created org rows may have a NULL/empty organization_type even though they are
+    // affiliated under an agency (and therefore should behave like a school/program/learning org).
+    // Default those to 'school' so UI + overview logic doesn't mis-classify them as a parent agency.
+    const out = Array.isArray(rows) ? rows : [];
+    for (const r of out) {
+      const raw = r?.organization_type;
+      const t = raw === null || raw === undefined ? '' : String(raw).trim().toLowerCase();
+      if (!t) {
+        r.organization_type = 'school';
+      }
+    }
+    return out;
   }
 
   static async getActiveAgencyIdForOrganization(organizationId) {
