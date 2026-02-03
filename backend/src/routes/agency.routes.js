@@ -21,7 +21,7 @@ const validateCreateAgency = [
   body('officialName').optional().isLength({ max: 255 }).withMessage('officialName must be 255 characters or less'),
   body('slug').trim().notEmpty().withMessage('Slug is required').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
   body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning']).withMessage('organizationType must be one of: agency, school, program, learning'),
-  body('affiliatedAgencyId').optional().isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
+  body('affiliatedAgencyId').optional({ nullable: true, checkFalsy: true }).isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
   body('customDomain').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (value === null || value === undefined || value === '') return true;
     const v = String(value).trim();
@@ -150,7 +150,7 @@ const validateUpdateAgency = [
   body('officialName').optional().isLength({ max: 255 }).withMessage('officialName must be 255 characters or less'),
   body('slug').optional().trim().notEmpty().withMessage('Slug cannot be empty').matches(/^[a-z0-9-]+$/).withMessage('Slug must be lowercase alphanumeric with hyphens only'),
   body('organizationType').optional().isIn(['agency', 'school', 'program', 'learning']).withMessage('organizationType must be one of: agency, school, program, learning'),
-  body('affiliatedAgencyId').optional().isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
+  body('affiliatedAgencyId').optional({ nullable: true, checkFalsy: true }).isInt({ min: 1 }).withMessage('affiliatedAgencyId must be a positive integer'),
   body('customDomain').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (value === null || value === undefined || value === '') return true;
     const v = String(value).trim();
