@@ -5500,6 +5500,15 @@ const saveAgency = async () => {
         ? (agencyForm.value.logoPath || null)
         : (shouldTreatLogoUrlAsPath ? normalizeUploadsPath(rawLogoUrl) : null);
 
+    const normalizeNullableText = (v) => {
+      const s = v === null || v === undefined ? '' : String(v);
+      const trimmed = s.trim();
+      if (!trimmed) return null;
+      const lower = trimmed.toLowerCase();
+      if (lower === 'undefined' || lower === 'null') return null;
+      return trimmed;
+    };
+
     const data = {
       organizationType: normalizedOrganizationType,
       name: agencyForm.value.name.trim(),
@@ -5557,13 +5566,13 @@ const saveAgency = async () => {
       schoolPortalParentSignIconId: agencyForm.value.schoolPortalParentSignIconId ?? null,
       schoolPortalUploadPacketIconId: agencyForm.value.schoolPortalUploadPacketIconId ?? null,
       schoolPortalPublicDocumentsIconId: agencyForm.value.schoolPortalPublicDocumentsIconId ?? null,
-      onboardingTeamEmail: agencyForm.value.onboardingTeamEmail?.trim() || null,
-      phoneNumber: agencyForm.value.phoneNumber?.trim() || null,
+      onboardingTeamEmail: normalizeNullableText(agencyForm.value.onboardingTeamEmail),
+      phoneNumber: normalizeNullableText(agencyForm.value.phoneNumber),
       // Schools don't use extensions (per directory requirements)
       phoneExtension:
         String(agencyForm.value.organizationType || '').toLowerCase() === 'school'
           ? null
-          : (agencyForm.value.phoneExtension?.trim() || null),
+          : normalizeNullableText(agencyForm.value.phoneExtension),
       streetAddress: agencyForm.value.streetAddress?.trim() || null,
       city: agencyForm.value.city?.trim() || null,
       state: agencyForm.value.state?.trim() || null,

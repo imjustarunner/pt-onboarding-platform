@@ -101,7 +101,7 @@ export const createAgency = async (req, res, next) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      const errorMessages = errors.array().map(e => `${e.param}: ${e.msg}`).join(', ');
+      const errorMessages = errors.array().map((e) => `${e.param || e.path || 'unknown'}: ${e.msg}`).join(', ');
       return res.status(400).json({ error: { message: `Validation failed: ${errorMessages}`, errors: errors.array() } });
     }
 
@@ -280,7 +280,7 @@ export const updateAgency = async (req, res, next) => {
         error: { 
           message: 'Validation failed', 
           errors: errors.array(),
-          details: errors.array().map(e => `${e.param}: ${e.msg}`).join(', ')
+          details: errors.array().map((e) => `${e.param || e.path || 'unknown'}: ${e.msg}`).join(', ')
         } 
       });
     }
