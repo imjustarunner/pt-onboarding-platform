@@ -13,17 +13,49 @@ const getDefaultOrganizationSlug = () => {
     const authStore = useAuthStore();
     const brandingStore = useBrandingStore();
 
-    const fromStore = agencyStore.currentAgency?.slug;
+    const roleNorm = String(authStore.user?.role || '').toLowerCase();
+    const isSchoolStaff = roleNorm === 'school_staff';
+
+    const pickSlug = (org) => {
+      if (!org) return null;
+      return org.portal_url || org.portalUrl || org.slug || null;
+    };
+    const isPortalOrg = (org) => {
+      const t = String(org?.organization_type || org?.organizationType || '').toLowerCase();
+      return t === 'school' || t === 'program' || t === 'learning';
+    };
+
+    // School staff should default to a SCHOOL portal slug (never the parent agency slug).
+    if (isSchoolStaff) {
+      const fromCurrent = agencyStore.currentAgency;
+      if (fromCurrent && isPortalOrg(fromCurrent)) {
+        const s = pickSlug(fromCurrent);
+        if (s) return s;
+      }
+
+      const fromStoredUserAgenciesRaw = JSON.parse(localStorage.getItem('userAgencies') || '[]');
+      const fromStoredUserAgencies = Array.isArray(fromStoredUserAgenciesRaw) ? fromStoredUserAgenciesRaw : [];
+      const firstPortal = fromStoredUserAgencies.find((o) => isPortalOrg(o) && pickSlug(o));
+      if (firstPortal) return pickSlug(firstPortal);
+
+      const fromLocal = JSON.parse(localStorage.getItem('currentAgency') || 'null');
+      if (fromLocal && isPortalOrg(fromLocal) && pickSlug(fromLocal)) return pickSlug(fromLocal);
+    }
+
+    const fromStore = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url;
     if (fromStore) return fromStore;
 
     const fromUserAgencies = authStore.user?.agencies?.[0]?.slug;
     if (fromUserAgencies) return fromUserAgencies;
 
-    const fromStoredUserAgencies = JSON.parse(localStorage.getItem('userAgencies') || '[]')?.[0]?.slug;
-    if (fromStoredUserAgencies) return fromStoredUserAgencies;
+    const storedList = JSON.parse(localStorage.getItem('userAgencies') || '[]');
+    const fromStoredUserAgencies = Array.isArray(storedList) ? storedList?.[0] : null;
+    const storedSlug = fromStoredUserAgencies?.slug || fromStoredUserAgencies?.portal_url || fromStoredUserAgencies?.portalUrl || null;
+    if (storedSlug) return storedSlug;
 
-    const fromLocal = JSON.parse(localStorage.getItem('currentAgency') || 'null')?.slug;
-    if (fromLocal) return fromLocal;
+    const fromLocal = JSON.parse(localStorage.getItem('currentAgency') || 'null');
+    const localSlug = fromLocal?.slug || fromLocal?.portal_url || fromLocal?.portalUrl || null;
+    if (localSlug) return localSlug;
 
     // Custom-domain portals: host resolves to portalUrl (portal_url or slug).
     const fromPortalHost = brandingStore.portalHostPortalUrl;
@@ -940,6 +972,24 @@ const getStoredUserAgencies = () => {
   }
 };
 
+const getSchoolStaffPortalSlugs = (agencyStore, authStore) => {
+  const fromStore = agencyStore.userAgencies?.value || agencyStore.userAgencies;
+  const agencies = Array.isArray(fromStore) && fromStore.length > 0 ? fromStore : getStoredUserAgencies();
+  const isPortalOrg = (a) => {
+    const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+    return t === 'school' || t === 'program' || t === 'learning';
+  };
+  const pick = (a) => a?.portal_url || a?.portalUrl || a?.slug || null;
+
+  // Prefer only school org slugs for school_staff.
+  const out = (agencies || [])
+    .filter((a) => isPortalOrg(a))
+    .map((a) => String(pick(a) || '').trim())
+    .filter(Boolean);
+
+  return out;
+};
+
 const userHasSlugAccess = (slug, agencyStore, authStore) => {
   if (!slug) return false;
   const fromStore = agencyStore.userAgencies?.value || agencyStore.userAgencies;
@@ -1050,7 +1100,8 @@ router.beforeEach(async (to, from, next) => {
   // School staff are locked to a single school-portal experience.
   // They should not access platform admin sections or other org routes.
   if (authStore.isAuthenticated && String(authStore.user?.role || '').toLowerCase() === 'school_staff') {
-    const targetSlug = getDefaultOrganizationSlug();
+    const allowedSlugs = getSchoolStaffPortalSlugs(agencyStore, authStore);
+    const targetSlug = allowedSlugs[0] || getDefaultOrganizationSlug();
     const toSlug = typeof to.params.organizationSlug === 'string' ? String(to.params.organizationSlug) : null;
     const allowedRouteNames = new Set([
       'OrganizationDashboard',
@@ -1062,7 +1113,7 @@ router.beforeEach(async (to, from, next) => {
     const allowed =
       allowedRouteNames.has(String(to.name || '')) &&
       !!to.meta.organizationSlug &&
-      (!targetSlug || !toSlug || String(toSlug) === String(targetSlug));
+      (!toSlug || allowedSlugs.includes(String(toSlug)));
 
     if (!allowed) {
       if (targetSlug) {

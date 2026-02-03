@@ -109,6 +109,21 @@ export const useAgencyStore = defineStore('agency', () => {
     try {
       const { useAuthStore } = await import('./auth');
       const authStore = useAuthStore();
+      const roleNorm = String(authStore.user?.role || '').toLowerCase();
+
+      const pickDefaultAgencyForUser = (list) => {
+        const arr = Array.isArray(list) ? list : [];
+        if (!arr.length) return null;
+        if (roleNorm === 'school_staff') {
+          // School staff should land in portal orgs (school/program/learning), not the parent agency.
+          const portal = arr.find((a) => {
+            const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+            return t === 'school' || t === 'program' || t === 'learning';
+          }) || null;
+          if (portal) return portal;
+        }
+        return arr[0] || null;
+      };
       
       // For approved employees, use agencyIds from the user object
       if (authStore.user?.type === 'approved_employee' && authStore.user?.agencyIds) {
@@ -131,9 +146,16 @@ export const useAgencyStore = defineStore('agency', () => {
         const { storeUserAgencies } = await import('../utils/loginRedirect');
         storeUserAgencies(agencyList);
         
-        // If no current agency is set and user has agencies, set the first one
-        if (!currentAgency.value && userAgencies.value.length > 0) {
-          setCurrentAgency(userAgencies.value[0]);
+        // School staff should default to a SCHOOL org (not the parent agency),
+        // so they land in the school portal experience.
+        if (userAgencies.value.length > 0) {
+          const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
+          const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
+          const shouldOverride = !currentAgency.value || (roleNorm === 'school_staff' && !isPortal);
+          if (shouldOverride) {
+            const def = pickDefaultAgencyForUser(userAgencies.value);
+            if (def) setCurrentAgency(def);
+          }
         }
         
         return agencyList;
@@ -147,9 +169,16 @@ export const useAgencyStore = defineStore('agency', () => {
         const { storeUserAgencies } = await import('../utils/loginRedirect');
         storeUserAgencies(response.data);
         
-        // If no current agency is set and user has agencies, set the first one
-        if (!currentAgency.value && userAgencies.value.length > 0) {
-          setCurrentAgency(userAgencies.value[0]);
+        // School staff should default to a SCHOOL org (not the parent agency),
+        // so they land in the school portal experience.
+        if (userAgencies.value.length > 0) {
+          const currentType = String(currentAgency.value?.organization_type || currentAgency.value?.organizationType || '').toLowerCase();
+          const isPortal = currentType === 'school' || currentType === 'program' || currentType === 'learning';
+          const shouldOverride = !currentAgency.value || (roleNorm === 'school_staff' && !isPortal);
+          if (shouldOverride) {
+            const def = pickDefaultAgencyForUser(userAgencies.value);
+            if (def) setCurrentAgency(def);
+          }
         }
 
         // If a current agency is already persisted, ensure we hydrate it so downstream UI

@@ -1,6 +1,6 @@
 <template>
-  <!-- For schools, use the school portal dashboard; otherwise use standard dashboard -->
-  <SchoolPortalView v-if="organizationType === 'school'" />
+  <!-- For portal orgs (schools/programs/learning), use the school portal dashboard; otherwise use standard dashboard -->
+  <SchoolPortalView v-if="isPortalOrg" />
   <DashboardView v-else />
 </template>
 
@@ -16,6 +16,11 @@ const organizationStore = useOrganizationStore();
 
 const organizationType = computed(() => {
   return organizationStore.organizationContext?.organizationType || 'agency';
+});
+
+const isPortalOrg = computed(() => {
+  const t = String(organizationType.value || '').toLowerCase();
+  return t === 'school' || t === 'program' || t === 'learning';
 });
 
 const ensureOrgLoaded = async () => {
