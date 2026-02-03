@@ -234,6 +234,16 @@
                 <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="nav-icon-img" />
                 <span v-else aria-hidden="true">⚙</span>
               </router-link>
+              <router-link
+                v-if="showNotificationsObnoxiousBadge"
+                :to="orgTo('/notifications')"
+                class="nav-obnoxious-badge"
+                :title="`${notificationsUnreadCount} unread notification(s)`"
+                aria-label="Notifications"
+                @click="closeAllNavMenus"
+              >
+                {{ notificationsUnreadCount }}
+              </router-link>
               <button @click="handleLogout" class="btn btn-secondary">Logout</button>
               </div>
             </div>
@@ -268,6 +278,15 @@
             <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
             <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu" class="mobile-nav-link">
               {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
+            </router-link>
+            <router-link
+              v-if="showNotificationsObnoxiousBadge"
+              :to="orgTo('/notifications')"
+              @click="closeMobileMenu"
+              class="mobile-nav-link mobile-nav-link-obnoxious"
+            >
+              Notifications
+              <span class="mobile-obnoxious-badge">{{ notificationsUnreadCount }}</span>
             </router-link>
             <router-link
               v-if="canSeeApplicantsTopNavLink"
@@ -369,6 +388,7 @@ import { useAgencyStore } from './store/agency';
 import { useOrganizationStore } from './store/organization';
 import { useTutorialStore } from './store/tutorial';
 import { useSuperadminBuilderStore } from './store/superadminBuilder';
+import { useNotificationStore } from './store/notifications';
 import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
@@ -391,6 +411,7 @@ const agencyStore = useAgencyStore();
 const organizationStore = useOrganizationStore();
 const tutorialStore = useTutorialStore();
 const builderStore = useSuperadminBuilderStore();
+const notificationStore = useNotificationStore();
 const router = useRouter();
 const route = useRoute();
 const mobileMenuOpen = ref(false);
@@ -689,6 +710,11 @@ const isAdmin = computed(() => {
   return role === 'admin' || role === 'super_admin' || role === 'support';
 });
 
+const isAdminLike = computed(() => {
+  const role = String(user.value?.role || '').toLowerCase();
+  return role === 'admin' || role === 'super_admin' || role === 'support';
+});
+
 const isTrueAdmin = computed(() => {
   const role = user.value?.role;
   return role === 'admin' || role === 'super_admin';
@@ -909,6 +935,36 @@ watch(isAuthenticated, (authenticated) => {
   }
 }, { immediate: true });
 
+// ---- Obnoxious notifications badge (admin/support) ----
+const notificationsUnreadCount = computed(() => Number(notificationStore.unreadCount || 0));
+const showNotificationsObnoxiousBadge = computed(() => {
+  if (!isAuthenticated.value) return false;
+  if (!isAdminLike.value) return false;
+  return notificationsUnreadCount.value > 0;
+});
+
+let notificationsInterval = null;
+const fetchNotificationsCounts = async () => {
+  if (!isAuthenticated.value) return;
+  if (!isAdminLike.value) return;
+  try {
+    await notificationStore.fetchCounts();
+  } catch {
+    // best-effort badge; ignore errors
+  }
+};
+
+watch([isAuthenticated, isAdminLike], ([authenticated, adminLike]) => {
+  if (authenticated && adminLike) {
+    fetchNotificationsCounts();
+    if (notificationsInterval) clearInterval(notificationsInterval);
+    notificationsInterval = setInterval(fetchNotificationsCounts, 2 * 60 * 1000);
+  } else {
+    if (notificationsInterval) clearInterval(notificationsInterval);
+    notificationsInterval = null;
+  }
+}, { immediate: true });
+
 // Watch for route changes to load organization context
 watch(() => route.params.organizationSlug, async (newSlug) => {
   if (newSlug) {
@@ -1015,6 +1071,8 @@ onUnmounted(() => {
   stopActivityTracking();
   if (buildingsPendingInterval) clearInterval(buildingsPendingInterval);
   buildingsPendingInterval = null;
+  if (notificationsInterval) clearInterval(notificationsInterval);
+  notificationsInterval = null;
 });
 </script>
 
@@ -1431,6 +1489,53 @@ onUnmounted(() => {
   font-weight: 800;
   background: var(--danger);
   color: white;
+}
+
+.nav-obnoxious-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: white;
+  font-weight: 900;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+  animation: obnoxiousPulse 1.35s ease-in-out infinite;
+  text-decoration: none;
+}
+.nav-obnoxious-badge:hover {
+  transform: translateY(-1px);
+}
+@keyframes obnoxiousPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+.mobile-nav-link-obnoxious {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.mobile-obnoxious-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: white;
+  font-weight: 900;
+  font-size: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
 }
 
 .nav-links .btn {
