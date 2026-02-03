@@ -1292,7 +1292,81 @@ class User {
        WHERE ua.user_id = ?`;
 
     const [rows] = await pool.execute(query, [userId]);
-    return rows;
+
+    // Backoffice admin/support/staff should implicitly inherit access to all organizations
+    // affiliated under their agency-type organizations.
+    try {
+      const [uRows] = await pool.execute('SELECT role FROM users WHERE id = ? LIMIT 1', [userId]);
+      const role = String(uRows?.[0]?.role || '').toLowerCase();
+      const canInherit = role === 'admin' || role === 'support' || role === 'staff';
+      if (!canInherit) return rows;
+
+      const parentAgencyIds = Array.from(
+        new Set(
+          (rows || [])
+            .filter((o) => String(o?.organization_type || 'agency').toLowerCase() === 'agency')
+            .map((o) => parseInt(o?.id, 10))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        )
+      );
+      if (!parentAgencyIds.length) return rows;
+
+      // Check table existence (backward compatible with older DBs)
+      const [tblRows] = await pool.execute(
+        `SELECT TABLE_NAME
+         FROM information_schema.tables
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME IN ('organization_affiliations','agency_schools')`
+      );
+      const tbls = new Set((tblRows || []).map((t) => t.TABLE_NAME));
+      const hasOrgAffiliations = tbls.has('organization_affiliations');
+      const hasAgencySchools = tbls.has('agency_schools');
+      if (!hasOrgAffiliations && !hasAgencySchools) return rows;
+
+      const placeholders = parentAgencyIds.map(() => '?').join(',');
+      const inherited = [];
+
+      if (hasOrgAffiliations) {
+        const [affRows] = await pool.execute(
+          `SELECT a.*
+           FROM organization_affiliations oa
+           INNER JOIN agencies a ON a.id = oa.organization_id
+           WHERE oa.is_active = TRUE
+             AND oa.agency_id IN (${placeholders})`,
+          parentAgencyIds
+        );
+        if (Array.isArray(affRows) && affRows.length) inherited.push(...affRows);
+      }
+
+      if (hasAgencySchools) {
+        const [schoolRows] = await pool.execute(
+          `SELECT a.*
+           FROM agency_schools axs
+           INNER JOIN agencies a ON a.id = axs.school_organization_id
+           WHERE axs.is_active = TRUE
+             AND axs.agency_id IN (${placeholders})`,
+          parentAgencyIds
+        );
+        if (Array.isArray(schoolRows) && schoolRows.length) inherited.push(...schoolRows);
+      }
+
+      if (!inherited.length) return rows;
+
+      const byId = new Map();
+      for (const r of rows || []) {
+        const id = parseInt(r?.id, 10);
+        if (!id) continue;
+        byId.set(id, r);
+      }
+      for (const r of inherited) {
+        const id = parseInt(r?.id, 10);
+        if (!id) continue;
+        if (!byId.has(id)) byId.set(id, r);
+      }
+      return Array.from(byId.values());
+    } catch {
+      return rows;
+    }
   }
 
   static async getPrograms(userId) {

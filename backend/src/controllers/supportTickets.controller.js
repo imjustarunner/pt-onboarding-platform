@@ -16,6 +16,17 @@ async function hasSupportTicketMessagesTable() {
   }
 }
 
+async function hasSupportTicketMessagesSoftDeleteColumns() {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_ticket_messages' AND COLUMN_NAME = 'is_deleted'"
+    );
+    return Number(rows?.[0]?.cnt || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function maybeGenerateGeminiSummary({ question, answer }) {
   const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
   if (!apiKey) return null;
@@ -410,6 +421,7 @@ export const listSupportTicketMessages = async (req, res, next) => {
       return res.json({ ticket, messages: [] });
     }
 
+    const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
     const [mRows] = await pool.execute(
       `SELECT m.*,
               u.first_name AS author_first_name,
@@ -420,7 +432,20 @@ export const listSupportTicketMessages = async (req, res, next) => {
        ORDER BY m.created_at ASC, m.id ASC`,
       [ticketId]
     );
-    res.json({ ticket, messages: Array.isArray(mRows) ? mRows : [] });
+    const list = Array.isArray(mRows) ? mRows : [];
+    // Normalize deleted messages when the column exists
+    const normalized = hasSoftDelete
+      ? list.map((m) => {
+        const isDeleted = m?.is_deleted === 1 || m?.is_deleted === true;
+        if (!isDeleted) return m;
+        return {
+          ...m,
+          body: '',
+          is_deleted: 1
+        };
+      })
+      : list;
+    res.json({ ticket, messages: normalized });
   } catch (e) {
     next(e);
   }
@@ -461,15 +486,19 @@ export const createSupportTicketMessage = async (req, res, next) => {
       if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
     }
 
+    const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
+
     // Parent pointer is best-effort; if invalid, treat as top-level.
     let parentId = null;
     if (parentMessageId && Number.isFinite(parentMessageId) && parentMessageId > 0) {
       try {
         const [pRows] = await pool.execute(
-          `SELECT id FROM support_ticket_messages WHERE id = ? AND ticket_id = ? LIMIT 1`,
+          `SELECT id${hasSoftDelete ? ', is_deleted' : ''} FROM support_ticket_messages WHERE id = ? AND ticket_id = ? LIMIT 1`,
           [parentMessageId, ticketId]
         );
-        if (pRows?.[0]?.id) parentId = parentMessageId;
+        const p = pRows?.[0] || null;
+        const isDeleted = hasSoftDelete ? (p?.is_deleted === 1 || p?.is_deleted === true) : false;
+        if (p?.id && !isDeleted) parentId = parentMessageId;
       } catch {
         parentId = null;
       }
@@ -492,6 +521,64 @@ export const createSupportTicketMessage = async (req, res, next) => {
 
     // Return updated thread
     return await listSupportTicketMessages(req, res, next);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteSupportTicketMessage = async (req, res, next) => {
+  try {
+    const ticketId = parseInt(req.params.id, 10);
+    const messageId = parseInt(req.params.messageId, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+    if (!messageId) return res.status(400).json({ error: { message: 'Invalid message id' } });
+
+    const [tRows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = tRows?.[0] || null;
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    if (!(await hasSupportTicketMessagesTable())) {
+      return res.status(409).json({ error: { message: 'Ticket messages are not enabled (missing migration)' } });
+    }
+    if (!(await hasSupportTicketMessagesSoftDeleteColumns())) {
+      return res.status(409).json({ error: { message: 'Message delete is not enabled (missing migration)' } });
+    }
+
+    const [mRows] = await pool.execute(
+      `SELECT id, ticket_id, author_user_id, author_role, is_deleted
+       FROM support_ticket_messages
+       WHERE id = ? AND ticket_id = ?
+       LIMIT 1`,
+      [messageId, ticketId]
+    );
+    const msg = mRows?.[0] || null;
+    if (!msg) return res.status(404).json({ error: { message: 'Message not found' } });
+    if (msg.is_deleted === 1 || msg.is_deleted === true) {
+      return res.json({ ok: true });
+    }
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const authorRole = String(msg.author_role || '').toLowerCase();
+    const isAdminLike = role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff';
+    const isSchoolStaff = role === 'school_staff';
+    const canDelete =
+      (isAdminLike && authorRole === 'school_staff') ||
+      (isSchoolStaff && Number(msg.author_user_id) === Number(req.user.id));
+    if (!canDelete) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    await pool.execute(
+      `UPDATE support_ticket_messages
+       SET is_deleted = 1,
+           deleted_at = CURRENT_TIMESTAMP,
+           deleted_by_user_id = ?
+       WHERE id = ? AND ticket_id = ?`,
+      [req.user.id, messageId, ticketId]
+    );
+
+    return res.json({ ok: true });
   } catch (e) {
     next(e);
   }

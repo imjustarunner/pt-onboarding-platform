@@ -7,6 +7,7 @@ import {
   getClientSupportTicketThread,
   listSupportTicketMessages,
   createSupportTicketMessage,
+  deleteSupportTicketMessage,
   answerSupportTicket,
   claimSupportTicket,
   unclaimSupportTicket
@@ -30,6 +31,7 @@ router.post('/', createSupportTicket);
 // Thread messages (client-scoped + future general ticket threading)
 router.get('/:id/messages', listSupportTicketMessages);
 router.post('/:id/messages', createSupportTicketMessage);
+router.delete('/:id/messages/:messageId', deleteSupportTicketMessage);
 
 // Admin/support: answer ticket
 router.post('/:id/answer', answerSupportTicket);

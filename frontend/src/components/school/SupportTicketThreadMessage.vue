@@ -6,7 +6,8 @@
         <span class="muted">• {{ fmt(node.created_at) }}</span>
       </div>
       <div class="msg-actions">
-        <button class="btn-link" type="button" @click="$emit('reply', node)">Reply</button>
+        <button v-if="!isDeleted" class="btn-link" type="button" @click="$emit('reply', node)">Reply</button>
+        <button v-if="canDelete" class="btn-link danger" type="button" @click="$emit('delete', node)">Delete</button>
         <button
           v-if="(node.children || []).length > 0"
           class="btn-link"
@@ -18,7 +19,8 @@
       </div>
     </div>
 
-    <div class="msg-body">{{ node.body }}</div>
+    <div v-if="isDeleted" class="msg-deleted">Deleted message</div>
+    <div v-else class="msg-body">{{ node.body }}</div>
 
     <div v-if="(node.children || []).length > 0 && isExpanded(node.id)" class="msg-children">
       <SupportTicketThreadMessage
@@ -27,23 +29,29 @@
         :node="c"
         :depth="depth + 1"
         :expanded="expanded"
+        :current-user-id="currentUserId"
+        :current-user-role="currentUserRole"
         @toggle="$emit('toggle', $event)"
         @reply="$emit('reply', $event)"
+        @delete="$emit('delete', $event)"
       />
     </div>
   </div>
 </template>
 
 <script setup>
+import { computed } from 'vue';
 defineOptions({ name: 'SupportTicketThreadMessage' });
 
 const props = defineProps({
   node: { type: Object, required: true },
   depth: { type: Number, default: 0 },
-  expanded: { type: Object, required: true }
+  expanded: { type: Object, required: true },
+  currentUserId: { type: [Number, String], default: null },
+  currentUserRole: { type: String, default: '' }
 });
 
-defineEmits(['toggle', 'reply']);
+defineEmits(['toggle', 'reply', 'delete']);
 
 const fmt = (dt) => (dt ? new Date(dt).toLocaleString() : '');
 
@@ -57,6 +65,22 @@ const author = (m) => {
 };
 
 const isExpanded = (id) => props.expanded?.[String(id)] !== false;
+
+const isDeleted = computed(() => {
+  const v = props.node?.is_deleted;
+  return v === 1 || v === true;
+});
+
+const canDelete = computed(() => {
+  const role = String(props.currentUserRole || '').toLowerCase();
+  const isAdminLike = role === 'super_admin' || role === 'admin' || role === 'support' || role === 'staff';
+  const isSchoolStaff = role === 'school_staff';
+  const authorRole = String(props.node?.author_role || '').toLowerCase();
+  const authorUserId = props.node?.author_user_id;
+  if (isAdminLike) return authorRole === 'school_staff';
+  if (isSchoolStaff) return authorRole === 'school_staff' && Number(authorUserId) === Number(props.currentUserId);
+  return false;
+});
 </script>
 
 <style scoped>
@@ -101,6 +125,15 @@ const isExpanded = (id) => props.expanded?.[String(id)] !== false;
   color: var(--primary);
   cursor: pointer;
   font-size: 12px;
+}
+
+.btn-link.danger {
+  color: #b91c1c;
+}
+
+.msg-deleted {
+  font-style: italic;
+  color: var(--text-secondary);
 }
 </style>
 

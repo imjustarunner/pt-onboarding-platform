@@ -22,6 +22,31 @@
         <div v-else-if="error" class="error">{{ error }}</div>
 
         <div v-else class="thread">
+          <div v-if="checklist" class="checklist">
+            <div class="checklist-title">Compliance checklist (read-only)</div>
+            <div class="checklist-grid">
+              <div class="check-item">
+                <div class="k">Parents Contacted</div>
+                <div class="v">{{ formatDateOnly(checklist.parents_contacted_at) }}</div>
+              </div>
+              <div class="check-item">
+                <div class="k">Successful?</div>
+                <div class="v">
+                  {{ checklist.parents_contacted_successful === null ? '—' : (checklist.parents_contacted_successful ? 'Yes' : 'No') }}
+                </div>
+              </div>
+              <div class="check-item">
+                <div class="k">Intake Date</div>
+                <div class="v">{{ formatDateOnly(checklist.intake_at) }}</div>
+              </div>
+              <div class="check-item">
+                <div class="k">First Service</div>
+                <div class="v">{{ formatDateOnly(checklist.first_service_at) }}</div>
+              </div>
+            </div>
+            <div v-if="checklistAudit" class="checklist-audit">{{ checklistAudit }}</div>
+          </div>
+
           <div v-if="!ticket" class="empty">
             No messages yet. Send a message below to start the ticket.
           </div>
@@ -52,8 +77,11 @@
                 :node="m"
                 :depth="0"
                 :expanded="expanded"
+                :current-user-id="currentUserId"
+                :current-user-role="currentUserRole"
                 @toggle="toggleExpanded"
                 @reply="setReplyTarget"
+                @delete="deleteMessage"
               />
             </div>
           </div>
@@ -91,6 +119,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import SupportTicketThreadMessage from './SupportTicketThreadMessage.vue';
+import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   client: { type: Object, required: true },
@@ -99,6 +128,10 @@ const props = defineProps({
 });
 
 defineEmits(['close']);
+
+const authStore = useAuthStore();
+const currentUserId = computed(() => authStore.user?.id || null);
+const currentUserRole = computed(() => String(authStore.user?.role || ''));
 
 const loading = ref(false);
 const error = ref('');
@@ -113,6 +146,9 @@ const showFullThread = ref(false);
 const expanded = ref({}); // messageId -> boolean
 const messagesEl = ref(null);
 const composerEl = ref(null);
+
+const checklist = ref(null);
+const checklistAudit = ref('');
 
 const replyTo = ref(null); // { id, authorLabel }
 
@@ -131,6 +167,8 @@ const formatStatus = (s) => {
   if (v === 'closed') return 'Closed';
   return 'Open';
 };
+
+const formatDateOnly = (d) => (d ? String(d).slice(0, 10) : '—');
 
 const buildTree = (flat) => {
   const list = Array.isArray(flat) ? flat : [];
@@ -193,6 +231,26 @@ const load = async () => {
   loading.value = true;
   error.value = '';
   try {
+    // Compliance checklist (read-only for school staff/admin view)
+    try {
+      const c = (await api.get(`/clients/${props.client.id}`)).data || {};
+      checklist.value = {
+        parents_contacted_at: c.parents_contacted_at || null,
+        parents_contacted_successful:
+          c.parents_contacted_successful === null || c.parents_contacted_successful === undefined
+            ? null
+            : !!c.parents_contacted_successful,
+        intake_at: c.intake_at || null,
+        first_service_at: c.first_service_at || null
+      };
+      const who = c.checklist_updated_by_name || null;
+      const when = c.checklist_updated_at ? new Date(c.checklist_updated_at).toLocaleString() : null;
+      checklistAudit.value = who && when ? `Last updated by ${who} on ${when}` : (when ? `Last updated on ${when}` : '');
+    } catch {
+      checklist.value = null;
+      checklistAudit.value = '';
+    }
+
     const r = await api.get('/support-tickets/client-thread', {
       params: {
         schoolOrganizationId: Number(props.schoolOrganizationId),
@@ -214,6 +272,18 @@ const load = async () => {
     messages.value = [];
   } finally {
     loading.value = false;
+  }
+};
+
+const deleteMessage = async (node) => {
+  try {
+    if (!ticket.value?.id || !node?.id) return;
+    if (!window.confirm('Delete this message?')) return;
+    await api.delete(`/support-tickets/${ticket.value.id}/messages/${node.id}`);
+    await load();
+  } catch (e) {
+    const msg = e.response?.data?.error?.message || 'Failed to delete message';
+    alert(msg);
   }
 };
 
@@ -263,6 +333,8 @@ watch(
   () => props.client?.id,
   async () => {
     showFullThread.value = false;
+    checklist.value = null;
+    checklistAudit.value = '';
     await load();
   }
 );
@@ -347,6 +419,37 @@ onMounted(load);
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.checklist {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--bg);
+  margin-bottom: 12px;
+}
+.checklist-title {
+  font-weight: 800;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+.checklist-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.check-item .k {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 800;
+}
+.check-item .v {
+  margin-top: 2px;
+}
+.checklist-audit {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .messages {
