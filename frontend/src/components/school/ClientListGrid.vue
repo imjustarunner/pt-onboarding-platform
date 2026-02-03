@@ -73,14 +73,47 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="client in sortedClients" :key="client.id" class="client-row">
+          <tr
+            v-for="client in sortedClients"
+            :key="client.id"
+            class="client-row"
+            :class="{ 'client-row-clickable': isSchoolStaff }"
+            :role="isSchoolStaff ? 'button' : undefined"
+            :tabindex="isSchoolStaff ? 0 : undefined"
+            @click="handleRowActivate(client)"
+            @keydown.enter.prevent="handleRowActivate(client)"
+            @keydown.space.prevent="handleRowActivate(client)"
+          >
             <td class="initials-cell">
               <span class="initials" :title="rosterLabelTitle(client)">{{ formatRosterLabel(client) }}</span>
             </td>
             <td>
               <div class="status-cell">
-                <span :class="['status-badge', `status-${String(client.client_status_key || 'unknown').toLowerCase().replace('_', '-')}`]">
+                <span
+                  :class="[
+                    'status-badge',
+                    `status-${String(client.client_status_key || 'unknown').toLowerCase().replace('_', '-')}`,
+                    String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 'status-waitlist' : ''
+                  ]"
+                  :role="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 'button' : undefined"
+                  :tabindex="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? 0 : undefined"
+                  :title="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? getWaitlistTitle(client) : ''"
+                  @mouseenter="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? onWaitlistHover(client) : null"
+                  @mouseleave="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? (hoveredWaitlistClientId = '') : null"
+                  @focus="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? onWaitlistHover(client) : null"
+                  @click.stop="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? openWaitlistNote(client) : null"
+                  @keydown.enter.stop.prevent="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? openWaitlistNote(client) : null"
+                  @keydown.space.stop.prevent="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? openWaitlistNote(client) : null"
+                >
                   {{ client.client_status_label || '—' }}
+                  <div
+                    v-if="String(client.client_status_key || '').toLowerCase() === 'waitlist' && String(hoveredWaitlistClientId) === String(client.id)"
+                    class="waitlist-tooltip"
+                    role="tooltip"
+                  >
+                    <div class="waitlist-tooltip-title">Waitlist reason</div>
+                    <div class="waitlist-tooltip-body">{{ waitlistTooltipText(client) }}</div>
+                  </div>
                 </span>
                 <span
                   v-if="String(client.client_status_key || '').toLowerCase() === 'waitlist' && client.waitlist_days !== null && client.waitlist_rank !== null"
@@ -106,7 +139,7 @@
               </span>
             </td>
             <td>
-              <button class="btn btn-secondary btn-sm comment-btn" @click="openClient(client)">
+              <button class="btn btn-secondary btn-sm comment-btn" @click.stop="openClient(client)">
                 <span v-if="(client.unread_notes_count || 0) > 0" class="unread-dot" aria-hidden="true" />
                 View & Comment
               </button>
@@ -116,13 +149,13 @@
                 v-if="client.user_is_assigned_provider"
                 class="btn btn-secondary btn-sm"
                 type="button"
-                @click="goChecklist(client)"
+                @click.stop="goChecklist(client)"
               >
                 Checklist
               </button>
             </td>
             <td v-if="canEditClients" class="edit-col">
-              <button class="btn btn-primary btn-sm" type="button" @click="goEdit(client)">Edit</button>
+              <button class="btn btn-primary btn-sm" type="button" @click.stop="goEdit(client)">Edit</button>
             </td>
             <td>{{ formatDate(client.submission_date) }}</td>
           </tr>
@@ -138,6 +171,15 @@
       :client-label-mode="clientLabelMode"
       @close="selectedClient = null"
     />
+
+    <WaitlistNoteModal
+      v-if="waitlistClient"
+      :org-key="orgKey"
+      :client="waitlistClient"
+      :client-label-mode="clientLabelMode"
+      @saved="onWaitlistSaved"
+      @close="waitlistClient = null"
+    />
   </div>
 </template>
 
@@ -146,6 +188,7 @@ import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import ClientTicketThreadModal from './ClientTicketThreadModal.vue';
+import WaitlistNoteModal from './WaitlistNoteModal.vue';
 import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
@@ -203,15 +246,76 @@ const clients = ref([]);
 const loading = ref(false);
 const error = ref('');
 const selectedClient = ref(null);
+const waitlistClient = ref(null);
 const searchQuery = ref('');
 const router = useRouter();
 const authStore = useAuthStore();
 
 const canEditClients = ref(false);
+const isSchoolStaff = computed(() => String(authStore.user?.role || '').toLowerCase() === 'school_staff');
 const showChecklistButton = computed(() => {
   const r = String(authStore.user?.role || '').toLowerCase();
   return r === 'provider';
 });
+
+const orgKey = computed(() => {
+  // school roster expects numeric org id; provider roster may only have slug.
+  const v = props.organizationId ? String(props.organizationId) : String(props.organizationSlug || '').trim();
+  return v || '';
+});
+
+// Waitlist note hover caching: clientId -> message
+const waitlistNoteByClientId = ref({});
+const waitlistNoteLoadingByClientId = ref({});
+const hoveredWaitlistClientId = ref('');
+const getWaitlistTitle = (client) => {
+  if (String(client?.client_status_key || '').toLowerCase() !== 'waitlist') return '';
+  const cached = waitlistNoteByClientId.value?.[String(client?.id || '')] || '';
+  if (cached) return `Waitlist reason: ${cached}`;
+  return 'Waitlist reason: (hover to load)';
+};
+
+const ensureWaitlistNoteLoaded = async (client) => {
+  try {
+    if (!orgKey.value) return;
+    const cid = Number(client?.id || 0);
+    if (!cid) return;
+    const key = String(cid);
+    if (waitlistNoteByClientId.value?.[key]) return;
+    if (waitlistNoteLoadingByClientId.value?.[key]) return;
+    waitlistNoteLoadingByClientId.value = { ...(waitlistNoteLoadingByClientId.value || {}), [key]: true };
+    const r = await api.get(`/school-portal/${encodeURIComponent(orgKey.value)}/clients/${cid}/waitlist-note`);
+    const msg = String(r.data?.note?.message || '').trim();
+    waitlistNoteByClientId.value = { ...(waitlistNoteByClientId.value || {}), [key]: msg || '(no note yet)' };
+  } catch {
+    // ignore hover load failures (non-blocking)
+  } finally {
+    try {
+      const cid = Number(client?.id || 0);
+      if (!cid) return;
+      const key = String(cid);
+      const next = { ...(waitlistNoteLoadingByClientId.value || {}) };
+      delete next[key];
+      waitlistNoteLoadingByClientId.value = next;
+    } catch {
+      // ignore
+    }
+  }
+};
+
+const onWaitlistHover = (client) => {
+  const cid = String(client?.id || '');
+  if (!cid) return;
+  hoveredWaitlistClientId.value = cid;
+  ensureWaitlistNoteLoaded(client);
+};
+
+const waitlistTooltipText = (client) => {
+  const key = String(client?.id || '');
+  if (!key) return '';
+  if (waitlistNoteLoadingByClientId.value?.[key]) return 'Loading…';
+  return waitlistNoteByClientId.value?.[key] || '(no note yet)';
+};
 
 const sortKey = ref('submission_date');
 const sortDir = ref('desc');
@@ -442,6 +546,30 @@ const openClient = (client) => {
   selectedClient.value = client;
 };
 
+const openWaitlistNote = (client) => {
+  if (!orgKey.value) return;
+  waitlistClient.value = client;
+};
+
+const onWaitlistSaved = (note) => {
+  // Refresh hover tooltip cache immediately after save
+  try {
+    const cid = Number(waitlistClient.value?.id || 0);
+    if (!cid) return;
+    const msg = String(note?.message || '').trim() || '(no note yet)';
+    waitlistNoteByClientId.value = { ...(waitlistNoteByClientId.value || {}), [String(cid)]: msg };
+  } catch {
+    // ignore
+  }
+};
+
+const handleRowActivate = (client) => {
+  // School staff only have one action on roster rows: view/comment thread.
+  // Make the entire row clickable for them to reduce friction.
+  if (!isSchoolStaff.value) return;
+  openClient(client);
+};
+
 const goEdit = (client) => {
   if (!client?.id) return;
   if (props.editMode === 'inline') {
@@ -477,6 +605,42 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.status-waitlist {
+  cursor: pointer;
+}
+
+.status-badge {
+  position: relative;
+}
+
+.waitlist-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 280px;
+  max-width: 60vw;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-primary);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+}
+
+.waitlist-tooltip-title {
+  font-weight: 900;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.waitlist-tooltip-body {
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: pre-wrap;
 }
 .waitlist-bubble {
   display: inline-flex;
@@ -632,16 +796,16 @@ onMounted(() => {
 }
 
 .client-row {
-  cursor: pointer;
+  cursor: default;
   transition: background 0.2s;
 }
 
-.client-row:hover {
-  background: var(--bg-alt);
+.client-row-clickable {
+  cursor: pointer;
 }
 
-.client-row {
-  cursor: default;
+.client-row-clickable:hover {
+  background: var(--bg-alt);
 }
 
 .comment-btn {

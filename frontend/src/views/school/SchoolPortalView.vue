@@ -11,6 +11,19 @@
             <p class="portal-subtitle">Schedule + roster (no PHI)</p>
           </div>
         </div>
+        <div class="portal-header-right">
+          <button
+            v-if="isSchoolStaff"
+            type="button"
+            class="btn btn-secondary btn-sm tutorial-toggle"
+            :class="{ active: tutorialStore.enabled }"
+            :aria-pressed="tutorialStore.enabled ? 'true' : 'false'"
+            @click="tutorialStore.setEnabled(!tutorialStore.enabled)"
+            title="Turn tutorials on/off"
+          >
+            Tutorial {{ tutorialStore.enabled ? 'On' : 'Off' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -666,6 +679,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useOrganizationStore } from '../../store/organization';
 import { useBrandingStore } from '../../store/branding';
 import { useAgencyStore } from '../../store/agency';
+import { useTutorialStore } from '../../store/tutorial';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
 import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
@@ -690,6 +704,7 @@ const store = useSchoolPortalRedesignStore();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+const tutorialStore = useTutorialStore();
 
 const showHelpDesk = ref(false);
 const comingSoonKey = ref(''); // 'parent_qr' | 'parent_sign' | 'packet_upload'
@@ -1172,6 +1187,14 @@ watch(() => store.selectedWeekday, async (weekday) => {
   align-items: center;
   gap: 14px;
   min-width: 0;
+}
+
+.portal-header-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: 0 0 auto;
 }
 .school-logo {
   width: 56px;

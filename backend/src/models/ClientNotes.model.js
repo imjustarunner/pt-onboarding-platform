@@ -208,6 +208,118 @@ class ClientNotes {
   }
 
   /**
+   * Find the latest shared (non-internal) singleton note by category.
+   * This is used for "single note" UX (e.g., waitlist note) where we want one
+   * overwriteable message (no thread).
+   */
+  static async findLatestSharedByClientAndCategory(clientId, category) {
+    const cid = Number(clientId);
+    if (!Number.isFinite(cid) || cid < 1) return null;
+    const cat = this.normalizeCategory(category);
+    const [rows] = await pool.execute(
+      `SELECT id
+       FROM client_notes
+       WHERE client_id = ?
+         AND is_internal_only = FALSE
+         AND category = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [cid, cat]
+    );
+    const id = rows?.[0]?.id ? Number(rows[0].id) : null;
+    if (!id) return null;
+    return await this.findById(id);
+  }
+
+  /**
+   * Upsert a singleton shared note (overwriteable by callers).
+   * IMPORTANT: This bypasses the "author-only" update restriction for shared notes,
+   * because certain UX (e.g., waitlist reason) is intended to be editable by any
+   * user who has access to the client.
+   */
+  static async upsertSharedSingletonByClientAndCategory({ clientId, category, message, actorUserId }) {
+    const cid = Number(clientId);
+    const uid = Number(actorUserId);
+    if (!Number.isFinite(cid) || cid < 1) throw new Error('Invalid client id');
+    if (!Number.isFinite(uid) || uid < 1) throw new Error('Invalid actor user id');
+    const cat = this.normalizeCategory(category);
+
+    const existing = await this.findLatestSharedByClientAndCategory(cid, cat);
+    if (existing?.id) {
+      return await this.updateSharedMessageBypassAuthor(existing.id, { message, actorUserId: uid });
+    }
+
+    return await this.create(
+      { client_id: cid, author_id: uid, message, is_internal_only: false, category: cat, urgency: 'low' },
+      { hasAgencyAccess: false, canViewInternalNotes: false }
+    );
+  }
+
+  /**
+   * Update a shared (non-internal) note's message regardless of author.
+   * Used ONLY for singleton shared notes that are intentionally collaborative (e.g., waitlist note).
+   */
+  static async updateSharedMessageBypassAuthor(id, { message, actorUserId }) {
+    const noteId = Number(id);
+    const uid = Number(actorUserId);
+    if (!Number.isFinite(noteId) || noteId < 1) throw new Error('Invalid note id');
+    if (!Number.isFinite(uid) || uid < 1) throw new Error('Invalid actor user id');
+
+    const currentNote = await this.findById(noteId);
+    if (!currentNote) throw new Error('Note not found');
+    if (currentNote.is_internal_only) throw new Error('Cannot bypass-update an internal note');
+
+    const scrubbed = scrubClientNamesToCode(message);
+    const updates = [];
+    const values = [];
+
+    const hadCipher =
+      !!currentNote.message_ciphertext && !!currentNote.message_iv && !!currentNote.message_auth_tag;
+
+    if (isChatEncryptionConfigured()) {
+      const enc = encryptChatText(scrubbed);
+      updates.push('message = NULL');
+      updates.push('message_ciphertext = ?');
+      updates.push('message_iv = ?');
+      updates.push('message_auth_tag = ?');
+      updates.push('encryption_key_id = ?');
+      values.push(enc.ciphertextB64, enc.ivB64, enc.authTagB64, enc.keyId);
+    } else if (hadCipher) {
+      // No key configured: clear ciphertext so hydrateDecryptedMessage doesn't overwrite message.
+      updates.push('message_ciphertext = NULL');
+      updates.push('message_iv = NULL');
+      updates.push('message_auth_tag = NULL');
+      updates.push('encryption_key_id = NULL');
+      updates.push('message = ?');
+      values.push(String(scrubbed || ''));
+    } else {
+      updates.push('message = ?');
+      values.push(String(scrubbed || ''));
+    }
+
+    // Track last editor as the "author" of this singleton note.
+    updates.push('author_id = ?');
+    values.push(uid);
+
+    values.push(noteId);
+    const query = `UPDATE client_notes SET ${updates.join(', ')} WHERE id = ?`;
+    try {
+      await pool.execute(query, values);
+    } catch (e) {
+      // If encryption columns aren't present yet, fall back to plaintext update.
+      const msg = String(e?.message || '');
+      const columnMissing = msg.includes('Unknown column') || msg.includes('ER_BAD_FIELD_ERROR');
+      if (!columnMissing) throw e;
+
+      const fallbackUpdates = ['message = ?', 'author_id = ?'];
+      const fallbackValues = [String(scrubbed || ''), uid, noteId];
+      await pool.execute(`UPDATE client_notes SET ${fallbackUpdates.join(', ')} WHERE id = ?`, fallbackValues);
+    }
+
+    return this.findById(noteId);
+  }
+
+  /**
    * Update a note (permission check required)
    * @param {number} id - Note ID
    * @param {Object} noteData - Updated note data

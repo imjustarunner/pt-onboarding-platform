@@ -913,3 +913,207 @@ export const listSchoolPortalFaq = async (req, res, next) => {
     next(e);
   }
 };
+
+async function resolveOrgIdFromParam(rawOrgIdOrSlug) {
+  const raw = String(rawOrgIdOrSlug || '').trim();
+  if (!raw) return null;
+  const n = parseInt(raw, 10);
+  if (Number.isFinite(n) && n > 0) return n;
+  try {
+    const org = await Agency.findBySlug(raw.toLowerCase());
+    const id = org?.id ? parseInt(String(org.id), 10) : NaN;
+    return Number.isFinite(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+async function clientBelongsToOrg({ clientId, orgId }) {
+  const cid = parseInt(String(clientId), 10);
+  const oid = parseInt(String(orgId), 10);
+  if (!cid || !oid) return false;
+
+  // Prefer multi-org assignment table; fall back to legacy clients.organization_id.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_organization_assignments coa
+       WHERE coa.client_id = ?
+         AND coa.organization_id = ?
+         AND coa.is_active = TRUE
+       LIMIT 1`,
+      [cid, oid]
+    );
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM clients c
+       WHERE c.id = ?
+         AND c.organization_id = ?
+       LIMIT 1`,
+      [cid, oid]
+    );
+    return !!rows?.[0];
+  } catch {
+    return false;
+  }
+}
+
+async function providerAssignedToClientInOrg({ providerUserId, clientId, orgId }) {
+  const pid = parseInt(String(providerUserId), 10);
+  const cid = parseInt(String(clientId), 10);
+  const oid = parseInt(String(orgId), 10);
+  if (!pid || !cid || !oid) return false;
+
+  // Prefer assignment table; fall back to legacy clients.provider_id.
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM client_provider_assignments cpa
+       WHERE cpa.client_id = ?
+         AND cpa.organization_id = ?
+         AND cpa.provider_user_id = ?
+         AND cpa.is_active = TRUE
+       LIMIT 1`,
+      [cid, oid, pid]
+    );
+    if (rows?.[0]) return true;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing =
+      msg.includes("doesn't exist") ||
+      msg.includes('ER_NO_SUCH_TABLE') ||
+      msg.includes('Unknown column') ||
+      msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT 1
+       FROM clients c
+       WHERE c.id = ?
+         AND c.provider_id = ?
+         AND c.organization_id = ?
+       LIMIT 1`,
+      [cid, pid, oid]
+    );
+    return !!rows?.[0];
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get singleton waitlist note (shared, collaborative).
+ * GET /api/school-portal/:organizationId/clients/:clientId/waitlist-note
+ */
+export const getClientWaitlistNote = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!orgId || !clientId) return res.status(400).json({ error: { message: 'Invalid organizationId or clientId' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    // Ensure client is actually part of this org (prevents cross-org note disclosure).
+    const inOrg = await clientBelongsToOrg({ clientId, orgId });
+    if (!inOrg) return res.status(404).json({ error: { message: 'Client not found in this organization' } });
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    // Providers can only read waitlist notes for clients assigned to them in this org.
+    if (roleNorm === 'provider') {
+      const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const note = await ClientNotes.findLatestSharedByClientAndCategory(clientId, 'waitlist');
+    if (!note) return res.json({ note: null });
+
+    res.json({
+      note: {
+        id: note.id,
+        message: note.message || '',
+        created_at: note.created_at || null,
+        author_id: note.author_id || null,
+        author_name: note.author_name || null,
+        category: note.category || 'waitlist'
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Upsert singleton waitlist note (shared, collaborative overwrite).
+ * PUT /api/school-portal/:organizationId/clients/:clientId/waitlist-note
+ * body: { message }
+ */
+export const upsertClientWaitlistNote = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!orgId || !clientId) return res.status(400).json({ error: { message: 'Invalid organizationId or clientId' } });
+
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const inOrg = await clientBelongsToOrg({ clientId, orgId });
+    if (!inOrg) return res.status(404).json({ error: { message: 'Client not found in this organization' } });
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    // Providers can only edit waitlist notes for clients assigned to them in this org.
+    if (roleNorm === 'provider') {
+      const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const saved = await ClientNotes.upsertSharedSingletonByClientAndCategory({
+      clientId,
+      category: 'waitlist',
+      message,
+      actorUserId: userId
+    });
+
+    res.status(201).json({
+      note: saved
+        ? {
+            id: saved.id,
+            message: saved.message || '',
+            created_at: saved.created_at || null,
+            author_id: saved.author_id || null,
+            author_name: saved.author_name || null,
+            category: saved.category || 'waitlist'
+          }
+        : null
+    });
+  } catch (e) {
+    next(e);
+  }
+};

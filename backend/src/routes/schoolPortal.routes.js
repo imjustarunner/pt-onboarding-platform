@@ -1,5 +1,15 @@
 import express from 'express';
-import { getSchoolClients, getProviderMyRoster, getSchoolPortalAffiliation, getSchoolPortalStats, listSchoolStaff, removeSchoolStaff, listSchoolPortalFaq } from '../controllers/schoolPortal.controller.js';
+import {
+  getSchoolClients,
+  getProviderMyRoster,
+  getSchoolPortalAffiliation,
+  getSchoolPortalStats,
+  listSchoolStaff,
+  removeSchoolStaff,
+  listSchoolPortalFaq,
+  getClientWaitlistNote,
+  upsertClientWaitlistNote
+} from '../controllers/schoolPortal.controller.js';
 import {
   listSchoolProvidersForScheduling,
   listScheduleEntries,
@@ -48,6 +58,8 @@ const router = express.Router();
 // GET /api/school-portal/:organizationId/clients
 router.get('/:organizationId/clients', authenticate, getSchoolClients);
 router.get('/:organizationId/my-roster', authenticate, getProviderMyRoster);
+router.get('/:organizationId/clients/:clientId/waitlist-note', authenticate, getClientWaitlistNote);
+router.put('/:organizationId/clients/:clientId/waitlist-note', authenticate, upsertClientWaitlistNote);
 router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 router.get('/:organizationId/stats', authenticate, getSchoolPortalStats);
 router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);

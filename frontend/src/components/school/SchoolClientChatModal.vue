@@ -13,7 +13,30 @@
       <div class="status-bar">
         <div class="pill">
           <div class="k">Status</div>
-          <div class="v">{{ formatKey(props.client?.client_status_label || props.client?.status) }}</div>
+          <div class="v">
+            <span
+              v-if="isWaitlist"
+              class="waitlist-badge"
+              role="button"
+              tabindex="0"
+              @mouseenter="onWaitlistHover"
+              @mouseleave="hoveringWaitlist = false"
+              @focus="onWaitlistHover"
+              @click.stop="openWaitlistNote"
+              @keydown.enter.stop.prevent="openWaitlistNote"
+              @keydown.space.stop.prevent="openWaitlistNote"
+              :title="waitlistTitle"
+            >
+              {{ formatKey(props.client?.client_status_label || props.client?.status) }}
+              <div v-if="hoveringWaitlist" class="waitlist-tooltip" role="tooltip">
+                <div class="waitlist-tooltip-title">Waitlist reason</div>
+                <div class="waitlist-tooltip-body">{{ waitlistTooltipBody }}</div>
+              </div>
+            </span>
+            <span v-else>
+              {{ formatKey(props.client?.client_status_label || props.client?.status) }}
+            </span>
+          </div>
         </div>
         <div class="pill">
           <div class="k">Doc status</div>
@@ -97,17 +120,67 @@
       </div>
     </div>
   </div>
+
+  <WaitlistNoteModal
+    v-if="showWaitlistModal"
+    :org-key="String(props.schoolOrganizationId || '')"
+    :client="props.client"
+    @close="showWaitlistModal = false"
+  />
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import WaitlistNoteModal from './WaitlistNoteModal.vue';
 
 const props = defineProps({
   client: { type: Object, required: true },
   schoolOrganizationId: { type: Number, default: null }
 });
 defineEmits(['close']);
+
+const isWaitlist = computed(() => String(props.client?.client_status_key || '').toLowerCase() === 'waitlist');
+const showWaitlistModal = ref(false);
+const hoveringWaitlist = ref(false);
+const waitlistLoading = ref(false);
+const waitlistNote = ref(''); // singleton shared note message
+
+const waitlistTitle = computed(() => (isWaitlist.value ? 'Click to view/edit waitlist note' : ''));
+const waitlistTooltipBody = computed(() => {
+  if (!hoveringWaitlist.value) return '';
+  if (waitlistLoading.value) return 'Loading…';
+  return waitlistNote.value || '(no note yet)';
+});
+
+const loadWaitlistNote = async () => {
+  try {
+    if (!isWaitlist.value) return;
+    const orgId = Number(props.schoolOrganizationId || 0);
+    const clientId = Number(props.client?.id || 0);
+    if (!orgId || !clientId) return;
+    waitlistLoading.value = true;
+    const r = await api.get(`/school-portal/${encodeURIComponent(String(orgId))}/clients/${clientId}/waitlist-note`);
+    waitlistNote.value = String(r.data?.note?.message || '').trim();
+  } catch {
+    // best-effort; tooltip should not block UI
+    waitlistNote.value = '';
+  } finally {
+    waitlistLoading.value = false;
+  }
+};
+
+const onWaitlistHover = () => {
+  if (!isWaitlist.value) return;
+  hoveringWaitlist.value = true;
+  if (!waitlistNote.value && !waitlistLoading.value) loadWaitlistNote();
+};
+
+const openWaitlistNote = () => {
+  if (!isWaitlist.value) return;
+  if (!props.schoolOrganizationId) return;
+  showWaitlistModal.value = true;
+};
 
 const normalizeDocStatusLabel = (c) => {
   const key = String(c?.paperwork_status_key || '').toLowerCase();
@@ -229,6 +302,16 @@ const formatKey = (v) => {
 };
 
 onMounted(load);
+
+watch(
+  () => [props.client?.id, props.client?.client_status_key],
+  () => {
+    showWaitlistModal.value = false;
+    hoveringWaitlist.value = false;
+    waitlistLoading.value = false;
+    waitlistNote.value = '';
+  }
+);
 </script>
 
 <style scoped>
@@ -319,6 +402,42 @@ onMounted(load);
   margin-top: 2px;
   font-weight: 800;
   color: var(--text-primary);
+}
+
+.waitlist-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.waitlist-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 280px;
+  max-width: 60vw;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-primary);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+}
+
+.waitlist-tooltip-title {
+  font-weight: 900;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.waitlist-tooltip-body {
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: pre-wrap;
 }
 .body { padding: 16px; display: grid; grid-template-columns: 1fr; gap: 12px; }
 .messages {
