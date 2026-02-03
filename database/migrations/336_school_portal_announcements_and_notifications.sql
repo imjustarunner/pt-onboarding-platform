@@ -24,20 +24,24 @@ CREATE TABLE IF NOT EXISTS school_portal_announcements (
 -- 2) Per-user unread progress for School Portal notifications
 -- JSON map: { "<orgId>": "<lastSeenISO>" }
 ALTER TABLE user_preferences
-  ADD COLUMN school_portal_notifications_progress JSON NULL AFTER tutorial_progress;
+  ADD COLUMN IF NOT EXISTS school_portal_notifications_progress JSON NULL AFTER tutorial_progress;
 
 -- 3) School Portal Announcements card icon fields (platform defaults + agency overrides)
 ALTER TABLE platform_branding
-  ADD COLUMN school_portal_announcements_icon_id INT NULL;
+  ADD COLUMN IF NOT EXISTS school_portal_announcements_icon_id INT NULL;
 
-ALTER TABLE platform_branding
-  ADD CONSTRAINT fk_platform_school_portal_announcements_icon
-    FOREIGN KEY (school_portal_announcements_icon_id) REFERENCES icons(id) ON DELETE SET NULL;
+-- NOTE: Do not add a foreign key constraint on platform_branding here.
+-- Some production databases have already reached MySQL's 64-key limit on this table,
+-- and adding a FK would fail with ER_TOO_MANY_KEYS (1069). The application treats this
+-- as an optional reference, so we keep it as a plain nullable INT.
 
 ALTER TABLE agencies
-  ADD COLUMN school_portal_announcements_icon_id INT NULL;
+  ADD COLUMN IF NOT EXISTS school_portal_announcements_icon_id INT NULL;
 
 ALTER TABLE agencies
   ADD CONSTRAINT fk_agency_school_portal_announcements_icon
     FOREIGN KEY (school_portal_announcements_icon_id) REFERENCES icons(id) ON DELETE SET NULL;
+
+-- NOTE: if this FK fails due to key limits in a particular DB, remove it and rely on the nullable INT
+-- (the app tolerates missing FKs). Kept here because agencies typically has far fewer keys than platform_branding.
 
