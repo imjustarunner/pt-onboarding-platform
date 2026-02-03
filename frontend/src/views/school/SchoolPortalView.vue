@@ -626,6 +626,7 @@
             <SchoolNotificationsPanel
               v-if="organizationId"
               :school-organization-id="organizationId"
+              :client-label-mode="clientLabelMode"
               @close="portalMode = 'home'"
               @updated="loadNotificationsPreview"
             />
@@ -924,7 +925,22 @@ const loadNotificationsPreview = async () => {
 
     notificationsUnreadCount.value = unread.length;
     const newest = feed?.[0] || null;
-    const newestMsg = String(newest?.message || '').trim();
+    const formatClientLabel = (it) => {
+      const code = String(it?.client_identifier_code || '').trim();
+      const initials = String(it?.client_initials || '').trim();
+      if (clientLabelMode.value === 'initials') return initials || code || '';
+      return code || initials || '';
+    };
+    const formatNotificationMessage = (it) => {
+      const raw = String(it?.message || '').trim();
+      if (String(it?.kind || '').toLowerCase() !== 'client_event') return raw;
+      const label = formatClientLabel(it);
+      if (!label) return raw;
+      const idx = raw.indexOf(':');
+      const suffix = idx >= 0 ? raw.slice(idx + 1).trim() : raw;
+      return suffix ? `${label}: ${suffix}` : label;
+    };
+    const newestMsg = formatNotificationMessage(newest);
     notificationsNewestSnippet.value = newestMsg ? (newestMsg.length > 90 ? `${newestMsg.slice(0, 90)}…` : newestMsg) : '';
   } catch {
     notificationsUnreadCount.value = 0;

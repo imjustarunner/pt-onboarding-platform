@@ -70,7 +70,7 @@
             <span v-if="it.actor_name">• {{ it.actor_name }}</span>
           </div>
         </div>
-        <div class="item-msg">{{ it.message }}</div>
+        <div class="item-msg">{{ formatMessage(it) }}</div>
       </div>
     </div>
   </div>
@@ -82,7 +82,8 @@ import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
 
 const props = defineProps({
-  schoolOrganizationId: { type: Number, required: true }
+  schoolOrganizationId: { type: Number, required: true },
+  clientLabelMode: { type: String, default: 'codes' } // 'codes' | 'initials'
 });
 
 const emit = defineEmits(['close', 'updated']);
@@ -185,6 +186,23 @@ const isUnread = (it) => {
 };
 
 const unreadCount = computed(() => (items.value || []).filter(isUnread).length);
+
+const formatClientLabel = (it) => {
+  const code = String(it?.client_identifier_code || '').trim();
+  const initials = String(it?.client_initials || '').trim();
+  if (props.clientLabelMode === 'initials') return initials || code || '';
+  return code || initials || '';
+};
+
+const formatMessage = (it) => {
+  const raw = String(it?.message || '').trim();
+  if (String(it?.kind || '').toLowerCase() !== 'client_event') return raw;
+  const label = formatClientLabel(it);
+  if (!label) return raw;
+  const idx = raw.indexOf(':');
+  const suffix = idx >= 0 ? raw.slice(idx + 1).trim() : raw;
+  return suffix ? `${label}: ${suffix}` : label;
+};
 
 const formatWhen = (ts) => {
   try {
