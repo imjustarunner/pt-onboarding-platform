@@ -268,6 +268,18 @@
         <div class="home-snapshot" data-tour="school-home-snapshot">
           <div class="home-snapshot-title">At a glance</div>
           <div class="home-snapshot-grid">
+            <button class="home-pill home-pill-clickable home-pill-notifications" type="button" @click="openNotificationsPanel">
+              <div class="home-pill-k">
+                <span v-if="notificationsUnreadCount > 0" class="home-pill-badge" :class="{ pulse: notificationsUnreadCount > 0 }">
+                  {{ notificationsUnreadCount }}
+                </span>
+                <span v-else class="home-pill-k-text">Notifications</span>
+              </div>
+              <div class="home-pill-v home-pill-v-notifications">
+                <span v-if="notificationsNewestSnippet">{{ notificationsNewestSnippet }}</span>
+                <span v-else>School-wide announcements + client updates</span>
+              </div>
+            </button>
             <button class="home-pill home-pill-clickable" type="button" @click="openDaysPanel">
               <div class="home-pill-k">{{ atGlance.days }}</div>
               <div class="home-pill-v">Days supported</div>
@@ -1680,10 +1692,49 @@ watch(() => store.selectedWeekday, async (weekday) => {
   color: var(--text-primary);
   font-size: 13px;
 }
+.home-pill-k-text {
+  font-weight: 1000;
+}
 .home-pill-v {
   margin-top: 0;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.home-pill-notifications {
+  border-color: rgba(47, 143, 131, 0.45);
+  background: rgba(47, 143, 131, 0.08);
+  align-items: center;
+  gap: 12px;
+  min-width: 320px;
+  max-width: 680px;
+}
+.home-pill-v-notifications {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 520px;
+}
+.home-pill-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(47, 143, 131, 0.16);
+  color: #0f3f39;
+  font-weight: 1000;
+  border: 1px solid rgba(47, 143, 131, 0.35);
+}
+.home-pill-badge.pulse {
+  animation: homePillPulse 1.35s ease-in-out infinite;
+}
+@keyframes homePillPulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 rgba(47, 143, 131, 0.0); }
+  55% { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(47, 143, 131, 0.12); }
+  100% { transform: scale(1); box-shadow: 0 0 0 rgba(47, 143, 131, 0.0); }
 }
 
 .dashboard-card-grid {
