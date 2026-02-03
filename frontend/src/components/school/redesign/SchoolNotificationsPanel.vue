@@ -48,9 +48,6 @@
       >
         {{ createOpen ? 'Hide create' : 'Create announcement' }}
       </button>
-      <div v-else class="muted-small">
-        Only admins/staff can post banner announcements.
-      </div>
       <button class="btn btn-secondary btn-sm" type="button" @click="refresh" :disabled="loading">
         {{ loading ? 'Refreshing…' : 'Refresh' }}
       </button>
@@ -93,7 +90,8 @@ const emit = defineEmits(['close', 'updated']);
 
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
-const canCreateAnnouncements = computed(() => ['super_admin', 'admin', 'staff'].includes(roleNorm.value));
+// Anyone with access to the school portal may post a school-wide banner announcement.
+const canCreateAnnouncements = computed(() => !!authStore.user?.id);
 
 const loading = ref(false);
 const error = ref('');

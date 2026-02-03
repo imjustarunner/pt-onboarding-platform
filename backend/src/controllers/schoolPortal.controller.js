@@ -1405,9 +1405,6 @@ export const createSchoolPortalAnnouncement = async (req, res, next) => {
     const roleNorm = String(req.user?.role || '').toLowerCase();
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
-    const canCreate = roleNorm === 'super_admin' || roleNorm === 'admin' || roleNorm === 'staff';
-    if (!canCreate) return res.status(403).json({ error: { message: 'Only admin/staff can create announcements' } });
-
     if (roleNorm !== 'super_admin') {
       const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
