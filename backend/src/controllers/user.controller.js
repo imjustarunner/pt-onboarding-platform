@@ -1728,6 +1728,68 @@ export const updateUser = async (req, res, next) => {
   }
 };
 
+export const requireSkillBuilderConfirmNextLogin = async (req, res, next) => {
+  try {
+    const targetUserId = parseInt(req.params.id, 10);
+    if (!targetUserId) return res.status(400).json({ error: { message: 'Invalid user id' } });
+
+    const actorUserId = Number(req.user?.id || 0);
+    if (!actorUserId) return res.status(401).json({ error: { message: 'Unauthorized' } });
+
+    const actorRole = String(req.user?.role || '').toLowerCase();
+
+    // Access control:
+    // - super_admin can force confirm for any user
+    // - admin can force confirm for users in shared agencies
+    // - skill builder coordinators can force confirm for users in shared agencies
+    let isCoordinator = false;
+    if (!isAdminOrSuperAdmin(req) && actorRole !== 'super_admin') {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT has_skill_builder_coordinator_access
+           FROM users
+           WHERE id = ?
+           LIMIT 1`,
+          [actorUserId]
+        );
+        const v = rows?.[0]?.has_skill_builder_coordinator_access;
+        isCoordinator = v === 1 || v === true || v === '1';
+      } catch (e) {
+        // If older DB does not have the column yet, treat as not a coordinator.
+        if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+        isCoordinator = false;
+      }
+    }
+
+    if (!(actorRole === 'super_admin' || isAdminOrSuperAdmin(req) || isCoordinator)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const sharedOk = await requireSharedAgencyAccessOrSuperAdmin({
+      actorUserId,
+      targetUserId,
+      actorRole
+    });
+    if (!sharedOk) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const targetUser = await User.findById(targetUserId);
+    if (!targetUser) return res.status(404).json({ error: { message: 'User not found' } });
+
+    const eligible =
+      targetUser?.skill_builder_eligible === true ||
+      targetUser?.skill_builder_eligible === 1 ||
+      targetUser?.skill_builder_eligible === '1';
+    if (!eligible) {
+      return res.status(400).json({ error: { message: 'User is not Skill Builder eligible' } });
+    }
+
+    const user = await User.update(targetUserId, { skillBuilderConfirmRequiredNextLogin: true });
+    res.json({ ok: true, user });
+  } catch (e) {
+    next(e);
+  }
+};
+
 function startOfWeekMondayYmd(dateStr) {
   const d = new Date(`${String(dateStr || '').slice(0, 10)}T00:00:00`);
   if (Number.isNaN(d.getTime())) return null;

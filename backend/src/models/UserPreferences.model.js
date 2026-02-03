@@ -48,7 +48,8 @@ class UserPreferences {
           'show_read_receipts', 'allow_staff_step_in', 'staff_step_in_after_minutes',
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
           'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page',
-          'tutorial_progress'
+          'tutorial_progress',
+          'school_portal_notifications_progress'
         ];
 
         for (const field of allowedFields) {
@@ -61,7 +62,8 @@ class UserPreferences {
               field === 'scheduling_preferences' ||
               field === 'schedule_color_overrides' ||
               field === 'dashboard_notification_org_types' ||
-              field === 'tutorial_progress'
+              field === 'tutorial_progress' ||
+              field === 'school_portal_notifications_progress'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {
@@ -100,7 +102,8 @@ class UserPreferences {
           'show_read_receipts', 'allow_staff_step_in', 'staff_step_in_after_minutes',
           'show_full_name_on_schedules', 'show_initials_only_on_boards', 'allow_name_in_pdfs',
           'reduced_motion', 'high_contrast_mode', 'larger_text', 'default_landing_page',
-          'tutorial_progress'
+          'tutorial_progress',
+          'school_portal_notifications_progress'
         ];
 
         for (const field of allowedFields) {
@@ -114,7 +117,8 @@ class UserPreferences {
               field === 'scheduling_preferences' ||
               field === 'schedule_color_overrides' ||
               field === 'dashboard_notification_org_types' ||
-              field === 'tutorial_progress'
+              field === 'tutorial_progress' ||
+              field === 'school_portal_notifications_progress'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {

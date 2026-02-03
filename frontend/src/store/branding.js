@@ -787,7 +787,8 @@ export const useBrandingStore = defineStore('branding', () => {
       parent_qr: 'school_portal_parent_qr_icon_path',
       parent_sign: 'school_portal_parent_sign_icon_path',
       upload_packet: 'school_portal_upload_packet_icon_path',
-      public_documents: 'school_portal_public_documents_icon_path'
+      public_documents: 'school_portal_public_documents_icon_path',
+      announcements: 'school_portal_announcements_icon_path'
     };
     const field = iconFieldMap[cardId];
     if (!field) return null;

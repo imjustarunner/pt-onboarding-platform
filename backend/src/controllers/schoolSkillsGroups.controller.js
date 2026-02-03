@@ -210,13 +210,21 @@ export const createSkillsGroup = async (req, res, next) => {
     if (!canManageSkillsGroups(req)) return res.status(403).json({ error: { message: 'Admin access required' } });
 
     const name = String(req.body?.name || '').trim();
-    const startDate = parseYmd(req.body?.start_date);
-    const endDate = parseYmd(req.body?.end_date);
+    const rawStart = req.body?.start_date;
+    const rawEnd = req.body?.end_date;
+    const startStr = String(rawStart || '').trim();
+    const endStr = String(rawEnd || '').trim();
+    const startDate = startStr ? parseYmd(startStr) : null;
+    const endDate = endStr ? parseYmd(endStr) : null;
     const meetings = Array.isArray(req.body?.meetings) ? req.body.meetings : [];
-    if (!name || !startDate || !endDate) {
-      return res.status(400).json({ error: { message: 'name, start_date, and end_date are required' } });
+    if (!name) return res.status(400).json({ error: { message: 'name is required' } });
+    if ((startStr && !startDate) || (endStr && !endDate)) {
+      return res.status(400).json({ error: { message: 'Invalid start_date or end_date (expected YYYY-MM-DD)' } });
     }
-    if (!meetings.length) return res.status(400).json({ error: { message: 'At least one meeting is required' } });
+    // Dates are optional, but if either is set, require both.
+    if ((!!startStr && !endStr) || (!startStr && !!endStr)) {
+      return res.status(400).json({ error: { message: 'If you set a start date, an end date is also required (and vice versa)' } });
+    }
 
     const activeAgencyId = access.activeAgencyId;
     if (!activeAgencyId) return res.status(400).json({ error: { message: 'Organization is missing an active affiliated agency' } });
@@ -232,10 +240,16 @@ export const createSkillsGroup = async (req, res, next) => {
       );
       const groupId = result.insertId;
 
+      // Meetings are optional. Ignore fully-blank rows; otherwise require complete meeting.
       for (const raw of meetings) {
-        const weekday = normalizeWeekday(raw?.weekday);
-        const startTime = normalizeTime(raw?.start_time);
-        const endTime = normalizeTime(raw?.end_time);
+        const weekdayRaw = String(raw?.weekday || '').trim();
+        const startRaw = String(raw?.start_time || '').trim();
+        const endRaw = String(raw?.end_time || '').trim();
+        const any = !!weekdayRaw || !!startRaw || !!endRaw;
+        if (!any) continue;
+        const weekday = normalizeWeekday(weekdayRaw);
+        const startTime = normalizeTime(startRaw);
+        const endTime = normalizeTime(endRaw);
         if (!weekday || !startTime || !endTime) {
           await conn.rollback();
           return res.status(400).json({ error: { message: 'Invalid meeting (weekday/start_time/end_time)' } });
@@ -278,13 +292,29 @@ export const updateSkillsGroup = async (req, res, next) => {
     if (!gid) return res.status(400).json({ error: { message: 'Invalid groupId' } });
 
     const name = String(req.body?.name || '').trim();
-    const startDate = parseYmd(req.body?.start_date);
-    const endDate = parseYmd(req.body?.end_date);
-    const meetings = Array.isArray(req.body?.meetings) ? req.body.meetings : [];
-    if (!name || !startDate || !endDate) {
-      return res.status(400).json({ error: { message: 'name, start_date, and end_date are required' } });
+    if (!name) return res.status(400).json({ error: { message: 'name is required' } });
+
+    const rawStart = req.body?.start_date;
+    const rawEnd = req.body?.end_date;
+    const hasStart = rawStart !== undefined;
+    const hasEnd = rawEnd !== undefined;
+    const startStr = hasStart ? String(rawStart || '').trim() : '';
+    const endStr = hasEnd ? String(rawEnd || '').trim() : '';
+    const startDate = hasStart ? (startStr ? parseYmd(startStr) : null) : undefined;
+    const endDate = hasEnd ? (endStr ? parseYmd(endStr) : null) : undefined;
+    if ((startStr && !startDate) || (endStr && !endDate)) {
+      return res.status(400).json({ error: { message: 'Invalid start_date or end_date (expected YYYY-MM-DD)' } });
     }
-    if (!meetings.length) return res.status(400).json({ error: { message: 'At least one meeting is required' } });
+    // Dates are optional, but if either is provided in this request, require both.
+    if ((hasStart && !hasEnd) || (!hasStart && hasEnd)) {
+      return res.status(400).json({ error: { message: 'Provide both start_date and end_date together when updating dates' } });
+    }
+    if (hasStart && hasEnd && ((!!startStr && !endStr) || (!startStr && !!endStr))) {
+      return res.status(400).json({ error: { message: 'If you set a start date, an end date is also required (and vice versa)' } });
+    }
+
+    const hasMeetingsField = req.body?.meetings !== undefined;
+    const meetings = Array.isArray(req.body?.meetings) ? req.body.meetings : [];
 
     const conn = await pool.getConnection();
     try {
@@ -298,29 +328,39 @@ export const updateSkillsGroup = async (req, res, next) => {
         return res.status(404).json({ error: { message: 'Skills group not found' } });
       }
 
-      await conn.execute(
-        `UPDATE skills_groups
-         SET name = ?, start_date = ?, end_date = ?, updated_by_user_id = ?
-         WHERE id = ?`,
-        [name, startDate, endDate, req.user.id, gid]
-      );
+      // Partial updates: dates/meetings optional in School Portal.
+      const updates = ['name = ?', 'updated_by_user_id = ?'];
+      const values = [name, req.user.id];
+      if (hasStart && hasEnd) {
+        updates.push('start_date = ?', 'end_date = ?');
+        values.push(startDate, endDate);
+      }
+      values.push(gid);
+      await conn.execute(`UPDATE skills_groups SET ${updates.join(', ')} WHERE id = ?`, values);
 
-      // Replace meetings for simplicity
-      await conn.execute(`DELETE FROM skills_group_meetings WHERE skills_group_id = ?`, [gid]);
-      for (const raw of meetings) {
-        const weekday = normalizeWeekday(raw?.weekday);
-        const startTime = normalizeTime(raw?.start_time);
-        const endTime = normalizeTime(raw?.end_time);
-        if (!weekday || !startTime || !endTime) {
-          await conn.rollback();
-          return res.status(400).json({ error: { message: 'Invalid meeting (weekday/start_time/end_time)' } });
+      // Replace meetings only when caller includes meetings[].
+      if (hasMeetingsField) {
+        await conn.execute(`DELETE FROM skills_group_meetings WHERE skills_group_id = ?`, [gid]);
+        for (const raw of meetings) {
+          const weekdayRaw = String(raw?.weekday || '').trim();
+          const startRaw = String(raw?.start_time || '').trim();
+          const endRaw = String(raw?.end_time || '').trim();
+          const any = !!weekdayRaw || !!startRaw || !!endRaw;
+          if (!any) continue;
+          const weekday = normalizeWeekday(weekdayRaw);
+          const startTime = normalizeTime(startRaw);
+          const endTime = normalizeTime(endRaw);
+          if (!weekday || !startTime || !endTime) {
+            await conn.rollback();
+            return res.status(400).json({ error: { message: 'Invalid meeting (weekday/start_time/end_time)' } });
+          }
+          // eslint-disable-next-line no-await-in-loop
+          await conn.execute(
+            `INSERT INTO skills_group_meetings (skills_group_id, weekday, start_time, end_time)
+             VALUES (?, ?, ?, ?)`,
+            [gid, weekday, startTime, endTime]
+          );
         }
-        // eslint-disable-next-line no-await-in-loop
-        await conn.execute(
-          `INSERT INTO skills_group_meetings (skills_group_id, weekday, start_time, end_time)
-           VALUES (?, ?, ?, ?)`,
-          [gid, weekday, startTime, endTime]
-        );
       }
 
       await conn.commit();

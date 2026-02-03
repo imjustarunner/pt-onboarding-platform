@@ -110,17 +110,18 @@
         </div>
         <div class="filters-row">
           <div class="filters-group" style="flex:1;">
-            <label class="filters-label">Start date *</label>
+            <label class="filters-label">Start date</label>
             <input v-model="form.start_date" type="date" class="filters-input" />
           </div>
           <div class="filters-group" style="flex:1;">
-            <label class="filters-label">End date *</label>
+            <label class="filters-label">End date</label>
             <input v-model="form.end_date" type="date" class="filters-input" />
           </div>
         </div>
 
         <div class="form-section-divider" style="margin-top: 14px; margin-bottom: 8px;">
-          <h4 style="margin:0;">Meetings *</h4>
+          <h4 style="margin:0;">Meetings</h4>
+          <div class="muted">Optional. You can add meeting day/time later.</div>
         </div>
         <div v-for="(m, idx) in form.meetings" :key="idx" class="filters-row" style="flex-wrap: wrap;">
           <div class="filters-group" style="min-width: 200px; flex: 1;">
@@ -139,7 +140,7 @@
             <input v-model="m.end_time" type="time" class="filters-input" />
           </div>
           <div class="actions" style="align-self:end;">
-            <button class="btn btn-secondary btn-sm" type="button" @click="removeMeeting(idx)" :disabled="form.meetings.length <= 1">
+            <button class="btn btn-secondary btn-sm" type="button" @click="removeMeeting(idx)">
               Remove
             </button>
           </div>
@@ -255,9 +256,9 @@ const clientHoverTitle = (c) => {
 
 const form = ref({
   name: '',
-  start_date: new Date().toISOString().split('T')[0],
-  end_date: new Date().toISOString().split('T')[0],
-  meetings: [{ weekday: 'Saturday', start_time: '09:00', end_time: '10:00' }],
+  start_date: '',
+  end_date: '',
+  meetings: [],
   providers: [],
   clients: []
 });
@@ -268,14 +269,21 @@ const selected = computed(() => {
 
 const isValid = computed(() => {
   if (!String(form.value.name || '').trim()) return false;
-  if (!String(form.value.start_date || '').trim()) return false;
-  if (!String(form.value.end_date || '').trim()) return false;
+
+  const sd = String(form.value.start_date || '').trim();
+  const ed = String(form.value.end_date || '').trim();
+  // In the School Portal we allow groups without dates, but if either side is set, require both.
+  if ((!!sd && !ed) || (!sd && !!ed)) return false;
+
+  // Meetings are optional, but if a row has *any* value, it must be complete.
   const ms = Array.isArray(form.value.meetings) ? form.value.meetings : [];
-  if (!ms.length) return false;
   for (const m of ms) {
-    if (!String(m.weekday || '').trim()) return false;
-    if (!String(m.start_time || '').trim()) return false;
-    if (!String(m.end_time || '').trim()) return false;
+    const wd = String(m.weekday || '').trim();
+    const st = String(m.start_time || '').trim();
+    const et = String(m.end_time || '').trim();
+    const any = !!wd || !!st || !!et;
+    const all = !!wd && !!st && !!et;
+    if (any && !all) return false;
   }
   return true;
 });
@@ -333,9 +341,9 @@ const startCreate = async () => {
   clientPick.value = '';
   form.value = {
     name: '',
-    start_date: new Date().toISOString().split('T')[0],
-    end_date: new Date().toISOString().split('T')[0],
-    meetings: [{ weekday: 'Saturday', start_time: '09:00', end_time: '10:00' }],
+    start_date: '',
+    end_date: '',
+    meetings: [],
     providers: [],
     clients: []
   };
@@ -356,7 +364,6 @@ const startEdit = async (g) => {
     providers: (g.providers || []).map((p) => ({ ...p })),
     clients: (g.clients || []).map((c) => ({ ...c }))
   };
-  if (form.value.meetings.length === 0) form.value.meetings = [{ weekday: 'Saturday', start_time: '09:00', end_time: '10:00' }];
   await loadEligible();
   modalOpen.value = true;
 };
@@ -366,11 +373,10 @@ const closeModal = () => {
 };
 
 const addMeeting = () => {
-  form.value.meetings.push({ weekday: 'Saturday', start_time: '09:00', end_time: '10:00' });
+  form.value.meetings.push({ weekday: '', start_time: '', end_time: '' });
 };
 
 const removeMeeting = (idx) => {
-  if (form.value.meetings.length <= 1) return;
   form.value.meetings.splice(idx, 1);
 };
 
@@ -408,15 +414,19 @@ const saveGroup = async () => {
   try {
     saving.value = true;
     modalError.value = '';
+    const cleanedMeetings = (form.value.meetings || [])
+      .map((m) => ({
+        weekday: String(m.weekday || '').trim(),
+        start_time: String(m.start_time || '').trim(),
+        end_time: String(m.end_time || '').trim()
+      }))
+      .filter((m) => m.weekday && m.start_time && m.end_time);
+
     const payload = {
       name: String(form.value.name || '').trim(),
-      start_date: form.value.start_date,
-      end_date: form.value.end_date,
-      meetings: (form.value.meetings || []).map((m) => ({
-        weekday: m.weekday,
-        start_time: m.start_time,
-        end_time: m.end_time
-      }))
+      start_date: String(form.value.start_date || '').trim() || null,
+      end_date: String(form.value.end_date || '').trim() || null,
+      meetings: cleanedMeetings
     };
     let resp;
     if (editingGroupId.value) {

@@ -53,6 +53,7 @@ const buildDefaultPreferences = (userRole) => {
     larger_text: false,
     default_landing_page: 'dashboard',
     tutorial_progress: null,
+    school_portal_notifications_progress: null,
 
     // Dashboard preferences
     dashboard_notification_org_types: ['agency']

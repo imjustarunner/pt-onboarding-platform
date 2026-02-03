@@ -1117,3 +1117,352 @@ export const upsertClientWaitlistNote = async (req, res, next) => {
     next(e);
   }
 };
+
+/**
+ * List shared client comments (non-ticket notes) for School Portal.
+ * GET /api/school-portal/:organizationId/clients/:clientId/comments
+ */
+export const listClientComments = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!orgId || !clientId) return res.status(400).json({ error: { message: 'Invalid organizationId or clientId' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const inOrg = await clientBelongsToOrg({ clientId, orgId });
+    if (!inOrg) return res.status(404).json({ error: { message: 'Client not found in this organization' } });
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    // Providers may only view comments for clients assigned to them in this org.
+    if (roleNorm === 'provider') {
+      const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    // Shared notes only (internal notes are filtered by the model when canViewInternalNotes=false).
+    const notes = await ClientNotes.findByClientId(clientId, { hasAgencyAccess: false, canViewInternalNotes: false });
+    const out = (notes || [])
+      .filter((n) => String(n?.category || '').toLowerCase() === 'comment')
+      .slice(0, 200)
+      .map((n) => ({
+        id: n.id,
+        created_at: n.created_at || null,
+        message: n.message || '',
+        author_id: n.author_id || null,
+        author_name: n.author_name || null
+      }));
+
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Create a shared client comment (non-ticket note) for School Portal.
+ * POST /api/school-portal/:organizationId/clients/:clientId/comments
+ * body: { message }
+ */
+export const createClientComment = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!orgId || !clientId) return res.status(400).json({ error: { message: 'Invalid organizationId or clientId' } });
+
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
+    if (message.length > 500) return res.status(400).json({ error: { message: 'Comment is too long (max 500 characters)' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const inOrg = await clientBelongsToOrg({ clientId, orgId });
+    if (!inOrg) return res.status(404).json({ error: { message: 'Client not found in this organization' } });
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    // Providers may only comment for clients assigned to them in this org.
+    if (roleNorm === 'provider') {
+      const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
+      if (!assigned) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const saved = await ClientNotes.create(
+      { client_id: clientId, author_id: userId, message, is_internal_only: false, category: 'comment', urgency: 'low' },
+      { hasAgencyAccess: false, canViewInternalNotes: false }
+    );
+
+    res.status(201).json({
+      comment: saved
+        ? {
+            id: saved.id,
+            created_at: saved.created_at || null,
+            message: saved.message || '',
+            author_id: saved.author_id || null,
+            author_name: saved.author_name || null
+          }
+        : null
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Combined school portal notifications feed (client events + manual announcements).
+ * GET /api/school-portal/:organizationId/notifications/feed
+ */
+export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    // Manual announcements (all, newest-first)
+    let announcements = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           a.id,
+           a.organization_id,
+           a.title,
+           a.message,
+           a.starts_at,
+           a.ends_at,
+           a.created_at,
+           u.first_name,
+           u.last_name
+         FROM school_portal_announcements a
+         LEFT JOIN users u ON u.id = a.created_by_user_id
+         WHERE a.organization_id = ?
+         ORDER BY a.created_at DESC, a.id DESC
+         LIMIT 200`,
+        [orgId]
+      );
+      announcements = (rows || []).map((r) => ({
+        id: `announcement:${r.id}`,
+        kind: 'announcement',
+        created_at: r.created_at,
+        starts_at: r.starts_at,
+        ends_at: r.ends_at,
+        title: r.title || 'Announcement',
+        message: r.message || '',
+        actor_name: [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim() || null
+      }));
+    } catch (e) {
+      // table may not exist yet; ignore
+      announcements = [];
+    }
+
+    // Client events from client_status_history (scoped to clients affiliated with this org)
+    let events = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           h.id,
+           h.client_id,
+           h.field_changed,
+           h.from_value,
+           h.to_value,
+           h.note,
+           h.changed_at,
+           c.initials,
+           c.identifier_code,
+           u.first_name AS actor_first_name,
+           u.last_name AS actor_last_name
+         FROM client_status_history h
+         JOIN client_organization_assignments coa
+           ON coa.client_id = h.client_id
+          AND coa.organization_id = ?
+          AND coa.is_active = TRUE
+         JOIN clients c ON c.id = h.client_id
+         LEFT JOIN users u ON u.id = h.changed_by_user_id
+         WHERE 1=1
+         ORDER BY h.changed_at DESC, h.id DESC
+         LIMIT 400`,
+        [orgId]
+      );
+      events = (rows || []).map((r) => {
+        const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
+        const clientLabel = String(r.identifier_code || r.initials || '—');
+        const field = String(r.field_changed || '').trim();
+        const title =
+          field === 'client_status_id' || field === 'status'
+            ? 'Client status updated'
+            : field === 'provider_id' || field === 'provider_user_id'
+              ? 'Client assignment updated'
+              : 'Client updated';
+
+        // Avoid exposing raw ids where possible; keep message generic + short.
+        let msg = `${clientLabel}: ${field || 'updated'}`;
+        if (field === 'client_status_id' || field === 'status') msg = `${clientLabel}: status updated`;
+        if (field === 'provider_id' || field === 'provider_user_id') msg = `${clientLabel}: provider assignment updated`;
+        if (field === 'service_day') msg = `${clientLabel}: assigned day updated`;
+        if (field === 'submission_date') msg = `${clientLabel}: submission date updated`;
+        if (field === 'doc_date') msg = `${clientLabel}: document date updated`;
+
+        return {
+          id: `client_event:${r.id}`,
+          kind: 'client_event',
+          created_at: r.changed_at,
+          title,
+          message: msg,
+          actor_name: actor || null,
+          client_id: Number(r.client_id),
+          client_initials: r.initials || null,
+          client_identifier_code: r.identifier_code || null
+        };
+      });
+    } catch (e) {
+      events = [];
+    }
+
+    const combined = [...announcements, ...events].sort((a, b) => {
+      const at = new Date(a.created_at || 0).getTime();
+      const bt = new Date(b.created_at || 0).getTime();
+      if (at !== bt) return bt - at;
+      return String(b.id).localeCompare(String(a.id));
+    });
+
+    res.json(combined.slice(0, 500));
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Active banner announcements (scrolling banner).
+ * GET /api/school-portal/:organizationId/announcements/banner
+ */
+export const listSchoolPortalBannerAnnouncements = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT id, title, message, starts_at, ends_at, created_at
+       FROM school_portal_announcements
+       WHERE organization_id = ?
+         AND NOW() >= starts_at
+         AND NOW() <= ends_at
+       ORDER BY starts_at ASC, id DESC
+       LIMIT 20`,
+      [orgId]
+    );
+    const out = (rows || []).map((r) => ({
+      id: r.id,
+      title: r.title || 'Announcement',
+      message: r.message || '',
+      starts_at: r.starts_at,
+      ends_at: r.ends_at,
+      created_at: r.created_at
+    }));
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Create a scheduled, time-limited banner announcement for this school portal.
+ * POST /api/school-portal/:organizationId/announcements
+ * body: { title?, message, starts_at, ends_at }
+ */
+export const createSchoolPortalAnnouncement = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    const canCreate = roleNorm === 'super_admin' || roleNorm === 'admin' || roleNorm === 'staff';
+    if (!canCreate) return res.status(403).json({ error: { message: 'Only admin/staff can create announcements' } });
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const titleRaw = req.body?.title;
+    const title = titleRaw === null || titleRaw === undefined ? null : String(titleRaw || '').trim().slice(0, 255) || null;
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: { message: 'Message is required' } });
+    if (message.length > 1200) return res.status(400).json({ error: { message: 'Message is too long (max 1200 characters)' } });
+
+    const startsAtRaw = req.body?.starts_at || req.body?.startsAt;
+    const endsAtRaw = req.body?.ends_at || req.body?.endsAt;
+    if (!startsAtRaw || !endsAtRaw) return res.status(400).json({ error: { message: 'starts_at and ends_at are required' } });
+
+    const startsAt = new Date(startsAtRaw);
+    const endsAt = new Date(endsAtRaw);
+    if (!Number.isFinite(startsAt.getTime()) || !Number.isFinite(endsAt.getTime())) {
+      return res.status(400).json({ error: { message: 'Invalid starts_at or ends_at' } });
+    }
+    if (endsAt.getTime() <= startsAt.getTime()) {
+      return res.status(400).json({ error: { message: 'ends_at must be after starts_at' } });
+    }
+
+    const MS_DAY = 24 * 60 * 60 * 1000;
+    const durationDays = (endsAt.getTime() - startsAt.getTime()) / MS_DAY;
+    if (durationDays > 14.0001) {
+      return res.status(400).json({ error: { message: 'Announcements must be time-limited to 2 weeks maximum' } });
+    }
+
+    const maxStart = Date.now() + 364 * MS_DAY;
+    if (startsAt.getTime() > maxStart) {
+      return res.status(400).json({ error: { message: 'Announcements can only be scheduled up to 364 days out' } });
+    }
+
+    const [result] = await pool.execute(
+      `INSERT INTO school_portal_announcements
+       (organization_id, created_by_user_id, title, message, starts_at, ends_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [orgId, userId, title, message, startsAt, endsAt]
+    );
+
+    const id = result?.insertId ? Number(result.insertId) : null;
+    res.status(201).json({
+      announcement: {
+        id,
+        organization_id: orgId,
+        title,
+        message,
+        starts_at: startsAt,
+        ends_at: endsAt,
+        created_by_user_id: userId
+      }
+    });
+  } catch (e) {
+    next(e);
+  }
+};

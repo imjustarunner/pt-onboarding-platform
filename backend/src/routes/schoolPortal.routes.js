@@ -8,7 +8,12 @@ import {
   removeSchoolStaff,
   listSchoolPortalFaq,
   getClientWaitlistNote,
-  upsertClientWaitlistNote
+  upsertClientWaitlistNote,
+  listClientComments,
+  createClientComment,
+  listSchoolPortalNotificationsFeed,
+  listSchoolPortalBannerAnnouncements,
+  createSchoolPortalAnnouncement
 } from '../controllers/schoolPortal.controller.js';
 import {
   listSchoolProvidersForScheduling,
@@ -60,6 +65,11 @@ router.get('/:organizationId/clients', authenticate, getSchoolClients);
 router.get('/:organizationId/my-roster', authenticate, getProviderMyRoster);
 router.get('/:organizationId/clients/:clientId/waitlist-note', authenticate, getClientWaitlistNote);
 router.put('/:organizationId/clients/:clientId/waitlist-note', authenticate, upsertClientWaitlistNote);
+router.get('/:organizationId/clients/:clientId/comments', authenticate, listClientComments);
+router.post('/:organizationId/clients/:clientId/comments', authenticate, createClientComment);
+router.get('/:organizationId/notifications/feed', authenticate, listSchoolPortalNotificationsFeed);
+router.get('/:organizationId/announcements/banner', authenticate, listSchoolPortalBannerAnnouncements);
+router.post('/:organizationId/announcements', authenticate, createSchoolPortalAnnouncement);
 router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 router.get('/:organizationId/stats', authenticate, getSchoolPortalStats);
 router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);

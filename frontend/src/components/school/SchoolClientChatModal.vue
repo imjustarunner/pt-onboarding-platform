@@ -80,42 +80,61 @@
           <div v-if="checklistAudit" class="checklist-audit">{{ checklistAudit }}</div>
         </div>
 
-        <div class="messages">
-          <div v-if="notes.length === 0" class="empty">No messages yet.</div>
-          <div v-for="n in notes" :key="n.id" class="msg">
-            <div class="meta">
-              <span class="author">{{ n.author_name || 'Unknown' }}</span>
-              <span class="date">{{ formatDateTime(n.created_at) }}</span>
-              <span v-if="n.category" class="category">{{ formatCategory(n.category) }}</span>
-              <span v-if="n.urgency" class="category">{{ formatUrgency(n.urgency) }}</span>
+        <div class="tabs">
+          <button type="button" class="tab" :class="{ active: activeTab === 'comments' }" @click="activeTab = 'comments'">
+            Comments
+          </button>
+          <button type="button" class="tab" :class="{ active: activeTab === 'messages' }" @click="activeTab = 'messages'">
+            Messages
+          </button>
+        </div>
+
+        <div v-if="activeTab === 'comments'" class="tab-body">
+          <div v-if="isSchoolStaff" class="comment-guidance">
+            <strong>If you have a question about the client, please send us a message.</strong>
+            Comments are meant to inform everyone of any info (non clinical and no PHI) that may be beneficial for all parties to be aware (e.g., the client is on vacation).
+          </div>
+
+          <div class="comments">
+            <div v-if="comments.length === 0" class="empty">No comments yet.</div>
+            <table v-else class="comments-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Note</th>
+                  <th>Author</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in comments" :key="c.id">
+                  <td class="mono">{{ formatDateTime(c.created_at) }}</td>
+                  <td class="note">{{ c.message }}</td>
+                  <td>{{ c.author_name || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="comment-composer">
+            <textarea v-model="commentDraft" rows="3" placeholder="Add a brief comment (no PHI)..." />
+            <div class="comment-actions">
+              <button class="btn btn-primary" type="button" @click="sendComment" :disabled="commentSending || !commentDraft.trim()">
+                {{ commentSending ? 'Saving…' : 'Save comment' }}
+              </button>
+              <div v-if="commentError" class="error">{{ commentError }}</div>
             </div>
-            <div class="text">{{ n.message }}</div>
           </div>
         </div>
 
-        <div class="composer">
-          <div class="row">
-            <label>
-              Category
-              <select v-model="category">
-                <option v-for="c in categoryOptions" :key="c.key" :value="c.key">
-                  {{ c.label }}
-                </option>
-              </select>
-            </label>
-            <label style="margin-left: 12px;">
-              Urgency
-              <select v-model="urgency">
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </label>
+        <div v-else class="tab-body">
+          <div class="message-guidance">
+            Messages are for questions/inquiries and are tracked as tickets (no PHI).
           </div>
-          <textarea v-model="message" rows="4" placeholder="Enter your message (initials only)..." />
-          <button class="btn btn-primary" @click="send" :disabled="sending || !message.trim()">
-            {{ sending ? 'Sending…' : 'Send' }}
-          </button>
+          <ClientTicketThreadPanel
+            v-if="props.schoolOrganizationId"
+            :client="props.client"
+            :school-organization-id="props.schoolOrganizationId"
+          />
         </div>
       </div>
     </div>
@@ -133,12 +152,18 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import WaitlistNoteModal from './WaitlistNoteModal.vue';
+import ClientTicketThreadPanel from './ClientTicketThreadPanel.vue';
+import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   client: { type: Object, required: true },
   schoolOrganizationId: { type: Number, default: null }
 });
 defineEmits(['close']);
+
+const authStore = useAuthStore();
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
 
 const isWaitlist = computed(() => String(props.client?.client_status_key || '').toLowerCase() === 'waitlist');
 const showWaitlistModal = ref(false);
@@ -191,43 +216,32 @@ const normalizeDocStatusLabel = (c) => {
 };
 
 const loading = ref(false);
-const sending = ref(false);
 const error = ref('');
-const notes = ref([]);
 const checklist = ref(null);
 const checklistAudit = ref('');
 
-const message = ref('');
-const category = ref('general');
-const urgency = ref('low');
-const categoryOptions = ref([
-  { key: 'general', label: 'General' },
-  { key: 'behavior', label: 'Behavior' },
-  { key: 'logistics', label: 'Logistics' },
-  { key: 'medical', label: 'Medical' }
-]);
+const activeTab = ref('comments'); // 'comments' | 'messages'
+
+const comments = ref([]);
+const commentDraft = ref('');
+const commentSending = ref(false);
+const commentError = ref('');
 
 const load = async () => {
   try {
     loading.value = true;
     error.value = '';
-    // Load category options from school settings (best-effort)
+    // Comments (non-ticket notes) from school portal endpoint.
     if (props.schoolOrganizationId) {
       try {
-        const cr = await api.get(`/school-settings/${props.schoolOrganizationId}/comment-categories`);
-        if (Array.isArray(cr.data?.categories) && cr.data.categories.length) {
-          categoryOptions.value = cr.data.categories;
-          // If current category is not in options, reset.
-          const keys = new Set(cr.data.categories.map((c) => c.key));
-          if (!keys.has(category.value)) category.value = 'general';
-        }
+        const r = await api.get(`/school-portal/${props.schoolOrganizationId}/clients/${props.client.id}/comments`);
+        comments.value = Array.isArray(r.data) ? r.data : [];
       } catch {
-        // ignore
+        comments.value = [];
       }
+    } else {
+      comments.value = [];
     }
-    const resp = await api.get(`/clients/${props.client.id}/notes`);
-    // School users only ever see shared notes (backend filters).
-    notes.value = (resp.data || []).filter((n) => !n.is_internal_only);
 
     // Compliance checklist (read-only for school staff)
     try {
@@ -258,41 +272,26 @@ const load = async () => {
   }
 };
 
-const send = async () => {
+const sendComment = async () => {
   try {
-    sending.value = true;
-    error.value = '';
-    await api.post(`/clients/${props.client.id}/notes`, {
-      message: message.value.trim(),
-      is_internal_only: false,
-      category: category.value,
-      urgency: urgency.value
+    if (!props.schoolOrganizationId) return;
+    const body = String(commentDraft.value || '').trim();
+    if (!body) return;
+    commentSending.value = true;
+    commentError.value = '';
+    await api.post(`/school-portal/${props.schoolOrganizationId}/clients/${props.client.id}/comments`, {
+      message: body
     });
-    message.value = '';
-    category.value = 'general';
-    urgency.value = 'low';
+    commentDraft.value = '';
     await load();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to send message';
+    commentError.value = e.response?.data?.error?.message || 'Failed to save comment';
   } finally {
-    sending.value = false;
+    commentSending.value = false;
   }
 };
 
 const formatDateTime = (d) => (d ? new Date(d).toLocaleString() : '');
-const formatCategory = (c) => ({
-  general: 'General',
-  status: 'Status',
-  administrative: 'Admin',
-  billing: 'Billing',
-  clinical: 'Clinical'
-}[c] || c);
-
-const formatUrgency = (u) => ({
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High'
-}[String(u || '').toLowerCase()] || u);
 
 const formatDateOnly = (d) => (d ? String(d).slice(0, 10) : '—');
 const formatKey = (v) => {
@@ -310,6 +309,10 @@ watch(
     hoveringWaitlist.value = false;
     waitlistLoading.value = false;
     waitlistNote.value = '';
+    activeTab.value = 'comments';
+    comments.value = [];
+    commentDraft.value = '';
+    commentError.value = '';
   }
 );
 </script>
@@ -440,27 +443,94 @@ watch(
   white-space: pre-wrap;
 }
 .body { padding: 16px; display: grid; grid-template-columns: 1fr; gap: 12px; }
-.messages {
+
+.tabs {
+  display: inline-flex;
+  gap: 8px;
+}
+.tab {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.tab.active {
+  border-color: rgba(0, 0, 0, 0.25);
+  background: white;
+}
+.tab-body {
+  display: grid;
+  gap: 12px;
+}
+.comment-guidance,
+.message-guidance {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.comments {
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: var(--bg-alt);
+  padding: 10px;
+  overflow: auto;
+  max-height: 40vh;
+}
+.comments-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.comments-table th,
+.comments-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.comments-table th {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 900;
+  background: rgba(255, 255, 255, 0.6);
+  position: sticky;
+  top: 0;
+}
+.comments-table td.note {
+  white-space: pre-wrap;
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-weight: 800;
+}
+
+.comment-composer textarea {
+  width: 100%;
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 12px;
-  overflow-y: auto;
-  max-height: 44vh;
+  padding: 10px 12px;
 }
-.msg { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin-bottom: 10px; }
-.meta { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
-.author { color: var(--text-primary); font-weight: 700; }
-.category { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; }
-.text { color: var(--text-primary); white-space: pre-wrap; }
-.composer { border-top: 1px solid var(--border); padding-top: 12px; }
+.comment-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
 textarea, select {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
 }
-.row { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
 .loading, .empty { color: var(--text-secondary); }
 .error { color: #c33; }
 @media (max-width: 900px) {

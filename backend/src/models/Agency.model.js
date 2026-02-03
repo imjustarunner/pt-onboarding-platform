@@ -308,7 +308,8 @@ class Agency {
           { col: 'school_portal_parent_qr_icon_id', alias: 'sp_pqr_i', path: 'school_portal_parent_qr_icon_path', name: 'school_portal_parent_qr_icon_name' },
           { col: 'school_portal_parent_sign_icon_id', alias: 'sp_psign_i', path: 'school_portal_parent_sign_icon_path', name: 'school_portal_parent_sign_icon_name' },
           { col: 'school_portal_upload_packet_icon_id', alias: 'sp_up_i', path: 'school_portal_upload_packet_icon_path', name: 'school_portal_upload_packet_icon_name' },
-          { col: 'school_portal_public_documents_icon_id', alias: 'sp_docs_i', path: 'school_portal_public_documents_icon_path', name: 'school_portal_public_documents_icon_name' }
+          { col: 'school_portal_public_documents_icon_id', alias: 'sp_docs_i', path: 'school_portal_public_documents_icon_path', name: 'school_portal_public_documents_icon_name' },
+          { col: 'school_portal_announcements_icon_id', alias: 'sp_ann_i', path: 'school_portal_announcements_icon_path', name: 'school_portal_announcements_icon_name' }
         ];
         const ph = want.map(() => '?').join(',');
         const [cols] = await pool.execute(
@@ -825,6 +826,7 @@ class Agency {
       schoolPortalParentSignIconId,
       schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
+      schoolPortalAnnouncementsIconId,
 
       // Tier system (agency-specific; optional columns)
       tierSystemEnabled,
@@ -1198,6 +1200,13 @@ class Agency {
       err.status = 409;
       throw err;
     }
+    if (schoolPortalAnnouncementsIconId !== undefined && !hasAnnouncements) {
+      const err = new Error(
+        'Cannot save Announcements icon: database missing agencies.school_portal_announcements_icon_id. Run database/migrations/336_school_portal_announcements_and_notifications.sql.'
+      );
+      err.status = 409;
+      throw err;
+    }
     if (schoolPortalFaqIconId !== undefined && !hasFaq) {
       const err = new Error(
         'Cannot save FAQ icon: database missing agencies.school_portal_faq_icon_id. Run database/migrations/329_school_portal_faq.sql.'
@@ -1217,7 +1226,8 @@ class Agency {
         ...(hasParentQr ? ['school_portal_parent_qr_icon_id'] : []),
         ...(hasParentSign ? ['school_portal_parent_sign_icon_id'] : []),
         ...(hasUploadPacket ? ['school_portal_upload_packet_icon_id'] : []),
-        ...(hasPublicDocs ? ['school_portal_public_documents_icon_id'] : [])
+        ...(hasPublicDocs ? ['school_portal_public_documents_icon_id'] : []),
+        ...(hasAnnouncements ? ['school_portal_announcements_icon_id'] : [])
       );
       insertValues.push(
         schoolPortalProvidersIconId || null,
@@ -1230,7 +1240,8 @@ class Agency {
         ...(hasParentQr ? [schoolPortalParentQrIconId || null] : []),
         ...(hasParentSign ? [schoolPortalParentSignIconId || null] : []),
         ...(hasUploadPacket ? [schoolPortalUploadPacketIconId || null] : []),
-        ...(hasPublicDocs ? [schoolPortalPublicDocumentsIconId || null] : [])
+        ...(hasPublicDocs ? [schoolPortalPublicDocumentsIconId || null] : []),
+        ...(hasAnnouncements ? [schoolPortalAnnouncementsIconId || null] : [])
       );
     }
     
@@ -1265,6 +1276,7 @@ class Agency {
     const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
+      schoolPortalAnnouncementsIconId,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
     } = agencyData;
     
@@ -1854,9 +1866,10 @@ class Agency {
       let hasParentSign = false;
       let hasUploadPacket = false;
       let hasPublicDocs = false;
+      let hasAnnouncements = false;
       try {
         const [cols] = await pool.execute(
-          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_faq_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id','school_portal_public_documents_icon_id')"
+          "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('school_portal_providers_icon_id','school_portal_school_staff_icon_id','school_portal_faq_icon_id','school_portal_parent_qr_icon_id','school_portal_parent_sign_icon_id','school_portal_upload_packet_icon_id','school_portal_public_documents_icon_id','school_portal_announcements_icon_id')"
         );
         const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
         hasSchoolPortalIcons = names.has('school_portal_providers_icon_id');
@@ -1866,6 +1879,7 @@ class Agency {
         hasParentSign = names.has('school_portal_parent_sign_icon_id');
         hasUploadPacket = names.has('school_portal_upload_packet_icon_id');
         hasPublicDocs = names.has('school_portal_public_documents_icon_id');
+        hasAnnouncements = names.has('school_portal_announcements_icon_id');
       } catch (e) {
         hasSchoolPortalIcons = false;
         hasSchoolPortalStaffIcon = false;
@@ -1874,6 +1888,7 @@ class Agency {
         hasParentSign = false;
         hasUploadPacket = false;
         hasPublicDocs = false;
+        hasAnnouncements = false;
       }
       if (schoolPortalSchoolStaffIconId !== undefined && !hasSchoolPortalStaffIcon) {
         const err = new Error(
@@ -1906,6 +1921,13 @@ class Agency {
       if (schoolPortalPublicDocumentsIconId !== undefined && !hasPublicDocs) {
         const err = new Error(
           'Cannot save Documents icon: database missing agencies.school_portal_public_documents_icon_id. Run database/migrations/303_school_portal_public_documents_card_icon.sql.'
+        );
+        err.status = 409;
+        throw err;
+      }
+      if (schoolPortalAnnouncementsIconId !== undefined && !hasAnnouncements) {
+        const err = new Error(
+          'Cannot save Announcements icon: database missing agencies.school_portal_announcements_icon_id. Run database/migrations/336_school_portal_announcements_and_notifications.sql.'
         );
         err.status = 409;
         throw err;
@@ -1961,6 +1983,10 @@ class Agency {
         if (hasPublicDocs && schoolPortalPublicDocumentsIconId !== undefined) {
           updates.push('school_portal_public_documents_icon_id = ?');
           values.push(schoolPortalPublicDocumentsIconId || null);
+        }
+        if (hasAnnouncements && schoolPortalAnnouncementsIconId !== undefined) {
+          updates.push('school_portal_announcements_icon_id = ?');
+          values.push(schoolPortalAnnouncementsIconId || null);
         }
       }
     }

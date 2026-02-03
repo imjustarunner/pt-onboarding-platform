@@ -25,6 +25,30 @@
           </button>
         </div>
       </div>
+      <div
+        v-if="bannerItems.length > 0"
+        class="portal-banner"
+        role="button"
+        tabindex="0"
+        title="Open announcements"
+        @click="openNotificationsPanel"
+        @keydown.enter.prevent="openNotificationsPanel"
+        @keydown.space.prevent="openNotificationsPanel"
+      >
+        <div class="portal-banner-inner">
+          <div class="portal-banner-track" aria-label="Announcements banner">
+            <span v-for="(t, idx) in bannerTexts" :key="`${idx}-${t.slice(0, 16)}`" class="portal-banner-item">
+              {{ t }}
+              <span class="sep" aria-hidden="true"> • </span>
+            </span>
+            <!-- Repeat once to ensure continuous scroll -->
+            <span v-for="(t, idx) in bannerTexts" :key="`r-${idx}-${t.slice(0, 16)}`" class="portal-banner-item">
+              {{ t }}
+              <span class="sep" aria-hidden="true"> • </span>
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="portal-content">
@@ -184,6 +208,27 @@
               <div v-else class="nav-icon-fallback" aria-hidden="true">DO</div>
             </div>
             <div class="nav-label">Docs/Links</div>
+          </button>
+
+          <button
+            class="nav-item"
+            type="button"
+            @click="openNotificationsPanel"
+            :class="{ active: portalMode === 'notifications' }"
+          >
+            <div class="nav-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
+                alt=""
+                class="nav-icon-img"
+              />
+              <div v-else class="nav-icon-fallback" aria-hidden="true">AN</div>
+              <span v-if="notificationsUnreadCount > 0" class="nav-badge" :class="{ pulse: notificationsUnreadCount > 0 }">
+                {{ notificationsUnreadCount }}
+              </span>
+            </div>
+            <div class="nav-label">Announcements</div>
           </button>
 
           <button data-tour="school-nav-faq" class="nav-item" type="button" @click="portalMode = 'faq'" :class="{ active: portalMode === 'faq' }">
@@ -373,6 +418,28 @@
             </div>
           </button>
 
+          <button class="dash-card" type="button" @click="openNotificationsPanel">
+            <div class="dash-card-icon">
+              <img
+                v-if="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
+                :src="brandingStore.getSchoolPortalCardIconUrl('announcements', cardIconOrg)"
+                alt="Announcements icon"
+                class="dash-card-icon-img"
+              />
+              <div v-else class="dash-card-icon-fallback" aria-hidden="true">AN</div>
+            </div>
+            <div class="dash-card-title">Announcements</div>
+            <div class="dash-card-desc">
+              {{ notificationsNewestSnippet || 'School-wide updates and notifications.' }}
+            </div>
+            <div class="dash-card-meta">
+              <span class="dash-card-cta">Open</span>
+              <span v-if="notificationsUnreadCount > 0" class="dash-card-badge dash-card-badge-pulse">
+                {{ notificationsUnreadCount }}
+              </span>
+            </div>
+          </button>
+
           <button data-tour="school-home-card-help" class="dash-card" type="button" @click="showHelpDesk = true">
             <div class="dash-card-icon">
               <img
@@ -555,6 +622,16 @@
         </div>
           </div>
 
+          <div v-else-if="portalMode === 'notifications'">
+            <SchoolNotificationsPanel
+              v-if="organizationId"
+              :school-organization-id="organizationId"
+              @close="portalMode = 'home'"
+              @updated="loadNotificationsPreview"
+            />
+            <div v-else class="empty-state">Organization not loaded.</div>
+          </div>
+
           <div v-else class="empty-state">Organization not loaded.</div>
         </div>
       </div>
@@ -689,6 +766,7 @@ import SkillsGroupsPanel from '../../components/school/redesign/SkillsGroupsPane
 import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersDirectoryPanel.vue';
 import SchoolStaffPanel from '../../components/school/redesign/SchoolStaffPanel.vue';
 import PublicDocumentsPanel from '../../components/school/redesign/PublicDocumentsPanel.vue';
+import SchoolNotificationsPanel from '../../components/school/redesign/SchoolNotificationsPanel.vue';
 import FaqPanel from '../../components/school/redesign/FaqPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
@@ -789,6 +867,90 @@ const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff'].includ
 const settingsIconUrl = computed(() => {
   return brandingStore.getAdminQuickActionIconUrl('settings', cardIconOrg.value || null);
 });
+
+const notificationsUnreadCount = ref(0);
+const notificationsNewestSnippet = ref('');
+const bannerItems = ref([]);
+const bannerTexts = computed(() => {
+  const list = Array.isArray(bannerItems.value) ? bannerItems.value : [];
+  return list
+    .map((a) => {
+      const title = String(a?.title || '').trim();
+      const msg = String(a?.message || '').trim();
+      const t = title && title.toLowerCase() !== 'announcement' ? `${title}: ${msg}` : msg;
+      return String(t || '').trim();
+    })
+    .filter(Boolean)
+    .slice(0, 10);
+});
+
+const parseJsonMaybe = (v) => {
+  if (!v) return null;
+  if (typeof v === 'object') return v;
+  if (typeof v !== 'string') return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+};
+
+const loadNotificationsPreview = async () => {
+  try {
+    const orgId = Number(organizationId.value || 0);
+    const uid = authStore.user?.id;
+    if (!orgId || !uid) {
+      notificationsUnreadCount.value = 0;
+      notificationsNewestSnippet.value = '';
+      return;
+    }
+
+    const [prefResp, feedResp] = await Promise.all([
+      api.get(`/users/${uid}/preferences`),
+      api.get(`/school-portal/${orgId}/notifications/feed`)
+    ]);
+
+    const pref = prefResp?.data || {};
+    const raw = pref.school_portal_notifications_progress;
+    const m = parseJsonMaybe(raw) || raw;
+    const lastSeenIso = m && typeof m === 'object' ? String(m[String(orgId)] || '') : '';
+    const lastSeenMs = lastSeenIso ? new Date(lastSeenIso).getTime() : 0;
+
+    const feed = Array.isArray(feedResp?.data) ? feedResp.data : [];
+    const unread = feed.filter((it) => {
+      const t = it?.created_at ? new Date(it.created_at).getTime() : 0;
+      return Number.isFinite(t) && t > lastSeenMs;
+    });
+
+    notificationsUnreadCount.value = unread.length;
+    const newest = feed?.[0] || null;
+    const newestMsg = String(newest?.message || '').trim();
+    notificationsNewestSnippet.value = newestMsg ? (newestMsg.length > 90 ? `${newestMsg.slice(0, 90)}…` : newestMsg) : '';
+  } catch {
+    notificationsUnreadCount.value = 0;
+    notificationsNewestSnippet.value = '';
+  }
+};
+
+const openNotificationsPanel = async () => {
+  portalMode.value = 'notifications';
+  // Preview will be refreshed by the panel itself on open/mark seen, but keep badge responsive.
+  await loadNotificationsPreview();
+};
+
+const loadBannerAnnouncements = async () => {
+  try {
+    const orgId = Number(organizationId.value || 0);
+    if (!orgId) {
+      bannerItems.value = [];
+      return;
+    }
+    const r = await api.get(`/school-portal/${orgId}/announcements/banner`);
+    bannerItems.value = Array.isArray(r.data) ? r.data : [];
+  } catch {
+    bannerItems.value = [];
+  }
+};
 
 const canShowSchoolSettingsButton = computed(() => {
   if (!['super_admin', 'admin', 'staff'].includes(roleNorm.value)) return false;
@@ -1115,6 +1277,9 @@ onMounted(async () => {
     await store.fetchPortalStats();
     // Preload provider list so home has useful info immediately.
     await store.fetchEligibleProviders();
+    // Preload announcements preview so the card badge/snippet is populated.
+    await loadNotificationsPreview();
+    await loadBannerAnnouncements();
     if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
   }
 
@@ -1134,6 +1299,8 @@ watch(organizationId, async (id) => {
   await store.fetchDays();
   await store.fetchPortalStats();
   await store.fetchEligibleProviders();
+  await loadNotificationsPreview();
+  await loadBannerAnnouncements();
   if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
 
   await ensureAffiliation();
@@ -1167,6 +1334,43 @@ watch(() => store.selectedWeekday, async (weekday) => {
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 14px;
   padding: 18px 20px;
+}
+
+.portal-banner {
+  margin-top: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.10);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.portal-banner-inner {
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.portal-banner-track {
+  display: inline-block;
+  padding: 10px 12px;
+  color: var(--header-text-color, #fff);
+  font-weight: 800;
+  animation: bannerMarquee 28s linear infinite;
+  will-change: transform;
+}
+
+.portal-banner-item .sep {
+  opacity: 0.75;
+}
+
+.portal-banner:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+@keyframes bannerMarquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
 }
 
 .portal-header h1 {

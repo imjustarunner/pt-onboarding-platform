@@ -1829,6 +1829,11 @@
                 <small>Icon for the "Documents" card in school portals</small>
               </div>
               <div class="dashboard-icon-item">
+                <label>Announcements Card Icon</label>
+                <IconSelector v-model="agencyForm.schoolPortalAnnouncementsIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Announcements" card in school portals</small>
+              </div>
+              <div class="dashboard-icon-item">
                 <label>FAQ Card Icon</label>
                 <IconSelector v-model="agencyForm.schoolPortalFaqIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "FAQ" card in school portals</small>
@@ -3707,6 +3712,7 @@ const ICON_TEMPLATE_FIELDS = [
   'schoolPortalParentSignIconId',
   'schoolPortalUploadPacketIconId',
   'schoolPortalPublicDocumentsIconId',
+  'schoolPortalAnnouncementsIconId',
   'statusExpiredIconId',
   'tempPasswordExpiredIconId',
   'taskOverdueIconId',
@@ -3780,6 +3786,7 @@ const defaultAgencyForm = () => ({
   schoolPortalParentSignIconId: null,
   schoolPortalUploadPacketIconId: null,
   schoolPortalPublicDocumentsIconId: null,
+  schoolPortalAnnouncementsIconId: null,
   onboardingTeamEmail: '',
   phoneNumber: '',
   phoneExtension: '',
@@ -4942,6 +4949,7 @@ const editAgency = async (agency) => {
     schoolPortalParentSignIconId: agency.school_portal_parent_sign_icon_id ?? null,
     schoolPortalUploadPacketIconId: agency.school_portal_upload_packet_icon_id ?? null,
     schoolPortalPublicDocumentsIconId: agency.school_portal_public_documents_icon_id ?? null,
+    schoolPortalAnnouncementsIconId: agency.school_portal_announcements_icon_id ?? null,
     onboardingTeamEmail: agency.onboarding_team_email || '',
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
@@ -5597,6 +5605,7 @@ const saveAgency = async () => {
       schoolPortalParentSignIconId: agencyForm.value.schoolPortalParentSignIconId ?? null,
       schoolPortalUploadPacketIconId: agencyForm.value.schoolPortalUploadPacketIconId ?? null,
       schoolPortalPublicDocumentsIconId: agencyForm.value.schoolPortalPublicDocumentsIconId ?? null,
+      schoolPortalAnnouncementsIconId: agencyForm.value.schoolPortalAnnouncementsIconId ?? null,
       onboardingTeamEmail: normalizeNullableText(agencyForm.value.onboardingTeamEmail),
       phoneNumber: normalizePhoneNumber(agencyForm.value.phoneNumber),
       // Schools don't use extensions (per directory requirements)
