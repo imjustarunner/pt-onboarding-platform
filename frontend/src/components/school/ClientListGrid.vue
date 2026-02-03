@@ -283,7 +283,10 @@ const ensureWaitlistNoteLoaded = async (client) => {
     if (waitlistNoteByClientId.value?.[key]) return;
     if (waitlistNoteLoadingByClientId.value?.[key]) return;
     waitlistNoteLoadingByClientId.value = { ...(waitlistNoteLoadingByClientId.value || {}), [key]: true };
-    const r = await api.get(`/school-portal/${encodeURIComponent(orgKey.value)}/clients/${cid}/waitlist-note`);
+    const r = await api.get(
+      `/school-portal/${encodeURIComponent(orgKey.value)}/clients/${cid}/waitlist-note`,
+      { skipGlobalLoading: true, timeout: 8000 }
+    );
     const msg = String(r.data?.note?.message || '').trim();
     waitlistNoteByClientId.value = { ...(waitlistNoteByClientId.value || {}), [key]: msg || '(no note yet)' };
   } catch {

@@ -133,7 +133,10 @@ const load = async () => {
   loading.value = true;
   error.value = '';
   try {
-    const r = await api.get(`/school-portal/${encodeURIComponent(props.orgKey)}/clients/${clientId}/waitlist-note`);
+    const r = await api.get(
+      `/school-portal/${encodeURIComponent(props.orgKey)}/clients/${clientId}/waitlist-note`,
+      { skipGlobalLoading: true, timeout: 12000 }
+    );
     note.value = r.data?.note || null;
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load waitlist note';
@@ -172,9 +175,11 @@ const save = async () => {
   saving.value = true;
   saveError.value = '';
   try {
-    const r = await api.put(`/school-portal/${encodeURIComponent(props.orgKey)}/clients/${clientId}/waitlist-note`, {
-      message: msg
-    });
+    const r = await api.put(
+      `/school-portal/${encodeURIComponent(props.orgKey)}/clients/${clientId}/waitlist-note`,
+      { message: msg },
+      { skipGlobalLoading: true, timeout: 12000 }
+    );
     note.value = r.data?.note || null;
     editing.value = false;
     unlocked.value = false;

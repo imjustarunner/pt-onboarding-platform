@@ -235,7 +235,10 @@ const loadWaitlistNote = async () => {
     const clientId = Number(props.client?.id || 0);
     if (!orgId || !clientId) return;
     waitlistLoading.value = true;
-    const r = await api.get(`/school-portal/${encodeURIComponent(String(orgId))}/clients/${clientId}/waitlist-note`);
+    const r = await api.get(
+      `/school-portal/${encodeURIComponent(String(orgId))}/clients/${clientId}/waitlist-note`,
+      { skipGlobalLoading: true, timeout: 8000 }
+    );
     waitlistNote.value = String(r.data?.note?.message || '').trim();
   } catch {
     // best-effort; tooltip should not block UI

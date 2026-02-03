@@ -365,9 +365,9 @@
         class="mobile-overlay"
         @click="mobileMenuOpen = false"
       ></div>
-      <main>
+      <main :class="{ 'main-no-global-chrome': hideGlobalNavForSchoolStaff }">
         <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher -->
-        <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin" />
+        <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
         <router-view />
       </main>
       <HelperWidget v-if="isAuthenticated" />
@@ -1850,6 +1850,12 @@ main {
   padding: 20px 0;
   display: flex;
   flex-direction: column;
+}
+
+/* School staff / portal-only routes should not reserve space for global chrome. */
+main.main-no-global-chrome {
+  min-height: 100vh;
+  padding: 0;
 }
 
 #app {
