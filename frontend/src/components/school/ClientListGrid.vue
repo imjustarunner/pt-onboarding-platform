@@ -164,11 +164,10 @@
       </div>
     </div>
 
-    <ClientTicketThreadModal
+    <SchoolClientChatModal
       v-if="selectedClient"
       :client="selectedClient"
       :schoolOrganizationId="organizationId"
-      :client-label-mode="clientLabelMode"
       @close="selectedClient = null"
     />
 
@@ -187,7 +186,7 @@
 import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
-import ClientTicketThreadModal from './ClientTicketThreadModal.vue';
+import SchoolClientChatModal from './SchoolClientChatModal.vue';
 import WaitlistNoteModal from './WaitlistNoteModal.vue';
 import { useAuthStore } from '../../store/auth';
 
