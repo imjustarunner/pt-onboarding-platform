@@ -184,7 +184,8 @@ export const getSchoolClients = async (req, res, next) => {
           AND cpa.organization_id = coa.organization_id
           AND cpa.is_active = TRUE
          LEFT JOIN users u ON u.id = cpa.provider_user_id
-         WHERE UPPER(c.status) <> 'ARCHIVED'
+         WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+           AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
            AND (? = 0 OR c.skills = TRUE)
            AND (? IS NULL OR cpa.provider_user_id = ?)
          GROUP BY c.id
@@ -203,7 +204,12 @@ export const getSchoolClients = async (req, res, next) => {
 
       // Legacy fallback
       const all = await Client.findByOrganizationId(parseInt(organizationId, 10), isProvider ? { provider_id: userId } : {});
-      clients = (all || []).filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+      clients = (all || []).filter((c) => {
+        const workflow = String(c?.status || '').toUpperCase();
+        const key = String(c?.client_status_key || '').toLowerCase();
+        const label = String(c?.client_status_label || '').toLowerCase();
+        return workflow !== 'ARCHIVED' && key !== 'archived' && label !== 'archived';
+      });
       if (skillsOnly) clients = (clients || []).filter((c) => !!c?.skills);
     }
 
@@ -391,7 +397,8 @@ export const getProviderMyRoster = async (req, res, next) => {
          LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
          LEFT JOIN paperwork_statuses ps ON ps.id = c.paperwork_status_id
          LEFT JOIN paperwork_delivery_methods pdm ON pdm.id = c.paperwork_delivery_method_id
-         WHERE UPPER(c.status) <> 'ARCHIVED'
+         WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
+           AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
            AND (? = 0 OR c.skills = TRUE)
          GROUP BY c.id
          ORDER BY c.submission_date DESC, c.id DESC`,
@@ -409,7 +416,12 @@ export const getProviderMyRoster = async (req, res, next) => {
 
       // Legacy fallback: clients.organization_id + clients.provider_id
       const all = await Client.findByOrganizationId(parseInt(orgId, 10), { provider_id: providerUserId });
-      clients = (all || []).filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
+      clients = (all || []).filter((c) => {
+        const workflow = String(c?.status || '').toUpperCase();
+        const key = String(c?.client_status_key || '').toLowerCase();
+        const label = String(c?.client_status_label || '').toLowerCase();
+        return workflow !== 'ARCHIVED' && key !== 'archived' && label !== 'archived';
+      });
     }
 
     // Unread note counts (per user) - best effort if table exists.
