@@ -628,7 +628,7 @@
               :school-organization-id="organizationId"
               :client-label-mode="clientLabelMode"
               @close="portalMode = 'home'"
-              @updated="loadNotificationsPreview"
+              @updated="onNotificationsUpdated"
             />
             <div v-else class="empty-state">Organization not loaded.</div>
           </div>
@@ -951,7 +951,11 @@ const loadNotificationsPreview = async () => {
 const openNotificationsPanel = async () => {
   portalMode.value = 'notifications';
   // Preview will be refreshed by the panel itself on open/mark seen, but keep badge responsive.
-  await loadNotificationsPreview();
+  await Promise.all([loadNotificationsPreview(), loadBannerAnnouncements()]);
+};
+
+const onNotificationsUpdated = async () => {
+  await Promise.all([loadNotificationsPreview(), loadBannerAnnouncements()]);
 };
 
 const loadBannerAnnouncements = async () => {
