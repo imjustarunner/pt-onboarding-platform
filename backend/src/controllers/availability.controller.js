@@ -122,6 +122,21 @@ async function getSkillBuilderEligibility(providerId) {
   }
 }
 
+async function getSkillBuilderCoordinatorAccess(userId) {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT has_skill_builder_coordinator_access FROM users WHERE id = ? LIMIT 1`,
+      [userId]
+    );
+    const v = rows?.[0]?.has_skill_builder_coordinator_access;
+    return v === true || v === 1 || v === '1';
+  } catch (e) {
+    // Migration may not be applied yet.
+    if (e?.code === 'ER_BAD_FIELD_ERROR' || e?.code === 'ER_NO_SUCH_TABLE') return false;
+    throw e;
+  }
+}
+
 function normalizeDayName(d) {
   const s = String(d || '').trim();
   const canonical = DAY_NAMES.find((x) => x.toLowerCase() === s.toLowerCase());
@@ -842,6 +857,17 @@ export const confirmMySkillBuilderAvailability = async (req, res, next) => {
         [agencyId, providerId, wk]
       );
     }
+
+    // Clear forced-confirm flag (confirm-only requirement).
+    try {
+      await conn.execute(
+        `UPDATE users SET skill_builder_confirm_required_next_login = 0 WHERE id = ?`,
+        [providerId]
+      );
+    } catch (e) {
+      // Migration may not be applied yet; don't block confirmation.
+      if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
+    }
     await conn.commit();
 
     res.json({ ok: true, weekStartDates, totalHoursPerWeek: Math.round((totalMinutes / 60) * 100) / 100 });
@@ -859,7 +885,9 @@ export const listSkillBuildersAvailability = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
-    if (!canManageAvailability(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+    const allowed =
+      canManageAvailability(req.user?.role) || (await getSkillBuilderCoordinatorAccess(req.user?.id));
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     // Week start (Monday) for confirmation lookup; defaults to current week.
     const ws = String(req.query.weekStart || '').trim();

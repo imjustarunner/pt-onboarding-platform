@@ -478,6 +478,42 @@
                 </label>
 
                 <label
+                  class="compact-toggle"
+                  title="If enabled, this user can access the Skill Builders availability quick action (agency-scoped)."
+                >
+                  <span class="compact-title">Skill Builder coordinator</span>
+                  <div class="toggle-switch toggle-switch-sm">
+                    <input
+                      id="skill-builder-coordinator-toggle"
+                      type="checkbox"
+                      v-model="accountForm.hasSkillBuilderCoordinatorAccess"
+                      :disabled="!isEditingAccount || !canEditSkillBuilderCoordinatorAccess"
+                    />
+                    <span class="slider"></span>
+                  </div>
+                </label>
+
+                <div
+                  v-if="canRequireSkillBuilderConfirmNextLogin && (accountForm.skillBuilderEligible || user?.skill_builder_eligible)"
+                  class="compact-row"
+                  style="align-items: center;"
+                  title="Push a required Skill Builder confirmation prompt to this user. They must click Confirm next 2 weeks on next login."
+                >
+                  <div class="compact-meta">
+                    <div class="compact-title">Require SB confirm</div>
+                    <div class="compact-subtitle muted">Next login: must confirm next 2 weeks</div>
+                  </div>
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    type="button"
+                    :disabled="forcingSkillBuilderConfirm"
+                    @click="requireSkillBuilderConfirmNextLogin"
+                  >
+                    Push
+                  </button>
+                </div>
+
+                <label
                   v-if="showPayrollAccessToggle"
                   class="compact-toggle"
                   title="Payroll access given to staff or provider. Not accessible by default except admin/super admin."
@@ -1944,6 +1980,7 @@ const accountForm = ref({
   medcancelRateSchedule: 'none',
   companyCardEnabled: false,
   skillBuilderEligible: false,
+  hasSkillBuilderCoordinatorAccess: false,
   externalBusyIcsUrl: '',
   role: '',
   credential: '',
@@ -1953,6 +1990,18 @@ const accountForm = ref({
   hasPayrollAccess: false,
   isHourlyWorker: false,
   hasHiringAccess: false
+});
+
+const forcingSkillBuilderConfirm = ref(false);
+
+const canEditSkillBuilderCoordinatorAccess = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return r === 'admin' || r === 'super_admin' || r === 'support';
+});
+
+const canRequireSkillBuilderConfirmNextLogin = computed(() => {
+  const r = String(authStore.user?.role || '').toLowerCase();
+  return r === 'admin' || r === 'super_admin' || r === 'support' || r === 'staff';
 });
 
 // School affiliation (provider scheduling / availability)
@@ -2934,6 +2983,11 @@ const fetchUser = async () => {
       medcancelRateSchedule: ['low', 'high', 'none'].includes(currentMedcancelRateSchedule) ? currentMedcancelRateSchedule : 'none',
       companyCardEnabled: currentCompanyCardEnabled,
       skillBuilderEligible: user.value.skill_builder_eligible === true || user.value.skill_builder_eligible === 1 || user.value.skill_builder_eligible === '1' || false,
+      hasSkillBuilderCoordinatorAccess:
+        user.value.has_skill_builder_coordinator_access === true ||
+        user.value.has_skill_builder_coordinator_access === 1 ||
+        user.value.has_skill_builder_coordinator_access === '1' ||
+        false,
       externalBusyIcsUrl: String(user.value.external_busy_ics_url || '').trim(),
       role: currentRole,
       hasSupervisorPrivileges: currentHasSupervisorPrivileges || String(currentRoleRaw || '').trim().toLowerCase() === 'supervisor',
@@ -3420,6 +3474,10 @@ const saveAccount = async () => {
       role: accountForm.value.role
     };
 
+    if (canEditSkillBuilderCoordinatorAccess.value) {
+      updateData.hasSkillBuilderCoordinatorAccess = Boolean(accountForm.value.hasSkillBuilderCoordinatorAccess);
+    }
+
     // External busy ICS URL: admins/super admins only
     if (canEditExternalBusyIcsUrl.value) {
       updateData.externalBusyIcsUrl = String(accountForm.value.externalBusyIcsUrl || '').trim() || null;
@@ -3472,6 +3530,23 @@ const saveAccount = async () => {
     alert(error.value);
   } finally {
     saving.value = false;
+  }
+};
+
+const requireSkillBuilderConfirmNextLogin = async () => {
+  if (!canRequireSkillBuilderConfirmNextLogin.value) return;
+  if (!userId.value) return;
+  if (!confirm('Require this user to confirm Skill Builder availability on their next login?')) return;
+  try {
+    forcingSkillBuilderConfirm.value = true;
+    await api.post(`/users/${userId.value}/skill-builder/require-confirm-next-login`);
+    alert('Queued: user will be required to confirm Skill Builder availability on next login.');
+    await fetchUser();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to require Skill Builder confirm next login';
+    alert(error.value);
+  } finally {
+    forcingSkillBuilderConfirm.value = false;
   }
 };
 

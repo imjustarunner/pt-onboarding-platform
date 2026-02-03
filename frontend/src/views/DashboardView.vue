@@ -175,6 +175,16 @@
             <div class="my-schedule-stage">
               <div class="section-header">
                 <h2 style="margin: 0;">My Schedule</h2>
+                <div style="display:flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                  <button
+                    v-if="isSkillBuilderEligible"
+                    type="button"
+                    class="btn btn-secondary btn-sm"
+                    @click="showSkillBuilderModal = true"
+                  >
+                    Skill Builder availability
+                  </button>
+                </div>
               </div>
               <div
                 v-if="isSupervisor(authStore.user)"
@@ -499,6 +509,18 @@
     </div>
 
     <SupervisionModal v-if="showSupervisionModal" @close="showSupervisionModal = false" />
+    <SkillBuilderAvailabilityModal
+      v-if="showSkillBuilderModal"
+      :agency-id="currentAgencyId"
+      :lock-open="isSkillBuilderConfirmRequired"
+      @close="showSkillBuilderModal = false"
+      @confirmed="onSkillBuilderConfirmed"
+    />
+    <SkillBuildersAvailabilityModal
+      v-if="showSkillBuildersAvailabilityModal"
+      :agency-id="currentAgencyId"
+      @close="showSkillBuildersAvailabilityModal = false"
+    />
     <LastPaycheckModal
       v-if="showLastPaycheckModal"
       :agency-id="Number(currentAgencyId)"
@@ -532,6 +554,8 @@ import MyCompensationTab from '../components/dashboard/MyCompensationTab.vue';
 import OnDemandTrainingLibraryView from './OnDemandTrainingLibraryView.vue';
 import ProviderClientsTab from '../components/dashboard/ProviderClientsTab.vue';
 import SupervisionModal from '../components/supervision/SupervisionModal.vue';
+import SkillBuilderAvailabilityModal from '../components/availability/SkillBuilderAvailabilityModal.vue';
+import SkillBuildersAvailabilityModal from '../components/availability/SkillBuildersAvailabilityModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
 import { isSupervisor } from '../utils/helpers.js';
 
@@ -570,8 +594,58 @@ const tierBadgeText = ref('');
 const tierBadgeKind = ref(''); // 'tier-current' | 'tier-grace' | 'tier-ooc'
 
 const showSupervisionModal = ref(false);
+const showSkillBuilderModal = ref(false);
+const showSkillBuildersAvailabilityModal = ref(false);
 const showLastPaycheckModal = ref(false);
 const lastPaycheckPayrollPeriodId = ref(null);
+
+const isSkillBuilderEligible = computed(() => {
+  const u = authStore.user || {};
+  return u.skill_builder_eligible === true || u.skill_builder_eligible === 1 || u.skill_builder_eligible === '1';
+});
+
+const isSkillBuilderCoordinator = computed(() => {
+  const u = authStore.user || {};
+  return (
+    u.has_skill_builder_coordinator_access === true ||
+    u.has_skill_builder_coordinator_access === 1 ||
+    u.has_skill_builder_coordinator_access === '1'
+  );
+});
+
+const isSkillBuilderConfirmRequired = computed(() => {
+  const u = authStore.user || {};
+  return (
+    u.skill_builder_confirm_required_next_login === true ||
+    u.skill_builder_confirm_required_next_login === 1 ||
+    u.skill_builder_confirm_required_next_login === '1'
+  );
+});
+
+const onSkillBuilderConfirmed = () => {
+  // Modal refreshes user; if requirement cleared, close it.
+  if (!isSkillBuilderConfirmRequired.value) {
+    showSkillBuilderModal.value = false;
+  }
+};
+
+watch(
+  isSkillBuilderConfirmRequired,
+  (required) => {
+    if (props.previewMode) return;
+    if (!required) return;
+    if (!isSkillBuilderEligible.value) return;
+    showSkillBuilderModal.value = true;
+    // Bring the user to the scheduling surface where the button normally lives.
+    activeTab.value = 'my_schedule';
+    try {
+      router.replace({ query: { ...route.query, tab: 'my_schedule' } });
+    } catch {
+      // ignore
+    }
+  },
+  { immediate: true }
+);
 
 const openLastPaycheckModal = ({ payrollPeriodId } = {}) => {
   const agencyId = Number(currentAgencyId.value || 0);
@@ -885,6 +959,19 @@ const dashboardCards = computed(() => {
         description: 'View and support your supervisees.'
       });
     }
+
+    // Skill Builders availability (coordinator access)
+    if (isSkillBuilderCoordinator.value) {
+      const orgOverride = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
+      cards.push({
+        id: 'skill_builders_availability',
+        label: 'Skill Builders',
+        kind: 'modal',
+        badgeCount: 0,
+        iconUrl: brandingStore.getAdminQuickActionIconUrl('skill_builders_availability', orgOverride),
+        description: 'Review Skill Builder availability submissions.'
+      });
+    }
   }
 
   return cards;
@@ -903,18 +990,19 @@ const railCards = computed(() => {
       return ({
         my: 0,
         my_schedule: 1,
-        clients: 2,
-        clinical_note_generator: 3,
-        checklist: 4,
-        training: 5,
-        documents: 6,
-        submit: 7,
-        payroll: 8,
-        on_demand_training: 9,
-        communications: 10,
-        chats: 11,
-        notifications: 12,
-        supervision: 13
+        skill_builders_availability: 2,
+        clients: 3,
+        clinical_note_generator: 4,
+        checklist: 5,
+        training: 6,
+        documents: 7,
+        submit: 8,
+        payroll: 9,
+        on_demand_training: 10,
+        communications: 11,
+        chats: 12,
+        notifications: 13,
+        supervision: 14
       })[k] ?? 999;
     }
     return ({
@@ -922,16 +1010,17 @@ const railCards = computed(() => {
       documents: 1,
       training: 2,
       my_schedule: 3,
-      clients: 4,
-      clinical_note_generator: 5,
-      submit: 6,
-      payroll: 7,
-      my: 8,
-      on_demand_training: 9,
-      communications: 10,
-      chats: 11,
-      notifications: 12,
-      supervision: 13
+      skill_builders_availability: 4,
+      clients: 5,
+      clinical_note_generator: 6,
+      submit: 7,
+      payroll: 8,
+      my: 9,
+      on_demand_training: 10,
+      communications: 11,
+      chats: 12,
+      notifications: 13,
+      supervision: 14
     })[k] ?? 999;
   };
 
@@ -970,6 +1059,10 @@ const handleCardClick = (card) => {
   }
   if (card.id === 'supervision') {
     showSupervisionModal.value = true;
+    return;
+  }
+  if (card.id === 'skill_builders_availability') {
+    showSkillBuildersAvailabilityModal.value = true;
     return;
   }
   if (card.id === 'submit') {

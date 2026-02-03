@@ -263,7 +263,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'skill_builder_eligible', 'is_hourly_worker')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('pending_completed_at', 'pending_auto_complete_at', 'pending_identity_verified', 'pending_access_locked', 'pending_completion_notified', 'work_email', 'personal_email', 'preferred_name', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'has_hiring_access', 'provider_accepting_new_clients', 'personal_phone', 'work_phone', 'work_phone_extension', 'system_phone_number', 'home_street_address', 'home_address_line2', 'home_city', 'home_state', 'home_postal_code', 'medcancel_enabled', 'medcancel_rate_schedule', 'company_card_enabled', 'profile_photo_path', 'password_changed_at', 'title', 'service_focus', 'skill_builder_eligible', 'has_skill_builder_coordinator_access', 'skill_builder_confirm_required_next_login', 'is_hourly_worker')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -297,6 +297,8 @@ class User {
       if (existingColumns.includes('title')) query += ', title';
       if (existingColumns.includes('service_focus')) query += ', service_focus';
       if (existingColumns.includes('skill_builder_eligible')) query += ', skill_builder_eligible';
+      if (existingColumns.includes('has_skill_builder_coordinator_access')) query += ', has_skill_builder_coordinator_access';
+      if (existingColumns.includes('skill_builder_confirm_required_next_login')) query += ', skill_builder_confirm_required_next_login';
       if (existingColumns.includes('has_hiring_access')) query += ', has_hiring_access';
       if (existingColumns.includes('is_hourly_worker')) query += ', is_hourly_worker';
     } catch (err) {
@@ -624,6 +626,8 @@ class User {
       medcancelRateSchedule,
       companyCardEnabled,
       skillBuilderEligible,
+      hasSkillBuilderCoordinatorAccess,
+      skillBuilderConfirmRequiredNextLogin,
       isHourlyWorker,
       hasHiringAccess,
       externalBusyIcsUrl
@@ -1039,6 +1043,44 @@ class User {
           values.push(skillBuilderEligible ? 1 : 0);
         } else {
           throw new Error('Database is missing users.skill_builder_eligible. Run migrations (see database/migrations/250_skill_builder_availability.sql).');
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // Skill Builder coordinator access (agency-scoped permission)
+    if (hasSkillBuilderCoordinatorAccess !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'has_skill_builder_coordinator_access'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('has_skill_builder_coordinator_access = ?');
+          values.push(hasSkillBuilderCoordinatorAccess ? 1 : 0);
+        } else {
+          throw new Error('Database is missing users.has_skill_builder_coordinator_access. Run migrations (see database/migrations/335_users_skill_builder_coordinator_and_forced_confirm.sql).');
+        }
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    // Force Skill Builder confirm prompt on next login
+    if (skillBuilderConfirmRequiredNextLogin !== undefined) {
+      try {
+        const dbName = process.env.DB_NAME || 'onboarding_stage';
+        const [columns] = await pool.execute(
+          "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'skill_builder_confirm_required_next_login'",
+          [dbName]
+        );
+        if (columns.length > 0) {
+          updates.push('skill_builder_confirm_required_next_login = ?');
+          values.push(skillBuilderConfirmRequiredNextLogin ? 1 : 0);
+        } else {
+          throw new Error('Database is missing users.skill_builder_confirm_required_next_login. Run migrations (see database/migrations/335_users_skill_builder_coordinator_and_forced_confirm.sql).');
         }
       } catch (err) {
         throw err;

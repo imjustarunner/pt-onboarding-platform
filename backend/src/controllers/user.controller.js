@@ -143,6 +143,17 @@ export const getCurrentUser = async (req, res, next) => {
       has_supervisor_privileges: !!(user.has_supervisor_privileges === true || user.has_supervisor_privileges === 1 || user.has_supervisor_privileges === '1'),
       has_provider_access: !!(user.has_provider_access === true || user.has_provider_access === 1 || user.has_provider_access === '1'),
       has_staff_access: !!(user.has_staff_access === true || user.has_staff_access === 1 || user.has_staff_access === '1'),
+      skill_builder_eligible: !!(user.skill_builder_eligible === true || user.skill_builder_eligible === 1 || user.skill_builder_eligible === '1'),
+      has_skill_builder_coordinator_access: !!(
+        user.has_skill_builder_coordinator_access === true ||
+        user.has_skill_builder_coordinator_access === 1 ||
+        user.has_skill_builder_coordinator_access === '1'
+      ),
+      skill_builder_confirm_required_next_login: !!(
+        user.skill_builder_confirm_required_next_login === true ||
+        user.skill_builder_confirm_required_next_login === 1 ||
+        user.skill_builder_confirm_required_next_login === '1'
+      ),
       payrollAgencyIds,
       capabilities: {
         ...baseCaps,
@@ -1321,6 +1332,7 @@ export const updateUser = async (req, res, next) => {
       companyCardEnabled,
       billingAcknowledged,
       skillBuilderEligible,
+      hasSkillBuilderCoordinatorAccess,
       hasPayrollAccess,
       isHourlyWorker,
       hasHiringAccess,
@@ -1677,6 +1689,14 @@ export const updateUser = async (req, res, next) => {
 
     // Skill Builder eligibility (provider program)
     if (skillBuilderEligible !== undefined) updateData.skillBuilderEligible = Boolean(skillBuilderEligible);
+
+    // Skill Builder coordinator access (admin/support/super admin only)
+    if (hasSkillBuilderCoordinatorAccess !== undefined) {
+      if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
+        return res.status(403).json({ error: { message: 'Only admins, super admins, or support can change Skill Builder coordinator access' } });
+      }
+      updateData.hasSkillBuilderCoordinatorAccess = Boolean(hasSkillBuilderCoordinatorAccess);
+    }
 
     // Payroll access (profile toggle: set for all agencies for this user)
     if (hasPayrollAccess !== undefined) updateData.hasPayrollAccess = Boolean(hasPayrollAccess);
