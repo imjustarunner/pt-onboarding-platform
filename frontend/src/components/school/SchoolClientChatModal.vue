@@ -2,7 +2,36 @@
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal" @click.stop>
       <div class="modal-header">
-        <h2>Student: {{ client.initials }}</h2>
+        <div class="modal-header-left">
+          <h2>Student: {{ client.initials }}</h2>
+          <div class="modal-header-sub">
+            <span class="sub-k">Status</span>
+            <span class="sub-v">
+              <span
+                v-if="isWaitlist"
+                class="waitlist-badge waitlist-badge-compact"
+                role="button"
+                tabindex="0"
+                @mouseenter="onWaitlistHover"
+                @mouseleave="hoveringWaitlist = false"
+                @focus="onWaitlistHover"
+                @click.stop="openWaitlistNote"
+                @keydown.enter.stop.prevent="openWaitlistNote"
+                @keydown.space.stop.prevent="openWaitlistNote"
+                :title="waitlistTitle"
+              >
+                {{ formatKey(props.client?.client_status_label || props.client?.status || props.client?.client_status_key) }}
+                <div v-if="hoveringWaitlist" class="waitlist-tooltip" role="tooltip">
+                  <div class="waitlist-tooltip-title">Waitlist reason</div>
+                  <div class="waitlist-tooltip-body">{{ waitlistTooltipBody }}</div>
+                </div>
+              </span>
+              <span v-else>
+                {{ formatKey(props.client?.client_status_label || props.client?.status || props.client?.client_status_key) }}
+              </span>
+            </span>
+          </div>
+        </div>
         <button class="close" @click="$emit('close')">×</button>
       </div>
 
@@ -27,14 +56,14 @@
               @keydown.space.stop.prevent="openWaitlistNote"
               :title="waitlistTitle"
             >
-              {{ formatKey(props.client?.client_status_label || props.client?.status) }}
+              {{ formatKey(props.client?.client_status_label || props.client?.status || props.client?.client_status_key) }}
               <div v-if="hoveringWaitlist" class="waitlist-tooltip" role="tooltip">
                 <div class="waitlist-tooltip-title">Waitlist reason</div>
                 <div class="waitlist-tooltip-body">{{ waitlistTooltipBody }}</div>
               </div>
             </span>
             <span v-else>
-              {{ formatKey(props.client?.client_status_label || props.client?.status) }}
+              {{ formatKey(props.client?.client_status_label || props.client?.status || props.client?.client_status_key) }}
             </span>
           </div>
         </div>
@@ -165,7 +194,12 @@ const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
 
-const isWaitlist = computed(() => String(props.client?.client_status_key || '').toLowerCase() === 'waitlist');
+const isWaitlist = computed(() => {
+  const key = String(props.client?.client_status_key || '').toLowerCase().trim();
+  const status = String(props.client?.status || '').toLowerCase().trim();
+  const label = String(props.client?.client_status_label || '').toLowerCase().trim();
+  return key === 'waitlist' || status === 'waitlist' || label === 'waitlist';
+});
 const showWaitlistModal = ref(false);
 const hoveringWaitlist = ref(false);
 const waitlistLoading = ref(false);
@@ -328,7 +362,7 @@ watch(
   z-index: 1000;
 }
 .modal {
-  width: 900px;
+  width: 1100px;
   max-width: 95vw;
   max-height: 90vh;
   background: white;
@@ -344,6 +378,29 @@ watch(
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.modal-header-left {
+  display: grid;
+  gap: 4px;
+}
+.modal-header-sub {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 800;
+}
+.sub-k {
+  color: var(--text-secondary);
+  font-weight: 900;
+}
+.sub-v {
+  color: var(--text-primary);
+  font-weight: 900;
+}
+.waitlist-badge-compact {
+  font-size: 12px;
 }
 .checklist {
   border: 1px solid var(--border);
