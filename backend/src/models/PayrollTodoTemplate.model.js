@@ -1,6 +1,15 @@
 import pool from '../config/database.js';
 
 class PayrollTodoTemplate {
+  static _normalizeTargetUserIdForDb(targetUserId) {
+    // Some environments enforce an FK to users(id), where "0" is invalid.
+    // Represent "not applicable" as NULL when possible.
+    if (targetUserId === null) return null;
+    if (targetUserId === undefined) return 0;
+    const n = Number(targetUserId || 0);
+    return Number.isFinite(n) ? n : 0;
+  }
+
   static async listForAgency({ agencyId, includeInactive = true }) {
     const [rows] = await pool.execute(
       `SELECT *
@@ -23,21 +32,30 @@ class PayrollTodoTemplate {
     createdByUserId,
     updatedByUserId
   }) {
-    const [res] = await pool.execute(
-      `INSERT INTO payroll_todo_templates
-       (agency_id, title, description, scope, target_user_id, start_payroll_period_id, is_active, created_by_user_id, updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-      [
-        agencyId,
-        title,
-        description,
-        scope,
-        Number(targetUserId || 0),
-        startPayrollPeriodId ? Number(startPayrollPeriodId) : null,
-        createdByUserId,
-        updatedByUserId
-      ]
-    );
+    const targetUserDb = PayrollTodoTemplate._normalizeTargetUserIdForDb(targetUserId);
+    const startDb = startPayrollPeriodId ? Number(startPayrollPeriodId) : null;
+
+    let res;
+    try {
+      [res] = await pool.execute(
+        `INSERT INTO payroll_todo_templates
+         (agency_id, title, description, scope, target_user_id, start_payroll_period_id, is_active, created_by_user_id, updated_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        [agencyId, title, description, scope, targetUserDb, startDb, createdByUserId, updatedByUserId]
+      );
+    } catch (e) {
+      // Back-compat: older schemas may have target_user_id NOT NULL, so NULL will error.
+      if ((e?.code === 'ER_BAD_NULL_ERROR' || e?.errno === 1048) && targetUserDb === null) {
+        [res] = await pool.execute(
+          `INSERT INTO payroll_todo_templates
+           (agency_id, title, description, scope, target_user_id, start_payroll_period_id, is_active, created_by_user_id, updated_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+          [agencyId, title, description, scope, 0, startDb, createdByUserId, updatedByUserId]
+        );
+      } else {
+        throw e;
+      }
+    }
     return res?.insertId || null;
   }
 
@@ -52,29 +70,61 @@ class PayrollTodoTemplate {
     isActive = 1,
     updatedByUserId
   }) {
-    await pool.execute(
-      `UPDATE payroll_todo_templates
-       SET title = ?,
-           description = ?,
-           scope = ?,
-           target_user_id = ?,
-           start_payroll_period_id = ?,
-           is_active = ?,
-           updated_by_user_id = ?
-       WHERE id = ? AND agency_id = ?
-       LIMIT 1`,
-      [
-        title,
-        description,
-        scope,
-        Number(targetUserId || 0),
-        startPayrollPeriodId ? Number(startPayrollPeriodId) : null,
-        Number(isActive) ? 1 : 0,
-        updatedByUserId,
-        id,
-        agencyId
-      ]
-    );
+    const targetUserDb = PayrollTodoTemplate._normalizeTargetUserIdForDb(targetUserId);
+    const startDb = startPayrollPeriodId ? Number(startPayrollPeriodId) : null;
+    try {
+      await pool.execute(
+        `UPDATE payroll_todo_templates
+         SET title = ?,
+             description = ?,
+             scope = ?,
+             target_user_id = ?,
+             start_payroll_period_id = ?,
+             is_active = ?,
+             updated_by_user_id = ?
+         WHERE id = ? AND agency_id = ?
+         LIMIT 1`,
+        [
+          title,
+          description,
+          scope,
+          targetUserDb,
+          startDb,
+          Number(isActive) ? 1 : 0,
+          updatedByUserId,
+          id,
+          agencyId
+        ]
+      );
+    } catch (e) {
+      if ((e?.code === 'ER_BAD_NULL_ERROR' || e?.errno === 1048) && targetUserDb === null) {
+        await pool.execute(
+          `UPDATE payroll_todo_templates
+           SET title = ?,
+               description = ?,
+               scope = ?,
+               target_user_id = ?,
+               start_payroll_period_id = ?,
+               is_active = ?,
+               updated_by_user_id = ?
+           WHERE id = ? AND agency_id = ?
+           LIMIT 1`,
+          [
+            title,
+            description,
+            scope,
+            0,
+            startDb,
+            Number(isActive) ? 1 : 0,
+            updatedByUserId,
+            id,
+            agencyId
+          ]
+        );
+      } else {
+        throw e;
+      }
+    }
   }
 
   static async setActive({ id, agencyId, isActive, updatedByUserId }) {

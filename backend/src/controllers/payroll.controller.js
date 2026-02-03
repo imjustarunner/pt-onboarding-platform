@@ -3490,7 +3490,9 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         salaryPosition = await PayrollSalaryPosition.findActiveForUser({
           agencyId,
           userId,
-          asOfDate: String(periodStart || '').slice(0, 10)
+          // IMPORTANT: mysql2 can return DATE as Date objects depending on config.
+          // Never use String(Date).slice(0,10) here; it will produce "Tue Feb 0" etc and break lookups.
+          asOfDate: ymdFromDbDate(periodStart)
         });
       } catch {
         salaryPosition = null;
@@ -3499,10 +3501,10 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         const perPeriod = Number(salaryPosition.salary_per_pay_period || 0);
         salaryIncludeServicePay = Number(salaryPosition.include_service_pay) ? 1 : 0;
         const doProrate = Number(salaryPosition.prorate_by_days) ? 1 : 0;
-        const ps = String(periodStart || '').slice(0, 10);
-        const pe = String(periodEnd || '').slice(0, 10);
-        const es = salaryPosition.effective_start ? String(salaryPosition.effective_start).slice(0, 10) : null;
-        const ee = salaryPosition.effective_end ? String(salaryPosition.effective_end).slice(0, 10) : null;
+        const ps = ymdFromDbDate(periodStart);
+        const pe = ymdFromDbDate(periodEnd);
+        const es = salaryPosition.effective_start ? ymdFromDbDate(salaryPosition.effective_start) : null;
+        const ee = salaryPosition.effective_end ? ymdFromDbDate(salaryPosition.effective_end) : null;
         if (perPeriod > 0.001 && ps && pe) {
           const toUtcDay = (ymd) => {
             const [y, m, d] = String(ymd).split('-').map((x) => parseInt(x, 10));
@@ -5302,7 +5304,9 @@ export const createPayrollTodoTemplate = async (req, res, next) => {
       title,
       description,
       scope,
-      targetUserId: scope === 'provider' ? targetUserId : 0,
+      // Agency-wide templates should not reference a user id. Some DBs enforce FK(target_user_id -> users.id).
+      // Store NULL (and the model will fall back to 0 only if the schema forces NOT NULL).
+      targetUserId: scope === 'provider' ? targetUserId : null,
       startPayrollPeriodId,
       createdByUserId: requesterId,
       updatedByUserId: requesterId
@@ -5378,7 +5382,7 @@ export const patchPayrollTodoTemplate = async (req, res, next) => {
       title,
       description,
       scope,
-      targetUserId: scope === 'provider' ? targetUserId : 0,
+      targetUserId: scope === 'provider' ? targetUserId : null,
       startPayrollPeriodId,
       isActive,
       updatedByUserId: requesterId
@@ -8231,7 +8235,7 @@ export const getPayrollAdjustmentsForUser = async (req, res, next) => {
     if (!userId) return res.status(400).json({ error: { message: 'userId is required' } });
 
     const adj = await PayrollAdjustment.findForPeriodUser(payrollPeriodId, userId);
-    res.json(adj || {
+    const base = adj || {
       payroll_period_id: payrollPeriodId,
       agency_id: period.agency_id,
       user_id: userId,
@@ -8249,6 +8253,71 @@ export const getPayrollAdjustmentsForUser = async (req, res, next) => {
       salary_amount: 0,
       pto_hours: 0,
       pto_rate: 0
+    };
+
+    // Salary visibility:
+    // Payroll can auto-apply salary from a user's active payroll salary position even when no
+    // manual salary override exists in payroll_adjustments. Return computed "effective" salary
+    // metadata so the UI can display what will happen.
+    const salaryAmountManual = Number(base?.salary_amount || 0);
+    let salaryEffectiveAmount = salaryAmountManual;
+    let salaryEffectiveSource = salaryAmountManual > 0.001 ? 'manual_override' : 'none';
+    let salaryPerPayPeriod = 0;
+    let salaryIncludeServicePay = 0;
+    let salaryIsProrated = 0;
+    let salaryPositionId = null;
+
+    if (!(salaryAmountManual > 0.001)) {
+      try {
+        const ps = ymdFromDbDate(period?.period_start);
+        const pe = ymdFromDbDate(period?.period_end);
+        const pos = await PayrollSalaryPosition.findActiveForUser({
+          agencyId: period.agency_id,
+          userId,
+          asOfDate: ps
+        });
+        if (pos) {
+          salaryPositionId = Number(pos.id || 0) || null;
+          salaryPerPayPeriod = Number(pos.salary_per_pay_period || 0);
+          salaryIncludeServicePay = Number(pos.include_service_pay) ? 1 : 0;
+          const doProrate = Number(pos.prorate_by_days) ? 1 : 0;
+
+          const es = pos.effective_start ? ymdFromDbDate(pos.effective_start) : null;
+          const ee = pos.effective_end ? ymdFromDbDate(pos.effective_end) : null;
+
+          if (salaryPerPayPeriod > 0.001 && ps && pe) {
+            const periodStartD = ymdToDateUtc(ps);
+            const periodEndD = ymdToDateUtc(pe);
+            const effStartD = es ? ymdToDateUtc(es) : periodStartD;
+            const effEndD = ee ? ymdToDateUtc(ee) : periodEndD;
+            if (periodStartD && periodEndD && effStartD && effEndD) {
+              const startD = effStartD.getTime() > periodStartD.getTime() ? effStartD : periodStartD;
+              const endD = effEndD.getTime() < periodEndD.getTime() ? effEndD : periodEndD;
+              const msPerDay = 86400000;
+              const periodDays = Math.floor((periodEndD.getTime() - periodStartD.getTime()) / msPerDay) + 1;
+              const activeDays = Math.floor((endD.getTime() - startD.getTime()) / msPerDay) + 1;
+              if (activeDays > 0 && periodDays > 0) {
+                const factor = doProrate ? (activeDays / periodDays) : 1;
+                salaryEffectiveAmount = Number((salaryPerPayPeriod * factor).toFixed(2));
+                salaryIsProrated = doProrate && Math.abs(factor - 1) > 1e-9 ? 1 : 0;
+                salaryEffectiveSource = salaryEffectiveAmount > 0.001 ? 'position' : 'none';
+              }
+            }
+          }
+        }
+      } catch {
+        // Ignore salary position errors; keep base adjustments usable.
+      }
+    }
+
+    res.json({
+      ...base,
+      salary_effective_amount: Number(salaryEffectiveAmount || 0),
+      salary_effective_source: salaryEffectiveSource,
+      salary_per_pay_period: Number(salaryPerPayPeriod || 0),
+      salary_include_service_pay: Number(salaryIncludeServicePay || 0) ? 1 : 0,
+      salary_is_prorated: Number(salaryIsProrated || 0) ? 1 : 0,
+      salary_position_id: salaryPositionId
     });
   } catch (e) {
     next(e);

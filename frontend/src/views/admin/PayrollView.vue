@@ -725,14 +725,14 @@
                   <div class="right">Rate</div>
                   <div class="right">Amount</div>
                 </div>
-                <div v-for="l in previewPostV2ServiceLines" :key="`v2-line:${l.code}`" class="code-row">
-                  <div class="code">{{ l.code }}</div>
-                  <div class="right muted">{{ fmtNum(l.noNoteUnits ?? 0) }}</div>
-                  <div class="right muted">{{ fmtNum(l.draftUnits ?? 0) }}</div>
-                  <div class="right">{{ fmtNum(l.finalizedUnits ?? l.units ?? 0) }}</div>
-                  <div class="right muted">{{ fmtNum(l.hours ?? 0) }}</div>
-                  <div class="right muted">{{ fmtMoney(l.rateAmount ?? 0) }}</div>
-                  <div class="right">{{ fmtMoney(l.amount ?? 0) }}</div>
+                <div v-for="l in (previewPostV2ServiceLines || []).filter(Boolean)" :key="`v2-line:${l?.code || '—'}`" class="code-row">
+                  <div class="code">{{ l?.code || '—' }}</div>
+                  <div class="right muted">{{ fmtNum(l?.noNoteUnits ?? 0) }}</div>
+                  <div class="right muted">{{ fmtNum(l?.draftUnits ?? 0) }}</div>
+                  <div class="right">{{ fmtNum(l?.finalizedUnits ?? l?.units ?? 0) }}</div>
+                  <div class="right muted">{{ fmtNum(l?.hours ?? 0) }}</div>
+                  <div class="right muted">{{ fmtMoney(l?.rateAmount ?? 0) }}</div>
+                  <div class="right">{{ fmtMoney(l?.amount ?? 0) }}</div>
                 </div>
               </div>
 
@@ -3094,6 +3094,15 @@
             <div class="field">
               <label>Salary Override ($)</label>
               <input v-model="adjustments.salaryAmount" type="number" step="0.01" :disabled="isPeriodPosted" />
+              <div
+                class="hint"
+                style="margin-top: 4px;"
+                v-if="Number(adjustments.salaryAmount || 0) <= 0 && String(adjustments.salarySource || '') === 'position' && Number(adjustments.salaryEffectiveAmount || 0) > 0"
+              >
+                Auto from profile salary: {{ fmtMoney(adjustments.salaryEffectiveAmount) }}
+                <span class="muted" v-if="adjustments.salaryIsProrated"> (prorated)</span>
+                <span class="muted" v-if="adjustments.salaryIncludeServicePay"> • includes service pay</span>
+              </div>
             </div>
             <div class="field">
               <label>PTO Hours</label>
@@ -3164,14 +3173,14 @@
                 <!-- eslint-disable-next-line vue/no-use-v-if-with-v-for -->
                 <tr v-for="(v, code) in (selectedSummary?.breakdown || {})" :key="code" v-if="!String(code).startsWith('_')">
                   <td class="code">{{ code }}</td>
-                  <td class="right">{{ fmtNum(v.finalizedUnits ?? v.units ?? 0) }}</td>
-                  <td class="right muted">{{ fmtNum(v.payDivisor ?? 1) }}</td>
-                  <td class="right muted">{{ fmtNum(v.payHours ?? 0) }}</td>
-                  <td class="right muted">{{ fmtNum(v.durationMinutes ?? 0) }}</td>
-                  <td class="right muted">{{ fmtNum(v.hours ?? 0) }}</td>
-                  <td class="right muted">{{ fmtMoney(v.rateAmount ?? 0) }}</td>
-                  <td class="right">{{ fmtMoney(v.amount ?? 0) }}</td>
-                  <td class="muted">{{ v.rateSource || '—' }}</td>
+                  <td class="right">{{ fmtNum(v?.finalizedUnits ?? v?.units ?? 0) }}</td>
+                  <td class="right muted">{{ fmtNum(v?.payDivisor ?? 1) }}</td>
+                  <td class="right muted">{{ fmtNum(v?.payHours ?? 0) }}</td>
+                  <td class="right muted">{{ fmtNum(v?.durationMinutes ?? 0) }}</td>
+                  <td class="right muted">{{ fmtNum(v?.hours ?? 0) }}</td>
+                  <td class="right muted">{{ fmtMoney(v?.rateAmount ?? 0) }}</td>
+                  <td class="right">{{ fmtMoney(v?.amount ?? 0) }}</td>
+                  <td class="muted">{{ v?.rateSource || '—' }}</td>
                 </tr>
                 <tr v-if="!selectedSummary?.breakdown || !Object.keys(selectedSummary.breakdown).filter((k) => !String(k).startsWith('_')).length">
                   <td colspan="9" class="muted">No breakdown available.</td>
@@ -3371,6 +3380,15 @@
                   <div class="field">
                     <label>Salary Override ($)</label>
                     <input v-model="adjustments.salaryAmount" type="number" step="0.01" :disabled="isPeriodPosted" />
+                    <div
+                      class="hint"
+                      style="margin-top: 4px;"
+                      v-if="Number(adjustments.salaryAmount || 0) <= 0 && String(adjustments.salarySource || '') === 'position' && Number(adjustments.salaryEffectiveAmount || 0) > 0"
+                    >
+                      Auto from profile salary: {{ fmtMoney(adjustments.salaryEffectiveAmount) }}
+                      <span class="muted" v-if="adjustments.salaryIsProrated"> (prorated)</span>
+                      <span class="muted" v-if="adjustments.salaryIncludeServicePay"> • includes service pay</span>
+                    </div>
                   </div>
                   <div class="field">
                     <label>PTO Hours</label>
@@ -5048,6 +5066,12 @@ const adjustments = ref({
   otherRate2Hours: 0,
   otherRate3Hours: 0,
   salaryAmount: 0,
+  // Display-only: derived from payroll salary positions when no manual override exists.
+  salaryEffectiveAmount: 0,
+  salarySource: 'none', // none | position | manual_override
+  salaryPerPayPeriod: 0,
+  salaryIncludeServicePay: 0,
+  salaryIsProrated: 0,
   ptoHours: 0,
   ptoRate: 0
 });
@@ -9662,6 +9686,11 @@ const loadAdjustments = async () => {
       otherRate2Hours: Number(a.other_rate_2_hours || 0),
       otherRate3Hours: Number(a.other_rate_3_hours || 0),
       salaryAmount: Number(a.salary_amount || 0),
+      salaryEffectiveAmount: Number(a.salary_effective_amount || 0),
+      salarySource: String(a.salary_effective_source || 'none'),
+      salaryPerPayPeriod: Number(a.salary_per_pay_period || 0),
+      salaryIncludeServicePay: Number(a.salary_include_service_pay || 0),
+      salaryIsProrated: Number(a.salary_is_prorated || 0),
       ptoHours: Number(a.pto_hours || 0),
       ptoRate: Number(a.pto_rate || 0)
     };
