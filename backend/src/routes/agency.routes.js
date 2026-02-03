@@ -103,7 +103,13 @@ const validateCreateAgency = [
     const normalized = String(value)
       .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-')
       .replace(/\u00A0/g, ' ');
-    return /^[\d\s\(\)\-\+\.]+$/.test(normalized);
+    // Strip any hidden/unexpected characters (copy/paste artifacts).
+    const sanitized = normalized.replace(/[^\d\s\(\)\-\+\.]/g, '');
+    const digits = sanitized.replace(/\D/g, '');
+    if (!digits.length) return false;
+    // Basic guardrail: if present, should look like a phone-ish value.
+    if (digits.length < 7) return false;
+    return /^[\d\s\(\)\-\+\.]+$/.test(sanitized);
   }).withMessage('Phone number must be a valid phone format or empty'),
   body('phoneExtension').optional({ nullable: true, checkFalsy: true }).matches(/^[a-zA-Z0-9]{0,10}$/).withMessage('Phone extension must be alphanumeric and max 10 characters'),
   body('portalUrl').optional({ nullable: true, checkFalsy: true }).custom((value) => {
@@ -248,7 +254,11 @@ const validateUpdateAgency = [
     const normalized = String(value)
       .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-')
       .replace(/\u00A0/g, ' ');
-    return /^[\d\s\(\)\-\+\.]+$/.test(normalized);
+    const sanitized = normalized.replace(/[^\d\s\(\)\-\+\.]/g, '');
+    const digits = sanitized.replace(/\D/g, '');
+    if (!digits.length) return false;
+    if (digits.length < 7) return false;
+    return /^[\d\s\(\)\-\+\.]+$/.test(sanitized);
   }).withMessage('Phone number must be a valid phone format or empty'),
   body('phoneExtension').optional({ nullable: true, checkFalsy: true }).matches(/^[a-zA-Z0-9]{0,10}$/).withMessage('Phone extension must be alphanumeric and max 10 characters'),
   body('portalUrl').optional({ nullable: true, checkFalsy: true }).custom((value) => {

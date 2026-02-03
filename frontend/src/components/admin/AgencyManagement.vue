@@ -5513,7 +5513,12 @@ const saveAgency = async () => {
       const base = normalizeNullableText(v);
       if (!base) return null;
       // Normalize common Unicode "smart" dashes (ex: U+2011) to ASCII hyphen.
-      return base.replace(/[‐‑‒–—−]/g, '-').replace(/\u00A0/g, ' ');
+      const normalized = base.replace(/[‐‑‒–—−]/g, '-').replace(/\u00A0/g, ' ');
+      // Strip any hidden/unexpected characters from copy/paste (keep phone-safe chars)
+      const sanitized = normalized.replace(/[^\d\s\(\)\-\+\.]/g, '');
+      const digits = sanitized.replace(/\D/g, '');
+      if (!digits) return null;
+      return sanitized.trim() || null;
     };
 
     const data = {
