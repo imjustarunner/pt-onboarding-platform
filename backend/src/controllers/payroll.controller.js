@@ -2409,6 +2409,101 @@ export const getPayrollReportAdjustmentsBreakdown = async (req, res, next) => {
   }
 };
 
+export const getPayrollReportHolidayHours = async (req, res, next) => {
+  try {
+    const payrollPeriodId = parseInt(req.params.id, 10);
+    if (!payrollPeriodId) return res.status(400).json({ error: { message: 'Pay period id is required' } });
+
+    const period = await PayrollPeriod.findById(payrollPeriodId);
+    if (!period) return res.status(404).json({ error: { message: 'Pay period not found' } });
+    if (!(await requirePayrollAccess(req, res, period.agency_id))) return;
+
+    const payrollImportId = await latestImportIdForPeriod(payrollPeriodId);
+    if (!payrollImportId) {
+      return res.json({ payrollPeriodId, payrollImportId: null, matched: [], unmatched: [] });
+    }
+
+    const payableClause = `(pir.note_status = 'FINALIZED' OR (pir.note_status = 'DRAFT' AND pir.draft_payable = 1))`;
+
+    // Matched users (preferred)
+    const [matched] = await pool.execute(
+      `SELECT
+         pir.user_id,
+         u.first_name,
+         u.last_name,
+         pir.provider_name,
+         pir.service_code,
+         COUNT(*) AS session_count,
+         SUM(COALESCE(pir.unit_count, 0)) AS units_total,
+         GROUP_CONCAT(DISTINCT DATE_FORMAT(pir.service_date, '%Y-%m-%d') ORDER BY pir.service_date ASC SEPARATOR ',') AS holiday_dates_csv
+       FROM payroll_import_rows pir
+       JOIN agency_holidays ah
+         ON ah.agency_id = ?
+        AND ah.holiday_date = pir.service_date
+       LEFT JOIN users u ON u.id = pir.user_id
+       WHERE pir.payroll_period_id = ?
+         AND pir.payroll_import_id = ?
+         AND pir.agency_id = ?
+         AND pir.user_id IS NOT NULL
+         AND ${payableClause}
+       GROUP BY pir.user_id, pir.service_code
+       ORDER BY u.last_name ASC, u.first_name ASC, pir.service_code ASC`,
+      [period.agency_id, payrollPeriodId, payrollImportId, period.agency_id]
+    );
+
+    // Unmatched provider-name rows (no user_id)
+    const [unmatched] = await pool.execute(
+      `SELECT
+         pir.provider_name,
+         pir.service_code,
+         COUNT(*) AS session_count,
+         SUM(COALESCE(pir.unit_count, 0)) AS units_total,
+         GROUP_CONCAT(DISTINCT DATE_FORMAT(pir.service_date, '%Y-%m-%d') ORDER BY pir.service_date ASC SEPARATOR ',') AS holiday_dates_csv
+       FROM payroll_import_rows pir
+       JOIN agency_holidays ah
+         ON ah.agency_id = ?
+        AND ah.holiday_date = pir.service_date
+       WHERE pir.payroll_period_id = ?
+         AND pir.payroll_import_id = ?
+         AND pir.agency_id = ?
+         AND pir.user_id IS NULL
+         AND pir.provider_name IS NOT NULL
+         AND TRIM(pir.provider_name) <> ''
+         AND ${payableClause}
+       GROUP BY pir.provider_name, pir.service_code
+       ORDER BY pir.provider_name ASC, pir.service_code ASC`,
+      [period.agency_id, payrollPeriodId, payrollImportId, period.agency_id]
+    );
+
+    res.json({
+      payrollPeriodId,
+      payrollImportId,
+      matched: (matched || []).map((r) => ({
+        user_id: Number(r.user_id || 0),
+        first_name: r.first_name || null,
+        last_name: r.last_name || null,
+        provider_name: r.provider_name || null,
+        service_code: r.service_code,
+        session_count: Number(r.session_count || 0),
+        units_total: Number(r.units_total || 0),
+        holiday_dates_csv: r.holiday_dates_csv || ''
+      })),
+      unmatched: (unmatched || []).map((r) => ({
+        provider_name: r.provider_name || null,
+        service_code: r.service_code,
+        session_count: Number(r.session_count || 0),
+        units_total: Number(r.units_total || 0),
+        holiday_dates_csv: r.holiday_dates_csv || ''
+      }))
+    });
+  } catch (e) {
+    if (e?.code === 'ER_NO_SUCH_TABLE') {
+      return res.json({ payrollPeriodId: parseInt(req.params.id, 10) || null, payrollImportId: null, matched: [], unmatched: [], skipped: true });
+    }
+    next(e);
+  }
+};
+
 function csvEscape(v) {
   const s = v === null || v === undefined ? '' : String(v);
   if (/[",\n]/.test(s)) return `"${s.replaceAll('"', '""')}"`;

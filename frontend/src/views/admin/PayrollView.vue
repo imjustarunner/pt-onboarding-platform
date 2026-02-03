@@ -1571,6 +1571,65 @@
               </div>
             </div>
           </div>
+
+          <div v-if="showHolidayHoursModal" class="modal-backdrop">
+            <div class="modal" style="width: min(980px, 100%);">
+              <div class="modal-header">
+                <div>
+                  <div class="modal-title">Holiday hours (review)</div>
+                  <div class="hint">Payable services from the latest import that occurred on configured holiday dates.</div>
+                </div>
+                <div class="actions" style="margin: 0;">
+                  <button class="btn btn-secondary btn-sm" type="button" @click="loadHolidayHoursReport" :disabled="holidayHoursLoading || !selectedPeriodId">
+                    Refresh
+                  </button>
+                  <button class="btn btn-secondary btn-sm" type="button" @click="showHolidayHoursModal = false" style="margin-left: 8px;">
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="holidayHoursError" class="warn-box" style="margin-top: 12px;">{{ holidayHoursError }}</div>
+              <div v-if="holidayHoursLoading" class="muted" style="margin-top: 12px;">Loading holiday hours…</div>
+
+              <div v-else style="margin-top: 12px;">
+                <div v-if="!(holidayHoursMatched || []).length" class="muted">
+                  No payable services on configured holiday dates were found for this pay period (latest import).
+                </div>
+
+                <div v-else class="table-wrap">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Provider</th>
+                        <th>Service code</th>
+                        <th>Holiday dates</th>
+                        <th class="right">Sessions</th>
+                        <th class="right">Units</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="r in holidayHoursMatched" :key="`${r.user_id}:${r.service_code}`">
+                        <td>{{ holidayHoursProviderLabel(r) }}</td>
+                        <td>{{ r.service_code }}</td>
+                        <td class="muted">{{ r.holiday_dates_csv || '—' }}</td>
+                        <td class="right">{{ fmtNum(Number(r.session_count || 0)) }}</td>
+                        <td class="right"><strong>{{ fmtNum(Number(r.units_total || 0)) }}</strong></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div v-if="(holidayHoursUnmatched || []).length" class="warn-box" style="margin-top: 12px;">
+                  <div><strong>Unmatched providers</strong> (no user match on import row):</div>
+                  <div class="muted" style="margin-top: 6px;">
+                    {{ holidayHoursUnmatched.slice(0, 25).map((x) => `${x.provider_name || '—'} (${x.service_code})`).join(', ') }}
+                    <span v-if="holidayHoursUnmatched.length > 25" class="muted">… (+{{ holidayHoursUnmatched.length - 25 }} more)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </teleport>
 
         <!-- Payroll Stage modal -->
@@ -1590,6 +1649,16 @@
                   :title="isPeriodPosted ? 'This pay period is posted. Unpost first if you need to restage.' : 'Clear run results and return this pay period to staging (does not delete imports or edits).'"
                 >
                   {{ restagingPeriod ? 'Restaging…' : 'Restage' }}
+                </button>
+                <button
+                  class="btn btn-secondary btn-sm"
+                  type="button"
+                  @click="openHolidayHoursModal"
+                  :disabled="!selectedPeriodId"
+                  style="margin-left: 8px;"
+                  title="Review payable imported services that occurred on configured holiday dates (latest import)."
+                >
+                  Review holiday hours
                 </button>
                 <button
                   v-if="isSuperAdmin && isPeriodPosted"
@@ -4478,6 +4547,7 @@ const showRunModal = ref(false);
 const showPayrollToolsModal = ref(false);
 const showSubmitOnBehalfModal = ref(false);
 const showTodoModal = ref(false);
+const showHolidayHoursModal = ref(false);
 const showPayrollWizardModal = ref(false);
 const payrollToolsTab = ref('compare'); // compare | viewer
 const payrollToolsLoading = ref(false);
@@ -4487,6 +4557,11 @@ const toolsFile2 = ref(null);
 const toolsViewerFile = ref(null);
 const payrollToolsCompareResult = ref(null);
 const payrollToolsViewerResult = ref(null);
+
+const holidayHoursLoading = ref(false);
+const holidayHoursError = ref('');
+const holidayHoursMatched = ref([]);
+const holidayHoursUnmatched = ref([]);
 
 // Compare controls
 const payrollToolsCompareMode = ref('detail'); // detail | summary
@@ -8525,6 +8600,35 @@ const loadStaging = async () => {
   } finally {
     stagingLoading.value = false;
   }
+};
+
+const loadHolidayHoursReport = async () => {
+  if (!selectedPeriodId.value) return;
+  try {
+    holidayHoursLoading.value = true;
+    holidayHoursError.value = '';
+    const resp = await api.get(`/payroll/periods/${selectedPeriodId.value}/reports/holiday-hours`);
+    holidayHoursMatched.value = (resp.data?.matched || []).filter((r) => !!r && typeof r === 'object');
+    holidayHoursUnmatched.value = (resp.data?.unmatched || []).filter((r) => !!r && typeof r === 'object');
+  } catch (e) {
+    holidayHoursError.value = e.response?.data?.error?.message || e.message || 'Failed to load holiday hours report';
+    holidayHoursMatched.value = [];
+    holidayHoursUnmatched.value = [];
+  } finally {
+    holidayHoursLoading.value = false;
+  }
+};
+
+const openHolidayHoursModal = async () => {
+  showHolidayHoursModal.value = true;
+  await loadHolidayHoursReport();
+};
+
+const holidayHoursProviderLabel = (r) => {
+  const uid = Number(r?.user_id || 0);
+  if (uid > 0) return nameForUserId(uid);
+  const raw = String(r?.provider_name || '').trim();
+  return raw || '—';
 };
 
 const beginStageCarryoverEdit = () => {

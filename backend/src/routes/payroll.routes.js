@@ -145,6 +145,7 @@ import {
   ,getPayrollReportSessionsUnits
   ,getPayrollReportProviderPaySummary
   ,getPayrollReportAdjustmentsBreakdown
+  ,getPayrollReportHolidayHours
   ,listUserSalaryPositions
   ,upsertUserSalaryPosition
   ,deleteUserSalaryPosition
@@ -171,6 +172,7 @@ router.get('/periods/:id/reports/sessions-units', getPayrollReportSessionsUnits)
 router.get('/periods/:id/reports/late-notes', getPayrollReportLateNotesTotals);
 router.get('/periods/:id/reports/provider-pay-summary', getPayrollReportProviderPaySummary);
 router.get('/periods/:id/reports/adjustments-breakdown', getPayrollReportAdjustmentsBreakdown);
+router.get('/periods/:id/reports/holiday-hours', getPayrollReportHolidayHours);
 router.get('/periods/:id/raw.csv', downloadPayrollRawCsv);
 router.get('/periods/:id/export.csv', downloadPayrollExportCsv);
 router.get('/periods/:id/staging', getPayrollStaging);
