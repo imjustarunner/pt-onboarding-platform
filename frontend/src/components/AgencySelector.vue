@@ -1,6 +1,9 @@
 <template>
   <div class="agency-selector">
-    <div v-if="agencies.length > 0" class="selector-group">
+    <div
+      v-if="agencies.length > 0 && !(roleNorm === 'school_staff' && agencies.length === 1)"
+      class="selector-group"
+    >
       <label>Agency</label>
       <select v-model="selectedAgencyId" @change="handleAgencyChange" class="selector">
         <option v-for="agency in agencies" :key="agency.id" :value="agency.id">
