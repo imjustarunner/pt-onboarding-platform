@@ -85,7 +85,7 @@ export function eligibleServiceCodesForTier(tier) {
   return Array.from(QBHA_CODES); // safest default
 }
 
-export function assertServiceCodeAllowed({ tier, serviceCode }) {
+export function assertServiceCodeAllowed({ tier, serviceCode, allowedCodes = null }) {
   const code = String(serviceCode || '').trim().toUpperCase();
   if (!code) {
     const err = new Error('serviceCode is required');
@@ -96,7 +96,8 @@ export function assertServiceCodeAllowed({ tier, serviceCode }) {
   const t = String(tier || '').trim().toLowerCase();
   if (t === 'intern_plus') return true;
 
-  const allowed = new Set(eligibleServiceCodesForTier(tier) || []);
+  const allowedList = Array.isArray(allowedCodes) ? allowedCodes : eligibleServiceCodesForTier(tier);
+  const allowed = new Set(allowedList || []);
   if (!allowed.has(code)) {
     const err = new Error(`You are not permitted to submit service code ${code}`);
     err.status = 403;

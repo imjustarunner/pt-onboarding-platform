@@ -61,7 +61,8 @@ async function requireClinicalNoteGeneratorEnabled(req, res, agencyId) {
   try {
     const agency = await Agency.findById(agencyId);
     const flags = parseFlags(agency?.feature_flags);
-    const enabled = isTruthyFlag(flags?.clinicalNoteGeneratorEnabled);
+    // Back-compat: treat Note Aid as the paid feature toggle.
+    const enabled = isTruthyFlag(flags?.noteAidEnabled) || isTruthyFlag(flags?.clinicalNoteGeneratorEnabled);
     if (!enabled) {
       res.status(403).json({ error: { message: 'Clinical Note Generator is disabled for this organization' } });
       return false;
@@ -123,6 +124,48 @@ function normalizeDateOnly(s) {
   return v.slice(0, 10);
 }
 
+async function getAgencyServiceCodeCatalog({ agencyId }) {
+  const aid = safeInt(agencyId);
+  if (!aid) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT service_code
+       FROM payroll_service_code_rules
+       WHERE agency_id = ?
+         -- Allow common modifiers (ex: H0031U4) but exclude plain words like "MEETING".
+         AND service_code REGEXP '^[A-Za-z0-9]{4,12}$'
+         AND service_code REGEXP '[0-9]'
+       ORDER BY service_code ASC
+       LIMIT 500`,
+      [aid]
+    );
+    const list = (rows || [])
+      .map((r) => String(r?.service_code || '').trim().toUpperCase())
+      .filter(Boolean);
+    if (list.length) return list;
+
+    // Fallback: if the agency hasn't configured a dictionary yet, use global known codes
+    // from other agencies' dictionaries (still filtered to code-like values).
+    const [globalRows] = await pool.execute(
+      `SELECT DISTINCT service_code
+       FROM payroll_service_code_rules
+       WHERE service_code REGEXP '^[A-Za-z0-9]{4,12}$'
+         AND service_code REGEXP '[0-9]'
+       ORDER BY service_code ASC
+       LIMIT 500`
+    );
+    return (globalRows || [])
+      .map((r) => String(r?.service_code || '').trim().toUpperCase())
+      .filter(Boolean);
+  } catch (e) {
+    // Best-effort: table/column may not exist in some deployments.
+    if (e?.code === 'ER_NO_SUCH_TABLE' || e?.code === 'ER_BAD_FIELD_ERROR') return [];
+    const msg = String(e?.message || '');
+    if (msg.includes('ER_NO_SUCH_TABLE') || msg.includes('Unknown column') || msg.includes("doesn't exist")) return [];
+    throw e;
+  }
+}
+
 export const getClinicalNotesContext = async (req, res, next) => {
   try {
     if (!requireNotSchoolStaff(req, res)) return;
@@ -140,7 +183,10 @@ export const getClinicalNotesContext = async (req, res, next) => {
       userRole: req.user?.role,
       providerCredentialText
     });
-    const eligibleServiceCodes = eligibleServiceCodesForTier(tier); // null means "all"
+    const serviceCodeCatalog = await getAgencyServiceCodeCatalog({ agencyId });
+    // If the agency has a defined service-code dictionary, prefer it for the dropdown.
+    // This makes the UI show "many" codes without hardcoding them in the frontend.
+    const eligibleServiceCodes = serviceCodeCatalog.length ? serviceCodeCatalog : eligibleServiceCodesForTier(tier); // null means "all"
     res.json({
       providerCredentialText: providerCredentialText || '',
       derivedTier: tier,
@@ -318,7 +364,11 @@ export const generateClinicalNote = async (req, res, next) => {
 
     const providerCredentialText = await getProviderCredentialTextForUserId(req.user?.id);
     const tier = deriveCredentialTier({ userRole: req.user?.role, providerCredentialText });
-    assertServiceCodeAllowed({ tier, serviceCode });
+    const serviceCodeCatalog = await getAgencyServiceCodeCatalog({ agencyId });
+    // If the agency has a code dictionary, enforce that codes come from it (for non-intern_plus tiers).
+    // Intern+ remains "all codes allowed".
+    const allowedCodes = serviceCodeCatalog.length ? serviceCodeCatalog : null;
+    assertServiceCodeAllowed({ tier, serviceCode, allowedCodes });
 
     const audio = normalizeAudioFile(req.file);
 

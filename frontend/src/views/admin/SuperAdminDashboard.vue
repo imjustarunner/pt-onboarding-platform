@@ -249,7 +249,10 @@ const isTruthyFlag = (v) => {
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 };
 const clinicalNoteGeneratorEnabledForAgency = computed(() =>
-  isTruthyFlag(parseFeatureFlags(currentAgency.value?.feature_flags)?.clinicalNoteGeneratorEnabled)
+  (() => {
+    const flags = parseFeatureFlags(currentAgency.value?.feature_flags);
+    return isTruthyFlag(flags?.noteAidEnabled) || isTruthyFlag(flags?.clinicalNoteGeneratorEnabled);
+  })()
 );
 
 const quickActions = computed(() => {
@@ -278,9 +281,9 @@ const quickActions = computed(() => {
   },
   {
     id: 'clinical_note_generator',
-    title: 'Clinical Note Generator',
-    description: 'Generate structured clinical notes (audio + text)',
-    to: '/admin/clinical-note-generator',
+    title: 'Note Aid',
+    description: 'Clinical Director Agent (audio + text)',
+    to: '/admin/note-aid',
     emoji: '🩺',
     category: 'Clinical',
     roles: ['admin', 'support', 'super_admin', 'staff', 'provider', 'intern', 'clinical_practice_assistant', 'supervisor'],

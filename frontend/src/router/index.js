@@ -119,6 +119,17 @@ const routes = [
   },
   // Slug-prefixed authenticated routes (branded portal)
   {
+    path: '/:organizationSlug/admin/note-aid',
+    name: 'OrganizationNoteAid',
+    // Note Aid now runs the Clinical Director Agent note generator.
+    component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin', 'intern'],
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/preferences',
     name: 'OrganizationPreferences',
     redirect: (to) => `/${to.params.organizationSlug}/dashboard?tab=my&my=preferences`,
@@ -310,7 +321,7 @@ const routes = [
   {
     path: '/:organizationSlug/admin/clinical-note-generator',
     name: 'OrganizationClinicalNoteGenerator',
-    component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
+    redirect: (to) => `/${to.params.organizationSlug}/admin/note-aid`,
     meta: {
       requiresAuth: true,
       requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin', 'intern'],
@@ -644,13 +655,15 @@ const routes = [
   {
     path: '/admin/note-aid',
     name: 'NoteAid',
-    component: () => import('../views/admin/NoteAidView.vue'),
+    // Note Aid now runs the Clinical Director Agent note generator.
+    component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin'] }
   },
+  // Backward compatible: old route now redirects to Note Aid.
   {
     path: '/admin/clinical-note-generator',
     name: 'ClinicalNoteGenerator',
-    component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
+    redirect: '/admin/note-aid',
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin', 'intern'] }
   },
   {

@@ -795,9 +795,9 @@ const dashboardCards = computed(() => {
         if (clinicalNoteGeneratorEnabledForAgency.value && (isProvider || role === 'intern')) {
           cards.push({
             id: 'clinical_note_generator',
-            label: 'Clinical Note Generator',
+            label: 'Note Aid',
             kind: 'link',
-            to: '/admin/clinical-note-generator',
+            to: '/admin/note-aid',
             badgeCount: 0,
             iconUrl: brandingStore.getDashboardCardIconUrl('clinical_note_generator', cardIconOrgOverride),
             description: 'Generate structured clinical notes (audio + text).'
@@ -1056,7 +1056,9 @@ const portalVariant = computed(() => String(agencyFlags.value?.portalVariant || 
 const providerSurfacesEnabled = computed(() => portalVariant.value !== 'employee');
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
-const clinicalNoteGeneratorEnabledForAgency = computed(() => isTruthyFlag(agencyFlags.value?.clinicalNoteGeneratorEnabled));
+const clinicalNoteGeneratorEnabledForAgency = computed(() =>
+  isTruthyFlag(agencyFlags.value?.noteAidEnabled) || isTruthyFlag(agencyFlags.value?.clinicalNoteGeneratorEnabled)
+);
 
 const assignedSchools = ref([]);
 const assignedSchoolsLoading = ref(false);

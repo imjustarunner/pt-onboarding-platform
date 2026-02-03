@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <router-link :to="orgTo('/admin')" class="back-link">← Back to Admin</router-link>
-        <h1>Clinical Note Generator</h1>
+        <h1>Note Aid</h1>
         <p class="subtitle">Record or paste your session details, then generate a structured note.</p>
       </div>
     </div>
@@ -213,9 +213,11 @@ const isTruthyFlag = (v) => {
   const s = String(v ?? '').trim().toLowerCase();
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
 };
-const clinicalNoteGeneratorEnabled = computed(() =>
-  isTruthyFlag(parseFeatureFlags(agencyStore.currentAgency?.feature_flags)?.clinicalNoteGeneratorEnabled)
-);
+const clinicalNoteGeneratorEnabled = computed(() => {
+  const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags);
+  // Back-compat: paid toggle may be stored as noteAidEnabled or clinicalNoteGeneratorEnabled.
+  return isTruthyFlag(flags?.noteAidEnabled) || isTruthyFlag(flags?.clinicalNoteGeneratorEnabled);
+});
 const canUseTool = computed(() => !!currentAgencyId.value && clinicalNoteGeneratorEnabled.value);
 
 // Context (credential + eligible codes)
@@ -294,7 +296,8 @@ const STATIC_COMMON_CODES = [
   '99416'
 ];
 
-const canUseOtherCode = computed(() => String(derivedTier.value || '').toLowerCase() === 'intern_plus');
+// Allow manual entry if a code isn't listed; backend still enforces eligibility.
+const canUseOtherCode = computed(() => true);
 
 const serviceCodeOptions = computed(() => {
   const raw = eligibleServiceCodes.value;
@@ -324,7 +327,6 @@ const generateDisabled = computed(() => {
   const sc = actualServiceCode.value;
   if (!sc) return true;
   if (!String(inputText.value || '').trim()) return true;
-  if (selectedServiceCode.value === '__other__' && !canUseOtherCode.value) return true;
   return false;
 });
 
