@@ -127,7 +127,7 @@
               Comments are meant to inform everyone of any info (non clinical and no PHI) that may be beneficial for all parties to be aware (e.g., the client is on vacation).
             </div>
 
-            <div class="comments">
+            <div class="comments pane-scroll">
               <div v-if="comments.length === 0" class="empty">No comments yet.</div>
               <table v-else class="comments-table">
                 <thead>
@@ -174,11 +174,16 @@
               Messages are for questions/inquiries and are tracked as tickets (no PHI).
             </div>
 
-            <ClientTicketThreadPanel
-              v-if="props.schoolOrganizationId"
-              :client="props.client"
-              :school-organization-id="props.schoolOrganizationId"
-            />
+            <div class="pane-scroll">
+              <ClientTicketThreadPanel
+                v-if="props.schoolOrganizationId"
+                :client="props.client"
+                :school-organization-id="props.schoolOrganizationId"
+              />
+              <div v-else class="muted" style="padding: 10px 2px;">
+                Messages are not available (missing organization context).
+              </div>
+            </div>
           </section>
         </div>
       </div>
@@ -531,13 +536,21 @@ watch(
   line-height: 1.25;
   white-space: pre-wrap;
 }
-.body { padding: 16px; display: grid; grid-template-columns: 1fr; gap: 12px; }
+.body {
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 
 .dual {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  align-items: start;
+  align-items: stretch;
   min-height: 0;
   min-width: 0;
   transition: grid-template-columns 160ms ease;
@@ -554,10 +567,12 @@ watch(
   border-radius: 12px;
   background: white;
   padding: 10px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 .pane-header {
   display: flex;
@@ -598,8 +613,12 @@ watch(
   border-radius: 12px;
   background: var(--bg-alt);
   padding: 10px;
+}
+
+.pane-scroll {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
-  max-height: 40vh;
 }
 .comments-table {
   width: 100%;
