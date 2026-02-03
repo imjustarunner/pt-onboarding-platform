@@ -367,7 +367,7 @@
       ></div>
       <main>
         <!-- Keep legacy selector for non-super-admin users; super admins use the top-nav switcher -->
-        <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
+        <AgencySelector v-if="isAuthenticated && !brandingStore.isSuperAdmin" />
         <router-view />
       </main>
       <HelperWidget v-if="isAuthenticated" />
@@ -681,9 +681,8 @@ const user = computed(() => authStore.user);
 const hideGlobalNavForSchoolStaff = computed(() => {
   if (!isAuthenticated.value) return false;
   const role = String(user.value?.role || '').toLowerCase();
-  if (role !== 'school_staff') return false;
-  const orgType = String(organizationStore.organizationContext?.organization_type || '').toLowerCase();
-  return orgType === 'school';
+  // School staff should only use the School Portal UX (no global nav / personal dashboard).
+  return role === 'school_staff';
 });
 
 const capabilities = computed(() => user.value?.capabilities || null);

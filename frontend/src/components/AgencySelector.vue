@@ -25,7 +25,19 @@ const route = useRoute();
 
 const selectedAgencyId = ref(agencyStore.currentAgency?.id || null);
 
-const agencies = computed(() => agencyStore.agencies);
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isPortalOrg = (a) => {
+  const t = String(a?.organization_type || a?.organizationType || '').toLowerCase();
+  return t === 'school' || t === 'program' || t === 'learning';
+};
+
+const agencies = computed(() => {
+  const list = Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [];
+  if (roleNorm.value !== 'school_staff') return list;
+  const portal = list.filter(isPortalOrg);
+  // Best-effort fallback for older payloads missing organization_type.
+  return portal.length ? portal : list;
+});
 
 const handleAgencyChange = () => {
   const agency = agencies.value.find(a => a.id === selectedAgencyId.value);
@@ -55,7 +67,7 @@ onMounted(async () => {
   // For super_admin, load all agencies (not just assigned)
   if (authStore.user?.role === 'super_admin') {
     await agencyStore.fetchAgencies();
-  } else if (authStore.user?.id && authStore.user?.type !== 'approved_employee') {
+  } else if (roleNorm.value !== 'school_staff' && authStore.user?.id && authStore.user?.type !== 'approved_employee') {
     // Regular users/admins: load assigned agencies
     await agencyStore.fetchAgencies(authStore.user.id);
   }
