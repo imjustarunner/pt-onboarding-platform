@@ -536,12 +536,14 @@ watch(
   gap: 12px;
   align-items: start;
   min-height: 0;
+  min-width: 0;
+  transition: grid-template-columns 160ms ease;
 }
 .dual.dual-active-comments {
-  grid-template-columns: 1.6fr 0.9fr;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 1fr);
 }
 .dual.dual-active-messages {
-  grid-template-columns: 0.9fr 1.6fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 4fr);
 }
 
 .pane {
@@ -552,6 +554,7 @@ watch(
   display: grid;
   gap: 10px;
   min-height: 0;
+  min-width: 0;
 }
 .pane-header {
   display: flex;
@@ -599,6 +602,7 @@ watch(
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: fixed;
 }
 .comments-table th,
 .comments-table td {
@@ -617,6 +621,7 @@ watch(
 }
 .comments-table td.note {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;

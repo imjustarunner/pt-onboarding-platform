@@ -419,6 +419,7 @@ onMounted(loadTickets);
   grid-template-columns: 260px 1fr;
   gap: 12px;
   min-height: 0;
+  min-width: 0;
 }
 
 .tickets {
@@ -429,6 +430,7 @@ onMounted(loadTickets);
   border-radius: 12px;
   background: white;
   padding: 10px;
+  min-width: 0;
 }
 
 .tickets-header {
@@ -505,6 +507,7 @@ onMounted(loadTickets);
   font-size: 12px;
   line-height: 1.25;
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .thread {
@@ -512,6 +515,7 @@ onMounted(loadTickets);
   min-height: 0;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .thread-inner {

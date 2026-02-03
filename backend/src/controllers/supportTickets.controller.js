@@ -433,8 +433,8 @@ export const listClientSupportTickets = async (req, res, next) => {
        WHERE school_organization_id = ?
          AND client_id = ?
        ORDER BY created_at DESC, id DESC
-       LIMIT ?`,
-      [schoolOrganizationId, clientId, limit]
+       LIMIT ${limit}`,
+      [schoolOrganizationId, clientId]
     );
 
     res.json({ tickets: rows || [] });
