@@ -557,8 +557,16 @@
     <div v-if="expandedId" class="details card">
       <h2 class="card-title">Breakdown</h2>
       <div v-if="expanded">
-        <div class="warn-box prior-notes-included" v-if="expanded.breakdown && expanded.breakdown.__carryover && (expanded.breakdown.__carryover.oldDoneNotesUnitsTotal || 0) > 0" style="margin-bottom: 10px;">
-          <div><strong>Prior notes included in this payroll:</strong> {{ fmtNum(expanded.breakdown.__carryover.oldDoneNotesUnitsTotal) }} units</div>
+        <div
+          class="warn-box prior-notes-included"
+          v-if="expanded.breakdown && expanded.breakdown.__carryover && ((expanded.breakdown.__carryover.carryoverNotesTotal || expanded.breakdown.__carryover.oldDoneNotesNotesTotal || 0) > 0)"
+          style="margin-bottom: 10px;"
+        >
+          <div>
+            <strong>Prior notes included in this payroll:</strong>
+            {{ fmtNum(expanded.breakdown.__carryover.carryoverNotesTotal ?? expanded.breakdown.__carryover.oldDoneNotesNotesTotal ?? 0) }}
+            notes
+          </div>
           <div class="muted">Reminder: complete prior-period notes by Sunday 11:59pm after the pay period ends to avoid compensation delays.</div>
         </div>
         <div
@@ -592,9 +600,9 @@
             <strong>{{ fmtDateRange(twoPeriodsAgo.period_start, twoPeriodsAgo.period_end) }}</strong>
           </div>
           <div style="margin-top: 6px;">
-            <strong>No Note:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.noNote) }} units
+            <strong>No Note:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.noNote) }} notes
             <span class="muted">•</span>
-            <strong>Draft:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.draft) }} units
+            <strong>Draft:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.draft) }} notes
           </div>
           <div class="muted" style="margin-top: 6px;">
             Complete outstanding notes to be included in a future payroll.
@@ -606,12 +614,12 @@
             <strong>Unpaid notes in this pay period</strong>
           </div>
           <div style="margin-top: 6px;">
-            <strong>No Note:</strong> {{ fmtNum(expandedUnpaid.noNote) }} units
+            <strong>No Note:</strong> {{ fmtNum(expandedUnpaid.noNote) }} notes
             <span class="muted">•</span>
-            <strong>Draft:</strong> {{ fmtNum(expandedUnpaid.draft) }} units
+            <strong>Draft:</strong> {{ fmtNum(expandedUnpaid.draft) }} notes
           </div>
           <div class="muted" style="margin-top: 6px;">
-            These units were not paid this period. Complete outstanding notes to be included in a future payroll.
+            These notes were not paid this period. Complete outstanding notes to be included in a future payroll.
           </div>
           <div class="muted" style="margin-top: 6px;">
             Due to our EHR system, we are unable to differentiate a note that is incomplete for a session that did occur from a note that is incomplete for a session that did not occur.
@@ -2159,10 +2167,13 @@ const expandedId = ref(null);
 const expanded = computed(() => periods.value.find((p) => p.payroll_period_id === expandedId.value) || null);
 const expandedUnpaid = computed(() => {
   const p = expanded.value;
-  const noNote = Number(p?.no_note_units || 0);
-  const draft = Number(p?.draft_units || 0);
-  const total = noNote + draft;
-  return { noNote, draft, total };
+  const c = p?.unpaidNotesCounts || null;
+  if (c && typeof c === 'object') {
+    const noNote = Number(c.noNote || 0);
+    const draft = Number(c.draft || 0);
+    return { noNote, draft, total: noNote + draft };
+  }
+  return { noNote: 0, draft: 0, total: 0 };
 });
 
 const chronologicalPeriods = computed(() => {
@@ -2185,10 +2196,13 @@ const twoPeriodsAgo = computed(() => {
 
 const twoPeriodsAgoUnpaid = computed(() => {
   const p = twoPeriodsAgo.value;
-  const noNote = Number(p?.no_note_units || 0);
-  const draft = Number(p?.draft_units || 0);
-  const total = noNote + draft;
-  return { noNote, draft, total };
+  const c = p?.unpaidNotesCounts || null;
+  if (c && typeof c === 'object') {
+    const noNote = Number(c.noNote || 0);
+    const draft = Number(c.draft || 0);
+    return { noNote, draft, total: noNote + draft };
+  }
+  return { noNote: 0, draft: 0, total: 0 };
 });
 const payTypeSummary = computed(() => {
   const b = expanded.value?.breakdown || null;

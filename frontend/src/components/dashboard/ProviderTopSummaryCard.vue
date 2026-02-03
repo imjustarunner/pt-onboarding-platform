@@ -36,25 +36,26 @@
       <div class="cell" v-if="isProvider">
         <div class="label">Incomplete notes (last pay period)</div>
         <div class="value">
-          {{ fmtNum(summary?.unpaidNotes?.lastPayPeriod?.totalUnits || 0) }}
-          <span class="muted">units</span>
+          {{ fmtNum(summary?.unpaidNotes?.lastPayPeriod?.totalNotes ?? summary?.unpaidNotes?.lastPayPeriod?.totalUnits || 0) }}
+          <span class="muted">notes</span>
         </div>
         <div class="muted small">
-          No Note {{ fmtNum(summary?.unpaidNotes?.lastPayPeriod?.noNoteUnits || 0) }} · Draft {{ fmtNum(summary?.unpaidNotes?.lastPayPeriod?.draftUnits || 0) }}
+          No Note {{ fmtNum(summary?.unpaidNotes?.lastPayPeriod?.noNoteNotes ?? summary?.unpaidNotes?.lastPayPeriod?.noNoteUnits || 0) }} ·
+          Draft {{ fmtNum(summary?.unpaidNotes?.lastPayPeriod?.draftNotes ?? summary?.unpaidNotes?.lastPayPeriod?.draftUnits || 0) }}
         </div>
       </div>
 
-      <div class="cell" v-if="isProvider && (summary?.unpaidNotes?.priorStillUnpaid?.totalUnits || 0) > 0">
+      <div class="cell" v-if="isProvider && (summary?.unpaidNotes?.priorStillUnpaid?.totalNotes || summary?.unpaidNotes?.priorStillUnpaid?.totalUnits || 0) > 0">
         <div class="label">Still unpaid from prior pay period</div>
-        <div class="value danger">{{ fmtNum(summary.unpaidNotes.priorStillUnpaid.totalUnits) }} <span class="muted">units</span></div>
+        <div class="value danger">{{ fmtNum(summary.unpaidNotes.priorStillUnpaid.totalNotes ?? summary.unpaidNotes.priorStillUnpaid.totalUnits) }} <span class="muted">notes</span></div>
         <div class="muted small">
           {{ summary.unpaidNotes.priorStillUnpaid.periodStart }} → {{ summary.unpaidNotes.priorStillUnpaid.periodEnd }}
         </div>
       </div>
 
-      <div class="cell" v-if="isProvider && (summary?.unpaidNotes?.twoPeriodsOld?.totalUnits || 0) > 0">
+      <div class="cell" v-if="isProvider && (summary?.unpaidNotes?.twoPeriodsOld?.totalNotes || summary?.unpaidNotes?.twoPeriodsOld?.totalUnits || 0) > 0">
         <div class="label">Aging unpaid notes (2 pay periods old)</div>
-        <div class="value danger">{{ fmtNum(summary.unpaidNotes.twoPeriodsOld.totalUnits) }} <span class="muted">units</span></div>
+        <div class="value danger">{{ fmtNum(summary.unpaidNotes.twoPeriodsOld.totalNotes ?? summary.unpaidNotes.twoPeriodsOld.totalUnits) }} <span class="muted">notes</span></div>
         <div class="muted small">
           {{ summary.unpaidNotes.twoPeriodsOld.periodStart }} → {{ summary.unpaidNotes.twoPeriodsOld.periodEnd }}
         </div>

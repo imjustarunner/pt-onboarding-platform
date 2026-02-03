@@ -648,8 +648,8 @@
               </div>
 
               <!-- These match provider-facing notices in My Payroll -->
-              <div class="warn-box prior-notes-included" v-if="previewPostV2CarryoverUnits > 0" style="margin-bottom: 10px;">
-                <div><strong>Prior notes included in this payroll:</strong> {{ fmtNum(previewPostV2CarryoverUnits) }} units</div>
+              <div class="warn-box prior-notes-included" v-if="previewPostV2CarryoverNotes > 0" style="margin-bottom: 10px;">
+                <div><strong>Prior notes included in this payroll:</strong> {{ fmtNum(previewPostV2CarryoverNotes) }} notes</div>
                 <div class="muted">Reminder: complete prior-period notes by Sunday 11:59pm after the pay period ends to avoid compensation delays.</div>
               </div>
 
@@ -680,12 +680,12 @@
               >
                 <div><strong>Unpaid notes in this pay period</strong></div>
                 <div style="margin-top: 6px;">
-                  <strong>No Note:</strong> {{ fmtNum(previewPostV2UnpaidInPeriod.noNote) }} units
+                  <strong>No Note:</strong> {{ fmtNum(previewPostV2UnpaidInPeriod.noNote) }} notes
                   <span class="muted">•</span>
-                  <strong>Draft:</strong> {{ fmtNum(previewPostV2UnpaidInPeriod.draft) }} units
+                  <strong>Draft:</strong> {{ fmtNum(previewPostV2UnpaidInPeriod.draft) }} notes
                 </div>
                 <div class="muted" style="margin-top: 6px;">
-                  These units were not paid this period. Complete outstanding notes to be included in a future payroll.
+                  These notes were not paid this period. Complete outstanding notes to be included in a future payroll.
                 </div>
               </div>
 
@@ -1106,13 +1106,13 @@
 
     </div>
 
-    <!-- Cross-agency aggregate for Process Changes / carryover -->
-    <div class="card" v-if="(processChangesAggregate || []).length" style="margin-bottom: 12px;">
+    <!-- Process Changes Aggregate (scoped to current agency) -->
+    <div class="card" v-if="(processChangesAggregateForAgency || []).length" style="margin-bottom: 12px;">
       <div class="actions" style="justify-content: space-between;">
         <div>
           <h2 class="card-title" style="margin-bottom: 4px;">Process Changes Aggregate</h2>
           <div class="hint">
-            Tracks carryover you’ve applied across agencies so you can switch orgs and still see the total.
+            Tracks carryover you’ve applied for this agency.
           </div>
         </div>
         <div class="actions" style="margin: 0;">
@@ -1122,7 +1122,7 @@
         </div>
       </div>
 
-      <div class="field-row" style="grid-template-columns: repeat(3, 1fr); margin-top: 10px;">
+      <div class="field-row" style="grid-template-columns: repeat(4, 1fr); margin-top: 10px;">
         <div class="card" style="padding: 10px;">
           <div class="hint muted">Agencies</div>
           <div style="font-size: 18px;"><strong>{{ processChangesAggregateTotals.agencyCount }}</strong></div>
@@ -1130,6 +1130,10 @@
         <div class="card" style="padding: 10px;">
           <div class="hint muted">Total units applied</div>
           <div style="font-size: 18px;"><strong>{{ fmtNum(processChangesAggregateTotals.unitsAppliedTotal) }}</strong></div>
+        </div>
+        <div class="card" style="padding: 10px;">
+          <div class="hint muted">Notes (rows) applied</div>
+          <div style="font-size: 18px;"><strong>{{ fmtNum(processChangesAggregateTotals.notesAppliedTotal) }}</strong></div>
         </div>
         <div class="card" style="padding: 10px;">
           <div class="hint muted">Rows inserted</div>
@@ -1150,7 +1154,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in (processChangesAggregate || [])" :key="r.key">
+            <tr v-for="r in (processChangesAggregateForAgency || [])" :key="r.key">
               <td><strong>{{ r.agencyName || `Agency #${r.agencyId}` }}</strong></td>
               <td>{{ r.priorPeriodLabel || (r.priorPeriodId ? `Period #${r.priorPeriodId}` : '—') }}</td>
               <td>{{ r.destinationPeriodLabel || (r.destinationPeriodId ? `Period #${r.destinationPeriodId}` : '—') }}</td>
@@ -1669,6 +1673,7 @@
                   <thead>
                     <tr>
                       <th>Provider</th>
+                      <th class="right">Salary</th>
                       <th>Current (this pay period)</th>
                       <th>Last pay period tier</th>
                     </tr>
@@ -1676,6 +1681,10 @@
                   <tbody>
                     <tr v-for="p in (payrollStageProviderTierRows.matched || [])" :key="p.key">
                       <td>{{ p.name }}</td>
+                      <td class="right" :title="p.salaryTooltip || ''">
+                        <strong v-if="p.salaryAmount !== null">{{ fmtMoney(p.salaryAmount) }}</strong>
+                        <span v-else class="muted">—</span>
+                      </td>
                       <td class="muted" :title="p.currentTooltip || ''">
                         <span>{{ p.currentLabel }}</span>
                         <span v-if="p.currentStatus" class="tier-chip" :class="{ grace: p.currentStatus === 'Grace' }">
@@ -1685,7 +1694,7 @@
                       <td class="muted">{{ p.lastTierLabel }}</td>
                     </tr>
                     <tr v-if="(payrollStageProviderTierRows.unmatched || []).length">
-                      <td colspan="3" class="warn-box" style="margin-top: 8px;">
+                      <td colspan="4" class="warn-box" style="margin-top: 8px;">
                         <div><strong>Unmatched provider names in raw import</strong> (no user match):</div>
                         <div class="muted" style="margin-top: 6px;">
                           {{ (payrollStageProviderTierRows.unmatched || []).slice(0, 25).join(', ') }}
@@ -3379,8 +3388,8 @@
                 <div v-if="previewUserPayrollHistoryError" class="warn-box" style="margin-top: 8px;">{{ previewUserPayrollHistoryError }}</div>
                 <div v-else-if="previewUserPayrollHistoryLoading" class="muted" style="margin-top: 8px;">Loading notices…</div>
                 <div v-else style="margin-top: 8px;">
-                  <div v-if="previewCarryoverUnits > 0" class="warn-box" style="margin-top: 8px;">
-                    <div><strong>Prior notes included in this payroll:</strong> {{ fmtNum(previewCarryoverUnits) }} units</div>
+                  <div v-if="previewCarryoverNotes > 0" class="warn-box" style="margin-top: 8px;">
+                    <div><strong>Prior notes included in this payroll:</strong> {{ fmtNum(previewCarryoverNotes) }} notes</div>
                     <div class="muted">Reminder: complete prior-period notes by Sunday 11:59pm after the pay period ends to avoid compensation delays.</div>
                   </div>
 
@@ -3388,9 +3397,9 @@
                     <div><strong>Reminder: unpaid notes from 2 pay periods ago</strong></div>
                     <div class="muted" style="margin-top: 4px;"><strong>{{ previewTwoPeriodsAgoUnpaid.periodStart }} → {{ previewTwoPeriodsAgoUnpaid.periodEnd }}</strong></div>
                     <div style="margin-top: 6px;">
-                      <strong>No Note:</strong> {{ fmtNum(previewTwoPeriodsAgoUnpaid.noNote) }} units
+                      <strong>No Note:</strong> {{ fmtNum(previewTwoPeriodsAgoUnpaid.noNote) }} notes
                       <span class="muted">•</span>
-                      <strong>Draft:</strong> {{ fmtNum(previewTwoPeriodsAgoUnpaid.draft) }} units
+                      <strong>Draft:</strong> {{ fmtNum(previewTwoPeriodsAgoUnpaid.draft) }} notes
                     </div>
                     <div class="muted" style="margin-top: 6px;">Complete outstanding notes to be included in a future payroll.</div>
                   </div>
@@ -3398,19 +3407,19 @@
                   <div v-if="previewUnpaidInPeriod.total > 0" class="warn-box" style="margin-top: 8px; border: 1px solid #ffd8a8; background: #fff4e6;">
                     <div><strong>Unpaid notes in this pay period</strong></div>
                     <div style="margin-top: 6px;">
-                      <strong>No Note:</strong> {{ fmtNum(previewUnpaidInPeriod.noNote) }} units
+                      <strong>No Note:</strong> {{ fmtNum(previewUnpaidInPeriod.noNote) }} notes
                       <span class="muted">•</span>
-                      <strong>Draft:</strong> {{ fmtNum(previewUnpaidInPeriod.draft) }} units
+                      <strong>Draft:</strong> {{ fmtNum(previewUnpaidInPeriod.draft) }} notes
                     </div>
                     <div class="muted" style="margin-top: 6px;">
-                      These units were not paid this period. Complete outstanding notes to be included in a future payroll.
+                      These notes were not paid this period. Complete outstanding notes to be included in a future payroll.
                     </div>
                     <div class="muted" style="margin-top: 6px;">
                       Due to our EHR system, we are unable to differentiate a note that is incomplete for a session that did occur from a note that is incomplete for a session that did not occur.
                     </div>
                   </div>
 
-                  <div v-if="previewCarryoverUnits <= 0 && previewTwoPeriodsAgoUnpaid.total <= 0 && previewUnpaidInPeriod.total <= 0" class="muted" style="margin-top: 8px;">
+                  <div v-if="previewCarryoverNotes <= 0 && previewTwoPeriodsAgoUnpaid.total <= 0 && previewUnpaidInPeriod.total <= 0" class="muted" style="margin-top: 8px;">
                     No provider payroll notices for this period.
                   </div>
                 </div>
@@ -3924,6 +3933,11 @@
                     <td>
                       <span v-if="d.type === 'manual'">Manual entry</span>
                       <span v-else-if="d.type === 'late_note_completion'">Late note completion</span>
+                      <span v-else-if="d.type === 'code_changed'">
+                        Code changed
+                        <span v-if="d.codeChangedStatus" class="muted">({{ d.codeChangedStatus }})</span>
+                        <span v-if="d.fromServiceCode && d.toServiceCode" class="muted"> • {{ d.fromServiceCode }} → {{ d.toServiceCode }}</span>
+                      </span>
                       <span v-else-if="d.type === 'late_added_service'">
                         Late added service
                         <span v-if="d.lateAddedStatus" class="muted">({{ d.lateAddedStatus }})</span>
@@ -4453,6 +4467,7 @@ const stagingUnmatched = ref([]);
 const stagingLoading = ref(false);
 const stagingError = ref('');
 const tierByUserId = ref({});
+const salaryByUserId = ref({});
 const stagingEdits = ref({});
 const stagingEditsBaseline = ref({});
 const savingStaging = ref(false);
@@ -4760,15 +4775,17 @@ const previewUserPayrollHistoryLoading = ref(false);
 const previewUserPayrollHistoryError = ref('');
 const previewUserPayrollHistory = ref([]); // PayrollSummary.listForUser rows (includes period_start/end/status)
 
-const previewCarryoverUnits = computed(() => {
+const previewCarryoverNotes = computed(() => {
   const b = previewSummary.value?.breakdown || null;
-  const u = Number(b?.__carryover?.oldDoneNotesUnitsTotal || 0);
-  return Number.isFinite(u) ? u : 0;
+  const n = Number(b?.__carryover?.carryoverNotesTotal ?? b?.__carryover?.oldDoneNotesNotesTotal ?? 0);
+  return Number.isFinite(n) ? n : 0;
 });
 
 const previewUnpaidInPeriod = computed(() => {
-  const noNote = Number(previewSummary.value?.no_note_units || 0);
-  const draft = Number(previewSummary.value?.draft_units || 0);
+  const b = previewSummary.value?.breakdown || null;
+  const c = b?.__unpaidNotesCounts || null;
+  const noNote = Number(c?.noNoteNotes || 0);
+  const draft = Number(c?.draftNotes || 0);
   const safeNo = Number.isFinite(noNote) ? noNote : 0;
   const safeDr = Number.isFinite(draft) ? draft : 0;
   return { noNote: safeNo, draft: safeDr, total: safeNo + safeDr };
@@ -4786,8 +4803,9 @@ const previewTwoPeriodsAgoRow = computed(() => {
 const previewTwoPeriodsAgoUnpaid = computed(() => {
   const r = previewTwoPeriodsAgoRow.value;
   if (!r) return { noNote: 0, draft: 0, total: 0, periodStart: '', periodEnd: '' };
-  const noNote = Number(r.no_note_units || 0);
-  const draft = Number(r.draft_units || 0);
+  const c = r?.unpaidNotesCounts || null;
+  const noNote = Number(c?.noNote ?? 0);
+  const draft = Number(c?.draft ?? 0);
   const safeNo = Number.isFinite(noNote) ? noNote : 0;
   const safeDr = Number.isFinite(draft) ? draft : 0;
   return {
@@ -6910,9 +6928,9 @@ const previewPostV2Summary = computed(() => {
 
 const previewPostV2ServiceLines = computed(() => splitBreakdownForDisplay(previewPostV2Summary.value?.breakdown || null));
 
-const previewPostV2CarryoverUnits = computed(() => {
+const previewPostV2CarryoverNotes = computed(() => {
   const b = previewPostV2Summary.value?.breakdown || null;
-  return Number(b?.__carryover?.oldDoneNotesUnitsTotal || 0);
+  return Number(b?.__carryover?.carryoverNotesTotal ?? b?.__carryover?.oldDoneNotesNotesTotal ?? 0);
 });
 
 const previewPostV2PriorStillUnpaid = computed(() => {
@@ -6927,9 +6945,10 @@ const previewPostV2PriorStillUnpaid = computed(() => {
 });
 
 const previewPostV2UnpaidInPeriod = computed(() => {
-  const s = previewPostV2Summary.value;
-  const noNote = Number(s?.no_note_units || 0);
-  const draft = Number(s?.draft_units || 0);
+  const b = previewPostV2Summary.value?.breakdown || null;
+  const c = b?.__unpaidNotesCounts || null;
+  const noNote = Number(c?.noNoteNotes || 0);
+  const draft = Number(c?.draftNotes || 0);
   return { noNote, draft, total: noNote + draft };
 });
 
@@ -7808,7 +7827,6 @@ const splitBreakdownForDisplay = (breakdown) => {
     if (String(code).startsWith('_')) continue;
     const v = vRaw || {};
     const finalizedUnits = Number(v.finalizedUnits ?? v.units ?? 0);
-    const oldUnits = Number(v.oldDoneNotesUnits || 0);
     const rateAmount = Number(v.rateAmount || 0);
     const payDivisor = Number(v.payDivisor || 1);
     const safeDiv = Number.isFinite(payDivisor) && payDivisor > 0 ? payDivisor : 1;
@@ -7817,20 +7835,27 @@ const splitBreakdownForDisplay = (breakdown) => {
     const bucket = v?.bucket ? String(v.bucket).trim().toLowerCase() : payBucketForCategory(v.category);
     const rateUnit = String(v.rateUnit || '');
 
+    const oldNoteUnits = Number(v.oldNoteUnits ?? v.oldDoneNotesUnits ?? 0);
+    const codeChangedUnits = Number(v.codeChangedUnits || 0);
+    const lateAdditionUnits = Number(v.lateAdditionUnits || 0);
+    const carryUnits = Math.max(0, oldNoteUnits) + Math.max(0, codeChangedUnits) + Math.max(0, lateAdditionUnits);
+
     // If there's no carryover, or this is a flat line, show as-is.
-    if (!(oldUnits > 1e-9) || rateUnit === 'flat') {
+    if (!(carryUnits > 1e-9) || rateUnit === 'flat') {
       out.push({ code, ...v });
       continue;
     }
 
-    const baseUnits = Math.max(0, finalizedUnits - oldUnits);
-    const oldPayHours = bucket !== 'flat' ? (oldUnits / safeDiv) : 0;
-    const oldCredits = oldUnits * safeCv;
-    // Old-note amount: payHours * rate for non-flat categories.
-    const computedOldAmount = bucket !== 'flat' ? (oldPayHours * rateAmount) : (oldUnits * rateAmount);
     const totalAmount = Number(v.amount || 0);
-    const oldAmount = Math.max(0, Math.min(totalAmount, computedOldAmount));
-    const baseAmount = Math.max(0, totalAmount - oldAmount);
+    const totalUnits = Math.max(0, finalizedUnits);
+    const baseUnits = Math.max(0, totalUnits - carryUnits);
+
+    const allocAmount = (u) => (totalUnits > 1e-9 ? Number((totalAmount * (u / totalUnits)).toFixed(2)) : 0);
+    const oldNoteAmount = allocAmount(Math.max(0, oldNoteUnits));
+    const codeChangedAmount = allocAmount(Math.max(0, codeChangedUnits));
+    const lateAdditionAmount = allocAmount(Math.max(0, lateAdditionUnits));
+    const carryAmountSum = Number((oldNoteAmount + codeChangedAmount + lateAdditionAmount).toFixed(2));
+    const baseAmount = Math.max(0, Number((totalAmount - carryAmountSum).toFixed(2)));
 
     // Base row
     if (baseUnits > 1e-9 && baseAmount > 1e-9) {
@@ -7847,18 +7872,55 @@ const splitBreakdownForDisplay = (breakdown) => {
     }
 
     // Old Note row (display only)
-    if (oldUnits > 1e-9 && oldAmount > 1e-9) {
+    if (oldNoteUnits > 1e-9 && oldNoteAmount > 1e-9) {
+      const oldPayHours = bucket !== 'flat' ? (oldNoteUnits / safeDiv) : 0;
       out.push({
         code: `${code} (Old Note)`,
         ...v,
         noNoteUnits: 0,
         draftUnits: 0,
-        finalizedUnits: oldUnits,
-        units: oldUnits,
+        finalizedUnits: oldNoteUnits,
+        units: oldNoteUnits,
         payHours: bucket !== 'flat' ? oldPayHours : 0,
-        hours: oldCredits,
-        creditsHours: oldCredits,
-        amount: oldAmount
+        hours: oldNoteUnits * safeCv,
+        creditsHours: oldNoteUnits * safeCv,
+        amount: oldNoteAmount
+      });
+    }
+
+    if (codeChangedUnits > 1e-9 && codeChangedAmount > 1e-9) {
+      const fromCodes = Array.isArray(v.codeChangedFromCodes) ? v.codeChangedFromCodes.filter(Boolean) : [];
+      const label = (fromCodes.length === 1)
+        ? `${code} (Code Changed: ${fromCodes[0]}→${code})`
+        : `${code} (Code Changed)`;
+      const payHours = bucket !== 'flat' ? (codeChangedUnits / safeDiv) : 0;
+      out.push({
+        code: label,
+        ...v,
+        noNoteUnits: 0,
+        draftUnits: 0,
+        finalizedUnits: codeChangedUnits,
+        units: codeChangedUnits,
+        payHours: bucket !== 'flat' ? payHours : 0,
+        hours: codeChangedUnits * safeCv,
+        creditsHours: codeChangedUnits * safeCv,
+        amount: codeChangedAmount
+      });
+    }
+
+    if (lateAdditionUnits > 1e-9 && lateAdditionAmount > 1e-9) {
+      const payHours = bucket !== 'flat' ? (lateAdditionUnits / safeDiv) : 0;
+      out.push({
+        code: `${code} (Late Addition)`,
+        ...v,
+        noNoteUnits: 0,
+        draftUnits: 0,
+        finalizedUnits: lateAdditionUnits,
+        units: lateAdditionUnits,
+        payHours: bucket !== 'flat' ? payHours : 0,
+        hours: lateAdditionUnits * safeCv,
+        creditsHours: lateAdditionUnits * safeCv,
+        amount: lateAdditionAmount
       });
     }
   }
@@ -8267,6 +8329,13 @@ const processChangesAggregate = ref(
   safeJsonParse(localStorage.getItem(LS_PROCESS_CHANGES_AGGREGATE) || '[]', [])
 );
 
+const processChangesAggregateForAgency = computed(() => {
+  const aid = Number(agencyId.value || 0);
+  if (!aid) return [];
+  const rows = Array.isArray(processChangesAggregate.value) ? processChangesAggregate.value : [];
+  return rows.filter((r) => Number(r?.agencyId || 0) === aid);
+});
+
 const persistProcessChangesAggregate = () => {
   try {
     localStorage.setItem(LS_PROCESS_CHANGES_AGGREGATE, JSON.stringify(processChangesAggregate.value || []));
@@ -8301,6 +8370,7 @@ const recordProcessChangesAggregateEntry = (entry) => {
     priorPeriodId: Number(e.priorPeriodId || 0) || null,
     priorPeriodLabel: String(e.priorPeriodLabel || '').trim() || '',
     unitsApplied: Number(e.unitsApplied || 0) || 0,
+    notesApplied: Number(e.notesApplied || 0) || 0,
     rowsInserted: Number(e.rowsInserted || 0) || 0,
     appliedAt: String(e.appliedAt || new Date().toISOString())
   };
@@ -8311,18 +8381,21 @@ const recordProcessChangesAggregateEntry = (entry) => {
 };
 
 const processChangesAggregateTotals = computed(() => {
-  const rows = Array.isArray(processChangesAggregate.value) ? processChangesAggregate.value : [];
+  const rows = Array.isArray(processChangesAggregateForAgency.value) ? processChangesAggregateForAgency.value : [];
   let units = 0;
+  let notes = 0;
   let inserted = 0;
   const agencies = new Set();
   for (const r of rows) {
     agencies.add(Number(r?.agencyId || 0));
     units += Number(r?.unitsApplied || 0) || 0;
+    notes += Number(r?.notesApplied || 0) || 0;
     inserted += Number(r?.rowsInserted || 0) || 0;
   }
   return {
     agencyCount: Array.from(agencies).filter((x) => x > 0).length,
     unitsAppliedTotal: Number(units.toFixed(2)),
+    notesAppliedTotal: Math.max(0, parseInt(notes, 10) || 0),
     rowsInsertedTotal: inserted
   };
 });
@@ -8425,6 +8498,7 @@ const loadStaging = async () => {
     stagingMatched.value = (resp.data?.matched || []).filter((r) => !!r && typeof r === 'object');
     stagingUnmatched.value = (resp.data?.unmatched || []).filter((r) => !!r && typeof r === 'object');
     tierByUserId.value = resp.data?.tierByUserId || {};
+    salaryByUserId.value = resp.data?.salaryByUserId || {};
     // Use persisted prior-unpaid snapshot (red column) if present.
     if (Array.isArray(resp.data?.priorStillUnpaid)) {
       carryoverPriorStillUnpaid.value = resp.data.priorStillUnpaid.map((d) => ({
@@ -8556,14 +8630,35 @@ const payrollStageProviderTierRows = computed(() => {
   const out = [];
   for (const uid of Array.from(matchedUserIds)) {
     const tier = tierByUserId.value?.[uid] || null;
+    const sal = salaryByUserId.value?.[uid] || null;
     const currentTierLevel = Number(tier?.currentPeriodTierLevel ?? tier?.rolling?.displayTierLevel ?? tier?.tierLevel ?? 0);
     const lastTierLevel = Number(tier?.lastPayPeriodTierLevel ?? tier?.rolling?.lastPayPeriod?.tierLevel ?? 0);
     const graceActive = Number(tier?.graceActive || 0) === 1;
     const currentStatus = graceActive ? 'Grace' : (currentTierLevel >= 1 ? 'Current' : 'Out of Compliance');
+    const salaryAmount = (sal && typeof sal === 'object' && sal.salaryAmount !== undefined && sal.salaryAmount !== null)
+      ? Number(sal.salaryAmount || 0)
+      : null;
+    const salaryTooltip = (() => {
+      if (!sal || typeof sal !== 'object') return '';
+      const rec = Number(sal.recordId || 0);
+      const per = Number(sal.salaryPerPayPeriod || 0);
+      const inc = !!sal.includeServicePay;
+      const pro = !!sal.prorateByDays;
+      const ad = Number(sal.activeDays || 0);
+      const pd = Number(sal.periodDays || 0);
+      const parts = [];
+      if (rec) parts.push(`Salary record #${rec}`);
+      if (per > 0) parts.push(`Per pay period: ${fmtMoney(per)}`);
+      parts.push(`Include service pay: ${inc ? 'Yes' : 'No'}`);
+      if (pro && pd > 0 && ad > 0) parts.push(`Prorated: ${ad}/${pd} days`);
+      return parts.join(' • ');
+    })();
     out.push({
       key: `u:${uid}`,
       userId: uid,
       name: nameForUserId(uid),
+      salaryAmount,
+      salaryTooltip,
       tierLevel: currentTierLevel,
       currentLabel: currentTierLevel >= 1 ? `Tier ${currentTierLevel}` : 'Out of Compliance',
       currentStatus,
@@ -8924,15 +9019,66 @@ const applyCarryover = async () => {
     applyingCarryover.value = true;
     carryoverError.value = '';
     carryoverApplyResult.value = null;
-    const rows = (carryoverPreview.value || [])
-      .map((d) => ({
-        userId: d.userId,
-        serviceCode: d.serviceCode,
-        carryoverFinalizedUnits: d.carryoverFinalizedUnits
-      }))
-      .filter((r) => !!r.userId && !!r.serviceCode && Number(r.carryoverFinalizedUnits || 0) > 0);
+    const keyed = new Map(); // `${userId}:${CODE}` -> merged row
+    for (const d of (carryoverPreview.value || [])) {
+      const userId = Number(d?.userId || 0);
+      const serviceCode = String(d?.serviceCode || '').trim().toUpperCase();
+      const units = Number(d?.carryoverFinalizedUnits || 0);
+      const noteCount = Number(d?.noteCount || 0);
+      if (!userId || !serviceCode || !(units > 1e-9)) continue;
+
+      const patchMeta =
+        d?.type === 'code_changed'
+          ? { categories: { code_changed: { units, notes: noteCount, fromCodes: [d?.fromServiceCode].filter(Boolean) } } }
+          : (d?.type === 'late_added_service'
+            ? { categories: { late_addition: { units, notes: noteCount } } }
+            : (d?.type === 'late_note_completion'
+              ? { categories: { old_note: { units, notes: noteCount } } }
+              : null));
+
+      const k = `${userId}:${serviceCode}`;
+      if (!keyed.has(k)) {
+        keyed.set(k, {
+          userId,
+          serviceCode,
+          carryoverFinalizedUnits: 0,
+          carryoverFinalizedRowCount: 0,
+          carryoverMeta: null
+        });
+      }
+      const t = keyed.get(k);
+      t.carryoverFinalizedUnits = Number((Number(t.carryoverFinalizedUnits || 0) + units).toFixed(2));
+      t.carryoverFinalizedRowCount = Math.max(0, parseInt(Number(t.carryoverFinalizedRowCount || 0) + (noteCount || 0), 10) || 0);
+
+      if (patchMeta && !t.carryoverMeta) {
+        t.carryoverMeta = { categories: { old_note: { units: 0, notes: 0 }, late_addition: { units: 0, notes: 0 }, code_changed: { units: 0, notes: 0, fromCodes: [] } } };
+      }
+      const cats = (t.carryoverMeta && t.carryoverMeta.categories) ? t.carryoverMeta.categories : null;
+      const patchCats = patchMeta?.categories || null;
+      if (cats && patchCats) {
+        if (patchCats.old_note) {
+          cats.old_note.units = Number((Number(cats.old_note.units || 0) + Number(patchCats.old_note.units || 0)).toFixed(2));
+          cats.old_note.notes = Math.max(0, parseInt(Number(cats.old_note.notes || 0) + Number(patchCats.old_note.notes || 0), 10) || 0);
+        }
+        if (patchCats.late_addition) {
+          cats.late_addition.units = Number((Number(cats.late_addition.units || 0) + Number(patchCats.late_addition.units || 0)).toFixed(2));
+          cats.late_addition.notes = Math.max(0, parseInt(Number(cats.late_addition.notes || 0) + Number(patchCats.late_addition.notes || 0), 10) || 0);
+        }
+        if (patchCats.code_changed) {
+          cats.code_changed.units = Number((Number(cats.code_changed.units || 0) + Number(patchCats.code_changed.units || 0)).toFixed(2));
+          cats.code_changed.notes = Math.max(0, parseInt(Number(cats.code_changed.notes || 0) + Number(patchCats.code_changed.notes || 0), 10) || 0);
+          const from = Array.isArray(cats.code_changed.fromCodes) ? cats.code_changed.fromCodes : [];
+          const add = Array.isArray(patchCats.code_changed.fromCodes) ? patchCats.code_changed.fromCodes : [];
+          const merged = Array.from(new Set([...from, ...add].map((x) => String(x || '').trim()).filter(Boolean)));
+          cats.code_changed.fromCodes = merged;
+        }
+      }
+    }
+
+    const rows = Array.from(keyed.values()).filter((r) => Number(r?.carryoverFinalizedUnits || 0) > 1e-9);
 
     const unitsApplied = (rows || []).reduce((acc, r) => acc + (Number(r?.carryoverFinalizedUnits || 0) || 0), 0);
+    const notesApplied = (rows || []).reduce((acc, r) => acc + (Number(r?.carryoverFinalizedRowCount || 0) || 0), 0);
 
     const doApply = async (params) => {
       const resp = await api.post(`/payroll/periods/${selectedPeriodId.value}/carryover/apply`, { rows }, { params });
@@ -8985,6 +9131,7 @@ const applyCarryover = async () => {
         priorPeriodId: carryoverPriorPeriodId.value,
         priorPeriodLabel: priorLabel || undefined,
         unitsApplied: Number(unitsApplied.toFixed(2)),
+        notesApplied: Math.max(0, parseInt(notesApplied, 10) || 0),
         rowsInserted: Number(carryoverApplyResult.value?.inserted || 0) || rows.length
       });
     } catch {

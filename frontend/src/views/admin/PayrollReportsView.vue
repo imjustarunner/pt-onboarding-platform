@@ -111,6 +111,7 @@
         <button class="btn btn-secondary" type="button" @click="activeTab = 'export'">Payroll export</button>
         <button class="btn btn-secondary" type="button" @click="activeTab = 'sessions'">Sessions / Units</button>
         <button class="btn btn-secondary" type="button" @click="activeTab = 'service_codes'">Service Code Totals</button>
+        <button class="btn btn-secondary" type="button" @click="activeTab = 'late_notes'">Late notes (carryover)</button>
         <button class="btn btn-secondary" type="button" @click="activeTab = 'pay_summary'">Provider Pay Summary</button>
         <button class="btn btn-secondary" type="button" @click="activeTab = 'adjustments'">Adjustments Breakdown</button>
         <button class="btn btn-secondary" type="button" @click="copyShareLink">Copy link</button>
@@ -182,6 +183,41 @@
             <tbody>
               <tr v-for="(r, idx) in previewRows.slice(0, 50)" :key="`pr3-${idx}`">
                 <td v-for="h in previewHeaders" :key="`pc3-${idx}-${h}`">{{ r[h] }}</td>
+              </tr>
+              <tr v-if="!previewRows.length">
+                <td :colspan="previewHeaders.length" class="muted">No rows found for this period/filters.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div v-else-if="activeTab === 'late_notes'" style="margin-top: 10px;">
+        <div class="hint">Totals for notes paid late (carryover) broken into Old Note / Code Changed / Late Addition.</div>
+        <div class="hint" style="margin-top: 6px;">
+          This report produces <strong>one row per pay period</strong> for the selected period/range.
+        </div>
+
+        <div class="actions" style="margin-top: 10px; justify-content: flex-end;">
+          <button class="btn btn-secondary" type="button" @click="previewLateNotes" :disabled="!selectedPeriodId || previewLoading || downloading">
+            {{ previewLoading ? 'Loading…' : 'Preview table' }}
+          </button>
+          <button class="btn btn-primary" type="button" @click="downloadLateNotesCsv" :disabled="!selectedPeriodId || downloading">
+            {{ downloading ? 'Working…' : 'Download Late Notes CSV' }}
+          </button>
+        </div>
+
+        <div v-if="previewError" class="warn-box" style="margin-top: 10px;">{{ previewError }}</div>
+        <div v-else-if="previewLoading" class="muted" style="margin-top: 10px;">Loading preview…</div>
+        <div v-else-if="previewHeaders.length" class="table-wrap" style="margin-top: 10px;">
+          <div class="hint" style="margin-bottom: 8px;">
+            Showing <strong>{{ Math.min(50, previewRows.length) }}</strong> of <strong>{{ previewRows.length }}</strong>
+          </div>
+          <table class="table">
+            <thead><tr><th v-for="h in previewHeaders" :key="`ph-ln-${h}`">{{ headerLabel(h) }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(r, idx) in previewRows.slice(0, 50)" :key="`pr-ln-${idx}`">
+                <td v-for="h in previewHeaders" :key="`pc-ln-${idx}-${h}`">{{ r[h] }}</td>
               </tr>
               <tr v-if="!previewRows.length">
                 <td :colspan="previewHeaders.length" class="muted">No rows found for this period/filters.</td>
@@ -320,7 +356,7 @@ const roleFilter = ref('all'); // all | provider | staff | supervisor | cpa | ad
 const providerStatsLoading = ref(false);
 const providerStatsByUserId = ref(new Map()); // userId -> { session_count, no_note_session_count }
 
-const activeTab = ref('sessions'); // export | sessions | service_codes | pay_summary | adjustments
+const activeTab = ref('sessions'); // export | sessions | service_codes | late_notes | pay_summary | adjustments
 const sessionsGroupBy = ref('provider');
 const cols = ref({
   sessionCount: true,
@@ -382,6 +418,86 @@ const applyRangePreset = () => {
 const effectivePeriodIds = () => {
   if (periodMode.value === 'range') return selectedPeriodsEffective.value.map((p) => Number(p.id)).filter(Boolean);
   return selectedPeriodId.value ? [Number(selectedPeriodId.value)] : [];
+};
+
+const lateNotesHeaders = [
+  'period_start',
+  'period_end',
+  'status',
+  'total_notes',
+  'total_units',
+  'old_note_notes',
+  'old_note_units',
+  'code_changed_notes',
+  'code_changed_units',
+  'late_addition_notes',
+  'late_addition_units'
+];
+
+const toLateNotesRow = (r) => {
+  const t = r?.totals || {};
+  return {
+    period_start: String(r?.periodStart || '').slice(0, 10),
+    period_end: String(r?.periodEnd || '').slice(0, 10),
+    status: String(r?.status || ''),
+    total_notes: Number(t?.totalNotes || 0),
+    total_units: Number(t?.totalUnits || 0),
+    old_note_notes: Number(t?.oldNoteNotes || 0),
+    old_note_units: Number(t?.oldNoteUnits || 0),
+    code_changed_notes: Number(t?.codeChangedNotes || 0),
+    code_changed_units: Number(t?.codeChangedUnits || 0),
+    late_addition_notes: Number(t?.lateAdditionNotes || 0),
+    late_addition_units: Number(t?.lateAdditionUnits || 0)
+  };
+};
+
+const previewLateNotes = async () => {
+  const pids = effectivePeriodIds();
+  if (!pids.length) return;
+  previewLoading.value = true;
+  previewError.value = '';
+  previewRows.value = [];
+  previewHeaders.value = lateNotesHeaders.slice();
+  previewTotals.value = null;
+  previewTotalsRow.value = null;
+  try {
+    const params = {};
+    if (selectedProviderIds.value.length) params.providerIds = selectedProviderIds.value.join(',');
+    const all = [];
+    for (const pid of pids) {
+      const resp = await api.get(`/payroll/periods/${pid}/reports/late-notes`, { params });
+      all.push(toLateNotesRow(resp.data || null));
+    }
+    all.sort((a, b) => String(a.period_start || '').localeCompare(String(b.period_start || '')));
+    previewRows.value = all;
+  } catch (e) {
+    previewError.value = e.response?.data?.error?.message || e.message || 'Failed to load late notes report';
+  } finally {
+    previewLoading.value = false;
+  }
+};
+
+const downloadLateNotesCsv = async () => {
+  const pids = effectivePeriodIds();
+  if (!pids.length) return;
+  downloading.value = true;
+  error.value = '';
+  try {
+    const params = {};
+    if (selectedProviderIds.value.length) params.providerIds = selectedProviderIds.value.join(',');
+    const rows = [];
+    for (const pid of pids) {
+      const resp = await api.get(`/payroll/periods/${pid}/reports/late-notes`, { params });
+      rows.push(toLateNotesRow(resp.data || null));
+    }
+    rows.sort((a, b) => String(a.period_start || '').localeCompare(String(b.period_start || '')));
+    const csv = toCsv(rows, lateNotesHeaders);
+    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), 'payroll-late-notes.csv');
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to download late notes CSV';
+  } finally {
+    downloading.value = false;
+  }
 };
 
 const isInactive = (u) => {

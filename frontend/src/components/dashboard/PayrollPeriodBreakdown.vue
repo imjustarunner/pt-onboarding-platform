@@ -4,10 +4,14 @@
     <div v-if="period">
       <div
         class="warn-box prior-notes-included"
-        v-if="period.breakdown && period.breakdown.__carryover && (period.breakdown.__carryover.oldDoneNotesUnitsTotal || 0) > 0"
+        v-if="period.breakdown && period.breakdown.__carryover && ((period.breakdown.__carryover.carryoverNotesTotal || period.breakdown.__carryover.oldDoneNotesNotesTotal || 0) > 0)"
         style="margin-bottom: 10px;"
       >
-        <div><strong>Prior notes included in this payroll:</strong> {{ fmtNum(period.breakdown.__carryover.oldDoneNotesUnitsTotal) }} units</div>
+        <div>
+          <strong>Prior notes included in this payroll:</strong>
+          {{ fmtNum(period.breakdown.__carryover.carryoverNotesTotal ?? period.breakdown.__carryover.oldDoneNotesNotesTotal ?? 0) }}
+          notes
+        </div>
         <div class="muted">Reminder: complete prior-period notes by Sunday 11:59pm after the pay period ends to avoid compensation delays.</div>
       </div>
       <div
@@ -41,9 +45,9 @@
           <strong>{{ fmtDateRange(twoPeriodsAgo?.period_start, twoPeriodsAgo?.period_end) }}</strong>
         </div>
         <div style="margin-top: 6px;">
-          <strong>No Note:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.noNote) }} units
+          <strong>No Note:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.noNote) }} notes
           <span class="muted">•</span>
-          <strong>Draft:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.draft) }} units
+          <strong>Draft:</strong> {{ fmtNum(twoPeriodsAgoUnpaid.draft) }} notes
         </div>
         <div class="muted" style="margin-top: 6px;">
           Complete outstanding notes to be included in a future payroll.
@@ -55,12 +59,12 @@
           <strong>Unpaid notes in this pay period</strong>
         </div>
         <div style="margin-top: 6px;">
-          <strong>No Note:</strong> {{ fmtNum(unpaid.noNote) }} units
+          <strong>No Note:</strong> {{ fmtNum(unpaid.noNote) }} notes
           <span class="muted">•</span>
-          <strong>Draft:</strong> {{ fmtNum(unpaid.draft) }} units
+          <strong>Draft:</strong> {{ fmtNum(unpaid.draft) }} notes
         </div>
         <div class="muted" style="margin-top: 6px;">
-          These units were not paid this period. Complete outstanding notes to be included in a future payroll.
+          These notes were not paid this period. Complete outstanding notes to be included in a future payroll.
         </div>
         <div class="muted" style="margin-top: 6px;">
           Due to our EHR system, we are unable to differentiate a note that is incomplete for a session that did occur from a note that is incomplete for a session that did not occur.
@@ -264,10 +268,13 @@ const breakdown = computed(() => (props.period?.breakdown && typeof props.period
 
 const unpaid = computed(() => {
   const p = props.period;
-  const noNote = Number(p?.no_note_units || 0);
-  const draft = Number(p?.draft_units || 0);
-  const total = noNote + draft;
-  return { noNote, draft, total };
+  const c = p?.unpaidNotesCounts || null;
+  if (c && typeof c === 'object') {
+    const noNote = Number(c.noNote || 0);
+    const draft = Number(c.draft || 0);
+    return { noNote, draft, total: noNote + draft };
+  }
+  return { noNote: 0, draft: 0, total: 0 };
 });
 
 const chronologicalPeriods = computed(() => {
@@ -291,10 +298,13 @@ const twoPeriodsAgo = computed(() => {
 
 const twoPeriodsAgoUnpaid = computed(() => {
   const p = twoPeriodsAgo.value;
-  const noNote = Number(p?.no_note_units || 0);
-  const draft = Number(p?.draft_units || 0);
-  const total = noNote + draft;
-  return { noNote, draft, total };
+  const c = p?.unpaidNotesCounts || null;
+  if (c && typeof c === 'object') {
+    const noNote = Number(c.noNote || 0);
+    const draft = Number(c.draft || 0);
+    return { noNote, draft, total: noNote + draft };
+  }
+  return { noNote: 0, draft: 0, total: 0 };
 });
 
 const payBucketForCategory = (category) => {
@@ -312,7 +322,6 @@ const splitBreakdownForDisplay = (b) => {
     if (String(code).startsWith('_')) continue;
     const v = vRaw || {};
     const finalizedUnits = Number(v.finalizedUnits ?? v.units ?? 0);
-    const oldUnits = Number(v.oldDoneNotesUnits || 0);
     const rateAmount = Number(v.rateAmount || 0);
     const payDivisor = Number(v.payDivisor || 1);
     const safeDiv = Number.isFinite(payDivisor) && payDivisor > 0 ? payDivisor : 1;
@@ -321,18 +330,25 @@ const splitBreakdownForDisplay = (b) => {
     const bucket = payBucketForCategory(v.category);
     const rateUnit = String(v.rateUnit || '');
 
-    if (!(oldUnits > 1e-9) || rateUnit === 'flat') {
+    const oldNoteUnits = Number(v.oldNoteUnits ?? v.oldDoneNotesUnits ?? 0);
+    const codeChangedUnits = Number(v.codeChangedUnits || 0);
+    const lateAdditionUnits = Number(v.lateAdditionUnits || 0);
+    const carryUnits = Math.max(0, oldNoteUnits) + Math.max(0, codeChangedUnits) + Math.max(0, lateAdditionUnits);
+
+    if (!(carryUnits > 1e-9) || rateUnit === 'flat') {
       out.push({ code, ...v });
       continue;
     }
 
-    const baseUnits = Math.max(0, finalizedUnits - oldUnits);
-    const oldPayHours = bucket !== 'flat' ? (oldUnits / safeDiv) : 0;
-    const oldCredits = oldUnits * safeCv;
-    const computedOldAmount = bucket !== 'flat' ? (oldPayHours * rateAmount) : (oldUnits * rateAmount);
+    const totalUnits = Math.max(0, finalizedUnits);
+    const baseUnits = Math.max(0, totalUnits - carryUnits);
     const totalAmount = Number(v.amount || 0);
-    const oldAmount = Math.max(0, Math.min(totalAmount, computedOldAmount));
-    const baseAmount = Math.max(0, totalAmount - oldAmount);
+    const allocAmount = (u) => (totalUnits > 1e-9 ? Number((totalAmount * (u / totalUnits)).toFixed(2)) : 0);
+    const oldNoteAmount = allocAmount(Math.max(0, oldNoteUnits));
+    const codeChangedAmount = allocAmount(Math.max(0, codeChangedUnits));
+    const lateAdditionAmount = allocAmount(Math.max(0, lateAdditionUnits));
+    const carryAmountSum = Number((oldNoteAmount + codeChangedAmount + lateAdditionAmount).toFixed(2));
+    const baseAmount = Math.max(0, Number((totalAmount - carryAmountSum).toFixed(2)));
 
     if (baseUnits > 1e-9 && baseAmount > 1e-9) {
       out.push({
@@ -346,17 +362,49 @@ const splitBreakdownForDisplay = (b) => {
       });
     }
 
-    if (oldUnits > 1e-9 && oldAmount > 1e-9) {
+    if (oldNoteUnits > 1e-9 && oldNoteAmount > 1e-9) {
       out.push({
         code: `${code} (Old Note)`,
         ...v,
         noNoteUnits: 0,
         draftUnits: 0,
-        finalizedUnits: oldUnits,
-        units: oldUnits,
-        hours: oldCredits,
-        creditsHours: oldCredits,
-        amount: oldAmount
+        finalizedUnits: oldNoteUnits,
+        units: oldNoteUnits,
+        hours: oldNoteUnits * safeCv,
+        creditsHours: oldNoteUnits * safeCv,
+        amount: oldNoteAmount
+      });
+    }
+
+    if (codeChangedUnits > 1e-9 && codeChangedAmount > 1e-9) {
+      const fromCodes = Array.isArray(v.codeChangedFromCodes) ? v.codeChangedFromCodes.filter(Boolean) : [];
+      const label = (fromCodes.length === 1)
+        ? `${code} (Code Changed: ${fromCodes[0]}→${code})`
+        : `${code} (Code Changed)`;
+      out.push({
+        code: label,
+        ...v,
+        noNoteUnits: 0,
+        draftUnits: 0,
+        finalizedUnits: codeChangedUnits,
+        units: codeChangedUnits,
+        hours: codeChangedUnits * safeCv,
+        creditsHours: codeChangedUnits * safeCv,
+        amount: codeChangedAmount
+      });
+    }
+
+    if (lateAdditionUnits > 1e-9 && lateAdditionAmount > 1e-9) {
+      out.push({
+        code: `${code} (Late Addition)`,
+        ...v,
+        noNoteUnits: 0,
+        draftUnits: 0,
+        finalizedUnits: lateAdditionUnits,
+        units: lateAdditionUnits,
+        hours: lateAdditionUnits * safeCv,
+        creditsHours: lateAdditionUnits * safeCv,
+        amount: lateAdditionAmount
       });
     }
   }

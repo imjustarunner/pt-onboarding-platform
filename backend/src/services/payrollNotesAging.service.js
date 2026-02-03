@@ -32,6 +32,53 @@ function fmtYmd(d) {
 }
 
 class PayrollNotesAgingService {
+  static async _latestImportIdForPeriod(payrollPeriodId) {
+    const [rows] = await pool.execute(
+      `SELECT id
+       FROM payroll_imports
+       WHERE payroll_period_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [payrollPeriodId]
+    );
+    return rows?.[0]?.id || null;
+  }
+
+  static async _listUnpaidNoteCountsForPeriod({ agencyId, payrollPeriodId, providerUserId = null }) {
+    const payrollImportId = await this._latestImportIdForPeriod(payrollPeriodId);
+    if (!payrollImportId) return [];
+
+    const params = [payrollPeriodId, payrollImportId, agencyId];
+    let userFilterSql = '';
+    if (Number.isFinite(Number(providerUserId)) && Number(providerUserId) > 0) {
+      userFilterSql = ' AND pir.user_id = ?';
+      params.push(Number(providerUserId));
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT
+         pir.user_id,
+         u.first_name,
+         u.last_name,
+         u.email,
+         SUM(CASE WHEN UPPER(TRIM(pir.note_status)) = 'NO_NOTE' THEN 1 ELSE 0 END) AS no_note_notes,
+         SUM(CASE WHEN UPPER(TRIM(pir.note_status)) = 'DRAFT' AND COALESCE(pir.draft_payable, 1) = 0 THEN 1 ELSE 0 END) AS draft_notes
+       FROM payroll_import_rows pir
+       JOIN users u ON pir.user_id = u.id
+       WHERE pir.payroll_period_id = ?
+         AND pir.payroll_import_id = ?
+         AND pir.agency_id = ?
+         ${userFilterSql}
+         AND (
+           UPPER(TRIM(pir.note_status)) = 'NO_NOTE'
+           OR (UPPER(TRIM(pir.note_status)) = 'DRAFT' AND COALESCE(pir.draft_payable, 1) = 0)
+         )
+       GROUP BY pir.user_id, u.first_name, u.last_name, u.email`,
+      params
+    );
+    return rows || [];
+  }
+
   static async previewTwoPeriodsOldUnpaidNotesAlerts({ agencyId, payrollPeriodId, providerUserId = null }) {
     if (!agencyId || !payrollPeriodId) return { ok: false, reason: 'missing_params' };
 
@@ -58,34 +105,13 @@ class PayrollNotesAgingService {
 
     const stalePeriodId = Number(stalePeriod.id);
 
-    const params = [agencyId, stalePeriodId];
-    let userFilterSql = '';
-    if (Number.isFinite(Number(providerUserId)) && Number(providerUserId) > 0) {
-      userFilterSql = ' AND ps.user_id = ?';
-      params.push(Number(providerUserId));
-    }
-
-    const [rows] = await pool.execute(
-      `SELECT ps.user_id,
-              ps.no_note_units,
-              ps.draft_units,
-              u.first_name,
-              u.last_name,
-              u.email
-       FROM payroll_summaries ps
-       JOIN users u ON ps.user_id = u.id
-       WHERE ps.agency_id = ?
-         AND ps.payroll_period_id = ?
-         ${userFilterSql}
-         AND (COALESCE(ps.no_note_units, 0) + COALESCE(ps.draft_units, 0)) > 0`,
-      params
-    );
+    const rows = await this._listUnpaidNoteCountsForPeriod({ agencyId, payrollPeriodId: stalePeriodId, providerUserId });
 
     const notifications = [];
     for (const r of rows || []) {
       const providerId = Number(r.user_id);
-      const noNote = Number(r.no_note_units || 0);
-      const draft = Number(r.draft_units || 0);
+      const noNote = Number(r.no_note_notes || 0);
+      const draft = Number(r.draft_notes || 0);
       const total = noNote + draft;
       if (!providerId || total <= 0) continue;
 
@@ -104,7 +130,7 @@ class PayrollNotesAgingService {
         type: 'payroll_unpaid_notes_2_periods_old',
         severity: 'urgent',
         title: 'Unpaid notes are 2 pay periods old',
-        message: `User ${providerName} still has unpaid notes from ${fmtYmd(stalePeriod.period_start)} to ${fmtYmd(stalePeriod.period_end)}: No Note ${noNote}, Draft ${draft}.`,
+        message: `User ${providerName} still has unpaid notes from ${fmtYmd(stalePeriod.period_start)} to ${fmtYmd(stalePeriod.period_end)}: No Note ${noNote} notes, Draft ${draft} notes.`,
         userId: providerId,
         agencyId,
         stalePeriodId,
@@ -151,27 +177,14 @@ class PayrollNotesAgingService {
     const stalePeriodId = Number(stalePeriod.id);
 
     // Find providers with unpaid notes in the stale period.
-    const [rows] = await pool.execute(
-      `SELECT ps.user_id,
-              ps.no_note_units,
-              ps.draft_units,
-              u.first_name,
-              u.last_name,
-              u.email
-       FROM payroll_summaries ps
-       JOIN users u ON ps.user_id = u.id
-       WHERE ps.agency_id = ?
-         AND ps.payroll_period_id = ?
-         AND (COALESCE(ps.no_note_units, 0) + COALESCE(ps.draft_units, 0)) > 0`,
-      [agencyId, stalePeriodId]
-    );
+    const rows = await this._listUnpaidNoteCountsForPeriod({ agencyId, payrollPeriodId: stalePeriodId, providerUserId: null });
 
     let createdCount = 0;
 
     for (const r of rows || []) {
       const providerUserId = Number(r.user_id);
-      const noNote = Number(r.no_note_units || 0);
-      const draft = Number(r.draft_units || 0);
+      const noNote = Number(r.no_note_notes || 0);
+      const draft = Number(r.draft_notes || 0);
       const total = noNote + draft;
       if (!providerUserId || total <= 0) continue;
 
@@ -192,7 +205,7 @@ class PayrollNotesAgingService {
         type: 'payroll_unpaid_notes_2_periods_old',
         severity: 'urgent',
         title: 'Unpaid notes are 2 pay periods old',
-        message: `User ${providerName} still has unpaid notes from ${fmtYmd(stalePeriod.period_start)} to ${fmtYmd(stalePeriod.period_end)}: No Note ${noNote}, Draft ${draft}.`,
+        message: `User ${providerName} still has unpaid notes from ${fmtYmd(stalePeriod.period_start)} to ${fmtYmd(stalePeriod.period_end)}: No Note ${noNote} notes, Draft ${draft} notes.`,
         audienceJson: {
           provider: !!resolved.recipients?.provider,
           supervisor: !!resolved.recipients?.supervisor,
@@ -234,26 +247,13 @@ class PayrollNotesAgingService {
       return { ok: false, reason: 'period_not_found' };
     }
 
-    const [rows] = await pool.execute(
-      `SELECT ps.user_id,
-              ps.no_note_units,
-              ps.draft_units,
-              u.first_name,
-              u.last_name,
-              u.email
-       FROM payroll_summaries ps
-       JOIN users u ON ps.user_id = u.id
-       WHERE ps.agency_id = ?
-         AND ps.payroll_period_id = ?
-         AND (COALESCE(ps.no_note_units, 0) + COALESCE(ps.draft_units, 0)) > 0`,
-      [agencyId, payrollPeriodId]
-    );
+    const rows = await this._listUnpaidNoteCountsForPeriod({ agencyId, payrollPeriodId, providerUserId: null });
 
     let createdCount = 0;
     for (const r of rows || []) {
       const providerUserId = Number(r.user_id);
-      const noNote = Number(r.no_note_units || 0);
-      const draft = Number(r.draft_units || 0);
+      const noNote = Number(r.no_note_notes || 0);
+      const draft = Number(r.draft_notes || 0);
       const total = noNote + draft;
       if (!providerUserId || total <= 0) continue;
 
@@ -275,7 +275,7 @@ class PayrollNotesAgingService {
         type: 'payroll_missing_notes_reminder',
         severity: 'warning',
         title: 'Notes need attention',
-        message: `User ${providerName} has notes needing attention for ${start} to ${end}: No Note ${noNote}, Draft ${draft}. Please make sure all missed appointment notes are written prior to the end of the pay period.`,
+        message: `User ${providerName} has unpaid notes for ${start} to ${end}: No Note ${noNote} notes, Draft ${draft} notes. Please make sure all missed appointment notes are written prior to the end of the pay period.`,
         audienceJson: {
           provider: !!resolved.recipients?.provider,
           supervisor: !!resolved.recipients?.supervisor,
