@@ -792,6 +792,17 @@ const dashboardCards = computed(() => {
           iconUrl: brandingStore.getDashboardCardIconUrl('clients', cardIconOrgOverride),
           description: 'Your caseload by school with psychotherapy fiscal-year totals.'
         });
+        if (clinicalNoteGeneratorEnabledForAgency.value && (isProvider || role === 'intern')) {
+          cards.push({
+            id: 'clinical_note_generator',
+            label: 'Clinical Note Generator',
+            kind: 'link',
+            to: '/admin/clinical-note-generator',
+            badgeCount: 0,
+            iconUrl: brandingStore.getDashboardCardIconUrl('clinical_note_generator', cardIconOrgOverride),
+            description: 'Generate structured clinical notes (audio + text).'
+          });
+        }
         if (providerSurfacesEnabled.value) {
           cards.push({
             id: 'submit',
@@ -893,16 +904,17 @@ const railCards = computed(() => {
         my: 0,
         my_schedule: 1,
         clients: 2,
-        checklist: 3,
-        training: 4,
-        documents: 5,
-        submit: 6,
-        payroll: 7,
-        on_demand_training: 8,
-        communications: 9,
-        chats: 10,
-        notifications: 11,
-        supervision: 12
+        clinical_note_generator: 3,
+        checklist: 4,
+        training: 5,
+        documents: 6,
+        submit: 7,
+        payroll: 8,
+        on_demand_training: 9,
+        communications: 10,
+        chats: 11,
+        notifications: 12,
+        supervision: 13
       })[k] ?? 999;
     }
     return ({
@@ -911,14 +923,15 @@ const railCards = computed(() => {
       training: 2,
       my_schedule: 3,
       clients: 4,
-      submit: 5,
-      payroll: 6,
-      my: 7,
-      on_demand_training: 8,
-      communications: 9,
-      chats: 10,
-      notifications: 11,
-      supervision: 12
+      clinical_note_generator: 5,
+      submit: 6,
+      payroll: 7,
+      my: 8,
+      on_demand_training: 9,
+      communications: 10,
+      chats: 11,
+      notifications: 12,
+      supervision: 13
     })[k] ?? 999;
   };
 
@@ -1032,11 +1045,18 @@ const parseFeatureFlags = (raw) => {
   return {};
 };
 
+const isTruthyFlag = (v) => {
+  if (v === true || v === 1) return true;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+};
+
 const agencyFlags = computed(() => parseFeatureFlags(agencyStore.currentAgency?.feature_flags));
 const portalVariant = computed(() => String(agencyFlags.value?.portalVariant || 'healthcare_provider'));
 const providerSurfacesEnabled = computed(() => portalVariant.value !== 'employee');
 const inSchoolEnabled = computed(() => agencyFlags.value?.inSchoolSubmissionsEnabled !== false);
 const medcancelEnabledForAgency = computed(() => inSchoolEnabled.value && agencyFlags.value?.medcancelEnabled !== false);
+const clinicalNoteGeneratorEnabledForAgency = computed(() => isTruthyFlag(agencyFlags.value?.clinicalNoteGeneratorEnabled));
 
 const assignedSchools = ref([]);
 const assignedSchoolsLoading = ref(false);

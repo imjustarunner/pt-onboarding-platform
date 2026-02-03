@@ -707,6 +707,12 @@
             </div>
             <small class="hint">Enables the Note Aid page (AI note helpers). Requires GEMINI_API_KEY in backend.</small>
 
+            <div class="toggle-row" style="margin-top: 10px;">
+              <span>Enable Clinical Note Generator (agency-paid)</span>
+              <ToggleSwitch v-model="agencyForm.featureFlags.clinicalNoteGeneratorEnabled" compact />
+            </div>
+            <small class="hint">Enables the Clinical Note Generator tool for this organization (providers see it on My Dashboard).</small>
+
             <div class="toggle-row" style="margin-top: 14px;">
               <span>Enable Google Workspace login rules</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.googleSsoEnabled" compact />
@@ -1716,6 +1722,11 @@
                 <label>Clients Card Icon</label>
                 <IconSelector v-model="agencyForm.myDashboardClientsIconId" :defaultAgencyId="editingAgency?.id || null" />
                 <small>Icon for the "Clients" card</small>
+              </div>
+              <div class="dashboard-icon-item">
+                <label>Clinical Note Generator Card Icon</label>
+                <IconSelector v-model="agencyForm.myDashboardClinicalNoteGeneratorIconId" :defaultAgencyId="editingAgency?.id || null" />
+                <small>Icon for the "Clinical Note Generator" card (providers only; if enabled)</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Submit Card Icon</label>
@@ -3676,6 +3687,7 @@ const ICON_TEMPLATE_FIELDS = [
   'myDashboardDocumentsIconId',
   'myDashboardMyScheduleIconId',
   'myDashboardClientsIconId',
+  'myDashboardClinicalNoteGeneratorIconId',
   'myDashboardSubmitIconId',
   'myDashboardPayrollIconId',
   'myDashboardMyAccountIconId',
@@ -3751,6 +3763,7 @@ const defaultAgencyForm = () => ({
   myDashboardMyAccountIconId: null,
   myDashboardMyScheduleIconId: null,
   myDashboardClientsIconId: null,
+  myDashboardClinicalNoteGeneratorIconId: null,
   myDashboardOnDemandTrainingIconId: null,
   myDashboardCommunicationsIconId: null,
   myDashboardChatsIconId: null,
@@ -3816,6 +3829,9 @@ const defaultAgencyForm = () => ({
 
     // Default OFF until explicitly enabled (requires GEMINI_API_KEY in backend).
     noteAidEnabled: false,
+
+    // Default OFF until explicitly enabled (agency-paid)
+    clinicalNoteGeneratorEnabled: false,
 
     // Google Workspace SSO gate (off by default)
     googleSsoEnabled: false,
@@ -4907,6 +4923,7 @@ const editAgency = async (agency) => {
     myDashboardMyAccountIconId: agency.my_dashboard_my_account_icon_id ?? null,
     myDashboardMyScheduleIconId: agency.my_dashboard_my_schedule_icon_id ?? null,
     myDashboardClientsIconId: agency.my_dashboard_clients_icon_id ?? null,
+    myDashboardClinicalNoteGeneratorIconId: agency.my_dashboard_clinical_note_generator_icon_id ?? null,
     myDashboardOnDemandTrainingIconId: agency.my_dashboard_on_demand_training_icon_id ?? null,
     myDashboardPayrollIconId: agency.my_dashboard_payroll_icon_id ?? null,
     myDashboardSubmitIconId: agency.my_dashboard_submit_icon_id ?? null,
@@ -4964,6 +4981,7 @@ const editAgency = async (agency) => {
       medcancelEnabled: featureFlags.medcancelEnabled !== false,
       aiProviderSearchEnabled: featureFlags.aiProviderSearchEnabled === true,
       noteAidEnabled: featureFlags.noteAidEnabled === true,
+      clinicalNoteGeneratorEnabled: featureFlags.clinicalNoteGeneratorEnabled === true,
 
       googleSsoEnabled: featureFlags.googleSsoEnabled === true,
       googleSsoRequiredRoles: Array.isArray(featureFlags.googleSsoRequiredRoles)
@@ -5560,6 +5578,7 @@ const saveAgency = async () => {
       myDashboardMyAccountIconId: agencyForm.value.myDashboardMyAccountIconId ?? null,
       myDashboardMyScheduleIconId: agencyForm.value.myDashboardMyScheduleIconId ?? null,
       myDashboardClientsIconId: agencyForm.value.myDashboardClientsIconId ?? null,
+      myDashboardClinicalNoteGeneratorIconId: agencyForm.value.myDashboardClinicalNoteGeneratorIconId ?? null,
       myDashboardOnDemandTrainingIconId: agencyForm.value.myDashboardOnDemandTrainingIconId ?? null,
       myDashboardPayrollIconId: agencyForm.value.myDashboardPayrollIconId ?? null,
       myDashboardSubmitIconId: agencyForm.value.myDashboardSubmitIconId ?? null,

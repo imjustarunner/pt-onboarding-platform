@@ -163,6 +163,16 @@ class Agency {
     } catch (e) {
       hasMyDashboardIcons = false;
     }
+    // Optional My Dashboard: Clinical Note Generator card icon (added later than the base my_dashboard_* set)
+    let hasMyDashboardClinicalNoteGeneratorIcon = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'my_dashboard_clinical_note_generator_icon_id'"
+      );
+      hasMyDashboardClinicalNoteGeneratorIcon = (cols || []).length > 0;
+    } catch (e) {
+      hasMyDashboardClinicalNoteGeneratorIcon = false;
+    }
 
     let query;
     if (hasDashboardIcons) {
@@ -345,7 +355,11 @@ class Agency {
         mdcom_i.file_path as my_dashboard_communications_icon_path, mdcom_i.name as my_dashboard_communications_icon_name,
         mdchat_i.file_path as my_dashboard_chats_icon_path, mdchat_i.name as my_dashboard_chats_icon_name,
         mdn_i.file_path as my_dashboard_notifications_icon_path, mdn_i.name as my_dashboard_notifications_icon_name,
-        mdsup_i.file_path as my_dashboard_supervision_icon_path, mdsup_i.name as my_dashboard_supervision_icon_name`
+        mdsup_i.file_path as my_dashboard_supervision_icon_path, mdsup_i.name as my_dashboard_supervision_icon_name${
+          hasMyDashboardClinicalNoteGeneratorIcon
+            ? ',\n        mdcn_i.file_path as my_dashboard_clinical_note_generator_icon_path, mdcn_i.name as my_dashboard_clinical_note_generator_icon_name'
+            : ''
+        }`
         : '';
       const myDashJoins = hasMyDashboardIcons
         ? `
@@ -361,7 +375,11 @@ class Agency {
         LEFT JOIN icons mdcom_i ON a.my_dashboard_communications_icon_id = mdcom_i.id
         LEFT JOIN icons mdchat_i ON a.my_dashboard_chats_icon_id = mdchat_i.id
         LEFT JOIN icons mdn_i ON a.my_dashboard_notifications_icon_id = mdn_i.id
-        LEFT JOIN icons mdsup_i ON a.my_dashboard_supervision_icon_id = mdsup_i.id`
+        LEFT JOIN icons mdsup_i ON a.my_dashboard_supervision_icon_id = mdsup_i.id${
+          hasMyDashboardClinicalNoteGeneratorIcon
+            ? '\n        LEFT JOIN icons mdcn_i ON a.my_dashboard_clinical_note_generator_icon_id = mdcn_i.id'
+            : ''
+        }`
         : '';
 
       // Join with icons table to get icon file paths (including master icon)
@@ -516,6 +534,15 @@ class Agency {
     } catch (e) {
       hasMyDashboardIcons = false;
     }
+    let hasMyDashboardClinicalNoteGeneratorIcon = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'my_dashboard_clinical_note_generator_icon_id'"
+      );
+      hasMyDashboardClinicalNoteGeneratorIcon = (cols || []).length > 0;
+    } catch {
+      hasMyDashboardClinicalNoteGeneratorIcon = false;
+    }
 
     // Best-effort: include affiliated agency id for child orgs (school/program/learning)
     // via organization_affiliations (if migrated).
@@ -544,6 +571,11 @@ class Agency {
           mdcom_i.file_path as my_dashboard_communications_icon_path, mdcom_i.name as my_dashboard_communications_icon_name,
           mdchat_i.file_path as my_dashboard_chats_icon_path, mdchat_i.name as my_dashboard_chats_icon_name,
           mdn_i.file_path as my_dashboard_notifications_icon_path, mdn_i.name as my_dashboard_notifications_icon_name
+          ${
+            hasMyDashboardClinicalNoteGeneratorIcon
+              ? ',\n          mdcn_i.file_path as my_dashboard_clinical_note_generator_icon_path, mdcn_i.name as my_dashboard_clinical_note_generator_icon_name'
+              : ''
+          }
           ${hasOrgAffiliations ? ', oa.agency_id AS affiliated_agency_id' : ''}
          FROM agencies a
          ${hasOrgAffiliations ? '\n         LEFT JOIN organization_affiliations oa ON oa.organization_id = a.id AND oa.is_active = TRUE' : ''}
@@ -559,6 +591,7 @@ class Agency {
          LEFT JOIN icons mdcom_i ON a.my_dashboard_communications_icon_id = mdcom_i.id
          LEFT JOIN icons mdchat_i ON a.my_dashboard_chats_icon_id = mdchat_i.id
          LEFT JOIN icons mdn_i ON a.my_dashboard_notifications_icon_id = mdn_i.id
+          ${hasMyDashboardClinicalNoteGeneratorIcon ? '\n         LEFT JOIN icons mdcn_i ON a.my_dashboard_clinical_note_generator_icon_id = mdcn_i.id' : ''}
          WHERE a.slug = ? AND a.is_active = TRUE`,
         [slug]
       );
@@ -778,6 +811,7 @@ class Agency {
       myDashboardChatsIconId,
       myDashboardNotificationsIconId,
       myDashboardSupervisionIconId,
+      myDashboardClinicalNoteGeneratorIconId,
 
       // School Portal dashboard card icon overrides (agency-level; optional columns)
       schoolPortalProvidersIconId,
@@ -1054,6 +1088,15 @@ class Agency {
     } catch (e) {
       hasMyDashboardIcons = false;
     }
+    let hasMyDashboardClinicalNoteGeneratorIcon = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'my_dashboard_clinical_note_generator_icon_id'"
+      );
+      hasMyDashboardClinicalNoteGeneratorIcon = (cols || []).length > 0;
+    } catch {
+      hasMyDashboardClinicalNoteGeneratorIcon = false;
+    }
     if (hasMyDashboardIcons) {
       insertFields.push(
         'my_dashboard_checklist_icon_id',
@@ -1085,6 +1128,10 @@ class Agency {
         myDashboardNotificationsIconId || null,
         myDashboardSupervisionIconId || null
       );
+      if (hasMyDashboardClinicalNoteGeneratorIcon) {
+        insertFields.push('my_dashboard_clinical_note_generator_icon_id');
+        insertValues.push(myDashboardClinicalNoteGeneratorIconId || null);
+      }
     }
 
     // School Portal dashboard card icons (optional)
@@ -1215,7 +1262,7 @@ class Agency {
   }
 
   static async update(id, agencyData) {
-    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
+    const { name, officialName, slug, logoUrl, logoPath, colorPalette, terminologySettings, isActive, iconId, chatIconId, trainingFocusDefaultIconId, moduleDefaultIconId, userDefaultIconId, documentDefaultIconId, companyDefaultPasswordHash, useDefaultPassword, manageAgenciesIconId, manageModulesIconId, manageDocumentsIconId, manageUsersIconId, platformSettingsIconId, viewAllProgressIconId, progressDashboardIconId, settingsIconId, externalCalendarAuditIconId, skillBuildersAvailabilityIconId, myDashboardChecklistIconId, myDashboardTrainingIconId, myDashboardDocumentsIconId, myDashboardMyAccountIconId, myDashboardMyScheduleIconId, myDashboardClientsIconId, myDashboardOnDemandTrainingIconId, myDashboardPayrollIconId, myDashboardSubmitIconId, myDashboardCommunicationsIconId, myDashboardChatsIconId, myDashboardNotificationsIconId, myDashboardSupervisionIconId, myDashboardClinicalNoteGeneratorIconId, certificateTemplateUrl, onboardingTeamEmail, phoneNumber, phoneExtension, portalUrl, customDomain, themeSettings, customParameters, featureFlags, publicAvailabilityEnabled, organizationType, statusExpiredIconId, tempPasswordExpiredIconId, taskOverdueIconId, onboardingCompletedIconId, invitationExpiredIconId, firstLoginIconId, firstLoginPendingIconId, passwordChangedIconId, supportTicketCreatedIconId, ticketingNotificationOrgTypes, streetAddress, city, state, postalCode, tierSystemEnabled, tierThresholds,
       schoolPortalProvidersIconId, schoolPortalDaysIconId, schoolPortalRosterIconId, schoolPortalSkillsGroupsIconId, schoolPortalContactAdminIconId, schoolPortalFaqIconId, schoolPortalSchoolStaffIconId, schoolPortalParentQrIconId, schoolPortalParentSignIconId, schoolPortalUploadPacketIconId,
       schoolPortalPublicDocumentsIconId,
       companyProfileIconId, teamRolesIconId, billingIconId, packagesIconId, checklistItemsIconId, fieldDefinitionsIconId, brandingTemplatesIconId, assetsIconId, communicationsIconId, integrationsIconId, archiveIconId
@@ -1711,7 +1758,9 @@ class Agency {
       myDashboardSubmitIconId !== undefined ||
       myDashboardCommunicationsIconId !== undefined ||
       myDashboardChatsIconId !== undefined ||
-      myDashboardNotificationsIconId !== undefined
+      myDashboardNotificationsIconId !== undefined ||
+      myDashboardSupervisionIconId !== undefined ||
+      myDashboardClinicalNoteGeneratorIconId !== undefined
     ) {
       let hasMyDashboardIcons = false;
       try {
@@ -1724,6 +1773,21 @@ class Agency {
       }
 
       if (hasMyDashboardIcons) {
+        // Optional My Dashboard columns added later.
+        let hasMyDashboardSupervisionIcon = false;
+        let hasMyDashboardClinicalNoteGeneratorIcon = false;
+        try {
+          const [cols] = await pool.execute(
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME IN ('my_dashboard_supervision_icon_id','my_dashboard_clinical_note_generator_icon_id')"
+          );
+          const names = new Set((cols || []).map((c) => c.COLUMN_NAME));
+          hasMyDashboardSupervisionIcon = names.has('my_dashboard_supervision_icon_id');
+          hasMyDashboardClinicalNoteGeneratorIcon = names.has('my_dashboard_clinical_note_generator_icon_id');
+        } catch {
+          hasMyDashboardSupervisionIcon = false;
+          hasMyDashboardClinicalNoteGeneratorIcon = false;
+        }
+
         if (myDashboardChecklistIconId !== undefined) {
           updates.push('my_dashboard_checklist_icon_id = ?');
           values.push(myDashboardChecklistIconId || null);
@@ -1771,6 +1835,14 @@ class Agency {
         if (myDashboardNotificationsIconId !== undefined) {
           updates.push('my_dashboard_notifications_icon_id = ?');
           values.push(myDashboardNotificationsIconId || null);
+        }
+        if (hasMyDashboardSupervisionIcon && myDashboardSupervisionIconId !== undefined) {
+          updates.push('my_dashboard_supervision_icon_id = ?');
+          values.push(myDashboardSupervisionIconId || null);
+        }
+        if (hasMyDashboardClinicalNoteGeneratorIcon && myDashboardClinicalNoteGeneratorIconId !== undefined) {
+          updates.push('my_dashboard_clinical_note_generator_icon_id = ?');
+          values.push(myDashboardClinicalNoteGeneratorIconId || null);
         }
       }
 

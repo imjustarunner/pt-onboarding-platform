@@ -274,6 +274,23 @@ const getActionIcon = (actionKey) => {
   return brandingStore.getAdminQuickActionIconUrl(actionKey, agencyData.value || null);
 };
 
+const parseFeatureFlags = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) || {}; } catch { return {}; }
+  }
+  return {};
+};
+const isTruthyFlag = (v) => {
+  if (v === true || v === 1) return true;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+};
+const clinicalNoteGeneratorEnabledForAgency = computed(() =>
+  isTruthyFlag(parseFeatureFlags(agencyData.value?.feature_flags || currentAgency.value?.feature_flags)?.clinicalNoteGeneratorEnabled)
+);
+
 const quickActions = computed(() => {
   const base = [
   {
@@ -296,6 +313,16 @@ const quickActions = computed(() => {
     iconKey: 'manage_clients',
     category: 'Management',
     roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canAccessPlatform']
+  },
+  {
+    id: 'clinical_note_generator',
+    title: 'Clinical Note Generator',
+    description: 'Generate structured clinical notes (audio + text)',
+    to: '/admin/clinical-note-generator',
+    emoji: '🩺',
+    category: 'Clinical',
+    roles: ['admin', 'support', 'super_admin', 'staff', 'provider', 'intern', 'clinical_practice_assistant', 'supervisor'],
     capabilities: ['canAccessPlatform']
   },
   {
@@ -477,6 +504,7 @@ const quickActions = computed(() => {
   return base.filter((a) => {
     if (String(a?.id) === 'school_overview') return hasAffiliatedSchools.value;
     if (String(a?.id) === 'program_overview') return hasAffiliatedPrograms.value;
+    if (String(a?.id) === 'clinical_note_generator') return clinicalNoteGeneratorEnabledForAgency.value;
     return true;
   });
 });
@@ -484,6 +512,7 @@ const quickActions = computed(() => {
 const defaultQuickActionIds = computed(() => ([
   'progress_dashboard',
   'manage_clients',
+  ...(clinicalNoteGeneratorEnabledForAgency.value ? ['clinical_note_generator'] : []),
   ...(hasAffiliatedSchools.value ? ['school_overview'] : []),
   ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
   'manage_modules',

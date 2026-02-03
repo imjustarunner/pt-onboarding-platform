@@ -102,6 +102,7 @@ import researchCandidateRoutes from './routes/researchCandidate.routes.js';
 import publicProviderAvailabilityRoutes from './routes/publicProviderAvailability.routes.js';
 import publicSchoolsRoutes from './routes/publicSchools.routes.js';
 import agentsRoutes from './routes/agents.routes.js';
+import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -523,6 +524,7 @@ app.use('/api/availability', availabilityRoutes);
 app.use('/api/hiring', hiringRoutes);
 app.use('/api/overlays', agencyPageOverlaysRoutes);
 app.use('/api/agents', agentsRoutes);
+app.use('/api/clinical-notes', clinicalNoteGeneratorRoutes);
 app.use('/api', researchCandidateRoutes);
 app.use('/api/twilio', twilioRoutes);
 app.use('/api/messages', messageRoutes);
@@ -683,6 +685,32 @@ app.listen(PORT, () => {
     // Then run every 24 hours
     setInterval(scheduleBrandingTemplates, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight());
+
+  // Clinical Note Generator drafts cleanup (hard delete >14 days)
+  // Run daily at 2:00 AM (best-effort; safe if table doesn't exist yet).
+  const scheduleClinicalNoteDraftCleanup = async () => {
+    try {
+      const ClinicalNoteDraftCleanupService = (await import('./services/clinicalNoteDraftCleanup.service.js')).default;
+      const result = await ClinicalNoteDraftCleanupService.run({ days: 14 });
+      const n = Number(result?.deleted || 0);
+      if (n > 0) console.log(`[clinical_note_drafts] hard-deleted ${n} records older than 14 days`);
+    } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE') {
+        console.warn('clinical_note_drafts table not found. Run migration 333_create_clinical_note_drafts.sql');
+      } else {
+        console.error('Error in clinical note drafts cleanup:', error);
+      }
+    }
+  };
+
+  // Run immediately on startup (best-effort)
+  scheduleClinicalNoteDraftCleanup();
+
+  // Schedule daily at 2:00 AM using the midnight helper
+  setTimeout(() => {
+    scheduleClinicalNoteDraftCleanup();
+    setInterval(scheduleClinicalNoteDraftCleanup, 24 * 60 * 60 * 1000);
+  }, getMsUntilMidnight() + (2 * 60 * 60 * 1000));
 
   // Set up periodic processing of pending user auto-completion
   // Run every hour to check for pending users who should be auto-completed

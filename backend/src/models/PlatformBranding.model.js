@@ -209,6 +209,15 @@ class PlatformBranding {
             "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'my_dashboard_checklist_icon_id'"
           );
           if (myDashColumns.length > 0) {
+            let hasClinicalNoteGenerator = false;
+            try {
+              const [cols] = await pool.execute(
+                "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'platform_branding' AND COLUMN_NAME = 'my_dashboard_clinical_note_generator_icon_id'"
+              );
+              hasClinicalNoteGenerator = (cols || []).length > 0;
+            } catch {
+              hasClinicalNoteGenerator = false;
+            }
             myDashboardIconSelects = `,
           mdc_i.file_path as my_dashboard_checklist_icon_path, mdc_i.name as my_dashboard_checklist_icon_name,
           mdt_i.file_path as my_dashboard_training_icon_path, mdt_i.name as my_dashboard_training_icon_name,
@@ -218,7 +227,11 @@ class PlatformBranding {
           mdcli_i.file_path as my_dashboard_clients_icon_path, mdcli_i.name as my_dashboard_clients_icon_name,
           mdod_i.file_path as my_dashboard_on_demand_training_icon_path, mdod_i.name as my_dashboard_on_demand_training_icon_name,
           mdp_i.file_path as my_dashboard_payroll_icon_path, mdp_i.name as my_dashboard_payroll_icon_name,
-          mds_i.file_path as my_dashboard_submit_icon_path, mds_i.name as my_dashboard_submit_icon_name`;
+          mds_i.file_path as my_dashboard_submit_icon_path, mds_i.name as my_dashboard_submit_icon_name${
+            hasClinicalNoteGenerator
+              ? ',\n          mdcn_i.file_path as my_dashboard_clinical_note_generator_icon_path, mdcn_i.name as my_dashboard_clinical_note_generator_icon_name'
+              : ''
+          }`;
             myDashboardIconJoins = `
           LEFT JOIN icons mdc_i ON pb.my_dashboard_checklist_icon_id = mdc_i.id
           LEFT JOIN icons mdt_i ON pb.my_dashboard_training_icon_id = mdt_i.id
@@ -228,7 +241,11 @@ class PlatformBranding {
           LEFT JOIN icons mdcli_i ON pb.my_dashboard_clients_icon_id = mdcli_i.id
           LEFT JOIN icons mdod_i ON pb.my_dashboard_on_demand_training_icon_id = mdod_i.id
           LEFT JOIN icons mdp_i ON pb.my_dashboard_payroll_icon_id = mdp_i.id
-          LEFT JOIN icons mds_i ON pb.my_dashboard_submit_icon_id = mds_i.id`;
+          LEFT JOIN icons mds_i ON pb.my_dashboard_submit_icon_id = mds_i.id${
+            hasClinicalNoteGenerator
+              ? '\n          LEFT JOIN icons mdcn_i ON pb.my_dashboard_clinical_note_generator_icon_id = mdcn_i.id'
+              : ''
+          }`;
           }
         } catch (e) {
           // "My Dashboard" icon columns don't exist yet, skip

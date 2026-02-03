@@ -308,6 +308,16 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/clinical-note-generator',
+    name: 'OrganizationClinicalNoteGenerator',
+    component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin', 'intern'],
+      organizationSlug: true
+    }
+  },
+  {
     path: '/:organizationSlug/admin/schools/import',
     name: 'OrganizationSchoolContactsImport',
     component: () => import('../views/admin/SchoolContactsImportView.vue'),
@@ -636,6 +646,12 @@ const routes = [
     name: 'NoteAid',
     component: () => import('../views/admin/NoteAidView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin'] }
+  },
+  {
+    path: '/admin/clinical-note-generator',
+    name: 'ClinicalNoteGenerator',
+    component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin', 'intern'] }
   },
   {
     path: '/admin/schools/import',
