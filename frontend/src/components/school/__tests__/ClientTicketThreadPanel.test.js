@@ -106,5 +106,36 @@ describe('ClientTicketThreadPanel', () => {
     expect(wrapper.text()).toContain('Ticket #200');
     expect(wrapper.find('.summary-card').exists()).toBe(true);
   });
+
+  it('can explicitly start a new ticket even when a ticket is selected', async () => {
+    api.post.mockResolvedValue({ data: { id: 300, status: 'open', question: 'New Q' } });
+
+    const wrapper = mount(ClientTicketThreadPanel, {
+      props: {
+        client: { id: 10, initials: 'AB' },
+        schoolOrganizationId: 123
+      },
+      global: {
+        plugins: [pinia],
+        stubs: {
+          SupportTicketThreadMessage: true
+        }
+      }
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(wrapper.text()).toContain('Ticket #100');
+
+    // Enter "new ticket" mode.
+    const newTicketBtn = wrapper.find('.tickets-header .btn-link');
+    await newTicketBtn.trigger('click');
+    expect(wrapper.text()).toContain('Starting a new ticket');
+
+    // Send should create a new ticket (POST /support-tickets).
+    await wrapper.find('textarea.textarea').setValue('Help with something new');
+    await wrapper.find('button.btn.btn-primary').trigger('click');
+
+    expect(api.post).toHaveBeenCalledWith('/support-tickets', expect.objectContaining({ question: 'Help with something new' }));
+  });
 });
 

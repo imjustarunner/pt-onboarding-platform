@@ -7,7 +7,10 @@
       <div class="tickets">
         <div class="tickets-header">
           <strong>Tickets</strong>
-          <button class="btn-link" type="button" @click="refreshAll">Refresh</button>
+          <div class="tickets-actions">
+            <button class="btn-link" type="button" @click="beginNewTicket">New ticket</button>
+            <button class="btn-link" type="button" @click="refreshAll">Refresh</button>
+          </div>
         </div>
 
         <div class="ticket-list" data-tour="school-client-modal-ticket-list">
@@ -31,7 +34,7 @@
 
       <div class="thread">
         <div v-if="!ticket" class="empty">
-          Select a ticket to view messages, or send a message below to start one.
+          Select a ticket to add to an existing thread, or click “New ticket” to start a new topic.
         </div>
 
         <div v-else class="thread-inner">
@@ -88,6 +91,10 @@
         <strong>Send message</strong>
         <span v-if="ticket && isClosed" class="muted">Posting will reopen the ticket.</span>
       </div>
+      <div v-if="creatingNewTicket" class="new-ticket-banner">
+        Starting a new ticket. To add to an existing ticket, click it in the list above.
+        <button class="btn-link" type="button" @click="cancelNewTicket">Cancel</button>
+      </div>
       <div v-if="replyTo" class="replying">
         <span class="replying-pill">Replying to {{ replyTo.authorLabel }}</span>
         <button class="btn-link" type="button" @click="clearReplyTo">Clear</button>
@@ -96,13 +103,13 @@
         v-model="draft"
         class="textarea"
         rows="3"
-        placeholder="Type your message…"
+        :placeholder="creatingNewTicket ? 'Describe your question/topic…' : 'Type your message…'"
         ref="composerEl"
         data-tour="school-client-modal-ticket-composer"
       />
       <div class="composer-actions">
         <button class="btn btn-primary" type="button" @click="send" :disabled="sending || !draft.trim()">
-          {{ sending ? 'Sending…' : 'Send message' }}
+          {{ sending ? 'Sending…' : (creatingNewTicket ? 'Submit new ticket' : 'Send message') }}
         </button>
         <div v-if="sendError" class="error">{{ sendError }}</div>
       </div>
@@ -142,6 +149,7 @@ const messagesEl = ref(null);
 const composerEl = ref(null);
 
 const replyTo = ref(null); // { id, authorLabel }
+const creatingNewTicket = ref(false);
 
 const isClosed = computed(() => String(ticket.value?.status || '').toLowerCase() === 'closed');
 const isAnsweredOrClosed = computed(() => {
@@ -223,6 +231,28 @@ const clearReplyTo = () => {
   replyTo.value = null;
 };
 
+const beginNewTicket = () => {
+  creatingNewTicket.value = true;
+  selectedTicketId.value = null;
+  ticket.value = null;
+  messages.value = [];
+  replyTo.value = null;
+  sendError.value = '';
+  nextTick(() => {
+    try {
+      composerEl.value?.focus?.();
+    } catch {
+      // ignore
+    }
+  });
+};
+
+const cancelNewTicket = () => {
+  creatingNewTicket.value = false;
+  replyTo.value = null;
+  sendError.value = '';
+};
+
 const loadTickets = async () => {
   if (!props.client?.id) return;
   loadingTickets.value = true;
@@ -291,6 +321,7 @@ const selectTicket = async (id) => {
   const nextId = Number(id);
   if (!nextId) return;
   selectedTicketId.value = nextId;
+  creatingNewTicket.value = false;
   showFullThread.value = false;
   replyTo.value = null;
   sendError.value = '';
@@ -344,7 +375,7 @@ const send = async () => {
   sending.value = true;
   sendError.value = '';
   try {
-    if (!selectedTicketId.value || !ticket.value?.id) {
+    if (creatingNewTicket.value || !selectedTicketId.value || !ticket.value?.id) {
       const created = await api.post('/support-tickets', {
         schoolOrganizationId: Number(props.schoolOrganizationId),
         clientId: Number(props.client.id),
@@ -362,6 +393,7 @@ const send = async () => {
       }
       draft.value = '';
       replyTo.value = null;
+      creatingNewTicket.value = false;
       return;
     }
 
@@ -396,6 +428,7 @@ watch(
     showFullThread.value = false;
     selectedTicketId.value = null;
     replyTo.value = null;
+    creatingNewTicket.value = false;
     draft.value = '';
     tickets.value = [];
     ticket.value = null;
@@ -439,6 +472,12 @@ onMounted(loadTickets);
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 8px;
+}
+
+.tickets-actions {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
 }
 
 .ticket-list {
@@ -559,6 +598,20 @@ onMounted(loadTickets);
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.new-ticket-banner {
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 10px;
   margin-bottom: 8px;
 }
