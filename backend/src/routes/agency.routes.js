@@ -98,7 +98,12 @@ const validateCreateAgency = [
   }).withMessage('Onboarding team email must be a valid email address or empty'),
   body('phoneNumber').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (!value || value === null || value === '' || value === undefined) return true;
-    return /^[\d\s\(\)\-\+\.]+$/.test(value);
+    // Normalize common Unicode "smart" dashes to ASCII hyphen so numbers like
+    // "(719) 475‑6130" (U+2011) validate correctly.
+    const normalized = String(value)
+      .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-')
+      .replace(/\u00A0/g, ' ');
+    return /^[\d\s\(\)\-\+\.]+$/.test(normalized);
   }).withMessage('Phone number must be a valid phone format or empty'),
   body('phoneExtension').optional({ nullable: true, checkFalsy: true }).matches(/^[a-zA-Z0-9]{0,10}$/).withMessage('Phone extension must be alphanumeric and max 10 characters'),
   body('portalUrl').optional({ nullable: true, checkFalsy: true }).custom((value) => {
@@ -240,7 +245,10 @@ const validateUpdateAgency = [
   }).withMessage('Onboarding team email must be a valid email address or empty'),
   body('phoneNumber').optional({ nullable: true, checkFalsy: true }).custom((value) => {
     if (!value || value === null || value === '' || value === undefined) return true;
-    return /^[\d\s\(\)\-\+\.]+$/.test(value);
+    const normalized = String(value)
+      .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g, '-')
+      .replace(/\u00A0/g, ' ');
+    return /^[\d\s\(\)\-\+\.]+$/.test(normalized);
   }).withMessage('Phone number must be a valid phone format or empty'),
   body('phoneExtension').optional({ nullable: true, checkFalsy: true }).matches(/^[a-zA-Z0-9]{0,10}$/).withMessage('Phone extension must be alphanumeric and max 10 characters'),
   body('portalUrl').optional({ nullable: true, checkFalsy: true }).custom((value) => {

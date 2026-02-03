@@ -5509,6 +5509,13 @@ const saveAgency = async () => {
       return trimmed;
     };
 
+    const normalizePhoneNumber = (v) => {
+      const base = normalizeNullableText(v);
+      if (!base) return null;
+      // Normalize common Unicode "smart" dashes (ex: U+2011) to ASCII hyphen.
+      return base.replace(/[‐‑‒–—−]/g, '-').replace(/\u00A0/g, ' ');
+    };
+
     const data = {
       organizationType: normalizedOrganizationType,
       name: agencyForm.value.name.trim(),
@@ -5567,7 +5574,7 @@ const saveAgency = async () => {
       schoolPortalUploadPacketIconId: agencyForm.value.schoolPortalUploadPacketIconId ?? null,
       schoolPortalPublicDocumentsIconId: agencyForm.value.schoolPortalPublicDocumentsIconId ?? null,
       onboardingTeamEmail: normalizeNullableText(agencyForm.value.onboardingTeamEmail),
-      phoneNumber: normalizeNullableText(agencyForm.value.phoneNumber),
+      phoneNumber: normalizePhoneNumber(agencyForm.value.phoneNumber),
       // Schools don't use extensions (per directory requirements)
       phoneExtension:
         String(agencyForm.value.organizationType || '').toLowerCase() === 'school'
