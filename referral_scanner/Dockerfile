@@ -9,10 +9,10 @@ RUN apt-get update && \
 # Update virus definitions during build (best-effort).
 RUN freshclam || echo "freshclam failed; will rely on base definitions"
 
-COPY package*.json ./
+COPY referral_scanner/package*.json ./
 RUN npm ci --omit=dev
 
-COPY index.js ./
+COPY referral_scanner/index.js ./
 
 ENV NODE_ENV=production
 
