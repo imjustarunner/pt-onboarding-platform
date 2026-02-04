@@ -43,11 +43,12 @@ router.post(
   apiLimiter,
   [
     body('agencyId').isInt({ min: 1 }),
-    body('serviceCode').optional().isString().isLength({ min: 1, max: 32 }),
-    body('programId').optional().isInt({ min: 1 }),
-    body('dateOfService').optional().isString().isLength({ min: 1, max: 32 }),
-    body('initials').optional().isString().isLength({ min: 1, max: 16 }),
-    body('inputText').optional().isString().isLength({ min: 0, max: 12000 })
+    // Frontend autosave sends nulls for empty fields; treat null as "not provided".
+    body('serviceCode').optional({ nullable: true }).isString().isLength({ min: 1, max: 32 }),
+    body('programId').optional({ nullable: true }).isInt({ min: 1 }),
+    body('dateOfService').optional({ nullable: true }).isString().isLength({ min: 1, max: 32 }),
+    body('initials').optional({ nullable: true }).isString().isLength({ min: 1, max: 16 }),
+    body('inputText').optional({ nullable: true }).isString().isLength({ min: 0, max: 12000 })
   ],
   createClinicalNoteDraft
 );
