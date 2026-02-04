@@ -1421,12 +1421,13 @@ onUnmounted(() => {
 
 @media (max-width: 1400px) {
   .nav-links-wrapper {
-    overflow-x: auto;
-    overflow-y: visible;
-    -webkit-overflow-scrolling: touch;
+    overflow: visible;
   }
 
   .nav-links {
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
     min-width: max-content;
   }
 }
