@@ -100,8 +100,8 @@ RUN echo "Verifying public directory..." && \
     test -f public/index.html || (echo "ERROR: public/index.html not found!" && ls -la public/ && exit 1) && \
     echo "Verified: public/index.html exists"
 
-# Expose port (Cloud Run will set PORT env var)
-EXPOSE 3000
+# Expose port (Cloud Run will set PORT env var, typically 8080)
+EXPOSE 8080
 
 # Start the application
 CMD ["node", "src/server.js"]

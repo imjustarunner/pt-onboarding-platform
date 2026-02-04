@@ -622,11 +622,13 @@ app.use((req, res) => {
   res.status(404).json({ error: { message: 'Route not found' } });
 });
 
-// Cloud Run sets PORT automatically - use it or default to 8080
-const PORT = process.env.PORT || 8080; // Fixed for Cloud Run deployment
+// Cloud Run sets PORT automatically (typically 8080). Bind to all interfaces.
+const PORT_RAW = process.env.PORT ?? config.port ?? 8080;
+const PORT = Number.parseInt(String(PORT_RAW), 10) || 8080;
+const HOST = String(process.env.HOST || '0.0.0.0');
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 Server running on http://${HOST}:${PORT}`);
   console.log(`📝 Environment: ${config.nodeEnv}`);
 });
 
