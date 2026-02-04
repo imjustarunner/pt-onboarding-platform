@@ -16,9 +16,19 @@
     </div>
 
     <!-- Agency announcement banner (Dashboard) -->
-    <div v-if="!previewMode && dashboardBanner && dashboardBanner.message" class="agency-announcement-banner">
-      <div class="agency-announcement-content">
-        <strong>{{ dashboardBanner.message }}</strong>
+    <div v-if="!previewMode && dashboardBannerTexts.length > 0" class="agency-announcement-banner">
+      <div class="agency-announcement-inner">
+        <div class="agency-announcement-track" aria-label="Agency announcements banner">
+          <span v-for="(t, idx) in dashboardBannerTexts" :key="`${idx}-${t.slice(0, 16)}`" class="agency-announcement-item">
+            {{ t }}
+            <span class="sep" aria-hidden="true"> • </span>
+          </span>
+          <!-- Repeat once to ensure continuous scroll -->
+          <span v-for="(t, idx) in dashboardBannerTexts" :key="`r-${idx}-${t.slice(0, 16)}`" class="agency-announcement-item">
+            {{ t }}
+            <span class="sep" aria-hidden="true"> • </span>
+          </span>
+        </div>
       </div>
     </div>
     
@@ -694,6 +704,21 @@ const railIconFallback = (card) => {
 const dashboardBannerLoading = ref(false);
 const dashboardBannerError = ref('');
 const dashboardBanner = ref(null); // { type, message, agencyId, names } | null
+const scheduledBannerItems = ref([]);
+
+const dashboardBannerTexts = computed(() => {
+  const scheduled = Array.isArray(scheduledBannerItems.value) ? scheduledBannerItems.value : [];
+  const scheduledTexts = scheduled
+    .map((a) => {
+      const title = String(a?.title || '').trim();
+      const msg = String(a?.message || '').trim();
+      const t = title && title.toLowerCase() !== 'announcement' ? `${title}: ${msg}` : msg;
+      return String(t || '').trim();
+    })
+    .filter(Boolean);
+  const birthdayText = String(dashboardBanner.value?.message || '').trim();
+  return [...scheduledTexts, birthdayText].filter(Boolean).slice(0, 10);
+});
 
 const currentAgencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
@@ -873,7 +898,7 @@ const dashboardCards = computed(() => {
             kind: 'link',
             to: '/admin/tools-aids',
             badgeCount: 0,
-            iconUrl: brandingStore.getDashboardCardIconUrl('clinical_note_generator', cardIconOrgOverride),
+            iconUrl: brandingStore.getDashboardCardIconUrl('tools_aids', cardIconOrgOverride),
             description: 'Note Aid and upcoming clinical tools.'
           });
         }
@@ -1338,20 +1363,42 @@ watch(() => [route.query?.tab, route.query?.my], () => {
 const loadAgencyDashboardBanner = async () => {
   if (props.previewMode) {
     dashboardBanner.value = null;
+    scheduledBannerItems.value = [];
     return;
   }
   if (!currentAgencyId.value) {
     dashboardBanner.value = null;
+    scheduledBannerItems.value = [];
     return;
   }
   try {
     dashboardBannerLoading.value = true;
     dashboardBannerError.value = '';
-    const resp = await api.get(`/agencies/${currentAgencyId.value}/dashboard-banner`);
-    dashboardBanner.value = resp.data?.banner || null;
+    const [birthdayResp, scheduledResp] = await Promise.allSettled([
+      api.get(`/agencies/${currentAgencyId.value}/dashboard-banner`),
+      api.get(`/agencies/${currentAgencyId.value}/announcements/banner`)
+    ]);
+
+    if (birthdayResp.status === 'fulfilled') {
+      dashboardBanner.value = birthdayResp.value?.data?.banner || null;
+    } else {
+      dashboardBanner.value = null;
+    }
+
+    if (scheduledResp.status === 'fulfilled') {
+      scheduledBannerItems.value = Array.isArray(scheduledResp.value?.data) ? scheduledResp.value.data : [];
+    } else {
+      scheduledBannerItems.value = [];
+    }
+
+    if (birthdayResp.status === 'rejected' || scheduledResp.status === 'rejected') {
+      const err = birthdayResp.status === 'rejected' ? birthdayResp.reason : scheduledResp.reason;
+      dashboardBannerError.value = err?.response?.data?.error?.message || err?.message || 'Failed to load banner';
+    }
   } catch (e) {
     // Non-blocking; don't break dashboard if this fails.
     dashboardBanner.value = null;
+    scheduledBannerItems.value = [];
     dashboardBannerError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load banner';
   } finally {
     dashboardBannerLoading.value = false;
@@ -1872,12 +1919,38 @@ h1 {
   background: #e0f2fe;
   border-left: 4px solid #0284c7;
   border-radius: 8px;
-  padding: 16px 18px;
+  padding: 8px 0;
   margin-bottom: 20px;
+  overflow: hidden;
 }
 
-.agency-announcement-content strong {
+.agency-announcement-inner {
+  overflow: hidden;
+  width: 100%;
+}
+
+.agency-announcement-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  padding-left: 100%;
+  animation: agencyBannerMarquee 28s linear infinite;
+  white-space: nowrap;
   color: #075985;
+  font-weight: 600;
+}
+
+.agency-announcement-item .sep {
+  opacity: 0.6;
+}
+
+.agency-announcement-banner:hover .agency-announcement-track {
+  animation-play-state: paused;
+}
+
+@keyframes agencyBannerMarquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }
 
 .warning-content {

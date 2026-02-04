@@ -1,7 +1,16 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, deleteAgencyHard, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations, resolvePortalByHost } from '../controllers/agency.controller.js';
-import { getAgencyAnnouncements, updateAgencyAnnouncements, getAgencyDashboardBanner } from '../controllers/agencyAnnouncements.controller.js';
+import {
+  getAgencyAnnouncements,
+  updateAgencyAnnouncements,
+  getAgencyDashboardBanner,
+  listAgencyBannerAnnouncements,
+  listAgencyScheduledAnnouncements,
+  createAgencyScheduledAnnouncement,
+  updateAgencyScheduledAnnouncement,
+  deleteAgencyScheduledAnnouncement
+} from '../controllers/agencyAnnouncements.controller.js';
 import { listAgencyNotificationTriggers, updateAgencyNotificationTrigger } from '../controllers/agencyNotificationTriggers.controller.js';
 import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
@@ -335,6 +344,11 @@ router.post('/:id/school-staff/users/:userId/revoke-access', authenticate, revok
 
 router.get('/:id/announcements', authenticate, requireBackofficeAdmin, getAgencyAnnouncements);
 router.put('/:id/announcements', authenticate, requireBackofficeAdmin, updateAgencyAnnouncements);
+router.get('/:id/announcements/banner', authenticate, listAgencyBannerAnnouncements);
+router.get('/:id/announcements/list', authenticate, requireBackofficeAdmin, listAgencyScheduledAnnouncements);
+router.post('/:id/announcements', authenticate, requireBackofficeAdmin, createAgencyScheduledAnnouncement);
+router.put('/:id/announcements/:announcementId', authenticate, requireBackofficeAdmin, updateAgencyScheduledAnnouncement);
+router.delete('/:id/announcements/:announcementId', authenticate, requireBackofficeAdmin, deleteAgencyScheduledAnnouncement);
 router.get('/:id/dashboard-banner', authenticate, getAgencyDashboardBanner);
 router.get('/:id/notification-triggers', authenticate, requireBackofficeAdmin, listAgencyNotificationTriggers);
 router.put('/:id/notification-triggers/:triggerKey', authenticate, requireBackofficeAdmin, updateAgencyNotificationTrigger);

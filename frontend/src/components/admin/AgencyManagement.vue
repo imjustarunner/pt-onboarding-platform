@@ -1141,6 +1141,95 @@
                 </div>
               </div>
             </div>
+
+            <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
+              <h4 style="margin: 0 0 8px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Scheduled announcements</h4>
+              <small class="hint">Time-limited banners (max 2 weeks). Use these for reminders and short-term notices.</small>
+            </div>
+
+            <div v-if="scheduledAnnouncementsError" class="error-modal">
+              <strong>Error:</strong> {{ scheduledAnnouncementsError }}
+            </div>
+            <div v-if="scheduledAnnouncementsLoading" class="loading">Loading scheduled announcements…</div>
+
+            <div v-else class="form-group" style="margin-top: 10px;">
+              <div style="border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: #fff;">
+                <div style="font-weight: 600; margin-bottom: 10px;">
+                  {{ scheduledDraft.id ? 'Edit scheduled announcement' : 'Create scheduled announcement' }}
+                </div>
+                <div class="filters-row" style="align-items: flex-end; flex-wrap: wrap;">
+                  <div class="filters-group" style="min-width: 240px;">
+                    <label class="filters-label">Title (optional)</label>
+                    <input v-model="scheduledDraft.title" class="filters-input" type="text" maxlength="255" placeholder="e.g., Payroll due Friday" />
+                  </div>
+                  <div class="filters-group" style="min-width: 200px;">
+                    <label class="filters-label">Starts</label>
+                    <input v-model="scheduledDraft.startsAt" class="filters-input" type="datetime-local" />
+                  </div>
+                  <div class="filters-group" style="min-width: 200px;">
+                    <label class="filters-label">Ends (max 2 weeks)</label>
+                    <input v-model="scheduledDraft.endsAt" class="filters-input" type="datetime-local" />
+                  </div>
+                  <div class="filters-group" style="flex: 1 1 420px;">
+                    <label class="filters-label">Message</label>
+                    <textarea v-model="scheduledDraft.message" class="filters-input" rows="2" maxlength="1200" placeholder="Type announcement…"></textarea>
+                  </div>
+                </div>
+                <div class="filters-row" style="align-items: center; margin-top: 10px;">
+                  <div class="filters-group">
+                    <button type="button" class="btn btn-primary btn-sm" @click="saveScheduledAnnouncement" :disabled="scheduledSubmitting || !scheduledCanSubmit">
+                      {{ scheduledSubmitting ? 'Saving…' : (scheduledDraft.id ? 'Update announcement' : 'Post announcement') }}
+                    </button>
+                  </div>
+                  <div class="filters-group" v-if="scheduledDraft.id">
+                    <button type="button" class="btn btn-secondary btn-sm" @click="resetScheduledDraft" :disabled="scheduledSubmitting">
+                      Cancel edit
+                    </button>
+                  </div>
+                  <div class="filters-group">
+                    <button type="button" class="btn btn-secondary btn-sm" @click="loadAgencyScheduledAnnouncements" :disabled="scheduledAnnouncementsLoading || scheduledSubmitting || !editingAgency?.id">
+                      Refresh list
+                    </button>
+                  </div>
+                  <div v-if="scheduledFormError" class="error-modal" style="padding: 6px 10px; margin: 0;">
+                    <strong>Error:</strong> {{ scheduledFormError }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="table-wrap" style="margin-top: 12px;">
+                <table v-if="scheduledAnnouncements.length" class="table">
+                  <thead>
+                    <tr>
+                      <th>Title</th>
+                      <th>Message</th>
+                      <th>Starts</th>
+                      <th>Ends</th>
+                      <th>Status</th>
+                      <th class="right"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="a in scheduledAnnouncements" :key="`ann-${a.id}`">
+                      <td>{{ a.title || 'Announcement' }}</td>
+                      <td>{{ a.message }}</td>
+                      <td>{{ formatAnnouncementDate(a.starts_at) }}</td>
+                      <td>{{ formatAnnouncementDate(a.ends_at) }}</td>
+                      <td>{{ scheduledStatusLabel(a) }}</td>
+                      <td class="right">
+                        <button type="button" class="btn btn-secondary btn-sm" @click="editScheduledAnnouncement(a)" :disabled="scheduledSubmitting">
+                          Edit
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" style="margin-left: 6px;" @click="deleteScheduledAnnouncement(a)" :disabled="scheduledSubmitting">
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div v-else class="muted" style="padding: 8px 4px;">No scheduled announcements yet.</div>
+              </div>
+            </div>
           </div>
 
           <div
@@ -1724,9 +1813,9 @@
                 <small>Icon for the "Clients" card</small>
               </div>
               <div class="dashboard-icon-item">
-                <label>Clinical Note Generator Card Icon</label>
+                <label>Tools &amp; Aids Card Icon</label>
                 <IconSelector v-model="agencyForm.myDashboardClinicalNoteGeneratorIconId" :defaultAgencyId="editingAgency?.id || null" />
-                <small>Icon for the "Clinical Note Generator" card (providers only; if enabled)</small>
+                <small>Icon for the "Tools &amp; Aids" card (providers only; if enabled)</small>
               </div>
               <div class="dashboard-icon-item">
                 <label>Submit Card Icon</label>
@@ -2876,6 +2965,55 @@ const announcementsDraft = ref({
   birthdayTemplate: 'Happy Birthday, {fullName}'
 });
 
+// Scheduled announcements (time-limited banners)
+const scheduledAnnouncementsLoading = ref(false);
+const scheduledAnnouncementsError = ref('');
+const scheduledAnnouncements = ref([]);
+const scheduledAnnouncementsLoadedAgencyId = ref(null);
+const scheduledSubmitting = ref(false);
+const scheduledFormError = ref('');
+const scheduledDraft = ref({
+  id: null,
+  title: '',
+  message: '',
+  startsAt: '',
+  endsAt: ''
+});
+
+const toLocalInput = (d) => {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (!Number.isFinite(dt.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  const yyyy = dt.getFullYear();
+  const mm = pad(dt.getMonth() + 1);
+  const dd = pad(dt.getDate());
+  const hh = pad(dt.getHours());
+  const mi = pad(dt.getMinutes());
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+};
+
+const resetScheduledDraft = () => {
+  const now = new Date();
+  const ends = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+  scheduledDraft.value = {
+    id: null,
+    title: '',
+    message: '',
+    startsAt: toLocalInput(now),
+    endsAt: toLocalInput(ends)
+  };
+  scheduledFormError.value = '';
+};
+
+resetScheduledDraft();
+
+const scheduledCanSubmit = computed(() => {
+  if (!editingAgency.value?.id) return false;
+  if (!scheduledDraft.value.message.trim()) return false;
+  if (!scheduledDraft.value.startsAt || !scheduledDraft.value.endsAt) return false;
+  return true;
+});
+
 const loadAgencyAnnouncements = async () => {
   if (!editingAgency.value?.id) return;
   const agencyId = Number(editingAgency.value.id);
@@ -2918,6 +3056,101 @@ const saveAgencyAnnouncements = async () => {
   } finally {
     announcementsSaving.value = false;
   }
+};
+
+const loadAgencyScheduledAnnouncements = async () => {
+  if (!editingAgency.value?.id) return;
+  const agencyId = Number(editingAgency.value.id);
+  if (!agencyId) return;
+  try {
+    if (scheduledAnnouncementsLoadedAgencyId.value !== agencyId) {
+      resetScheduledDraft();
+    }
+    scheduledAnnouncementsLoading.value = true;
+    scheduledAnnouncementsError.value = '';
+    const resp = await api.get(`/agencies/${agencyId}/announcements/list`);
+    scheduledAnnouncements.value = Array.isArray(resp.data) ? resp.data : [];
+    scheduledAnnouncementsLoadedAgencyId.value = agencyId;
+  } catch (e) {
+    scheduledAnnouncements.value = [];
+    scheduledAnnouncementsError.value = e.response?.data?.error?.message || e.message || 'Failed to load scheduled announcements';
+  } finally {
+    scheduledAnnouncementsLoading.value = false;
+  }
+};
+
+const saveScheduledAnnouncement = async () => {
+  if (!scheduledCanSubmit.value || !editingAgency.value?.id) return;
+  const agencyId = Number(editingAgency.value.id);
+  if (!agencyId) return;
+  try {
+    scheduledSubmitting.value = true;
+    scheduledFormError.value = '';
+    const payload = {
+      title: scheduledDraft.value.title?.trim() || null,
+      message: scheduledDraft.value.message.trim(),
+      starts_at: new Date(scheduledDraft.value.startsAt),
+      ends_at: new Date(scheduledDraft.value.endsAt)
+    };
+    if (scheduledDraft.value.id) {
+      await api.put(`/agencies/${agencyId}/announcements/${scheduledDraft.value.id}`, payload);
+    } else {
+      await api.post(`/agencies/${agencyId}/announcements`, payload);
+    }
+    await loadAgencyScheduledAnnouncements();
+    resetScheduledDraft();
+  } catch (e) {
+    scheduledFormError.value = e.response?.data?.error?.message || e.message || 'Failed to save announcement';
+  } finally {
+    scheduledSubmitting.value = false;
+  }
+};
+
+const editScheduledAnnouncement = (item) => {
+  scheduledDraft.value = {
+    id: item?.id || null,
+    title: String(item?.title || ''),
+    message: String(item?.message || ''),
+    startsAt: toLocalInput(item?.starts_at),
+    endsAt: toLocalInput(item?.ends_at)
+  };
+  scheduledFormError.value = '';
+};
+
+const deleteScheduledAnnouncement = async (item) => {
+  const agencyId = Number(editingAgency.value?.id || 0);
+  const announcementId = Number(item?.id || 0);
+  if (!agencyId || !announcementId) return;
+  if (!confirm('Delete this scheduled announcement?')) return;
+  try {
+    scheduledSubmitting.value = true;
+    scheduledFormError.value = '';
+    await api.delete(`/agencies/${agencyId}/announcements/${announcementId}`);
+    await loadAgencyScheduledAnnouncements();
+    if (scheduledDraft.value.id === announcementId) {
+      resetScheduledDraft();
+    }
+  } catch (e) {
+    scheduledFormError.value = e.response?.data?.error?.message || e.message || 'Failed to delete announcement';
+  } finally {
+    scheduledSubmitting.value = false;
+  }
+};
+
+const formatAnnouncementDate = (value) => {
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toLocaleString();
+};
+
+const scheduledStatusLabel = (item) => {
+  const now = Date.now();
+  const startsAt = new Date(item?.starts_at || 0).getTime();
+  const endsAt = new Date(item?.ends_at || 0).getTime();
+  if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt)) return 'Unknown';
+  if (now < startsAt) return 'Scheduled';
+  if (now > endsAt) return 'Ended';
+  return 'Active';
 };
 
 // Office locations (sites) editor (agency-only)
@@ -5030,6 +5263,7 @@ const editAgency = async (agency) => {
     loadNotificationTriggers();
     // Load announcements so the tab is instantly ready when clicked.
     loadAgencyAnnouncements();
+    loadAgencyScheduledAnnouncements();
   }
 
   // Reset lazy-loaded tab caches when switching agencies.
@@ -5067,6 +5301,9 @@ watch(
     if (!agencyId) return;
     if (announcementsLoadedAgencyId.value !== agencyId) {
       loadAgencyAnnouncements();
+    }
+    if (scheduledAnnouncementsLoadedAgencyId.value !== agencyId) {
+      loadAgencyScheduledAnnouncements();
     }
   }
 );
@@ -5897,6 +6134,13 @@ const closeModal = () => {
   announcementsError.value = '';
   announcementsLoadedAgencyId.value = null;
   announcementsDraft.value = { birthdayEnabled: false, birthdayTemplate: 'Happy Birthday, {fullName}' };
+  scheduledAnnouncementsLoading.value = false;
+  scheduledAnnouncementsError.value = '';
+  scheduledAnnouncements.value = [];
+  scheduledAnnouncementsLoadedAgencyId.value = null;
+  scheduledSubmitting.value = false;
+  scheduledFormError.value = '';
+  resetScheduledDraft();
   notificationTriggers.value = [];
   notificationTriggerEdits.value = {};
   notificationTriggersError.value = '';
@@ -6066,7 +6310,7 @@ onMounted(async () => {
 
 .master-detail {
   display: grid;
-  grid-template-columns: 420px 1fr;
+  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -6080,7 +6324,7 @@ onMounted(async () => {
 }
 
 .master-detail.nav-collapsed {
-  grid-template-columns: 88px 1fr;
+  grid-template-columns: 88px minmax(0, 1fr);
 }
 
 .org-general-header {
@@ -6153,6 +6397,7 @@ onMounted(async () => {
   position: sticky;
   top: 12px;
   align-self: start;
+  min-width: 0;
 }
 
 .section-header {
@@ -6200,6 +6445,7 @@ onMounted(async () => {
 
 .detail-pane {
   min-height: 500px;
+  min-width: 0;
 }
 
 .detail-content {
@@ -6611,6 +6857,15 @@ onMounted(async () => {
   }
   .filters-row {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 1400px) and (pointer: coarse) {
+  .master-detail {
+    grid-template-columns: 1fr;
+  }
+  .nav-pane {
+    position: static;
   }
 }
 
