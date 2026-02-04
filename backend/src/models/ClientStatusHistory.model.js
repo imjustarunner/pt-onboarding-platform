@@ -27,6 +27,17 @@ class ClientStatusHistory {
       note
     } = historyData;
 
+    let actorId = changed_by_user_id;
+    if (!actorId) {
+      const [rows] = await pool.execute(
+        "SELECT id FROM users WHERE role IN ('super_admin','admin') ORDER BY role = 'super_admin' DESC, id ASC LIMIT 1"
+      );
+      actorId = rows?.[0]?.id || null;
+    }
+    if (!actorId) {
+      throw new Error('No admin user available for client status history entry');
+    }
+
     const query = `
       INSERT INTO client_status_history (
         client_id, changed_by_user_id, field_changed, from_value, to_value, note
@@ -35,7 +46,7 @@ class ClientStatusHistory {
 
     const values = [
       client_id,
-      changed_by_user_id,
+      actorId,
       field_changed,
       from_value || null,
       to_value,
