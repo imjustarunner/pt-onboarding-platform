@@ -3,7 +3,8 @@ FROM node:18-bullseye-slim
 WORKDIR /app
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends clamav && \
+    apt-get install -y --no-install-recommends clamav ca-certificates && \
+    update-ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # Update virus definitions during build (best-effort).
