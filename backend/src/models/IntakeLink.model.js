@@ -14,14 +14,15 @@ class IntakeLink {
       createGuardian = false,
       allowedDocumentTemplateIds = null,
       intakeFields = null,
+      intakeSteps = null,
       createdByUserId = null
     } = data;
 
     const [result] = await pool.execute(
       `INSERT INTO intake_links
        (public_key, title, description, scope_type, organization_id, program_id, is_active,
-        create_client, create_guardian, allowed_document_template_ids, intake_fields, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        create_client, create_guardian, allowed_document_template_ids, intake_fields, intake_steps, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         publicKey,
         title,
@@ -34,6 +35,7 @@ class IntakeLink {
         createGuardian ? 1 : 0,
         allowedDocumentTemplateIds ? JSON.stringify(allowedDocumentTemplateIds) : null,
         intakeFields ? JSON.stringify(intakeFields) : null,
+        intakeSteps ? JSON.stringify(intakeSteps) : null,
         createdByUserId
       ]
     );
@@ -90,7 +92,17 @@ class IntakeLink {
         intakeFields = null;
       }
     }
-    return { ...row, allowed_document_template_ids: allowed, intake_fields: intakeFields };
+    let intakeSteps = null;
+    if (row.intake_steps) {
+      try {
+        intakeSteps = typeof row.intake_steps === 'string'
+          ? JSON.parse(row.intake_steps)
+          : row.intake_steps;
+      } catch {
+        intakeSteps = null;
+      }
+    }
+    return { ...row, allowed_document_template_ids: allowed, intake_fields: intakeFields, intake_steps: intakeSteps };
   }
 }
 

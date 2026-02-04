@@ -146,8 +146,9 @@
       </div>
 
       <div v-else-if="step === 2" class="step">
-        <h3>Document {{ currentDocIndex + 1 }} of {{ templates.length }}</h3>
-        <div class="doc-nav">
+        <h3 v-if="currentFlowStep?.type === 'document'">Document</h3>
+        <h3 v-else-if="currentFlowStep?.type === 'questions'">Questions</h3>
+        <div class="doc-nav" v-if="currentFlowStep?.type === 'document'">
           <button class="btn btn-secondary btn-sm" type="button" :disabled="currentDocIndex === 0" @click="goToPrevious">
             Previous
           </button>
@@ -165,7 +166,7 @@
           </button>
         </div>
 
-        <div class="doc-preview">
+        <div class="doc-preview" v-if="currentFlowStep?.type === 'document'">
           <div v-if="currentDoc?.template_type === 'html'" v-html="currentDoc.html_content" class="html-preview"></div>
           <div v-else-if="pdfUrl" class="pdf-preview-container">
             <PDFPreview
@@ -179,7 +180,7 @@
           <div v-else class="muted">Document preview not available.</div>
         </div>
 
-        <div v-if="visibleFieldDefinitions.length" class="field-inputs">
+        <div v-if="currentFlowStep?.type === 'document' && visibleFieldDefinitions.length" class="field-inputs">
           <h4>Required Fields</h4>
           <div v-for="field in visibleFieldDefinitions" :key="field.id" class="form-group">
             <label>{{ field.label || field.type }}</label>
@@ -220,21 +221,52 @@
           </div>
         </div>
 
-        <div v-if="currentDoc?.document_action_type === 'signature'" class="signature-block">
+        <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-block">
           <SignaturePad @signed="onSigned" />
         </div>
 
+        <div v-if="currentFlowStep?.type === 'questions'" class="field-inputs">
+          <h4>Questions</h4>
+          <div v-for="field in currentQuestionFields" :key="field.id" class="form-group">
+            <label>{{ field.label || field.key }}</label>
+            <input
+              v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
+              v-model="questionValues[field.key]"
+              type="text"
+              :data-field-id="field.id"
+            />
+            <textarea v-else-if="field.type === 'textarea'" v-model="questionValues[field.key]" rows="4"></textarea>
+            <label v-else-if="field.type === 'checkbox'" class="checkbox-row" :data-field-id="field.id">
+              <input v-model="questionValues[field.key]" type="checkbox" />
+              <span>{{ field.label || field.key }}</span>
+            </label>
+            <select v-else-if="field.type === 'select'" v-model="questionValues[field.key]">
+              <option value="">Select an option</option>
+              <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
+                {{ opt.label || opt.value }}
+              </option>
+            </select>
+            <div v-else-if="field.type === 'radio'" class="radio-group">
+              <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
+                <input type="radio" :name="`q_${field.key}`" :value="opt.value || opt.label" v-model="questionValues[field.key]" />
+                <span>{{ opt.label || opt.value }}</span>
+              </label>
+            </div>
+            <input v-else v-model="questionValues[field.key]" type="date" />
+          </div>
+        </div>
+
         <div class="actions">
-          <button v-if="visibleFieldDefinitions.length" class="btn btn-secondary" type="button" @click="focusNextField">
+          <button v-if="currentFlowStep?.type === 'document' && visibleFieldDefinitions.length" class="btn btn-secondary" type="button" @click="focusNextField">
             Next Field
           </button>
           <button
             class="btn btn-primary"
             type="button"
             :disabled="submitLoading"
-            @click="completeCurrentDocument"
+            @click="currentFlowStep?.type === 'document' ? completeCurrentDocument() : completeQuestionStep()"
           >
-            {{ submitLoading ? 'Submitting...' : (currentDoc?.document_action_type === 'signature' ? 'Sign & Continue' : 'Mark Reviewed & Continue') }}
+            {{ submitLoading ? 'Submitting...' : (currentFlowStep?.type === 'document' ? (currentDoc?.document_action_type === 'signature' ? 'Sign & Continue' : 'Mark Reviewed & Continue') : 'Continue') }}
           </button>
         </div>
       </div>
@@ -271,6 +303,23 @@ const loading = ref(true);
 const error = ref('');
 const link = ref(null);
 const templates = ref([]);
+const intakeSteps = computed(() =>
+  Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : []
+);
+const flowSteps = computed(() => {
+  if (intakeSteps.value.length) {
+    return intakeSteps.value.map((s) => {
+      if (s.type === 'document') {
+        const template = templates.value.find((t) => Number(t.id) === Number(s.templateId));
+        return { ...s, template };
+      }
+      return s;
+    });
+  }
+  return templates.value.map((t) => ({ id: `doc_${t.id}`, type: 'document', template: t }));
+});
+const currentFlowIndex = ref(0);
+const currentFlowStep = computed(() => flowSteps.value[currentFlowIndex.value] || null);
 const step = ref(1);
 const submissionId = ref(null);
 const consentLoading = ref(false);
@@ -306,7 +355,12 @@ const intakeResponses = reactive({
 const downloadUrl = ref('');
 const clientBundleLinks = ref([]);
 
-const currentDoc = computed(() => templates.value[currentDocIndex.value] || null);
+const currentDoc = computed(() => {
+  if (currentFlowStep.value?.type === 'document') {
+    return currentFlowStep.value.template || null;
+  }
+  return templates.value[currentDocIndex.value] || null;
+});
 const currentFieldDefinitions = computed(() => {
   const raw = currentDoc.value?.field_definitions || [];
   try {
@@ -468,16 +522,25 @@ const completeCurrentDocument = async () => {
     docStatus[currentDoc.value.id] = true;
     signatureData.value = '';
 
-    if (currentDocIndex.value < templates.value.length - 1) {
-      currentDocIndex.value += 1;
-    } else {
-      await finalizePacket();
-    }
+    await nextFlowStep();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to submit document';
   } finally {
     submitLoading.value = false;
   }
+};
+
+const completeQuestionStep = async () => {
+  const missing = currentQuestionFields.value.filter((f) => f.required).filter((f) => {
+    const val = questionValues.value[f.key];
+    if (f.type === 'checkbox') return val !== true;
+    return val === null || val === undefined || String(val).trim() === '';
+  });
+  if (missing.length) {
+    error.value = 'Please complete all required fields before continuing.';
+    return;
+  }
+  await nextFlowStep();
 };
 
 const finalizePacket = async () => {
@@ -570,6 +633,19 @@ const loadResumeStatus = async () => {
     const nextIndex = templates.value.findIndex((t) => !signedIds.has(t.id));
     currentDocIndex.value = nextIndex === -1 ? templates.value.length - 1 : nextIndex;
 
+    if (flowSteps.value.length) {
+      const firstIncomplete = flowSteps.value.findIndex((step) => {
+        if (step.type === 'document') {
+          return !signedIds.has(step.template?.id);
+        }
+        if (step.type === 'questions') {
+          return (step.fields || []).some((f) => f.required && !questionValues.value[f.key]);
+        }
+        return false;
+      });
+      currentFlowIndex.value = firstIncomplete === -1 ? flowSteps.value.length - 1 : firstIncomplete;
+    }
+
     if (resp.data?.downloadUrl) {
       downloadUrl.value = resp.data.downloadUrl;
       step.value = 3;
@@ -625,6 +701,21 @@ const initializeFieldValues = () => {
       values[field.id] = '';
     }
   });
+};
+
+const currentQuestionFields = computed(() => {
+  if (currentFlowStep.value?.type !== 'questions') return [];
+  return Array.isArray(currentFlowStep.value.fields) ? currentFlowStep.value.fields : [];
+});
+
+const questionValues = computed(() => intakeResponses.submission);
+
+const nextFlowStep = async () => {
+  if (currentFlowIndex.value < flowSteps.value.length - 1) {
+    currentFlowIndex.value += 1;
+  } else {
+    await finalizePacket();
+  }
 };
 
 watch(currentDoc, async () => {

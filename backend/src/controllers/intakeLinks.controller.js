@@ -55,6 +55,7 @@ export const createIntakeLink = async (req, res, next) => {
       createGuardian: createGuardianDefault,
       allowedDocumentTemplateIds: parseJsonField(req.body.allowedDocumentTemplateIds),
       intakeFields: parseJsonField(req.body.intakeFields),
+      intakeSteps: parseJsonField(req.body.intakeSteps),
       createdByUserId: req.user?.id || null
     });
 
@@ -85,7 +86,8 @@ export const updateIntakeLink = async (req, res, next) => {
       create_client: req.body.createClient !== undefined ? (req.body.createClient ? 1 : 0) : undefined,
       create_guardian: req.body.createGuardian !== undefined ? (req.body.createGuardian ? 1 : 0) : undefined,
       allowed_document_template_ids: req.body.allowedDocumentTemplateIds ? JSON.stringify(parseJsonField(req.body.allowedDocumentTemplateIds)) : null,
-      intake_fields: req.body.intakeFields ? JSON.stringify(parseJsonField(req.body.intakeFields)) : null
+      intake_fields: req.body.intakeFields ? JSON.stringify(parseJsonField(req.body.intakeFields)) : null,
+      intake_steps: req.body.intakeSteps ? JSON.stringify(parseJsonField(req.body.intakeSteps)) : null
     };
 
     if (scopeType === 'school') {
@@ -135,6 +137,7 @@ export const duplicateIntakeLink = async (req, res, next) => {
       createGuardian: existing.create_guardian !== false,
       allowedDocumentTemplateIds: existing.allowed_document_template_ids || [],
       intakeFields: existing.intake_fields || null,
+      intakeSteps: existing.intake_steps || null,
       createdByUserId: req.user?.id || null
     });
 

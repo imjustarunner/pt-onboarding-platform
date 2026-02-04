@@ -188,9 +188,70 @@
           </div>
 
           <div class="form-group">
-            <label>Custom Intake Fields (JSON)</label>
-            <textarea v-model="form.intakeFieldsText" rows="6"></textarea>
-            <div class="muted">Example: [{"key":"grade","label":"Grade","type":"text","required":false}]</div>
+            <label>Intake Flow Builder</label>
+            <div class="step-builder">
+              <div class="step-actions">
+                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
+              </div>
+
+              <div v-if="form.intakeSteps.length === 0" class="muted">No steps yet.</div>
+
+              <div v-for="(step, idx) in form.intakeSteps" :key="step.id" class="step-card">
+                <div class="step-header">
+                  <strong>{{ step.type === 'document' ? 'Document' : 'Questions' }}</strong>
+                  <div class="step-controls">
+                    <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, -1)" :disabled="idx === 0">↑</button>
+                    <button class="btn btn-xs btn-secondary" type="button" @click="moveStep(idx, 1)" :disabled="idx === form.intakeSteps.length - 1">↓</button>
+                    <button class="btn btn-xs btn-danger" type="button" @click="removeStep(idx)">Remove</button>
+                  </div>
+                </div>
+
+                <div v-if="step.type === 'document'" class="form-grid">
+                  <div class="form-group">
+                    <label>Document Template</label>
+                    <select v-model.number="step.templateId">
+                      <option :value="null">Select document</option>
+                      <option v-for="t in templates" :key="t.id" :value="t.id">
+                        {{ t.name }} ({{ t.document_action_type }})
+                      </option>
+                    </select>
+                  </div>
+                </div>
+
+                <div v-else class="question-builder">
+                  <div class="question-list">
+                    <div v-for="(field, fIdx) in step.fields" :key="field.id" class="question-row">
+                      <input v-model="field.label" placeholder="Question label" />
+                      <input v-model="field.key" placeholder="Key (e.g., grade)" />
+                      <select v-model="field.type">
+                        <option value="text">Short answer</option>
+                        <option value="textarea">Long answer</option>
+                        <option value="checkbox">Checkbox</option>
+                        <option value="select">Select</option>
+                        <option value="radio">Radio</option>
+                        <option value="date">Date</option>
+                      </select>
+                      <label class="checkbox">
+                        <input v-model="field.required" type="checkbox" />
+                        Required
+                      </label>
+                      <button class="btn btn-xs btn-danger" type="button" @click="removeField(step, fIdx)">×</button>
+                    </div>
+
+                    <div v-for="field in step.fields" :key="`${field.id}-opts`" v-if="field.type === 'select' || field.type === 'radio'" class="option-list">
+                      <div v-for="(opt, oIdx) in field.options" :key="opt.id" class="option-row">
+                        <input v-model="opt.label" placeholder="Option label" />
+                        <input v-model="opt.value" placeholder="Value" />
+                        <button class="btn btn-xs btn-secondary" type="button" @click="removeOption(field, oIdx)">×</button>
+                      </div>
+                      <button class="btn btn-xs btn-secondary" type="button" @click="addOption(field)">+ Option</button>
+                    </div>
+                  </div>
+                  <button class="btn btn-xs btn-secondary" type="button" @click="addField(step)">+ Add Question</button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="actions">
@@ -230,7 +291,8 @@ const form = reactive({
   createClient: true,
   createGuardian: true,
   allowedDocumentTemplateIds: [],
-  intakeFieldsText: ''
+  intakeFieldsText: '',
+  intakeSteps: []
 });
 
 const quickScope = ref('school');
@@ -275,6 +337,7 @@ const resetForm = () => {
   form.createGuardian = true;
   form.allowedDocumentTemplateIds = [];
   form.intakeFieldsText = '';
+  form.intakeSteps = [];
   formError.value = '';
   editingId.value = null;
 };
@@ -339,12 +402,22 @@ const editLink = (link) => {
   form.createGuardian = link.scope_type === 'school' ? false : !!link.create_guardian;
   form.allowedDocumentTemplateIds = link.allowed_document_template_ids || [];
   form.intakeFieldsText = link.intake_fields ? JSON.stringify(link.intake_fields, null, 2) : '';
+  form.intakeSteps = normalizeIntakeSteps(link);
   showForm.value = true;
 };
 
 const applyFieldTemplate = (template) => {
   if (!template?.fields_json) return;
   form.intakeFieldsText = JSON.stringify(template.fields_json, null, 2);
+  if (!form.intakeSteps.length) {
+    form.intakeSteps = [
+      {
+        id: createId('step'),
+        type: 'questions',
+        fields: template.fields_json || []
+      }
+    ];
+  }
 };
 
 const saveFieldTemplate = async () => {
@@ -377,10 +450,7 @@ const save = async () => {
   try {
     saving.value = true;
     formError.value = '';
-    let intakeFields = null;
-    if (form.intakeFieldsText.trim()) {
-      intakeFields = JSON.parse(form.intakeFieldsText);
-    }
+    const { intakeSteps, intakeFields, allowedDocumentTemplateIds } = buildPayloadFromSteps();
     const payload = {
       title: form.title,
       description: form.description,
@@ -390,8 +460,9 @@ const save = async () => {
       isActive: form.isActive,
       createClient: form.createClient,
       createGuardian: form.scopeType === 'school' ? false : form.createGuardian,
-      allowedDocumentTemplateIds: form.allowedDocumentTemplateIds,
-      intakeFields
+      allowedDocumentTemplateIds,
+      intakeFields,
+      intakeSteps
     };
     if (editingId.value) {
       await api.put(`/intake-links/${editingId.value}`, payload);
@@ -438,6 +509,91 @@ const createQuickLink = async () => {
   } catch (e) {
     quickError.value = e.response?.data?.error?.message || 'Failed to create link';
   }
+};
+
+const createId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+const normalizeIntakeSteps = (link) => {
+  if (Array.isArray(link?.intake_steps) && link.intake_steps.length) {
+    return link.intake_steps;
+  }
+  const steps = [];
+  if (Array.isArray(link?.intake_fields) && link.intake_fields.length) {
+    steps.push({ id: createId('step'), type: 'questions', fields: link.intake_fields });
+  }
+  const docIds = Array.isArray(link?.allowed_document_template_ids) ? link.allowed_document_template_ids : [];
+  docIds.forEach((id) => steps.push({ id: createId('step'), type: 'document', templateId: id }));
+  return steps;
+};
+
+const addStep = (type) => {
+  const step = { id: createId('step'), type };
+  if (type === 'questions') {
+    step.fields = [];
+  } else {
+    step.templateId = null;
+  }
+  form.intakeSteps.push(step);
+};
+
+const removeStep = (idx) => {
+  form.intakeSteps.splice(idx, 1);
+};
+
+const moveStep = (idx, dir) => {
+  const next = idx + dir;
+  if (next < 0 || next >= form.intakeSteps.length) return;
+  const copy = [...form.intakeSteps];
+  const [moved] = copy.splice(idx, 1);
+  copy.splice(next, 0, moved);
+  form.intakeSteps = copy;
+};
+
+const addField = (step) => {
+  step.fields.push({
+    id: createId('field'),
+    key: '',
+    label: '',
+    type: 'text',
+    required: false,
+    options: []
+  });
+};
+
+const removeField = (step, idx) => {
+  step.fields.splice(idx, 1);
+};
+
+const addOption = (field) => {
+  if (!Array.isArray(field.options)) field.options = [];
+  field.options.push({ id: createId('opt'), label: '', value: '' });
+};
+
+const removeOption = (field, idx) => {
+  field.options.splice(idx, 1);
+};
+
+const buildPayloadFromSteps = () => {
+  const intakeSteps = form.intakeSteps.map((step) => ({ ...step }));
+  const intakeFields = [];
+  const allowedDocumentTemplateIds = [];
+  intakeSteps.forEach((step) => {
+    if (step.type === 'questions') {
+      (step.fields || []).forEach((f) => {
+        intakeFields.push({
+          key: f.key || f.id,
+          label: f.label || f.key,
+          type: f.type,
+          required: !!f.required,
+          options: f.options || [],
+          scope: 'submission'
+        });
+      });
+    } else if (step.type === 'document' && step.templateId) {
+      allowedDocumentTemplateIds.push(step.templateId);
+    }
+  });
+  return { intakeSteps, intakeFields, allowedDocumentTemplateIds };
 };
 
 const filterScope = ref('all');
@@ -530,6 +686,58 @@ onMounted(fetchData);
   display: block;
   font-weight: 600;
   margin-bottom: 4px;
+}
+
+.step-builder {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: #f9fafb;
+}
+
+.step-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.step-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+  margin-bottom: 12px;
+}
+
+.step-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.step-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.question-row,
+.option-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.question-row input,
+.option-row input,
+.question-row select {
+  flex: 1;
+}
+
+.option-list {
+  margin: 8px 0 12px 0;
 }
 .template-list {
   display: grid;

@@ -108,7 +108,8 @@ export const getPublicIntakeLink = async (req, res, next) => {
         program_id: link.program_id,
         create_client: link.create_client,
         create_guardian: link.create_guardian,
-        intake_fields: link.intake_fields
+        intake_fields: link.intake_fields,
+        intake_steps: link.intake_steps
       },
       templates: templates.map(t => ({
         id: t.id,
