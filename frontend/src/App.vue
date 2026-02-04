@@ -1419,6 +1419,18 @@ onUnmounted(() => {
   min-width: 0;
 }
 
+@media (max-width: 1400px) {
+  .nav-links-wrapper {
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nav-links {
+    min-width: max-content;
+  }
+}
+
 .nav-availability {
   display: inline-flex;
   align-items: center;
