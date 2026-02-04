@@ -93,6 +93,14 @@ jobs:
             ENV_VARS="${ENV_VARS},GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64=${{ secrets.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 }}"
           fi
 
+          # Clinical Director Agent (ADK) integration (optional; set secrets to enable).
+          if [ -n "${{ secrets.CLINICAL_DIRECTOR_AGENT_URL }}" ]; then
+            ENV_VARS="${ENV_VARS},CLINICAL_DIRECTOR_AGENT_URL=${{ secrets.CLINICAL_DIRECTOR_AGENT_URL }}"
+          fi
+          if [ -n "${{ secrets.CLINICAL_DIRECTOR_ADK_APP_NAME }}" ]; then
+            ENV_VARS="${ENV_VARS},CLINICAL_DIRECTOR_ADK_APP_NAME=${{ secrets.CLINICAL_DIRECTOR_ADK_APP_NAME }}"
+          fi
+
           gcloud run deploy $SERVICE_NAME \
             --image $IMAGE_NAME:$GITHUB_SHA \
             --platform managed \

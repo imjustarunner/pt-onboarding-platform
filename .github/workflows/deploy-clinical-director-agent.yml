@@ -1,0 +1,91 @@
+name: Deploy Clinical Director Agent to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'agents/clinical_director_agent/**'
+      - 'agents/cloudrun/**'
+      - '.github/workflows/deploy-clinical-director-agent.yml'
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-west3
+  SERVICE_NAME: clinical-director-agent
+  AR_REPO: clinical-director-agent
+  IMAGE_NAME: us-west3-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/clinical-director-agent/clinical-director-agent
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Ensure Artifact Registry repo exists
+        run: |
+          set -euo pipefail
+          if ! gcloud artifacts repositories describe "$AR_REPO" --location "$REGION" --project "$PROJECT_ID" >/dev/null 2>&1; then
+            gcloud artifacts repositories create "$AR_REPO" \
+              --repository-format=docker \
+              --location "$REGION" \
+              --description "Clinical Director ADK agent images" \
+              --project "$PROJECT_ID"
+          fi
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-west3-docker.pkg.dev --quiet
+
+      - name: Build and push Docker image
+        run: |
+          set -euo pipefail
+          docker build -f agents/cloudrun/Dockerfile \
+            -t "$IMAGE_NAME:$GITHUB_SHA" \
+            -t "$IMAGE_NAME:latest" .
+          docker push "$IMAGE_NAME:$GITHUB_SHA"
+          docker push "$IMAGE_NAME:latest"
+
+      - name: Deploy to Cloud Run
+        run: |
+          set -euo pipefail
+          gcloud run deploy "$SERVICE_NAME" \
+            --image "$IMAGE_NAME:$GITHUB_SHA" \
+            --platform managed \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --allow-unauthenticated \
+            --service-account "${{ secrets.CLOUD_RUN_SA_EMAIL }}" \
+            --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=$REGION,GOOGLE_GENAI_USE_VERTEXAI=True" \
+            --memory=512Mi \
+            --cpu=1 \
+            --timeout=300 \
+            --max-instances=10 \
+            --min-instances=0
+
+          gcloud run services update-traffic "$SERVICE_NAME" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --to-latest
+
+      - name: Print service URL (copy into backend env)
+        run: |
+          set -euo pipefail
+          URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --project "$PROJECT_ID" --format='value(status.url)')
+          echo "Clinical Director Agent URL: ${URL}"
+          echo "Set backend CLINICAL_DIRECTOR_AGENT_URL to: ${URL}/run"
+
