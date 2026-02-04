@@ -838,6 +838,43 @@ class StorageService {
     return { path: key, key, filename: sanitizedFilename, relativePath: key };
   }
 
+  static async saveIntakeClientBundle({ submissionId, clientId, fileBuffer, filename }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `intake-client-${clientId || 'unknown'}-${Date.now()}.pdf`);
+    const key = `intake_signed/${submissionId || 'unknown'}/client_${clientId || 'unknown'}/${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: 'application/pdf',
+      metadata: {
+        submissionId: String(submissionId || ''),
+        clientId: String(clientId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  /**
+   * Read a signed intake document by storage path.
+   * @param {string} storagePath - e.g. intake_signed/<submission>/<template>/<file>.pdf
+   */
+  static async readIntakeSignedDocument(storagePath) {
+    const raw = String(storagePath || '').replace(/^\//, '');
+    if (!raw) {
+      throw new Error('Intake signed document path is required');
+    }
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(raw);
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error(`Intake signed document not found in GCS: ${raw}`);
+    }
+    const [buffer] = await file.download();
+    return buffer;
+  }
+
   /**
    * Read a user document file from GCS
    * @param {string} filename - Filename

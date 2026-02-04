@@ -86,6 +86,14 @@
           />
         </div>
 
+        <div v-if="selectedFile && pdfUrl" class="form-group signature-coordinate-section">
+          <h4 style="margin-top: 24px;">Custom Field Placement (Optional)</h4>
+          <PDFFieldDefinitionBuilder
+            :pdf-url="pdfUrl"
+            v-model="fieldDefinitions"
+          />
+        </div>
+
         <div class="form-group">
           <label>Scope *</label>
           <div class="scope-toggle">
@@ -164,6 +172,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import IconSelector from '../admin/IconSelector.vue';
 import PDFSignatureCoordinatePicker from './PDFSignatureCoordinatePicker.vue';
+import PDFFieldDefinitionBuilder from './PDFFieldDefinitionBuilder.vue';
 import TemplateVariablesList from './TemplateVariablesList.vue';
 import api from '../../services/api';
 
@@ -206,6 +215,15 @@ const signatureCoordinates = ref({
   height: 60,
   page: null
 });
+const fieldDefinitions = ref(() => {
+  const raw = props.existingTemplate?.field_definitions;
+  if (!raw) return [];
+  try {
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch {
+    return [];
+  }
+}());
 
 const userRole = computed(() => authStore.user?.role);
 const canUsePlatformScope = computed(() => userRole.value === 'super_admin');
@@ -262,16 +280,32 @@ const fetchAgencies = async () => {
   try {
     if (userRole.value === 'super_admin') {
       const response = await api.get('/agencies');
-      availableAgencies.value = response.data || [];
+      const list = response.data || [];
+      availableAgencies.value = list.filter(
+        (a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency'
+      );
     } else {
       // Agency Admin - use their agencies
       await agencyStore.fetchUserAgencies();
-      availableAgencies.value = agencyStore.userAgencies || [];
+      const list = agencyStore.userAgencies || [];
+      availableAgencies.value = list.filter(
+        (a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency'
+      );
     }
 
     // Enforce: non-super-admins cannot create platform templates
     if (!canUsePlatformScope.value) {
       setScope('org');
+    }
+
+    // Clear org selection if agency list changed
+    if (
+      formData.value.agencyId &&
+      !availableAgencies.value.some((a) => String(a.id) === String(formData.value.agencyId))
+    ) {
+      formData.value.agencyId = '';
+      formData.value.organizationId = '';
+      affiliatedOrganizations.value = [];
     }
 
     // Ensure we have an organization selected when org scope is active
@@ -327,6 +361,14 @@ const handleUpload = async () => {
     return;
   }
 
+  if (
+    formData.value.documentActionType === 'signature' &&
+    (signatureCoordinates.value.x === null || signatureCoordinates.value.y === null)
+  ) {
+    error.value = 'Please click the PDF to set the signature position before uploading.';
+    return;
+  }
+
   try {
     uploading.value = true;
     error.value = '';
@@ -339,6 +381,10 @@ const handleUpload = async () => {
     formDataToSend.append('documentActionType', formData.value.documentActionType);
     if (formData.value.iconId) {
       formDataToSend.append('iconId', formData.value.iconId.toString());
+    }
+
+    if (fieldDefinitions.value && fieldDefinitions.value.length > 0) {
+      formDataToSend.append('fieldDefinitions', JSON.stringify(fieldDefinitions.value));
     }
     
     // Templates are never user-specific (user-specific documents use separate endpoint)
@@ -360,8 +406,6 @@ const handleUpload = async () => {
       if (signatureCoordinates.value.page !== null) {
         formDataToSend.append('signaturePage', signatureCoordinates.value.page.toString());
       }
-    } else if (formData.value.documentActionType === 'signature') {
-      console.warn('Signature action type selected but no coordinates set');
     }
 
     await documentsStore.uploadTemplate(formDataToSend);
@@ -386,6 +430,7 @@ const handleUpload = async () => {
       pdfUrl.value = null;
     }
     signatureCoordinates.value = { x: null, y: null, width: 200, height: 60, page: null };
+    fieldDefinitions.value = [];
     if (fileInput.value) {
       fileInput.value.value = '';
     }

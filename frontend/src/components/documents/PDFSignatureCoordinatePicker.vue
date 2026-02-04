@@ -30,7 +30,7 @@
       </div>
     </div>
 
-    <div class="coordinate-controls">
+    <div v-if="showCoordinateControls" class="coordinate-controls">
       <div class="control-group">
         <label>X Position (points)</label>
         <input 
@@ -91,6 +91,9 @@
       <button @click="enablePicking" class="btn btn-primary" :disabled="pickingMode">
         {{ pickingMode ? 'Click on PDF to set position' : 'Click to Set Position' }}
       </button>
+      <button @click="toggleCoordinateControls" class="btn btn-secondary">
+        {{ showCoordinateControls ? 'Hide Coordinates' : 'Show Coordinates' }}
+      </button>
       <button @click="clearCoordinates" class="btn btn-secondary">Clear</button>
       <button @click="resetView" class="btn btn-secondary">Reset View</button>
     </div>
@@ -139,6 +142,7 @@ const pickingMode = ref(false);
 const currentPage = ref(1);
 const totalPages = ref(0);
 const scale = ref(1.5);
+const showCoordinateControls = ref(false);
 let pdfDoc = null;
 let pageRendering = false;
 
@@ -335,16 +339,19 @@ const handleCanvasClick = async (event) => {
     const pdfViewport = page.getViewport({ scale: 1.0 }); // Get unscaled viewport for actual PDF dimensions
     const displayViewport = page.getViewport({ scale: scale.value }); // Scaled viewport for display
     
-    // Calculate PDF coordinates from canvas click position
+    // Calculate PDF coordinates from displayed canvas size (CSS scaling aware)
+    const displayWidth = rect.width || canvas.width;
+    const displayHeight = rect.height || canvas.height;
+
     // X coordinate: direct mapping (both use left-to-right)
-    const pdfX = (x / canvas.width) * pdfViewport.width;
+    const pdfX = (x / displayWidth) * pdfViewport.width;
     
     // Y coordinate: PDF uses bottom-left origin, canvas uses top-left origin
     // Canvas Y increases downward, PDF Y increases upward
     // User clicks at position y (from top of canvas) - this is where they want the signature
     // Convert to PDF Y coordinate (from bottom of PDF page)
-    const canvasYFromTop = y; // Y position from top of canvas in pixels
-    const pdfYFromTop = (canvasYFromTop / canvas.height) * pdfViewport.height; // Convert to PDF points from top
+    const canvasYFromTop = y; // Y position from top of displayed canvas in pixels
+    const pdfYFromTop = (canvasYFromTop / displayHeight) * pdfViewport.height; // Convert to PDF points from top
     const clickedPdfY = pdfViewport.height - pdfYFromTop; // PDF Y coordinate from bottom where user clicked
     
     // pdf-lib's drawImage() places the BOTTOM-LEFT corner of the image at the specified Y coordinate
@@ -393,6 +400,10 @@ const enablePicking = () => {
   pickingMode.value = true;
 };
 
+const toggleCoordinateControls = () => {
+  showCoordinateControls.value = !showCoordinateControls.value;
+};
+
 const clearCoordinates = () => {
   coordinates.value = {
     x: null,
@@ -439,8 +450,9 @@ const getPreviewStyle = async () => {
   
   try {
     const canvas = canvasRef.value;
-    const canvasWidth = canvas.width;
-    const canvasHeight = canvas.height;
+    const rect = canvas.getBoundingClientRect();
+    const canvasWidth = rect.width || canvas.width;
+    const canvasHeight = rect.height || canvas.height;
     
     // Get the page to access viewport for accurate conversion
     const page = await pdfDoc.getPage(coordinates.value.page || currentPage.value);
@@ -455,7 +467,7 @@ const getPreviewStyle = async () => {
     // coordinates.value.y is the PDF Y coordinate (from bottom) where the bottom-left corner of signature will be placed
     const pdfYFromBottom = coordinates.value.y; // PDF Y coordinate (from bottom) - this is the bottom-left corner
     const pdfYFromTop = pdfViewport.height - pdfYFromBottom; // Convert to distance from top in PDF points
-    const canvasY = (pdfYFromTop / pdfViewport.height) * canvasHeight; // Convert to canvas pixels from top
+    const canvasY = (pdfYFromTop / pdfViewport.height) * canvasHeight; // Convert to display pixels from top
     
     // Convert width and height from PDF points to canvas pixels
     const canvasWidth_pdf = (coordinates.value.width / pdfViewport.width) * canvasWidth;

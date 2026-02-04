@@ -12,7 +12,17 @@ class DocumentSigningService {
   /**
    * Generate finalized PDF with signature and audit certificate
    */
-  static async generateFinalizedPDF(templatePath, templateType, htmlContent, signatureImage, workflowData, userData, auditTrail, signatureCoords = null) {
+  static async generateFinalizedPDF(
+    templatePath,
+    templateType,
+    htmlContent,
+    signatureImage,
+    workflowData,
+    userData,
+    auditTrail,
+    signatureCoords = null,
+    options = {}
+  ) {
     console.log(`DocumentSigningService.generateFinalizedPDF: Starting PDF generation`);
     console.log(`DocumentSigningService.generateFinalizedPDF: Template type: ${templateType}, has templatePath: ${!!templatePath}, has htmlContent: ${!!htmlContent}`);
     
@@ -23,12 +33,30 @@ class DocumentSigningService {
       if (templateType === 'pdf' && templatePath) {
         console.log(`DocumentSigningService.generateFinalizedPDF: Loading PDF template from ${templatePath}`);
         
-        // templatePath is the GCS key (e.g., "templates/filename.pdf")
+        // templatePath is the GCS key (e.g., "templates/filename.pdf" or "user_documents/filename.pdf")
         const StorageService = (await import('./storage.service.js')).default;
-        const templateFilename = templatePath.includes('/') 
-          ? templatePath.split('/').pop() 
-          : templatePath.replace('templates/', '');
-        const templateBuffer = await StorageService.readTemplate(templateFilename);
+        let cleaned = String(templatePath || '').trim();
+        if (cleaned.includes('/uploads/')) {
+          cleaned = cleaned.split('/uploads/').pop();
+        }
+        if (cleaned.startsWith('/')) cleaned = cleaned.slice(1);
+        if (cleaned.startsWith('uploads/')) cleaned = cleaned.slice('uploads/'.length);
+
+        let templateBuffer = null;
+        if (cleaned.startsWith('user_documents/')) {
+          const filename = cleaned.replace('user_documents/', '');
+          templateBuffer = await StorageService.readUserDocument(filename);
+        } else if (cleaned.startsWith('user_specific_documents/')) {
+          const filename = cleaned.replace('user_specific_documents/', '');
+          templateBuffer = await StorageService.readUserSpecificDocument(filename);
+        } else if (cleaned.startsWith('templates/')) {
+          const filename = cleaned.replace('templates/', '');
+          templateBuffer = await StorageService.readTemplate(filename);
+        } else {
+          // Default to templates if no prefix provided
+          const filename = cleaned.includes('/') ? cleaned.split('/').pop() : cleaned;
+          templateBuffer = await StorageService.readTemplate(filename);
+        }
         
         pdfDoc = await PDFDocument.load(templateBuffer);
         console.log(`DocumentSigningService.generateFinalizedPDF: PDF template loaded successfully`);
@@ -43,17 +71,42 @@ class DocumentSigningService {
         throw new Error(`Invalid template type (${templateType}) or missing content. templatePath: ${!!templatePath}, htmlContent: ${!!htmlContent}`);
       }
 
-      // Add signature image at fixed bottom position
+      const {
+        referenceNumber = null,
+        documentName = null,
+        signatureOnAuditPage = false,
+        fieldDefinitions = [],
+        fieldValues = {}
+      } = options || {};
+
+      const suppressSignatureDate =
+        Array.isArray(fieldDefinitions) &&
+        fieldDefinitions.some((f) => String(f?.type || '').toLowerCase() === 'date' && f?.autoToday);
+
+      if (referenceNumber) {
+        await this.addReferenceToOriginalPages(pdfDoc, referenceNumber);
+      }
+
+      // Add custom field values to the original document
+      if (Array.isArray(fieldDefinitions) && fieldDefinitions.length > 0) {
+        await this.addFieldValuesToPDF(pdfDoc, fieldDefinitions, fieldValues);
+      }
+
+      // Add signature image at fixed bottom position (original document)
       if (signatureImage) {
         console.log(`DocumentSigningService.generateFinalizedPDF: Adding signature to PDF...`);
         console.log(`DocumentSigningService.generateFinalizedPDF: Signature coordinates:`, signatureCoords);
-        await this.addSignatureToPDF(pdfDoc, signatureImage, signatureCoords);
+        await this.addSignatureToPDF(pdfDoc, signatureImage, signatureCoords, { suppressDate: suppressSignatureDate });
         console.log(`DocumentSigningService.generateFinalizedPDF: Signature added successfully`);
       }
 
       // Add audit certificate page
       console.log(`DocumentSigningService.generateFinalizedPDF: Adding audit certificate page...`);
-      await this.addAuditCertificatePage(pdfDoc, workflowData, userData, auditTrail);
+      await this.addAuditCertificatePage(pdfDoc, workflowData, userData, auditTrail, {
+        referenceNumber,
+        documentName,
+        signatureImage: signatureOnAuditPage ? signatureImage : null
+      });
       console.log(`DocumentSigningService.generateFinalizedPDF: Audit certificate added successfully`);
 
       // Save finalized PDF
@@ -249,7 +302,7 @@ class DocumentSigningService {
    * @param {string} signatureImageBase64 - Base64 encoded signature image
    * @param {Object|null} coords - Signature coordinates {x, y, width, height, page} or null for default
    */
-  static async addSignatureToPDF(pdfDoc, signatureImageBase64, coords = null) {
+  static async addSignatureToPDF(pdfDoc, signatureImageBase64, coords = null, options = {}) {
     try {
       // Remove data URL prefix if present
       const base64Data = signatureImageBase64.replace(/^data:image\/\w+;base64,/, '');
@@ -307,6 +360,36 @@ class DocumentSigningService {
         height: signatureHeight
       });
 
+      if (!options?.suppressDate) {
+        // Add date near signature (default: to the right, fallback below)
+        try {
+          const dateText = new Date().toISOString().slice(0, 10);
+          const font = await pdfDoc.embedFont('Helvetica');
+          const fontSize = 10;
+          const dateWidth = font.widthOfTextAtSize(dateText, fontSize);
+          let dateX = signatureX + signatureWidth + 8;
+          let dateY = signatureY + (signatureHeight / 2) - (fontSize / 2);
+
+          if (dateX + dateWidth > width - 36) {
+            dateX = signatureX;
+            dateY = signatureY - 14;
+          }
+          if (dateY < 12) {
+            dateY = signatureY + signatureHeight + 6;
+          }
+
+          targetPage.drawText(dateText, {
+            x: dateX,
+            y: dateY,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0)
+          });
+        } catch (e) {
+          console.warn('Failed to render signature date:', e);
+        }
+      }
+
       // Add signature label only if using default position (to avoid overlapping with document content)
       if (!coords || coords.x === null || coords.y === null) {
         targetPage.drawText('Signature:', {
@@ -323,9 +406,90 @@ class DocumentSigningService {
   }
 
   /**
+   * Add a reference number to all original pages (before audit page is appended).
+   */
+  static async addReferenceToOriginalPages(pdfDoc, referenceNumber) {
+    if (!referenceNumber) return;
+    const pages = pdfDoc.getPages();
+    const font = await pdfDoc.embedFont('Helvetica');
+    const fontSize = 9;
+    const text = `Ref: ${referenceNumber}`;
+
+    pages.forEach((page) => {
+      const { width, height } = page.getSize();
+      const textWidth = font.widthOfTextAtSize(text, fontSize);
+      const x = Math.max(36, width - textWidth - 36);
+      const y = height - 24;
+      page.drawText(text, {
+        x,
+        y,
+        size: fontSize,
+        font,
+        color: rgb(0.35, 0.35, 0.35)
+      });
+    });
+  }
+
+  /**
+   * Render custom field values onto the PDF.
+   */
+  static async addFieldValuesToPDF(pdfDoc, fieldDefinitions = [], fieldValues = {}) {
+    if (!Array.isArray(fieldDefinitions) || fieldDefinitions.length === 0) return;
+    const pages = pdfDoc.getPages();
+    const font = await pdfDoc.embedFont('Helvetica');
+    const fontSize = 10;
+
+    for (const def of fieldDefinitions) {
+      if (!def || def.x === null || def.y === null) continue;
+      const pageIndex = def.page ? Math.max(0, Math.min(def.page - 1, pages.length - 1)) : pages.length - 1;
+      const page = pages[pageIndex];
+
+      let value = fieldValues[def.id];
+      if ((value === null || value === undefined || String(value).trim() === '') && def.type === 'date' && def.autoToday) {
+        value = new Date().toISOString().slice(0, 10);
+      }
+      if (def.type === 'checkbox') {
+        const truthy = value === true || value === 'true' || value === '1' || value === 1 || value === 'yes' || value === 'on' || value === 'checked';
+        if (!truthy) continue;
+        const mark = '✓';
+        const fontSize = Math.min(14, Math.max(10, boxHeight - 4));
+        const textWidth = font.widthOfTextAtSize(mark, fontSize);
+        const textX = Number(def.x) + (boxWidth - textWidth) / 2;
+        const textY = Number(def.y) + (boxHeight - fontSize) / 2 + 1;
+        page.drawText(mark, {
+          x: textX,
+          y: textY,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0)
+        });
+        continue;
+      }
+
+      if (value === null || value === undefined || String(value).trim() === '') continue;
+
+      const text = String(value);
+      const boxWidth = Number(def.width) || 120;
+      const boxHeight = Number(def.height) || 24;
+      const textY = Number(def.y) + Math.max(2, (boxHeight - fontSize) / 2);
+      const textX = Number(def.x) + 2;
+
+      page.drawText(text, {
+        x: textX,
+        y: textY,
+        size: fontSize,
+        font,
+        color: rgb(0, 0, 0),
+        maxWidth: boxWidth - 4
+      });
+    }
+  }
+
+  /**
    * Add ESIGN Act compliant audit certificate page
    */
-  static async addAuditCertificatePage(pdfDoc, workflowData, userData, auditTrail) {
+  static async addAuditCertificatePage(pdfDoc, workflowData, userData, auditTrail, options = {}) {
+    const { referenceNumber = null, documentName = null, signatureImage = null } = options || {};
     const page = pdfDoc.addPage([612, 792]); // Letter size
     const { width, height } = page.getSize();
 
@@ -363,6 +527,38 @@ class DocumentSigningService {
       lineHeight: 14
     });
     y -= 80;
+
+    // Document Details
+    page.drawText('Document Details', {
+      x: 72,
+      y,
+      size: 14,
+      color: rgb(0, 0, 0),
+      font: helveticaBold
+    });
+    y -= 30;
+
+    if (documentName) {
+      page.drawText(`Document Name: ${documentName}`, {
+        x: 72,
+        y,
+        size: 10,
+        color: rgb(0, 0, 0)
+      });
+      y -= 20;
+    }
+
+    if (referenceNumber) {
+      page.drawText(`Document Reference: ${referenceNumber}`, {
+        x: 72,
+        y,
+        size: 10,
+        color: rgb(0, 0, 0)
+      });
+      y -= 20;
+    }
+
+    y -= 10;
 
     // Signer Information
     page.drawText('Signer Information', {
@@ -496,15 +692,110 @@ class DocumentSigningService {
       y -= 30;
 
       const auditText = JSON.stringify(auditTrail, null, 2);
-      page.drawText(auditText, {
-        x: 72,
-        y,
-        size: 8,
-        color: rgb(0, 0, 0),
-        maxWidth: width - 144,
-        lineHeight: 10
+      const lines = auditText.split('\n');
+      const lineHeight = 10;
+      const minY = signatureImage ? 170 : 90;
+      for (const line of lines) {
+        if (y <= minY) {
+          page.drawText('... (audit trail truncated)', {
+            x: 72,
+            y,
+            size: 8,
+            color: rgb(0.4, 0.4, 0.4)
+          });
+          break;
+        }
+        page.drawText(line, {
+          x: 72,
+          y,
+          size: 8,
+          color: rgb(0, 0, 0)
+        });
+        y -= lineHeight;
+      }
+    }
+
+    // Signature on audit page (optional)
+    if (signatureImage) {
+      try {
+        const base64Data = signatureImage.replace(/^data:image\/\w+;base64,/, '');
+        const imageBytes = Buffer.from(base64Data, 'base64');
+        let embedded;
+        try {
+          embedded = await pdfDoc.embedPng(imageBytes);
+        } catch (e) {
+          embedded = await pdfDoc.embedJpg(imageBytes);
+        }
+        const sigWidth = 200;
+        const sigHeight = 60;
+        const sigX = 72;
+        const sigY = 90;
+        page.drawText('Signature:', {
+          x: sigX,
+          y: sigY + sigHeight + 10,
+          size: 10,
+          color: rgb(0, 0, 0)
+        });
+        page.drawImage(embedded, {
+          x: sigX,
+          y: sigY,
+          width: sigWidth,
+          height: sigHeight
+        });
+      } catch (e) {
+        console.error('Failed to render signature on audit page:', e);
+      }
+    }
+  }
+
+  /**
+   * Add an admin countersignature to the audit page.
+   */
+  static async addAdminSignatureToAuditPage(pdfDoc, signatureImageBase64, adminData = {}) {
+    if (!signatureImageBase64) return;
+    const pages = pdfDoc.getPages();
+    if (!pages.length) return;
+    const page = pages[pages.length - 1];
+    const { width } = page.getSize();
+
+    const base64Data = signatureImageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const imageBytes = Buffer.from(base64Data, 'base64');
+    let signatureImage;
+    try {
+      signatureImage = await pdfDoc.embedPng(imageBytes);
+    } catch (e) {
+      signatureImage = await pdfDoc.embedJpg(imageBytes);
+    }
+
+    const sigWidth = 180;
+    const sigHeight = 50;
+    const sigX = width - sigWidth - 72;
+    const sigY = 90;
+
+    const font = await pdfDoc.embedFont('Helvetica');
+    page.drawText('Admin Counter-Signature', {
+      x: sigX,
+      y: sigY + sigHeight + 12,
+      size: 10,
+      font,
+      color: rgb(0, 0, 0)
+    });
+    if (adminData?.name) {
+      page.drawText(adminData.name, {
+        x: sigX,
+        y: sigY + sigHeight + 2,
+        size: 9,
+        font,
+        color: rgb(0.2, 0.2, 0.2)
       });
     }
+
+    page.drawImage(signatureImage, {
+      x: sigX,
+      y: sigY,
+      width: sigWidth,
+      height: sigHeight
+    });
   }
 
   /**

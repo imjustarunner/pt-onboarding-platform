@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { validationResult } from 'express-validator';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import I9AcroformService from '../services/acroforms/i9.service.js';
+import { PDFDocument } from 'pdf-lib';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -460,7 +461,7 @@ export const signDocument = async (req, res, next) => {
     }
 
     const { taskId } = req.params;
-    const { signatureData } = req.body;
+    const { signatureData, fieldValues } = req.body;
     const userId = req.user.id;
     const ipAddress = req.ip || req.connection.remoteAddress;
     const userAgent = req.get('user-agent');
@@ -523,9 +524,7 @@ export const signDocument = async (req, res, next) => {
       if (templateType === 'html') {
         htmlContent = userDocument.personalized_content || template.html_content;
       } else if (templateType === 'pdf') {
-        templatePath = userDocument.personalized_file_path
-          ? path.join(__dirname, '../../uploads', userDocument.personalized_file_path)
-          : (template.file_path ? path.join(__dirname, '../../uploads/templates', template.file_path) : null);
+        templatePath = userDocument.personalized_file_path || template.file_path || null;
       }
       
       signatureCoords = {
@@ -546,9 +545,7 @@ export const signDocument = async (req, res, next) => {
         if (templateType === 'html') {
           htmlContent = userSpecificDocument.html_content;
         } else if (templateType === 'pdf') {
-          templatePath = userSpecificDocument.file_path
-            ? path.join(__dirname, '../../uploads', userSpecificDocument.file_path)
-            : null;
+          templatePath = userSpecificDocument.file_path || null;
         }
         
         signatureCoords = {
@@ -593,6 +590,52 @@ export const signDocument = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
 
+    const documentName =
+      template?.name ||
+      userSpecificDocument?.name ||
+      task?.title ||
+      'Document';
+    const referenceNumber = `DOC-${signedDoc.id}-${Date.now().toString(36).toUpperCase()}`;
+    const mergedAuditTrail = {
+      ...(signedDoc.audit_trail || {}),
+      documentReference: referenceNumber,
+      documentName
+    };
+
+    const rawFieldDefs =
+      template?.field_definitions ||
+      userSpecificDocument?.field_definitions ||
+      null;
+    let parsedFieldDefs = [];
+    try {
+      parsedFieldDefs = rawFieldDefs
+        ? (typeof rawFieldDefs === 'string' ? JSON.parse(rawFieldDefs) : rawFieldDefs)
+        : [];
+    } catch {
+      parsedFieldDefs = [];
+    }
+    const normalizedFieldDefs = Array.isArray(parsedFieldDefs) ? parsedFieldDefs : [];
+    const normalizedFieldValues = fieldValues && typeof fieldValues === 'object' ? fieldValues : {};
+
+    const missingFields = [];
+    for (const def of normalizedFieldDefs) {
+      if (!def || !def.required) continue;
+      if (def.type === 'date' && def.autoToday) continue;
+      const val = normalizedFieldValues[def.id];
+      if (def.type === 'checkbox') {
+        if (val !== true) missingFields.push(def.label || def.id || 'field');
+        continue;
+      }
+      if (val === null || val === undefined || String(val).trim() === '') {
+        missingFields.push(def.label || def.id || 'field');
+      }
+    }
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        error: { message: `Missing required fields: ${missingFields.join(', ')}` }
+      });
+    }
+
     console.log(`signDocument: Generating finalized PDF...`);
     // Generate finalized PDF
     let pdfBytes;
@@ -604,8 +647,15 @@ export const signDocument = async (req, res, next) => {
         signatureData,
         workflow,
         { firstName: user.first_name, lastName: user.last_name, email: user.email, userId: user.id },
-        signedDoc.audit_trail || {},
-        signatureCoords // Pass signature coordinates
+        mergedAuditTrail,
+        signatureCoords,
+        {
+          referenceNumber,
+          documentName,
+          signatureOnAuditPage: true,
+          fieldDefinitions: normalizedFieldDefs,
+          fieldValues: normalizedFieldValues
+        }
       );
       console.log(`signDocument: PDF generated successfully, size: ${pdfBytes.length} bytes`);
     } catch (pdfError) {
@@ -633,11 +683,11 @@ export const signDocument = async (req, res, next) => {
     console.log(`signDocument: Updating signed document record...`);
     // Update signed document with relative path and user_document_id (for database storage)
     const updateQuery = userDocument
-      ? 'UPDATE signed_documents SET signed_pdf_path = ?, pdf_hash = ?, user_document_id = ? WHERE id = ?'
-      : 'UPDATE signed_documents SET signed_pdf_path = ?, pdf_hash = ? WHERE id = ?';
+      ? 'UPDATE signed_documents SET signed_pdf_path = ?, pdf_hash = ?, user_document_id = ?, audit_trail = ? WHERE id = ?'
+      : 'UPDATE signed_documents SET signed_pdf_path = ?, pdf_hash = ?, audit_trail = ? WHERE id = ?';
     const updateParams = userDocument
-      ? [storageResult.relativePath, pdfHash, userDocument.id, signedDoc.id]
-      : [storageResult.relativePath, pdfHash, signedDoc.id];
+      ? [storageResult.relativePath, pdfHash, userDocument.id, JSON.stringify(mergedAuditTrail), signedDoc.id]
+      : [storageResult.relativePath, pdfHash, JSON.stringify(mergedAuditTrail), signedDoc.id];
     await pool.execute(updateQuery, updateParams);
 
     console.log(`signDocument: Finalizing workflow...`);
@@ -675,6 +725,78 @@ export const signDocument = async (req, res, next) => {
         })
       }
     });
+  }
+};
+
+export const counterSignDocument = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const { taskId } = req.params;
+    const { signatureData } = req.body;
+    const userId = req.user.id;
+
+    if (!['super_admin', 'admin', 'support'].includes(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Only admins can countersign documents' } });
+    }
+    if (!signatureData) {
+      return res.status(400).json({ error: { message: 'Signature data is required' } });
+    }
+
+    const signedDoc = await SignedDocument.findByTask(taskId);
+    if (!signedDoc || !signedDoc.signed_pdf_path) {
+      return res.status(400).json({ error: { message: 'Document must be signed before countersigning' } });
+    }
+
+    const existingAudit = signedDoc.audit_trail || {};
+    if (existingAudit.adminCountersign?.signedAt) {
+      return res.status(400).json({ error: { message: 'Document already countersigned' } });
+    }
+
+    const StorageService = (await import('../services/storage.service.js')).default;
+    const rawPath = String(signedDoc.signed_pdf_path || '').trim();
+    const filename = rawPath.includes('/') ? rawPath.split('/').pop() : rawPath;
+    const buffer = await StorageService.readSignedDocument(signedDoc.user_id, signedDoc.id, filename);
+
+    const pdfDoc = await PDFDocument.load(buffer);
+    await DocumentSigningService.addAdminSignatureToAuditPage(pdfDoc, signatureData, {
+      name: `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim(),
+      email: req.user.email || null
+    });
+    const pdfBytes = await pdfDoc.save();
+
+    const pdfHash = DocumentSigningService.calculatePDFHash(pdfBytes);
+    const newFilename = `signed-${signedDoc.id}-admin-${Date.now()}.pdf`;
+    const storageResult = await StorageService.saveSignedDocument(
+      signedDoc.user_id,
+      signedDoc.id,
+      pdfBytes,
+      newFilename
+    );
+
+    const adminCountersign = {
+      userId,
+      name: `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim(),
+      email: req.user.email || null,
+      signedAt: new Date().toISOString()
+    };
+    const updatedAudit = { ...existingAudit, adminCountersign };
+
+    await pool.execute(
+      'UPDATE signed_documents SET signed_pdf_path = ?, pdf_hash = ?, audit_trail = ? WHERE id = ?',
+      [storageResult.relativePath, pdfHash, JSON.stringify(updatedAudit), signedDoc.id]
+    );
+
+    res.json({
+      success: true,
+      signedDocument: await SignedDocument.findById(signedDoc.id),
+      downloadUrl: `/api/document-signing/${taskId}/download`
+    });
+  } catch (error) {
+    next(error);
   }
 };
 

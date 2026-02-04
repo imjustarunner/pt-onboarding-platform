@@ -55,6 +55,7 @@ export async function sendNotificationEmail({
   subject,
   text = null,
   html = null,
+  attachments = null,
   generatedByUserId = null,
   userId = null,
   templateType = null,
@@ -85,7 +86,7 @@ export async function sendNotificationEmail({
   }
 
   const gmail = await getGmailClient();
-  const mime = buildMimeMessage({ to, subject, text, html, from, replyTo });
+  const mime = buildMimeMessage({ to, subject, text, html, from, replyTo, attachments });
   const raw = base64UrlEncode(mime);
 
   const result = await gmail.users.messages.send({
@@ -118,6 +119,7 @@ export async function sendEmailFromIdentity({
   subject,
   text = null,
   html = null,
+  attachments = null,
   inReplyTo = null,
   references = null,
   threadId = null
@@ -129,7 +131,7 @@ export async function sendEmailFromIdentity({
   const replyTo = identity.reply_to || null;
 
   const gmail = await getGmailClient();
-  const mime = buildMimeMessage({ to, subject, text, html, from, replyTo, inReplyTo, references });
+  const mime = buildMimeMessage({ to, subject, text, html, from, replyTo, inReplyTo, references, attachments });
   const raw = base64UrlEncode(mime);
 
   const requestBody = threadId ? { raw, threadId } : { raw };

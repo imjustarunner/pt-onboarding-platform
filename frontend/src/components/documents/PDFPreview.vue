@@ -36,6 +36,8 @@ const props = defineProps({
   pdfUrl: { type: String, required: true }
 });
 
+const emit = defineEmits(['loaded', 'page-change']);
+
 const containerRef = ref(null);
 const canvasRef = ref(null);
 
@@ -53,11 +55,10 @@ let userZoomed = false;
 const fitToWidth = async (page) => {
   if (!containerRef.value) return;
   const viewportAt1 = page.getViewport({ scale: 1.0 });
-  const containerWidth = Math.max(320, containerRef.value.clientWidth - 24); // padding allowance
+  const containerWidth = Math.max(320, containerRef.value.clientWidth);
   const nextScale = containerWidth / viewportAt1.width;
-  // Clamp to avoid extreme zoom.
-  // Also: don't auto-upscale above 100% (prevents "too big" initial renders).
-  scale.value = Math.min(1.0, Math.max(0.35, nextScale));
+  // Clamp to avoid extreme zoom. Allow more auto-upscale so it snaps to width.
+  scale.value = Math.min(2.2, Math.max(0.5, nextScale));
 };
 
 const renderPage = async (pageNum) => {
@@ -106,6 +107,7 @@ const loadPdf = async () => {
     pdfDoc = await task.promise;
     totalPages.value = pdfDoc.numPages;
     loading.value = false;
+    emit('loaded', { totalPages: totalPages.value });
     await nextTick();
     await renderPage(1);
   } catch (e) {
@@ -119,12 +121,23 @@ const previousPage = async () => {
   if (currentPage.value <= 1) return;
   currentPage.value -= 1;
   await renderPage(currentPage.value);
+  emit('page-change', { currentPage: currentPage.value, totalPages: totalPages.value });
 };
 
 const nextPage = async () => {
   if (currentPage.value >= totalPages.value) return;
   currentPage.value += 1;
   await renderPage(currentPage.value);
+  emit('page-change', { currentPage: currentPage.value, totalPages: totalPages.value });
+};
+
+const goToPage = async (pageNum) => {
+  if (!pdfDoc) return;
+  const target = Math.max(1, Math.min(Number(pageNum) || 1, totalPages.value || 1));
+  if (target === currentPage.value) return;
+  currentPage.value = target;
+  await renderPage(currentPage.value);
+  emit('page-change', { currentPage: currentPage.value, totalPages: totalPages.value });
 };
 
 const zoomIn = async () => {
@@ -143,6 +156,12 @@ watch(() => props.pdfUrl, () => {
   loadPdf();
 }, { immediate: true });
 
+defineExpose({
+  goToPage,
+  goToNextPage: nextPage,
+  goToPreviousPage: previousPage
+});
+
 onMounted(() => {
   // Re-fit on resize only if user hasn't manually zoomed.
   window.addEventListener('resize', () => {
@@ -159,7 +178,8 @@ onMounted(() => {
 .pdf-preview {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
+  width: 100%;
 }
 
 .toolbar {
@@ -168,6 +188,11 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  width: 100%;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 8px;
 }
 
 .toolbar-left,
@@ -188,14 +213,16 @@ onMounted(() => {
   border: 1px solid var(--border, #ddd);
   border-radius: 8px;
   background: white;
-  height: 70vh;
+  height: 80vh;
+  min-height: 520px;
   overflow: auto;
-  padding: 12px;
+  padding: 0;
+  width: 100%;
 }
 
 .pdf-canvas {
   display: block;
-  margin: 0 auto;
+  margin: 0;
   background: white;
 }
 

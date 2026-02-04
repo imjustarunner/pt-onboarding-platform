@@ -331,17 +331,29 @@ const safeFilename = (name) => {
   return base || 'document';
 };
 
+const formatDateForFilename = (dateString) => {
+  const d = dateString ? new Date(dateString) : new Date();
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
+  return d.toISOString().slice(0, 10);
+};
+
 const downloadDocument = async (document) => {
   try {
+    const assignee = safeFilename(
+      `${authStore.user?.first_name || ''} ${authStore.user?.last_name || ''}`.trim() || authStore.user?.email || 'assigned-user'
+    );
+    const dateLabel = formatDateForFilename(document.completed_at || document.updated_at || document.created_at);
+    const title = safeFilename(document.title || 'document');
+    const filename = `${title} - ${assignee} - ${dateLabel}.pdf`;
+
     if (document.document_action_type === 'signature') {
-      await documentsStore.downloadSignedDocument(document.id);
+      await documentsStore.downloadSignedDocument(document.id, filename);
       return;
     }
 
     // Review documents: download a single branded PDF (document + appended details page)
-    const title = safeFilename(document.title || 'reviewed-document');
     const pdfRes = await api.get(`/document-acknowledgment/${document.id}/download`, { responseType: 'blob' });
-    downloadBlob(new Blob([pdfRes.data], { type: 'application/pdf' }), `${title}-reviewed.pdf`);
+    downloadBlob(new Blob([pdfRes.data], { type: 'application/pdf' }), filename);
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to download document');
   }

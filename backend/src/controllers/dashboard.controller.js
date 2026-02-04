@@ -148,9 +148,7 @@ export const getOrgOverviewSummary = async (req, res, next) => {
     }
 
     const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId);
-    const counts = { school: 0, program: 0, learning: 0, other: 0 };
-
-    for (const o of affiliated || []) {
+    const counts = { school: 0, program: 0, learning: 0, other: 0 };    for (const o of affiliated || []) {
       const t = String(o?.organization_type || '').trim().toLowerCase();
       if (t === 'school') counts.school += 1;
       else if (t === 'program') counts.program += 1;

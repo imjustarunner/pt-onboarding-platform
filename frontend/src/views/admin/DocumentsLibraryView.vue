@@ -446,8 +446,23 @@
                 You can also manually adjust the coordinates.
               </p>
               <PDFSignatureCoordinatePicker
-                :pdf-url="getPdfUrl(editingTemplate)"
+                v-if="editPdfUrl"
+                :pdf-url="editPdfUrl"
                 v-model="editForm.signatureCoordinates"
+              />
+              <div v-else class="pdf-error">
+                <p>PDF preview is not available.</p>
+                <p v-if="editingTemplate?.file_path" class="file-info">
+                  File: {{ editingTemplate.file_path }}
+                </p>
+              </div>
+            </div>
+
+            <div v-if="editingTemplate.template_type === 'pdf' && editPdfUrl" class="signature-coordinate-section">
+              <h4 style="margin-top: 24px; margin-bottom: 12px;">Custom Fields (Optional)</h4>
+              <PDFFieldDefinitionBuilder
+                :pdf-url="editPdfUrl"
+                v-model="editForm.fieldDefinitions"
               />
             </div>
           </div>
@@ -530,7 +545,7 @@
         <div class="preview-content">
           <div v-if="templateToPreview.template_type === 'html'" v-html="templateToPreview.html_content" class="html-preview"></div>
           <div v-else class="pdf-preview">
-            <PDFPreview v-if="getPdfUrl(templateToPreview)" :pdf-url="getPdfUrl(templateToPreview)" />
+            <PDFPreview v-if="previewPdfUrl" :pdf-url="previewPdfUrl" />
             <div v-else class="pdf-error">
               <p>PDF preview is not available.</p>
               <p v-if="templateToPreview.file_path" class="file-info">
@@ -545,7 +560,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDocumentsStore } from '../../store/documents';
 import { useAuthStore } from '../../store/auth';
@@ -556,12 +571,12 @@ import DocumentUploadDialog from '../../components/documents/DocumentUploadDialo
 import DocumentAssignmentDialog from '../../components/documents/DocumentAssignmentDialog.vue';
 import DocumentVersionHistory from '../../components/documents/DocumentVersionHistory.vue';
 import PDFSignatureCoordinatePicker from '../../components/documents/PDFSignatureCoordinatePicker.vue';
+import PDFFieldDefinitionBuilder from '../../components/documents/PDFFieldDefinitionBuilder.vue';
 import PDFPreview from '../../components/documents/PDFPreview.vue';
 import IconSelector from '../../components/admin/IconSelector.vue';
 import TemplateVariablesList from '../../components/documents/TemplateVariablesList.vue';
 import HtmlDocumentBuilder from '../../components/documents/HtmlDocumentBuilder.vue';
 import api from '../../services/api';
-import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const router = useRouter();
 
@@ -590,6 +605,8 @@ const showPreviewModal = ref(false);
 const templateToAssign = ref(null);
 const templateForVersions = ref(null);
 const templateToPreview = ref(null);
+const previewPdfUrl = ref(null);
+const editPdfUrl = ref(null);
 const saving = ref(false);
 const selectedAgencyId = ref(null);
 const availableAgencies = ref([]);
@@ -806,6 +823,7 @@ const editForm = ref({
   agencyId: null,
   organizationId: null,
   saveAsNewVersion: false,
+  fieldDefinitions: [],
   signatureCoordinates: {
     x: null,
     y: null,
@@ -852,6 +870,15 @@ async function fetchEditLetterheads() {
 
 const handleEdit = (template) => {
   console.log('Opening edit for template:', template.name, 'icon_id:', template.icon_id, 'icon_file_path:', template.icon_file_path);
+  const parsedFieldDefinitions = (() => {
+    const raw = template.field_definitions;
+    if (!raw) return [];
+    try {
+      return typeof raw === 'string' ? JSON.parse(raw) : raw;
+    } catch {
+      return [];
+    }
+  })();
   editingTemplate.value = template;
   editForm.value = {
     name: template.name || '',
@@ -866,6 +893,7 @@ const handleEdit = (template) => {
     agencyId: template.agency_id !== undefined && template.agency_id !== null ? template.agency_id : null,
     organizationId: template.organization_id !== undefined && template.organization_id !== null ? template.organization_id : null,
     saveAsNewVersion: false,
+    fieldDefinitions: parsedFieldDefinitions,
     signatureCoordinates: {
       x: template.signature_x !== undefined && template.signature_x !== null ? template.signature_x : null,
       y: template.signature_y !== undefined && template.signature_y !== null ? template.signature_y : null,
@@ -878,6 +906,7 @@ const handleEdit = (template) => {
   showEditModal.value = true;
   // Preload letterheads for letter layout templates
   fetchEditLetterheads();
+  loadEditPdfPreview(template);
 };
 
 const handleDuplicate = async (template) => {
@@ -901,6 +930,15 @@ const handleDuplicate = async (template) => {
       agencyId: newTemplate.agency_id !== undefined && newTemplate.agency_id !== null ? newTemplate.agency_id : null,
       organizationId: newTemplate.organization_id !== undefined && newTemplate.organization_id !== null ? newTemplate.organization_id : null,
       saveAsNewVersion: false,
+    fieldDefinitions: (() => {
+      const raw = newTemplate.field_definitions;
+      if (!raw) return [];
+      try {
+        return typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch {
+        return [];
+      }
+    })(),
       signatureCoordinates: {
         x: newTemplate.signature_x !== undefined && newTemplate.signature_x !== null ? newTemplate.signature_x : null,
         y: newTemplate.signature_y !== undefined && newTemplate.signature_y !== null ? newTemplate.signature_y : null,
@@ -911,6 +949,7 @@ const handleDuplicate = async (template) => {
     };
     showEditModal.value = true;
     fetchEditLetterheads();
+    loadEditPdfPreview(newTemplate);
     
     // Reload templates to include the new one
     await loadTemplates();
@@ -1003,6 +1042,10 @@ const saveEdit = async () => {
         height: updateData.signatureHeight,
         page: updateData.signaturePage
       });
+    }
+
+    if (editForm.value.fieldDefinitions !== undefined) {
+      updateData.fieldDefinitions = editForm.value.fieldDefinitions || [];
     }
     
     // If saveAsNewVersion is true, add flag to force new version creation
@@ -1129,11 +1172,67 @@ const handlePreview = async (template) => {
     const response = await api.get(`/document-templates/${template.id}`);
     templateToPreview.value = response.data;
     showPreviewModal.value = true;
+    await loadPreviewPdf(response.data);
   } catch (err) {
     alert('Failed to load template for preview');
     console.error('Preview error:', err);
   }
 };
+
+const revokeObjectUrl = (url) => {
+  if (url) {
+    try {
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.warn('Failed to revoke object URL:', e);
+    }
+  }
+};
+
+const loadPreviewPdf = async (template) => {
+  revokeObjectUrl(previewPdfUrl.value);
+  previewPdfUrl.value = null;
+  if (!template || template.template_type !== 'pdf') return;
+  try {
+    const resp = await api.get(`/document-templates/${template.id}/preview`, { responseType: 'blob' });
+    previewPdfUrl.value = URL.createObjectURL(resp.data);
+  } catch (err) {
+    console.error('Failed to load preview PDF:', err);
+    previewPdfUrl.value = null;
+  }
+};
+
+const loadEditPdfPreview = async (template) => {
+  revokeObjectUrl(editPdfUrl.value);
+  editPdfUrl.value = null;
+  if (!template || template.template_type !== 'pdf' || !template.file_path) return;
+  try {
+    const resp = await api.get(`/document-templates/${template.id}/preview`, { responseType: 'blob' });
+    editPdfUrl.value = URL.createObjectURL(resp.data);
+  } catch (err) {
+    console.error('Failed to load edit PDF preview:', err);
+    editPdfUrl.value = null;
+  }
+};
+
+watch(showPreviewModal, (open) => {
+  if (!open) {
+    revokeObjectUrl(previewPdfUrl.value);
+    previewPdfUrl.value = null;
+  }
+});
+
+watch(showEditModal, (open) => {
+  if (!open) {
+    revokeObjectUrl(editPdfUrl.value);
+    editPdfUrl.value = null;
+  }
+});
+
+onBeforeUnmount(() => {
+  revokeObjectUrl(previewPdfUrl.value);
+  revokeObjectUrl(editPdfUrl.value);
+});
 
 const handleUploaded = async () => {
   await loadTemplates();
@@ -1142,7 +1241,10 @@ const handleUploaded = async () => {
 const fetchAgencies = async () => {
   try {
     const response = await api.get('/agencies');
-    availableAgencies.value = response.data;
+    const list = response.data || [];
+    availableAgencies.value = list.filter(
+      (a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency'
+    );
   } catch (err) {
     console.error('Failed to fetch agencies:', err);
   }
@@ -1393,19 +1495,6 @@ const getDisplayIconAlt = (template) => {
   return template.icon_name || 'Document icon';
 };
 
-const getPdfUrl = (template) => {
-  if (!template || !template.file_path) return null;
-  let filePath = String(template.file_path);
-  if (filePath.startsWith('/')) filePath = filePath.substring(1);
-
-  // Normalize template file paths to live under "templates/" when not already prefixed.
-  // This avoids accidental "templates/templates/..." URLs.
-  if (!filePath.startsWith('templates/') && !filePath.startsWith('uploads/') && !filePath.startsWith('signed/') && !filePath.startsWith('fonts/')) {
-    filePath = `templates/${filePath}`;
-  }
-
-  return toUploadsUrl(filePath);
-};
 
 const canEdit = (template) => {
   if (authStore.user?.role === 'super_admin') return true;

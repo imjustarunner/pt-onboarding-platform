@@ -30,7 +30,8 @@ class DocumentTemplate {
       signatureY,
       signatureWidth,
       signatureHeight,
-      signaturePage
+      signaturePage,
+      fieldDefinitions
     } = templateData;
 
     // Get latest version for this template name, agency, and user (if user-specific)
@@ -89,20 +90,22 @@ class DocumentTemplate {
       console.error('Error checking for icon_id column:', err);
     }
 
-    // Optional columns (letter layout).
+    // Optional columns (letter layout / extras).
     let hasLayoutTypeColumn = false;
     let hasLetterheadColumn = false;
     let hasLetterHeaderColumn = false;
     let hasLetterFooterColumn = false;
+    let hasFieldDefinitionsColumn = false;
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html')"
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html','field_definitions')"
       );
       const set = new Set((cols || []).map((r) => r.COLUMN_NAME));
       hasLayoutTypeColumn = set.has('layout_type');
       hasLetterheadColumn = set.has('letterhead_template_id');
       hasLetterHeaderColumn = set.has('letter_header_html');
       hasLetterFooterColumn = set.has('letter_footer_html');
+      hasFieldDefinitionsColumn = set.has('field_definitions');
     } catch {
       // ignore (older DBs)
     }
@@ -177,6 +180,13 @@ class DocumentTemplate {
       signatureHeight || null,
       signaturePage || null
     );
+
+    if (hasFieldDefinitionsColumn) {
+      insertFields += ', field_definitions';
+      insertValues += ', ?';
+      const serialized = fieldDefinitions ? JSON.stringify(fieldDefinitions) : null;
+      insertParams.push(serialized);
+    }
 
     const [result] = await pool.execute(
       `INSERT INTO document_templates (${insertFields}) VALUES (${insertValues})`,
@@ -450,7 +460,7 @@ class DocumentTemplate {
     // Normalize existing template values to ensure no undefined
     // Initialize all possible fields to null if they don't exist
     const normalizedExisting = {};
-    const possibleFields = ['template_type', 'file_path', 'html_content', 'signature_x', 'signature_y', 'signature_width', 'signature_height', 'signature_page'];
+    const possibleFields = ['template_type', 'file_path', 'html_content', 'signature_x', 'signature_y', 'signature_width', 'signature_height', 'signature_page', 'field_definitions'];
     possibleFields.forEach(field => {
       normalizedExisting[field] = existing[field] !== undefined && existing[field] !== null ? existing[field] : null;
     });
@@ -492,7 +502,8 @@ class DocumentTemplate {
       signatureY,
       signatureWidth,
       signatureHeight,
-      signaturePage
+      signaturePage,
+      fieldDefinitions
     } = templateData;
     
     // Normalize all values: if a field is in templateData, use it (even if null)
@@ -530,6 +541,7 @@ class DocumentTemplate {
     if ('signatureWidth' in templateData) normalizedData.signatureWidth = getValue('signatureWidth');
     if ('signatureHeight' in templateData) normalizedData.signatureHeight = getValue('signatureHeight');
     if ('signaturePage' in templateData) normalizedData.signaturePage = getValue('signaturePage');
+    if ('fieldDefinitions' in templateData) normalizedData.fieldDefinitions = getValue('fieldDefinitions');
     
     console.log('Fields in templateData:', Object.keys(templateData));
     console.log('Normalized data keys:', Object.keys(normalizedData));
@@ -561,6 +573,7 @@ class DocumentTemplate {
     const normSignatureWidth = normalizedData.signatureWidth;
     const normSignatureHeight = normalizedData.signatureHeight;
     const normSignaturePage = normalizedData.signaturePage;
+    const normFieldDefinitions = normalizedData.fieldDefinitions;
 
     // If name changed OR createNewVersion flag is set, create new version
     // Use the agencyId from templateData if provided, otherwise keep existing agency_id
@@ -597,7 +610,8 @@ class DocumentTemplate {
         signatureY: ('signatureY' in templateData && normSignatureY !== undefined) ? normSignatureY : (existing.signature_y || null),
         signatureWidth: ('signatureWidth' in templateData && normSignatureWidth !== undefined) ? normSignatureWidth : (existing.signature_width || null),
         signatureHeight: ('signatureHeight' in templateData && normSignatureHeight !== undefined) ? normSignatureHeight : (existing.signature_height || null),
-        signaturePage: ('signaturePage' in templateData && normSignaturePage !== undefined) ? normSignaturePage : (existing.signature_page || null)
+        signaturePage: ('signaturePage' in templateData && normSignaturePage !== undefined) ? normSignaturePage : (existing.signature_page || null),
+        fieldDefinitions: ('fieldDefinitions' in templateData && normFieldDefinitions !== undefined) ? normFieldDefinitions : (existing.field_definitions || null)
       };
       
       // Ensure no undefined values
@@ -657,6 +671,12 @@ class DocumentTemplate {
       // For all other values, push as-is
       params.push(value);
       console.log(`  Pushed ${fieldName}: ${value} (type: ${typeof value})`);
+    };
+
+    const serializeFieldDefinitions = (value) => {
+      if (value === null || value === undefined || value === '') return null;
+      if (typeof value === 'string') return value;
+      return JSON.stringify(value);
     };
 
     // Check if fields exist in templateData (not just undefined after destructuring)
@@ -808,6 +828,14 @@ class DocumentTemplate {
             ? normalizedExisting.signature_page 
             : null);
       safePush(val, 'signaturePage');
+    }
+
+    if (hasFieldDefinitionsColumn && 'fieldDefinitions' in templateData) {
+      updates.push('field_definitions = ?');
+      const val = normFieldDefinitions !== undefined
+        ? serializeFieldDefinitions(normFieldDefinitions)
+        : serializeFieldDefinitions(normalizedExisting.field_definitions);
+      safePush(val, 'fieldDefinitions');
     }
 
     // Only update if there are changes

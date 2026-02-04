@@ -45,6 +45,42 @@
             {{ success }}
           </div>
 
+          <div v-if="clientId && phiDocumentId" class="ocr-panel">
+            <h3>Extract Handwritten Data</h3>
+            <p class="muted">Use OCR to extract text and quickly copy details for EHR entry.</p>
+            <div class="ocr-actions">
+              <button class="btn btn-secondary" type="button" :disabled="ocrLoading" @click="runOcr">
+                {{ ocrLoading ? 'Extracting...' : 'Extract Text' }}
+              </button>
+              <button v-if="ocrText" class="btn btn-secondary" type="button" @click="copyText(ocrText)">
+                Copy All Text
+              </button>
+            </div>
+            <div v-if="ocrError" class="error-message">{{ ocrError }}</div>
+            <textarea v-if="ocrText" class="ocr-text" readonly :value="ocrText"></textarea>
+
+            <div class="profile-builder">
+              <div class="form-group">
+                <label>First name (for initials)</label>
+                <input v-model="firstName" type="text" placeholder="First name" />
+              </div>
+              <div class="form-group">
+                <label>Last name (for initials)</label>
+                <input v-model="lastName" type="text" placeholder="Last name" />
+              </div>
+              <div class="abbr-row">
+                <div class="abbr-code">{{ abbreviatedName || '---' }}</div>
+                <button class="btn btn-secondary btn-sm" type="button" :disabled="!abbreviatedName" @click="copyText(abbreviatedName)">
+                  Copy Code
+                </button>
+                <button class="btn btn-primary btn-sm" type="button" :disabled="!abbreviatedName || ocrLoading" @click="applyInitials">
+                  Set Client Initials
+                </button>
+              </div>
+              <p class="muted">Format: first three of first name + first three of last name (e.g., AbcDef).</p>
+            </div>
+          </div>
+
           <div class="form-actions">
             <button type="button" @click="$emit('close')" class="btn btn-secondary">
               Cancel
@@ -61,7 +97,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -79,6 +115,26 @@ const isDragging = ref(false);
 const uploading = ref(false);
 const error = ref('');
 const success = ref('');
+const clientId = ref(null);
+const phiDocumentId = ref(null);
+const ocrLoading = ref(false);
+const ocrError = ref('');
+const ocrText = ref('');
+const ocrRequestId = ref(null);
+const firstName = ref('');
+const lastName = ref('');
+
+const abbreviatedName = computed(() => {
+  const clean = (value) => String(value || '').replace(/[^A-Za-z]/g, '');
+  const part = (value) => {
+    const raw = clean(value);
+    if (!raw) return '';
+    const slice = raw.slice(0, 3);
+    return slice.charAt(0).toUpperCase() + slice.slice(1).toLowerCase();
+  };
+  const code = `${part(firstName.value)}${part(lastName.value)}`.trim();
+  return code || '';
+});
 
 const handleFileSelect = (event) => {
   const file = event.target.files[0];
@@ -143,6 +199,8 @@ const handleUpload = async () => {
     });
 
     success.value = 'Referral packet uploaded successfully!';
+    clientId.value = response.data?.clientId || null;
+    phiDocumentId.value = response.data?.phiDocumentId || null;
     
     // Emit success event after a short delay
     setTimeout(() => {
@@ -153,6 +211,49 @@ const handleUpload = async () => {
     error.value = err.response?.data?.error?.message || 'Failed to upload referral packet. Please try again.';
   } finally {
     uploading.value = false;
+  }
+};
+
+const copyText = async (text) => {
+  try {
+    await navigator.clipboard.writeText(String(text || ''));
+  } catch (e) {
+    error.value = 'Copy failed. Please try again.';
+  }
+};
+
+const runOcr = async () => {
+  if (!clientId.value) return;
+  ocrLoading.value = true;
+  ocrError.value = '';
+  ocrText.value = '';
+  try {
+    const req = await api.post(`/referrals/${clientId.value}/ocr`, {
+      phiDocumentId: phiDocumentId.value || null
+    });
+    ocrRequestId.value = req.data?.request?.id || null;
+    const result = await api.post(`/referrals/${clientId.value}/ocr/${ocrRequestId.value}/process`);
+    ocrText.value = result.data?.request?.result_text || '';
+  } catch (e) {
+    ocrError.value = e.response?.data?.error?.message || 'OCR failed. Please try again later.';
+  } finally {
+    ocrLoading.value = false;
+  }
+};
+
+const applyInitials = async () => {
+  if (!clientId.value || !ocrRequestId.value || !abbreviatedName.value) return;
+  ocrLoading.value = true;
+  ocrError.value = '';
+  try {
+    await api.post(`/referrals/${clientId.value}/ocr/${ocrRequestId.value}/identify`, {
+      firstName: firstName.value,
+      lastName: lastName.value
+    });
+  } catch (e) {
+    ocrError.value = e.response?.data?.error?.message || 'Failed to set initials.';
+  } finally {
+    ocrLoading.value = false;
   }
 };
 </script>
@@ -224,6 +325,52 @@ const handleUpload = async () => {
   width: 100%;
 }
 
+.ocr-panel {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.ocr-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.ocr-text {
+  width: 100%;
+  min-height: 180px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.profile-builder {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.abbr-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.abbr-code {
+  font-weight: 700;
+  letter-spacing: 1px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.muted {
+  color: var(--text-secondary);
+}
 .form-group {
   margin-bottom: 24px;
 }

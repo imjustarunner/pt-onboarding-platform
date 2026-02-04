@@ -6,6 +6,7 @@ import {
   getTemplates,
   getTemplate,
   getTemplateForTask,
+  previewTemplate,
   updateTemplate,
   archiveTemplate,
   restoreTemplate,
@@ -161,6 +162,7 @@ router.post('/', authenticate, requireBackofficeAdmin, validateTemplate, createT
 router.get('/', authenticate, requireBackofficeAdmin, getTemplates);
 router.get('/archived', authenticate, requireBackofficeAdmin, getArchivedTemplates); // Must come before /:id
 router.get('/:id/task', authenticate, getTemplateForTask); // Allow users to access templates for their assigned tasks
+router.get('/:id/preview', authenticate, previewTemplate);
 router.get('/:id', authenticate, requireBackofficeAdmin, getTemplate);
 router.get('/:id/acroform-fields', authenticate, requireBackofficeAdmin, getAcroFormFields);
 router.put('/:id', authenticate, requireBackofficeAdmin, validateTemplateUpdate, updateTemplate);

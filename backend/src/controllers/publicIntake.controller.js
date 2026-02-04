@@ -2,6 +2,7 @@ import { validationResult } from 'express-validator';
 import IntakeLink from '../models/IntakeLink.model.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
+import IntakeSubmissionClient from '../models/IntakeSubmissionClient.model.js';
 import DocumentTemplate from '../models/DocumentTemplate.model.js';
 import PublicIntakeSigningService from '../services/publicIntakeSigning.service.js';
 import DocumentSigningService from '../services/documentSigning.service.js';
@@ -64,6 +65,16 @@ const loadAllowedTemplates = async (link) => {
   return templates;
 };
 
+const loadTemplateById = async (link, templateId) => {
+  const allowedIds = Array.isArray(link.allowed_document_template_ids)
+    ? link.allowed_document_template_ids
+    : [];
+  if (!allowedIds.includes(templateId)) return null;
+  const template = await DocumentTemplate.findById(templateId);
+  if (!template || !template.is_active) return null;
+  return template;
+};
+
 export const getPublicIntakeLink = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
@@ -88,6 +99,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
       templates: templates.map(t => ({
         id: t.id,
         name: t.name,
+        document_action_type: t.document_action_type,
         template_type: t.template_type,
         html_content: t.template_type === 'html' ? t.html_content : null,
         file_path: t.template_type === 'pdf' ? t.file_path : null,
@@ -95,7 +107,8 @@ export const getPublicIntakeLink = async (req, res, next) => {
         signature_y: t.signature_y,
         signature_width: t.signature_width,
         signature_height: t.signature_height,
-        signature_page: t.signature_page
+        signature_page: t.signature_page,
+        field_definitions: t.field_definitions
       }))
     });
   } catch (error) {
@@ -138,6 +151,429 @@ export const createPublicConsent = async (req, res, next) => {
   }
 };
 
+export const getPublicIntakeStatus = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const submissionId = parseInt(req.params.submissionId, 10);
+    if (!submissionId) {
+      return res.status(400).json({ error: { message: 'submissionId is required' } });
+    }
+    const link = await IntakeLink.findByPublicKey(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const submission = await IntakeSubmission.findById(submissionId);
+    if (!submission || submission.intake_link_id !== link.id) {
+      return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+
+    const templates = await loadAllowedTemplates(link);
+    const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
+    const signedTemplateIds = new Set(signedDocs.map((d) => d.document_template_id));
+
+    let downloadUrl = null;
+    if (submission.combined_pdf_path) {
+      downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 3);
+    }
+
+    res.json({
+      submissionId,
+      status: submission.status,
+      totalDocuments: templates.length,
+      signedTemplateIds: Array.from(signedTemplateIds),
+      signedDocuments: signedDocs,
+      downloadUrl
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const previewPublicTemplate = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const templateId = parseInt(req.params.templateId, 10);
+    if (!templateId) {
+      return res.status(400).json({ error: { message: 'templateId is required' } });
+    }
+    const link = await IntakeLink.findByPublicKey(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const template = await loadTemplateById(link, templateId);
+    if (!template) {
+      return res.status(404).json({ error: { message: 'Template not found' } });
+    }
+    if (template.template_type !== 'pdf' || !template.file_path) {
+      return res.status(400).json({ error: { message: 'Template preview is only available for PDF templates' } });
+    }
+
+    const StorageService = (await import('../services/storage.service.js')).default;
+    let filePath = String(template.file_path || '').trim();
+    if (filePath.startsWith('/')) filePath = filePath.substring(1);
+    const templateFilename = filePath.includes('/')
+      ? filePath.split('/').pop()
+      : filePath.replace('templates/', '');
+    const buffer = await StorageService.readTemplate(templateFilename);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const signPublicIntakeDocument = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const publicKey = String(req.params.publicKey || '').trim();
+    const submissionId = parseInt(req.params.submissionId, 10);
+    const templateId = parseInt(req.params.templateId, 10);
+    if (!submissionId || !templateId) {
+      return res.status(400).json({ error: { message: 'submissionId and templateId are required' } });
+    }
+
+    const link = await IntakeLink.findByPublicKey(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const submission = await IntakeSubmission.findById(submissionId);
+    if (!submission || submission.intake_link_id !== link.id) {
+      return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+
+    const template = await loadTemplateById(link, templateId);
+    if (!template) {
+      return res.status(404).json({ error: { message: 'Template not found' } });
+    }
+
+    const signatureData = String(req.body.signatureData || '').trim();
+    if (template.document_action_type === 'signature' && !signatureData) {
+      return res.status(400).json({ error: { message: 'signatureData is required for signature documents' } });
+    }
+
+    const existingDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
+    const existing = existingDocs.find((d) => d.document_template_id === templateId);
+    if (existing) {
+      return res.json({ success: true, document: existing, alreadySigned: true });
+    }
+
+    const now = new Date();
+    const signer = buildSignerFromSubmission(submission);
+    const auditTrail = buildAuditTrail({ link, submission });
+    const workflowData = {
+      consent_given_at: submission.consent_given_at,
+      intent_to_sign_at: now,
+      identity_verified_at: null,
+      finalized_at: now,
+      consent_ip: submission.ip_address || null,
+      intent_ip: submission.ip_address || null
+    };
+
+    const rawFieldDefs = template.field_definitions || null;
+    let parsedFieldDefs = [];
+    try {
+      parsedFieldDefs = rawFieldDefs
+        ? (typeof rawFieldDefs === 'string' ? JSON.parse(rawFieldDefs) : rawFieldDefs)
+        : [];
+    } catch {
+      parsedFieldDefs = [];
+    }
+    const fieldDefinitions = Array.isArray(parsedFieldDefs) ? parsedFieldDefs : [];
+    const fieldValues = req.body?.fieldValues && typeof req.body.fieldValues === 'object' ? req.body.fieldValues : {};
+
+    const missingFields = [];
+    for (const def of fieldDefinitions) {
+      if (!def || !def.required) continue;
+      if (def.type === 'date' && def.autoToday) continue;
+      const val = fieldValues[def.id];
+      if (def.type === 'checkbox') {
+        if (val !== true) missingFields.push(def.label || def.id || 'field');
+        continue;
+      }
+      if (val === null || val === undefined || String(val).trim() === '') {
+        missingFields.push(def.label || def.id || 'field');
+      }
+    }
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        error: { message: `Missing required fields: ${missingFields.join(', ')}` }
+      });
+    }
+
+    const result = await PublicIntakeSigningService.generateSignedDocument({
+      template,
+      signatureData: signatureData || null,
+      signer,
+      auditTrail,
+      workflowData,
+      submissionId,
+      fieldDefinitions,
+      fieldValues
+    });
+
+    const doc = await IntakeSubmissionDocument.create({
+      intakeSubmissionId: submissionId,
+      clientId: null,
+      documentTemplateId: template.id,
+      signedPdfPath: result.storagePath,
+      pdfHash: result.pdfHash,
+      signedAt: now,
+      auditTrail: {
+        ...auditTrail,
+        documentReference: result.referenceNumber || null,
+        documentName: template.name || null
+      }
+    });
+
+    await IntakeSubmission.updateById(submissionId, { status: 'in_progress' });
+
+    res.json({
+      success: true,
+      document: doc,
+      referenceNumber: result.referenceNumber || null
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const finalizePublicIntake = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const publicKey = String(req.params.publicKey || '').trim();
+    const link = await IntakeLink.findByPublicKey(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+
+    const submissionId = parseInt(req.params.submissionId || req.body.submissionId, 10);
+    if (!submissionId) {
+      return res.status(400).json({ error: { message: 'submissionId is required' } });
+    }
+
+    const submission = await IntakeSubmission.findById(submissionId);
+    if (!submission || submission.intake_link_id !== link.id) {
+      return res.status(404).json({ error: { message: 'Submission not found' } });
+    }
+
+    if (link.create_client) {
+      const rawClients = Array.isArray(req.body?.clients) && req.body.clients.length
+        ? req.body.clients
+        : (req.body?.client ? [req.body.client] : []);
+      if (!rawClients.length || !String(rawClients?.[0]?.fullName || '').trim()) {
+        return res.status(400).json({ error: { message: 'Client full name is required.' } });
+      }
+    }
+    {
+      const gEmail = String(req.body?.guardian?.email || '').trim();
+      const gFirst = String(req.body?.guardian?.firstName || '').trim();
+      if (!gEmail || !gFirst) {
+        return res.status(400).json({ error: { message: 'Guardian name and email are required.' } });
+      }
+    }
+
+    const now = new Date();
+    const intakeData = req.body?.intakeData || null;
+    let updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+      status: 'submitted',
+      submitted_at: now,
+      intake_data: intakeData ? JSON.stringify(intakeData) : null
+    });
+
+    let createdClients = [];
+    if (link.create_client) {
+      const { clients, guardianUser } = await PublicIntakeClientService.createClientAndGuardian({
+        link,
+        payload: req.body
+      });
+      createdClients = clients || [];
+      updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+        client_id: createdClients?.[0]?.id || null,
+        guardian_user_id: guardianUser?.id || null
+      });
+    }
+
+    const templates = await loadAllowedTemplates(link);
+    if (!templates.length) {
+      return res.status(400).json({ error: { message: 'No documents are configured for this intake link.' } });
+    }
+
+    const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
+    const signedByTemplate = new Map(signedDocs.map((d) => [d.document_template_id, d]));
+    for (const t of templates) {
+      if (!signedByTemplate.has(t.id)) {
+        return res.status(400).json({ error: { message: `Missing signed document for ${t.name || 'document'}` } });
+      }
+    }
+
+    const signer = buildSignerFromSubmission(updatedSubmission);
+    const signedDocsOrdered = templates.map((t) => signedByTemplate.get(t.id)).filter(Boolean);
+    const pdfBuffers = [];
+    const clientBundles = [];
+
+    for (const entry of signedDocsOrdered) {
+      const buffer = await StorageService.readIntakeSignedDocument(entry.signed_pdf_path);
+      pdfBuffers.push(buffer);
+    }
+
+    const rawClients = createdClients.length
+      ? createdClients.map((c) => ({ id: c.id, fullName: c.full_name || c.initials || '', initials: c.initials, contactPhone: c.contact_phone }))
+      : (Array.isArray(req.body?.clients) ? req.body.clients : (req.body?.client ? [req.body.client] : []));
+    const primaryClientName = String(rawClients?.[0]?.fullName || '').trim() || null;
+
+    const intakeClientRows = [];
+    for (const clientPayload of rawClients) {
+      const clientId = clientPayload?.id || null;
+      const clientName = String(clientPayload?.fullName || '').trim() || null;
+
+      intakeClientRows.push(
+        await IntakeSubmissionClient.create({
+          intakeSubmissionId: submissionId,
+          clientId,
+          fullName: clientName,
+          initials: clientPayload?.initials || null,
+          contactPhone: clientPayload?.contactPhone || null
+        })
+      );
+
+      if (clientId) {
+        for (const template of templates) {
+          const docRow = signedByTemplate.get(template.id);
+          if (!docRow) continue;
+          try {
+            const clientRow = await Client.findById(clientId, { includeSensitive: true });
+            const agencyId = clientRow?.agency_id || null;
+            const orgId = clientRow?.organization_id || null;
+            const phiDoc = await ClientPhiDocument.create({
+              clientId,
+              agencyId,
+              schoolOrganizationId: orgId,
+              storagePath: docRow.signed_pdf_path,
+              originalName: `${template.name || 'Document'} (Signed)`,
+              mimeType: 'application/pdf',
+              uploadedByUserId: null,
+              scanStatus: 'clean'
+            });
+            await PhiDocumentAuditLog.create({
+              documentId: phiDoc.id,
+              clientId,
+              action: 'uploaded',
+              actorUserId: null,
+              actorLabel: 'public_intake',
+              ipAddress: updatedSubmission.ip_address || null,
+              metadata: { submissionId, templateId: template.id }
+            });
+          } catch {
+            // best-effort; do not block public intake
+          }
+        }
+      }
+    }
+
+    if (rawClients.length) {
+      for (let i = 0; i < rawClients.length; i += 1) {
+        const clientPayload = rawClients[i];
+        const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfs(pdfBuffers);
+        const clientBundleResult = await StorageService.saveIntakeClientBundle({
+          submissionId,
+          clientId: clientPayload?.id || 'unknown',
+          fileBuffer: mergedClientPdf,
+          filename: `intake-client-${clientPayload?.id || 'unknown'}.pdf`
+        });
+        const clientBundleHash = DocumentSigningService.calculatePDFHash(mergedClientPdf);
+        const targetRow = intakeClientRows[i];
+        if (targetRow?.id) {
+          await IntakeSubmissionClient.updateById(targetRow.id, {
+            bundle_pdf_path: clientBundleResult.relativePath,
+            bundle_pdf_hash: clientBundleHash
+          });
+        }
+        clientBundles.push({
+          clientId: clientPayload?.id || null,
+          clientName: clientPayload?.fullName || null,
+          buffer: mergedClientPdf,
+          filename: `intake-client-${clientPayload?.id || 'unknown'}.pdf`,
+          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 3)
+        });
+      }
+    }
+
+    let downloadUrl = null;
+    if (pdfBuffers.length > 0) {
+      const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfs(pdfBuffers);
+      const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
+      const bundleResult = await StorageService.saveIntakeBundle({
+        submissionId,
+        fileBuffer: mergedPdf,
+        filename: `intake-bundle-${submissionId}.pdf`
+      });
+      await IntakeSubmission.updateById(submissionId, {
+        combined_pdf_path: bundleResult.relativePath,
+        combined_pdf_hash: bundleHash
+      });
+      downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 3);
+
+      if (updatedSubmission.signer_email && EmailService.isConfigured()) {
+        const clientCount = rawClients.length || 1;
+        const subject = 'Your signed intake packet';
+        const summaryLine = clientCount > 1 ? `Clients: ${clientCount}\n\n` : (primaryClientName ? `Client: ${primaryClientName}\n\n` : '');
+        const text = `${summaryLine}Your intake packet is ready. Download here:\n\n${downloadUrl}\n\nThis link expires in 3 days.`;
+        const html = `
+          <div style="font-family: Arial, sans-serif; line-height: 1.5;">
+            ${clientCount > 1 ? `<p><strong>Clients:</strong> ${clientCount}</p>` : (primaryClientName ? `<p><strong>Client:</strong> ${primaryClientName}</p>` : '')}
+            <p>Your intake packet is ready.</p>
+            <p><a href="${downloadUrl}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download Signed Packet</a></p>
+            <p style="color:#777;">This link expires in 3 days.</p>
+          </div>
+        `.trim();
+        const attachments = [];
+        for (const entry of clientBundles) {
+          if (entry?.buffer) {
+            attachments.push({
+              filename: entry.filename,
+              contentType: 'application/pdf',
+              contentBase64: entry.buffer.toString('base64')
+            });
+          }
+        }
+        try {
+          await EmailService.sendEmail({
+            to: updatedSubmission.signer_email,
+            subject,
+            text,
+            html,
+            fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
+            fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+            replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+            attachments: attachments.length ? attachments : null
+          });
+        } catch {
+          // best-effort email
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      submission: updatedSubmission,
+      documents: signedDocsOrdered,
+      downloadUrl,
+      clientBundles
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const submitPublicIntake = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -162,12 +598,14 @@ export const submitPublicIntake = async (req, res, next) => {
     }
 
     if (link.create_client) {
-      const fullName = String(req.body?.client?.fullName || '').trim();
-      if (!fullName) {
+      const rawClients = Array.isArray(req.body?.clients) && req.body.clients.length
+        ? req.body.clients
+        : (req.body?.client ? [req.body.client] : []);
+      if (!rawClients.length || !String(rawClients?.[0]?.fullName || '').trim()) {
         return res.status(400).json({ error: { message: 'Client full name is required.' } });
       }
     }
-    if (link.create_guardian) {
+    {
       const gEmail = String(req.body?.guardian?.email || '').trim();
       const gFirst = String(req.body?.guardian?.firstName || '').trim();
       if (!gEmail || !gFirst) {
@@ -188,13 +626,15 @@ export const submitPublicIntake = async (req, res, next) => {
       intake_data: intakeData
     });
 
+    let createdClients = [];
     if (link.create_client) {
-      const { client, guardianUser } = await PublicIntakeClientService.createClientAndGuardian({
+      const { clients, guardianUser } = await PublicIntakeClientService.createClientAndGuardian({
         link,
         payload: req.body
       });
+      createdClients = clients || [];
       updatedSubmission = await IntakeSubmission.updateById(submissionId, {
-        client_id: client?.id || null,
+        client_id: createdClients?.[0]?.id || null,
         guardian_user_id: guardianUser?.id || null
       });
     }
@@ -205,66 +645,116 @@ export const submitPublicIntake = async (req, res, next) => {
     }
 
     const signer = buildSignerFromSubmission(updatedSubmission);
-    const clientName = String(req.body?.client?.fullName || '').trim() || null;
-    const workflowData = buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } });
-    const auditTrail = buildAuditTrail({
-      link,
-      submission: { ...updatedSubmission, submitted_at: now, client_name: clientName }
-    });
-
     const signedDocs = [];
     const pdfBuffers = [];
-    for (const template of templates) {
-      const result = await PublicIntakeSigningService.generateSignedDocument({
-        template,
-        signatureData,
-        signer,
-        auditTrail,
-        workflowData,
-        submissionId
+    const clientBundles = [];
+    const workflowData = buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } });
+    const rawClients = createdClients.length
+      ? createdClients.map((c) => ({ id: c.id, fullName: c.full_name || c.initials || '', initials: c.initials, contactPhone: c.contact_phone }))
+      : (Array.isArray(req.body?.clients) ? req.body.clients : (req.body?.client ? [req.body.client] : []));
+    const primaryClientName = String(rawClients?.[0]?.fullName || '').trim() || null;
+
+    const intakeClientRows = [];
+    for (const clientPayload of rawClients) {
+      const clientId = clientPayload?.id || null;
+      const clientName = String(clientPayload?.fullName || '').trim() || null;
+      const auditTrail = buildAuditTrail({
+        link,
+        submission: { ...updatedSubmission, submitted_at: now, client_name: clientName }
       });
 
-      const doc = await IntakeSubmissionDocument.create({
-        intakeSubmissionId: submissionId,
-        documentTemplateId: template.id,
-        signedPdfPath: result.storagePath,
-        pdfHash: result.pdfHash,
-        signedAt: now,
-        auditTrail
-      });
+      intakeClientRows.push(
+        await IntakeSubmissionClient.create({
+          intakeSubmissionId: submissionId,
+          clientId,
+          fullName: clientName,
+          initials: clientPayload?.initials || null,
+          contactPhone: clientPayload?.contactPhone || null
+        })
+      );
 
-      pdfBuffers.push(result.pdfBytes);
+      const clientBuffers = [];
+      for (const template of templates) {
+        const result = await PublicIntakeSigningService.generateSignedDocument({
+          template,
+          signatureData,
+          signer,
+          auditTrail,
+          workflowData,
+          submissionId
+        });
 
-      if (updatedSubmission.client_id) {
-        try {
-          const clientRow = await Client.findById(updatedSubmission.client_id, { includeSensitive: true });
-          const agencyId = clientRow?.agency_id || null;
-          const orgId = clientRow?.organization_id || null;
-          const phiDoc = await ClientPhiDocument.create({
-            clientId: updatedSubmission.client_id,
-            agencyId,
-            schoolOrganizationId: orgId,
-            storagePath: result.storagePath,
-            originalName: `${template.name || 'Document'} (Signed)`,
-            mimeType: 'application/pdf',
-            uploadedByUserId: null,
-            scanStatus: 'clean'
-          });
-          await PhiDocumentAuditLog.create({
-            documentId: phiDoc.id,
-            clientId: updatedSubmission.client_id,
-            action: 'uploaded',
-            actorUserId: null,
-            actorLabel: 'public_intake',
-            ipAddress: updatedSubmission.ip_address || null,
-            metadata: { submissionId, templateId: template.id }
-          });
-        } catch {
-          // best-effort; do not block public intake
+        const doc = await IntakeSubmissionDocument.create({
+          intakeSubmissionId: submissionId,
+          clientId,
+          documentTemplateId: template.id,
+          signedPdfPath: result.storagePath,
+          pdfHash: result.pdfHash,
+          signedAt: now,
+          auditTrail
+        });
+
+        pdfBuffers.push(result.pdfBytes);
+        clientBuffers.push(result.pdfBytes);
+
+        if (clientId) {
+          try {
+            const clientRow = await Client.findById(clientId, { includeSensitive: true });
+            const agencyId = clientRow?.agency_id || null;
+            const orgId = clientRow?.organization_id || null;
+            const phiDoc = await ClientPhiDocument.create({
+              clientId,
+              agencyId,
+              schoolOrganizationId: orgId,
+              storagePath: result.storagePath,
+              originalName: `${template.name || 'Document'} (Signed)`,
+              mimeType: 'application/pdf',
+              uploadedByUserId: null,
+              scanStatus: 'clean'
+            });
+            await PhiDocumentAuditLog.create({
+              documentId: phiDoc.id,
+              clientId,
+              action: 'uploaded',
+              actorUserId: null,
+              actorLabel: 'public_intake',
+              ipAddress: updatedSubmission.ip_address || null,
+              metadata: { submissionId, templateId: template.id }
+            });
+          } catch {
+            // best-effort; do not block public intake
+          }
         }
+
+        signedDocs.push(doc);
       }
 
-      signedDocs.push(doc);
+      if (clientBuffers.length) {
+        const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfs(clientBuffers);
+        const clientBundleResult = await StorageService.saveIntakeClientBundle({
+          submissionId,
+          clientId: clientId || 'unknown',
+          fileBuffer: mergedClientPdf,
+          filename: `intake-client-${clientId || 'unknown'}.pdf`
+        });
+        const clientBundleHash = DocumentSigningService.calculatePDFHash(mergedClientPdf);
+        if (intakeClientRows?.length) {
+          const targetRow = intakeClientRows[intakeClientRows.length - 1];
+          if (targetRow?.id) {
+            await IntakeSubmissionClient.updateById(targetRow.id, {
+              bundle_pdf_path: clientBundleResult.relativePath,
+              bundle_pdf_hash: clientBundleHash
+            });
+          }
+        }
+        clientBundles.push({
+          clientId,
+          clientName,
+          buffer: mergedClientPdf,
+          filename: `intake-client-${clientId || 'unknown'}.pdf`,
+          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 3)
+        });
+      }
     }
 
     let downloadUrl = null;
@@ -283,17 +773,28 @@ export const submitPublicIntake = async (req, res, next) => {
       downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 3);
 
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
+        const clientCount = rawClients.length || 1;
         const subject = 'Your signed intake packet';
-        const summaryLine = clientName ? `Client: ${clientName}\n\n` : '';
+        const summaryLine = clientCount > 1 ? `Clients: ${clientCount}\n\n` : (primaryClientName ? `Client: ${primaryClientName}\n\n` : '');
         const text = `${summaryLine}Your intake packet is ready. Download here:\n\n${downloadUrl}\n\nThis link expires in 3 days.`;
         const html = `
           <div style="font-family: Arial, sans-serif; line-height: 1.5;">
-            ${clientName ? `<p><strong>Client:</strong> ${clientName}</p>` : ''}
+            ${clientCount > 1 ? `<p><strong>Clients:</strong> ${clientCount}</p>` : (primaryClientName ? `<p><strong>Client:</strong> ${primaryClientName}</p>` : '')}
             <p>Your intake packet is ready.</p>
             <p><a href="${downloadUrl}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download Signed Packet</a></p>
             <p style="color:#777;">This link expires in 3 days.</p>
           </div>
         `.trim();
+        const attachments = [];
+        for (const entry of clientBundles) {
+          if (entry?.buffer) {
+            attachments.push({
+              filename: entry.filename,
+              contentType: 'application/pdf',
+              contentBase64: entry.buffer.toString('base64')
+            });
+          }
+        }
         try {
           await EmailService.sendEmail({
             to: updatedSubmission.signer_email,
@@ -302,7 +803,8 @@ export const submitPublicIntake = async (req, res, next) => {
             html,
             fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
             fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-            replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null
+            replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+            attachments: attachments.length ? attachments : null
           });
         } catch {
           // best-effort email
@@ -314,7 +816,8 @@ export const submitPublicIntake = async (req, res, next) => {
       success: true,
       submission: updatedSubmission,
       documents: signedDocs,
-      downloadUrl
+      downloadUrl,
+      clientBundles
     });
   } catch (error) {
     next(error);

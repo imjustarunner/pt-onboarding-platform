@@ -17,6 +17,7 @@ class UserSpecificDocument {
       signatureWidth,
       signatureHeight,
       signaturePage,
+      fieldDefinitions,
       createdByUserId
     } = documentData;
 
@@ -25,8 +26,9 @@ class UserSpecificDocument {
         user_id, task_id, name, description, template_type,
         file_path, html_content, document_action_type,
         icon_id, signature_x, signature_y, signature_width,
-        signature_height, signature_page, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        signature_height, signature_page, field_definitions,
+        created_by_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         taskId,
@@ -42,6 +44,7 @@ class UserSpecificDocument {
         signatureWidth || null,
         signatureHeight || null,
         signaturePage || null,
+        fieldDefinitions ? JSON.stringify(fieldDefinitions) : null,
         createdByUserId
       ]
     );
@@ -124,6 +127,11 @@ class UserSpecificDocument {
     if (updateData.signaturePage !== undefined) {
       updates.push('signature_page = ?');
       values.push(updateData.signaturePage);
+    }
+    if (updateData.fieldDefinitions !== undefined) {
+      updates.push('field_definitions = ?');
+      const serialized = updateData.fieldDefinitions ? JSON.stringify(updateData.fieldDefinitions) : null;
+      values.push(serialized);
     }
 
     if (updates.length === 0) {

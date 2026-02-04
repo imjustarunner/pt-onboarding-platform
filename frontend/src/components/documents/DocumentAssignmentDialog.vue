@@ -49,7 +49,13 @@
               Please select an agency first to see available users
             </div>
             <div v-else class="user-selector">
-              <div v-for="user in filteredUsers" :key="user.id" class="user-checkbox">
+              <input
+                v-model="userSearchQuery"
+                type="text"
+                class="user-search"
+                placeholder="Type a name or email to filter..."
+              />
+              <div v-for="user in searchedUsers" :key="user.id" class="user-checkbox">
                 <label>
                   <input
                     type="checkbox"
@@ -59,7 +65,7 @@
                   {{ getUserLabel(user) }}
                 </label>
               </div>
-              <div v-if="filteredUsers.length === 0" class="info-message">
+              <div v-if="searchedUsers.length === 0" class="info-message">
                 No users found in this agency
               </div>
             </div>
@@ -184,9 +190,16 @@ const filteredUsers = ref([]);
 const availableAgencies = ref([]);
 const assigning = ref(false);
 const error = ref('');
+const userSearchQuery = ref('');
 
 const userRole = computed(() => authStore.user?.role);
 const isAgencySpecific = computed(() => props.template?.agency_id !== null && props.template?.agency_id !== undefined);
+
+const searchedUsers = computed(() => {
+  const q = String(userSearchQuery.value || '').trim().toLowerCase();
+  if (!q) return filteredUsers.value;
+  return filteredUsers.value.filter((u) => getUserLabel(u).toLowerCase().includes(q));
+});
 
 const isFormValid = computed(() => {
   if (!taskTitle.value || !documentActionType.value) return false; // documentActionType is computed, .value is correct
@@ -523,6 +536,15 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
+}
+
+.user-search {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 10px;
+  font-size: 14px;
 }
 
 .user-checkbox {

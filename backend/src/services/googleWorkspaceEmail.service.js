@@ -25,7 +25,8 @@ function parseServiceAccountJson() {
   }
 }
 
-function buildMimeMessage({ to, subject, text, html, from, replyTo }) {
+function buildMimeMessage({ to, subject, text, html, from, replyTo, attachments }) {
+  const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
   const headers = [
     `To: ${to}`,
     `Subject: ${subject}`,
@@ -33,6 +34,52 @@ function buildMimeMessage({ to, subject, text, html, from, replyTo }) {
     ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
     'MIME-Version: 1.0'
   ];
+
+  if (hasAttachments) {
+    const boundary = `mixed_${Math.random().toString(16).slice(2)}`;
+    const altBoundary = `alt_${Math.random().toString(16).slice(2)}`;
+    headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+
+    const parts = [
+      ...headers,
+      '',
+      `--${boundary}`,
+      `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+      '',
+      `--${altBoundary}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      text || '',
+      '',
+      `--${altBoundary}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      html || text || '',
+      '',
+      `--${altBoundary}--`,
+      ''
+    ];
+
+    attachments.forEach((att) => {
+      const filename = att.filename || 'attachment';
+      const contentType = att.contentType || 'application/octet-stream';
+      const content = att.contentBase64 || '';
+      parts.push(
+        `--${boundary}`,
+        `Content-Type: ${contentType}; name="${filename}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-Disposition: attachment; filename="${filename}"`,
+        '',
+        content,
+        ''
+      );
+    });
+
+    parts.push(`--${boundary}--`, '');
+    return parts.join('\r\n');
+  }
 
   // Prefer multipart/alternative when both are present
   if (text && html) {
@@ -78,7 +125,7 @@ class GoogleWorkspaceEmailService {
     );
   }
 
-  static async sendEmail({ to, subject, text = null, html = null, fromName = null, fromAddress = null, replyTo = null }) {
+  static async sendEmail({ to, subject, text = null, html = null, fromName = null, fromAddress = null, replyTo = null, attachments = null }) {
     const impersonate = process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER;
     if (!impersonate) {
       throw new Error('Missing GOOGLE_WORKSPACE_IMPERSONATE_USER');
@@ -107,7 +154,8 @@ class GoogleWorkspaceEmailService {
       text,
       html,
       from: fromHeader,
-      replyTo
+      replyTo,
+      attachments
     });
 
     const raw = base64UrlEncode(mime);

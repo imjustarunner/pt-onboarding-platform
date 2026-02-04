@@ -4,6 +4,7 @@ class IntakeSubmissionDocument {
   static async create(data) {
     const {
       intakeSubmissionId,
+      clientId = null,
       documentTemplateId,
       signedPdfPath = null,
       pdfHash = null,
@@ -13,10 +14,11 @@ class IntakeSubmissionDocument {
 
     const [result] = await pool.execute(
       `INSERT INTO intake_submission_documents
-       (intake_submission_id, document_template_id, signed_pdf_path, pdf_hash, signed_at, audit_trail)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       (intake_submission_id, client_id, document_template_id, signed_pdf_path, pdf_hash, signed_at, audit_trail)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         intakeSubmissionId,
+        clientId,
         documentTemplateId,
         signedPdfPath,
         pdfHash,

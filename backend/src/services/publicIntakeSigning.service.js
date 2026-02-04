@@ -3,7 +3,16 @@ import StorageService from './storage.service.js';
 import { PDFDocument } from 'pdf-lib';
 
 class PublicIntakeSigningService {
-  static async generateSignedDocument({ template, signatureData, signer, auditTrail, workflowData, submissionId }) {
+  static async generateSignedDocument({
+    template,
+    signatureData,
+    signer,
+    auditTrail,
+    workflowData,
+    submissionId,
+    fieldDefinitions = [],
+    fieldValues = {}
+  }) {
     const templateType = template.template_type;
     const htmlContent = templateType === 'html' ? template.html_content : null;
     const templatePath = templateType === 'pdf' ? template.file_path || null : null;
@@ -15,6 +24,14 @@ class PublicIntakeSigningService {
       page: template.signature_page
     };
 
+    const referenceNumber = `INTAKE-${submissionId}-${template.id}-${Date.now().toString(36).toUpperCase()}`;
+    const documentName = template.name || 'Document';
+    const mergedAuditTrail = {
+      ...(auditTrail || {}),
+      documentReference: referenceNumber,
+      documentName
+    };
+
     const pdfBytes = await DocumentSigningService.generateFinalizedPDF(
       templatePath,
       templateType,
@@ -22,8 +39,15 @@ class PublicIntakeSigningService {
       signatureData,
       workflowData,
       signer,
-      auditTrail,
-      signatureCoords
+      mergedAuditTrail,
+      signatureCoords,
+      {
+        referenceNumber,
+        documentName,
+        signatureOnAuditPage: true,
+        fieldDefinitions,
+        fieldValues
+      }
     );
 
     const pdfHash = DocumentSigningService.calculatePDFHash(pdfBytes);
@@ -38,7 +62,8 @@ class PublicIntakeSigningService {
     return {
       pdfHash,
       storagePath: storageResult.relativePath,
-      pdfBytes
+      pdfBytes,
+      referenceNumber
     };
   }
 

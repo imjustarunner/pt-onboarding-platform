@@ -40,12 +40,14 @@
         <!-- Use personalized content if available, otherwise fall back to template -->
         <div v-if="displayContent && displayType === 'html'" v-html="displayContent" class="html-preview"></div>
         <div v-else-if="pdfUrl" class="pdf-preview-container">
-          <iframe 
-            :src="pdfUrl" 
-            class="pdf-iframe"
-            type="application/pdf"
-          ></iframe>
-          <p class="note">Please review the document above. Click "I Intend to Sign" to proceed.</p>
+          <PDFPreview
+            :pdf-url="pdfUrl"
+            ref="pdfPreviewRef"
+            @loaded="handlePdfLoaded"
+            @page-change="handlePageChange"
+          />
+          <p v-if="pageNotice" class="page-notice">{{ pageNotice }}</p>
+          <p class="note">Please review the document above. You must reach the last page before proceeding.</p>
         </div>
         <div v-else class="pdf-preview">
           <p>Document: {{ template?.name || userSpecificDocument?.name || 'Unknown' }}</p>
@@ -62,6 +64,36 @@
     <div v-else-if="currentStep === 3" class="step step-sign">
       <h2>Sign Document</h2>
       <p class="instruction">Please sign the document using the signature pad below.</p>
+      <div v-if="fieldDefinitions.length > 0" class="field-inputs">
+        <h3>Required Fields</h3>
+        <div v-for="field in fieldDefinitions" :key="field.id" class="field-input">
+          <label>{{ field.label || field.type }}</label>
+          <input
+            v-if="field.type !== 'date' && field.type !== 'checkbox'"
+            v-model="fieldValues[field.id]"
+            :type="field.type === 'ssn' ? 'password' : 'text'"
+            :placeholder="field.type === 'ssn' ? 'Enter SSN' : 'Enter value'"
+            :disabled="loading"
+          />
+          <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
+            <input v-model="fieldValues[field.id]" type="checkbox" :disabled="loading" />
+            <span>{{ field.label || 'I agree' }}</span>
+          </label>
+          <input
+            v-else-if="field.autoToday"
+            v-model="fieldValues[field.id]"
+            type="text"
+            :disabled="true"
+          />
+          <input
+            v-else
+            v-model="fieldValues[field.id]"
+            type="date"
+            :disabled="loading"
+          />
+          <small v-if="fieldErrors[field.id]" class="error-text">{{ fieldErrors[field.id] }}</small>
+        </div>
+      </div>
       <SignaturePad 
         @signed="handleSignature"
         ref="signaturePad"
@@ -87,22 +119,41 @@
           Return to Dashboard
         </button>
       </div>
+
+      <div v-if="isAdminUser" class="admin-countersign">
+        <div v-if="adminCountersigned" class="success-message" style="margin-top: 16px;">
+          <p>✓ Admin counter-signature recorded.</p>
+        </div>
+        <div v-else>
+          <h3>Admin Counter-Signature</h3>
+          <p class="instruction">Admins can add a counter-signature to finalize this document.</p>
+          <SignaturePad @signed="handleAdminSignature" ref="adminSignaturePad" />
+          <div class="sign-actions">
+            <button @click="finalizeAdminCountersign" class="btn btn-primary" :disabled="!hasAdminSignature || loading">
+              {{ loading ? 'Finalizing...' : 'Finalize Admin Signature' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import SignaturePad from '../SignaturePad.vue';
+import PDFPreview from './PDFPreview.vue';
 import { useDocumentsStore } from '../../store/documents';
+import { useAuthStore } from '../../store/auth';
 import { getDashboardRoute } from '../../utils/router';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 
 const route = useRoute();
 const router = useRouter();
 const documentsStore = useDocumentsStore();
+const authStore = useAuthStore();
 
 const taskId = route.params.taskId;
 const currentStep = ref(1);
@@ -114,11 +165,33 @@ const userDocument = ref(null);
 const userSpecificDocument = ref(null);
 const task = ref(null);
 const workflow = ref(null);
+const signedDocument = ref(null);
 const hasSignature = ref(false);
 const signatureData = ref('');
+const hasAdminSignature = ref(false);
+const adminSignatureData = ref('');
 const pdfUrl = ref(null);
 const displayContent = ref(null);
 const displayType = ref(null);
+const reviewPage = ref(1);
+const reviewTotalPages = ref(0);
+const canProceed = ref(true);
+const pdfPreviewRef = ref(null);
+const pageNotice = ref('');
+let pageNoticeTimer = null;
+const fieldDefinitions = ref([]);
+const fieldValues = ref({});
+const fieldErrors = ref({});
+
+const isAdminUser = computed(() => {
+  const role = authStore.user?.role;
+  return role === 'super_admin' || role === 'admin' || role === 'support';
+});
+
+const adminCountersigned = computed(() => {
+  const trail = signedDocument.value?.audit_trail || {};
+  return !!trail.adminCountersign?.signedAt;
+});
 
 const getPdfUrl = (template) => {
   if (!template || !template.file_path) return null;
@@ -142,6 +215,29 @@ const loadDocumentTask = async () => {
     userDocument.value = response.data.userDocument;
     userSpecificDocument.value = response.data.userSpecificDocument;
     workflow.value = response.data.workflow;
+    signedDocument.value = response.data.signedDocument || null;
+
+    const rawFieldDefs = template.value?.field_definitions || userSpecificDocument.value?.field_definitions || [];
+    const parsedDefs = (() => {
+      if (!rawFieldDefs) return [];
+      try {
+        return typeof rawFieldDefs === 'string' ? JSON.parse(rawFieldDefs) : rawFieldDefs;
+      } catch {
+        return [];
+      }
+    })();
+    fieldDefinitions.value = Array.isArray(parsedDefs) ? parsedDefs : [];
+    const nextValues = { ...fieldValues.value };
+    fieldDefinitions.value.forEach((f) => {
+      if (f.type === 'date' && f.autoToday) {
+        nextValues[f.id] = new Date().toISOString().slice(0, 10);
+      } else if (f.type === 'checkbox') {
+        if (!(f.id in nextValues)) nextValues[f.id] = false;
+      } else if (!(f.id in nextValues)) {
+        nextValues[f.id] = '';
+      }
+    });
+    fieldValues.value = nextValues;
 
     // Determine what content to display
     if (userDocument.value) {
@@ -151,9 +247,14 @@ const loadDocumentTask = async () => {
         displayType.value = 'html';
       } else if (userDocument.value.personalized_file_path) {
         displayType.value = 'pdf';
-        let filePath = String(userDocument.value.personalized_file_path);
-        if (filePath.startsWith('/')) filePath = filePath.substring(1);
-        pdfUrl.value = toUploadsUrl(filePath);
+        try {
+          const preview = await api.get(`/user-documents/${userDocument.value.id}/preview`, { responseType: 'blob' });
+          pdfUrl.value = URL.createObjectURL(preview.data);
+        } catch {
+          let filePath = String(userDocument.value.personalized_file_path);
+          if (filePath.startsWith('/')) filePath = filePath.substring(1);
+          pdfUrl.value = toUploadsUrl(filePath);
+        }
       } else if (template.value) {
         // Fallback to template
         if (template.value.template_type === 'html') {
@@ -161,7 +262,12 @@ const loadDocumentTask = async () => {
           displayType.value = 'html';
         } else if (template.value.template_type === 'pdf') {
           displayType.value = 'pdf';
-          pdfUrl.value = getPdfUrl(template.value);
+          try {
+            const preview = await api.get(`/document-templates/${template.value.id}/preview`, { responseType: 'blob' });
+            pdfUrl.value = URL.createObjectURL(preview.data);
+          } catch {
+            pdfUrl.value = getPdfUrl(template.value);
+          }
         }
       }
     } else if (userSpecificDocument.value) {
@@ -182,8 +288,19 @@ const loadDocumentTask = async () => {
         displayType.value = 'html';
       } else if (template.value.template_type === 'pdf') {
         displayType.value = 'pdf';
-        pdfUrl.value = getPdfUrl(template.value);
+        try {
+          const preview = await api.get(`/document-templates/${template.value.id}/preview`, { responseType: 'blob' });
+          pdfUrl.value = URL.createObjectURL(preview.data);
+        } catch {
+          pdfUrl.value = getPdfUrl(template.value);
+        }
       }
+    }
+
+    if (displayType.value === 'html') {
+      canProceed.value = true;
+    } else if (displayType.value === 'pdf') {
+      canProceed.value = reviewTotalPages.value <= 1;
     }
 
     // Determine current step based on workflow state
@@ -252,6 +369,18 @@ const giveConsent = async () => {
 };
 
 const recordIntent = async () => {
+  if (displayType.value === 'pdf' && !canProceed.value) {
+    pageNotice.value = 'Please review all pages. Jumping to the next page.';
+    if (pageNoticeTimer) clearTimeout(pageNoticeTimer);
+    pageNoticeTimer = setTimeout(() => {
+      pageNotice.value = '';
+    }, 2500);
+    if (reviewTotalPages.value > 1 && reviewPage.value < reviewTotalPages.value) {
+      pdfPreviewRef.value?.goToNextPage?.();
+    }
+    return;
+  }
+
   try {
     loading.value = true;
     error.value = '';
@@ -272,9 +401,26 @@ const recordIntent = async () => {
   }
 };
 
+const handlePdfLoaded = ({ totalPages }) => {
+  reviewTotalPages.value = totalPages || 0;
+  reviewPage.value = 1;
+  canProceed.value = reviewTotalPages.value <= 1;
+};
+
+const handlePageChange = ({ currentPage, totalPages }) => {
+  reviewPage.value = currentPage || 1;
+  reviewTotalPages.value = totalPages || reviewTotalPages.value;
+  canProceed.value = reviewTotalPages.value > 0 && reviewPage.value >= reviewTotalPages.value;
+};
+
 const handleSignature = (sigData) => {
   signatureData.value = sigData;
   hasSignature.value = true;
+};
+
+const handleAdminSignature = (sigData) => {
+  adminSignatureData.value = sigData;
+  hasAdminSignature.value = true;
 };
 
 const finalizeSignature = async () => {
@@ -284,11 +430,33 @@ const finalizeSignature = async () => {
     return;
   }
 
+  const errors = {};
+  fieldDefinitions.value.forEach((f) => {
+    if (!f.required) return;
+    const value = fieldValues.value[f.id];
+    if (f.type === 'date' && f.autoToday) return;
+    if (f.type === 'checkbox') {
+      if (value !== true) {
+        errors[f.id] = 'This field is required';
+      }
+      return;
+    }
+    if (value === null || value === undefined || String(value).trim() === '') {
+      errors[f.id] = 'This field is required';
+    }
+  });
+  fieldErrors.value = errors;
+  if (Object.keys(errors).length > 0) {
+    error.value = 'Please complete all required fields before signing.';
+    errorDetails.value = null;
+    return;
+  }
+
   try {
     loading.value = true;
     error.value = '';
     errorDetails.value = null;
-    await documentsStore.signDocument(taskId, signatureData.value);
+    await documentsStore.signDocument(taskId, signatureData.value, fieldValues.value);
     currentStep.value = 4;
   } catch (err) {
     const errorData = err.response?.data?.error || {};
@@ -308,7 +476,13 @@ const downloadDocument = async () => {
     loading.value = true;
     error.value = '';
     errorDetails.value = null;
-    await documentsStore.downloadSignedDocument(taskId);
+    const title = safeFilename(task.value?.title || template.value?.name || 'document');
+    const assignee = safeFilename(
+      `${authStore.user?.first_name || ''} ${authStore.user?.last_name || ''}`.trim() || authStore.user?.email || 'assigned-user'
+    );
+    const dateLabel = formatDateForFilename(signedDocument.value?.signed_at || workflow.value?.finalized_at);
+    const filename = `${title} - ${assignee} - ${dateLabel}.pdf`;
+    await documentsStore.downloadSignedDocument(taskId, filename);
   } catch (err) {
     console.error('downloadDocument: Error:', err);
     const errorData = err.response?.data?.error || {};
@@ -324,6 +498,42 @@ const downloadDocument = async () => {
   }
 };
 
+const formatDateForFilename = (dateString) => {
+  const d = dateString ? new Date(dateString) : new Date();
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
+  return d.toISOString().slice(0, 10);
+};
+
+const safeFilename = (name) => {
+  const base = String(name || 'document')
+    .replace(/[^\w\s\-().]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  return base || 'document';
+};
+
+const finalizeAdminCountersign = async () => {
+  if (!hasAdminSignature.value || !adminSignatureData.value) {
+    error.value = 'Please provide the admin signature';
+    errorDetails.value = null;
+    return;
+  }
+  try {
+    loading.value = true;
+    error.value = '';
+    errorDetails.value = null;
+    await documentsStore.counterSignDocument(taskId, adminSignatureData.value);
+    await loadDocumentTask();
+  } catch (err) {
+    const errorData = err.response?.data?.error || {};
+    error.value = errorData.message || 'Failed to countersign document';
+    errorDetails.value = errorData;
+  } finally {
+    loading.value = false;
+  }
+};
+
 onMounted(() => {
   loadDocumentTask();
 });
@@ -331,7 +541,8 @@ onMounted(() => {
 
 <style scoped>
 .document-signing-workflow {
-  max-width: 800px;
+  max-width: 1200px;
+  width: 100%;
   margin: 0 auto;
   padding: 32px;
 }
@@ -364,8 +575,8 @@ onMounted(() => {
 .document-preview {
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 24px;
-  margin: 24px 0;
+  padding: 16px;
+  margin: 20px 0;
   min-height: 400px;
   background: #f9f9f9;
 }
@@ -385,7 +596,7 @@ onMounted(() => {
   width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
 }
 
 .pdf-iframe {
@@ -402,9 +613,56 @@ onMounted(() => {
   margin-top: 16px;
 }
 
+.page-notice {
+  margin: 12px 0 4px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #fff4e5;
+  border: 1px solid #f5c27a;
+  color: #7a4b00;
+  font-size: 13px;
+}
+
 .instruction {
   margin-bottom: 24px;
   color: var(--text-secondary);
+}
+
+.field-inputs {
+  margin: 16px 0 24px;
+  padding: 16px;
+  background: #f8f9fa;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.field-inputs h3 {
+  margin: 0 0 12px 0;
+}
+
+.field-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.field-input input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.error-text {
+  color: var(--error-color, #dc3545);
+  font-size: 12px;
 }
 
 .sign-actions,
@@ -413,6 +671,12 @@ onMounted(() => {
   margin-top: 24px;
   display: flex;
   gap: 12px;
+}
+
+.admin-countersign {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
 }
 
 .success-message {

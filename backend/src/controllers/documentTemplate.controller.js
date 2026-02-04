@@ -59,7 +59,8 @@ export const uploadTemplate = async (req, res, next) => {
       signatureY,
       signatureWidth,
       signatureHeight,
-      signaturePage
+      signaturePage,
+      fieldDefinitions
     } = req.body;
 
     const createdByUserId = req.user?.id;
@@ -136,6 +137,17 @@ export const uploadTemplate = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'iconId must be null or a positive integer' } });
     }
 
+    let parsedFieldDefinitions = null;
+    if (fieldDefinitions !== undefined) {
+      try {
+        parsedFieldDefinitions = typeof fieldDefinitions === 'string'
+          ? JSON.parse(fieldDefinitions)
+          : fieldDefinitions;
+      } catch (e) {
+        return res.status(400).json({ error: { message: 'fieldDefinitions must be valid JSON' } });
+      }
+    }
+
     // Upload directly to GCS from memory buffer
     const fileBuffer = req.file.buffer;
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
@@ -165,7 +177,8 @@ export const uploadTemplate = async (req, res, next) => {
       signatureY: signatureY !== undefined && signatureY !== '' ? parseFloat(signatureY) : null,
       signatureWidth: signatureWidth !== undefined && signatureWidth !== '' ? parseFloat(signatureWidth) : null,
       signatureHeight: signatureHeight !== undefined && signatureHeight !== '' ? parseFloat(signatureHeight) : null,
-      signaturePage: signaturePage !== undefined && signaturePage !== '' ? parseInt(signaturePage) : null
+      signaturePage: signaturePage !== undefined && signaturePage !== '' ? parseInt(signaturePage) : null,
+      fieldDefinitions: parsedFieldDefinitions
     });
 
     return res.status(201).json(template);
@@ -202,7 +215,8 @@ export const createTemplate = async (req, res, next) => {
       letterFooterHtml,
       documentType,
       documentActionType,
-      iconId
+      iconId,
+      fieldDefinitions
       // isUserSpecific, userId intentionally ignored here (templates are not user-specific)
     } = req.body;
 
@@ -289,6 +303,17 @@ export const createTemplate = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'iconId must be null or a positive integer' } });
     }
 
+    let parsedFieldDefinitions = null;
+    if (fieldDefinitions !== undefined) {
+      try {
+        parsedFieldDefinitions = typeof fieldDefinitions === 'string'
+          ? JSON.parse(fieldDefinitions)
+          : fieldDefinitions;
+      } catch (e) {
+        return res.status(400).json({ error: { message: 'fieldDefinitions must be valid JSON' } });
+      }
+    }
+
     let parsedLetterheadTemplateId = parseNullablePositiveInt(letterheadTemplateId);
     if (parsedLetterheadTemplateId === undefined) {
       return res.status(400).json({ error: { message: 'letterheadTemplateId must be null or a positive integer' } });
@@ -331,7 +356,8 @@ export const createTemplate = async (req, res, next) => {
       documentActionType,
       isUserSpecific: false,
       userId: null,
-      iconId: parsedIconId
+      iconId: parsedIconId,
+      fieldDefinitions: parsedFieldDefinitions
     });
 
     return res.status(201).json(template);
@@ -505,6 +531,33 @@ export const getTemplateForTask = async (req, res, next) => {
   }
 };
 
+export const previewTemplate = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Template ID is required' } });
+    const template = await DocumentTemplate.findById(id);
+    if (!template) return res.status(404).json({ error: { message: 'Template not found' } });
+
+    if (template.template_type !== 'pdf' || !template.file_path) {
+      return res.status(400).json({ error: { message: 'Template preview is only available for PDF templates' } });
+    }
+
+    const StorageService = (await import('../services/storage.service.js')).default;
+    let filePath = String(template.file_path || '').trim();
+    if (filePath.startsWith('/')) filePath = filePath.substring(1);
+    const templateFilename = filePath.includes('/')
+      ? filePath.split('/').pop()
+      : filePath.replace('templates/', '');
+    const buffer = await StorageService.readTemplate(templateFilename);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const updateTemplate = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -542,7 +595,8 @@ export const updateTemplate = async (req, res, next) => {
       signatureY,
       signatureWidth,
       signatureHeight,
-      signaturePage
+      signaturePage,
+      fieldDefinitions
     } = sanitizedInputBody;
 
     // Check permissions: Support can only edit their own documents
@@ -690,6 +744,15 @@ export const updateTemplate = async (req, res, next) => {
       } else {
         const parsedPage = typeof signaturePage === 'string' ? parseInt(signaturePage) : signaturePage;
         updateData.signaturePage = isNaN(parsedPage) ? null : parsedPage;
+      }
+    }
+
+    if (fieldDefinitions !== undefined) {
+      try {
+        updateData.fieldDefinitions =
+          typeof fieldDefinitions === 'string' ? JSON.parse(fieldDefinitions) : fieldDefinitions;
+      } catch (e) {
+        return res.status(400).json({ error: { message: 'fieldDefinitions must be valid JSON' } });
       }
     }
 

@@ -6,6 +6,7 @@ import {
   giveConsent,
   recordIntent,
   signDocument,
+  counterSignDocument,
   downloadSignedDocument,
   verifyDocument,
   finalizeI9Acroform
@@ -31,6 +32,7 @@ router.get('/:taskId/view', viewSignedDocument); // View signed document in brow
 router.post('/:taskId/consent', giveConsent);
 router.post('/:taskId/intent', recordIntent);
 router.post('/:taskId/sign', validateSignature, signDocument);
+router.post('/:taskId/countersign', validateSignature, counterSignDocument);
 router.post('/:taskId/acroform/i9/finalize', validateI9Finalize, finalizeI9Acroform);
 router.get('/:taskId/download', downloadSignedDocument);
 router.get('/:taskId/verify', verifyDocument);

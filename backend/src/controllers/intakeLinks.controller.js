@@ -41,16 +41,18 @@ export const createIntakeLink = async (req, res, next) => {
     }
 
     const publicKey = crypto.randomBytes(24).toString('hex');
+    const scopeType = req.body.scopeType || 'agency';
+    const createGuardianDefault = scopeType === 'school' ? false : req.body.createGuardian !== false;
     const link = await IntakeLink.create({
       publicKey,
       title: req.body.title || null,
       description: req.body.description || null,
-      scopeType: req.body.scopeType || 'agency',
+      scopeType,
       organizationId: req.body.organizationId ? parseInt(req.body.organizationId, 10) : null,
       programId: req.body.programId ? parseInt(req.body.programId, 10) : null,
       isActive: req.body.isActive !== false,
       createClient: req.body.createClient !== false,
-      createGuardian: req.body.createGuardian !== false,
+      createGuardian: createGuardianDefault,
       allowedDocumentTemplateIds: parseJsonField(req.body.allowedDocumentTemplateIds),
       intakeFields: parseJsonField(req.body.intakeFields),
       createdByUserId: req.user?.id || null
@@ -72,10 +74,11 @@ export const updateIntakeLink = async (req, res, next) => {
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: { message: 'id is required' } });
 
+    const scopeType = req.body.scopeType ?? undefined;
     const updates = {
       title: req.body.title ?? null,
       description: req.body.description ?? null,
-      scope_type: req.body.scopeType ?? undefined,
+      scope_type: scopeType,
       organization_id: req.body.organizationId ? parseInt(req.body.organizationId, 10) : null,
       program_id: req.body.programId ? parseInt(req.body.programId, 10) : null,
       is_active: req.body.isActive !== undefined ? (req.body.isActive ? 1 : 0) : undefined,
@@ -84,6 +87,10 @@ export const updateIntakeLink = async (req, res, next) => {
       allowed_document_template_ids: req.body.allowedDocumentTemplateIds ? JSON.stringify(parseJsonField(req.body.allowedDocumentTemplateIds)) : null,
       intake_fields: req.body.intakeFields ? JSON.stringify(parseJsonField(req.body.intakeFields)) : null
     };
+
+    if (scopeType === 'school') {
+      updates.create_guardian = 0;
+    }
 
     const filtered = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
     if (!Object.keys(filtered).length) {
@@ -99,6 +106,39 @@ export const updateIntakeLink = async (req, res, next) => {
 
     const link = await IntakeLink.findById(id);
     res.json({ link });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const duplicateIntakeLink = async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'id is required' } });
+
+    const existing = await IntakeLink.findById(id);
+    if (!existing) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+
+    const publicKey = crypto.randomBytes(24).toString('hex');
+    const title = existing.title ? `${existing.title} (Copy)` : 'Intake Link (Copy)';
+    const link = await IntakeLink.create({
+      publicKey,
+      title,
+      description: existing.description || null,
+      scopeType: existing.scope_type || 'agency',
+      organizationId: existing.organization_id || null,
+      programId: existing.program_id || null,
+      isActive: false,
+      createClient: existing.create_client !== false,
+      createGuardian: existing.create_guardian !== false,
+      allowedDocumentTemplateIds: existing.allowed_document_template_ids || [],
+      intakeFields: existing.intake_fields || null,
+      createdByUserId: req.user?.id || null
+    });
+
+    res.status(201).json({ link });
   } catch (error) {
     next(error);
   }

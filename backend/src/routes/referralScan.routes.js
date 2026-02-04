@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { handleReferralScanResult } from '../controllers/referralScan.controller.js';
+import { handleReferralScanResult, scanReferralNow } from '../controllers/referralScan.controller.js';
 
 const router = express.Router();
 
@@ -12,6 +12,12 @@ router.post(
     body('scanResult').optional().isString()
   ],
   handleReferralScanResult
+);
+
+router.post(
+  '/scan-now',
+  [body('storagePath').notEmpty().withMessage('storagePath is required')],
+  scanReferralNow
 );
 
 export default router;

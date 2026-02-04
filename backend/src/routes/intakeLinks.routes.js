@@ -1,7 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
-import { createIntakeLink, listIntakeLinks, updateIntakeLink } from '../controllers/intakeLinks.controller.js';
+import { createIntakeLink, duplicateIntakeLink, listIntakeLinks, updateIntakeLink } from '../controllers/intakeLinks.controller.js';
 
 const router = express.Router();
 
@@ -38,5 +38,7 @@ router.put(
   ],
   updateIntakeLink
 );
+
+router.post('/:id/duplicate', duplicateIntakeLink);
 
 export default router;

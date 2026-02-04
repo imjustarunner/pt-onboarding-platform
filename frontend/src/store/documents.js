@@ -102,12 +102,13 @@ export const useDocumentsStore = defineStore('documents', () => {
     }
   };
 
-  const signDocument = async (taskId, signatureData) => {
+  const signDocument = async (taskId, signatureData, fieldValues = null) => {
     try {
       loading.value = true;
       error.value = '';
       const response = await api.post(`/document-signing/${taskId}/sign`, {
-        signatureData
+        signatureData,
+        fieldValues
       });
       return response.data;
     } catch (err) {
@@ -135,7 +136,23 @@ export const useDocumentsStore = defineStore('documents', () => {
     }
   };
 
-  const downloadSignedDocument = async (taskId) => {
+  const counterSignDocument = async (taskId, signatureData) => {
+    try {
+      loading.value = true;
+      error.value = '';
+      const response = await api.post(`/document-signing/${taskId}/countersign`, {
+        signatureData
+      });
+      return response.data;
+    } catch (err) {
+      error.value = err.response?.data?.error?.message || 'Failed to countersign document';
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const downloadSignedDocument = async (taskId, filename = null) => {
     try {
       const response = await api.get(`/document-signing/${taskId}/download`, {
         responseType: 'blob'
@@ -143,7 +160,7 @@ export const useDocumentsStore = defineStore('documents', () => {
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `signed-document-${taskId}.pdf`);
+      link.setAttribute('download', filename || `signed-document-${taskId}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -185,6 +202,7 @@ export const useDocumentsStore = defineStore('documents', () => {
     uploadTemplate,
     createTemplate,
     signDocument,
+    counterSignDocument,
     finalizeAcroformI9,
     downloadSignedDocument
   };

@@ -23,8 +23,10 @@ function buildMimeMessage({
   from,
   replyTo = null,
   inReplyTo = null,
-  references = null
+  references = null,
+  attachments = null
 }) {
+  const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
   const headers = [
     `To: ${normalizeHeaderValue(to)}`,
     `Subject: ${normalizeHeaderValue(subject)}`,
@@ -34,6 +36,52 @@ function buildMimeMessage({
     ...(references ? [`References: ${normalizeHeaderValue(references)}`] : []),
     'MIME-Version: 1.0'
   ];
+
+  if (hasAttachments) {
+    const boundary = `mixed_${Math.random().toString(16).slice(2)}`;
+    const altBoundary = `alt_${Math.random().toString(16).slice(2)}`;
+    headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+
+    const parts = [
+      ...headers,
+      '',
+      `--${boundary}`,
+      `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
+      '',
+      `--${altBoundary}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      String(text || ''),
+      '',
+      `--${altBoundary}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      String(html || text || ''),
+      '',
+      `--${altBoundary}--`,
+      ''
+    ];
+
+    attachments.forEach((att) => {
+      const filename = normalizeHeaderValue(att.filename || 'attachment');
+      const contentType = normalizeHeaderValue(att.contentType || 'application/octet-stream');
+      const content = att.contentBase64 || '';
+      parts.push(
+        `--${boundary}`,
+        `Content-Type: ${contentType}; name="${filename}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-Disposition: attachment; filename="${filename}"`,
+        '',
+        content,
+        ''
+      );
+    });
+
+    parts.push(`--${boundary}--`, '');
+    return parts.join('\r\n');
+  }
 
   if (text && html) {
     const boundary = `alt_${Math.random().toString(16).slice(2)}`;

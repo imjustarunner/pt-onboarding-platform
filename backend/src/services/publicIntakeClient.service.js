@@ -53,33 +53,41 @@ class PublicIntakeClientService {
       throw new Error('Unable to resolve agency for intake organization');
     }
 
-    const clientPayload = payload?.client || {};
-    const fullName = String(clientPayload.fullName || '').trim();
-    const initials = String(clientPayload.initials || deriveInitials(fullName)).trim() || 'TBD';
-    const contactPhone = String(clientPayload.contactPhone || '').trim() || null;
+    const rawClients = Array.isArray(payload?.clients) && payload.clients.length
+      ? payload.clients
+      : (payload?.client ? [payload.client] : []);
 
-    const client = await Client.create({
-      organization_id: organizationId,
-      agency_id: agencyId,
-      provider_id: null,
-      initials,
-      full_name: fullName || null,
-      contact_phone: contactPhone,
-      status: 'PENDING_REVIEW',
-      submission_date: new Date().toISOString().split('T')[0],
-      document_status: 'UPLOADED',
-      source: 'PUBLIC_INTAKE_LINK',
-      created_by_user_id: null
-    });
+    const createdClients = [];
+    for (const clientPayload of rawClients) {
+      const fullName = String(clientPayload?.fullName || '').trim();
+      const initials = String(clientPayload?.initials || deriveInitials(fullName)).trim() || 'TBD';
+      const contactPhone = String(clientPayload?.contactPhone || '').trim() || null;
 
-    await ClientStatusHistory.create({
-      client_id: client.id,
-      changed_by_user_id: null,
-      field_changed: 'created',
-      from_value: null,
-      to_value: JSON.stringify({ source: 'PUBLIC_INTAKE_LINK' }),
-      note: 'Client created via public intake link'
-    });
+      const client = await Client.create({
+        organization_id: organizationId,
+        agency_id: agencyId,
+        provider_id: null,
+        initials,
+        full_name: fullName || null,
+        contact_phone: contactPhone,
+        status: 'PENDING_REVIEW',
+        submission_date: new Date().toISOString().split('T')[0],
+        document_status: 'UPLOADED',
+        source: 'PUBLIC_INTAKE_LINK',
+        created_by_user_id: null
+      });
+
+      await ClientStatusHistory.create({
+        client_id: client.id,
+        changed_by_user_id: null,
+        field_changed: 'created',
+        from_value: null,
+        to_value: JSON.stringify({ source: 'PUBLIC_INTAKE_LINK' }),
+        note: 'Client created via public intake link'
+      });
+
+      createdClients.push(client);
+    }
 
     let guardianUser = null;
     const createGuardian = scopeType === 'school' ? false : !!link.create_guardian;
@@ -114,17 +122,19 @@ class PublicIntakeClientService {
         await User.setTemporaryPassword(guardianUser.id, tempPassword, 48);
       }
 
-      await ClientGuardian.upsertLink({
-        clientId: client.id,
-        guardianUserId: guardianUser.id,
-        relationshipTitle: guardianPayload.relationship || 'Guardian',
-        accessEnabled: true,
-        permissionsJson: { intakeLink: link.id },
-        createdByUserId: null
-      });
+      for (const client of createdClients) {
+        await ClientGuardian.upsertLink({
+          clientId: client.id,
+          guardianUserId: guardianUser.id,
+          relationshipTitle: guardianPayload.relationship || 'Guardian',
+          accessEnabled: true,
+          permissionsJson: { intakeLink: link.id },
+          createdByUserId: null
+        });
+      }
     }
 
-    return { client, guardianUser };
+    return { clients: createdClients, guardianUser };
   }
 }
 

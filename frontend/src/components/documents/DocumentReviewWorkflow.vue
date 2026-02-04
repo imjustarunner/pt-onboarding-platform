@@ -20,8 +20,14 @@
       <div class="document-preview">
         <div v-if="template?.template_type === 'html'" v-html="template?.html_content" class="html-preview"></div>
         <div v-else-if="pdfUrl" class="pdf-preview-container">
-          <PDFPreview :pdf-url="pdfUrl" />
-          <p class="note">Please review the document above, then mark it as reviewed below.</p>
+          <PDFPreview
+            :pdf-url="pdfUrl"
+            ref="pdfPreviewRef"
+            @loaded="handlePdfLoaded"
+            @page-change="handlePageChange"
+          />
+          <p v-if="pageNotice" class="page-notice">{{ pageNotice }}</p>
+          <p class="note">Please review the document above. You must reach the last page before acknowledging.</p>
         </div>
         <div v-else class="pdf-preview">
           <p><strong>PDF Document:</strong> {{ template?.name || 'Document' }}</p>
@@ -67,7 +73,6 @@ import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { getDashboardRoute } from '../../utils/router';
-import { toUploadsUrl } from '../../utils/uploadsUrl';
 import PDFPreview from './PDFPreview.vue';
 
 const route = useRoute();
@@ -79,10 +84,16 @@ const error = ref('');
 const task = ref(null);
 const template = ref(null);
 const pdfUrl = ref(null);
+const totalPages = ref(0);
+const currentPage = ref(1);
+const canAcknowledge = ref(false);
 const hasAcknowledged = ref(false);
 const submitting = ref(false);
 const acknowledged = ref(false);
 const acknowledgment = ref(null);
+const pdfPreviewRef = ref(null);
+const pageNotice = ref('');
+let pageNoticeTimer = null;
 
 const loadDocumentTask = async () => {
   try {
@@ -127,19 +138,13 @@ const loadDocumentTask = async () => {
 
     // Build PDF URL if needed
     if (template.value?.template_type === 'pdf') {
-      let filePath = template.value.file_path;
-      if (filePath) {
-        filePath = String(filePath);
-        if (filePath.startsWith('/')) filePath = filePath.substring(1);
-
-        // Normalize template paths:
-        // - if already "templates/..." or "uploads/templates/..." keep it
-        // - otherwise assume it's a template file and prefix with "templates/"
-        if (!filePath.startsWith('templates/') && !filePath.startsWith('uploads/') && !filePath.startsWith('signed/') && !filePath.startsWith('fonts/')) {
-          filePath = `templates/${filePath}`;
-        }
-
-        pdfUrl.value = toUploadsUrl(filePath);
+      try {
+        const resp = await api.get(`/document-templates/${template.value.id}/preview`, { responseType: 'blob' });
+        const blobUrl = URL.createObjectURL(resp.data);
+        pdfUrl.value = blobUrl;
+      } catch (e) {
+        pdfUrl.value = null;
+        throw e;
       }
     } else {
       pdfUrl.value = null;
@@ -151,9 +156,28 @@ const loadDocumentTask = async () => {
   }
 };
 
+const showPageNotice = (message) => {
+  pageNotice.value = message;
+  if (pageNoticeTimer) clearTimeout(pageNoticeTimer);
+  pageNoticeTimer = setTimeout(() => {
+    pageNotice.value = '';
+  }, 2500);
+};
+
+const nudgeToNextPage = () => {
+  if (totalPages.value > 1 && currentPage.value < totalPages.value) {
+    pdfPreviewRef.value?.goToNextPage?.();
+  }
+};
+
 const submitAcknowledgment = async () => {
   if (!hasAcknowledged.value) {
     error.value = 'Please acknowledge that you have reviewed the document';
+    return;
+  }
+  if (!canAcknowledge.value) {
+    showPageNotice('Please review all pages. Jumping to the next page.');
+    nudgeToNextPage();
     return;
   }
 
@@ -175,6 +199,18 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleString();
 };
 
+const handlePdfLoaded = ({ totalPages: tp }) => {
+  totalPages.value = tp || 0;
+  currentPage.value = 1;
+  canAcknowledge.value = totalPages.value <= 1;
+};
+
+const handlePageChange = ({ currentPage: cp, totalPages: tp }) => {
+  currentPage.value = cp || 1;
+  totalPages.value = tp || totalPages.value;
+  canAcknowledge.value = totalPages.value > 0 && currentPage.value >= totalPages.value;
+};
+
 onMounted(() => {
   loadDocumentTask();
 });
@@ -182,7 +218,8 @@ onMounted(() => {
 
 <style scoped>
 .document-review-workflow {
-  max-width: 900px;
+  max-width: 1200px;
+  width: 100%;
   margin: 0 auto;
   padding: 32px;
 }
@@ -200,8 +237,8 @@ onMounted(() => {
 }
 
 .document-preview {
-  margin: 24px 0;
-  padding: 24px;
+  margin: 20px 0;
+  padding: 16px;
   background: #f8f9fa;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -231,7 +268,17 @@ onMounted(() => {
   width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
+}
+
+.page-notice {
+  margin: 12px 0 4px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #fff4e5;
+  border: 1px solid #f5c27a;
+  color: #7a4b00;
+  font-size: 13px;
 }
 
 .pdf-iframe {

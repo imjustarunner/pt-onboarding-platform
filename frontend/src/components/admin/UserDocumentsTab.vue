@@ -327,6 +327,7 @@ const loading = ref(true);
 const error = ref('');
 const documentTasks = ref([]);
 const signedDocuments = ref([]);
+const assignedUserName = ref('');
 const showAuditModal = ref(false);
 const selectedTaskId = ref(null);
 const showAssignDialog = ref(false);
@@ -668,9 +669,42 @@ const viewSignedDocument = async (taskId) => {
 
 const downloadSigned = async (taskId) => {
   try {
-    await documentsStore.downloadSignedDocument(taskId);
+    const task = documentTasks.value.find((t) => t.id === taskId);
+    const title = safeFilename(task?.title || task?.name || 'document');
+    const assignee = safeFilename(assignedUserName.value || `user-${props.userId}`);
+    const dateLabel = formatDateForFilename(task?.completed_at || task?.updated_at || task?.created_at);
+    const filename = `${title} - ${assignee} - ${dateLabel}.pdf`;
+    await documentsStore.downloadSignedDocument(taskId, filename);
   } catch (err) {
     alert(err.response?.data?.error?.message || 'Failed to download document');
+  }
+};
+
+const formatDateForFilename = (dateString) => {
+  const d = dateString ? new Date(dateString) : new Date();
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
+  return d.toISOString().slice(0, 10);
+};
+
+const safeFilename = (name) => {
+  const base = String(name || 'document')
+    .replace(/[^\w\s\-().]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  return base || 'document';
+};
+
+const fetchAssignedUserName = async () => {
+  try {
+    const res = await api.get(`/users/${props.userId}`);
+    const first = res.data?.first_name || '';
+    const last = res.data?.last_name || '';
+    const email = res.data?.email || '';
+    const full = `${first} ${last}`.trim();
+    assignedUserName.value = full || email || `user-${props.userId}`;
+  } catch (err) {
+    assignedUserName.value = `user-${props.userId}`;
   }
 };
 
@@ -988,6 +1022,7 @@ const downloadAllCompleted = async () => {
 
 onMounted(() => {
   console.log('UserDocumentsTab: Component mounted, userId:', props.userId);
+  fetchAssignedUserName();
   fetchDocumentTasks().then(() => {
     // If highlightTaskId is provided, scroll to it after tasks are loaded
     if (props.highlightTaskId) {
@@ -1019,6 +1054,7 @@ watch(() => props.highlightTaskId, (newTaskId) => {
 watch(() => props.userId, (newUserId, oldUserId) => {
   console.log('UserDocumentsTab: userId changed from', oldUserId, 'to', newUserId);
   if (newUserId && newUserId !== oldUserId) {
+    fetchAssignedUserName();
     fetchDocumentTasks();
   }
 });

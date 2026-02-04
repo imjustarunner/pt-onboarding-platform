@@ -183,6 +183,51 @@ export const getUserDocument = async (req, res, next) => {
 };
 
 /**
+ * Preview a user document PDF (proxied to avoid CORS)
+ */
+export const previewUserDocument = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userDocument = await UserDocument.findById(id);
+
+    if (!userDocument) {
+      return res.status(404).json({ error: { message: 'User document not found' } });
+    }
+
+    // Check permissions - user can only see their own documents unless admin/supervisor/CPA
+    if (req.user.role !== 'super_admin' && req.user.role !== 'admin' && req.user.role !== 'support' && userDocument.user_id !== req.user.id) {
+      const requestingUser = await User.findById(req.user.id);
+      const isSupervisor = requestingUser && User.isSupervisor(requestingUser);
+
+      if (isSupervisor || req.user.role === 'clinical_practice_assistant') {
+        const hasAccess = await User.supervisorHasAccess(req.user.id, userDocument.user_id, null);
+        if (!hasAccess) {
+          return res.status(403).json({ error: { message: 'Access denied' } });
+        }
+      } else {
+        return res.status(403).json({ error: { message: 'Access denied' } });
+      }
+    }
+
+    if (!userDocument.personalized_file_path) {
+      return res.status(404).json({ error: { message: 'User document file not found' } });
+    }
+
+    const StorageService = (await import('../services/storage.service.js')).default;
+    let filePath = String(userDocument.personalized_file_path || '').trim();
+    if (filePath.startsWith('/')) filePath = filePath.substring(1);
+    const filename = filePath.includes('/') ? filePath.split('/').pop() : filePath.replace('user_documents/', '');
+
+    const buffer = await StorageService.readUserDocument(filename);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get all user documents for a user
  */
 export const getUserDocuments = async (req, res, next) => {

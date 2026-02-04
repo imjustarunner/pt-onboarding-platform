@@ -28,6 +28,20 @@ class ClientReferralOcr {
     );
     return rows;
   }
+
+  static async updateById(id, updates) {
+    if (!id || !updates) return this.findById(id);
+    const fields = [];
+    const values = [];
+    for (const [key, val] of Object.entries(updates)) {
+      fields.push(`${key} = ?`);
+      values.push(val);
+    }
+    if (!fields.length) return this.findById(id);
+    values.push(id);
+    await pool.execute(`UPDATE client_referral_ocr_requests SET ${fields.join(', ')} WHERE id = ?`, values);
+    return this.findById(id);
+  }
 }
 
 export default ClientReferralOcr;
