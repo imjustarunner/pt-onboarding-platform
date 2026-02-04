@@ -215,15 +215,16 @@ const signatureCoordinates = ref({
   height: 60,
   page: null
 });
-const fieldDefinitions = ref(() => {
-  const raw = props.existingTemplate?.field_definitions;
+const fieldDefinitions = ref([]);
+const parseFieldDefinitions = (raw) => {
   if (!raw) return [];
   try {
     return typeof raw === 'string' ? JSON.parse(raw) : raw;
   } catch {
     return [];
   }
-}());
+};
+fieldDefinitions.value = parseFieldDefinitions(props.existingTemplate?.field_definitions);
 
 const userRole = computed(() => authStore.user?.role);
 const canUsePlatformScope = computed(() => userRole.value === 'super_admin');
