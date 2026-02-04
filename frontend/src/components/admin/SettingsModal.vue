@@ -131,6 +131,7 @@ import ViewportPreviewSettings from './ViewportPreviewSettings.vue';
 import PayrollScheduleSettings from './PayrollScheduleSettings.vue';
 import NoteAidKnowledgeBaseSettings from './NoteAidKnowledgeBaseSettings.vue';
 import SmsNumbersManagement from './SmsNumbersManagement.vue';
+import IntakeLinksView from '../../views/admin/IntakeLinksView.vue';
 
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
@@ -299,6 +300,15 @@ const allCategories = [
         excludeRoles: ['clinical_practice_assistant'],
         excludeSupervisor: true,
         props: { readOnly: false }
+      },
+      {
+        id: 'intake-links',
+        label: 'Intake Links',
+        icon: '🔗',
+        component: 'IntakeLinksView',
+        roles: ['super_admin', 'admin', 'support', 'staff'],
+        excludeRoles: ['clinical_practice_assistant'],
+        excludeSupervisor: true
       },
       {
         id: 'checklist-items',
@@ -541,7 +551,8 @@ const componentMap = {
   SmsNumbersManagement,
   TeamRolesManagement,
   BillingManagement,
-  IntegrationsManagement
+  IntegrationsManagement,
+  IntakeLinksView
 };
 
 const selectedComponent = computed(() => {

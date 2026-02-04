@@ -58,11 +58,11 @@ export const uploadReferralPacket = [
         });
       }
 
-      // Check if organization is a school (or allow other types if needed)
-      const orgType = organization.organization_type || 'agency';
-      if (orgType !== 'school') {
+      // Check if organization is a school or program
+      const orgType = String(organization.organization_type || 'agency').toLowerCase();
+      if (orgType !== 'school' && orgType !== 'program') {
         return res.status(403).json({ 
-          error: { message: 'Referral upload is only available for school organizations' } 
+          error: { message: 'Referral upload is only available for school or program organizations' } 
         });
       }
 
@@ -112,6 +112,13 @@ export const uploadReferralPacket = [
         agencyId = allAgencies?.[0]?.id || organization.id;
       }
 
+      const isInternalUpload = !!req.user?.id;
+      const source = isInternalUpload ? 'SCHOOL_UPLOAD_INTERNAL' : 'SCHOOL_UPLOAD';
+      const uploaderId = isInternalUpload ? req.user.id : null;
+      const uploaderLabel = isInternalUpload
+        ? `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || req.user.email || `User ${req.user.id}`
+        : 'public_upload';
+
       // Create client record with status = PENDING_REVIEW
       // Note: initials will need to be extracted from OCR or provided separately
       // For now, we'll use a placeholder
@@ -122,19 +129,19 @@ export const uploadReferralPacket = [
         initials: 'TBD', // Placeholder - should be extracted from OCR or form
         status: 'PENDING_REVIEW',
         submission_date: new Date().toISOString().split('T')[0],
-        document_status: 'UPLOADED',
-        source: 'SCHOOL_UPLOAD',
-        created_by_user_id: null // Public upload, no user
+        document_status: 'PACKET',
+        source,
+        created_by_user_id: uploaderId
       });
 
       // Log to status history
       await ClientStatusHistory.create({
         client_id: client.id,
-        changed_by_user_id: null, // Public upload
+        changed_by_user_id: uploaderId,
         field_changed: 'created',
         from_value: null,
-        to_value: JSON.stringify({ source: 'SCHOOL_UPLOAD', document_status: 'UPLOADED' }),
-        note: 'Client created via referral packet upload'
+        to_value: JSON.stringify({ source, document_status: 'PACKET' }),
+        note: `Client created via referral packet upload (${uploaderLabel})`
       });
 
       // TODO: Trigger OCR processing (future enhancement)
@@ -151,7 +158,7 @@ export const uploadReferralPacket = [
           storagePath: quarantinePath,
           originalName: req.file.originalname || null,
           mimeType: req.file.mimetype || null,
-          uploadedByUserId: null,
+          uploadedByUserId: uploaderId,
           scanStatus: 'pending',
           quarantinePath,
           isEncrypted: true,
@@ -167,10 +174,10 @@ export const uploadReferralPacket = [
             documentId: phiDoc.id,
             clientId: client.id,
             action: 'uploaded',
-            actorUserId: null,
-            actorLabel: 'public_upload',
+            actorUserId: uploaderId,
+            actorLabel: uploaderLabel,
             ipAddress: ip,
-            metadata: { source: 'school_upload', organizationId: organization.id }
+            metadata: { source, organizationId: organization.id }
           });
         } catch {
           // best-effort logging

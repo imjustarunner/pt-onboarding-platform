@@ -1739,6 +1739,7 @@ const formatDocumentStatus = (status) => {
   const statusMap = {
     'NONE': 'None',
     'UPLOADED': 'Uploaded',
+    'PACKET': 'Packet',
     'APPROVED': 'Approved',
     'REJECTED': 'Rejected'
   };

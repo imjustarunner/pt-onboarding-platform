@@ -861,8 +861,7 @@ const openComingSoon = (key) => {
 };
 
 const handleUploadSuccess = () => {
-  showUploadModal.value = false;
-  alert('Referral packet uploaded successfully! You will receive a confirmation email.');
+  // Keep the modal open so OCR + initials can be completed.
 };
 
 const intakeLinkUrl = computed(() => {

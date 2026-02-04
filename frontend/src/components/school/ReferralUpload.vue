@@ -202,10 +202,7 @@ const handleUpload = async () => {
     clientId.value = response.data?.clientId || null;
     phiDocumentId.value = response.data?.phiDocumentId || null;
     
-    // Emit success event after a short delay
-    setTimeout(() => {
-      emit('uploaded', response.data);
-    }, 1500);
+    emit('uploaded', response.data);
   } catch (err) {
     console.error('Upload error:', err);
     error.value = err.response?.data?.error?.message || 'Failed to upload referral packet. Please try again.';

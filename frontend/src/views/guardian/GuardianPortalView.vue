@@ -251,7 +251,7 @@ const selectedChildId = ref(null);
 const comingSoonKey = ref('');
 
 const formatDocStatus = (s) => {
-  const m = { NONE: 'None', UPLOADED: 'Uploaded', APPROVED: 'Approved', REJECTED: 'Rejected' };
+  const m = { NONE: 'None', UPLOADED: 'Uploaded', PACKET: 'Packet', APPROVED: 'Approved', REJECTED: 'Rejected' };
   return m[s] || s || '-';
 };
 

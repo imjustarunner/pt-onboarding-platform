@@ -1,14 +1,14 @@
 import express from 'express';
 import { uploadReferralPacket } from '../controllers/referralUpload.controller.js';
 import { duplicateOrganization, getOrganizationAffiliation, applyAffiliatedAgencyBranding } from '../controllers/organization.controller.js';
-import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, authenticateOptional, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 import { body } from 'express-validator';
 
 const router = express.Router();
 
 // Public route - no authentication required
 // POST /api/organizations/:slug/upload-referral
-router.post('/:slug/upload-referral', uploadReferralPacket);
+router.post('/:slug/upload-referral', authenticateOptional, uploadReferralPacket);
 
 // Protected org management routes
 // POST /api/organizations/:id/duplicate

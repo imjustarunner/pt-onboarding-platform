@@ -110,9 +110,7 @@ const handleDigitalLink = () => {
 };
 
 const handleUploadSuccess = () => {
-  showUploadModal.value = false;
-  // Show success message
-  alert('Referral packet uploaded successfully! You will receive a confirmation email.');
+  // Keep the modal open so OCR + initials can be completed.
 };
 
 const handleLoginSuccess = () => {

@@ -388,6 +388,8 @@
                     <option value="">—</option>
                     <option value="BULK_IMPORT">Bulk Import</option>
                     <option value="SCHOOL_UPLOAD">School Upload</option>
+                    <option value="SCHOOL_UPLOAD_INTERNAL">Packet Upload (Internal)</option>
+                    <option value="PUBLIC_INTAKE_LINK">Public Intake Link</option>
                     <option value="DIGITAL_FORM">Digital Form</option>
                     <option value="ADMIN_CREATED">Admin Created</option>
                   </select>
@@ -1795,6 +1797,7 @@ const formatDocumentStatus = (status) => {
   const statusMap = {
     'NONE': 'None',
     'UPLOADED': 'Uploaded',
+    'PACKET': 'Packet',
     'APPROVED': 'Approved',
     'REJECTED': 'Rejected'
   };
@@ -1805,6 +1808,8 @@ const formatSource = (source) => {
   const sourceMap = {
     'BULK_IMPORT': 'Bulk Import',
     'SCHOOL_UPLOAD': 'School Upload',
+    'SCHOOL_UPLOAD_INTERNAL': 'Packet Upload (Internal)',
+    'PUBLIC_INTAKE_LINK': 'Public Intake Link',
     'DIGITAL_FORM': 'Digital Form',
     'ADMIN_CREATED': 'Admin Created'
   };
