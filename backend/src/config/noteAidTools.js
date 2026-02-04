@@ -1,3 +1,5 @@
+import { CLINICAL_NOTE_AGENT_TOOLS } from './clinicalNoteAgentTools.js';
+
 // Global (platform-wide) Note Aid tools.
 // These are “Gem-like” prompt templates, defined in code for predictability.
 //
@@ -94,7 +96,8 @@ export const NOTE_AID_TOOLS = [
     ].join('\n'),
     temperature: 0.2,
     maxOutputTokens: 700
-  }
+  },
+  ...CLINICAL_NOTE_AGENT_TOOLS
 ];
 
 export function getPublicNoteAidTools() {

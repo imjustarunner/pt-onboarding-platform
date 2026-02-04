@@ -4,6 +4,7 @@ import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import Notification from '../models/Notification.model.js';
+import { callGeminiText } from '../services/geminiText.service.js';
 
 async function hasSupportTicketMessagesTable() {
   try {
@@ -28,18 +29,6 @@ async function hasSupportTicketMessagesSoftDeleteColumns() {
 }
 
 async function maybeGenerateGeminiSummary({ question, answer }) {
-  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
-  if (!apiKey) return null;
-  let GoogleGenerativeAI;
-  try {
-    ({ GoogleGenerativeAI } = await import('@google/generative-ai'));
-  } catch {
-    return null;
-  }
-
-  const modelName = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: modelName });
   const prompt = [
     'Summarize this question and answer in 1-3 sentences.',
     'Do NOT include any client identifiers, initials, or PHI.',
@@ -51,8 +40,7 @@ async function maybeGenerateGeminiSummary({ question, answer }) {
     String(answer || '').trim()
   ].join('\n');
   try {
-    const result = await model.generateContent(prompt);
-    const text = result?.response?.text?.() || '';
+    const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 400 });
     const cleaned = String(text || '').trim();
     return cleaned ? cleaned.slice(0, 900) : null;
   } catch {

@@ -688,14 +688,14 @@ app.listen(PORT, HOST, () => {
     setInterval(scheduleBrandingTemplates, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight());
 
-  // Clinical Note Generator drafts cleanup (hard delete >14 days)
+  // Clinical Note Generator drafts cleanup (hard delete >7 days)
   // Run daily at 2:00 AM (best-effort; safe if table doesn't exist yet).
   const scheduleClinicalNoteDraftCleanup = async () => {
     try {
       const ClinicalNoteDraftCleanupService = (await import('./services/clinicalNoteDraftCleanup.service.js')).default;
-      const result = await ClinicalNoteDraftCleanupService.run({ days: 14 });
+      const result = await ClinicalNoteDraftCleanupService.run({ days: 7 });
       const n = Number(result?.deleted || 0);
-      if (n > 0) console.log(`[clinical_note_drafts] hard-deleted ${n} records older than 14 days`);
+      if (n > 0) console.log(`[clinical_note_drafts] hard-deleted ${n} records older than 7 days`);
     } catch (error) {
       if (error.code === 'ER_NO_SUCH_TABLE') {
         console.warn('clinical_note_drafts table not found. Run migration 333_create_clinical_note_drafts.sql');

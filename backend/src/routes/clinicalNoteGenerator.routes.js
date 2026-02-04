@@ -11,6 +11,8 @@ import {
   createClinicalNoteDraft,
   patchClinicalNoteDraft,
   listRecentClinicalNoteDrafts,
+  deleteClinicalNoteDrafts,
+  transcribeClinicalNoteAudio,
   generateClinicalNote
 } from '../controllers/clinicalNoteGenerator.controller.js';
 
@@ -19,11 +21,18 @@ const router = express.Router();
 // Logged-in tool; also block archived/expired users.
 router.use(authenticate, requireActiveStatus);
 
-// File upload (audio). Store in memory; forward to ADK as base64.
+// File upload (audio). Store in memory; transcribe server-side if requested.
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 25 * 1024 * 1024 // 25MB
+    fileSize: 300 * 1024 * 1024 // 300MB
+  }
+});
+
+const transcribeUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 300 * 1024 * 1024 // 300MB
   }
 });
 
@@ -46,6 +55,7 @@ router.post(
     // Frontend autosave sends nulls for empty fields; treat null as "not provided".
     body('serviceCode').optional({ nullable: true }).isString().isLength({ min: 1, max: 32 }),
     body('programId').optional({ nullable: true }).isInt({ min: 1 }),
+    body('programLabel').optional({ nullable: true }).isString().isLength({ min: 1, max: 120 }),
     body('dateOfService').optional({ nullable: true }).isString().isLength({ min: 1, max: 32 }),
     body('initials').optional({ nullable: true }).isString().isLength({ min: 1, max: 16 }),
     body('inputText').optional({ nullable: true }).isString().isLength({ min: 0, max: 12000 })
@@ -61,6 +71,7 @@ router.patch(
     body('agencyId').isInt({ min: 1 }),
     body('serviceCode').optional({ nullable: true }).isString().isLength({ min: 1, max: 32 }),
     body('programId').optional({ nullable: true }).isInt({ min: 1 }),
+    body('programLabel').optional({ nullable: true }).isString().isLength({ min: 1, max: 120 }),
     body('dateOfService').optional({ nullable: true }).isString().isLength({ min: 1, max: 32 }),
     body('initials').optional({ nullable: true }).isString().isLength({ min: 0, max: 16 }),
     body('inputText').optional({ nullable: true }).isString().isLength({ min: 0, max: 12000 })
@@ -69,13 +80,35 @@ router.patch(
 );
 
 router.post(
+  '/drafts/delete',
+  apiLimiter,
+  [
+    body('agencyId').isInt({ min: 1 }),
+    body('draftIds').isArray({ min: 1, max: 200 }),
+    body('draftIds.*').isInt({ min: 1 })
+  ],
+  deleteClinicalNoteDrafts
+);
+
+router.post(
+  '/transcribe',
+  apiLimiter,
+  transcribeUpload.single('audio'),
+  [body('agencyId').isInt({ min: 1 }), body('languageCode').optional().isString().isLength({ min: 2, max: 10 })],
+  transcribeClinicalNoteAudio
+);
+
+router.post(
   '/generate',
   apiLimiter,
   upload.single('audio'),
   [
     body('agencyId').isInt({ min: 1 }),
-    body('serviceCode').isString().isLength({ min: 1, max: 32 }),
+    body('serviceCode').optional().isString().isLength({ min: 1, max: 32 }),
+    body('autoSelectCode').optional().isBoolean(),
+    body('transcriptSource').optional().isString().isLength({ min: 1, max: 32 }),
     body('programId').optional().isInt({ min: 1 }),
+    body('programLabel').optional().isString().isLength({ min: 1, max: 120 }),
     body('dateOfService').optional().isString().isLength({ min: 1, max: 32 }),
     body('initials').optional().isString().isLength({ min: 0, max: 16 }),
     body('inputText').isString().isLength({ min: 1, max: 12000 }),

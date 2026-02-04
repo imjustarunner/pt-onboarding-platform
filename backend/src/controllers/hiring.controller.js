@@ -367,8 +367,6 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
         try {
           ai = await generatePreScreenReportWithVertexNoSearch({ candidateName, resumeText, linkedInUrl });
         } catch (e2) {
-          const hasApiKey = !!String(process.env.GEMINI_API_KEY || '').trim();
-          if (!hasApiKey) throw e2;
           ai = await generatePreScreenReportWithGeminiApiKey({ candidateName, resumeText, linkedInUrl });
         }
       }

@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import { callGeminiText } from '../services/geminiText.service.js';
 
 const roleCanManageFaq = (req) => {
   const r = String(req.user?.role || '').toLowerCase();
@@ -28,21 +29,6 @@ async function hasFaqTable() {
 }
 
 async function maybeGenerateGeminiSummary({ question, answer }) {
-  const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
-  if (!apiKey) return null;
-
-  // Lazy import to avoid hard dependency in environments without the package configured.
-  let GoogleGenerativeAI;
-  try {
-    ({ GoogleGenerativeAI } = await import('@google/generative-ai'));
-  } catch {
-    return null;
-  }
-
-  const modelName = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: modelName });
-
   const prompt = [
     'Summarize the following FAQ into a single short paragraph (1-3 sentences).',
     'Do NOT include any client identifiers, initials, or PHI.',
@@ -55,8 +41,7 @@ async function maybeGenerateGeminiSummary({ question, answer }) {
   ].join('\n');
 
   try {
-    const result = await model.generateContent(prompt);
-    const text = result?.response?.text?.() || '';
+    const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 400 });
     const cleaned = String(text || '').trim();
     return cleaned ? cleaned.slice(0, 900) : null;
   } catch {

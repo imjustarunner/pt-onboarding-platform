@@ -7,7 +7,7 @@ import UserInfoValue from '../models/UserInfoValue.model.js';
 import ProviderSearchIndex from '../models/ProviderSearchIndex.model.js';
 import User from '../models/User.model.js';
 import crypto from 'crypto';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { callGeminiText } from '../services/geminiText.service.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -125,13 +125,6 @@ function normalizeMultiSelectStored(raw) {
 }
 
 async function suggestProviderBulkCreateHeaderMapping({ normalizedHeaders }) {
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) return null;
-
-  const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: modelName });
-
   const headers = (normalizedHeaders || []).map((h) => String(h || '').trim()).filter(Boolean);
   if (!headers.length) return null;
 
@@ -167,8 +160,7 @@ Rules:
 - Pick the best match; be conservative.
 `;
 
-  const r = await model.generateContent(prompt);
-  const text = r?.response?.text?.() || r?.response?.text || '';
+  const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 400 });
   const raw = String(text || '').trim();
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
@@ -180,13 +172,6 @@ Rules:
 }
 
 async function suggestEmployeeInfoHeaderMapping({ normalizedHeaders }) {
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) return null;
-
-  const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: modelName });
-
   const headers = (normalizedHeaders || []).map((h) => String(h || '').trim()).filter(Boolean);
   if (!headers.length) return null;
 
@@ -246,8 +231,7 @@ Rules:
 - Pick the best match; be conservative.
 `;
 
-  const r = await model.generateContent(prompt);
-  const text = r?.response?.text?.() || r?.response?.text || '';
+  const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 400 });
   const raw = String(text || '').trim();
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');

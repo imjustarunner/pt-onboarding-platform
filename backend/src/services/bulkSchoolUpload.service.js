@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { callGeminiText } from './geminiText.service.js';
 import pool from '../config/database.js';
 
 const slugify = (s) =>
@@ -132,13 +132,6 @@ function safeJsonParseLoose(text) {
 }
 
 async function parseContactWithGemini({ text, hintSchoolName = '' }) {
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) return null;
-
-  const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: modelName });
-
   const prompt = [
     `You clean and structure messy school contact strings for a directory import.`,
     `Return ONLY valid JSON with this shape:`,
@@ -155,8 +148,7 @@ async function parseContactWithGemini({ text, hintSchoolName = '' }) {
     String(text || '')
   ].join('\n');
 
-  const result = await model.generateContent(prompt);
-  const raw = result?.response?.text?.() || '';
+  const { text: raw } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 400 });
   const parsed = safeJsonParseLoose(raw);
   if (!parsed || typeof parsed !== 'object') return null;
 

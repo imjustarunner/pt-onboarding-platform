@@ -1,6 +1,7 @@
 import { validationResult } from 'express-validator';
 import ProviderSearchIndex from '../models/ProviderSearchIndex.model.js';
 import Agency from '../models/Agency.model.js';
+import { callGeminiText } from '../services/geminiText.service.js';
 
 function parseFlags(raw) {
   if (!raw) return {};
@@ -70,11 +71,6 @@ export const compileProviderSearch = async (req, res, next) => {
     const agencyId = parseInt(req.body.agencyId, 10);
     if (!(await requireAiEnabled(req, res, agencyId))) return;
 
-    const apiKey = process.env.GEMINI_API_KEY || '';
-    if (!apiKey) {
-      return res.status(503).json({ error: { message: 'GEMINI_API_KEY is not configured' } });
-    }
-
     const queryText = String(req.body.queryText || '').trim().slice(0, 800);
     const allowedFields = Array.isArray(req.body.allowedFields) ? req.body.allowedFields : [];
 
@@ -109,23 +105,7 @@ export const compileProviderSearch = async (req, res, next) => {
       queryText
     ].join('\n');
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 512 }
-      })
-    });
-
-    if (!resp.ok) {
-      const t = await resp.text();
-      return res.status(502).json({ error: { message: 'Gemini request failed', details: t.slice(0, 1000) } });
-    }
-
-    const data = await resp.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 512 });
     let parsed;
     try {
       parsed = JSON.parse(text);

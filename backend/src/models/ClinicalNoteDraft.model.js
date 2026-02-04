@@ -153,6 +153,30 @@ class ClinicalNoteDraft {
     );
     return Number(result?.affectedRows || 0);
   }
+
+  static async deleteForUser({ userId, agencyId = null, draftIds = [] }) {
+    const uid = safeInt(userId);
+    if (!uid) throw new Error('Invalid userId');
+    const ids = Array.isArray(draftIds)
+      ? draftIds.map((id) => safeInt(id)).filter((id) => Number.isInteger(id) && id > 0)
+      : [];
+    if (!ids.length) return 0;
+
+    const aid = agencyId === null || agencyId === undefined ? null : safeInt(agencyId);
+    const where = ['user_id = ?', `id IN (${ids.map(() => '?').join(', ')})`];
+    const params = [uid, ...ids];
+    if (aid) {
+      where.push('agency_id = ?');
+      params.push(aid);
+    }
+
+    const [result] = await pool.execute(
+      `DELETE FROM clinical_note_drafts
+       WHERE ${where.join(' AND ')}`,
+      params
+    );
+    return Number(result?.affectedRows || 0);
+  }
 }
 
 export default ClinicalNoteDraft;

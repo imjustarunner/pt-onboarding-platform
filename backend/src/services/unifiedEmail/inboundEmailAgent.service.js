@@ -1,9 +1,9 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getGmailClient, getImpersonatedUser } from './gmailClient.js';
 import { ensureLabelId } from './gmailLabels.js';
 import EmailSenderIdentity from '../../models/EmailSenderIdentity.model.js';
 import Agency from '../../models/Agency.model.js';
 import { sendEmailFromIdentity } from './unifiedEmailSender.service.js';
+import { callGeminiText } from '../geminiText.service.js';
 
 function headerMap(headers = []) {
   const m = new Map();
@@ -87,13 +87,6 @@ function pickBodyText(payload) {
 }
 
 async function compileGeminiDecision({ agencyName, fromEmail, subject, bodyText }) {
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
-
-  const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: modelName });
-
   const prompt = [
     `You are an assistant for "${agencyName}".`,
     `Decide if this email needs a human. If you can answer, write a concise helpful reply.`,
@@ -108,8 +101,7 @@ async function compileGeminiDecision({ agencyName, fromEmail, subject, bodyText 
     bodyText
   ].join('\n');
 
-  const result = await model.generateContent(prompt);
-  const text = result?.response?.text?.() || '';
+  const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 400 });
   const trimmed = String(text).trim();
   // Model may wrap in ```json ... ```
   const jsonText = trimmed.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim();

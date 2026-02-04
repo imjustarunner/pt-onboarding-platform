@@ -868,13 +868,13 @@ const dashboardCards = computed(() => {
         });
         if (clinicalNoteGeneratorEnabledForAgency.value && (isProvider || role === 'intern')) {
           cards.push({
-            id: 'clinical_note_generator',
-            label: 'Note Aid',
+            id: 'tools_aids',
+            label: 'Tools & Aids',
             kind: 'link',
-            to: '/admin/note-aid',
+            to: '/admin/tools-aids',
             badgeCount: 0,
             iconUrl: brandingStore.getDashboardCardIconUrl('clinical_note_generator', cardIconOrgOverride),
-            description: 'Generate structured clinical notes (audio + text).'
+            description: 'Note Aid and upcoming clinical tools.'
           });
         }
         if (providerSurfacesEnabled.value) {
@@ -992,7 +992,7 @@ const railCards = computed(() => {
         my_schedule: 1,
         skill_builders_availability: 2,
         clients: 3,
-        clinical_note_generator: 4,
+        tools_aids: 4,
         checklist: 5,
         training: 6,
         documents: 7,
@@ -1012,7 +1012,7 @@ const railCards = computed(() => {
       my_schedule: 3,
       skill_builders_availability: 4,
       clients: 5,
-      clinical_note_generator: 6,
+        tools_aids: 6,
       submit: 7,
       payroll: 8,
       my: 9,

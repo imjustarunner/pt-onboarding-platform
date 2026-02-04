@@ -4,7 +4,7 @@ import XLSX from 'xlsx';
 import crypto from 'crypto';
 import path from 'path';
 import config from '../config/config.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { callGeminiText } from '../services/geminiText.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
@@ -1591,13 +1591,6 @@ function parseRateSheetRows(records, headerMapping = null) {
 }
 
 async function suggestRateSheetHeaderMapping({ normalizedHeaders }) {
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) return null;
-
-  const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: modelName });
-
   const headers = (normalizedHeaders || []).map((h) => String(h || '').trim()).filter(Boolean);
   if (!headers.length) return null;
 
@@ -1621,8 +1614,7 @@ Rules:
 - Pick the best match; be conservative.
 `;
 
-  const r = await model.generateContent(prompt);
-  const text = r?.response?.text?.() || r?.response?.text || '';
+  const { text } = await callGeminiText({ prompt, temperature: 0.2, maxOutputTokens: 400 });
   const raw = String(text || '').trim();
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');

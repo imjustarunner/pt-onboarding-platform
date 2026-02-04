@@ -163,34 +163,53 @@
 
                 <div
                   class="nav-dropdown"
-                  v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
+                  v-if="showEngagementMenu"
                   @click.stop
                 >
                   <button
                     type="button"
                     class="nav-dropdown-trigger"
-                    :aria-expanded="commsMenuOpen ? 'true' : 'false'"
-                    @click.stop="toggleCommsMenu"
+                    :aria-expanded="engagementMenuOpen ? 'true' : 'false'"
+                    @click.stop="toggleEngagementMenu"
                   >
-                    Communications <span class="brand-caret">▾</span>
+                    Engagement <span class="brand-caret">▾</span>
                   </button>
-                  <div v-if="commsMenuOpen" class="nav-dropdown-menu">
-                    <router-link :to="orgTo('/admin/communications')" @click="closeAllNavMenus">Feed</router-link>
-                    <router-link :to="orgTo('/admin/communications/chats')" @click="closeAllNavMenus">Chats</router-link>
+                  <div v-if="engagementMenuOpen" class="nav-dropdown-menu">
+                    <router-link
+                      v-if="canUseEngagementFeed"
+                      :to="orgTo('/admin/communications')"
+                      @click="closeAllNavMenus"
+                    >Feed</router-link>
+                    <router-link
+                      v-if="canUseEngagementFeed"
+                      :to="orgTo('/admin/communications/chats')"
+                      @click="closeAllNavMenus"
+                    >Chats</router-link>
+                    <router-link :to="orgTo('/notifications')" @click="closeAllNavMenus">
+                      Notifications
+                      <span
+                        v-if="notificationsUnreadCount > 0"
+                        class="nav-badge nav-badge-pulse"
+                        :title="`${notificationsUnreadCount} unread notification(s)`"
+                      >
+                        {{ notificationsUnreadCount }}
+                      </span>
+                    </router-link>
+                    <router-link v-if="canShowScheduleTopNav" :to="orgTo('/schedule')" @click="closeAllNavMenus">
+                      Schedule
+                      <span
+                        v-if="showBuildingsPendingBadge && buildingsPendingCount > 0"
+                        class="nav-badge"
+                        :title="`${buildingsPendingCount} pending availability request(s)`"
+                      >
+                        {{ buildingsPendingCount }}
+                      </span>
+                    </router-link>
+                    <router-link :to="orgTo('/admin/tools-aids')" v-if="noteAidEnabled && (isAdmin || user?.role === 'provider' || user?.role === 'staff')" @click="closeAllNavMenus">Tools &amp; Aids</router-link>
                   </div>
                 </div>
               </template>
-              <router-link
-                v-if="canShowScheduleTopNav"
-                :to="orgTo('/schedule')"
-                @click="closeMobileMenu"
-                class="nav-link"
-              >
-                Schedule
-                <span v-if="showBuildingsPendingBadge && buildingsPendingCount > 0" class="nav-badge" :title="`${buildingsPendingCount} pending availability request(s)`">
-                  {{ buildingsPendingCount }}
-                </span>
-              </router-link>
+              
               <div v-if="showGlobalAvailabilityToggle" class="nav-availability" @click.stop>
                 <div class="nav-availability-label">Global availability</div>
                 <label class="switch" :title="globalAvailabilityTitle">
@@ -280,15 +299,6 @@
               {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
             </router-link>
             <router-link
-              v-if="showNotificationsObnoxiousBadge"
-              :to="orgTo('/notifications')"
-              @click="closeMobileMenu"
-              class="mobile-nav-link mobile-nav-link-obnoxious"
-            >
-              Notifications
-              <span class="mobile-obnoxious-badge">{{ notificationsUnreadCount }}</span>
-            </router-link>
-            <router-link
               v-if="canSeeApplicantsTopNavLink"
               :to="orgTo('/admin/hiring')"
               @click="closeMobileMenu"
@@ -330,13 +340,34 @@
                 v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              >Communications</router-link>
+              >Engagement (Feed)</router-link>
               <router-link
                 :to="orgTo('/admin/communications/chats')"
                 v-if="(isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Chats</router-link>
+              <router-link
+                :to="orgTo('/notifications')"
+                v-if="(isAdmin || user?.role === 'clinical_practice_assistant')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link mobile-nav-link-obnoxious"
+              >
+                Notifications
+                <span class="mobile-obnoxious-badge" v-if="notificationsUnreadCount > 0">{{ notificationsUnreadCount }}</span>
+              </router-link>
+              <router-link
+                :to="orgTo('/schedule')"
+                v-if="canShowScheduleTopNav"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Schedule</router-link>
+              <router-link
+                :to="orgTo('/admin/tools-aids')"
+                v-if="noteAidEnabled && (isAdmin || user?.role === 'provider' || user?.role === 'staff')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Tools &amp; Aids</router-link>
               <router-link :to="orgTo('/admin/payroll')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Payroll</router-link>
               <router-link :to="orgTo('/admin/receivables')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Receivables</router-link>
               <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Expense/Reimbursements</router-link>
@@ -516,14 +547,14 @@ const brandMenuOpen = ref(false);
 const peopleOpsMenuOpen = ref(false);
 const directoryMenuOpen = ref(false);
 const managementMenuOpen = ref(false);
-const commsMenuOpen = ref(false);
+const engagementMenuOpen = ref(false);
 
 const closeAllNavMenus = () => {
   brandMenuOpen.value = false;
   peopleOpsMenuOpen.value = false;
   directoryMenuOpen.value = false;
   managementMenuOpen.value = false;
-  commsMenuOpen.value = false;
+  engagementMenuOpen.value = false;
 };
 
 const onDocumentClick = () => closeAllNavMenus();
@@ -588,10 +619,10 @@ const toggleManagementMenu = () => {
   closeAllNavMenus();
   managementMenuOpen.value = next;
 };
-const toggleCommsMenu = () => {
-  const next = !commsMenuOpen.value;
+const toggleEngagementMenu = () => {
+  const next = !engagementMenuOpen.value;
   closeAllNavMenus();
-  commsMenuOpen.value = next;
+  engagementMenuOpen.value = next;
 };
 
 const pushWithSlug = (slug) => {
@@ -751,6 +782,17 @@ const currentAgencyFeatureFlags = computed(() => {
 });
 
 const noteAidEnabled = computed(() => isTruthyFlag(currentAgencyFeatureFlags.value?.noteAidEnabled));
+const canUseEngagementFeed = computed(() => {
+  return (isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat');
+});
+const showEngagementMenu = computed(() => {
+  return (
+    canUseEngagementFeed.value ||
+    canShowScheduleTopNav.value ||
+    noteAidEnabled.value ||
+    notificationsUnreadCount.value > 0
+  );
+});
 
 const showAvailabilityHint = ref(false);
 const savingAvailability = ref(false);
@@ -1490,6 +1532,10 @@ onUnmounted(() => {
   color: white;
 }
 
+.nav-badge-pulse {
+  animation: obnoxiousPulse 1.35s ease-in-out infinite;
+}
+
 .nav-obnoxious-badge {
   display: inline-flex;
   align-items: center;
@@ -1535,6 +1581,7 @@ onUnmounted(() => {
   font-weight: 900;
   font-size: 14px;
   border: 2px solid rgba(255, 255, 255, 0.85);
+  animation: obnoxiousPulse 1.35s ease-in-out infinite;
 }
 
 .nav-links .btn {

@@ -3,6 +3,10 @@ import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import { getPublicNoteAidTools, getNoteAidToolById } from '../config/noteAidTools.js';
+import { getKnowledgeBaseContext, getKnowledgeBaseStatus } from '../services/clinicalKnowledgeBase.service.js';
+import { callGeminiText } from '../services/geminiText.service.js';
+import { CLINICAL_NOTE_AGENT_TOOLS } from '../config/clinicalNoteAgentTools.js';
+import StorageService from '../services/storage.service.js';
 
 function parseFlags(raw) {
   if (!raw) return {};
@@ -21,6 +25,43 @@ function isTruthyFlag(v) {
   if (v === true || v === 1) return true;
   const s = String(v ?? '').trim().toLowerCase();
   return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
+function isAdminLike(role) {
+  const r = String(role || '').toLowerCase();
+  return r === 'admin' || r === 'super_admin';
+}
+
+function normalizeFolderName(raw) {
+  const s = String(raw || '').trim().replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!s) return '';
+  if (s.includes('..')) return '';
+  return s;
+}
+
+function uniqueFolders(list) {
+  const out = [];
+  const seen = new Set();
+  for (const entry of list || []) {
+    const cleaned = normalizeFolderName(entry);
+    if (!cleaned) continue;
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+  }
+  return out;
+}
+
+function getKbFoldersForTool(tool, flags = {}) {
+  const overrides = flags?.noteAidKbFolderOverrides || null;
+  const override = overrides && typeof overrides === 'object' ? overrides[tool?.id] : null;
+  const base = Array.isArray(override)
+    ? override
+    : Array.isArray(tool?.kbFolders)
+      ? tool.kbFolders
+      : [];
+  const extras = Array.isArray(flags?.noteAidKbExtraFolders) ? flags.noteAidKbExtraFolders : [];
+  return uniqueFolders([...base, ...extras]);
 }
 
 async function requireNoteAidEnabled(req, res, agencyId) {
@@ -72,58 +113,6 @@ function buildPrompt({ tool, inputText }) {
   return header;
 }
 
-async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800 }) {
-  const apiKey = process.env.GEMINI_API_KEY || '';
-  if (!apiKey) {
-    const err = new Error('GEMINI_API_KEY is not configured');
-    err.status = 503;
-    throw err;
-  }
-
-  const modelName = String(process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim() || 'gemini-2.0-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    modelName
-  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
-  const started = Date.now();
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
-      generationConfig: {
-        temperature,
-        maxOutputTokens
-      }
-    })
-  });
-
-  const latencyMs = Date.now() - started;
-
-  if (!resp.ok) {
-    const t = await resp.text();
-    const err = new Error('Gemini request failed');
-    err.status = 502;
-    err.details = String(t || '').slice(0, 1000);
-    err.latencyMs = latencyMs;
-    throw err;
-  }
-
-  const data = await resp.json();
-  const parts = data?.candidates?.[0]?.content?.parts;
-  const text =
-    Array.isArray(parts) ? parts.map((p) => p?.text || '').filter(Boolean).join('') : parts?.text || '';
-
-  if (!text) {
-    const err = new Error('Gemini returned empty response');
-    err.status = 502;
-    err.latencyMs = latencyMs;
-    throw err;
-  }
-
-  return { text: String(text), modelName, latencyMs };
-}
-
 export const listNoteAidTools = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -160,7 +149,31 @@ export const executeNoteAidTool = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Invalid toolId' } });
     }
 
-    const prompt = buildPrompt({ tool, inputText });
+    const agency = await Agency.findById(agencyId);
+    const flags = parseFlags(agency?.feature_flags);
+
+    let prompt = buildPrompt({ tool, inputText });
+    if (tool?.includeKnowledgeBase) {
+      try {
+        const kbContext = await getKnowledgeBaseContext({
+          query: inputText,
+          maxChars: 4000,
+          folders: getKbFoldersForTool(tool, flags)
+        });
+        if (kbContext) {
+          prompt = [
+            prompt,
+            '',
+            'Knowledge Base Context (read-only):',
+            kbContext,
+            '',
+            'Use the context only if relevant and do not invent facts.'
+          ].join('\n');
+        }
+      } catch {
+        // Ignore KB failures to keep tool responsive.
+      }
+    }
 
     const started = Date.now();
     const { text, modelName, latencyMs } = await callGeminiText({
@@ -204,6 +217,189 @@ export const executeNoteAidTool = async (req, res, next) => {
         }
       });
     }
+    next(e);
+  }
+};
+
+export const getNoteAidSettings = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const agencyId = parseInt(req.query.agencyId, 10);
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireNoteAidEnabled(req, res, agencyId))) return;
+    if (!isAdminLike(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const agency = await Agency.findById(agencyId);
+    const flags = parseFlags(agency?.feature_flags);
+    const kbFolderOverrides = flags?.noteAidKbFolderOverrides || {};
+    const kbExtraFolders = Array.isArray(flags?.noteAidKbExtraFolders) ? flags.noteAidKbExtraFolders : [];
+    const noteAidProgramOptions = Array.isArray(flags?.noteAidProgramOptions) ? flags.noteAidProgramOptions : [];
+
+    const toolOptions = CLINICAL_NOTE_AGENT_TOOLS.map((t) => ({
+      id: t.id,
+      name: t.name,
+      defaultFolders: Array.isArray(t.kbFolders) ? t.kbFolders : []
+    }));
+
+    res.json({
+      kbFolderOverrides,
+      kbExtraFolders,
+      noteAidProgramOptions,
+      tools: toolOptions
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updateNoteAidSettings = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const agencyId = parseInt(req.body?.agencyId, 10);
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireNoteAidEnabled(req, res, agencyId))) return;
+    if (!isAdminLike(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const agency = await Agency.findById(agencyId);
+    const flags = parseFlags(agency?.feature_flags);
+
+    const kbFolderOverrides = req.body?.kbFolderOverrides && typeof req.body.kbFolderOverrides === 'object'
+      ? req.body.kbFolderOverrides
+      : {};
+    const kbExtraFolders = Array.isArray(req.body?.kbExtraFolders) ? req.body.kbExtraFolders : [];
+    const noteAidProgramOptions = Array.isArray(req.body?.noteAidProgramOptions)
+      ? req.body.noteAidProgramOptions
+      : [];
+
+    const cleanedOverrides = {};
+    for (const [toolId, folders] of Object.entries(kbFolderOverrides)) {
+      if (!toolId) continue;
+      if (!Array.isArray(folders)) continue;
+      const cleaned = uniqueFolders(folders);
+      if (cleaned.length) cleanedOverrides[toolId] = cleaned;
+    }
+
+    const cleanedExtras = uniqueFolders(kbExtraFolders);
+    const cleanedPrograms = Array.from(
+      new Set(
+        noteAidProgramOptions
+          .map((name) => String(name || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    const nextFlags = {
+      ...(flags || {}),
+      noteAidKbFolderOverrides: cleanedOverrides,
+      noteAidKbExtraFolders: cleanedExtras,
+      noteAidProgramOptions: cleanedPrograms
+    };
+
+    await Agency.update(agencyId, { featureFlags: nextFlags });
+    res.json({ ok: true, featureFlags: nextFlags });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const uploadNoteAidDocument = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const agencyId = parseInt(req.body?.agencyId, 10);
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireNoteAidEnabled(req, res, agencyId))) return;
+    if (!isAdminLike(req.user?.role)) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const folder = normalizeFolderName(req.body?.folder || '');
+    if (!folder) return res.status(400).json({ error: { message: 'folder is required' } });
+    if (!req.file?.buffer) return res.status(400).json({ error: { message: 'file is required' } });
+    const mime = String(req.file.mimetype || '').toLowerCase();
+    if (mime && mime !== 'application/pdf' && mime !== 'text/plain') {
+      return res.status(400).json({ error: { message: 'Only PDF or TXT files are allowed' } });
+    }
+
+    const bucketName = String(process.env.CLINICAL_KB_BUCKET || process.env.DATA_STORE_ID || '').trim();
+    if (!bucketName) return res.status(503).json({ error: { message: 'CLINICAL_KB_BUCKET is not configured' } });
+
+    const original = String(req.file.originalname || 'document.pdf');
+    const safeName = original.replace(/[^a-zA-Z0-9._-]+/g, '_');
+    const key = `${folder}/${safeName}`;
+
+    const storage = await StorageService.getGCSStorage();
+    const bucket = storage.bucket(bucketName);
+    const file = bucket.file(key);
+    await file.save(req.file.buffer, {
+      contentType: req.file.mimetype || 'application/pdf'
+    });
+
+    res.json({ ok: true, path: key });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listNoteAidDocuments = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const agencyId = parseInt(req.query?.agencyId, 10);
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireNoteAidEnabled(req, res, agencyId))) return;
+    if (String(req.user?.role || '').toLowerCase() !== 'super_admin') {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const bucketName = String(process.env.CLINICAL_KB_BUCKET || process.env.DATA_STORE_ID || '').trim();
+    if (!bucketName) return res.status(503).json({ error: { message: 'CLINICAL_KB_BUCKET is not configured' } });
+
+    const storage = await StorageService.getGCSStorage();
+    const bucket = storage.bucket(bucketName);
+    const [files] = await bucket.getFiles({ maxResults: 2000 });
+
+    const list = (files || []).map((f) => ({
+      name: f.name,
+      contentType: f.metadata?.contentType || null,
+      size: Number.parseInt(f.metadata?.size || '0', 10) || 0,
+      updated: f.metadata?.updated || null
+    }));
+
+    res.json({ files: list });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getNoteAidKnowledgeBaseStatus = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const agencyId = parseInt(req.query.agencyId, 10);
+    const refresh = String(req.query.refresh || '').trim().toLowerCase() === 'true';
+
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireNoteAidEnabled(req, res, agencyId))) return;
+
+    const status = await getKnowledgeBaseStatus({ refresh });
+    res.json({ status });
+  } catch (e) {
     next(e);
   }
 };

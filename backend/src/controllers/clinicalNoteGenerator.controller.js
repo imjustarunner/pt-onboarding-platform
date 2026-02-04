@@ -3,7 +3,11 @@ import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
 import { deriveCredentialTier, eligibleServiceCodesForTier, assertServiceCodeAllowed } from '../utils/clinicalServiceCodeEligibility.js';
-import { runClinicalDirectorAgent } from '../services/clinicalDirectorAgent.service.js';
+import { getNoteAidToolById } from '../config/noteAidTools.js';
+import { getKnowledgeBaseContext } from '../services/clinicalKnowledgeBase.service.js';
+import { callGeminiText } from '../services/geminiText.service.js';
+import { transcribeLongAudio } from '../services/speechTranscription.service.js';
+import { decryptChatText, encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 import { validationResult } from 'express-validator';
 
 function safeInt(v) {
@@ -22,6 +26,52 @@ function parseFlags(raw) {
     }
   }
   return {};
+}
+
+function normalizeFolderName(raw) {
+  const s = String(raw || '').trim().replace(/^\/+/, '').replace(/\/+$/, '');
+  if (!s) return '';
+  if (s.includes('..')) return '';
+  return s;
+}
+
+function uniqueFolders(list) {
+  const out = [];
+  const seen = new Set();
+  for (const entry of list || []) {
+    const cleaned = normalizeFolderName(entry);
+    if (!cleaned) continue;
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+  }
+  return out;
+}
+
+function getKbFoldersForTool(tool, flags = {}) {
+  const overrides = flags?.noteAidKbFolderOverrides || null;
+  const override = overrides && typeof overrides === 'object' ? overrides[tool?.id] : null;
+  const base = Array.isArray(override)
+    ? override
+    : Array.isArray(tool?.kbFolders)
+      ? tool.kbFolders
+      : [];
+  const extras = Array.isArray(flags?.noteAidKbExtraFolders) ? flags.noteAidKbExtraFolders : [];
+  return uniqueFolders([...base, ...extras]);
+}
+
+function buildPromptForTool({ tool, inputText }) {
+  const header = [
+    tool?.systemPrompt || '',
+    '',
+    tool?.outputInstructions ? `Output instructions:\n${tool.outputInstructions}` : '',
+    '',
+    'User input:',
+    String(inputText || '')
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return header;
 }
 
 function isTruthyFlag(v) {
@@ -124,6 +174,167 @@ function normalizeDateOnly(s) {
   return v.slice(0, 10);
 }
 
+function parseBool(v) {
+  if (v === true || v === false) return v;
+  if (v === 1 || v === 0) return v === 1;
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s === 'true' || s === '1' || s === 'yes' || s === 'on') return true;
+  if (s === 'false' || s === '0' || s === 'no' || s === 'off') return false;
+  return false;
+}
+
+function intersectCodes(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return null;
+  const set = new Set(a.map((c) => String(c || '').trim().toUpperCase()).filter(Boolean));
+  return b
+    .map((c) => String(c || '').trim().toUpperCase())
+    .filter((c) => c && set.has(c));
+}
+
+function maybeEncryptText(value) {
+  if (value === null || value === undefined) return null;
+  if (!isChatEncryptionConfigured()) return String(value);
+  const { ciphertextB64, ivB64, authTagB64, keyId } = encryptChatText(String(value));
+  return JSON.stringify({
+    _enc: true,
+    keyId,
+    iv: ivB64,
+    tag: authTagB64,
+    ciphertext: ciphertextB64
+  });
+}
+
+function maybeDecryptText(value) {
+  const raw = value === null || value === undefined ? '' : String(value);
+  if (!raw) return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed?._enc && parsed.ciphertext && parsed.iv && parsed.tag) {
+      return decryptChatText({
+        ciphertextB64: parsed.ciphertext,
+        ivB64: parsed.iv,
+        authTagB64: parsed.tag,
+        keyId: parsed.keyId || null
+      });
+    }
+  } catch {
+    // not encrypted JSON
+  }
+  return raw;
+}
+
+function resolveClinicalToolId({ serviceCode, programId }) {
+  const sc = String(serviceCode || '').trim().toUpperCase();
+  if (!sc) return 'clinical_code_decider';
+  if (sc === 'H2014') return programId ? 'clinical_h2014_group' : 'clinical_h2014_individual';
+  if (sc === 'H2015' || sc === 'H2016') return 'clinical_h2014_individual';
+  if (sc === 'H0004') return 'clinical_h0004_note';
+  if (sc === 'H0031') return 'clinical_h0031_intake';
+  if (sc === 'H0032') return 'clinical_h0032_plan_development';
+  if (sc === 'H0002') return 'clinical_psc_17';
+  if (sc === '90791') return 'clinical_90791_intake_plan';
+  if (sc === '90832' || sc === '90834' || sc === '90837') return 'clinical_psychotherapy_note';
+  if (sc === '90846' || sc === '90847') return 'clinical_family_note';
+  if (sc === 'H0023') return 'clinical_h0023_full_packet';
+  return 'clinical_code_decider';
+}
+
+function normalizeSectionTitle(raw) {
+  const t = String(raw || '')
+    .replace(/^\s*\d+[\).\s-]+/, '')
+    .replace(/\*\*/g, '')
+    .replace(/:$/, '')
+    .trim();
+  return t;
+}
+
+function parseNoteSections(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return {};
+
+  const known = new Map([
+    ['Symptom Description and Subjective Report', 'Symptom Description and Subjective Report'],
+    ['Objective Content', 'Objective Content'],
+    ['Interventions Used', 'Interventions Used'],
+    ['Plan', 'Plan'],
+    ['Additional Notes / Assessment', 'Additional Notes / Assessment'],
+    ['Assessment', 'Assessment'],
+    ['Interventions', 'Interventions Used'],
+    ['Code', 'Code'],
+    ['Rationale', 'Rationale'],
+    ['Progress Note', 'Progress Note'],
+    ['Consultation Note', 'Consultation Note']
+  ]);
+
+  const lines = raw.split(/\r?\n/);
+  const sections = {};
+  let currentKey = null;
+  let buffer = [];
+
+  const flush = () => {
+    if (!currentKey) return;
+    const content = buffer.join('\n').trim();
+    if (content) sections[currentKey] = content;
+    buffer = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const headerMatch =
+      trimmed.match(/^\d+[\).\s-]+\*\*(.+?)\*\*:?$/) ||
+      trimmed.match(/^\d+[\).\s-]+(.+?):?$/) ||
+      trimmed.match(/^\*\*(.+?)\*\*:?$/) ||
+      trimmed.match(/^([A-Za-z0-9][A-Za-z0-9 \-/]+):\s*$/);
+
+    if (headerMatch) {
+      const title = normalizeSectionTitle(headerMatch[1]);
+      const key = known.get(title);
+      if (key) {
+        flush();
+        currentKey = key;
+        continue;
+      }
+    }
+
+    buffer.push(line);
+  }
+
+  flush();
+  if (sections['Interventions Used']) {
+    sections['Interventions Used'] = normalizeInterventionsList(sections['Interventions Used']);
+  }
+  if (sections.Interventions && !sections['Interventions Used']) {
+    sections['Interventions Used'] = normalizeInterventionsList(sections.Interventions);
+    delete sections.Interventions;
+  }
+  return sections;
+}
+
+function extractCodeDeciderSections(text) {
+  const raw = String(text || '');
+  const codeMatch = raw.match(/(?:^|\n)\s*Code\s*:?\s*([A-Z0-9]{3,10})/i);
+  const rationaleMatch = raw.match(/(?:^|\n)\s*Rationale\s*:?\s*([\s\S]+?)(?:\n\s*\d+[\).\s-]+|\n\s*Progress Note:|\n\s*Consultation Note:|$)/i);
+  const sections = {};
+  if (codeMatch?.[1]) sections.Code = codeMatch[1].trim();
+  if (rationaleMatch?.[1]) sections.Rationale = rationaleMatch[1].trim();
+  return sections;
+}
+
+function normalizeInterventionsList(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  const cleaned = text
+    .split(/\r?\n|•|\*|- /g)
+    .map((t) => t.replace(/^[\d\.\)\s-]+/, '').trim())
+    .filter(Boolean);
+  if (!cleaned.length) return text;
+  const items = [];
+  for (const chunk of cleaned) {
+    const parts = chunk.split(',').map((p) => p.trim()).filter(Boolean);
+    items.push(...parts);
+  }
+  return items.join(', ');
+}
 async function getAgencyServiceCodeCatalog({ agencyId }) {
   const aid = safeInt(agencyId);
   if (!aid) return [];
@@ -178,6 +389,9 @@ export const getClinicalNotesContext = async (req, res, next) => {
     if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
     if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
 
+    const agency = await Agency.findById(agencyId);
+    const featureFlags = parseFlags(agency?.feature_flags);
+
     const providerCredentialText = await getProviderCredentialTextForUserId(req.user?.id);
     const tier = deriveCredentialTier({
       userRole: req.user?.role,
@@ -211,7 +425,15 @@ export const listClinicalNotePrograms = async (req, res, next) => {
 
     // This uses the existing join table: user_programs.
     const programs = await User.getPrograms(req.user.id);
-    res.json({ programs: Array.isArray(programs) ? programs : [] });
+    const agency = await Agency.findById(agencyId);
+    const flags = parseFlags(agency?.feature_flags);
+    const customPrograms = Array.isArray(flags?.noteAidProgramOptions)
+      ? flags.noteAidProgramOptions
+          .map((name) => String(name || '').trim())
+          .filter(Boolean)
+          .map((name) => ({ id: `custom:${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name, isCustom: true }))
+      : [];
+    res.json({ programs: [...(Array.isArray(programs) ? programs : []), ...customPrograms] });
   } catch (e) {
     next(e);
   }
@@ -235,6 +457,7 @@ export const createClinicalNoteDraft = async (req, res, next) => {
     const dateOfService = req.body?.dateOfService ? normalizeDateOnly(req.body.dateOfService) : null;
     const initials = req.body?.initials ? String(req.body.initials).trim() : null;
     const inputText = req.body?.inputText === undefined ? null : String(req.body.inputText || '');
+    const encryptedInputText = maybeEncryptText(inputText);
 
     const draft = await ClinicalNoteDraft.create({
       userId: req.user.id,
@@ -243,7 +466,7 @@ export const createClinicalNoteDraft = async (req, res, next) => {
       programId,
       dateOfService,
       initials,
-      inputText,
+      inputText: encryptedInputText,
       outputJson: null
     });
     res.status(201).json({ draft });
@@ -282,7 +505,10 @@ export const patchClinicalNoteDraft = async (req, res, next) => {
     if (req.body?.programId !== undefined) patch.programId = req.body.programId === null ? null : safeInt(req.body.programId);
     if (req.body?.dateOfService !== undefined) patch.dateOfService = req.body.dateOfService === null ? null : normalizeDateOnly(req.body.dateOfService);
     if (req.body?.initials !== undefined) patch.initials = req.body.initials === null ? null : String(req.body.initials).trim();
-    if (req.body?.inputText !== undefined) patch.inputText = req.body.inputText === null ? null : String(req.body.inputText || '');
+    if (req.body?.inputText !== undefined) {
+      const inputText = req.body.inputText === null ? null : String(req.body.inputText || '');
+      patch.inputText = maybeEncryptText(inputText);
+    }
 
     const updated = await ClinicalNoteDraft.updateForUser({
       draftId,
@@ -311,8 +537,73 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
 
     const days = req.query?.days ? Number(req.query.days) : 7;
     const drafts = await ClinicalNoteDraft.listRecentForUser({ userId: req.user.id, agencyId, days, limit: 50 });
-    res.json({ drafts });
+    const sanitized = (drafts || []).map((d) => ({
+      ...d,
+      input_text: maybeDecryptText(d?.input_text),
+      output_json: maybeDecryptText(d?.output_json)
+    }));
+    res.json({ drafts: sanitized });
   } catch (e) {
+    next(e);
+  }
+};
+
+export const deleteClinicalNoteDrafts = async (req, res, next) => {
+  try {
+    if (!requireNotSchoolStaff(req, res)) return;
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const agencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+
+    const draftIds = Array.isArray(req.body?.draftIds) ? req.body.draftIds : [];
+    const deletedCount = await ClinicalNoteDraft.deleteForUser({
+      userId: req.user.id,
+      agencyId,
+      draftIds
+    });
+
+    res.json({ deletedCount });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const transcribeClinicalNoteAudio = async (req, res, next) => {
+  try {
+    if (!requireNotSchoolStaff(req, res)) return;
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const agencyId = req.body?.agencyId ? safeInt(req.body.agencyId) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
+    if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+
+    if (!req.file?.buffer) {
+      return res.status(400).json({ error: { message: 'audio is required' } });
+    }
+
+    const languageCode = String(req.body?.languageCode || 'en-US').trim() || 'en-US';
+    const transcript = await transcribeLongAudio({
+      buffer: req.file.buffer,
+      mimeType: req.file.mimetype,
+      languageCode,
+      userId: req.user?.id
+    });
+
+    res.json({ transcriptText: String(transcript || '').trim() });
+  } catch (e) {
+    if (e?.status) {
+      return res.status(e.status).json({ error: { message: e.message || 'Transcription failed' } });
+    }
     next(e);
   }
 };
@@ -334,15 +625,21 @@ export const generateClinicalNote = async (req, res, next) => {
     const serviceCode = normalizeServiceCode(req.body?.serviceCode);
     const programIdRaw = req.body?.programId;
     const programId = programIdRaw ? safeInt(programIdRaw) : null;
+    const programLabel = req.body?.programLabel ? String(req.body.programLabel).trim().slice(0, 120) : null;
     const dateOfService = normalizeDateOnly(req.body?.dateOfService);
     const initials = req.body?.initials ? String(req.body.initials).trim() : null;
-    const inputText = String(req.body?.inputText || '').trim().slice(0, 12000);
+    const autoSelectCode = parseBool(req.body?.autoSelectCode);
+    const transcriptSource = String(req.body?.transcriptSource || '').trim().toLowerCase();
+    let inputText = String(req.body?.inputText || '').trim().slice(0, 12000);
     const draftId = req.body?.draftId ? safeInt(req.body.draftId) : null;
 
-    if (!inputText) return res.status(400).json({ error: { message: 'inputText is required' } });
+    const effectiveAutoSelect = autoSelectCode || tier === 'unknown';
+    if (!effectiveAutoSelect && !serviceCode) {
+      return res.status(400).json({ error: { message: 'serviceCode is required unless autoSelectCode is true' } });
+    }
 
-    // Program rule: only allow programId when service code is H2014.
-    if (programId && serviceCode !== 'H2014') {
+    // Program rule: only allow programId/label when service code is H2014.
+    if ((programId || programLabel) && serviceCode !== 'H2014') {
       return res.status(400).json({ error: { message: 'programId is only allowed for service code H2014' } });
     }
 
@@ -365,46 +662,116 @@ export const generateClinicalNote = async (req, res, next) => {
     const providerCredentialText = await getProviderCredentialTextForUserId(req.user?.id);
     const tier = deriveCredentialTier({ userRole: req.user?.role, providerCredentialText });
     const serviceCodeCatalog = await getAgencyServiceCodeCatalog({ agencyId });
-    // If the agency has a code dictionary, enforce that codes come from it (for non-intern_plus tiers).
-    // Intern+ remains "all codes allowed".
-    const allowedCodes = serviceCodeCatalog.length ? serviceCodeCatalog : null;
-    assertServiceCodeAllowed({ tier, serviceCode, allowedCodes });
+    const catalogCodes = serviceCodeCatalog.length ? serviceCodeCatalog : null;
+    const tierCodes = eligibleServiceCodesForTier(tier); // null => all
+    const allowedCodes = catalogCodes
+      ? (Array.isArray(tierCodes) ? intersectCodes(catalogCodes, tierCodes) : catalogCodes)
+      : tierCodes;
 
-    const audio = normalizeAudioFile(req.file);
-
-    const agentUrl =
-      String(process.env.CLINICAL_DIRECTOR_AGENT_URL || '').trim() ||
-      String(process.env.ADK_AGENT_URL || '').trim();
-
-    const payload = {
-      user: {
-        id: req.user?.id || null,
-        role: req.user?.role || null,
-        providerCredentialText: providerCredentialText || ''
-      },
-      request: {
-        agencyId,
-        serviceCode,
-        programId,
-        dateOfService,
-        initials,
-        inputText
-      },
-      audio
-    };
-
-    const outputObj = await runClinicalDirectorAgent({
-      url: agentUrl,
-      payload,
-      timeoutMs: Math.min(Math.max(parseInt(process.env.CLINICAL_DIRECTOR_AGENT_TIMEOUT_MS || '60000', 10) || 60000, 5000), 120000)
-    });
-
-    // Ensure strict JSON object.
-    if (!outputObj || typeof outputObj !== 'object' || Array.isArray(outputObj)) {
-      return res.status(502).json({ error: { message: 'Agent returned invalid JSON object' } });
+    if (!effectiveAutoSelect) {
+      assertServiceCodeAllowed({ tier, serviceCode, allowedCodes });
     }
 
+    let usedAudioTranscript = false;
+    if (!inputText && req.file) {
+      try {
+        const transcript = await transcribeLongAudio({
+          buffer: req.file.buffer,
+          mimeType: req.file.mimetype,
+          languageCode: 'en-US',
+          userId: req.user?.id
+        });
+        inputText = String(transcript || '').trim().slice(0, 12000);
+        usedAudioTranscript = true;
+      } catch (e) {
+        return res.status(e?.status || 502).json({
+          error: {
+            message: 'Audio transcription failed',
+            ...(e?.message ? { details: e.message } : null)
+          }
+        });
+      }
+    }
+
+    if (!inputText) return res.status(400).json({ error: { message: 'inputText is required' } });
+
+    const toolId = effectiveAutoSelect ? 'clinical_code_decider' : resolveClinicalToolId({ serviceCode, programId });
+    const tool = getNoteAidToolById(toolId);
+    if (!tool) {
+      return res.status(400).json({ error: { message: 'No tool configured for this service code' } });
+    }
+
+    let prompt = buildPromptForTool({ tool, inputText });
+    if (programLabel && serviceCode === 'H2014') {
+      prompt = [prompt, '', `Program: ${programLabel}`].join('\n');
+    }
+    if (effectiveAutoSelect && Array.isArray(allowedCodes) && allowedCodes.length) {
+      prompt = [
+        prompt,
+        '',
+        `Allowed service codes for this user: ${allowedCodes.join(', ')}`,
+        'Choose from these codes only.'
+      ].join('\n');
+    } else if (effectiveAutoSelect && allowedCodes === null) {
+      prompt = [
+        prompt,
+        '',
+        'Allowed service codes for this user: All (no restriction).'
+      ].join('\n');
+    }
+    if (tool?.includeKnowledgeBase) {
+      try {
+        const kbContext = await getKnowledgeBaseContext({
+          query: inputText,
+          maxChars: 4000,
+          folders: getKbFoldersForTool(tool, featureFlags)
+        });
+        if (kbContext) {
+          prompt = [
+            prompt,
+            '',
+            'Knowledge Base Context (read-only):',
+            kbContext,
+            '',
+            'Use the context only if relevant and do not invent facts.'
+          ].join('\n');
+        }
+      } catch {
+        // Ignore KB failures to keep tool responsive.
+      }
+    }
+
+    const { text, modelName, latencyMs } = await callGeminiText({
+      prompt,
+      temperature: Number.isFinite(tool.temperature) ? tool.temperature : 0.2,
+      maxOutputTokens: Number.isFinite(tool.maxOutputTokens) ? tool.maxOutputTokens : 1600
+    });
+
+    const parsedSections = parseNoteSections(text);
+    if (toolId === 'clinical_code_decider') {
+      const extra = extractCodeDeciderSections(text);
+      for (const [k, v] of Object.entries(extra)) {
+        if (!parsedSections[k]) parsedSections[k] = v;
+      }
+    }
+    const sections = Object.keys(parsedSections).length
+      ? parsedSections
+      : { Output: String(text || '').trim() };
+
+    const outputObj = {
+      sections,
+      meta: {
+        toolId,
+        model: modelName,
+        latencyMs
+      }
+    };
+
     const outputJson = JSON.stringify(outputObj);
+    const storedInputText =
+      (transcriptSource === 'audio' || usedAudioTranscript) ? null : inputText;
+    const encryptedInputText = maybeEncryptText(storedInputText);
+    const encryptedOutputJson = maybeEncryptText(outputJson);
 
     let draft = null;
     if (draftId) {
@@ -419,12 +786,12 @@ export const generateClinicalNote = async (req, res, next) => {
         userId: req.user.id,
         patch: {
           agencyId,
-          serviceCode,
+          serviceCode: effectiveAutoSelect ? null : serviceCode,
           programId,
           dateOfService,
           initials,
-          inputText,
-          outputJson
+          inputText: encryptedInputText,
+          outputJson: encryptedOutputJson
         }
       });
     }
@@ -433,12 +800,12 @@ export const generateClinicalNote = async (req, res, next) => {
       draft = await ClinicalNoteDraft.create({
         userId: req.user.id,
         agencyId,
-        serviceCode,
+        serviceCode: effectiveAutoSelect ? null : serviceCode,
         programId,
         dateOfService,
         initials,
-        inputText,
-        outputJson
+        inputText: encryptedInputText,
+        outputJson: encryptedOutputJson
       });
     }
 

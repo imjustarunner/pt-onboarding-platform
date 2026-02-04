@@ -42,10 +42,11 @@ export function deriveCredentialTier({ userRole, providerCredentialText }) {
   const cred = normalizeCredentialText(providerCredentialText);
   const upper = cred.toUpperCase();
 
-  // Explicit intern role is always intern+.
+  // Explicit role signals (override missing credential text).
   if (role === 'intern') return 'intern_plus';
+  if (role === 'qbha' || role === 'clinical_practice_assistant') return 'qbha';
 
-  // QBHA detection: require explicit token.
+  // QBHA detection: require explicit token in credential text.
   if (upper.includes('QBHA') || upper.includes('QUALIFIED BEHAVIORAL HEALTH ASSISTANT')) return 'qbha';
 
   // Bachelors detection.
@@ -54,7 +55,10 @@ export function deriveCredentialTier({ userRole, providerCredentialText }) {
   // Intern or higher credential text.
   const internPlusTokens = [
     'INTERN',
-    // pre-licensed / unlicensed masters
+    // unlicensed / pre-licensed masters
+    'UNLICENSED',
+    'PRE-LICENSED',
+    'PRELICENSED',
     'LPCC',
     'LSW',
     'SWC',
@@ -68,9 +72,7 @@ export function deriveCredentialTier({ userRole, providerCredentialText }) {
     'LPC',
     'LCSW',
     'MFT',
-    'LICENSED',
-    'PRE-LICENSED',
-    'PRELICENSED'
+    'LICENSED'
   ];
   if (containsAnyToken(cred, internPlusTokens)) return 'intern_plus';
 
@@ -82,7 +84,7 @@ export function eligibleServiceCodesForTier(tier) {
   if (t === 'qbha') return Array.from(QBHA_CODES);
   if (t === 'bachelors') return Array.from(new Set([...QBHA_CODES, ...BACHELORS_EXTRA_CODES]));
   if (t === 'intern_plus') return null; // null means "all codes allowed"
-  return Array.from(QBHA_CODES); // safest default
+  return Array.from(QBHA_CODES); // unknown => default to QBHA list
 }
 
 export function assertServiceCodeAllowed({ tier, serviceCode, allowedCodes = null }) {
@@ -97,6 +99,7 @@ export function assertServiceCodeAllowed({ tier, serviceCode, allowedCodes = nul
   if (t === 'intern_plus') return true;
 
   const allowedList = Array.isArray(allowedCodes) ? allowedCodes : eligibleServiceCodesForTier(tier);
+  if (!allowedList || allowedList.length === 0) return true;
   const allowed = new Set(allowedList || []);
   if (!allowed.has(code)) {
     const err = new Error(`You are not permitted to submit service code ${code}`);

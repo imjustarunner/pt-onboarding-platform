@@ -385,6 +385,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['schedule_manager', 'provider', 'staff', 'school_staff'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/tools-aids',
+    name: 'OrganizationToolsAids',
+    component: () => import('../views/admin/ToolsAidsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'clinical_practice_assistant'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/communications/chats',
     name: 'OrganizationPlatformChats',
     component: () => import('../views/admin/PlatformChatsView.vue'),
@@ -733,6 +739,12 @@ const routes = [
     name: 'CommunicationsFeed',
     component: () => import('../views/admin/CommunicationsFeedView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'] }
+  },
+  {
+    path: '/admin/tools-aids',
+    name: 'ToolsAids',
+    component: () => import('../views/admin/ToolsAidsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'provider', 'staff', 'clinical_practice_assistant'] }
   },
   {
     path: '/admin/communications/chats',

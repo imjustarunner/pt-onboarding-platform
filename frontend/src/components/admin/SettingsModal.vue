@@ -128,6 +128,7 @@ import ProviderSchedulingManagement from './ProviderSchedulingManagement.vue';
 import AvailabilityIntakeManagement from './AvailabilityIntakeManagement.vue';
 import ViewportPreviewSettings from './ViewportPreviewSettings.vue';
 import PayrollScheduleSettings from './PayrollScheduleSettings.vue';
+import NoteAidKnowledgeBaseSettings from './NoteAidKnowledgeBaseSettings.vue';
 
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
@@ -153,6 +154,21 @@ const router = useRouter();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
+
+const parseFeatureFlags = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw) || {}; } catch { return {}; }
+  }
+  return {};
+};
+
+const isTruthyFlag = (v) => {
+  if (v === true || v === 1) return true;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+};
 
 const selectedCategory = ref(null);
 const selectedItem = ref(null);
@@ -355,6 +371,22 @@ const allCategories = [
     ]
   },
   {
+    id: 'ai',
+    label: 'AI TOOLS',
+    items: [
+      {
+        id: 'note-aid-kb',
+        label: 'Note Aid KB',
+        icon: '🧠',
+        component: 'NoteAidKnowledgeBaseSettings',
+        roles: ['super_admin', 'admin'],
+        excludeSupervisor: true,
+        requiresAgency: true,
+        requiresNoteAidEnabled: true
+      }
+    ]
+  },
+  {
     id: 'system',
     label: 'SYSTEM',
     items: [
@@ -412,6 +444,8 @@ const allCategories = [
 const visibleCategories = computed(() => {
   const userRole = authStore.user?.role;
   const isUserSupervisor = isSupervisor(authStore.user);
+  const flags = parseFeatureFlags(agencyStore.currentAgency?.feature_flags);
+  const noteAidEnabled = isTruthyFlag(flags?.noteAidEnabled);
   
   return allCategories.map(category => ({
     ...category,
@@ -448,6 +482,9 @@ const visibleCategories = computed(() => {
           }
         }
         
+        if (item.requiresNoteAidEnabled && !noteAidEnabled) {
+          return false;
+        }
         return true;
       })
       .map(item => ({
@@ -478,6 +515,7 @@ const componentMap = {
   AvailabilityIntakeManagement,
   ViewportPreviewSettings,
   PayrollScheduleSettings,
+  NoteAidKnowledgeBaseSettings,
   TeamRolesManagement,
   BillingManagement,
   IntegrationsManagement
