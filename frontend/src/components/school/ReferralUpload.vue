@@ -48,8 +48,18 @@
           <div v-if="clientId && phiDocumentId" class="ocr-panel">
             <h3>Extract Handwritten Data</h3>
             <p class="muted">Use OCR to extract text and quickly copy details for EHR entry.</p>
+            <div class="scan-status">
+              <div class="scan-label">
+                Scan status:
+                <strong>{{ scanStatusLabel }}</strong>
+              </div>
+              <div v-if="scanStatusMessage" class="muted">{{ scanStatusMessage }}</div>
+              <div class="scan-bar">
+                <div class="scan-bar-fill" :class="scanStatusClass" :style="{ width: scanProgress + '%' }"></div>
+              </div>
+            </div>
             <div class="ocr-actions">
-              <button class="btn btn-secondary" type="button" :disabled="ocrLoading" @click="runOcr">
+              <button class="btn btn-secondary" type="button" :disabled="ocrLoading || !canRunOcr" @click="runOcr">
                 {{ ocrLoading ? 'Extracting...' : 'Extract Text' }}
               </button>
               <button v-if="ocrText" class="btn btn-secondary" type="button" @click="copyText(ocrText)">
@@ -58,6 +68,36 @@
             </div>
             <div v-if="ocrError" class="error-message">{{ ocrError }}</div>
             <textarea v-if="ocrText" class="ocr-text" readonly :value="ocrText"></textarea>
+
+            <div v-if="pageOneLines.length" class="ocr-section">
+              <h4>Page 1 Answers</h4>
+              <div class="answer-list">
+                <div v-for="(line, idx) in pageOneLines" :key="`p1-${idx}`" class="answer-row">
+                  <span>{{ line }}</span>
+                  <button class="btn btn-xs btn-secondary" type="button" @click="copyText(line)">Copy</button>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="psc17Summary" class="ocr-section">
+              <h4>PSC-17 Score (Page 2)</h4>
+              <div class="psc-summary">
+                <div>Total: {{ psc17Summary.total }} (Cutoff >= 15)</div>
+                <div>Attention: {{ psc17Summary.attention }} (Cutoff >= 7)</div>
+                <div>Internalizing: {{ psc17Summary.internalizing }} (Cutoff >= 5)</div>
+                <div>Externalizing: {{ psc17Summary.externalizing }} (Cutoff >= 7)</div>
+              </div>
+            </div>
+
+            <div v-if="pageTwoExtras.length" class="ocr-section">
+              <h4>Page 2 Additional Answers</h4>
+              <div class="answer-list">
+                <div v-for="(line, idx) in pageTwoExtras" :key="`p2-${idx}`" class="answer-row">
+                  <span>{{ line }}</span>
+                  <button class="btn btn-xs btn-secondary" type="button" @click="copyText(line)">Copy</button>
+                </div>
+              </div>
+            </div>
 
             <div class="profile-builder">
               <div class="form-group">
@@ -97,7 +137,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -123,6 +163,10 @@ const ocrText = ref('');
 const ocrRequestId = ref(null);
 const firstName = ref('');
 const lastName = ref('');
+const scanStatus = ref('');
+const scanResult = ref('');
+const scanUpdatedAt = ref('');
+const scanPolling = ref(null);
 
 const abbreviatedName = computed(() => {
   const clean = (value) => String(value || '').replace(/[^A-Za-z]/g, '');
@@ -134,6 +178,116 @@ const abbreviatedName = computed(() => {
   };
   const code = `${part(firstName.value)}${part(lastName.value)}`.trim();
   return code || '';
+});
+
+const canRunOcr = computed(() => scanStatus.value === 'clean');
+
+const scanStatusLabel = computed(() => {
+  const s = String(scanStatus.value || '').toLowerCase();
+  if (!s) return 'Pending';
+  if (s === 'clean') return 'Clean';
+  if (s === 'infected') return 'Blocked (Infected)';
+  return s;
+});
+
+const scanStatusMessage = computed(() => {
+  const s = String(scanStatus.value || '').toLowerCase();
+  if (!s || s === 'pending') return 'Security scan is running. OCR will unlock when complete.';
+  if (s === 'clean') return 'Scan complete. OCR is available.';
+  if (s === 'infected') return 'Upload blocked due to security scan.';
+  return '';
+});
+
+const scanProgress = computed(() => {
+  const s = String(scanStatus.value || '').toLowerCase();
+  if (!s || s === 'pending') return 35;
+  if (s === 'clean') return 100;
+  if (s === 'infected') return 100;
+  return 50;
+});
+
+const scanStatusClass = computed(() => {
+  const s = String(scanStatus.value || '').toLowerCase();
+  if (s === 'clean') return 'scan-clean';
+  if (s === 'infected') return 'scan-bad';
+  return 'scan-pending';
+});
+
+const splitPages = (text) => {
+  if (!text) return [];
+  const pages = String(text).split(/\f/);
+  if (pages.length > 1) return pages;
+  return [text];
+};
+
+const toLines = (text) =>
+  String(text || '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+const pageOneLines = computed(() => {
+  if (!ocrText.value) return [];
+  const pages = splitPages(ocrText.value);
+  return toLines(pages[0] || '');
+});
+
+const pageTwoLines = computed(() => {
+  if (!ocrText.value) return [];
+  const pages = splitPages(ocrText.value);
+  return toLines(pages[1] || '');
+});
+
+const parsePsc17 = (lines) => {
+  const answers = Array(17).fill(null);
+  const mapWord = (v) => {
+    const s = String(v || '').toLowerCase();
+    if (s.includes('never')) return 0;
+    if (s.includes('sometimes')) return 1;
+    if (s.includes('often')) return 2;
+    if (s === '0' || s === '1' || s === '2') return Number(s);
+    return null;
+  };
+  lines.forEach((line) => {
+    const m = line.match(/^\s*(\d{1,2})[\).:\-]/);
+    if (!m) return;
+    const idx = Number(m[1]);
+    if (idx < 1 || idx > 17) return;
+    const token = line.match(/(never|sometimes|often|\b0\b|\b1\b|\b2\b)/i);
+    if (!token) return;
+    answers[idx - 1] = mapWord(token[1]);
+  });
+
+  if (answers.filter((v) => v !== null).length < 17) {
+    const tokens = lines
+      .join(' ')
+      .match(/(never|sometimes|often|\b0\b|\b1\b|\b2\b)/gi);
+    if (tokens && tokens.length >= 17) {
+      tokens.slice(0, 17).forEach((t, i) => {
+        if (answers[i] === null) answers[i] = mapWord(t);
+      });
+    }
+  }
+
+  if (answers.some((v) => v === null)) return null;
+  const attentionIdx = [0, 1, 2, 3, 6];
+  const internalIdx = [4, 5, 8, 9, 10];
+  const externalIdx = [7, 11, 12, 13, 14, 15, 16];
+  const sum = (idxs) => idxs.reduce((acc, i) => acc + (answers[i] || 0), 0);
+  return {
+    total: answers.reduce((a, b) => a + (b || 0), 0),
+    attention: sum(attentionIdx),
+    internalizing: sum(internalIdx),
+    externalizing: sum(externalIdx)
+  };
+};
+
+const psc17Summary = computed(() => parsePsc17(pageTwoLines.value));
+
+const pageTwoExtras = computed(() => {
+  if (!pageTwoLines.value.length) return [];
+  const questionLines = pageTwoLines.value.filter((l) => l.includes('?'));
+  return questionLines.slice(0, 4);
 });
 
 const handleFileSelect = (event) => {
@@ -201,6 +355,11 @@ const handleUpload = async () => {
     success.value = 'Referral packet uploaded successfully!';
     clientId.value = response.data?.clientId || null;
     phiDocumentId.value = response.data?.phiDocumentId || null;
+    scanStatus.value = response.data?.scanStatus || 'pending';
+    if (clientId.value && phiDocumentId.value) {
+      await refreshScanStatus();
+      startScanPolling();
+    }
     
     emit('uploaded', response.data);
   } catch (err) {
@@ -237,6 +396,34 @@ const runOcr = async () => {
     ocrLoading.value = false;
   }
 };
+
+const refreshScanStatus = async () => {
+  if (!clientId.value || !phiDocumentId.value) return;
+  try {
+    const resp = await api.get(`/referrals/${clientId.value}/phi-documents/${phiDocumentId.value}/status`);
+    const doc = resp.data?.document || {};
+    scanStatus.value = doc.scan_status || 'pending';
+    scanResult.value = doc.scan_result || '';
+    scanUpdatedAt.value = doc.scanned_at || doc.uploaded_at || '';
+  } catch {
+    // ignore polling errors
+  }
+};
+
+const startScanPolling = () => {
+  if (scanPolling.value) clearInterval(scanPolling.value);
+  scanPolling.value = setInterval(async () => {
+    await refreshScanStatus();
+    if (scanStatus.value === 'clean' || scanStatus.value === 'infected') {
+      clearInterval(scanPolling.value);
+      scanPolling.value = null;
+    }
+  }, 5000);
+};
+
+onBeforeUnmount(() => {
+  if (scanPolling.value) clearInterval(scanPolling.value);
+});
 
 const applyInitials = async () => {
   if (!clientId.value || !ocrRequestId.value || !abbreviatedName.value) return;
@@ -328,6 +515,45 @@ const applyInitials = async () => {
   border-top: 1px solid var(--border);
 }
 
+.scan-status {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+  background: #f8f9fa;
+}
+
+.scan-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.scan-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: #e9ecef;
+  overflow: hidden;
+}
+
+.scan-bar-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.scan-pending {
+  background: #f0ad4e;
+}
+
+.scan-clean {
+  background: #28a745;
+}
+
+.scan-bad {
+  background: #dc3545;
+}
+
 .ocr-actions {
   display: flex;
   gap: 10px;
@@ -348,6 +574,41 @@ const applyInitials = async () => {
   margin-top: 12px;
   display: grid;
   gap: 10px;
+}
+
+.ocr-section {
+  margin-top: 14px;
+}
+
+.answer-list {
+  display: grid;
+  gap: 6px;
+}
+
+.answer-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.psc-summary {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.btn-xs {
+  padding: 2px 6px;
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .abbr-row {
