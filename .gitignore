@@ -27,6 +27,20 @@ build/
 .DS_Store
 Thumbs.db
 
+# Python / ADK local artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+.adk/
+agents/**/__pycache__/
+agents/**/.venv/
+agents/**/venv/
+agents/**/.adk/
+
 # Logs
 *.log
 npm-debug.log*
