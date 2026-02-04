@@ -157,6 +157,21 @@ const isAnsweredOrClosed = computed(() => {
   return s === 'answered' || s === 'closed';
 });
 
+const markThreadViewed = async () => {
+  try {
+    const orgId = Number(props.schoolOrganizationId || 0);
+    const clientId = Number(props.client?.id || 0);
+    if (!orgId || !clientId) return;
+    await api.post(
+      '/support-tickets/client-thread/read',
+      { schoolOrganizationId: orgId, clientId },
+      { skipGlobalLoading: true, timeout: 8000 }
+    );
+  } catch {
+    // best-effort; never block viewing
+  }
+};
+
 const formatStatus = (v) => {
   const s = String(v || '').trim().toLowerCase();
   if (!s) return '—';
@@ -309,6 +324,8 @@ const loadMessagesForTicket = async (ticketId) => {
     } catch {
       // ignore
     }
+    // "Read" = "viewed": mark the client thread as viewed after we have loaded the thread.
+    await markThreadViewed();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load messages';
     messages.value = [];

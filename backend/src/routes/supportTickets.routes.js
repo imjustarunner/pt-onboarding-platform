@@ -5,6 +5,7 @@ import {
   listSupportTicketsQueue,
   createSupportTicket,
   getClientSupportTicketThread,
+  markClientSupportTicketThreadRead,
   listClientSupportTickets,
   listSupportTicketMessages,
   createSupportTicketMessage,
@@ -22,6 +23,7 @@ router.get('/mine', listMySupportTickets);
 
 // School Portal: client-scoped thread lookup (school staff + agency staff/admin)
 router.get('/client-thread', getClientSupportTicketThread);
+router.post('/client-thread/read', markClientSupportTicketThreadRead);
 
 // School Portal: list client ticket history (school staff + agency staff/admin)
 router.get('/client-tickets', listClientSupportTickets);

@@ -19,6 +19,58 @@ async function resolveActiveAgencyIdForOrg(orgId) {
   );
 }
 
+async function hasSupportTicketMessagesTable() {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_ticket_messages'"
+    );
+    return Number(rows?.[0]?.cnt || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasSupportTicketMessagesSoftDeleteColumns() {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_ticket_messages' AND COLUMN_NAME = 'is_deleted'"
+    );
+    return Number(rows?.[0]?.cnt || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+function parseJsonMaybe(v) {
+  if (!v) return null;
+  if (typeof v === 'object') return v;
+  if (typeof v !== 'string') return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+}
+
+async function getUserNotificationCategories(userId) {
+  const uid = parseInt(userId, 10);
+  if (!uid) return {};
+  try {
+    const [rows] = await pool.execute(
+      `SELECT notification_categories
+       FROM user_preferences
+       WHERE user_id = ?
+       LIMIT 1`,
+      [uid]
+    );
+    const raw = rows?.[0]?.notification_categories ?? null;
+    const parsed = parseJsonMaybe(raw) || raw;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function roleCanUseAgencyAffiliation(role) {
   const r = String(role || '').toLowerCase();
   return r === 'admin' || r === 'support' || r === 'staff';
@@ -238,6 +290,37 @@ export const getSchoolClients = async (req, res, next) => {
       // table may not exist yet; ignore
     }
 
+    // Unread ticket message counts (per user) - best effort when tables exist.
+    const unreadTicketMsgsByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      const orgId = parseInt(organizationId, 10);
+      if (clientIds.length > 0 && userId && orgId && (await hasSupportTicketMessagesTable())) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
+        const [rows] = await pool.execute(
+          `SELECT t.client_id, COUNT(*) AS unread_count
+           FROM support_tickets t
+           JOIN support_ticket_messages m ON m.ticket_id = t.id
+           LEFT JOIN support_ticket_thread_reads r
+             ON r.school_organization_id = t.school_organization_id
+            AND r.client_id = t.client_id
+            AND r.user_id = ?
+           WHERE t.school_organization_id = ?
+             AND t.client_id IN (${placeholders})
+             ${hasSoftDelete ? 'AND (m.is_deleted IS NULL OR m.is_deleted = 0)' : ''}
+             AND m.created_at > COALESCE(r.last_read_at, '1970-01-01')
+           GROUP BY t.client_id`,
+          [userId, orgId, ...clientIds]
+        );
+        for (const r of rows || []) {
+          unreadTicketMsgsByClientId.set(Number(r.client_id), Number(r.unread_count || 0));
+        }
+      }
+    } catch {
+      // ignore (tables may not exist yet)
+    }
+
     // Format response: Only include non-sensitive fields
     const restrictedClients = clients.map(client => {
       return {
@@ -267,7 +350,8 @@ export const getSchoolClients = async (req, res, next) => {
         doc_date: client.doc_date || null,
         roi_expires_at: client.roi_expires_at || null,
         skills: client.skills === 1 || client.skills === true,
-        unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0
+        unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0,
+        unread_ticket_messages_count: unreadTicketMsgsByClientId.get(Number(client.id)) || 0
       };
     });
 
@@ -449,6 +533,36 @@ export const getProviderMyRoster = async (req, res, next) => {
       // ignore
     }
 
+    // Unread ticket message counts (per user) - best effort when tables exist.
+    const unreadTicketMsgsByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      if (clientIds.length > 0 && userId && orgId && (await hasSupportTicketMessagesTable())) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
+        const [rows] = await pool.execute(
+          `SELECT t.client_id, COUNT(*) AS unread_count
+           FROM support_tickets t
+           JOIN support_ticket_messages m ON m.ticket_id = t.id
+           LEFT JOIN support_ticket_thread_reads r
+             ON r.school_organization_id = t.school_organization_id
+            AND r.client_id = t.client_id
+            AND r.user_id = ?
+           WHERE t.school_organization_id = ?
+             AND t.client_id IN (${placeholders})
+             ${hasSoftDelete ? 'AND (m.is_deleted IS NULL OR m.is_deleted = 0)' : ''}
+             AND m.created_at > COALESCE(r.last_read_at, '1970-01-01')
+           GROUP BY t.client_id`,
+          [userId, orgId, ...clientIds]
+        );
+        for (const r of rows || []) {
+          unreadTicketMsgsByClientId.set(Number(r.client_id), Number(r.unread_count || 0));
+        }
+      }
+    } catch {
+      // ignore (tables may not exist yet)
+    }
+
     const restrictedClients = clients.map((client) => {
       return {
         id: client.id,
@@ -474,7 +588,8 @@ export const getProviderMyRoster = async (req, res, next) => {
         doc_date: client.doc_date || null,
         roi_expires_at: client.roi_expires_at || null,
         skills: client.skills === 1 || client.skills === true,
-        unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0
+        unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0,
+        unread_ticket_messages_count: unreadTicketMsgsByClientId.get(Number(client.id)) || 0
       };
     });
 
@@ -1249,6 +1364,13 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
+    // Per-user client notification toggles (default ON when missing).
+    const categories = await getUserNotificationCategories(userId);
+    const allowClientUpdates = categories.school_portal_client_updates !== false;
+    const allowOrgSwaps = categories.school_portal_client_update_org_swaps !== false;
+    const allowClientComments = categories.school_portal_client_comments !== false;
+    const allowClientMessages = categories.school_portal_client_messages !== false;
+
     // Manual announcements (all, newest-first)
     let announcements = [];
     try {
@@ -1288,6 +1410,9 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     // Client events from client_status_history (scoped to clients affiliated with this org)
     let events = [];
     try {
+      if (!allowClientUpdates) {
+        events = [];
+      } else {
       const [rows] = await pool.execute(
         `SELECT
            h.id,
@@ -1313,26 +1438,47 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
          LIMIT 400`,
         [orgId]
       );
-      events = (rows || []).map((r) => {
+      events = (rows || [])
+        .map((r) => {
         const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
         const clientLabel = String(r.identifier_code || r.initials || '—');
         const field = String(r.field_changed || '').trim();
+
+        // Filter "organization swap" events if disabled.
+        if (!allowOrgSwaps && field === 'organization_id') return null;
+
+        // Avoid exposing raw field slugs; keep message professional + short.
         const title =
           field === 'client_status_id' || field === 'status'
             ? 'Client status updated'
             : field === 'provider_id' || field === 'provider_user_id'
-              ? 'Client assignment updated'
-              : 'Client updated';
+              ? 'Provider assignment updated'
+              : field === 'service_day'
+                ? 'Assigned day updated'
+                : field === 'submission_date'
+                  ? 'Submission date updated'
+                  : field === 'doc_date'
+                    ? 'Document date updated'
+                    : field === 'organization_id'
+                      ? 'Organization updated'
+                      : 'Client updated';
 
-        // Avoid exposing raw ids where possible; keep message generic + short.
-        let msg = `${clientLabel}: ${field || 'updated'}`;
-        if (field === 'client_status_id' || field === 'status') msg = `${clientLabel}: status updated`;
-        if (field === 'provider_id' || field === 'provider_user_id') msg = `${clientLabel}: provider assignment updated`;
-        if (field === 'service_day') msg = `${clientLabel}: assigned day updated`;
-        if (field === 'submission_date') msg = `${clientLabel}: submission date updated`;
-        if (field === 'doc_date') msg = `${clientLabel}: document date updated`;
+        const msg =
+          field === 'client_status_id' || field === 'status'
+            ? `${clientLabel}: status updated`
+            : field === 'provider_id' || field === 'provider_user_id'
+              ? `${clientLabel}: provider assignment updated`
+              : field === 'service_day'
+                ? `${clientLabel}: assigned day updated`
+                : field === 'submission_date'
+                  ? `${clientLabel}: submission date updated`
+                  : field === 'doc_date'
+                    ? `${clientLabel}: document date updated`
+                    : field === 'organization_id'
+                      ? `${clientLabel}: organization updated`
+                      : `${clientLabel}: updated`;
 
-        return {
+        return ({
           id: `client_event:${r.id}`,
           kind: 'client_event',
           created_at: r.changed_at,
@@ -1343,19 +1489,126 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           client_initials: r.initials || null,
           client_identifier_code: r.identifier_code || null
         };
-      });
+      })
+        .filter(Boolean);
+      }
     } catch (e) {
       events = [];
     }
 
-    const combined = [...announcements, ...events].sort((a, b) => {
+    // Client comments (client_notes, non-internal, category=comment)
+    let comments = [];
+    try {
+      if (!allowClientComments) {
+        comments = [];
+      } else {
+        const [rows] = await pool.execute(
+          `SELECT
+             n.id,
+             n.client_id,
+             n.message,
+             n.created_at,
+             c.initials,
+             c.identifier_code,
+             u.first_name AS actor_first_name,
+             u.last_name AS actor_last_name
+           FROM client_notes n
+           JOIN client_organization_assignments coa
+             ON coa.client_id = n.client_id
+            AND coa.organization_id = ?
+            AND coa.is_active = TRUE
+           JOIN clients c ON c.id = n.client_id
+           LEFT JOIN users u ON u.id = n.author_id
+           WHERE n.is_internal_only = FALSE
+             AND (n.category IS NULL OR n.category = 'comment')
+           ORDER BY n.created_at DESC, n.id DESC
+           LIMIT 400`,
+          [orgId]
+        );
+        comments = (rows || []).map((r) => {
+          const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
+          const clientLabel = String(r.identifier_code || r.initials || '—');
+          const raw = String(r.message || '').trim();
+          const snippet = raw.length > 260 ? `${raw.slice(0, 260)}…` : raw;
+          return {
+            id: `comment:${r.id}`,
+            kind: 'comment',
+            created_at: r.created_at,
+            title: 'New comment',
+            message: snippet ? `${clientLabel}: ${snippet}` : `${clientLabel}: comment added`,
+            actor_name: actor || null,
+            client_id: Number(r.client_id),
+            client_initials: r.initials || null,
+            client_identifier_code: r.identifier_code || null
+          };
+        });
+      }
+    } catch {
+      comments = [];
+    }
+
+    // Client messages (support_ticket_messages for client-scoped tickets)
+    let messages = [];
+    try {
+      if (!allowClientMessages) {
+        messages = [];
+      } else if (await hasSupportTicketMessagesTable()) {
+        const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
+        const [rows] = await pool.execute(
+          `SELECT
+             m.id,
+             t.client_id,
+             m.body,
+             m.created_at,
+             c.initials,
+             c.identifier_code,
+             u.first_name AS actor_first_name,
+             u.last_name AS actor_last_name
+           FROM support_ticket_messages m
+           JOIN support_tickets t ON t.id = m.ticket_id
+           JOIN client_organization_assignments coa
+             ON coa.client_id = t.client_id
+            AND coa.organization_id = ?
+            AND coa.is_active = TRUE
+           JOIN clients c ON c.id = t.client_id
+           LEFT JOIN users u ON u.id = m.author_user_id
+           WHERE t.school_organization_id = ?
+             AND t.client_id IS NOT NULL
+             ${hasSoftDelete ? 'AND (m.is_deleted IS NULL OR m.is_deleted = 0)' : ''}
+           ORDER BY m.created_at DESC, m.id DESC
+           LIMIT 400`,
+          [orgId, orgId]
+        );
+        messages = (rows || []).map((r) => {
+          const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
+          const clientLabel = String(r.identifier_code || r.initials || '—');
+          const raw = String(r.body || '').trim();
+          const snippet = raw.length > 260 ? `${raw.slice(0, 260)}…` : raw;
+          return {
+            id: `ticket_message:${r.id}`,
+            kind: 'message',
+            created_at: r.created_at,
+            title: 'New message',
+            message: snippet ? `${clientLabel}: ${snippet}` : `${clientLabel}: new message`,
+            actor_name: actor || null,
+            client_id: Number(r.client_id),
+            client_initials: r.initials || null,
+            client_identifier_code: r.identifier_code || null
+          };
+        });
+      }
+    } catch {
+      messages = [];
+    }
+
+    const all = [...announcements, ...events, ...comments, ...messages].sort((a, b) => {
       const at = new Date(a.created_at || 0).getTime();
       const bt = new Date(b.created_at || 0).getTime();
       if (at !== bt) return bt - at;
       return String(b.id).localeCompare(String(a.id));
     });
 
-    res.json(combined.slice(0, 500));
+    res.json(all.slice(0, 500));
   } catch (e) {
     next(e);
   }

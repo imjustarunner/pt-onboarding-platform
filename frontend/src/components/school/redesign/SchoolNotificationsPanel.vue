@@ -3,9 +3,14 @@
     <div class="panel-header">
       <div>
         <h2 style="margin:0;">Notifications</h2>
-        <div class="muted">Client update notifications + school-wide announcements (never student-specific).</div>
+        <div class="muted">Client activity + school-wide announcements (no PHI).</div>
       </div>
-      <button class="btn btn-secondary btn-sm" type="button" @click="$emit('close')">Close</button>
+      <div style="display:flex; gap: 10px; align-items: center;">
+        <button class="btn btn-secondary btn-sm" type="button" @click="openSettings" :disabled="prefsLoading || savingSettings">
+          Settings
+        </button>
+        <button class="btn btn-secondary btn-sm" type="button" @click="$emit('close')">Close</button>
+      </div>
     </div>
 
     <div v-if="createOpen" class="create-card">
@@ -74,6 +79,49 @@
       </div>
     </div>
   </div>
+
+  <div v-if="showSettings" class="modal-overlay" @click.self="closeSettings">
+    <div class="modal-content" @click.stop>
+      <div class="modal-header">
+        <h3 style="margin:0;">Notification settings</h3>
+        <button class="btn-close" type="button" title="Close" @click="closeSettings">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="muted" style="margin-bottom: 12px;">
+          These control which client notifications show in this School Portal notifications feed.
+        </div>
+
+        <label class="toggle">
+          <input type="checkbox" v-model="settings.clientUpdates" :disabled="savingSettings" />
+          <span class="toggle-label">Client updates</span>
+        </label>
+
+        <label class="toggle" style="padding-left: 18px;">
+          <input type="checkbox" v-model="settings.orgSwaps" :disabled="savingSettings || !settings.clientUpdates" />
+          <span class="toggle-label">Organization changes</span>
+          <span class="muted-small" style="margin-left: 8px;">(organization_id swapped)</span>
+        </label>
+
+        <label class="toggle">
+          <input type="checkbox" v-model="settings.clientComments" :disabled="savingSettings" />
+          <span class="toggle-label">Client comments</span>
+        </label>
+
+        <label class="toggle">
+          <input type="checkbox" v-model="settings.clientMessages" :disabled="savingSettings" />
+          <span class="toggle-label">Client messages</span>
+        </label>
+
+        <div style="display:flex; gap: 10px; margin-top: 14px; align-items:center;">
+          <button class="btn btn-primary" type="button" @click="saveSettings" :disabled="savingSettings">
+            {{ savingSettings ? 'Saving…' : 'Save' }}
+          </button>
+          <div v-if="settingsSaved" class="muted-small">Saved</div>
+          <div v-if="settingsError" class="error">{{ settingsError }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -111,6 +159,17 @@ const parseJsonMaybe = (v) => {
   }
 };
 
+const showSettings = ref(false);
+const savingSettings = ref(false);
+const settingsSaved = ref(false);
+const settingsError = ref('');
+const settings = ref({
+  clientUpdates: true,
+  orgSwaps: true,
+  clientComments: true,
+  clientMessages: true
+});
+
 const loadLastSeen = async () => {
   try {
     const uid = authStore.user?.id;
@@ -126,6 +185,67 @@ const loadLastSeen = async () => {
     lastSeenIso.value = '';
   } finally {
     prefsLoading.value = false;
+  }
+};
+
+const loadCategories = async () => {
+  try {
+    const uid = authStore.user?.id;
+    if (!uid) return {};
+    const pref = (await api.get(`/users/${uid}/preferences`)).data || {};
+    const raw = pref.notification_categories;
+    const m = parseJsonMaybe(raw) || raw;
+    return m && typeof m === 'object' ? m : {};
+  } catch {
+    return {};
+  }
+};
+
+const openSettings = async () => {
+  settingsError.value = '';
+  settingsSaved.value = false;
+  showSettings.value = true;
+  const cats = await loadCategories();
+  settings.value = {
+    clientUpdates: cats.school_portal_client_updates !== false,
+    orgSwaps: cats.school_portal_client_update_org_swaps !== false,
+    clientComments: cats.school_portal_client_comments !== false,
+    clientMessages: cats.school_portal_client_messages !== false
+  };
+};
+
+const closeSettings = () => {
+  showSettings.value = false;
+  settingsError.value = '';
+  settingsSaved.value = false;
+};
+
+const saveSettings = async () => {
+  try {
+    const uid = authStore.user?.id;
+    if (!uid) return;
+    savingSettings.value = true;
+    settingsError.value = '';
+    settingsSaved.value = false;
+
+    const existing = await loadCategories();
+    const next = { ...(existing || {}) };
+    next.school_portal_client_updates = !!settings.value.clientUpdates;
+    next.school_portal_client_update_org_swaps = !!settings.value.orgSwaps;
+    next.school_portal_client_comments = !!settings.value.clientComments;
+    next.school_portal_client_messages = !!settings.value.clientMessages;
+
+    await api.put(`/users/${uid}/preferences`, {
+      notification_categories: next
+    });
+
+    settingsSaved.value = true;
+    setTimeout(() => { settingsSaved.value = false; }, 1500);
+    await refresh();
+  } catch (e) {
+    settingsError.value = e.response?.data?.error?.message || 'Failed to save settings';
+  } finally {
+    savingSettings.value = false;
   }
 };
 
@@ -318,6 +438,61 @@ watch(
 .spacer {
   flex: 1;
 }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  padding: 18px;
+  max-width: 520px;
+  width: 92vw;
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.btn-close:hover {
+  color: var(--text-primary);
+}
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+}
+.toggle-label {
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
 .feed {
   display: grid;
   gap: 10px;

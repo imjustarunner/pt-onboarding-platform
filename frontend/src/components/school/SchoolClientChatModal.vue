@@ -207,7 +207,8 @@ import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   client: { type: Object, required: true },
-  schoolOrganizationId: { type: Number, default: null }
+  schoolOrganizationId: { type: Number, default: null },
+  initialPane: { type: String, default: null } // null | 'comments' | 'messages'
 });
 defineEmits(['close']);
 
@@ -371,7 +372,13 @@ const formatKey = (v) => {
   return s.replace(/_/g, ' ');
 };
 
-onMounted(load);
+onMounted(() => {
+  const p = String(props.initialPane || '').trim().toLowerCase();
+  if (p === 'comments' || p === 'messages') {
+    activePane.value = p;
+  }
+  load();
+});
 
 watch(
   () => [props.client?.id, props.client?.client_status_key],
@@ -380,7 +387,10 @@ watch(
     hoveringWaitlist.value = false;
     waitlistLoading.value = false;
     waitlistNote.value = '';
-    activePane.value = null;
+    {
+      const p = String(props.initialPane || '').trim().toLowerCase();
+      activePane.value = (p === 'comments' || p === 'messages') ? p : null;
+    }
     comments.value = [];
     commentDraft.value = '';
     commentError.value = '';

@@ -405,6 +405,50 @@ export const getClientSupportTicketThread = async (req, res, next) => {
   }
 };
 
+/**
+ * Mark a client-scoped support ticket thread as read (viewed) for the current user.
+ * POST /api/support-tickets/client-thread/read
+ * body: { schoolOrganizationId, clientId }
+ */
+export const markClientSupportTicketThreadRead = async (req, res, next) => {
+  try {
+    const schoolOrganizationId = parseInt(req.body?.schoolOrganizationId, 10);
+    const clientId = parseInt(req.body?.clientId, 10);
+    if (!schoolOrganizationId || !clientId) {
+      return res.status(400).json({ error: { message: 'schoolOrganizationId and clientId are required' } });
+    }
+
+    const access = await ensureOrgAccess(req, schoolOrganizationId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    // Only allow school staff + agency admin/support/staff + super_admin (same as thread view)
+    const role = String(req.user?.role || '').toLowerCase();
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const okClient = await ensureClientInOrg({ clientId, schoolOrganizationId });
+    if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
+
+    // Best-effort insert/update; table may not exist yet in older environments.
+    try {
+      await pool.execute(
+        `INSERT INTO support_ticket_thread_reads (school_organization_id, client_id, user_id, last_read_at)
+         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+         ON DUPLICATE KEY UPDATE last_read_at = CURRENT_TIMESTAMP`,
+        [schoolOrganizationId, clientId, req.user.id]
+      );
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
+      if (!missing) throw e;
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const listClientSupportTickets = async (req, res, next) => {
   try {
     const schoolOrganizationId = parseInt(req.query?.schoolOrganizationId, 10);

@@ -483,6 +483,11 @@ const defaultCategories = () => ({
   messaging_support_safety_net_alerts: true,
   messaging_replies_to_my_messages: true,
   messaging_client_notes: true,
+  // School Portal feed toggles (default ON)
+  school_portal_client_updates: true,
+  school_portal_client_update_org_swaps: true,
+  school_portal_client_comments: true,
+  school_portal_client_messages: true,
   scheduling_room_booking_approved_denied: true,
   scheduling_schedule_changes: true,
   scheduling_room_release_requests: true,

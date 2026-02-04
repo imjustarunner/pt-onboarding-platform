@@ -18,6 +18,17 @@
           <span class="active-filter-pill">Status: {{ activeStatusFilterLabel }}</span>
           <button class="btn-link" type="button" @click="clearStatusFilter">Clear</button>
         </div>
+        <div class="unread-legend" aria-label="Unread bubble legend">
+          <div class="unread-legend-item">
+            <span class="unread-badge unread-badge-comments unread-badge-legend" aria-hidden="true">1</span>
+            <span class="unread-legend-text">New comment(s)</span>
+          </div>
+          <div class="unread-legend-item">
+            <span class="unread-badge unread-badge-messages unread-badge-legend" aria-hidden="true">1</span>
+            <span class="unread-legend-text">New message(s)</span>
+          </div>
+          <div class="unread-legend-hint">Click a bubble to open it.</div>
+        </div>
         <input
           v-model="searchQuery"
           class="table-search"
@@ -85,7 +96,27 @@
             @keydown.space.prevent="handleRowActivate(client)"
           >
             <td class="initials-cell">
-              <span class="initials" :title="rosterLabelTitle(client)">{{ formatRosterLabel(client) }}</span>
+              <div class="client-label">
+                <span class="initials" :title="rosterLabelTitle(client)">{{ formatRosterLabel(client) }}</span>
+                <button
+                  v-if="Number(client.unread_notes_count || 0) > 0"
+                  class="unread-badge unread-badge-comments"
+                  type="button"
+                  :title="`${Number(client.unread_notes_count || 0)} new comment(s) — click to open`"
+                  @click.stop="openClient(client, 'comments')"
+                >
+                  {{ Number(client.unread_notes_count || 0) }}
+                </button>
+                <button
+                  v-if="Number(client.unread_ticket_messages_count || 0) > 0"
+                  class="unread-badge unread-badge-messages"
+                  type="button"
+                  :title="`${Number(client.unread_ticket_messages_count || 0)} new message(s) — click to open`"
+                  @click.stop="openClient(client, 'messages')"
+                >
+                  {{ Number(client.unread_ticket_messages_count || 0) }}
+                </button>
+              </div>
             </td>
             <td>
               <div class="status-cell">
@@ -140,7 +171,6 @@
             </td>
             <td>
               <button class="btn btn-secondary btn-sm comment-btn" @click.stop="openClient(client)">
-                <span v-if="(client.unread_notes_count || 0) > 0" class="unread-dot" aria-hidden="true" />
                 View & Comment
               </button>
             </td>
@@ -168,7 +198,8 @@
       v-if="selectedClient"
       :client="selectedClient"
       :schoolOrganizationId="organizationId"
-      @close="selectedClient = null"
+      :initial-pane="selectedClientInitialPane"
+      @close="selectedClient = null; selectedClientInitialPane = null"
     />
 
     <WaitlistNoteModal
@@ -245,6 +276,7 @@ const clients = ref([]);
 const loading = ref(false);
 const error = ref('');
 const selectedClient = ref(null);
+const selectedClientInitialPane = ref(null); // null | 'comments' | 'messages'
 const waitlistClient = ref(null);
 const searchQuery = ref('');
 const router = useRouter();
@@ -544,8 +576,9 @@ const psychotherapyCell = (client) => {
   return { total: Number.isFinite(total) ? total : 0, title };
 };
 
-const openClient = (client) => {
+const openClient = (client, initialPane = null) => {
   selectedClient.value = client;
+  selectedClientInitialPane.value = initialPane;
 };
 
 const openWaitlistNote = (client) => {
@@ -569,7 +602,7 @@ const handleRowActivate = (client) => {
   // School staff only have one action on roster rows: view/comment thread.
   // Make the entire row clickable for them to reduce friction.
   if (!isSchoolStaff.value) return;
-  openClient(client);
+  openClient(client, 'comments');
 };
 
 const goEdit = (client) => {
@@ -607,6 +640,72 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.client-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.unread-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt);
+}
+.unread-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.unread-legend-text {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+.unread-legend-hint {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.unread-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 800;
+  cursor: pointer;
+  user-select: none;
+}
+.unread-badge-legend {
+  cursor: default;
+}
+.unread-badge-comments {
+  background: rgba(45, 156, 219, 0.12);
+  border-color: rgba(45, 156, 219, 0.35);
+  color: #1b6fa0;
+}
+.unread-badge-messages {
+  background: rgba(155, 81, 224, 0.12);
+  border-color: rgba(155, 81, 224, 0.35);
+  color: #6a2aa3;
+}
+.unread-badge:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.45);
+  outline-offset: 2px;
 }
 
 .status-waitlist {
