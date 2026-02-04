@@ -2,6 +2,11 @@ import EmailTemplate from '../models/EmailTemplate.model.js';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import PlatformBranding from '../models/PlatformBranding.model.js';
 import User from '../models/User.model.js';
+import Agency from '../models/Agency.model.js';
+import CommunicationLoggingService from '../services/communicationLogging.service.js';
+import EmailService from '../services/email.service.js';
+import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import { callGeminiText } from '../services/geminiText.service.js';
 
 export const getTemplates = async (req, res, next) => {
   try {
@@ -258,6 +263,246 @@ export const previewTemplate = async (req, res, next) => {
       parameters
     });
   } catch (error) {
+    next(error);
+  }
+};
+
+const normalizeRecipients = (recipients) => {
+  if (!recipients) return [];
+  if (Array.isArray(recipients)) {
+    return recipients
+      .map((r) => (typeof r === 'string' ? r : r?.email))
+      .map((r) => String(r || '').trim())
+      .filter(Boolean);
+  }
+  if (typeof recipients === 'string') {
+    return recipients
+      .split(/[\n,;]+/)
+      .map((r) => String(r || '').trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const buildSenderName = (user) => {
+  if (!user) return 'Admin';
+  const name = `${user.first_name || ''} ${user.last_name || ''}`.trim();
+  return name || user.email || 'Admin';
+};
+
+const ensureAgencyAccess = async ({ userId, userRole, agencyId }) => {
+  if (!agencyId) return;
+  if (userRole === 'super_admin') return;
+  const userAgencies = await User.getAgencies(userId);
+  const userAgencyIds = userAgencies.map((a) => a.id);
+  if (!userAgencyIds.includes(Number(agencyId))) {
+    const err = new Error('Access denied to this agency');
+    err.status = 403;
+    throw err;
+  }
+};
+
+const ensureTemplateAccess = async ({ template, userId, userRole }) => {
+  if (!template) {
+    const err = new Error('Template not found');
+    err.status = 404;
+    throw err;
+  }
+  if (userRole !== 'super_admin' && template.agency_id) {
+    const userAgencies = await User.getAgencies(userId);
+    const userAgencyIds = userAgencies.map((a) => a.id);
+    if (!userAgencyIds.includes(template.agency_id)) {
+      const err = new Error('Access denied');
+      err.status = 403;
+      throw err;
+    }
+  }
+  if (userRole !== 'super_admin' && !template.agency_id) {
+    const err = new Error('Only super admins can access platform templates');
+    err.status = 403;
+    throw err;
+  }
+};
+
+export const sendTemplateEmail = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const {
+      recipients,
+      subject,
+      body,
+      parameters,
+      agencyId,
+      senderIdentityId
+    } = req.body || {};
+
+    const toList = normalizeRecipients(recipients);
+    if (!toList.length) {
+      return res.status(400).json({ error: { message: 'Recipients are required' } });
+    }
+
+    if (req.user.role !== 'super_admin' && !agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    await ensureAgencyAccess({ userId: req.user.id, userRole: req.user.role, agencyId });
+
+    const template = await EmailTemplate.findById(id);
+    await ensureTemplateAccess({ template, userId: req.user.id, userRole: req.user.role });
+
+    const agency = agencyId ? await Agency.findById(agencyId) : null;
+    const senderUser = await User.findById(req.user.id);
+    const senderName = buildSenderName(senderUser);
+
+    const baseParams = await EmailTemplateService.collectParameters(null, agency, {
+      senderName
+    });
+    const mergedParams = { ...baseParams, ...(parameters || {}) };
+
+    const rendered = subject || body
+      ? { subject: String(subject || ''), body: String(body || '') }
+      : EmailTemplateService.renderTemplate(template, mergedParams);
+
+    const results = [];
+
+    for (const to of toList) {
+      const existingUser = await User.findByEmail(to).catch(() => null);
+      const comm = await CommunicationLoggingService.logGeneratedCommunication({
+        userId: existingUser?.id || null,
+        agencyId: agencyId || null,
+        templateType: template.type || 'manual',
+        templateId: template.id || null,
+        subject: rendered.subject,
+        body: rendered.body,
+        generatedByUserId: req.user.id,
+        channel: 'email',
+        recipientAddress: to
+      }).catch(() => null);
+
+      let sendResult = null;
+      if (senderIdentityId) {
+        sendResult = await sendEmailFromIdentity({
+          senderIdentityId,
+          to,
+          subject: rendered.subject,
+          text: rendered.body,
+          html: null,
+          source: 'manual'
+        });
+      } else {
+        sendResult = await EmailService.sendEmail({
+          to,
+          subject: rendered.subject,
+          text: rendered.body,
+          html: null,
+          fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || senderName,
+          fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+          replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+          source: 'manual'
+        });
+      }
+
+      if (comm?.id && sendResult?.id) {
+        await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
+          senderIdentityId: senderIdentityId || null,
+          fromEmail: senderIdentityId ? undefined : (process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null)
+        }).catch(() => {});
+      }
+
+      results.push({ to, result: sendResult || { skipped: true } });
+    }
+
+    res.json({
+      message: 'Email sent',
+      templateId: template.id,
+      results
+    });
+  } catch (error) {
+    if (error?.status) {
+      return res.status(error.status).json({ error: { message: error.message } });
+    }
+    next(error);
+  }
+};
+
+export const aiDraftTemplateEmail = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { prompt, parameters, agencyId } = req.body || {};
+
+    if (!prompt || !String(prompt).trim()) {
+      return res.status(400).json({ error: { message: 'prompt is required' } });
+    }
+
+    if (req.user.role !== 'super_admin' && !agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
+    }
+
+    await ensureAgencyAccess({ userId: req.user.id, userRole: req.user.role, agencyId });
+
+    const template = await EmailTemplate.findById(id);
+    await ensureTemplateAccess({ template, userId: req.user.id, userRole: req.user.role });
+
+    const agency = agencyId ? await Agency.findById(agencyId) : null;
+    const senderUser = await User.findById(req.user.id);
+    const senderName = buildSenderName(senderUser);
+
+    const baseParams = await EmailTemplateService.collectParameters(null, agency, {
+      senderName
+    });
+    const mergedParams = { ...baseParams, ...(parameters || {}) };
+    const available = EmailTemplateService.getAvailableParameters();
+    const paramList = available.map((p) => `${p.name}: ${p.description}`).join('\n');
+
+    const aiPrompt = [
+      'You are drafting an email for an admin user.',
+      'Use the provided template as the starting point and adapt tone/wording to the prompt.',
+      'Keep placeholders using {{PARAMETER}} format when you do not have a concrete value.',
+      'Return ONLY valid JSON with keys: subject, body.',
+      '',
+      'Template subject:',
+      template.subject || '',
+      '',
+      'Template body:',
+      template.body || '',
+      '',
+      'Available parameters:',
+      paramList,
+      '',
+      'Known parameter values (may be empty):',
+      JSON.stringify(mergedParams, null, 2),
+      '',
+      'Admin prompt:',
+      String(prompt).trim()
+    ].join('\n');
+
+    const { text } = await callGeminiText({ prompt: aiPrompt, temperature: 0.3, maxOutputTokens: 800 });
+    const trimmed = String(text || '').trim();
+    const jsonText = trimmed.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim();
+    let parsed = null;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch {
+      return res.status(502).json({ error: { message: 'AI response was not valid JSON' } });
+    }
+
+    const subjectOut = String(parsed?.subject || '').trim();
+    const bodyOut = String(parsed?.body || '').trim();
+
+    if (!subjectOut || !bodyOut) {
+      return res.status(502).json({ error: { message: 'AI response missing subject or body' } });
+    }
+
+    res.json({
+      templateId: template.id,
+      subject: subjectOut,
+      body: bodyOut,
+      parameters: mergedParams
+    });
+  } catch (error) {
+    if (error?.status) {
+      return res.status(error.status).json({ error: { message: error.message } });
+    }
     next(error);
   }
 };

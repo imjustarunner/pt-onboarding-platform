@@ -6,9 +6,11 @@ import {
   updateTemplate,
   deleteTemplate,
   getAvailableParameters,
-  previewTemplate
+  previewTemplate,
+  sendTemplateEmail,
+  aiDraftTemplateEmail
 } from '../controllers/emailTemplate.controller.js';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, requireAgencyAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -35,5 +37,9 @@ router.delete('/:id', deleteTemplate);
 
 // Preview template with sample data
 router.post('/:id/preview', previewTemplate);
+
+// Manual send + AI draft (admin/staff only)
+router.post('/:id/send', requireAgencyAdmin, sendTemplateEmail);
+router.post('/:id/ai-draft', requireAgencyAdmin, aiDraftTemplateEmail);
 
 export default router;

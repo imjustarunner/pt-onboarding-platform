@@ -4,6 +4,19 @@ import EmailSenderIdentity from '../../models/EmailSenderIdentity.model.js';
 import NotificationTrigger from '../../models/NotificationTrigger.model.js';
 import AgencyNotificationTriggerSetting from '../../models/AgencyNotificationTriggerSetting.model.js';
 import CommunicationLoggingService from '../communicationLogging.service.js';
+import { getEmailSendingMode, isEmailNotificationsEnabled } from '../emailSettings.service.js';
+
+async function canSendEmail({ source, agencyId } = {}) {
+  const mode = await getEmailSendingMode();
+  if (mode === 'manual_only' && String(source || '').trim().toLowerCase() !== 'manual') {
+    return { allowed: false, reason: 'manual_only' };
+  }
+  const notificationsAllowed = await isEmailNotificationsEnabled({ agencyId, source });
+  if (!notificationsAllowed) {
+    return { allowed: false, reason: 'notifications_disabled' };
+  }
+  return { allowed: true };
+}
 
 function pickFromHeader({ displayName, fromEmail }) {
   const email = String(fromEmail || '').trim();
@@ -59,8 +72,13 @@ export async function sendNotificationEmail({
   generatedByUserId = null,
   userId = null,
   templateType = null,
-  templateId = null
+  templateId = null,
+  source = 'auto'
 }) {
+  const gate = await canSendEmail({ source, agencyId });
+  if (!gate.allowed) {
+    return { skipped: true, reason: gate.reason };
+  }
   const identity = await resolveSenderIdentityForTrigger({ agencyId, triggerKey });
   if (!identity) {
     throw new Error(`No sender identity configured for trigger "${triggerKey}" (agency ${agencyId})`);
@@ -122,10 +140,15 @@ export async function sendEmailFromIdentity({
   attachments = null,
   inReplyTo = null,
   references = null,
-  threadId = null
+  threadId = null,
+  source = 'auto'
 }) {
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  const gate = await canSendEmail({ source, agencyId: identity?.agency_id || null });
+  if (!gate.allowed) {
+    return { skipped: true, reason: gate.reason };
+  }
 
   const from = pickFromHeader({ displayName: identity.display_name, fromEmail: identity.from_email });
   const replyTo = identity.reply_to || null;

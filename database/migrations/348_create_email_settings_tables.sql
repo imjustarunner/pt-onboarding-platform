@@ -1,0 +1,14 @@
+CREATE TABLE IF NOT EXISTS platform_email_settings (
+  id INT PRIMARY KEY,
+  sending_mode VARCHAR(20) NOT NULL DEFAULT 'all',
+  notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  updated_by_user_id INT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS agency_email_settings (
+  agency_id INT PRIMARY KEY,
+  notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  updated_by_user_id INT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);

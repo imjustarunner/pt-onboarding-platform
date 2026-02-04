@@ -113,6 +113,7 @@ import AgencyManagement from './AgencyManagement.vue';
 import BrandingConfig from './BrandingConfig.vue';
 import BrandingTemplatesManagement from './BrandingTemplatesManagement.vue';
 import EmailTemplateManagement from './EmailTemplateManagement.vue';
+import EmailSettingsPanel from './EmailSettingsPanel.vue';
 import PlatformSettings from './PlatformSettings.vue';
 import UserInfoFieldManagement from './UserInfoFieldManagement.vue';
 import AgencyUserInfoFields from './AgencyUserInfoFields.vue';
@@ -410,6 +411,15 @@ const allCategories = [
         props: { readOnly: false }
       },
       {
+        id: 'email-settings',
+        label: 'Email Settings',
+        icon: '✉️',
+        component: 'EmailSettingsPanel',
+        roles: ['super_admin', 'admin'],
+        excludeRoles: ['clinical_practice_assistant'],
+        excludeSupervisor: true
+      },
+      {
         id: 'integrations',
         label: 'Integrations',
         icon: '🔌',
@@ -500,6 +510,7 @@ const componentMap = {
   BrandingConfig,
   BrandingTemplatesManagement,
   EmailTemplateManagement,
+  EmailSettingsPanel,
   PlatformSettings,
   UserInfoFieldManagement,
   AgencyUserInfoFields,

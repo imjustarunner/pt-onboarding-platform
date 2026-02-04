@@ -703,7 +703,9 @@ export const sendVerificationEmail = async (req, res, next) => {
         html,
         fromName,
         fromAddress,
-        replyTo
+        replyTo,
+        source: 'auto',
+        agencyId: employee.agency_id || null
       });
     }
     

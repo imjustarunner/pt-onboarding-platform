@@ -578,7 +578,8 @@ export const finalizePublicIntake = async (req, res, next) => {
             fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
             replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
             attachments: attachments.length ? attachments : null,
-            source: 'auto'
+            source: 'auto',
+            agencyId: link?.organization_id || null
           });
         } catch {
           // best-effort email

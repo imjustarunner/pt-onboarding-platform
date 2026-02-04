@@ -33,6 +33,7 @@
             <h4>{{ template.name }}</h4>
             <div class="template-actions">
               <button v-if="!readOnly" @click="editTemplate(template)" class="btn btn-sm btn-secondary">Edit</button>
+              <button v-if="canSendEmails" @click="openSendModal(template)" class="btn btn-sm btn-success">Send</button>
               <button @click="previewTemplate(template)" class="btn btn-sm btn-info">Preview</button>
               <button 
                 v-if="!readOnly && canDelete(template)" 
@@ -123,11 +124,75 @@
         </div>
       </div>
     </div>
+
+    <!-- Send Modal -->
+    <div v-if="showSendModal" class="modal-overlay" @click.self="closeSendModal">
+      <div class="modal-content modal-content-wide">
+        <div class="modal-header">
+          <h3>Send Email</h3>
+          <button @click="closeSendModal" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="sendError" class="error">{{ sendError }}</div>
+          <form @submit.prevent="sendTemplateEmail">
+            <div class="form-group">
+              <label>Recipients (comma or newline separated)</label>
+              <textarea v-model="sendForm.recipients" rows="3" required placeholder="email1@example.com, email2@example.com"></textarea>
+            </div>
+
+            <div class="form-group" v-if="showAgencySelector">
+              <label>Agency</label>
+              <select v-model="sendForm.agencyId" class="form-select" required>
+                <option value="">Select an agency…</option>
+                <option v-for="agency in (agencyStore.agencies || [])" :key="agency.id" :value="String(agency.id)">
+                  {{ agency.name }}
+                </option>
+              </select>
+            </div>
+
+            <div class="form-group" v-if="canPickSenderIdentity">
+              <label>Sender Identity (optional)</label>
+              <select v-model="sendForm.senderIdentityId" class="form-select">
+                <option value="">Default</option>
+                <option v-for="s in senderIdentities" :key="s.id" :value="String(s.id)">
+                  {{ s.display_name || s.from_email }}
+                </option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Subject</label>
+              <input v-model="sendForm.subject" type="text" required placeholder="Email subject line" />
+            </div>
+            <div class="form-group">
+              <label>Body (Plain Text)</label>
+              <textarea v-model="sendForm.body" rows="10" required placeholder="Email body text."></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>AI Draft Prompt</label>
+              <textarea v-model="sendForm.prompt" rows="3" placeholder="Describe the tone, audience, and key points for the draft."></textarea>
+              <button type="button" class="btn btn-secondary btn-sm" @click="generateAiDraft" :disabled="aiDrafting || !sendForm.prompt">
+                {{ aiDrafting ? 'Drafting...' : 'Generate AI Draft' }}
+              </button>
+              <small class="form-hint">AI drafts are suggestions only. Review and click Send to deliver.</small>
+            </div>
+
+            <div class="form-actions">
+              <button type="button" @click="closeSendModal" class="btn btn-secondary">Cancel</button>
+              <button type="submit" class="btn btn-primary" :disabled="sending">
+                {{ sending ? 'Sending...' : 'Send Email' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
@@ -151,6 +216,21 @@ const editingTemplate = ref(null);
 const saving = ref(false);
 const selectedScope = ref('platform');
 const previewData = ref({ subject: '', body: '' });
+const showSendModal = ref(false);
+const sending = ref(false);
+const aiDrafting = ref(false);
+const sendError = ref('');
+const sendTemplate = ref(null);
+const senderIdentities = ref([]);
+
+const sendForm = ref({
+  recipients: '',
+  subject: '',
+  body: '',
+  prompt: '',
+  agencyId: '',
+  senderIdentityId: ''
+});
 
 const templateForm = ref({
   name: '',
@@ -166,6 +246,19 @@ const canDelete = (template) => {
   }
   return true;
 };
+
+const canSendEmails = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  return ['admin', 'super_admin', 'support', 'staff'].includes(role);
+});
+
+const showAgencySelector = computed(() => {
+  return authStore.user?.role === 'super_admin';
+});
+
+const canPickSenderIdentity = computed(() => {
+  return authStore.user?.role === 'super_admin';
+});
 
 const loadTemplates = async () => {
   loading.value = true;
@@ -278,6 +371,109 @@ const closePreviewModal = () => {
   showPreviewModal.value = false;
 };
 
+const openSendModal = (template) => {
+  sendTemplate.value = template;
+  sendError.value = '';
+  sendForm.value = {
+    recipients: '',
+    subject: template?.subject || '',
+    body: template?.body || '',
+    prompt: '',
+    agencyId: '',
+    senderIdentityId: ''
+  };
+
+  if (authStore.user?.role !== 'super_admin') {
+    const defaultAgencyId = agencyStore.currentAgency?.id || (agencyStore.agencies?.[0]?.id || '');
+    sendForm.value.agencyId = defaultAgencyId ? String(defaultAgencyId) : '';
+  } else if (selectedScope.value.startsWith('agency-')) {
+    sendForm.value.agencyId = selectedScope.value.replace('agency-', '');
+  }
+
+  showSendModal.value = true;
+  if (canPickSenderIdentity.value) {
+    loadSenderIdentities();
+  }
+};
+
+const closeSendModal = () => {
+  showSendModal.value = false;
+  sending.value = false;
+  aiDrafting.value = false;
+  sendError.value = '';
+  sendTemplate.value = null;
+};
+
+const loadSenderIdentities = async () => {
+  if (!canPickSenderIdentity.value) return;
+  try {
+    const params = {
+      includePlatformDefaults: true
+    };
+    if (sendForm.value.agencyId) {
+      params.agencyId = sendForm.value.agencyId;
+    }
+    const response = await api.get('/email-senders', { params });
+    senderIdentities.value = response.data || [];
+  } catch {
+    senderIdentities.value = [];
+  }
+};
+
+const parseRecipients = (raw) => {
+  return String(raw || '')
+    .split(/[\n,;]+/)
+    .map((r) => r.trim())
+    .filter(Boolean);
+};
+
+const sendTemplateEmail = async () => {
+  if (!sendTemplate.value) return;
+  sendError.value = '';
+  sending.value = true;
+  try {
+    const recipients = parseRecipients(sendForm.value.recipients);
+    if (!recipients.length) {
+      sendError.value = 'Please add at least one recipient.';
+      return;
+    }
+
+    const payload = {
+      recipients,
+      subject: sendForm.value.subject,
+      body: sendForm.value.body,
+      agencyId: sendForm.value.agencyId || null,
+      senderIdentityId: sendForm.value.senderIdentityId || null
+    };
+
+    await api.post(`/email-templates/${sendTemplate.value.id}/send`, payload);
+    closeSendModal();
+  } catch (error) {
+    sendError.value = error?.response?.data?.error?.message || 'Failed to send email.';
+  } finally {
+    sending.value = false;
+  }
+};
+
+const generateAiDraft = async () => {
+  if (!sendTemplate.value || !sendForm.value.prompt) return;
+  aiDrafting.value = true;
+  sendError.value = '';
+  try {
+    const payload = {
+      prompt: sendForm.value.prompt,
+      agencyId: sendForm.value.agencyId || null
+    };
+    const response = await api.post(`/email-templates/${sendTemplate.value.id}/ai-draft`, payload);
+    sendForm.value.subject = response.data?.subject || sendForm.value.subject;
+    sendForm.value.body = response.data?.body || sendForm.value.body;
+  } catch (error) {
+    sendError.value = error?.response?.data?.error?.message || 'Failed to generate AI draft.';
+  } finally {
+    aiDrafting.value = false;
+  }
+};
+
 const insertParameter = (param) => {
   // Insert parameter at cursor position in body textarea
   const textarea = document.querySelector('textarea');
@@ -310,6 +506,15 @@ onMounted(async () => {
   }
   loadTemplates();
 });
+
+watch(
+  () => sendForm.value.agencyId,
+  () => {
+    if (showSendModal.value && canPickSenderIdentity.value) {
+      loadSenderIdentities();
+    }
+  }
+);
 </script>
 
 <style scoped>
@@ -424,6 +629,10 @@ onMounted(async () => {
   overflow-y: auto;
 }
 
+.modal-content-wide {
+  max-width: 980px;
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -478,6 +687,22 @@ onMounted(async () => {
   justify-content: flex-end;
   gap: 12px;
   margin-top: 24px;
+}
+
+.form-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.error {
+  background: #ffe9e9;
+  border: 1px solid #f3bcbc;
+  color: #7f1d1d;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
 }
 
 .preview-section {

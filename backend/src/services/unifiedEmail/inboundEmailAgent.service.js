@@ -207,7 +207,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     const references = hdrs.get('references') || msgIdHeader || null;
     const threadId = full.data?.threadId || null;
 
-    await sendEmailFromIdentity({
+    const sendResult = await sendEmailFromIdentity({
       senderIdentityId,
       to: fromEmail,
       subject: subjectForReply(subject),
@@ -215,8 +215,19 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       html: null,
       inReplyTo: msgIdHeader,
       references,
-      threadId
+      threadId,
+      source: 'auto'
     });
+
+    if (sendResult?.skipped) {
+      results.needsHuman += 1;
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id,
+        requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] }
+      });
+      continue;
+    }
 
     results.replied += 1;
     await gmail.users.messages.modify({
