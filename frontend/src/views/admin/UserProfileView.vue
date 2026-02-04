@@ -686,54 +686,75 @@
                         </div>
 
                         <div
-                          v-if="canEditUser && canShowPrelicensedSupervision"
+                          v-if="canShowPrelicensedSupervision"
                           class="agency-item-row"
                           style="flex-wrap: wrap;"
-                          title="Prelicensed supervision tracking is per-organization. Baseline hours are added to accrued payroll supervision hours (99414/99416). Pay for 99414/99416 is $0 until the user has already reached ≥50 individual and ≥100 total hours in prior pay periods."
+                          title="Prelicensed supervision tracking is per-organization. Manual start date is informational; baseline hours are added to accrued payroll supervision hours (99414/99416). Pay for 99414/99416 is $0 until the user has already reached ≥50 individual and ≥100 total hours in prior pay periods."
                         >
                           <span class="muted" style="font-size: 12px; font-weight: 700;">Prelicensed</span>
                           <label class="muted" style="display:flex; align-items:center; gap: 6px;">
                             <input
                               type="checkbox"
                               :checked="isPrelicensedForAgency(agency)"
-                              :disabled="updatingPrelicensedAgencyId === agency.id"
+                              :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id || !isEditingPrelicensedForAgency(agency)"
                               @change="savePrelicensedSettings(agency, { isPrelicensed: $event.target.checked })"
                             />
                             <span>{{ isPrelicensedForAgency(agency) ? 'On' : 'Off' }}</span>
                           </label>
-                          <input
-                            v-if="isPrelicensedForAgency(agency)"
-                            type="date"
-                            class="agency-select"
-                            style="min-width: 155px;"
-                            :value="prelicensedStartDateForAgency(agency)"
+                          <button
+                            v-if="canEditUser"
+                            type="button"
+                            class="btn btn-secondary btn-sm"
                             :disabled="updatingPrelicensedAgencyId === agency.id"
-                            @change="savePrelicensedSettings(agency, { startDate: $event.target.value })"
-                          />
-                          <input
+                            @click="togglePrelicensedEdit(agency.id)"
+                          >
+                            {{ isEditingPrelicensedForAgency(agency) ? 'Done' : 'Edit' }}
+                          </button>
+                          <div
                             v-if="isPrelicensedForAgency(agency)"
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            class="agency-select"
-                            style="min-width: 130px;"
-                            placeholder="Ind start"
-                            :value="prelicensedStartIndHoursForAgency(agency)"
-                            :disabled="updatingPrelicensedAgencyId === agency.id"
-                            @change="savePrelicensedSettings(agency, { startIndividualHours: $event.target.value })"
-                          />
-                          <input
-                            v-if="isPrelicensedForAgency(agency)"
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            class="agency-select"
-                            style="min-width: 130px;"
-                            placeholder="Grp start"
-                            :value="prelicensedStartGrpHoursForAgency(agency)"
-                            :disabled="updatingPrelicensedAgencyId === agency.id"
-                            @change="savePrelicensedSettings(agency, { startGroupHours: $event.target.value })"
-                          />
+                            class="prelicensed-field"
+                          >
+                            <input
+                              type="date"
+                              class="agency-select"
+                              style="min-width: 155px;"
+                              :value="prelicensedStartDateForAgency(agency)"
+                              :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id || !isEditingPrelicensedForAgency(agency)"
+                              @change="savePrelicensedSettings(agency, { startDate: $event.target.value })"
+                            />
+                            <span class="prelicensed-caption">Manual start date</span>
+                          </div>
+                          <div v-if="isPrelicensedForAgency(agency)" class="prelicensed-hours">
+                            <div class="prelicensed-field">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                class="agency-select"
+                                style="min-width: 130px;"
+                                placeholder="0.00"
+                                :value="prelicensedStartIndHoursForAgency(agency)"
+                                :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id || !isEditingPrelicensedForAgency(agency)"
+                                @change="savePrelicensedSettings(agency, { startIndividualHours: $event.target.value })"
+                              />
+                              <span class="prelicensed-caption">sindividaul</span>
+                            </div>
+                            <div class="prelicensed-field">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                class="agency-select"
+                                style="min-width: 130px;"
+                                placeholder="0.00"
+                                :value="prelicensedStartGrpHoursForAgency(agency)"
+                                :disabled="!canEditUser || updatingPrelicensedAgencyId === agency.id || !isEditingPrelicensedForAgency(agency)"
+                                @change="savePrelicensedSettings(agency, { startGroupHours: $event.target.value })"
+                              />
+                              <span class="prelicensed-caption">group</span>
+                            </div>
+                            <div class="prelicensed-hours-caption">supervision hours</div>
+                          </div>
                         </div>
                       </div>
 
@@ -3298,9 +3319,25 @@ const setH0032Mode = async (agencyId, mode) => {
 };
 
 const updatingPrelicensedAgencyId = ref(null);
+const editingPrelicensedAgencyIds = ref({});
 const isPrelicensedForAgency = (agency) => {
   const v = agency?.supervision_is_prelicensed;
   return v === true || v === 1 || v === '1';
+};
+const isEditingPrelicensedForAgency = (agency) => {
+  const agencyId = agency?.id;
+  if (!agencyId) return false;
+  return !!editingPrelicensedAgencyIds.value?.[agencyId];
+};
+const togglePrelicensedEdit = (agencyId) => {
+  if (!agencyId) return;
+  const current = { ...(editingPrelicensedAgencyIds.value || {}) };
+  if (current[agencyId]) {
+    delete current[agencyId];
+  } else {
+    current[agencyId] = true;
+  }
+  editingPrelicensedAgencyIds.value = current;
 };
 const prelicensedStartDateForAgency = (agency) => String(agency?.supervision_start_date || '').slice(0, 10);
 const prelicensedStartIndHoursForAgency = (agency) => (agency?.supervision_start_individual_hours ?? 0);
@@ -4102,6 +4139,32 @@ onMounted(() => {
 .header-photo-fallback {
   font-weight: 900;
   color: var(--text-primary);
+}
+
+.prelicensed-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.prelicensed-caption {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.prelicensed-hours {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.prelicensed-hours-caption {
+  width: 100%;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
 }
 
 .page-header h1 {

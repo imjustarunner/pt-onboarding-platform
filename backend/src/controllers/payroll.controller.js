@@ -7919,6 +7919,8 @@ export const postPayrollPeriod = async (req, res, next) => {
 // Best-effort: also rolls back PTO accrual ledger rows created by posting, and clears notification dedupe events for this post.
 export const unpostPayrollPeriod = async (req, res, next) => {
   let conn = null;
+  let supervisionRollback = { deletedRows: 0, recomputedUsers: 0 };
+  let supervisionUserIds = [];
   try {
     const payrollPeriodId = parseInt(req.params.id);
     const period = await PayrollPeriod.findById(payrollPeriodId);
@@ -8017,6 +8019,30 @@ export const unpostPayrollPeriod = async (req, res, next) => {
       // ignore
     }
 
+    // Best-effort: remove prelicensed supervision accruals from this payroll post.
+    // Keep manual imports (source_json not marked as payroll).
+    try {
+      const [supUsers] = await safeExec(
+        `SELECT DISTINCT user_id
+         FROM supervision_period_entries
+         WHERE agency_id = ?
+           AND payroll_period_id = ?
+           AND source_json LIKE '%"source":"payroll"%'`,
+        [agencyId, payrollPeriodId]
+      );
+      supervisionUserIds = (supUsers || []).map((r) => Number(r.user_id)).filter((n) => Number.isFinite(n) && n > 0);
+      const [delSupRes] = await safeExec(
+        `DELETE FROM supervision_period_entries
+         WHERE agency_id = ?
+           AND payroll_period_id = ?
+           AND source_json LIKE '%"source":"payroll"%'`,
+        [agencyId, payrollPeriodId]
+      );
+      supervisionRollback.deletedRows = Number(delSupRes?.affectedRows || 0);
+    } catch {
+      // ignore
+    }
+
     // Revert posted/finalized flags. Keep run results intact.
     await safeExec(
       `UPDATE payroll_periods
@@ -8030,12 +8056,27 @@ export const unpostPayrollPeriod = async (req, res, next) => {
     );
 
     await conn.commit();
+
+    // After commit, recompute supervision accounts for any touched users.
+    if (supervisionUserIds.length) {
+      const uniqueIds = Array.from(new Set(supervisionUserIds));
+      for (const uid of uniqueIds) {
+        try {
+          await recomputeSupervisionAccountForUser({ agencyId, userId: uid });
+          supervisionRollback.recomputedUsers += 1;
+        } catch {
+          // ignore
+        }
+      }
+    }
+
     res.json({
       ok: true,
       period: await PayrollPeriod.findById(payrollPeriodId),
       meta: {
         rolledBackPtoLedgerRows,
-        clearedNotificationEvents
+        clearedNotificationEvents,
+        supervisionRollback
       }
     });
   } catch (e) {

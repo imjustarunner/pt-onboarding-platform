@@ -202,9 +202,8 @@ export async function accruePrelicensedSupervisionFromPayroll({ agencyId, payrol
   const periodIdNum = Number(payrollPeriodId);
   if (!agencyIdNum || !periodIdNum) return { ok: false, reason: 'missing_ids' };
 
-  // Ensure supervision feature is enabled for this agency (best-effort; if not enabled, do nothing).
+  // Fetch policy for notifications; accrual should still happen for prelicensed users.
   const { policy } = await getAgencySupervisionPolicy({ agencyId: agencyIdNum });
-  if (!policy?.enabled) return { ok: true, skipped: true, reason: 'supervision_disabled' };
 
   // Latest import for this pay period
   const [impRows] = await pool.execute(
@@ -232,9 +231,8 @@ export async function accruePrelicensedSupervisionFromPayroll({ agencyId, payrol
      WHERE pir.agency_id = ?
        AND pir.payroll_period_id = ?
        AND pir.payroll_import_id = ?
-       AND ua.supervision_is_prelicensed = 1
-       AND UPPER(TRIM(pir.service_code)) IN ('99414','99416')
-       AND (ua.supervision_start_date IS NULL OR pir.service_date >= ua.supervision_start_date)
+      AND ua.supervision_is_prelicensed = 1
+      AND UPPER(TRIM(pir.service_code)) IN ('99414','99416')
      GROUP BY pir.user_id`,
     [agencyIdNum, periodIdNum, latestImportId]
   );
@@ -280,7 +278,9 @@ export async function accruePrelicensedSupervisionFromPayroll({ agencyId, payrol
     const prev = prevRows?.[0] || null;
     const next = await recomputeAccount({ agencyId: agencyIdNum, userId: uid });
     if (next) {
-      await notifyThresholds({ agencyId: agencyIdNum, userId: uid, payrollPeriodId: periodIdNum, prevAcct: prev, nextAcct: next, policy });
+      if (policy?.enabled) {
+        await notifyThresholds({ agencyId: agencyIdNum, userId: uid, payrollPeriodId: periodIdNum, prevAcct: prev, nextAcct: next, policy });
+      }
       updatedAccounts.push(next);
     }
   }
