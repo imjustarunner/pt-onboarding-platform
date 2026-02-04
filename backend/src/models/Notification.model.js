@@ -62,7 +62,9 @@ class Notification {
     'supervision_total_100_reached',
     'supervision_supervisee_completed',
     // Payroll: home address changes (mileage / compliance workflow)
-    'payroll_home_address_updated'
+    'payroll_home_address_updated',
+    // Custom program reminders
+    'program_reminder'
   ];
 
   static async create(notificationData) {

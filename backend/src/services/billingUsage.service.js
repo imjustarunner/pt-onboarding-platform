@@ -87,6 +87,17 @@ class BillingUsageService {
       [parsedAgencyId, hasWindow ? 1 : 0, startStr || '1970-01-01', endStr || '1970-01-01']
     );
 
+    // Inbound-from-client SMS (message_logs) within billing period (received).
+    const [inboundSmsRows] = await pool.execute(
+      `SELECT COUNT(*) AS cnt
+       FROM message_logs ml
+       WHERE ml.agency_id = ?
+         AND ml.direction = 'INBOUND'
+         AND ml.delivery_status = 'received'
+         AND (? = FALSE OR (ml.created_at >= ? AND ml.created_at < DATE_ADD(?, INTERVAL 1 DAY)))`,
+      [parsedAgencyId, hasWindow ? 1 : 0, startStr || '1970-01-01', endStr || '1970-01-01']
+    );
+
     // Notification SMS (notification_sms_logs) within billing period (sent only).
     const [notificationSmsRows] = await pool.execute(
       `SELECT COUNT(*) AS cnt
@@ -97,13 +108,25 @@ class BillingUsageService {
       [parsedAgencyId, hasWindow ? 1 : 0, startStr || '1970-01-01', endStr || '1970-01-01']
     );
 
+    // Active phone numbers (Twilio numbers owned by agency)
+    const [phoneRows] = await pool.execute(
+      `SELECT COUNT(*) AS cnt
+       FROM twilio_numbers tn
+       WHERE tn.agency_id = ?
+         AND tn.is_active = TRUE
+         AND tn.status <> 'released'`,
+      [parsedAgencyId]
+    );
+
     return {
       schoolsUsed: Number(schoolsRows?.[0]?.cnt || 0),
       programsUsed: Number(programRows?.[0]?.cnt || 0),
       adminsUsed: Number(adminRows?.[0]?.cnt || 0),
       activeOnboardeesUsed: Number(onboardeeRows?.[0]?.cnt || 0),
       outboundSmsUsed: Number(outboundSmsRows?.[0]?.cnt || 0),
-      notificationSmsUsed: Number(notificationSmsRows?.[0]?.cnt || 0)
+      inboundSmsUsed: Number(inboundSmsRows?.[0]?.cnt || 0),
+      notificationSmsUsed: Number(notificationSmsRows?.[0]?.cnt || 0),
+      phoneNumbersUsed: Number(phoneRows?.[0]?.cnt || 0)
     };
   }
 }

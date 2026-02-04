@@ -2,8 +2,21 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 import MessageLog from '../models/MessageLog.model.js';
+import Agency from '../models/Agency.model.js';
+import TwilioOptInState from '../models/TwilioOptInState.model.js';
 import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
 import TwilioService from '../services/twilio.service.js';
+import { resolveOutboundNumber } from '../services/twilioNumberRouting.service.js';
+
+const parseFeatureFlags = (raw) => {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  try {
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+};
 
 const canViewSafetyNetFeed = (role) =>
   role === 'support' || role === 'admin' || role === 'super_admin' || role === 'clinical_practice_assistant';
@@ -116,15 +129,49 @@ export const sendMessage = async (req, res, next) => {
 
     const user = await User.findById(uid);
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
-    if (!user.system_phone_number) {
-      return res.status(400).json({ error: { message: 'User does not have a system phone number assigned' } });
-    }
 
     const client = await Client.findById(cid, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
     await assertClientAgencyAccess(req.user.id, client);
     if (!client.contact_phone) {
       return res.status(400).json({ error: { message: 'Client does not have a contact phone assigned' } });
+    }
+
+    const resolved = await resolveOutboundNumber({
+      userId: uid,
+      clientId: cid,
+      requestedNumberId: req.body?.numberId ? parseIntOrNull(req.body.numberId) : null
+    });
+    if (resolved?.error === 'number_unavailable') {
+      return res.status(404).json({ error: { message: 'Selected number is unavailable' } });
+    }
+    if (resolved?.error === 'number_not_assigned') {
+      return res.status(403).json({ error: { message: 'Selected number is not assigned to you' } });
+    }
+    if (resolved?.error === 'number_not_accessible') {
+      return res.status(403).json({ error: { message: 'Selected number is not accessible for this agency' } });
+    }
+    if (!resolved?.number && !user.system_phone_number) {
+      return res.status(400).json({ error: { message: 'No system phone number assigned for sending' } });
+    }
+    const fromNumber = resolved?.number?.phone_number || user.system_phone_number;
+    const numberId = resolved?.number?.id || null;
+    const ownerType = resolved?.ownerType || (resolved?.number ? 'agency' : 'staff');
+    const assignedUserId = resolved?.assignment?.user_id || uid;
+
+    // Compliance: opt-in/opt-out handling per agency feature flags.
+    const agency = client.agency_id ? await Agency.findById(client.agency_id) : null;
+    const flags = parseFeatureFlags(agency?.feature_flags);
+    const complianceMode = String(flags.smsComplianceMode || 'opt_in_required');
+    if (numberId && client?.id) {
+      const optState = await TwilioOptInState.findByClientNumber({ clientId: client.id, numberId });
+      const optStatus = optState?.status || 'pending';
+      if (optStatus === 'opted_out') {
+        return res.status(403).json({ error: { message: 'Client has opted out of SMS' } });
+      }
+      if (complianceMode === 'opt_in_required' && optStatus !== 'opted_in') {
+        return res.status(403).json({ error: { message: 'Client has not opted in to SMS yet' } });
+      }
     }
 
     // Gatekeeper integration: this is about after-hours *notifications* to user.
@@ -137,18 +184,21 @@ export const sendMessage = async (req, res, next) => {
     const outboundLog = await MessageLog.createOutbound({
       agencyId: client.agency_id || null,
       userId: uid,
+      assignedUserId,
+      numberId,
+      ownerType,
       clientId: cid,
       body,
-      fromNumber: user.system_phone_number,
+      fromNumber,
       toNumber: client.contact_phone,
       deliveryStatus: 'pending',
-      metadata: { provider: 'twilio', gatekeeper: decision }
+      metadata: { provider: 'twilio', gatekeeper: decision, numberId }
     });
 
     try {
       const msg = await TwilioService.sendSms({
         to: MessageLog.normalizePhone(client.contact_phone) || client.contact_phone,
-        from: MessageLog.normalizePhone(user.system_phone_number) || user.system_phone_number,
+        from: MessageLog.normalizePhone(fromNumber) || fromNumber,
         body
       });
       const updated = await MessageLog.markSent(outboundLog.id, msg.sid, { provider: 'twilio', status: msg.status, gatekeeper: decision });

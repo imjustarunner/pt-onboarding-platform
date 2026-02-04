@@ -19,10 +19,12 @@ const FALLBACK_PRICING = {
     school: 2500,
     program: 1000,
     admin: 500,
-    onboardee: 400
+    onboardee: 400,
+    phoneNumber: 0
   },
   // Per-message charges (cents) for SMS billing.
   smsUnitCents: {
+    inboundClient: 0,
     outboundClient: 0,
     notification: 0
   },
@@ -107,7 +109,9 @@ export function buildEstimate(usage, pricingConfig = null) {
   const adminsUsed = Number(usage?.adminsUsed || 0);
   const activeOnboardeesUsed = Number(usage?.activeOnboardeesUsed || 0);
   const outboundSmsUsed = Number(usage?.outboundSmsUsed || 0);
+  const inboundSmsUsed = Number(usage?.inboundSmsUsed || 0);
   const notificationSmsUsed = Number(usage?.notificationSmsUsed || 0);
+  const phoneNumbersUsed = Number(usage?.phoneNumbersUsed || 0);
 
   const schoolsOver = overage(PRICING.included.schools, schoolsUsed);
   const programsOver = overage(PRICING.included.programs, programsUsed);
@@ -120,9 +124,13 @@ export function buildEstimate(usage, pricingConfig = null) {
   const extraOnboardeesCents = onboardeesOver * PRICING.unitCents.onboardee;
 
   const smsOutboundUnitCents = Number(PRICING?.smsUnitCents?.outboundClient || 0);
+  const smsInboundUnitCents = Number(PRICING?.smsUnitCents?.inboundClient || 0);
   const smsNotificationUnitCents = Number(PRICING?.smsUnitCents?.notification || 0);
   const extraSmsOutboundCents = outboundSmsUsed * smsOutboundUnitCents;
+  const extraSmsInboundCents = inboundSmsUsed * smsInboundUnitCents;
   const extraSmsNotificationCents = notificationSmsUsed * smsNotificationUnitCents;
+  const phoneNumberUnitCents = Number(PRICING?.unitCents?.phoneNumber || 0);
+  const extraPhoneNumberCents = phoneNumbersUsed * phoneNumberUnitCents;
 
   const publicAvailabilityAddonEnabled = Boolean(PRICING?.addonsEnabled?.publicAvailability);
   const publicAvailabilityAddonCents = publicAvailabilityAddonEnabled
@@ -136,7 +144,9 @@ export function buildEstimate(usage, pricingConfig = null) {
     extraAdminsCents +
     extraOnboardeesCents +
     extraSmsOutboundCents +
+    extraSmsInboundCents +
     extraSmsNotificationCents +
+    extraPhoneNumberCents +
     publicAvailabilityAddonCents;
 
   const lineItems = [
@@ -177,6 +187,15 @@ export function buildEstimate(usage, pricingConfig = null) {
       extraCents: extraOnboardeesCents
     },
     {
+      key: 'sms_inbound_client',
+      label: 'SMS (Inbound)',
+      included: 0,
+      used: inboundSmsUsed,
+      overage: inboundSmsUsed,
+      unitCostCents: smsInboundUnitCents,
+      extraCents: extraSmsInboundCents
+    },
+    {
       key: 'sms_outbound_client',
       label: 'SMS (Client)',
       included: 0,
@@ -193,6 +212,15 @@ export function buildEstimate(usage, pricingConfig = null) {
       overage: notificationSmsUsed,
       unitCostCents: smsNotificationUnitCents,
       extraCents: extraSmsNotificationCents
+    },
+    {
+      key: 'phone_numbers',
+      label: 'Phone Numbers',
+      included: 0,
+      used: phoneNumbersUsed,
+      overage: phoneNumbersUsed,
+      unitCostCents: phoneNumberUnitCents,
+      extraCents: extraPhoneNumberCents
     },
     {
       key: 'addon_public_availability',
@@ -213,7 +241,9 @@ export function buildEstimate(usage, pricingConfig = null) {
       adminsUsed,
       activeOnboardeesUsed,
       outboundSmsUsed,
-      notificationSmsUsed
+      inboundSmsUsed,
+      notificationSmsUsed,
+      phoneNumbersUsed
     },
     totals: {
       baseFeeCents: PRICING.baseFeeCents,
@@ -222,7 +252,9 @@ export function buildEstimate(usage, pricingConfig = null) {
       extraAdminsCents,
       extraOnboardeesCents,
       extraSmsOutboundCents,
+      extraSmsInboundCents,
       extraSmsNotificationCents,
+      extraPhoneNumberCents,
       publicAvailabilityAddonCents,
       totalCents
     },

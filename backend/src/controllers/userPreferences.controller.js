@@ -1,6 +1,38 @@
 import UserPreferences from '../models/UserPreferences.model.js';
 import User from '../models/User.model.js';
 
+const ALL_NOTIFICATION_CATEGORY_KEYS = [
+  'messaging_new_inbound_client_text',
+  'messaging_support_safety_net_alerts',
+  'messaging_replies_to_my_messages',
+  'messaging_client_notes',
+  'school_portal_client_updates',
+  'school_portal_client_update_org_swaps',
+  'school_portal_client_comments',
+  'school_portal_client_messages',
+  'scheduling_room_booking_approved_denied',
+  'scheduling_schedule_changes',
+  'scheduling_room_release_requests',
+  'compliance_credential_expiration_reminders',
+  'compliance_access_restriction_warnings',
+  'compliance_payroll_document_availability',
+  'surveys_client_checked_in',
+  'surveys_survey_completed',
+  'system_emergency_broadcasts',
+  'system_org_announcements',
+  'program_reminders'
+];
+
+const buildDefaultCategories = () => {
+  const base = {};
+  for (const key of ALL_NOTIFICATION_CATEGORY_KEYS) {
+    base[key] = false;
+  }
+  // Required categories
+  base.system_emergency_broadcasts = true;
+  return base;
+};
+
 const buildDefaultPreferences = (userRole) => {
   // Defaults per OVERHAUL_PLAN.md (minimal, role-aware)
   // - In-app is always enabled (cannot be disabled)
@@ -21,6 +53,7 @@ const buildDefaultPreferences = (userRole) => {
   return {
     email_enabled: true,
     sms_enabled: smsDefault,
+    sms_forwarding_enabled: true,
     in_app_enabled: true,
     quiet_hours_enabled: false,
     quiet_hours_allowed_days: null,
@@ -29,7 +62,7 @@ const buildDefaultPreferences = (userRole) => {
     auto_reply_enabled: false,
     auto_reply_message: null,
     emergency_override: false,
-    notification_categories: null,
+    notification_categories: buildDefaultCategories(),
     work_modality: null,
     scheduling_preferences: null,
     schedule_color_overrides: {
@@ -80,15 +113,54 @@ export const getUserPreferences = async (req, res, next) => {
     }
 
     const preferences = await UserPreferences.findByUserId(parseInt(userId));
+    const targetUser = await User.findById(parseInt(userId));
+    const agencies = await User.getAgencies(parseInt(userId));
+    const agencyId = agencies?.[0]?.id || null;
+    const AgencyNotificationPreferences = (await import('../models/AgencyNotificationPreferences.model.js')).default;
+    const agencyPrefs = agencyId ? await AgencyNotificationPreferences.getByAgencyId(agencyId) : null;
+    const agencyDefaults = agencyPrefs?.defaults || null;
+    const agencyUserEditable = agencyPrefs ? agencyPrefs.userEditable !== false : false;
+    const agencyEnforceDefaults = agencyPrefs ? agencyPrefs.enforceDefaults === true : true;
     
     if (!preferences) {
-      // Return role-aware defaults if none exist
-      const user = await User.findById(parseInt(userId));
-      const role = user?.role || 'staff';
-      return res.json(buildDefaultPreferences(role));
+      const role = targetUser?.role || 'staff';
+      const base = buildDefaultPreferences(role);
+      const merged = {
+        ...base,
+        notification_categories: {
+          ...(base.notification_categories || buildDefaultCategories()),
+          ...(agencyDefaults || {})
+        }
+      };
+      return res.json({
+        ...merged,
+        agencyNotificationSettings: {
+          defaults: agencyDefaults || null,
+          userEditable: agencyUserEditable,
+          enforceDefaults: agencyEnforceDefaults
+        }
+      });
     }
 
-    res.json(preferences);
+    const defaultCategories = buildDefaultCategories();
+    const mergedCategories = {
+      ...defaultCategories,
+      ...(preferences.notification_categories || {}),
+      ...(agencyEnforceDefaults ? (agencyDefaults || {}) : {})
+    };
+    if (targetUser?.role === 'support') {
+      mergedCategories.messaging_support_safety_net_alerts = true;
+    }
+
+    res.json({
+      ...preferences,
+      notification_categories: mergedCategories,
+      agencyNotificationSettings: {
+        defaults: agencyDefaults || null,
+        userEditable: agencyUserEditable,
+        enforceDefaults: agencyEnforceDefaults
+      }
+    });
   } catch (error) {
     console.error('Error fetching user preferences:', error);
     next(error);
@@ -140,6 +212,14 @@ export const updateUserPreferences = async (req, res, next) => {
       updates.in_app_enabled = true;
     }
 
+    const agencies = await User.getAgencies(parseInt(userId));
+    const agencyId = agencies?.[0]?.id || null;
+    const AgencyNotificationPreferences = (await import('../models/AgencyNotificationPreferences.model.js')).default;
+    const agencyPrefs = agencyId ? await AgencyNotificationPreferences.getByAgencyId(agencyId) : null;
+    const agencyDefaults = agencyPrefs?.defaults || null;
+    const agencyUserEditable = agencyPrefs?.userEditable !== false;
+    const agencyEnforceDefaults = agencyPrefs?.enforceDefaults === true;
+
     // Enforce safety-required notification category settings (if client sends them)
     // Note: the UI labels these as “Required – cannot be disabled”.
     if (updates.notification_categories && typeof updates.notification_categories === 'object') {
@@ -152,6 +232,35 @@ export const updateUserPreferences = async (req, res, next) => {
       if (user.role === 'support' && updates.notification_categories.messaging_support_safety_net_alerts === false) {
         updates.notification_categories.messaging_support_safety_net_alerts = true;
       }
+    }
+
+    if (!agencyUserEditable && !isAdmin) {
+      delete updates.email_enabled;
+      delete updates.sms_enabled;
+      delete updates.sms_forwarding_enabled;
+      delete updates.quiet_hours_enabled;
+      delete updates.quiet_hours_allowed_days;
+      delete updates.quiet_hours_start_time;
+      delete updates.quiet_hours_end_time;
+      delete updates.emergency_override;
+      delete updates.auto_reply_enabled;
+      delete updates.auto_reply_message;
+    }
+
+    if (updates.notification_categories && typeof updates.notification_categories === 'object') {
+      if (!agencyUserEditable && !isAdmin) {
+        delete updates.notification_categories;
+      } else if (agencyEnforceDefaults) {
+        updates.notification_categories = {
+          ...buildDefaultCategories(),
+          ...(agencyDefaults || {})
+        };
+      }
+    } else if (agencyEnforceDefaults) {
+      updates.notification_categories = {
+        ...buildDefaultCategories(),
+        ...(agencyDefaults || {})
+      };
     }
 
     const preferences = await UserPreferences.update(parseInt(userId), updates);

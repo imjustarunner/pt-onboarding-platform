@@ -74,10 +74,18 @@
             <div class="label">Unit Cost: Active Candidate ($/mo)</div>
             <input v-model.number="platformDraft.unitOnboardeeDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
+          <div class="form-group">
+            <div class="label">Unit Cost: Phone Number ($/mo)</div>
+            <input v-model.number="platformDraft.unitPhoneNumberDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
 
           <div class="form-group">
             <div class="label">SMS Cost: Outbound to Clients ($/msg)</div>
             <input v-model.number="platformDraft.smsOutboundClientDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">SMS Cost: Inbound from Clients ($/msg)</div>
+            <input v-model.number="platformDraft.smsInboundClientDollars" class="input" type="number" step="0.01" min="0" :disabled="pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
             <div class="label">SMS Cost: Notification SMS ($/msg)</div>
@@ -165,10 +173,18 @@
             <div class="label">Unit Cost: Active Candidate ($/mo)</div>
             <input v-model.number="agencyDraft.unitOnboardeeDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
+          <div class="form-group">
+            <div class="label">Unit Cost: Phone Number ($/mo)</div>
+            <input v-model.number="agencyDraft.unitPhoneNumberDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
 
           <div class="form-group">
             <div class="label">SMS Cost: Outbound to Clients ($/msg)</div>
             <input v-model.number="agencyDraft.smsOutboundClientDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
+          </div>
+          <div class="form-group">
+            <div class="label">SMS Cost: Inbound from Clients ($/msg)</div>
+            <input v-model.number="agencyDraft.smsInboundClientDollars" class="input" type="number" step="0.01" min="0" :disabled="!agencyOverrideEnabled || pricingLoading || pricingSaving" />
           </div>
           <div class="form-group">
             <div class="label">SMS Cost: Notification SMS ($/msg)</div>
@@ -464,7 +480,9 @@ const platformDraft = ref({
   unitProgramDollars: 0,
   unitAdminDollars: 0,
   unitOnboardeeDollars: 0,
+  unitPhoneNumberDollars: 0,
   smsOutboundClientDollars: 0,
+  smsInboundClientDollars: 0,
   smsNotificationDollars: 0,
   publicAvailabilityAddonMonthlyDollars: 0
 });
@@ -480,7 +498,9 @@ const agencyDraft = ref({
   unitProgramDollars: 0,
   unitAdminDollars: 0,
   unitOnboardeeDollars: 0,
+  unitPhoneNumberDollars: 0,
   smsOutboundClientDollars: 0,
+  smsInboundClientDollars: 0,
   smsNotificationDollars: 0,
   publicAvailabilityAddonEnabled: false
 });
@@ -517,7 +537,9 @@ const setDraftFromPricing = (draftRef, pricing) => {
     unitProgramDollars: Number(p.unitCents?.program || 0) / 100,
     unitAdminDollars: Number(p.unitCents?.admin || 0) / 100,
     unitOnboardeeDollars: Number(p.unitCents?.onboardee || 0) / 100,
+    unitPhoneNumberDollars: Number(p.unitCents?.phoneNumber || 0) / 100,
     smsOutboundClientDollars: Number(p.smsUnitCents?.outboundClient || 0) / 100,
+    smsInboundClientDollars: Number(p.smsUnitCents?.inboundClient || 0) / 100,
     smsNotificationDollars: Number(p.smsUnitCents?.notification || 0) / 100,
     publicAvailabilityAddonMonthlyDollars: Number(p.addonsUnitCents?.publicAvailability || 0) / 100,
     publicAvailabilityAddonEnabled: Boolean(p.addonsEnabled?.publicAvailability)
@@ -538,9 +560,11 @@ const buildPricingPayloadFromDraft = (draft) => {
       school: dollarsToCents(d.unitSchoolDollars),
       program: dollarsToCents(d.unitProgramDollars),
       admin: dollarsToCents(d.unitAdminDollars),
-      onboardee: dollarsToCents(d.unitOnboardeeDollars)
+      onboardee: dollarsToCents(d.unitOnboardeeDollars),
+      phoneNumber: dollarsToCents(d.unitPhoneNumberDollars)
     },
     smsUnitCents: {
+      inboundClient: dollarsToCents(d.smsInboundClientDollars),
       outboundClient: dollarsToCents(d.smsOutboundClientDollars),
       notification: dollarsToCents(d.smsNotificationDollars)
     },

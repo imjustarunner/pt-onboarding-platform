@@ -67,6 +67,7 @@ import userPreferencesRoutes from './routes/userPreferences.routes.js';
 import officeScheduleRoutes from './routes/officeSchedule.routes.js';
 import twilioRoutes from './routes/twilio.routes.js';
 import messageRoutes from './routes/message.routes.js';
+import smsNumbersRoutes from './routes/smsNumbers.routes.js';
 import presenceRoutes from './routes/presence.routes.js';
 import chatRoutes from './routes/chat.routes.js';
 import kioskRoutes from './routes/kiosk.routes.js';
@@ -538,6 +539,7 @@ app.use('/api/clinical-notes', clinicalNoteGeneratorRoutes);
 app.use('/api', researchCandidateRoutes);
 app.use('/api/twilio', twilioRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/sms-numbers', smsNumbersRoutes);
 app.use('/api/presence', presenceRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/kiosk', kioskRoutes);
@@ -815,6 +817,23 @@ app.listen(PORT, HOST, () => {
 
   // Run immediately on startup (best-effort)
   scheduleOfficeScheduleWatchdog();
+
+  // Program reminder schedules (runs every 5 minutes)
+  const scheduleProgramReminders = async () => {
+    try {
+      const { processProgramReminderSchedules } = await import('./controllers/programReminderSchedule.controller.js');
+      await processProgramReminderSchedules();
+    } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE') {
+        console.warn('Program reminder schedules table not found. Run migration 357_create_program_reminder_schedules.sql');
+      } else {
+        console.error('Error in program reminder scheduler:', error);
+      }
+    }
+  };
+
+  scheduleProgramReminders();
+  setInterval(scheduleProgramReminders, 5 * 60 * 1000);
 
   // Schedule daily at midnight
   setTimeout(() => {

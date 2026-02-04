@@ -6,6 +6,10 @@
         <p class="subtitle" data-tour="comms-subtitle">Texts + platform chats.</p>
       </div>
       <div class="header-actions" data-tour="comms-actions">
+        <div class="tabs">
+          <button class="tab" :class="{ active: activeTab === 'all' }" @click="setTab('all')">All</button>
+          <button class="tab" :class="{ active: activeTab === 'texts' }" @click="setTab('texts')">Texting</button>
+        </div>
         <router-link class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Chats</router-link>
         <button class="btn btn-secondary" @click="load" :disabled="loading">Refresh</button>
       </div>
@@ -15,10 +19,10 @@
     <div v-else-if="loading" class="loading">Loading…</div>
 
     <div v-else class="card" data-tour="comms-card">
-      <div v-if="rows.length === 0" class="empty">No communications yet.</div>
+      <div v-if="filteredRows.length === 0" class="empty">No communications yet.</div>
       <div v-else class="list" data-tour="comms-list">
         <button
-          v-for="item in rows"
+          v-for="item in filteredRows"
           :key="itemKey(item)"
           class="row"
           data-tour="comms-row"
@@ -88,6 +92,17 @@ const chatsLink = computed(() => {
   if (typeof slug === 'string' && slug) return `/${slug}/admin/communications/chats`;
   return '/admin/communications/chats';
 });
+
+const activeTab = computed(() => {
+  const t = String(route.query?.tab || 'all');
+  return t === 'texts' ? 'texts' : 'all';
+});
+
+const setTab = (tab) => {
+  const slug = route.params.organizationSlug;
+  const path = typeof slug === 'string' && slug ? `/${slug}/admin/communications` : '/admin/communications';
+  router.replace({ path, query: { ...route.query, tab } });
+};
 
 const formatTime = (d) => {
   try {
@@ -160,6 +175,13 @@ const openItem = async (i) => {
   }
 };
 
+const filteredRows = computed(() => {
+  if (activeTab.value === 'texts') {
+    return rows.value.filter((r) => r.kind === 'sms');
+  }
+  return rows.value;
+});
+
 onMounted(async () => {
   if (!authStore.isAuthenticated) {
     router.push('/login');
@@ -181,6 +203,26 @@ onMounted(async () => {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+.tabs {
+  display: inline-flex;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px;
+}
+.tab {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.tab.active {
+  background: var(--bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
 }
 .subtitle { color: var(--text-secondary); margin: 6px 0 0 0; }
 .card {

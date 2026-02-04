@@ -25,7 +25,9 @@ export const pricingValidators = [
   body('pricing.unitCents.program').optional().isInt({ min: 0 }),
   body('pricing.unitCents.admin').optional().isInt({ min: 0 }),
   body('pricing.unitCents.onboardee').optional().isInt({ min: 0 }),
+  body('pricing.unitCents.phoneNumber').optional().isInt({ min: 0 }),
   body('pricing.smsUnitCents').optional().isObject().withMessage('smsUnitCents must be an object'),
+  body('pricing.smsUnitCents.inboundClient').optional().isInt({ min: 0 }),
   body('pricing.smsUnitCents.outboundClient').optional().isInt({ min: 0 }),
   body('pricing.smsUnitCents.notification').optional().isInt({ min: 0 })
 ];
@@ -62,11 +64,13 @@ export const agencyPricingOverrideValidators = [
   body('pricing.unitCents.program').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
   body('pricing.unitCents.admin').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
   body('pricing.unitCents.onboardee').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
+  body('pricing.unitCents.phoneNumber').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
   body('pricing.smsUnitCents')
     .if((value, { req }) => req.body?.pricing != null)
     .optional()
     .isObject()
     .withMessage('smsUnitCents must be an object'),
+  body('pricing.smsUnitCents.inboundClient').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
   body('pricing.smsUnitCents.outboundClient').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 }),
   body('pricing.smsUnitCents.notification').if((v, { req }) => req.body?.pricing != null).optional().isInt({ min: 0 })
 ];

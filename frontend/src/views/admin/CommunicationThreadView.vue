@@ -42,6 +42,15 @@
       <div class="card composer" data-tour="thread-composer">
         <h3>Send message</h3>
         <div class="field">
+          <label>From number</label>
+          <select v-model="selectedNumberId" class="select">
+            <option v-if="availableNumbers.length === 0" :value="''">No numbers available</option>
+            <option v-for="n in availableNumbers" :key="n.id" :value="String(n.id)">
+              {{ n.phone_number }} · {{ n.owner_type === 'staff' ? 'Assigned' : 'Agency' }}
+            </option>
+          </select>
+        </div>
+        <div class="field">
           <label>Message</label>
           <textarea v-model="draft" rows="5" placeholder="Type your message…" />
         </div>
@@ -51,7 +60,7 @@
           </button>
         </div>
         <div class="hint">
-          Sends from the owner user’s system number to the client’s contact phone.
+          Sends from the selected system number to the client’s contact phone.
           Deleting a conversation permanently removes it from this app, but it cannot recall an SMS already delivered to a phone carrier/device.
         </div>
       </div>
@@ -74,6 +83,8 @@ const deleting = ref(false);
 const error = ref('');
 const thread = ref(null);
 const draft = ref('');
+const availableNumbers = ref([]);
+const selectedNumberId = ref('');
 
 const formatTime = (d) => {
   try {
@@ -101,13 +112,29 @@ const load = async () => {
   }
 };
 
+const loadNumbers = async () => {
+  try {
+    const resp = await api.get('/sms-numbers/available');
+    const assigned = resp.data?.assigned || [];
+    const agency = resp.data?.agency || [];
+    const merged = [...assigned, ...agency];
+    availableNumbers.value = merged;
+    if (!selectedNumberId.value && merged.length) {
+      selectedNumberId.value = String(merged[0].id);
+    }
+  } catch {
+    availableNumbers.value = [];
+  }
+};
+
 const send = async () => {
   try {
     sending.value = true;
     error.value = '';
     await api.post('/messages/send', {
       clientId: clientId.value,
-      body: draft.value
+      body: draft.value,
+      numberId: selectedNumberId.value || null
     });
     draft.value = '';
     await load();
@@ -132,7 +159,10 @@ const deleteConversation = async () => {
   }
 };
 
-onMounted(load);
+onMounted(async () => {
+  await load();
+  await loadNumbers();
+});
 </script>
 
 <style scoped>

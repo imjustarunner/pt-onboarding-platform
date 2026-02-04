@@ -2,6 +2,10 @@ import Notification from '../models/Notification.model.js';
 import NotificationService from '../services/notification.service.js';
 import User from '../models/User.model.js';
 import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
+import NotificationTrigger from '../models/NotificationTrigger.model.js';
+import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTriggerSetting.model.js';
+import NotificationDispatcherService from '../services/notificationDispatcher.service.js';
+import ProgramReminderService from '../services/programReminder.service.js';
 import pool from '../config/database.js';
 
 function parseJsonMaybe(v) {
@@ -32,6 +36,25 @@ function audienceAllows(notification, userRole) {
   // If the audience map doesn't mention this role, treat as allowed (backward compatible).
   if (v === undefined) return true;
   return v !== false;
+}
+
+function resolveTriggerSetting(trigger, setting) {
+  const enabled =
+    setting?.enabled === null || setting?.enabled === undefined
+      ? !!trigger.defaultEnabled
+      : !!setting.enabled;
+
+  const channels =
+    setting?.channels && typeof setting.channels === 'object'
+      ? setting.channels
+      : (trigger.defaultChannels && typeof trigger.defaultChannels === 'object' ? trigger.defaultChannels : { inApp: true, sms: false, email: false });
+
+  const recipients =
+    setting?.recipients && typeof setting.recipients === 'object'
+      ? setting.recipients
+      : (trigger.defaultRecipients && typeof trigger.defaultRecipients === 'object' ? trigger.defaultRecipients : { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true });
+
+  return { enabled, channels, recipients };
 }
 
 // Message-related notification types must never be visible cross-user.
@@ -179,6 +202,38 @@ export const getNotifications = async (req, res, next) => {
     res.json(filterNotificationsForViewer(allNotifications, userId, userRole));
   } catch (error) {
     next(error);
+  }
+};
+
+/**
+ * Create custom program reminder notifications (in-app + optional SMS).
+ * POST /api/notifications/program-reminder
+ * body: { agencyId, title, message, recipients?, channels? }
+ */
+export const createProgramReminder = async (req, res, next) => {
+  try {
+    const agencyId = parseInt(req.body?.agencyId || '', 10);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const title = String(req.body?.title || '').trim() || 'Program reminder';
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: { message: 'message is required' } });
+
+    const requestedRecipients = req.body?.recipients && typeof req.body.recipients === 'object' ? req.body.recipients : null;
+    const requestedChannels = req.body?.channels && typeof req.body.channels === 'object' ? req.body.channels : null;
+    const result = await ProgramReminderService.dispatchReminder({
+      agencyId,
+      title,
+      message,
+      recipientsOverride: requestedRecipients,
+      channelsOverride: requestedChannels
+    });
+    if (result?.skipped) {
+      return res.status(403).json({ error: { message: 'Program reminder trigger is disabled' } });
+    }
+    res.status(201).json(result);
+  } catch (e) {
+    next(e);
   }
 };
 

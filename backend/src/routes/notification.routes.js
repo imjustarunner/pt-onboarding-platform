@@ -9,10 +9,11 @@ import {
   getSupervisorNotifications,
   syncNotifications,
   deleteNotification,
-  purgeNotifications
+  purgeNotifications,
+  createProgramReminder
 } from '../controllers/notification.controller.js';
 import { getMySmsLogs, getSmsLogs } from '../controllers/notificationSmsLog.controller.js';
-import { authenticate, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin, requireAgencyAdmin } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -34,6 +35,9 @@ router.get('/supervisor', getSupervisorNotifications);
 
 // Sync/generate notifications (admin/super_admin only)
 router.post('/sync', syncNotifications);
+
+// Custom program reminders (agency admins)
+router.post('/program-reminder', requireAgencyAdmin, createProgramReminder);
 
 // Purge notifications (DANGEROUS): backoffice admins only; non-super_admin must scope to agencyId
 router.delete('/purge', requireBackofficeAdmin, purgeNotifications);

@@ -5,6 +5,9 @@
       <div class="section-header">
         <h2>Notification Preferences</h2>
         <p class="section-description">Control how and when notifications reach you.</p>
+        <p v-if="notificationsLocked" class="section-description">
+          Agency defaults are enforced and cannot be edited here.
+        </p>
       </div>
       <div class="section-content">
         <div v-if="error" class="error-box">{{ error }}</div>
@@ -23,17 +26,24 @@
 
             <div class="field checkbox">
               <label>
-                <input v-model="prefs.email_enabled" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.email_enabled" type="checkbox" :disabled="notificationDisabled" />
                 Email Notifications
               </label>
             </div>
 
             <div class="field checkbox">
               <label>
-                <input v-model="prefs.sms_enabled" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.sms_enabled" type="checkbox" :disabled="notificationDisabled" />
                 SMS Notifications
               </label>
               <div class="field-help">If SMS is off, messages still appear in-app.</div>
+            </div>
+            <div class="field checkbox" v-if="prefs.sms_enabled">
+              <label>
+                <input v-model="prefs.sms_forwarding_enabled" type="checkbox" :disabled="notificationDisabled" />
+                Forward inbound texts to my phone
+              </label>
+              <div class="field-help">Used when agencies enable text forwarding rules.</div>
             </div>
           </div>
 
@@ -41,7 +51,7 @@
             <h3 class="card-title">Quiet Hours</h3>
             <div class="field checkbox">
               <label>
-                <input v-model="prefs.quiet_hours_enabled" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.quiet_hours_enabled" type="checkbox" :disabled="notificationDisabled" />
                 Enable Quiet Hours
               </label>
               <div class="field-help">
@@ -55,7 +65,7 @@
                 <label v-for="d in dayOptions" :key="d" class="day">
                   <input
                     type="checkbox"
-                    :disabled="viewOnly || !prefs.quiet_hours_enabled"
+                    :disabled="notificationDisabled || !prefs.quiet_hours_enabled"
                     :checked="prefs.quiet_hours_allowed_days.includes(d)"
                     @change="toggleDay(d)"
                   />
@@ -67,17 +77,17 @@
             <div class="row">
               <div class="field">
                 <label>Start Time</label>
-                <input v-model="quietStart" type="time" :disabled="viewOnly || !prefs.quiet_hours_enabled" />
+                <input v-model="quietStart" type="time" :disabled="notificationDisabled || !prefs.quiet_hours_enabled" />
               </div>
               <div class="field">
                 <label>End Time</label>
-                <input v-model="quietEnd" type="time" :disabled="viewOnly || !prefs.quiet_hours_enabled" />
+                <input v-model="quietEnd" type="time" :disabled="notificationDisabled || !prefs.quiet_hours_enabled" />
               </div>
             </div>
 
             <div class="field checkbox">
               <label>
-                <input v-model="prefs.emergency_override" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.emergency_override" type="checkbox" :disabled="notificationDisabled" />
                 Emergency Override
               </label>
               <div class="field-help">
@@ -90,7 +100,7 @@
             <h3 class="card-title">After-Hours Auto-Responder</h3>
             <div class="field checkbox">
               <label>
-                <input v-model="prefs.auto_reply_enabled" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.auto_reply_enabled" type="checkbox" :disabled="notificationDisabled" />
                 Enable Auto-Reply
               </label>
               <div class="field-help">
@@ -102,7 +112,7 @@
               <textarea
                 v-model="prefs.auto_reply_message"
                 rows="4"
-                :disabled="viewOnly || !prefs.auto_reply_enabled"
+                :disabled="notificationDisabled || !prefs.auto_reply_enabled"
                 placeholder="Thanks for your message. We received it and will respond as soon as we can."
               />
             </div>
@@ -114,39 +124,47 @@
             <div class="category-group">
               <div class="category-title">Messaging</div>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.messaging_new_inbound_client_text" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.messaging_new_inbound_client_text" type="checkbox" :disabled="notificationDisabled" />
                 New inbound client text
               </label>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.messaging_client_notes" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.messaging_client_notes" type="checkbox" :disabled="notificationDisabled" />
                 Client notes & updates
               </label>
               <label class="field checkbox">
                 <input
                   v-model="prefs.notification_categories.messaging_support_safety_net_alerts"
                   type="checkbox"
-                  :disabled="viewOnly || isSupportRole"
+                  :disabled="notificationDisabled || isSupportRole"
                 />
                 Support Safety Net alerts <span v-if="isSupportRole" class="required-tag">Required</span>
               </label>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.messaging_replies_to_my_messages" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.messaging_replies_to_my_messages" type="checkbox" :disabled="notificationDisabled" />
                 Replies to my messages
+              </label>
+            </div>
+
+            <div class="category-group">
+              <div class="category-title">Programs</div>
+              <label class="field checkbox">
+                <input v-model="prefs.notification_categories.program_reminders" type="checkbox" :disabled="notificationDisabled" />
+                Program reminders
               </label>
             </div>
 
             <div class="category-group">
               <div class="category-title">Scheduling</div>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.scheduling_room_booking_approved_denied" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.scheduling_room_booking_approved_denied" type="checkbox" :disabled="notificationDisabled" />
                 Room booking approved/denied
               </label>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.scheduling_schedule_changes" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.scheduling_schedule_changes" type="checkbox" :disabled="notificationDisabled" />
                 Schedule changes
               </label>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.scheduling_room_release_requests" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.scheduling_room_release_requests" type="checkbox" :disabled="notificationDisabled" />
                 Room release requests
               </label>
             </div>
@@ -154,15 +172,15 @@
             <div class="category-group">
               <div class="category-title">Compliance & Documents</div>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.compliance_credential_expiration_reminders" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.compliance_credential_expiration_reminders" type="checkbox" :disabled="notificationDisabled" />
                 Credential expiration reminders
               </label>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.compliance_access_restriction_warnings" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.compliance_access_restriction_warnings" type="checkbox" :disabled="notificationDisabled" />
                 Access restriction warnings
               </label>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.compliance_payroll_document_availability" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.compliance_payroll_document_availability" type="checkbox" :disabled="notificationDisabled" />
                 Payroll document availability
               </label>
               <div class="field-help">Blocking compliance alerts are required and cannot be disabled.</div>
@@ -171,11 +189,11 @@
             <div class="category-group">
               <div class="category-title">Surveys & Kiosk</div>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.surveys_client_checked_in" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.surveys_client_checked_in" type="checkbox" :disabled="notificationDisabled" />
                 Client checked in
               </label>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.surveys_survey_completed" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.surveys_survey_completed" type="checkbox" :disabled="notificationDisabled" />
                 Survey completed
               </label>
             </div>
@@ -187,7 +205,7 @@
                 Emergency broadcasts <span class="required-tag">Required</span>
               </label>
               <label class="field checkbox">
-                <input v-model="prefs.notification_categories.system_org_announcements" type="checkbox" :disabled="viewOnly" />
+                <input v-model="prefs.notification_categories.system_org_announcements" type="checkbox" :disabled="notificationDisabled" />
                 Organization-wide announcements
               </label>
               <div class="field-help">Emergency broadcasts always bypass preferences.</div>
@@ -475,34 +493,41 @@ const loading = ref(true);
 const saving = ref(false);
 const saved = ref(false);
 const error = ref('');
+const agencyNotificationSettings = ref({
+  defaults: null,
+  userEditable: true,
+  enforceDefaults: false
+});
 
 const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const defaultCategories = () => ({
-  messaging_new_inbound_client_text: true,
-  messaging_support_safety_net_alerts: true,
-  messaging_replies_to_my_messages: true,
-  messaging_client_notes: true,
-  // School Portal feed toggles (default ON)
-  school_portal_client_updates: true,
-  school_portal_client_update_org_swaps: true,
-  school_portal_client_comments: true,
-  school_portal_client_messages: true,
-  scheduling_room_booking_approved_denied: true,
-  scheduling_schedule_changes: true,
-  scheduling_room_release_requests: true,
-  compliance_credential_expiration_reminders: true,
-  compliance_access_restriction_warnings: true,
-  compliance_payroll_document_availability: true,
-  surveys_client_checked_in: true,
-  surveys_survey_completed: true,
+  messaging_new_inbound_client_text: false,
+  messaging_support_safety_net_alerts: false,
+  messaging_replies_to_my_messages: false,
+  messaging_client_notes: false,
+  // School Portal feed toggles (default OFF)
+  school_portal_client_updates: false,
+  school_portal_client_update_org_swaps: false,
+  school_portal_client_comments: false,
+  school_portal_client_messages: false,
+  scheduling_room_booking_approved_denied: false,
+  scheduling_schedule_changes: false,
+  scheduling_room_release_requests: false,
+  compliance_credential_expiration_reminders: false,
+  compliance_access_restriction_warnings: false,
+  compliance_payroll_document_availability: false,
+  surveys_client_checked_in: false,
+  surveys_survey_completed: false,
   system_emergency_broadcasts: true,
-  system_org_announcements: true
+  system_org_announcements: false,
+  program_reminders: false
 });
 
 const prefs = ref({
   email_enabled: true,
   sms_enabled: false,
+  sms_forwarding_enabled: true,
   in_app_enabled: true,
   quiet_hours_enabled: false,
   quiet_hours_allowed_days: [],
@@ -647,6 +672,16 @@ const load = async () => {
       notification_categories: { ...defaultCategories(), ...categories }
     };
 
+    if (data?.agencyNotificationSettings) {
+      agencyNotificationSettings.value = {
+        defaults: data.agencyNotificationSettings.defaults || null,
+        userEditable: data.agencyNotificationSettings.userEditable !== false,
+        enforceDefaults: data.agencyNotificationSettings.enforceDefaults === true
+      };
+    } else {
+      agencyNotificationSettings.value = { defaults: null, userEditable: false, enforceDefaults: true };
+    }
+
     // Required toggles
     prefs.value.notification_categories.system_emergency_broadcasts = true;
     if (isSupportRole.value) {
@@ -671,6 +706,9 @@ const load = async () => {
   }
 };
 
+const notificationsLocked = computed(() => agencyNotificationSettings.value.userEditable === false);
+const notificationDisabled = computed(() => props.viewOnly || notificationsLocked.value);
+
 const save = async () => {
   try {
     saving.value = true;
@@ -685,6 +723,7 @@ const save = async () => {
       // Notifications
       email_enabled: !!prefs.value.email_enabled,
       sms_enabled: !!prefs.value.sms_enabled,
+      sms_forwarding_enabled: !!prefs.value.sms_forwarding_enabled,
       quiet_hours_enabled: !!prefs.value.quiet_hours_enabled,
       quiet_hours_allowed_days: prefs.value.quiet_hours_enabled ? (prefs.value.quiet_hours_allowed_days || []) : [],
       quiet_hours_start_time: prefs.value.quiet_hours_enabled && quietStart.value ? quietStart.value : null,

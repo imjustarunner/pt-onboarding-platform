@@ -365,3 +365,29 @@ Notes:
 
 - Cloud Run is private in many orgs; Cloud Scheduler should use **OIDC auth** (service account must have `roles/run.invoker`).
 - The endpoint also requires the **header secret** (`BILLING_JOB_SECRET`) to reduce risk of accidental/unauthorized triggering.
+
+---
+
+## 16. Twilio Numbers + SMS Routing
+
+### 16.1 Required backend env vars
+
+Set these on the backend Cloud Run service:
+
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_SMS_WEBHOOK_URL` (public URL to `/api/twilio/webhook`)
+
+### 16.2 Migrations
+
+Run the database migrations before enabling the feature flags:
+
+- `350_create_twilio_numbers_and_rules.sql`
+- `351_message_logs_number_fields.sql`
+- `352_billing_add_phone_number_unit.sql`
+- `353_billing_add_inbound_sms_unit.sql`
+- `354_notification_trigger_program_reminder.sql`
+- `355_add_forward_inbound_rule_type.sql`
+- `356_add_sms_forwarding_pref.sql`
+- `357_create_program_reminder_schedules.sql`
+- `358_create_agency_notification_preferences.sql`

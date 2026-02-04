@@ -12,6 +12,13 @@ import {
   deleteAgencyScheduledAnnouncement
 } from '../controllers/agencyAnnouncements.controller.js';
 import { listAgencyNotificationTriggers, updateAgencyNotificationTrigger } from '../controllers/agencyNotificationTriggers.controller.js';
+import { getAgencyNotificationPreferences, updateAgencyNotificationPreferences } from '../controllers/agencyNotificationPreferences.controller.js';
+import {
+  listProgramReminderSchedules,
+  createProgramReminderSchedule,
+  updateProgramReminderSchedule,
+  deleteProgramReminderSchedule
+} from '../controllers/programReminderSchedule.controller.js';
 import { listSchoolStaffUsers, createSchoolContact, updateSchoolContact, deleteSchoolContact, createSchoolStaffUserFromContact, revokeSchoolStaffAccess } from '../controllers/schoolStaffAdmin.controller.js';
 import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 
@@ -352,6 +359,14 @@ router.delete('/:id/announcements/:announcementId', authenticate, requireBackoff
 router.get('/:id/dashboard-banner', authenticate, getAgencyDashboardBanner);
 router.get('/:id/notification-triggers', authenticate, requireBackofficeAdmin, listAgencyNotificationTriggers);
 router.put('/:id/notification-triggers/:triggerKey', authenticate, requireBackofficeAdmin, updateAgencyNotificationTrigger);
+router.get('/:id/notification-preferences', authenticate, requireBackofficeAdmin, getAgencyNotificationPreferences);
+router.put('/:id/notification-preferences', authenticate, requireBackofficeAdmin, updateAgencyNotificationPreferences);
+
+// Program reminder schedules
+router.get('/:id/program-reminders', authenticate, requireBackofficeAdmin, listProgramReminderSchedules);
+router.post('/:id/program-reminders', authenticate, requireBackofficeAdmin, createProgramReminderSchedule);
+router.put('/:id/program-reminders/:scheduleId', authenticate, requireBackofficeAdmin, updateProgramReminderSchedule);
+router.delete('/:id/program-reminders/:scheduleId', authenticate, requireBackofficeAdmin, deleteProgramReminderSchedule);
 router.post('/', authenticate, requireBackofficeAdmin, validateCreateAgency, createAgency);
 router.put('/:id', authenticate, requireBackofficeAdmin, validateUpdateAgency, updateAgency);
 router.post('/:id/archive', authenticate, requireSuperAdmin, archiveAgency);

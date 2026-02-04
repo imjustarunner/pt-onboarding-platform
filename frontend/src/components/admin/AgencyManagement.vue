@@ -1401,6 +1401,199 @@
             class="form-section-divider"
             style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
           >
+            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Agency Notification Defaults</h4>
+            <small class="hint">Set defaults for all staff. Optionally lock preferences from being edited by staff.</small>
+          </div>
+
+          <div
+            v-if="activeTab === 'notifications' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-group"
+          >
+            <div v-if="agencyNotificationError" class="error-modal">
+              <strong>Error:</strong> {{ agencyNotificationError }}
+            </div>
+            <div class="filters-row" style="align-items: flex-end; margin-bottom: 10px;">
+              <div class="filters-group">
+                <label class="filters-label">Apply defaults to all staff</label>
+                <select v-model="agencyNotificationDraft.enforceDefaults" class="filters-input">
+                  <option :value="true">Yes (enforce)</option>
+                  <option :value="false">No (new users only)</option>
+                </select>
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Staff can edit</label>
+                <select v-model="agencyNotificationDraft.userEditable" class="filters-input">
+                  <option :value="true">Yes</option>
+                  <option :value="false">No</option>
+                </select>
+              </div>
+              <div class="filters-group">
+                <label class="filters-label">Bulk set</label>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="setAllNotificationDefaults(true)">
+                    Enable all
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="setAllNotificationDefaults(false)">
+                    Disable all
+                  </button>
+                </div>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadAgencyNotificationPreferences" :disabled="agencyNotificationLoading || !editingAgency?.id">
+                  {{ agencyNotificationLoading ? 'Loading…' : 'Reload' }}
+                </button>
+              </div>
+              <div class="filters-group">
+                <button type="button" class="btn btn-primary btn-sm" @click="saveAgencyNotificationPreferences" :disabled="agencyNotificationSaving || !editingAgency?.id">
+                  {{ agencyNotificationSaving ? 'Saving…' : 'Save defaults' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="table-wrap" style="margin-bottom: 12px;">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th>Enabled by default</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="opt in notificationDefaultOptions" :key="opt.key">
+                    <td>
+                      <div><strong>{{ opt.label }}</strong></div>
+                      <div class="hint" style="margin-top: 4px;">{{ opt.group }}</div>
+                    </td>
+                    <td>
+                      <ToggleSwitch v-model="agencyNotificationDraft.defaults[opt.key]" compact :disabled="opt.locked === true" />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div
+            v-if="activeTab === 'notifications' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-section-divider"
+            style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
+          >
+            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Program Reminders</h4>
+            <small class="hint">Schedule recurring program reminders (in-app + optional SMS).</small>
+          </div>
+
+          <div
+            v-if="activeTab === 'notifications' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-group"
+          >
+            <div v-if="programRemindersError" class="error-modal">
+              <strong>Error:</strong> {{ programRemindersError }}
+            </div>
+            <div class="filters-row" style="align-items: flex-end; margin-bottom: 10px;">
+              <div class="filters-group">
+                <button type="button" class="btn btn-secondary btn-sm" @click="loadProgramReminders" :disabled="programRemindersLoading || !editingAgency?.id">
+                  {{ programRemindersLoading ? 'Loading…' : 'Reload' }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="programRemindersLoading" class="loading">Loading program reminders…</div>
+            <div v-else class="table-wrap" style="margin-bottom: 12px;">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Schedule</th>
+                    <th>Next Run</th>
+                    <th>Channels</th>
+                    <th class="right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in programReminders" :key="r.id">
+                    <td>
+                      <div><strong>{{ r.title || 'Program reminder' }}</strong></div>
+                      <div class="hint" style="margin-top: 4px;">{{ r.message }}</div>
+                    </td>
+                    <td>
+                      <div class="hint">{{ formatProgramSchedule(r) }}</div>
+                    </td>
+                    <td class="hint">{{ formatProgramNextRun(r) }}</td>
+                    <td class="hint">{{ r.channels?.sms ? 'In-app + SMS' : 'In-app only' }}</td>
+                    <td class="right">
+                      <button type="button" class="btn btn-secondary btn-sm" @click="deleteProgramReminder(r)">Delete</button>
+                    </td>
+                  </tr>
+                  <tr v-if="!programReminders.length">
+                    <td colspan="5" class="empty-state-inline">No reminders scheduled yet.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="card" style="padding: 12px;">
+              <div class="filters-row">
+                <div class="filters-group" style="flex: 1;">
+                  <label class="filters-label">Title</label>
+                  <input v-model="programReminderDraft.title" class="filters-input" type="text" placeholder="Program reminder" />
+                </div>
+                <div class="filters-group" style="flex: 2;">
+                  <label class="filters-label">Message</label>
+                  <input v-model="programReminderDraft.message" class="filters-input" type="text" placeholder="Reminder message" />
+                </div>
+                <div class="filters-group">
+                  <label class="filters-label">SMS</label>
+                  <select v-model="programReminderDraft.smsEnabled" class="filters-input">
+                    <option :value="true">Enabled</option>
+                    <option :value="false">In-app only</option>
+                  </select>
+                </div>
+                <div class="filters-group">
+                  <label class="filters-label">Schedule</label>
+                  <select v-model="programReminderDraft.scheduleType" class="filters-input">
+                    <option value="once">One-time</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                </div>
+                <div class="filters-group">
+                  <label class="filters-label">Timezone</label>
+                  <input v-model="programReminderDraft.timezone" class="filters-input" type="text" placeholder="America/New_York" />
+                </div>
+              </div>
+
+              <div class="filters-row" style="align-items: flex-end; margin-top: 10px;">
+                <div v-if="programReminderDraft.scheduleType === 'once'" class="filters-group" style="flex: 1;">
+                  <label class="filters-label">Run At (local)</label>
+                  <input v-model="programReminderDraft.runAt" class="filters-input" type="datetime-local" />
+                </div>
+                <div v-else class="filters-group" style="flex: 1;">
+                  <label class="filters-label">Time (local)</label>
+                  <input v-model="programReminderDraft.timeOfDay" class="filters-input" type="time" />
+                </div>
+                <div v-if="programReminderDraft.scheduleType === 'weekly'" class="filters-group" style="flex: 2;">
+                  <label class="filters-label">Days</label>
+                  <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                    <label v-for="d in programReminderDays" :key="d.value" class="hint">
+                      <input type="checkbox" :checked="programReminderDraft.daysOfWeek.includes(d.value)" @change="toggleProgramReminderDay(d.value)" />
+                      {{ d.label }}
+                    </label>
+                  </div>
+                </div>
+                <div class="filters-group">
+                  <button type="button" class="btn btn-primary btn-sm" @click="createProgramReminder" :disabled="programReminderSaving || !programReminderDraft.message">
+                    {{ programReminderSaving ? 'Saving…' : 'Schedule reminder' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="activeTab === 'notifications' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="form-section-divider"
+            style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
+          >
             <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Notification Triggers</h4>
             <small class="hint">Platform-level notification initiators. Default is ON; customize per agency.</small>
           </div>
@@ -1450,7 +1643,7 @@
                     </td>
                     <td>
                       <div class="hint"><ToggleSwitch :model-value="true" disabled label="Web app (in-app)" compact /></div>
-                      <div class="hint"><ToggleSwitch :model-value="false" disabled label="Text (SMS) (coming soon)" compact /></div>
+                      <div class="hint"><ToggleSwitch v-model="getTriggerEdit(t.triggerKey).channels.sms" label="Text (SMS)" compact /></div>
                       <div class="hint"><ToggleSwitch :model-value="false" disabled label="Email (coming soon)" compact /></div>
                     </td>
                     <td class="right">
@@ -3212,14 +3405,89 @@ const notificationTriggersError = ref('');
 const notificationTriggerEdits = ref({});
 const savingNotificationTriggerKey = ref(null);
 
+const agencyNotificationLoading = ref(false);
+const agencyNotificationSaving = ref(false);
+const agencyNotificationError = ref('');
+const agencyNotificationDraft = ref({
+  defaults: {
+    messaging_new_inbound_client_text: false,
+    messaging_support_safety_net_alerts: false,
+    messaging_replies_to_my_messages: false,
+    messaging_client_notes: false,
+    school_portal_client_updates: false,
+    school_portal_client_update_org_swaps: false,
+    school_portal_client_comments: false,
+    school_portal_client_messages: false,
+    scheduling_room_booking_approved_denied: false,
+    scheduling_schedule_changes: false,
+    scheduling_room_release_requests: false,
+    compliance_credential_expiration_reminders: false,
+    compliance_access_restriction_warnings: false,
+    compliance_payroll_document_availability: false,
+    surveys_client_checked_in: false,
+    surveys_survey_completed: false,
+    system_emergency_broadcasts: true,
+    system_org_announcements: false,
+    program_reminders: false
+  },
+  userEditable: false,
+  enforceDefaults: true
+});
+
+const notificationDefaultOptions = [
+  { key: 'messaging_new_inbound_client_text', label: 'New inbound client text', group: 'Messaging' },
+  { key: 'messaging_support_safety_net_alerts', label: 'Support safety net alerts', group: 'Messaging' },
+  { key: 'messaging_replies_to_my_messages', label: 'Replies to my messages', group: 'Messaging' },
+  { key: 'messaging_client_notes', label: 'Client notes & updates', group: 'Messaging' },
+  { key: 'program_reminders', label: 'Program reminders', group: 'Programs' },
+  { key: 'scheduling_room_booking_approved_denied', label: 'Room booking approved/denied', group: 'Scheduling' },
+  { key: 'scheduling_schedule_changes', label: 'Schedule changes', group: 'Scheduling' },
+  { key: 'scheduling_room_release_requests', label: 'Room release requests', group: 'Scheduling' },
+  { key: 'compliance_credential_expiration_reminders', label: 'Credential expiration reminders', group: 'Compliance' },
+  { key: 'compliance_access_restriction_warnings', label: 'Access restriction warnings', group: 'Compliance' },
+  { key: 'compliance_payroll_document_availability', label: 'Payroll document availability', group: 'Compliance' },
+  { key: 'surveys_client_checked_in', label: 'Client checked in', group: 'Surveys' },
+  { key: 'surveys_survey_completed', label: 'Survey completed', group: 'Surveys' },
+  { key: 'school_portal_client_updates', label: 'Client updates', group: 'School Portal' },
+  { key: 'school_portal_client_update_org_swaps', label: 'Client org changes', group: 'School Portal' },
+  { key: 'school_portal_client_comments', label: 'Client comments', group: 'School Portal' },
+  { key: 'school_portal_client_messages', label: 'Client messages', group: 'School Portal' },
+  { key: 'system_org_announcements', label: 'Org announcements', group: 'System' },
+  { key: 'system_emergency_broadcasts', label: 'Emergency broadcasts (required)', group: 'System', locked: true }
+];
+
+const programReminders = ref([]);
+const programRemindersLoading = ref(false);
+const programRemindersError = ref('');
+const programReminderSaving = ref(false);
+const programReminderDraft = ref({
+  title: 'Program reminder',
+  message: '',
+  scheduleType: 'once',
+  runAt: '',
+  timeOfDay: '09:00',
+  daysOfWeek: [1, 3, 5],
+  smsEnabled: true,
+  timezone: 'UTC'
+});
+const programReminderDays = [
+  { label: 'Sun', value: 0 },
+  { label: 'Mon', value: 1 },
+  { label: 'Tue', value: 2 },
+  { label: 'Wed', value: 3 },
+  { label: 'Thu', value: 4 },
+  { label: 'Fri', value: 5 },
+  { label: 'Sat', value: 6 }
+];
+
 const getTriggerEdit = (triggerKey) => {
   const key = String(triggerKey || '').trim();
-  if (!key) return { enabled: true, recipients: { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true }, channels: { inApp: true, sms: false, email: false } };
+  if (!key) return { enabled: true, recipients: { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true }, channels: { inApp: true, sms: true, email: false } };
   if (!notificationTriggerEdits.value[key]) {
     notificationTriggerEdits.value[key] = {
       enabled: true,
       recipients: { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true },
-      channels: { inApp: true, sms: false, email: false }
+      channels: { inApp: true, sms: true, email: false }
     };
   }
   return notificationTriggerEdits.value[key];
@@ -3249,8 +3517,8 @@ const loadNotificationTriggers = async () => {
         },
         channels: {
           inApp: true,
-          sms: false,
-          email: false
+          sms: !!resolved?.channels?.sms,
+          email: !!resolved?.channels?.email
         }
       };
     }
@@ -3262,6 +3530,64 @@ const loadNotificationTriggers = async () => {
   } finally {
     notificationTriggersLoading.value = false;
   }
+  await loadAgencyNotificationPreferences();
+  await loadProgramReminders();
+};
+
+const loadAgencyNotificationPreferences = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    agencyNotificationLoading.value = true;
+    agencyNotificationError.value = '';
+    const resp = await api.get(`/agencies/${editingAgency.value.id}/notification-preferences`);
+    const data = resp.data || {};
+    agencyNotificationDraft.value = {
+      defaults: {
+        ...agencyNotificationDraft.value.defaults,
+        ...(data.defaults || {})
+      },
+      userEditable: data.userEditable !== false,
+      enforceDefaults: data.enforceDefaults === true
+    };
+    // Always keep emergency broadcasts enabled
+    agencyNotificationDraft.value.defaults.system_emergency_broadcasts = true;
+  } catch (e) {
+    agencyNotificationError.value = e.response?.data?.error?.message || e.message || 'Failed to load notification defaults';
+  } finally {
+    agencyNotificationLoading.value = false;
+  }
+};
+
+const saveAgencyNotificationPreferences = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    agencyNotificationSaving.value = true;
+    agencyNotificationError.value = '';
+    const payload = {
+      defaults: {
+        ...agencyNotificationDraft.value.defaults,
+        system_emergency_broadcasts: true
+      },
+      userEditable: agencyNotificationDraft.value.userEditable,
+      enforceDefaults: agencyNotificationDraft.value.enforceDefaults
+    };
+    await api.put(`/agencies/${editingAgency.value.id}/notification-preferences`, payload);
+    await loadAgencyNotificationPreferences();
+  } catch (e) {
+    agencyNotificationError.value = e.response?.data?.error?.message || e.message || 'Failed to save notification defaults';
+  } finally {
+    agencyNotificationSaving.value = false;
+  }
+};
+
+const setAllNotificationDefaults = (enabled) => {
+  const next = { ...agencyNotificationDraft.value.defaults };
+  for (const opt of notificationDefaultOptions) {
+    if (opt.locked) continue;
+    next[opt.key] = !!enabled;
+  }
+  next.system_emergency_broadcasts = true;
+  agencyNotificationDraft.value.defaults = next;
 };
 
 const saveNotificationTrigger = async (triggerRow) => {
@@ -3282,8 +3608,8 @@ const saveNotificationTrigger = async (triggerRow) => {
       },
       channels: {
         inApp: true,
-        sms: false,
-        email: false
+        sms: !!edit.channels?.sms,
+        email: !!edit.channels?.email
       }
     });
     await loadNotificationTriggers();
@@ -3291,6 +3617,92 @@ const saveNotificationTrigger = async (triggerRow) => {
     notificationTriggersError.value = e.response?.data?.error?.message || e.message || 'Failed to save trigger settings';
   } finally {
     savingNotificationTriggerKey.value = null;
+  }
+};
+
+const loadProgramReminders = async () => {
+  if (!editingAgency.value?.id) return;
+  programRemindersError.value = '';
+  programRemindersLoading.value = true;
+  try {
+    const resp = await api.get(`/agencies/${editingAgency.value.id}/program-reminders`);
+    programReminders.value = Array.isArray(resp.data) ? resp.data : [];
+  } catch (e) {
+    programRemindersError.value = e.response?.data?.error?.message || e.message || 'Failed to load program reminders';
+    programReminders.value = [];
+  } finally {
+    programRemindersLoading.value = false;
+  }
+};
+
+const toggleProgramReminderDay = (day) => {
+  const set = new Set(programReminderDraft.value.daysOfWeek || []);
+  if (set.has(day)) set.delete(day);
+  else set.add(day);
+  programReminderDraft.value.daysOfWeek = Array.from(set).sort();
+};
+
+const createProgramReminder = async () => {
+  if (!editingAgency.value?.id) return;
+  try {
+    programReminderSaving.value = true;
+    programRemindersError.value = '';
+    const scheduleType = programReminderDraft.value.scheduleType;
+    const scheduleJson =
+      scheduleType === 'once'
+        ? { runAtLocal: programReminderDraft.value.runAt }
+        : {
+            timeOfDay: programReminderDraft.value.timeOfDay,
+            daysOfWeek: scheduleType === 'weekly' ? programReminderDraft.value.daysOfWeek : undefined
+          };
+    await api.post(`/agencies/${editingAgency.value.id}/program-reminders`, {
+      title: programReminderDraft.value.title,
+      message: programReminderDraft.value.message,
+      scheduleType,
+      scheduleJson,
+      timezone: programReminderDraft.value.timezone || 'UTC',
+      channels: { sms: programReminderDraft.value.smsEnabled }
+    });
+    programReminderDraft.value.message = '';
+    await loadProgramReminders();
+  } catch (e) {
+    programRemindersError.value = e.response?.data?.error?.message || e.message || 'Failed to create reminder';
+  } finally {
+    programReminderSaving.value = false;
+  }
+};
+
+const deleteProgramReminder = async (reminder) => {
+  if (!editingAgency.value?.id || !reminder?.id) return;
+  try {
+    await api.delete(`/agencies/${editingAgency.value.id}/program-reminders/${reminder.id}`);
+    await loadProgramReminders();
+  } catch (e) {
+    programRemindersError.value = e.response?.data?.error?.message || e.message || 'Failed to delete reminder';
+  }
+};
+
+const formatProgramSchedule = (reminder) => {
+  const type = reminder?.scheduleType || reminder?.schedule_type || '';
+  const cfg = reminder?.scheduleJson || reminder?.schedule_json || {};
+  const tz = reminder?.timezone || 'UTC';
+  if (type === 'once') return `Once · ${cfg.runAtLocal || cfg.run_at_local || cfg.runAt || cfg.run_at || '—'} ${tz}`;
+  if (type === 'daily') return `Daily · ${cfg.timeOfDay || cfg.time_of_day || '—'} ${tz}`;
+  if (type === 'weekly') {
+    const days = Array.isArray(cfg.daysOfWeek || cfg.days_of_week) ? (cfg.daysOfWeek || cfg.days_of_week) : [];
+    const labels = programReminderDays.filter((d) => days.includes(d.value)).map((d) => d.label).join(', ');
+    return `Weekly · ${cfg.timeOfDay || cfg.time_of_day || '—'} ${tz} · ${labels || '—'}`;
+  }
+  return '—';
+};
+
+const formatProgramNextRun = (reminder) => {
+  const v = reminder?.nextRunAt || reminder?.next_run_at;
+  if (!v) return '—';
+  try {
+    return new Date(v).toLocaleString();
+  } catch {
+    return v;
   }
 };
 

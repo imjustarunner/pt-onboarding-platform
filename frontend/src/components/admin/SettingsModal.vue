@@ -130,6 +130,7 @@ import AvailabilityIntakeManagement from './AvailabilityIntakeManagement.vue';
 import ViewportPreviewSettings from './ViewportPreviewSettings.vue';
 import PayrollScheduleSettings from './PayrollScheduleSettings.vue';
 import NoteAidKnowledgeBaseSettings from './NoteAidKnowledgeBaseSettings.vue';
+import SmsNumbersManagement from './SmsNumbersManagement.vue';
 
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
@@ -411,6 +412,16 @@ const allCategories = [
         props: { readOnly: false }
       },
       {
+        id: 'sms-numbers',
+        label: 'Texting Numbers',
+        icon: '📱',
+        component: 'SmsNumbersManagement',
+        roles: ['super_admin', 'admin', 'support'],
+        excludeRoles: ['clinical_practice_assistant'],
+        excludeSupervisor: true,
+        requiresAgency: true
+      },
+      {
         id: 'email-settings',
         label: 'Email Settings',
         icon: '✉️',
@@ -479,7 +490,7 @@ const visibleCategories = computed(() => {
         // Special handling for support users
         if (userRole === 'support') {
           // Support users can only see specific items
-          const supportAllowedItems = ['packages', 'checklist-items-agency', 'communications'];
+          const supportAllowedItems = ['packages', 'checklist-items-agency', 'communications', 'sms-numbers'];
           if (!supportAllowedItems.includes(item.id)) {
             return false;
           }
@@ -527,6 +538,7 @@ const componentMap = {
   ViewportPreviewSettings,
   PayrollScheduleSettings,
   NoteAidKnowledgeBaseSettings,
+  SmsNumbersManagement,
   TeamRolesManagement,
   BillingManagement,
   IntegrationsManagement

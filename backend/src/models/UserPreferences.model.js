@@ -37,7 +37,7 @@ class UserPreferences {
 
         // Build update query dynamically
         const allowedFields = [
-          'email_enabled', 'sms_enabled', 'in_app_enabled',
+          'email_enabled', 'sms_enabled', 'sms_forwarding_enabled', 'in_app_enabled',
           'quiet_hours_enabled', 'quiet_hours_allowed_days', 'quiet_hours_start_time', 'quiet_hours_end_time',
           'auto_reply_enabled', 'auto_reply_message',
           'emergency_override',
@@ -91,7 +91,7 @@ class UserPreferences {
         const values = [userId];
 
         const allowedFields = [
-          'email_enabled', 'sms_enabled', 'in_app_enabled',
+          'email_enabled', 'sms_enabled', 'sms_forwarding_enabled', 'in_app_enabled',
           'quiet_hours_enabled', 'quiet_hours_allowed_days', 'quiet_hours_start_time', 'quiet_hours_end_time',
           'auto_reply_enabled', 'auto_reply_message',
           'emergency_override',

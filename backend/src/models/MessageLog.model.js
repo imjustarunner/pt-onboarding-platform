@@ -14,6 +14,9 @@ class MessageLog {
   static async createInbound({
     agencyId = null,
     userId,
+    assignedUserId = null,
+    numberId = null,
+    ownerType = null,
     clientId = null,
     body,
     fromNumber,
@@ -23,11 +26,14 @@ class MessageLog {
   }) {
     const [result] = await pool.execute(
       `INSERT INTO message_logs
-       (agency_id, user_id, client_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata)
-       VALUES (?, ?, ?, 'INBOUND', ?, ?, ?, ?, 'received', ?)`,
+       (agency_id, number_id, user_id, assigned_user_id, owner_type, client_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, 'INBOUND', ?, ?, ?, ?, 'received', ?)`,
       [
         agencyId,
+        numberId,
         userId,
+        assignedUserId,
+        ownerType,
         clientId,
         body,
         this.normalizePhone(fromNumber) || fromNumber,
@@ -42,6 +48,9 @@ class MessageLog {
   static async createOutbound({
     agencyId = null,
     userId,
+    assignedUserId = null,
+    numberId = null,
+    ownerType = null,
     clientId = null,
     body,
     fromNumber,
@@ -52,11 +61,14 @@ class MessageLog {
   }) {
     const [result] = await pool.execute(
       `INSERT INTO message_logs
-       (agency_id, user_id, client_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata)
-       VALUES (?, ?, ?, 'OUTBOUND', ?, ?, ?, ?, ?, ?)`,
+       (agency_id, number_id, user_id, assigned_user_id, owner_type, client_id, direction, body, from_number, to_number, twilio_message_sid, delivery_status, metadata)
+       VALUES (?, ?, ?, ?, ?, ?, 'OUTBOUND', ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
+        numberId,
         userId,
+        assignedUserId,
+        ownerType,
         clientId,
         body,
         this.normalizePhone(fromNumber) || fromNumber,
