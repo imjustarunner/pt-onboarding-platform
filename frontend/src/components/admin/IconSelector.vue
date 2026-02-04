@@ -13,6 +13,9 @@
           View
         </button>
         <button @click.stop="clearIcon" class="btn-remove-icon" title="Remove icon">×</button>
+        <div class="icon-hover-preview" aria-hidden="true">
+          <img :src="getIconUrl(selectedIcon)" alt="" />
+        </div>
       </div>
       <div v-else-if="props.modelValue && selectedIconLoading" class="icon-placeholder">
         <div class="icon-placeholder-icon">⏳</div>
@@ -416,6 +419,31 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: 6px;
   min-height: 40px;
+  position: relative;
+}
+.icon-hover-preview {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 8px;
+  width: 120px;
+  height: 120px;
+  padding: 8px;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+.icon-hover-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.selected-icon-preview:hover .icon-hover-preview {
+  display: flex;
 }
 
 .icon-placeholder {
