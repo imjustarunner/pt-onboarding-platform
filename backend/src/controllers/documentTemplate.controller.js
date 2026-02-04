@@ -69,9 +69,9 @@ export const uploadTemplate = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'name is required' } });
     }
 
-    if (!documentActionType || !['signature', 'review', 'acroform'].includes(documentActionType)) {
+    if (!documentActionType || !['signature', 'review'].includes(documentActionType)) {
       return res.status(400).json({
-        error: { message: 'documentActionType is required and must be "signature", "review", or "acroform"' }
+        error: { message: 'documentActionType is required and must be "signature" or "review"' }
       });
     }
 
@@ -226,19 +226,12 @@ export const createTemplate = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'name is required' } });
     }
 
-    if (!documentActionType || !['signature', 'review', 'acroform'].includes(documentActionType)) {
+    if (!documentActionType || !['signature', 'review'].includes(documentActionType)) {
       return res.status(400).json({
-        error: { message: 'documentActionType is required and must be "signature", "review", or "acroform"' }
+        error: { message: 'documentActionType is required and must be "signature" or "review"' }
       });
     }
     
-    // AcroForm workflows require PDF templates, not HTML templates
-    if (documentActionType === 'acroform') {
-      return res.status(400).json({
-        error: { message: 'AcroForm templates must be uploaded as PDF templates (not HTML templates).' }
-      });
-    }
-
     const parsedLayoutType = layoutType ? String(layoutType).trim().toLowerCase() : 'standard';
     if (!['standard', 'letter'].includes(parsedLayoutType)) {
       return res.status(400).json({ error: { message: 'layoutType must be "standard" or "letter"' } });
@@ -1035,27 +1028,3 @@ export const duplicateTemplate = async (req, res, next) => {
   }
 };
 
-export const getAcroFormFields = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const template = await DocumentTemplate.findById(parseInt(id));
-    if (!template) {
-      return res.status(404).json({ error: { message: 'Template not found' } });
-    }
-    if (template.template_type !== 'pdf' || !template.file_path) {
-      return res.status(400).json({ error: { message: 'Template must be a PDF template with file_path' } });
-    }
-
-    const StorageService = (await import('../services/storage.service.js')).default;
-    const filename = template.file_path.includes('/')
-      ? template.file_path.split('/').pop()
-      : template.file_path.replace('templates/', '');
-    const pdfBuffer = await StorageService.readTemplate(filename);
-
-    const I9AcroformService = (await import('../services/acroforms/i9.service.js')).default;
-    const fields = await I9AcroformService.listAcroFormFields(pdfBuffer);
-    res.json({ templateId: template.id, fields });
-  } catch (error) {
-    next(error);
-  }
-};

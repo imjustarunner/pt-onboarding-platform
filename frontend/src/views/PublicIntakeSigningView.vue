@@ -179,12 +179,12 @@
           <div v-else class="muted">Document preview not available.</div>
         </div>
 
-        <div v-if="currentFieldDefinitions.length" class="field-inputs">
+        <div v-if="visibleFieldDefinitions.length" class="field-inputs">
           <h4>Required Fields</h4>
-          <div v-for="field in currentFieldDefinitions" :key="field.id" class="form-group">
+          <div v-for="field in visibleFieldDefinitions" :key="field.id" class="form-group">
             <label>{{ field.label || field.type }}</label>
             <input
-              v-if="field.type !== 'date' && field.type !== 'checkbox'"
+              v-if="field.type !== 'date' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio'"
               v-model="currentFieldValues[field.id]"
               :type="field.type === 'ssn' ? 'password' : 'text'"
               :placeholder="field.type === 'ssn' ? 'Enter SSN' : 'Enter value'"
@@ -194,6 +194,27 @@
               <input v-model="currentFieldValues[field.id]" type="checkbox" />
               <span>{{ field.label || 'I agree' }}</span>
             </label>
+            <select
+              v-else-if="field.type === 'select'"
+              v-model="currentFieldValues[field.id]"
+              :data-field-id="field.id"
+            >
+              <option value="">Select an option</option>
+              <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
+                {{ opt.label || opt.value }}
+              </option>
+            </select>
+            <div v-else-if="field.type === 'radio'" class="radio-group" :data-field-id="field.id">
+              <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
+                <input
+                  type="radio"
+                  :name="`field_${field.id}`"
+                  :value="opt.value || opt.label"
+                  v-model="currentFieldValues[field.id]"
+                />
+                <span>{{ opt.label || opt.value }}</span>
+              </label>
+            </div>
             <input v-else-if="field.autoToday" v-model="currentFieldValues[field.id]" type="text" disabled />
             <input v-else v-model="currentFieldValues[field.id]" type="date" :data-field-id="field.id" />
           </div>
@@ -204,7 +225,7 @@
         </div>
 
         <div class="actions">
-          <button v-if="currentFieldDefinitions.length" class="btn btn-secondary" type="button" @click="focusNextField">
+          <button v-if="visibleFieldDefinitions.length" class="btn btn-secondary" type="button" @click="focusNextField">
             Next Field
           </button>
           <button
@@ -294,6 +315,22 @@ const currentFieldDefinitions = computed(() => {
     return [];
   }
 });
+const isFieldVisible = (def, values) => {
+  const showIf = def?.showIf;
+  if (!showIf || !showIf.fieldId) return true;
+  const actual = values[showIf.fieldId];
+  const expected = showIf.equals;
+  if (Array.isArray(expected)) {
+    return expected.map(String).includes(String(actual));
+  }
+  if (expected === '' || expected === null || expected === undefined) {
+    return Boolean(actual);
+  }
+  return String(actual ?? '') === String(expected ?? '');
+};
+const visibleFieldDefinitions = computed(() =>
+  currentFieldDefinitions.value.filter((def) => isFieldVisible(def, currentFieldValues.value))
+);
 const currentFieldValues = computed(() => {
   const id = currentDoc.value?.id;
   if (!id) return {};
@@ -400,11 +437,17 @@ const completeCurrentDocument = async () => {
       return;
     }
 
-    const missingFields = currentFieldDefinitions.value.filter((f) => {
+    const missingFields = visibleFieldDefinitions.value.filter((f) => {
       if (!f.required) return false;
       if (f.type === 'date' && f.autoToday) return false;
       if (f.type === 'checkbox') {
         return currentFieldValues.value[f.id] !== true;
+      }
+      if (f.type === 'select' || f.type === 'radio') {
+        const options = Array.isArray(f.options) ? f.options : [];
+        const optionValues = options.map((opt) => String(opt.value ?? opt.label ?? '')).filter(Boolean);
+        const selected = currentFieldValues.value[f.id];
+        return !selected || (optionValues.length > 0 && !optionValues.includes(String(selected)));
       }
       const val = currentFieldValues.value[f.id];
       return val === null || val === undefined || String(val).trim() === '';
@@ -476,7 +519,7 @@ const finalizePacket = async () => {
 };
 
 const focusNextField = () => {
-  const fields = currentFieldDefinitions.value;
+  const fields = visibleFieldDefinitions.value;
   if (!fields.length) return;
   let targetId = null;
   for (const field of fields) {
@@ -484,6 +527,16 @@ const focusNextField = () => {
     if (field.type === 'date' && field.autoToday) continue;
     if (field.type === 'checkbox') {
       if (currentFieldValues.value[field.id] !== true) {
+        targetId = field.id;
+        break;
+      }
+      continue;
+    }
+    if (field.type === 'select' || field.type === 'radio') {
+      const options = Array.isArray(field.options) ? field.options : [];
+      const optionValues = options.map((opt) => String(opt.value ?? opt.label ?? '')).filter(Boolean);
+      const selected = currentFieldValues.value[field.id];
+      if (!selected || (optionValues.length > 0 && !optionValues.includes(String(selected)))) {
         targetId = field.id;
         break;
       }
@@ -497,9 +550,12 @@ const focusNextField = () => {
   }
   if (!targetId) return;
   const el = document.querySelector(`[data-field-id="${targetId}"]`);
-  if (el && typeof el.focus === 'function') {
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    el.focus();
+  if (el) {
+    const focusEl = el.querySelector?.('input, select, textarea') || el;
+    if (typeof focusEl.focus === 'function') {
+      focusEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      focusEl.focus();
+    }
   }
 };
 
@@ -563,6 +619,8 @@ const initializeFieldValues = () => {
       values[field.id] = new Date().toISOString().slice(0, 10);
     } else if (field.type === 'checkbox') {
       if (!(field.id in values)) values[field.id] = false;
+    } else if (field.type === 'select' || field.type === 'radio') {
+      if (!(field.id in values)) values[field.id] = '';
     } else if (!(field.id in values)) {
       values[field.id] = '';
     }
@@ -704,6 +762,25 @@ onMounted(async () => {
   background: #f8f9fa;
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.field-inputs select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.radio-group {
+  display: grid;
+  gap: 6px;
+}
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
 }
 .checkbox-row {
   display: flex;

@@ -16,6 +16,20 @@ import EmailService from '../services/email.service.js';
 
 const normalizeName = (name) => String(name || '').trim();
 
+const isFieldVisible = (def, values = {}) => {
+  const showIf = def?.showIf;
+  if (!showIf || !showIf.fieldId) return true;
+  const actual = values[showIf.fieldId];
+  const expected = showIf.equals;
+  if (Array.isArray(expected)) {
+    return expected.map(String).includes(String(actual));
+  }
+  if (expected === '' || expected === null || expected === undefined) {
+    return Boolean(actual);
+  }
+  return String(actual ?? '') === String(expected ?? '');
+};
+
 const buildSignerFromSubmission = (submission) => {
   const name = normalizeName(submission.signer_name);
   const parts = name.split(/\s+/).filter(Boolean);
@@ -289,10 +303,19 @@ export const signPublicIntakeDocument = async (req, res, next) => {
     const missingFields = [];
     for (const def of fieldDefinitions) {
       if (!def || !def.required) continue;
+      if (!isFieldVisible(def, fieldValues)) continue;
       if (def.type === 'date' && def.autoToday) continue;
       const val = fieldValues[def.id];
       if (def.type === 'checkbox') {
         if (val !== true) missingFields.push(def.label || def.id || 'field');
+        continue;
+      }
+      if (def.type === 'select' || def.type === 'radio') {
+        const options = Array.isArray(def.options) ? def.options : [];
+        const optionValues = options.map((opt) => String(opt.value ?? opt.label ?? '')).filter(Boolean);
+        if (!val || (optionValues.length > 0 && !optionValues.includes(String(val)))) {
+          missingFields.push(def.label || def.id || 'field');
+        }
         continue;
       }
       if (val === null || val === undefined || String(val).trim() === '') {
@@ -554,7 +577,8 @@ export const finalizePublicIntake = async (req, res, next) => {
             fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
             fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
             replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-            attachments: attachments.length ? attachments : null
+            attachments: attachments.length ? attachments : null,
+            source: 'auto'
           });
         } catch {
           // best-effort email

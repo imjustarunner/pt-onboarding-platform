@@ -322,6 +322,17 @@ const quickActions = computed(() => {
     capabilities: ['canAccessPlatform']
   },
   {
+    id: 'intake_links',
+    title: 'Intake Links',
+    description: 'Configure intake links, documents, and questions',
+    to: '/admin/intake-links',
+    emoji: '🔗',
+    iconKey: 'intake_links',
+    category: 'Documents',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canSignDocuments']
+  },
+  {
     id: 'manage_modules',
     title: 'Manage Modules',
     description: 'Create shared modules and manage all training',
@@ -494,6 +505,7 @@ const defaultQuickActionIds = computed(() => ([
   ...(hasAffiliatedPrograms.value ? ['program_overview'] : []),
   'manage_modules',
   'manage_documents',
+  'intake_links',
   'manage_users',
   'external_calendar_audit',
   'provider_availability_dashboard',

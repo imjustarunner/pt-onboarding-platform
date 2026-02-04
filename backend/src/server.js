@@ -46,6 +46,7 @@ import notificationRoutes from './routes/notification.routes.js';
 import emailTemplateRoutes from './routes/emailTemplate.routes.js';
 import emailSenderIdentityRoutes from './routes/emailSenderIdentity.routes.js';
 import notificationTriggerAdminRoutes from './routes/notificationTriggerAdmin.routes.js';
+import emailSettingsRoutes from './routes/emailSettings.routes.js';
 import userCommunicationRoutes from './routes/userCommunication.routes.js';
 import userAdminDocsRoutes from './routes/userAdminDocs.routes.js';
 import brandingTemplateRoutes from './routes/brandingTemplate.routes.js';
@@ -507,6 +508,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/email-templates', emailTemplateRoutes);
 app.use('/api/email-senders', emailSenderIdentityRoutes);
 app.use('/api/notification-triggers', notificationTriggerAdminRoutes);
+app.use('/api/email-settings', emailSettingsRoutes);
 app.use('/api', userCommunicationRoutes);
 app.use('/api', userAdminDocsRoutes);
 app.use('/api/users', userPreferencesRoutes);
@@ -604,7 +606,7 @@ app.use((err, req, res, next) => {
     return res.status(400).json({
       error: {
         message:
-          'Invalid enum value provided. If this is a document action type like "acroform", run the latest DB migrations to expand supported values.',
+          'Invalid enum value provided. If this is a document action type, run the latest DB migrations to expand supported values.',
         ...(config.nodeEnv === 'development' && {
           code: err.code,
           sqlMessage: err.sqlMessage,

@@ -438,9 +438,24 @@ class DocumentSigningService {
     const pages = pdfDoc.getPages();
     const font = await pdfDoc.embedFont('Helvetica');
     const fontSize = 10;
+    const isFieldVisible = (def) => {
+      const showIf = def?.showIf;
+      if (!showIf || !showIf.fieldId) return true;
+      const actual = fieldValues[showIf.fieldId];
+      const expected = showIf.equals;
+      if (Array.isArray(expected)) {
+        return expected.map(String).includes(String(actual));
+      }
+      if (expected === '' || expected === null || expected === undefined) {
+        return Boolean(actual);
+      }
+      return String(actual ?? '') === String(expected ?? '');
+    };
 
     for (const def of fieldDefinitions) {
-      if (!def || def.x === null || def.y === null) continue;
+      if (!isFieldVisible(def)) continue;
+      if (!def) continue;
+      if (def.type !== 'radio' && (def.x === null || def.y === null)) continue;
       const pageIndex = def.page ? Math.max(0, Math.min(def.page - 1, pages.length - 1)) : pages.length - 1;
       const page = pages[pageIndex];
 
@@ -452,14 +467,44 @@ class DocumentSigningService {
         const truthy = value === true || value === 'true' || value === '1' || value === 1 || value === 'yes' || value === 'on' || value === 'checked';
         if (!truthy) continue;
         const mark = '✓';
-        const fontSize = Math.min(14, Math.max(10, boxHeight - 4));
-        const textWidth = font.widthOfTextAtSize(mark, fontSize);
+        const boxWidth = Number(def.width) || 20;
+        const boxHeight = Number(def.height) || 20;
+        const markSize = Math.min(14, Math.max(10, boxHeight - 4));
+        const textWidth = font.widthOfTextAtSize(mark, markSize);
         const textX = Number(def.x) + (boxWidth - textWidth) / 2;
-        const textY = Number(def.y) + (boxHeight - fontSize) / 2 + 1;
+        const textY = Number(def.y) + (boxHeight - markSize) / 2 + 1;
         page.drawText(mark, {
           x: textX,
           y: textY,
-          size: fontSize,
+          size: markSize,
+          font,
+          color: rgb(0, 0, 0)
+        });
+        continue;
+      }
+
+      if (def.type === 'radio') {
+        if (value === null || value === undefined || String(value).trim() === '') continue;
+        const options = Array.isArray(def.options) ? def.options : [];
+        const selected = options.find(
+          (opt) => String(opt.value ?? opt.label ?? '') === String(value)
+        );
+        if (!selected || selected.x === null || selected.y === null) continue;
+        const mark = '✓';
+        const boxWidth = Number(selected.width ?? def.width) || 20;
+        const boxHeight = Number(selected.height ?? def.height) || 20;
+        const markSize = Math.min(14, Math.max(10, boxHeight - 4));
+        const textWidth = font.widthOfTextAtSize(mark, markSize);
+        const textX = Number(selected.x) + (boxWidth - textWidth) / 2;
+        const textY = Number(selected.y) + (boxHeight - markSize) / 2 + 1;
+        const optPageIndex = selected.page
+          ? Math.max(0, Math.min(selected.page - 1, pages.length - 1))
+          : pageIndex;
+        const targetPage = pages[optPageIndex];
+        targetPage.drawText(mark, {
+          x: textX,
+          y: textY,
+          size: markSize,
           font,
           color: rgb(0, 0, 0)
         });
@@ -468,7 +513,14 @@ class DocumentSigningService {
 
       if (value === null || value === undefined || String(value).trim() === '') continue;
 
-      const text = String(value);
+      let text = String(value);
+      if (def.type === 'select') {
+        const options = Array.isArray(def.options) ? def.options : [];
+        const selected = options.find(
+          (opt) => String(opt.value ?? opt.label ?? '') === String(value)
+        );
+        if (selected?.label) text = selected.label;
+      }
       const boxWidth = Number(def.width) || 120;
       const boxHeight = Number(def.height) || 24;
       const textY = Number(def.y) + Math.max(2, (boxHeight - fontSize) / 2);

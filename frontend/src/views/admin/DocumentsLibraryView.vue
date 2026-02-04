@@ -1324,7 +1324,6 @@ const formatActionType = (actionType) => {
   const t = String(actionType || '').toLowerCase();
   if (t === 'signature') return 'Signature';
   if (t === 'review') return 'Review';
-  if (t === 'acroform') return 'AcroForm';
   return 'Unknown';
 };
 
@@ -1332,7 +1331,6 @@ const getActionBadgeClass = (actionType) => {
   const t = String(actionType || '').toLowerCase();
   if (t === 'signature') return 'badge-info';
   if (t === 'review') return 'badge-secondary';
-  if (t === 'acroform') return 'badge-warning';
   return 'badge-secondary';
 };
 

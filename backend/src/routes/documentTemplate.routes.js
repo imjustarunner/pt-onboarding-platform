@@ -14,7 +14,6 @@ import {
   deleteTemplate,
   getVersionHistory,
   getTemplateVariables,
-  getAcroFormFields,
   duplicateTemplate,
   upload
 } from '../controllers/documentTemplate.controller.js';
@@ -151,7 +150,7 @@ const validateUserSpecificUpload = [
   body('name').notEmpty().withMessage('Template name is required'),
   body('userId').isInt().withMessage('User ID is required and must be an integer'),
   body('documentType').isIn(['acknowledgment', 'authorization', 'agreement', 'compliance', 'disclosure', 'consent', 'administrative']).withMessage('Invalid document type'),
-  body('documentActionType').isIn(['signature', 'review', 'acroform']).withMessage('Document action type must be signature, review, or acroform'),
+  body('documentActionType').isIn(['signature', 'review']).withMessage('Document action type must be signature or review'),
   body('dueDate').optional().isISO8601().withMessage('Due date must be a valid ISO 8601 date')
 ];
 
@@ -164,7 +163,6 @@ router.get('/archived', authenticate, requireBackofficeAdmin, getArchivedTemplat
 router.get('/:id/task', authenticate, getTemplateForTask); // Allow users to access templates for their assigned tasks
 router.get('/:id/preview', authenticate, previewTemplate);
 router.get('/:id', authenticate, requireBackofficeAdmin, getTemplate);
-router.get('/:id/acroform-fields', authenticate, requireBackofficeAdmin, getAcroFormFields);
 router.put('/:id', authenticate, requireBackofficeAdmin, validateTemplateUpdate, updateTemplate);
 router.post('/:id/archive', authenticate, requireBackofficeAdmin, archiveTemplate);
 router.post('/:id/restore', authenticate, requireBackofficeAdmin, restoreTemplate);

@@ -64,32 +64,58 @@
     <div v-else-if="currentStep === 3" class="step step-sign">
       <h2>Sign Document</h2>
       <p class="instruction">Please sign the document using the signature pad below.</p>
-      <div v-if="fieldDefinitions.length > 0" class="field-inputs">
+      <div v-if="visibleFieldDefinitions.length > 0" class="field-inputs">
         <h3>Required Fields</h3>
-        <div v-for="field in fieldDefinitions" :key="field.id" class="field-input">
+        <div v-for="field in visibleFieldDefinitions" :key="field.id" class="field-input">
           <label>{{ field.label || field.type }}</label>
           <input
-            v-if="field.type !== 'date' && field.type !== 'checkbox'"
+            v-if="field.type !== 'date' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio'"
             v-model="fieldValues[field.id]"
             :type="field.type === 'ssn' ? 'password' : 'text'"
             :placeholder="field.type === 'ssn' ? 'Enter SSN' : 'Enter value'"
             :disabled="loading"
+            :data-field-id="field.id"
           />
           <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
             <input v-model="fieldValues[field.id]" type="checkbox" :disabled="loading" />
             <span>{{ field.label || 'I agree' }}</span>
           </label>
+          <select
+            v-else-if="field.type === 'select'"
+            v-model="fieldValues[field.id]"
+            :disabled="loading"
+            :data-field-id="field.id"
+          >
+            <option value="">Select an option</option>
+            <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
+              {{ opt.label || opt.value }}
+            </option>
+          </select>
+          <div v-else-if="field.type === 'radio'" class="radio-group" :data-field-id="field.id">
+            <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
+              <input
+                type="radio"
+                :name="`field_${field.id}`"
+                :value="opt.value || opt.label"
+                v-model="fieldValues[field.id]"
+                :disabled="loading"
+              />
+              <span>{{ opt.label || opt.value }}</span>
+            </label>
+          </div>
           <input
             v-else-if="field.autoToday"
             v-model="fieldValues[field.id]"
             type="text"
             :disabled="true"
+            :data-field-id="field.id"
           />
           <input
             v-else
             v-model="fieldValues[field.id]"
             type="date"
             :disabled="loading"
+            :data-field-id="field.id"
           />
           <small v-if="fieldErrors[field.id]" class="error-text">{{ fieldErrors[field.id] }}</small>
         </div>
@@ -183,6 +209,24 @@ const fieldDefinitions = ref([]);
 const fieldValues = ref({});
 const fieldErrors = ref({});
 
+const isFieldVisible = (def, values) => {
+  const showIf = def?.showIf;
+  if (!showIf || !showIf.fieldId) return true;
+  const actual = values[showIf.fieldId];
+  const expected = showIf.equals;
+  if (Array.isArray(expected)) {
+    return expected.map(String).includes(String(actual));
+  }
+  if (expected === '' || expected === null || expected === undefined) {
+    return Boolean(actual);
+  }
+  return String(actual ?? '') === String(expected ?? '');
+};
+
+const visibleFieldDefinitions = computed(() =>
+  fieldDefinitions.value.filter((def) => isFieldVisible(def, fieldValues.value))
+);
+
 const isAdminUser = computed(() => {
   const role = authStore.user?.role;
   return role === 'super_admin' || role === 'admin' || role === 'support';
@@ -233,6 +277,8 @@ const loadDocumentTask = async () => {
         nextValues[f.id] = new Date().toISOString().slice(0, 10);
       } else if (f.type === 'checkbox') {
         if (!(f.id in nextValues)) nextValues[f.id] = false;
+      } else if (f.type === 'select' || f.type === 'radio') {
+        if (!(f.id in nextValues)) nextValues[f.id] = '';
       } else if (!(f.id in nextValues)) {
         nextValues[f.id] = '';
       }
@@ -431,13 +477,21 @@ const finalizeSignature = async () => {
   }
 
   const errors = {};
-  fieldDefinitions.value.forEach((f) => {
+  visibleFieldDefinitions.value.forEach((f) => {
     if (!f.required) return;
     const value = fieldValues.value[f.id];
     if (f.type === 'date' && f.autoToday) return;
     if (f.type === 'checkbox') {
       if (value !== true) {
         errors[f.id] = 'This field is required';
+      }
+      return;
+    }
+    if (f.type === 'select' || f.type === 'radio') {
+      const options = Array.isArray(f.options) ? f.options : [];
+      const optionValues = options.map((opt) => String(opt.value ?? opt.label ?? '')).filter(Boolean);
+      if (!value || (optionValues.length > 0 && !optionValues.includes(String(value)))) {
+        errors[f.id] = 'Please select an option';
       }
       return;
     }
@@ -647,10 +701,23 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 
-.field-input input {
+.field-input input,
+.field-input select {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
+}
+
+.radio-group {
+  display: grid;
+  gap: 6px;
+}
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
 }
 
 .checkbox-row {

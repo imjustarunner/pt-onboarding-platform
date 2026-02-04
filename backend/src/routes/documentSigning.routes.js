@@ -8,19 +8,13 @@ import {
   signDocument,
   counterSignDocument,
   downloadSignedDocument,
-  verifyDocument,
-  finalizeI9Acroform
+  verifyDocument
 } from '../controllers/documentSigning.controller.js';
 import { authenticate, requireCapability } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 const validateSignature = [
-  body('signatureData').notEmpty().withMessage('Signature data is required')
-];
-
-const validateI9Finalize = [
-  body('wizardData').notEmpty().withMessage('wizardData is required'),
   body('signatureData').notEmpty().withMessage('Signature data is required')
 ];
 
@@ -33,7 +27,6 @@ router.post('/:taskId/consent', giveConsent);
 router.post('/:taskId/intent', recordIntent);
 router.post('/:taskId/sign', validateSignature, signDocument);
 router.post('/:taskId/countersign', validateSignature, counterSignDocument);
-router.post('/:taskId/acroform/i9/finalize', validateI9Finalize, finalizeI9Acroform);
 router.get('/:taskId/download', downloadSignedDocument);
 router.get('/:taskId/verify', verifyDocument);
 

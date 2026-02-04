@@ -336,8 +336,8 @@ export const assignTask = async (req, res, next) => {
       });
     } else if (taskType === 'document') {
       // Validate documentActionType if provided
-      if (documentActionType && !['signature', 'review', 'acroform'].includes(documentActionType)) {
-        return res.status(400).json({ error: { message: 'documentActionType must be "signature", "review", or "acroform"' } });
+      if (documentActionType && !['signature', 'review'].includes(documentActionType)) {
+        return res.status(400).json({ error: { message: 'documentActionType must be "signature" or "review"' } });
       }
       
       // Validate referenceId is provided for document tasks
