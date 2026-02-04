@@ -21,7 +21,17 @@ const normalizeProgress = (raw) => {
 };
 
 export const useTutorialStore = defineStore('tutorial', () => {
-  const enabled = ref(false);
+  const ENABLED_STORAGE_KEY = 'tutorial.enabled.v1';
+  const loadEnabled = () => {
+    try {
+      const v = window?.localStorage?.getItem?.(ENABLED_STORAGE_KEY);
+      return v === '1';
+    } catch {
+      return false;
+    }
+  };
+
+  const enabled = ref(loadEnabled());
 
   const progress = ref({ tours: {} });
   const loadedForUserId = ref(null);
@@ -32,6 +42,11 @@ export const useTutorialStore = defineStore('tutorial', () => {
 
   const setEnabled = (next) => {
     enabled.value = !!next;
+    try {
+      window?.localStorage?.setItem?.(ENABLED_STORAGE_KEY, enabled.value ? '1' : '0');
+    } catch {
+      // ignore
+    }
   };
 
   const ensureLoaded = async (userId) => {

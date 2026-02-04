@@ -24,6 +24,7 @@ const builderStore = useSuperadminBuilderStore();
 let drv = null;
 let activeTourId = null;
 let activeTourVersion = null;
+let lastAutoStartedKey = null;
 
 const currentAgencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
@@ -111,8 +112,6 @@ const filterRenderableSteps = (steps) => {
 };
 
 const startForCurrentRoute = async () => {
-  stop();
-
   const userId = authStore.user?.id;
   if (!tutorialStore.enabled || !userId) return;
 
@@ -133,7 +132,17 @@ const startForCurrentRoute = async () => {
   if (!tour) return;
 
   await tutorialStore.ensureLoaded(userId);
-  if (tutorialStore.isTourComplete(tour.id, tour.version)) return;
+
+  // Only auto-start when the "page tour identity" changes.
+  // This prevents re-start loops on query-string tweaks or minor reactive updates.
+  const routeName = String(route?.name || '');
+  const tab = String(route?.query?.tab || '');
+  const tourKey = `${String(tour.id)}@${String(tour.version)}|${routeName}|${tab}`;
+  if (drv?.isActive?.() && activeTourId === tour.id && activeTourVersion === tour.version) return;
+  if (lastAutoStartedKey === tourKey) return;
+  lastAutoStartedKey = tourKey;
+
+  stop();
 
   // Let the page render before querying selectors.
   await nextTick();
@@ -169,7 +178,7 @@ const startForCurrentRoute = async () => {
 };
 
 watch(
-  () => [route.name, route.fullPath, tutorialStore.enabled, authStore.user?.id],
+  () => [route.name, route.query?.tab, tutorialStore.enabled, authStore.user?.id, currentAgencyId.value],
   () => {
     startForCurrentRoute();
   },
