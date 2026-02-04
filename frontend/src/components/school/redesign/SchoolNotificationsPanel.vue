@@ -67,7 +67,15 @@
 
     <div v-else class="feed">
       <div v-if="items.length === 0" class="empty">No notifications yet.</div>
-      <div v-for="it in items" :key="it.id" class="item" :class="{ unread: isUnread(it) }">
+      <button
+        v-for="it in items"
+        :key="it.id"
+        class="item"
+        type="button"
+        :class="{ unread: isUnread(it), clickable: isClickable(it) }"
+        :title="isClickable(it) ? 'Click to display details' : ''"
+        @click="handleItemClick(it)"
+      >
         <div class="item-top">
           <div class="item-title">{{ it.title || (it.kind === 'client_event' ? 'Client update' : 'Announcement') }}</div>
           <div class="item-meta">
@@ -76,6 +84,23 @@
           </div>
         </div>
         <div class="item-msg">{{ formatMessage(it) }}</div>
+      </button>
+    </div>
+  </div>
+
+  <div v-if="detailOpen" class="modal-overlay" @click.self="closeDetail">
+    <div class="modal-content" @click.stop>
+      <div class="modal-header">
+        <h3 style="margin:0;">{{ detailTitle }}</h3>
+        <button class="btn-close" type="button" title="Close" @click="closeDetail">×</button>
+      </div>
+      <div class="modal-body">
+        <div v-if="detailLoading" class="muted">Loading…</div>
+        <div v-else-if="detailError" class="error">{{ detailError }}</div>
+        <div v-else class="detail-body">
+          <div class="muted-small">{{ detailMeta }}</div>
+          <div class="detail-text">{{ detailText }}</div>
+        </div>
       </div>
     </div>
   </div>
@@ -308,6 +333,11 @@ const isUnread = (it) => {
 
 const unreadCount = computed(() => (items.value || []).filter(isUnread).length);
 
+const isClickable = (it) => {
+  const kind = String(it?.kind || '').toLowerCase();
+  return kind === 'comment' || kind === 'message';
+};
+
 const formatClientLabel = (it) => {
   const code = String(it?.client_identifier_code || '').trim();
   const initials = String(it?.client_initials || '').trim();
@@ -317,7 +347,8 @@ const formatClientLabel = (it) => {
 
 const formatMessage = (it) => {
   const raw = String(it?.message || '').trim();
-  if (String(it?.kind || '').toLowerCase() !== 'client_event') return raw;
+  const kind = String(it?.kind || '').toLowerCase();
+  if (!['client_event', 'comment', 'message'].includes(kind)) return raw;
   const label = formatClientLabel(it);
   if (!label) return raw;
   const idx = raw.indexOf(':');
@@ -330,6 +361,95 @@ const formatWhen = (ts) => {
     return new Date(ts).toLocaleString();
   } catch {
     return String(ts || '');
+  }
+};
+
+const detailOpen = ref(false);
+const detailLoading = ref(false);
+const detailError = ref('');
+const detailTitle = ref('Details');
+const detailMeta = ref('');
+const detailText = ref('');
+
+const closeDetail = () => {
+  detailOpen.value = false;
+  detailLoading.value = false;
+  detailError.value = '';
+  detailTitle.value = 'Details';
+  detailMeta.value = '';
+  detailText.value = '';
+};
+
+const parseNumericId = (id) => {
+  const s = String(id || '');
+  const idx = s.indexOf(':');
+  const raw = idx >= 0 ? s.slice(idx + 1) : s;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) ? n : null;
+};
+
+const showDetail = ({ title, meta, text }) => {
+  detailTitle.value = title || 'Details';
+  detailMeta.value = meta || '';
+  detailText.value = text || '';
+  detailError.value = '';
+  detailOpen.value = true;
+};
+
+const handleItemClick = async (it) => {
+  if (!isClickable(it)) return;
+  const kind = String(it?.kind || '').toLowerCase();
+  const orgId = Number(props.schoolOrganizationId || 0);
+  const clientId = Number(it?.client_id || 0);
+  if (!orgId || !clientId) return;
+
+  detailOpen.value = true;
+  detailLoading.value = true;
+  detailError.value = '';
+  detailText.value = '';
+
+  try {
+    if (kind === 'comment') {
+      const commentId = parseNumericId(it?.id);
+      const r = await api.get(`/school-portal/${orgId}/clients/${clientId}/comments`, { timeout: 12000 });
+      const list = Array.isArray(r.data) ? r.data : [];
+      const found = commentId ? list.find((c) => Number(c?.id) === Number(commentId)) : null;
+      const msg = String(found?.message || it?.message || '').trim();
+      const who = String(found?.author_name || it?.actor_name || '').trim();
+      const when = formatWhen(found?.created_at || it?.created_at);
+      const label = formatClientLabel(it);
+      showDetail({
+        title: label ? `${label}: Comment` : 'Comment',
+        meta: [when, who].filter(Boolean).join(' • '),
+        text: msg
+      });
+      return;
+    }
+
+    if (kind === 'message') {
+      const messageId = parseNumericId(it?.id);
+      const r = await api.get('/support-tickets/client-thread', {
+        params: { schoolOrganizationId: orgId, clientId },
+        timeout: 12000
+      });
+      const msgs = Array.isArray(r.data?.messages) ? r.data.messages : [];
+      const found = messageId ? msgs.find((m) => Number(m?.id) === Number(messageId)) : null;
+      const body = String(found?.body || it?.message || '').trim();
+      const fn = String(found?.author_first_name || '').trim();
+      const ln = String(found?.author_last_name || '').trim();
+      const who = [fn, ln].filter(Boolean).join(' ').trim() || String(it?.actor_name || '').trim();
+      const when = formatWhen(found?.created_at || it?.created_at);
+      const label = formatClientLabel(it);
+      showDetail({
+        title: label ? `${label}: Message` : 'Message',
+        meta: [when, who].filter(Boolean).join(' • '),
+        text: body
+      });
+    }
+  } catch (e) {
+    detailError.value = e.response?.data?.error?.message || 'Failed to load details';
+  } finally {
+    detailLoading.value = false;
   }
 };
 
@@ -502,10 +622,28 @@ watch(
   border-radius: 12px;
   background: var(--bg);
   padding: 10px 12px;
+  text-align: left;
+  width: 100%;
+  cursor: default;
 }
 .item.unread {
   border-color: rgba(47, 143, 131, 0.45);
   background: rgba(47, 143, 131, 0.08);
+}
+.item.clickable {
+  cursor: pointer;
+}
+.item.clickable:hover {
+  border-color: rgba(59, 130, 246, 0.35);
+}
+.detail-body {
+  display: grid;
+  gap: 10px;
+}
+.detail-text {
+  white-space: pre-wrap;
+  color: var(--text-primary);
+  line-height: 1.35;
 }
 .item-top {
   display: flex;
