@@ -64,7 +64,7 @@ jobs:
             --no-allow-unauthenticated \
             --service-account ${{ secrets.REFERRAL_SCANNER_SA_EMAIL }} \
             --update-env-vars="${ENV_VARS}" \
-            --memory=512Mi \
+            --memory=1Gi \
             --cpu=1 \
             --timeout=300 \
             --max-instances=3 \
