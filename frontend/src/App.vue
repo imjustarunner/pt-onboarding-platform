@@ -51,7 +51,7 @@
               </div>
               <h1 v-if="navTitleText" class="nav-title">{{ navTitleText }}</h1>
             </div>
-            <div class="nav-links-wrapper">
+            <div class="nav-links-wrapper" :class="{ 'nav-menus-open': navDropdownOpen }">
               <div class="nav-links">
               <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu">
                 {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
@@ -548,6 +548,15 @@ const peopleOpsMenuOpen = ref(false);
 const directoryMenuOpen = ref(false);
 const managementMenuOpen = ref(false);
 const engagementMenuOpen = ref(false);
+
+const navDropdownOpen = computed(() => {
+  return (
+    peopleOpsMenuOpen.value ||
+    directoryMenuOpen.value ||
+    managementMenuOpen.value ||
+    engagementMenuOpen.value
+  );
+});
 
 const closeAllNavMenus = () => {
   brandMenuOpen.value = false;
@@ -1421,14 +1430,17 @@ onUnmounted(() => {
 
 @media (max-width: 1400px) {
   .nav-links-wrapper {
-    overflow: visible;
-  }
-
-  .nav-links {
     overflow-x: auto;
     overflow-y: visible;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .nav-links {
     min-width: max-content;
+  }
+
+  .nav-links-wrapper.nav-menus-open {
+    overflow: visible;
   }
 }
 
