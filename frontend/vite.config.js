@@ -2,9 +2,12 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
 
+const rootDir = fileURLToPath(new URL('.', import.meta.url));
+const indexHtml = fileURLToPath(new URL('./index.html', import.meta.url));
+
 export default defineConfig({
   // Always resolve root relative to this config file (works even when invoked from repo root).
-  root: fileURLToPath(new URL('.', import.meta.url)),
+  root: rootDir,
   plugins: [vue()],
   resolve: {
     alias: {
@@ -30,7 +33,10 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
+    rollupOptions: {
+      input: indexHtml
+    }
   }
 });
 
