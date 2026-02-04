@@ -9,7 +9,6 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import { notifyPaperworkReceived } from '../services/clientNotifications.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
-import MalwareScanService from '../services/malwareScan.service.js';
 
 // Configure multer for memory storage (files will be uploaded to GCS)
 const upload = multer({
@@ -35,51 +34,6 @@ const upload = multer({
 });
 
 const QUARANTINE_PREFIX = 'referrals_quarantine/';
-const CLEAN_PREFIX = 'referrals/';
-
-const scanAndUpdateDocument = async ({ phiDoc, rawBuffer }) => {
-  if (!phiDoc?.id) return;
-  if (!rawBuffer) return;
-  try {
-    if (!MalwareScanService.isConfigured()) {
-      await ClientPhiDocument.updateScanStatusById({
-        id: phiDoc.id,
-        scanStatus: 'error',
-        scanResult: 'VirusTotal API key not configured',
-        scannedAt: new Date()
-      });
-      return;
-    }
-
-    const scanResult = await MalwareScanService.scanBuffer(rawBuffer);
-    const scannedAt = new Date();
-    let updatedStoragePath = phiDoc.storage_path;
-
-    if (scanResult.status === 'clean') {
-      if (updatedStoragePath.startsWith(QUARANTINE_PREFIX)) {
-        updatedStoragePath = updatedStoragePath.replace(QUARANTINE_PREFIX, CLEAN_PREFIX);
-        await StorageService.moveObject(phiDoc.storage_path, updatedStoragePath);
-      }
-    } else if (scanResult.status === 'infected') {
-      await StorageService.deleteObject(phiDoc.storage_path);
-    }
-
-    await ClientPhiDocument.updateScanStatusById({
-      id: phiDoc.id,
-      scanStatus: scanResult.status,
-      scanResult: scanResult.details || null,
-      scannedAt,
-      storagePath: updatedStoragePath
-    });
-  } catch (error) {
-    await ClientPhiDocument.updateScanStatusById({
-      id: phiDoc.id,
-      scanStatus: 'error',
-      scanResult: error?.message || 'Scan failed',
-      scannedAt: new Date()
-    });
-  }
-};
 
 /**
  * Upload referral packet (no authentication required)
@@ -120,12 +74,13 @@ export const uploadReferralPacket = [
       const randomId = Math.random().toString(36).substring(7);
       const quarantinePath = `referrals_quarantine/${organization.id}/${timestamp}-${randomId}-${sanitizedFilename}`;
 
+      const encryptionAad = JSON.stringify({
+        organizationId: organization.id,
+        uploadType: 'referral_packet',
+        filename: sanitizedFilename
+      });
       const encryptionResult = await DocumentEncryptionService.encryptBuffer(req.file.buffer, {
-        aad: JSON.stringify({
-          organizationId: organization.id,
-          uploadType: 'referral_packet',
-          filename: sanitizedFilename
-        })
+        aad: encryptionAad
       });
       
       const bucket = await StorageService.getGCSBucket();
@@ -141,7 +96,13 @@ export const uploadReferralPacket = [
           originalName: sanitizedFilename,
           originalContentType: req.file.mimetype,
           scanStatus: 'pending',
-          isEncrypted: 'true'
+          isEncrypted: 'true',
+          encryptionKeyId: encryptionResult.encryptionKeyId,
+          encryptionWrappedKey: encryptionResult.encryptionWrappedKeyB64,
+          encryptionIv: encryptionResult.encryptionIvB64,
+          encryptionAuthTag: encryptionResult.encryptionAuthTagB64,
+          encryptionAlg: encryptionResult.encryptionAlg,
+          encryptionAad
         }
       });
       
@@ -236,12 +197,6 @@ export const uploadReferralPacket = [
           console.warn('Failed to create PHI document record:', e.message);
         }
         phiDoc = null;
-      }
-
-      if (phiDoc) {
-        setImmediate(() => {
-          scanAndUpdateDocument({ phiDoc, rawBuffer: req.file?.buffer });
-        });
       }
 
       // Notify support/admin team that paperwork was received (best-effort).
