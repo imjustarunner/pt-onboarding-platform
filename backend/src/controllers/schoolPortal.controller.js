@@ -1478,7 +1478,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
                       ? `${clientLabel}: organization updated`
                       : `${clientLabel}: updated`;
 
-        return ({
+        return {
           id: `client_event:${r.id}`,
           kind: 'client_event',
           created_at: r.changed_at,
