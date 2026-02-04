@@ -187,6 +187,7 @@ const scanStatusLabel = computed(() => {
   if (!s) return 'Pending';
   if (s === 'clean') return 'Clean';
   if (s === 'infected') return 'Blocked (Infected)';
+  if (s === 'error') return 'Scan Error';
   return s;
 });
 
@@ -195,6 +196,7 @@ const scanStatusMessage = computed(() => {
   if (!s || s === 'pending') return 'Security scan is running. OCR will unlock when complete.';
   if (s === 'clean') return 'Scan complete. OCR is available.';
   if (s === 'infected') return 'Upload blocked due to security scan.';
+  if (s === 'error') return 'Scan failed. Please contact support.';
   return '';
 });
 
@@ -203,6 +205,7 @@ const scanProgress = computed(() => {
   if (!s || s === 'pending') return 35;
   if (s === 'clean') return 100;
   if (s === 'infected') return 100;
+  if (s === 'error') return 100;
   return 50;
 });
 
@@ -210,6 +213,7 @@ const scanStatusClass = computed(() => {
   const s = String(scanStatus.value || '').toLowerCase();
   if (s === 'clean') return 'scan-clean';
   if (s === 'infected') return 'scan-bad';
+  if (s === 'error') return 'scan-bad';
   return 'scan-pending';
 });
 
