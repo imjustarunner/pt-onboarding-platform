@@ -74,6 +74,12 @@ const routes = [
     component: () => import('../views/school/SchoolFinderView.vue'),
     meta: { requiresGuest: false }
   },
+  {
+    path: '/intake/:publicKey',
+    name: 'PublicIntakeSigning',
+    component: () => import('../views/PublicIntakeSigningView.vue'),
+    meta: { requiresGuest: false }
+  },
   // Organization-specific routes (supports Agency, School, Program, Learning)
   // School splash page (public, no auth required)
   {
@@ -331,6 +337,12 @@ const routes = [
     name: 'OrganizationModuleContentEditor',
     component: () => import('../views/admin/ModuleContentEditor.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/intake-links',
+    name: 'OrganizationIntakeLinks',
+    component: () => import('../views/admin/IntakeLinksView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'], organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/users/:userId',
@@ -671,6 +683,12 @@ const routes = [
     name: 'ModuleContentEditor',
     component: () => import('../views/admin/ModuleContentEditor.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
+  },
+  {
+    path: '/admin/intake-links',
+    name: 'IntakeLinks',
+    component: () => import('../views/admin/IntakeLinksView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
   },
   {
     path: '/admin/users/:userId',

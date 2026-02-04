@@ -7,6 +7,8 @@ import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import { notifyPaperworkReceived } from '../services/clientNotifications.service.js';
+import DocumentEncryptionService from '../services/documentEncryption.service.js';
+import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 
 // Configure multer for memory storage (files will be uploaded to GCS)
 const upload = multer({
@@ -68,18 +70,30 @@ export const uploadReferralPacket = [
       const sanitizedFilename = StorageService.sanitizeFilename(req.file.originalname);
       const timestamp = Date.now();
       const randomId = Math.random().toString(36).substring(7);
-      const fileName = `referrals/${organization.id}/${timestamp}-${randomId}-${sanitizedFilename}`;
+      const quarantinePath = `referrals_quarantine/${organization.id}/${timestamp}-${randomId}-${sanitizedFilename}`;
+
+      const encryptionResult = await DocumentEncryptionService.encryptBuffer(req.file.buffer, {
+        aad: JSON.stringify({
+          organizationId: organization.id,
+          uploadType: 'referral_packet',
+          filename: sanitizedFilename
+        })
+      });
       
       const bucket = await StorageService.getGCSBucket();
-      const file = bucket.file(fileName);
+      const file = bucket.file(quarantinePath);
       
-      await file.save(req.file.buffer, {
-        contentType: req.file.mimetype,
+      await file.save(encryptionResult.encryptedBuffer, {
+        contentType: 'application/octet-stream',
         metadata: {
           organizationId: organization.id.toString(),
           uploadedBy: 'public',
           uploadType: 'referral_packet',
-          uploadedAt: new Date().toISOString()
+          uploadedAt: new Date().toISOString(),
+          originalName: sanitizedFilename,
+          originalContentType: req.file.mimetype,
+          scanStatus: 'pending',
+          isEncrypted: 'true'
         }
       });
       
@@ -134,11 +148,33 @@ export const uploadReferralPacket = [
           clientId: client.id,
           agencyId,
           schoolOrganizationId: organization.id,
-          storagePath: fileName,
+          storagePath: quarantinePath,
           originalName: req.file.originalname || null,
           mimeType: req.file.mimetype || null,
-          uploadedByUserId: null
+          uploadedByUserId: null,
+          scanStatus: 'pending',
+          quarantinePath,
+          isEncrypted: true,
+          encryptionKeyId: encryptionResult.encryptionKeyId,
+          encryptionWrappedKey: encryptionResult.encryptionWrappedKeyB64,
+          encryptionIv: encryptionResult.encryptionIvB64,
+          encryptionAuthTag: encryptionResult.encryptionAuthTagB64,
+          encryptionAlg: encryptionResult.encryptionAlg
         });
+        try {
+          const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
+          await PhiDocumentAuditLog.create({
+            documentId: phiDoc.id,
+            clientId: client.id,
+            action: 'uploaded',
+            actorUserId: null,
+            actorLabel: 'public_upload',
+            ipAddress: ip,
+            metadata: { source: 'school_upload', organizationId: organization.id }
+          });
+        } catch {
+          // best-effort logging
+        }
       } catch (e) {
         // Don't fail upload if PHI tracking table isn't available yet.
         if (e.code !== 'ER_NO_SUCH_TABLE') {
@@ -160,6 +196,7 @@ export const uploadReferralPacket = [
         success: true,
         message: 'Referral packet uploaded successfully. Client record created.',
         phiDocumentId: phiDoc?.id || null,
+        scanStatus: phiDoc?.scan_status || 'pending',
         organizationId: organization.id,
         clientId: client.id
       });

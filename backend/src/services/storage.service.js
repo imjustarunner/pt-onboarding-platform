@@ -801,6 +801,44 @@ class StorageService {
   }
 
   /**
+   * Save a public intake signed document to GCS under intake_signed/.
+   */
+  static async saveIntakeSignedDocument({ submissionId, templateId, fileBuffer, filename }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `intake-${Date.now()}.pdf`);
+    const key = `intake_signed/${submissionId || 'unknown'}/${templateId || 'unknown'}/${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: 'application/pdf',
+      metadata: {
+        submissionId: String(submissionId || ''),
+        templateId: String(templateId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  static async saveIntakeBundle({ submissionId, fileBuffer, filename }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `intake-bundle-${Date.now()}.pdf`);
+    const key = `intake_signed/${submissionId || 'unknown'}/bundle/${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: 'application/pdf',
+      metadata: {
+        submissionId: String(submissionId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
+  /**
    * Read a user document file from GCS
    * @param {string} filename - Filename
    * @returns {Promise<Buffer>}
@@ -944,6 +982,39 @@ class StorageService {
     if (!exists) throw new Error(`File not found in GCS: ${k}`);
     const [buffer] = await file.download();
     return buffer;
+  }
+
+  /**
+   * Move an object within the same GCS bucket.
+   * @param {string} sourceKey
+   * @param {string} destinationKey
+   */
+  static async moveObject(sourceKey, destinationKey) {
+    const source = String(sourceKey || '').trim();
+    const destination = String(destinationKey || '').trim();
+    if (!source || !destination) {
+      throw new Error('Missing source or destination key');
+    }
+    if (source === destination) return;
+    const bucket = await this.getGCSBucket();
+    const sourceFile = bucket.file(source);
+    const destinationFile = bucket.file(destination);
+    await sourceFile.copy(destinationFile);
+    await sourceFile.delete();
+  }
+
+  static async deleteObject(key) {
+    const k = String(key || '').trim();
+    if (!k) return;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(k);
+    try {
+      await file.delete();
+    } catch (gcsError) {
+      if (gcsError.code !== 404) {
+        throw new Error(`Failed to delete object from GCS: ${gcsError.message}`);
+      }
+    }
   }
 
   static async objectExists(key) {

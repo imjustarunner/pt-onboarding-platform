@@ -29,7 +29,8 @@
             <th>Uploaded</th>
             <th>Filename</th>
             <th>Type</th>
-            <th style="width: 160px;"></th>
+            <th>Status</th>
+            <th style="width: 220px;"></th>
           </tr>
         </thead>
         <tbody>
@@ -37,12 +38,79 @@
             <td>{{ formatDateTime(d.uploaded_at) }}</td>
             <td>{{ d.original_name || d.storage_path }}</td>
             <td>{{ d.mime_type || '-' }}</td>
+            <td>
+              <span v-if="d.removed_at" class="pill pill-removed">Removed</span>
+              <span v-else-if="d.scan_status && d.scan_status !== 'clean'" class="pill pill-pending">Scanning</span>
+              <span v-else class="pill pill-ready">Ready</span>
+            </td>
             <td class="actions">
-              <button class="btn btn-primary btn-sm" @click="confirmOpen(d)">View</button>
+              <button class="btn btn-primary btn-sm" :disabled="!!d.removed_at" @click="confirmOpen(d)">View</button>
+              <button class="btn btn-secondary btn-sm" type="button" :disabled="!!d.removed_at" @click="markExported(d)">
+                Export
+              </button>
+              <button class="btn btn-secondary btn-sm" type="button" :disabled="!!d.removed_at" @click="removeDoc(d)">
+                Remove
+              </button>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="ocrSubmitting || !canRequestOcr(d)"
+                :title="ocrDisabledReason(d)"
+                @click="requestOcr(d)"
+              >
+                OCR
+              </button>
             </td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="auditError" class="error">{{ auditError }}</div>
+    <div v-else-if="auditStatements.length" class="audit-panel">
+      <div class="audit-title">Document audit statements</div>
+      <div class="audit-list">
+        <div v-for="s in auditStatements" :key="s.documentId" class="audit-item">
+          <div class="audit-name">{{ s.originalName || `Document ${s.documentId}` }}</div>
+          <div class="audit-line">Uploaded: {{ formatDateTime(s.uploadedAt) }}{{ s.uploadedBy ? ` by ${s.uploadedBy}` : '' }}</div>
+          <div class="audit-line">Downloaded: {{ s.downloadedAt ? formatDateTime(s.downloadedAt) : '—' }}{{ s.downloadedBy ? ` by ${s.downloadedBy}` : '' }}</div>
+          <div class="audit-line">Exported to EHR: {{ s.exportedToEhrAt ? formatDateTime(s.exportedToEhrAt) : '—' }}{{ s.exportedToEhrBy ? ` by ${s.exportedToEhrBy}` : '' }}</div>
+          <div class="audit-line">
+            Removed: {{ s.removedAt ? formatDateTime(s.removedAt) : '—' }}{{ s.removedBy ? ` by ${s.removedBy}` : '' }}
+            <span v-if="s.removedReason"> · {{ s.removedReason }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ocr-panel">
+      <div class="ocr-header">
+        <h4>OCR requests</h4>
+        <div v-if="ocrLoading" class="muted">Loading…</div>
+      </div>
+      <div v-if="ocrError" class="error">{{ ocrError }}</div>
+      <div v-else-if="ocrRequests.length === 0" class="empty">No OCR requests yet.</div>
+      <div v-else class="ocr-list">
+        <div v-for="r in ocrRequests" :key="r.id" class="ocr-item">
+          <div class="ocr-meta">
+            <div>
+              <strong>{{ formatDateTime(r.created_at) }}</strong>
+              <span class="ocr-status">{{ r.status }}</span>
+            </div>
+            <button
+              v-if="r.result_text"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="copyOcrText(r.result_text)"
+            >
+              Copy
+            </button>
+          </div>
+          <div v-if="r.error_message" class="error">{{ r.error_message }}</div>
+          <pre v-else-if="r.result_text" class="ocr-text">{{ r.result_text }}</pre>
+          <div v-else class="muted">Awaiting processing…</div>
+        </div>
+      </div>
     </div>
 
     <div v-if="confirmingDoc" class="modal-overlay" @click.self="confirmingDoc = null">
@@ -76,14 +144,21 @@ const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase()
 const canUpload = computed(() => ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm.value));
 
 const loading = ref(false);
+const auditLoading = ref(false);
+const ocrLoading = ref(false);
 const opening = ref(false);
 const uploading = ref(false);
+const ocrSubmitting = ref(false);
 const error = ref('');
+const auditError = ref('');
+const ocrError = ref('');
 const docs = ref([]);
+const auditStatements = ref([]);
+const ocrRequests = ref([]);
 const confirmingDoc = ref(null);
 const fileInput = ref(null);
 
-const reload = async () => {
+const reloadDocs = async () => {
   try {
     loading.value = true;
     error.value = '';
@@ -96,6 +171,36 @@ const reload = async () => {
   }
 };
 
+const reloadAudit = async () => {
+  try {
+    auditLoading.value = true;
+    auditError.value = '';
+    const resp = await api.get(`/phi-documents/clients/${props.clientId}/audit`);
+    auditStatements.value = resp.data?.documents || [];
+  } catch (e) {
+    auditError.value = e.response?.data?.error?.message || 'Failed to load document audit';
+  } finally {
+    auditLoading.value = false;
+  }
+};
+
+const reloadOcr = async () => {
+  try {
+    ocrLoading.value = true;
+    ocrError.value = '';
+    const resp = await api.get(`/referrals/${props.clientId}/ocr`);
+    ocrRequests.value = resp.data?.requests || [];
+  } catch (e) {
+    ocrError.value = e.response?.data?.error?.message || 'Failed to load OCR history';
+  } finally {
+    ocrLoading.value = false;
+  }
+};
+
+const reload = async () => {
+  await Promise.all([reloadDocs(), reloadOcr(), reloadAudit()]);
+};
+
 const confirmOpen = (doc) => {
   confirmingDoc.value = doc;
 };
@@ -105,15 +210,56 @@ const openDoc = async (doc) => {
   try {
     opening.value = true;
     error.value = '';
-    const resp = await api.get(`/phi-documents/${doc.id}/view`);
-    const url = resp.data?.url;
-    if (!url) throw new Error('Missing URL');
-    window.open(url, '_blank', 'noopener');
+    const resp = await api.get(`/phi-documents/${doc.id}/view`, { responseType: 'blob' });
+    const contentType = resp.headers?.['content-type'] || '';
+    if (contentType.includes('application/json')) {
+      const text = await resp.data.text();
+      const data = JSON.parse(text);
+      const url = data?.url;
+      if (!url) throw new Error('Missing URL');
+      window.open(url, '_blank', 'noopener');
+    } else {
+      const blobUrl = URL.createObjectURL(resp.data);
+      window.open(blobUrl, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    }
     confirmingDoc.value = null;
   } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Failed to open packet';
+    if (e.response?.data instanceof Blob) {
+      try {
+        const text = await e.response.data.text();
+        const data = JSON.parse(text);
+        error.value = data?.error?.message || e.message || 'Failed to open packet';
+      } catch {
+        error.value = e.message || 'Failed to open packet';
+      }
+    } else {
+      error.value = e.response?.data?.error?.message || e.message || 'Failed to open packet';
+    }
   } finally {
     opening.value = false;
+  }
+};
+
+const markExported = async (doc) => {
+  if (!doc?.id) return;
+  if (!window.confirm('Mark this document as exported to EHR?')) return;
+  try {
+    await api.post(`/phi-documents/${doc.id}/export`);
+    await reload();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to mark as exported';
+  }
+};
+
+const removeDoc = async (doc) => {
+  if (!doc?.id) return;
+  if (!window.confirm('Remove this document from the system? This cannot be undone.')) return;
+  try {
+    await api.delete(`/phi-documents/${doc.id}`);
+    await reload();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to remove document';
   }
 };
 
@@ -142,6 +288,40 @@ const onFileSelected = async (evt) => {
 };
 
 const formatDateTime = (d) => (d ? new Date(d).toLocaleString() : '-');
+
+const canRequestOcr = (doc) => {
+  if (!doc) return false;
+  if (doc.scan_status && doc.scan_status !== 'clean') return false;
+  return true;
+};
+
+const ocrDisabledReason = (doc) => {
+  if (!doc) return 'Document not available';
+  if (doc.scan_status && doc.scan_status !== 'clean') return 'Waiting for security scan';
+  return 'Request OCR';
+};
+
+const requestOcr = async (doc) => {
+  if (!doc?.id) return;
+  try {
+    ocrSubmitting.value = true;
+    ocrError.value = '';
+    await api.post(`/referrals/${props.clientId}/ocr`, { phiDocumentId: doc.id });
+    await reloadOcr();
+  } catch (e) {
+    ocrError.value = e.response?.data?.error?.message || 'Failed to request OCR';
+  } finally {
+    ocrSubmitting.value = false;
+  }
+};
+
+const copyOcrText = async (text) => {
+  try {
+    await navigator.clipboard.writeText(String(text || ''));
+  } catch {
+    // ignore
+  }
+};
 
 onMounted(reload);
 watch(() => props.clientId, reload);
@@ -176,6 +356,10 @@ watch(() => props.clientId, reload);
 }
 .actions {
   text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .loading {
   padding: 12px;
@@ -188,6 +372,113 @@ watch(() => props.clientId, reload);
 .empty {
   padding: 12px 0;
   color: var(--text-secondary);
+}
+
+.pill {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pill-ready {
+  background: rgba(60, 200, 90, 0.12);
+  color: #1b7d3a;
+}
+
+.pill-pending {
+  background: rgba(255, 193, 7, 0.16);
+  color: #7a5a00;
+}
+
+.pill-removed {
+  background: rgba(220, 53, 69, 0.12);
+  color: #a51f2d;
+}
+
+.audit-panel {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.audit-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.audit-list {
+  display: grid;
+  gap: 10px;
+}
+
+.audit-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: white;
+}
+
+.audit-name {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.audit-line {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.ocr-panel {
+  margin-top: 18px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.ocr-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ocr-header h4 {
+  margin: 0;
+}
+
+.ocr-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 12px;
+}
+
+.ocr-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-alt);
+}
+
+.ocr-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ocr-status {
+  margin-left: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ocr-text {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 13px;
 }
 
 .modal-overlay {

@@ -55,6 +55,10 @@ import supervisorAssignmentRoutes from './routes/supervisorAssignment.routes.js'
 import supervisionSessionsRoutes from './routes/supervisionSessions.routes.js';
 import healthCheckRoutes from './routes/healthCheck.routes.js';
 import referralUploadRoutes from './routes/referralUpload.routes.js';
+import referralScanRoutes from './routes/referralScan.routes.js';
+import referralOcrRoutes from './routes/referralOcr.routes.js';
+import publicIntakeRoutes from './routes/publicIntake.routes.js';
+import intakeLinksRoutes from './routes/intakeLinks.routes.js';
 import schoolPortalRoutes from './routes/schoolPortal.routes.js';
 import referralRoutes from './routes/referral.routes.js';
 import bulkImportRoutes from './routes/bulkImport.routes.js';
@@ -511,6 +515,10 @@ app.use('/api/activity-log', activityLogRoutes);
 app.use('/api/supervisor-assignments', supervisorAssignmentRoutes);
 app.use('/api/supervision', supervisionSessionsRoutes);
 app.use('/api/organizations', referralUploadRoutes); // Organization routes (referral upload, etc.)
+app.use('/api/referrals', referralScanRoutes);
+app.use('/api/referrals', referralOcrRoutes);
+app.use('/api/public-intake', publicIntakeRoutes);
+app.use('/api/intake-links', intakeLinksRoutes);
 app.use('/api/school-portal', schoolPortalRoutes); // School portal routes (restricted client views)
 app.use('/api/referrals', referralRoutes); // Referral pipeline routes
 app.use('/api/clients', clientRoutes); // Client management routes

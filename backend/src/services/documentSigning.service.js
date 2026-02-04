@@ -379,6 +379,12 @@ class DocumentSigningService {
       `Email: ${userData.email}`,
       `User ID: ${userData.userId}`
     ];
+    if (auditTrail?.signerRole) {
+      signerInfo.push(`Signer Role: ${auditTrail.signerRole}`);
+    }
+    if (auditTrail?.clientName) {
+      signerInfo.push(`Associated Client: ${auditTrail.clientName}`);
+    }
 
     signerInfo.forEach(line => {
       page.drawText(line, {

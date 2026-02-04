@@ -81,6 +81,25 @@
         </div>
       </div>
 
+      <div class="packet-audit">
+        <div class="packet-audit-title">Packet audit (read-only)</div>
+        <div v-if="auditLoading" class="muted">Loading…</div>
+        <div v-else-if="auditError" class="error">{{ auditError }}</div>
+        <div v-else-if="auditStatements.length === 0" class="muted">No packet history yet.</div>
+        <div v-else class="packet-audit-list">
+          <div v-for="s in auditStatements" :key="s.documentId" class="packet-audit-item">
+            <div class="packet-audit-name">{{ s.originalName || `Document ${s.documentId}` }}</div>
+            <div class="packet-audit-line">Uploaded: {{ formatDateTime(s.uploadedAt) }}{{ s.uploadedBy ? ` by ${s.uploadedBy}` : '' }}</div>
+            <div class="packet-audit-line">Downloaded: {{ s.downloadedAt ? formatDateTime(s.downloadedAt) : '—' }}{{ s.downloadedBy ? ` by ${s.downloadedBy}` : '' }}</div>
+            <div class="packet-audit-line">Exported to EHR: {{ s.exportedToEhrAt ? formatDateTime(s.exportedToEhrAt) : '—' }}{{ s.exportedToEhrBy ? ` by ${s.exportedToEhrBy}` : '' }}</div>
+            <div class="packet-audit-line">
+              Removed: {{ s.removedAt ? formatDateTime(s.removedAt) : '—' }}{{ s.removedBy ? ` by ${s.removedBy}` : '' }}
+              <span v-if="s.removedReason"> · {{ s.removedReason }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="loading" class="loading">Loading…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <div v-else class="body">
@@ -298,6 +317,9 @@ const comments = ref([]);
 const commentDraft = ref('');
 const commentSending = ref(false);
 const commentError = ref('');
+const auditLoading = ref(false);
+const auditError = ref('');
+const auditStatements = ref([]);
 
 const load = async () => {
   try {
@@ -330,6 +352,18 @@ const load = async () => {
     } catch {
       checklist.value = null;
       checklistAudit.value = '';
+    }
+
+    try {
+      auditLoading.value = true;
+      auditError.value = '';
+      const r = await api.get(`/phi-documents/clients/${props.client.id}/audit`);
+      auditStatements.value = r.data?.documents || [];
+    } catch (e) {
+      auditStatements.value = [];
+      auditError.value = e.response?.data?.error?.message || 'Failed to load packet audit';
+    } finally {
+      auditLoading.value = false;
     }
     // Mark as read (best-effort).
     try {
@@ -493,6 +527,44 @@ watch(
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
+}
+
+.packet-audit {
+  margin: 12px 16px 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--bg-alt);
+}
+
+.packet-audit-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.packet-audit-list {
+  display: grid;
+  gap: 8px;
+}
+
+.packet-audit-item {
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+
+.packet-audit-item:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.packet-audit-name {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.packet-audit-line {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .pill {
   border: 1px solid var(--border);

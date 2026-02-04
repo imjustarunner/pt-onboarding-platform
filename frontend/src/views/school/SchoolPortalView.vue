@@ -469,7 +469,7 @@
             </div>
           </button>
 
-          <button class="dash-card dash-card-coming-soon" type="button" @click="openComingSoon('parent_qr')">
+          <button class="dash-card" type="button" @click="openIntakeModal('qr')">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('parent_qr', cardIconOrg)"
@@ -482,11 +482,11 @@
             <div class="dash-card-title">Parent QR code</div>
             <div class="dash-card-desc">Share a QR code for parent intake / forms.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Coming soon</span>
+              <span class="dash-card-cta">Open</span>
             </div>
           </button>
 
-          <button class="dash-card dash-card-coming-soon" type="button" @click="openComingSoon('parent_sign')">
+          <button class="dash-card" type="button" @click="openIntakeModal('sign')">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('parent_sign', cardIconOrg)"
@@ -499,11 +499,11 @@
             <div class="dash-card-title">Parent fill + sign</div>
             <div class="dash-card-desc">Have a parent complete and sign required packets.</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Coming soon</span>
+              <span class="dash-card-cta">Open</span>
             </div>
           </button>
 
-          <button class="dash-card dash-card-coming-soon" type="button" @click="openComingSoon('packet_upload')">
+          <button class="dash-card" type="button" @click="showUploadModal = true">
             <div class="dash-card-icon">
               <img
                 v-if="brandingStore.getSchoolPortalCardIconUrl('upload_packet', cardIconOrg)"
@@ -516,7 +516,7 @@
             <div class="dash-card-title">Upload packet</div>
             <div class="dash-card-desc">Upload a referral packet (no PHI exposed on portal).</div>
             <div class="dash-card-meta">
-              <span class="dash-card-cta">Coming soon</span>
+              <span class="dash-card-cta">Upload</span>
             </div>
           </button>
         </div>
@@ -670,6 +670,13 @@
       @close="showHelpDesk = false"
     />
 
+    <ReferralUpload
+      v-if="showUploadModal"
+      :organization-slug="organizationSlug"
+      @close="showUploadModal = false"
+      @uploaded="handleUploadSuccess"
+    />
+
     <div v-if="showAvailabilityRequest" class="modal-overlay" @click.self="closeAvailabilityRequest">
       <div class="modal" @click.stop>
         <div class="modal-header">
@@ -747,6 +754,34 @@
       </div>
     </div>
 
+    <div v-if="showIntakeModal" class="modal-overlay" @click.self="closeIntakeModal">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <strong>Parent intake link</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeIntakeModal">Close</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="intakeLinkLoading" class="muted">Loading intake link…</div>
+          <div v-else-if="intakeLinkError" class="error">{{ intakeLinkError }}</div>
+          <div v-else-if="!intakeLinkUrl" class="muted">No intake link configured for this school yet.</div>
+          <div v-else class="intake-link-body">
+            <div class="intake-link-row">
+              <input class="intake-link-input" :value="intakeLinkUrl" readonly />
+              <button class="btn btn-secondary btn-sm" type="button" @click="copyIntakeLink">Copy</button>
+              <a class="btn btn-primary btn-sm" :href="intakeLinkUrl" target="_blank" rel="noopener">Launch</a>
+            </div>
+            <div v-if="intakeModalMode === 'qr'" class="intake-qr">
+              <img v-if="intakeQrDataUrl" :src="intakeQrDataUrl" alt="Intake QR code" />
+              <div v-else class="muted">Generating QR…</div>
+            </div>
+            <div v-else class="muted">
+              Share the link above or open it with the parent to complete the intake packet.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showSchoolSettings" class="settings-drawer-overlay" @click.self="showSchoolSettings = false">
       <div class="settings-drawer" @click.stop>
         <div class="settings-drawer-header">
@@ -772,6 +807,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useTutorialStore } from '../../store/tutorial';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
+import ReferralUpload from '../../components/school/ReferralUpload.vue';
 import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
 import DayPanel from '../../components/school/redesign/DayPanel.vue';
 import ClientModal from '../../components/school/redesign/ClientModal.vue';
@@ -787,6 +823,7 @@ import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import QRCode from 'qrcode';
 
 const route = useRoute();
 const router = useRouter();
@@ -798,9 +835,16 @@ const agencyStore = useAgencyStore();
 const tutorialStore = useTutorialStore();
 
 const showHelpDesk = ref(false);
+const showUploadModal = ref(false);
 const comingSoonKey = ref(''); // 'parent_qr' | 'parent_sign' | 'packet_upload'
 const showSchoolSettings = ref(false);
 const affiliatedAgencyId = ref(null);
+const showIntakeModal = ref(false);
+const intakeModalMode = ref('qr'); // 'qr' | 'sign'
+const intakeLinkLoading = ref(false);
+const intakeLinkError = ref('');
+const intakeLink = ref(null);
+const intakeQrDataUrl = ref('');
 
 // Provider availability request modal (creates a support ticket)
 const showAvailabilityRequest = ref(false);
@@ -814,6 +858,55 @@ const availabilityError = ref('');
 
 const openComingSoon = (key) => {
   comingSoonKey.value = String(key || '');
+};
+
+const handleUploadSuccess = () => {
+  showUploadModal.value = false;
+  alert('Referral packet uploaded successfully! You will receive a confirmation email.');
+};
+
+const intakeLinkUrl = computed(() => {
+  const key = intakeLink.value?.public_key || '';
+  if (!key) return '';
+  return `${window.location.origin}/intake/${key}`;
+});
+
+const loadIntakeLink = async () => {
+  if (!organizationId.value) return;
+  try {
+    intakeLinkLoading.value = true;
+    intakeLinkError.value = '';
+    const resp = await api.get(`/public-intake/school/${organizationId.value}`);
+    intakeLink.value = resp.data?.link || null;
+    if (intakeLinkUrl.value) {
+      intakeQrDataUrl.value = await QRCode.toDataURL(intakeLinkUrl.value, { width: 240, margin: 1 });
+    }
+  } catch (e) {
+    intakeLink.value = null;
+    intakeQrDataUrl.value = '';
+    intakeLinkError.value = e.response?.data?.error?.message || 'Failed to load intake link';
+  } finally {
+    intakeLinkLoading.value = false;
+  }
+};
+
+const openIntakeModal = async (mode) => {
+  intakeModalMode.value = mode === 'sign' ? 'sign' : 'qr';
+  showIntakeModal.value = true;
+  await loadIntakeLink();
+};
+
+const closeIntakeModal = () => {
+  showIntakeModal.value = false;
+};
+
+const copyIntakeLink = async () => {
+  if (!intakeLinkUrl.value) return;
+  try {
+    await navigator.clipboard.writeText(intakeLinkUrl.value);
+  } catch {
+    // ignore
+  }
 };
 
 const comingSoonTitle = computed(() => {
@@ -1847,6 +1940,35 @@ watch(() => store.selectedWeekday, async (weekday) => {
 }
 .modal-body {
   padding: 14px 16px;
+}
+
+.intake-link-body {
+  display: grid;
+  gap: 12px;
+}
+
+.intake-link-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.intake-link-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  font-size: 13px;
+}
+
+.intake-qr {
+  display: flex;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-alt);
 }
 
 .settings-drawer-overlay {

@@ -383,6 +383,17 @@ const quickActions = computed(() => {
     capabilities: ['canSignDocuments']
   },
   {
+    id: 'intake_links',
+    title: 'Intake Links',
+    description: 'Configure digital intake links and questions',
+    to: '/admin/intake-links',
+    emoji: '🔗',
+    iconKey: 'intake_links',
+    category: 'Documents',
+    roles: ['admin', 'support', 'super_admin', 'staff'],
+    capabilities: ['canSignDocuments']
+  },
+  {
     id: 'manage_users',
     title: 'Manage Users',
     description: 'View and manage user accounts',

@@ -4,6 +4,8 @@ import StorageService from '../services/storage.service.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
 import multer from 'multer';
+import DocumentEncryptionService from '../services/documentEncryption.service.js';
+import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 
 // Upload (authenticated): PDF/JPG/PNG up to 10MB
 const upload = multer({
@@ -68,6 +70,20 @@ export const uploadClientPhiDocument = [
           mimeType: req.file.mimetype || null,
           uploadedByUserId: req.user.id
         });
+        try {
+          const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
+          await PhiDocumentAuditLog.create({
+            documentId: phiDoc.id,
+            clientId,
+            action: 'uploaded',
+            actorUserId: req.user.id,
+            actorLabel: req.user?.email || req.user?.name || null,
+            ipAddress: ip,
+            metadata: { source: 'manual_upload' }
+          });
+        } catch {
+          // best-effort logging
+        }
       } catch (e) {
         if (e.code === 'ER_NO_SUCH_TABLE') {
           return res.status(503).json({ error: { message: 'PHI documents feature not available (migration not run yet).' } });
@@ -130,6 +146,9 @@ export const viewPhiDocument = async (req, res, next) => {
       throw e;
     }
     if (!doc) return res.status(404).json({ error: { message: 'PHI document not found' } });
+    if (doc.removed_at) {
+      return res.status(410).json({ error: { message: 'Document has been removed from the system.' } });
+    }
 
     const client = await Client.findById(doc.client_id, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
@@ -150,9 +169,226 @@ export const viewPhiDocument = async (req, res, next) => {
       // ignore
     }
 
+    if (doc.scan_status && doc.scan_status !== 'clean') {
+      return res.status(409).json({
+        error: {
+          message: 'Document is not yet cleared for download. Please wait for scanning to complete.'
+        }
+      });
+    }
+
+    if (doc.is_encrypted) {
+      const encryptedBuffer = await StorageService.readObject(doc.storage_path);
+      const decryptedBuffer = await DocumentEncryptionService.decryptBuffer({
+        encryptedBuffer,
+        encryptionKeyId: doc.encryption_key_id,
+        encryptionWrappedKeyB64: doc.encryption_wrapped_key,
+        encryptionIvB64: doc.encryption_iv,
+        encryptionAuthTagB64: doc.encryption_auth_tag,
+        aad: JSON.stringify({
+          organizationId: doc.school_organization_id,
+          uploadType: 'referral_packet',
+          filename: StorageService.sanitizeFilename(doc.original_name || '')
+        })
+      });
+
+      const safeName = StorageService.sanitizeFilename(doc.original_name || `document-${doc.id}`);
+      res.setHeader('Content-Type', doc.mime_type || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+      res.setHeader('Cache-Control', 'no-store');
+      try {
+        const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
+        await PhiDocumentAuditLog.create({
+          documentId: doc.id,
+          clientId: doc.client_id,
+          action: 'downloaded',
+          actorUserId: req.user.id,
+          actorLabel: req.user?.email || req.user?.name || null,
+          ipAddress: ip
+        });
+      } catch {
+        // best-effort logging
+      }
+      return res.send(decryptedBuffer);
+    }
+
     // Return a signed URL for the underlying object (do not expose via /uploads without auth)
     const url = await StorageService.getSignedUrl(doc.storage_path);
+    try {
+      const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
+      await PhiDocumentAuditLog.create({
+        documentId: doc.id,
+        clientId: doc.client_id,
+        action: 'downloaded',
+        actorUserId: req.user.id,
+        actorLabel: req.user?.email || req.user?.name || null,
+        ipAddress: ip
+      });
+    } catch {
+      // best-effort logging
+    }
     res.json({ url });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listClientPhiDocumentAudit = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.clientId, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    let docs = [];
+    try {
+      docs = await ClientPhiDocument.findByClientId(clientId);
+    } catch (e) {
+      if (e.code === 'ER_NO_SUCH_TABLE') {
+        return res.json({ documents: [] });
+      }
+      throw e;
+    }
+
+    let logs = [];
+    try {
+      logs = await PhiDocumentAuditLog.listByClientId(clientId);
+    } catch (e) {
+      if (e.code === 'ER_NO_SUCH_TABLE') {
+        logs = [];
+      } else {
+        throw e;
+      }
+    }
+    const logsByDoc = new Map();
+    for (const log of logs) {
+      if (!logsByDoc.has(log.document_id)) logsByDoc.set(log.document_id, []);
+      logsByDoc.get(log.document_id).push(log);
+    }
+
+    const statements = docs.map(doc => {
+      const docLogs = logsByDoc.get(doc.id) || [];
+      const uploaded = docLogs.find(l => l.action === 'uploaded') || null;
+      const downloaded = docLogs.find(l => l.action === 'downloaded') || null;
+      const exported = docLogs.find(l => l.action === 'exported_to_ehr') || null;
+      const removed = docLogs.find(l => l.action === 'removed') || null;
+      return {
+        documentId: doc.id,
+        originalName: doc.original_name || null,
+        uploadedAt: uploaded?.created_at || doc.uploaded_at || null,
+        uploadedBy: uploaded?.actor_label || null,
+        downloadedAt: downloaded?.created_at || null,
+        downloadedBy: downloaded?.actor_label || null,
+        exportedToEhrAt: doc.exported_to_ehr_at || exported?.created_at || null,
+        exportedToEhrBy: exported?.actor_label || null,
+        removedAt: doc.removed_at || removed?.created_at || null,
+        removedBy: removed?.actor_label || null,
+        removedReason: doc.removed_reason || removed?.metadata?.reason || null
+      };
+    });
+
+    res.json({ documents: statements });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const markPhiDocumentExported = async (req, res, next) => {
+  try {
+    const docId = parseInt(req.params.docId, 10);
+    if (!docId) return res.status(400).json({ error: { message: 'docId is required' } });
+
+    const doc = await ClientPhiDocument.findById(docId);
+    if (!doc) return res.status(404).json({ error: { message: 'PHI document not found' } });
+    if (doc.removed_at) {
+      return res.status(410).json({ error: { message: 'Document has been removed from the system.' } });
+    }
+
+    const client = await Client.findById(doc.client_id, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const exportedAt = new Date();
+    const updated = await ClientPhiDocument.updateLifecycleById({
+      id: doc.id,
+      exportedToEhrAt: exportedAt,
+      exportedToEhrByUserId: req.user.id
+    });
+
+    try {
+      const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
+      await PhiDocumentAuditLog.create({
+        documentId: doc.id,
+        clientId: doc.client_id,
+        action: 'exported_to_ehr',
+        actorUserId: req.user.id,
+        actorLabel: req.user?.email || req.user?.name || null,
+        ipAddress: ip
+      });
+    } catch {
+      // best-effort logging
+    }
+
+    res.json({ document: updated });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const removePhiDocument = async (req, res, next) => {
+  try {
+    const docId = parseInt(req.params.docId, 10);
+    if (!docId) return res.status(400).json({ error: { message: 'docId is required' } });
+
+    const doc = await ClientPhiDocument.findById(docId);
+    if (!doc) return res.status(404).json({ error: { message: 'PHI document not found' } });
+    if (doc.removed_at) {
+      return res.json({ document: doc });
+    }
+
+    const client = await Client.findById(doc.client_id, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const removedAt = new Date();
+    const reason = String(req.body?.reason || '').trim().slice(0, 255) || 'Shipped to EHR';
+    const updated = await ClientPhiDocument.updateLifecycleById({
+      id: doc.id,
+      removedAt,
+      removedByUserId: req.user.id,
+      removedReason: reason
+    });
+
+    try {
+      await StorageService.deleteObject(doc.storage_path);
+    } catch {
+      // best-effort delete
+    }
+
+    try {
+      const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
+      await PhiDocumentAuditLog.create({
+        documentId: doc.id,
+        clientId: doc.client_id,
+        action: 'removed',
+        actorUserId: req.user.id,
+        actorLabel: req.user?.email || req.user?.name || null,
+        ipAddress: ip,
+        metadata: { reason: updated.removed_reason || null }
+      });
+    } catch {
+      // best-effort logging
+    }
+
+    res.json({ document: updated });
   } catch (e) {
     next(e);
   }
