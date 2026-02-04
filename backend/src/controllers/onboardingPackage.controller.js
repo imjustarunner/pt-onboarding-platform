@@ -295,6 +295,13 @@ export const assignPackage = async (req, res, next) => {
         // Onboarding package assigned to PREHIRE_REVIEW user → move to ONBOARDING
         await User.updateStatus(parseInt(userId), 'ONBOARDING', assignedByUserId);
         console.log(`User ${userId} status updated from PREHIRE_REVIEW to ONBOARDING (onboarding package assigned)`);
+
+        try {
+          const { enableWorkspaceLoginForUser } = await import('../services/workspaceLoginTransition.service.js');
+          await enableWorkspaceLoginForUser(user);
+        } catch (e) {
+          console.warn('Workspace login enable failed:', e?.message || e);
+        }
       } else if (packageType === 'training' && user.status === 'ACTIVE_EMPLOYEE') {
         // Training package assigned to ACTIVE_EMPLOYEE → no status change, just assign
         console.log(`Training package assigned to ACTIVE_EMPLOYEE ${userId} - no status change`);

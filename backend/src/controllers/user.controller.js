@@ -3708,6 +3708,13 @@ export const markUserComplete = async (req, res, next) => {
     if (!updatedUser) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
+
+    try {
+      const { enforceWorkspaceLoginForUser } = await import('../services/workspaceLoginTransition.service.js');
+      await enforceWorkspaceLoginForUser(updatedUser);
+    } catch (e) {
+      console.warn('Workspace login enforcement failed:', e?.message || e);
+    }
     
     // Create onboarding completed notification for each agency the user belongs to
     try {
@@ -3753,11 +3760,27 @@ export const promoteToOnboarding = async (req, res, next) => {
         } 
       });
     }
+
+    if (!user.work_email) {
+      return res.status(400).json({
+        error: {
+          message: 'Work email is required before enabling onboarding access.',
+          requiresWorkEmail: true
+        }
+      });
+    }
     
     // Update status to ONBOARDING
     const updatedUser = await User.updateStatus(id, 'ONBOARDING', req.user.id);
     if (!updatedUser) {
       return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    try {
+      const { enableWorkspaceLoginForUser } = await import('../services/workspaceLoginTransition.service.js');
+      await enableWorkspaceLoginForUser(user);
+    } catch (e) {
+      console.warn('Workspace login enable failed:', e?.message || e);
     }
     
     // Note: Package assignment should be done separately via package assignment endpoint

@@ -11,6 +11,10 @@ export const GOOGLE_WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/drive'
 ];
 
+export const GOOGLE_WORKSPACE_DIRECTORY_SCOPES = [
+  'https://www.googleapis.com/auth/admin.directory.user'
+];
+
 export function parseGoogleWorkspaceServiceAccountFromEnv() {
   // Prefer base64 env (recommended), but support legacy raw JSON as fallback.
   const raw = process.env.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON;

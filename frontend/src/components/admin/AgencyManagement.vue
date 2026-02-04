@@ -757,6 +757,39 @@
             </div>
             </template>
           </div>
+
+          <div class="form-group" style="margin-top: 16px;">
+            <label>Workspace account provisioning</label>
+            <ToggleSwitch v-model="agencyForm.featureFlags.workspaceProvisioningEnabled" compact />
+            <small class="hint">Create Google Workspace accounts when pre-hire is completed.</small>
+          </div>
+
+          <div v-if="agencyForm.featureFlags.workspaceProvisioningEnabled" class="form-group" style="margin-top: 12px;">
+            <label>Workspace email domain</label>
+            <input
+              v-model="agencyForm.featureFlags.workspaceEmailDomain"
+              type="text"
+              placeholder="example.com"
+            />
+            <small class="hint">Do not include the @ symbol.</small>
+          </div>
+
+          <div v-if="agencyForm.featureFlags.workspaceProvisioningEnabled" class="form-group">
+            <label>Workspace email format</label>
+            <select v-model="agencyForm.featureFlags.workspaceEmailFormat">
+              <option value="">Select a format…</option>
+              <option value="first">first@domain</option>
+              <option value="first_initial_last">flast@domain</option>
+              <option value="last_first_initial">lastf@domain</option>
+            </select>
+            <small class="hint">Format is based on the employee's first and last name.</small>
+          </div>
+
+          <div v-if="agencyForm.featureFlags.workspaceProvisioningEnabled" class="form-group">
+            <label>Auto-provision Twilio number on pre-hire complete</label>
+            <ToggleSwitch v-model="agencyForm.featureFlags.smsAutoProvisionOnPrehire" compact />
+            <small class="hint">Requires SMS numbers enabled in the Texting Numbers module.</small>
+          </div>
           
           <div v-if="activeTab === 'contact'" class="tab-section">
           <template v-if="String(agencyForm.organizationType || 'agency').toLowerCase() === 'school'">
@@ -4488,7 +4521,15 @@ const defaultAgencyForm = () => ({
     // Google Workspace SSO gate (off by default)
     googleSsoEnabled: false,
     googleSsoRequiredRoles: ['staff', 'admin', 'provider', 'clinical_practice_assistant'],
-    googleSsoAllowedDomains: []
+    googleSsoAllowedDomains: [],
+
+    // Workspace provisioning (off by default)
+    workspaceProvisioningEnabled: false,
+    workspaceEmailDomain: '',
+    workspaceEmailFormat: '',
+
+    // SMS auto-provisioning for pre-hire
+    smsAutoProvisionOnPrehire: false
   },
   // Notification icon fields
   statusExpiredIconId: null,
@@ -5642,7 +5683,12 @@ const editAgency = async (agency) => {
         : ['staff', 'admin', 'provider', 'clinical_practice_assistant'],
       googleSsoAllowedDomains: Array.isArray(featureFlags.googleSsoAllowedDomains)
         ? featureFlags.googleSsoAllowedDomains
-        : []
+        : [],
+
+      workspaceProvisioningEnabled: featureFlags.workspaceProvisioningEnabled === true,
+      workspaceEmailDomain: String(featureFlags.workspaceEmailDomain || ''),
+      workspaceEmailFormat: String(featureFlags.workspaceEmailFormat || ''),
+      smsAutoProvisionOnPrehire: featureFlags.smsAutoProvisionOnPrehire === true
     },
     // Notification icon fields
     statusExpiredIconId: agency.status_expired_icon_id ?? null,

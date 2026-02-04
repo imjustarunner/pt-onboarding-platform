@@ -4,6 +4,189 @@ import Notification from '../models/Notification.model.js';
 import UserChecklistAssignment from '../models/UserChecklistAssignment.model.js';
 import Task from '../models/Task.model.js';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import GoogleWorkspaceDirectoryService from './googleWorkspaceDirectory.service.js';
+import EmailService from './email.service.js';
+import TwilioService from './twilio.service.js';
+import TwilioNumber from '../models/TwilioNumber.model.js';
+import TwilioNumberAssignment from '../models/TwilioNumberAssignment.model.js';
+
+const parseJsonObject = (raw, fallback = {}) => {
+  if (!raw) return fallback;
+  if (typeof raw === 'object') return raw || fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+
+const normalizeNamePart = (value) => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const resolveWorkspaceFormat = (raw) => {
+  const v = String(raw || '').trim().toLowerCase();
+  if (!v) return null;
+  if (['first', 'first_name', 'firstname'].includes(v)) return 'first';
+  if (['first_initial_last', 'firstinitiallast', 'flast'].includes(v)) return 'first_initial_last';
+  if (['last_first_initial', 'lastfirstinitial', 'lastf'].includes(v)) return 'last_first_initial';
+  return null;
+};
+
+const resolveWorkspaceDomain = (raw) => {
+  const v = String(raw || '').trim().toLowerCase();
+  if (!v) return null;
+  return v.startsWith('@') ? v.slice(1) : v;
+};
+
+async function ensureUniqueWorkEmail({ user, format, domain }) {
+  const first = normalizeNamePart(user?.first_name);
+  const last = normalizeNamePart(user?.last_name);
+  if (!first || !last) {
+    throw new Error('First name and last name are required to generate a work email');
+  }
+
+  let baseLocal = '';
+  if (format === 'first') baseLocal = first;
+  if (format === 'first_initial_last') baseLocal = `${first[0]}${last}`;
+  if (format === 'last_first_initial') baseLocal = `${last}${first[0]}`;
+  if (!baseLocal) {
+    throw new Error('Invalid work email format');
+  }
+
+  for (let i = 0; i < 500; i += 1) {
+    const local = i === 0 ? baseLocal : `${baseLocal}${i}`;
+    const candidate = `${local}@${domain}`;
+    const existing = await User.findByEmail(candidate);
+    if (!existing || Number(existing.id) === Number(user.id)) {
+      return candidate;
+    }
+  }
+  throw new Error('Unable to generate a unique work email');
+}
+
+async function provisionWorkspaceAccount({ user, agency }) {
+  const featureFlags = parseJsonObject(agency?.feature_flags, {});
+  const workspaceEnabled = featureFlags.workspaceProvisioningEnabled !== false;
+  if (!workspaceEnabled) {
+    return { skipped: true, reason: 'disabled' };
+  }
+
+  const domain = resolveWorkspaceDomain(featureFlags.workspaceEmailDomain);
+  const format = resolveWorkspaceFormat(featureFlags.workspaceEmailFormat);
+
+  if (!domain || !format) {
+    throw new Error('Workspace account provisioning is not configured for this organization.');
+  }
+
+  const personalEmail = normalizeEmail(user.personal_email || user.email);
+  if (!personalEmail) {
+    throw new Error('Personal email is required to provision a workspace account.');
+  }
+
+  const workEmail = user.work_email
+    ? normalizeEmail(user.work_email)
+    : await ensureUniqueWorkEmail({ user, format, domain });
+
+  if (!user.work_email) {
+    await User.setWorkEmail(user.id, workEmail);
+  }
+
+  if (!user.personal_email || normalizeEmail(user.personal_email) !== personalEmail) {
+    await pool.execute('UPDATE users SET personal_email = ? WHERE id = ?', [personalEmail, user.id]);
+  }
+
+  if (!GoogleWorkspaceDirectoryService.isConfigured()) {
+    throw new Error('Google Workspace provisioning is not configured.');
+  }
+
+  const tempPassword = await User.generateTemporaryPassword();
+  try {
+    const existing = await GoogleWorkspaceDirectoryService.getUser({ primaryEmail: workEmail });
+    if (existing) {
+      throw new Error('Workspace account already exists for this email.');
+    }
+    await GoogleWorkspaceDirectoryService.createUser({
+      primaryEmail: workEmail,
+      givenName: user.first_name,
+      familyName: user.last_name,
+      password: tempPassword,
+      recoveryEmail: personalEmail
+    });
+  } catch (e) {
+    const status = e?.code || e?.response?.status || null;
+    if (status === 409) {
+      throw new Error('Workspace account already exists for this email.');
+    }
+    throw e;
+  }
+
+  try {
+    await EmailService.sendEmail({
+      to: personalEmail,
+      subject: 'Your Workspace account is ready',
+      text: `Hello ${user.first_name || ''} ${user.last_name || ''},\n\n` +
+        `Your new workspace account has been created.\n\n` +
+        `Work email: ${workEmail}\n` +
+        `Temporary password: ${tempPassword}\n\n` +
+        `Please sign in and change your password as soon as possible.\n\n` +
+        `If you have any questions, contact your administrator.`,
+      source: 'auto',
+      agencyId: agency?.id || null
+    });
+  } catch (emailError) {
+    console.warn('Workspace credentials email failed to send:', emailError?.message || emailError);
+  }
+
+  return { workEmail, tempPasswordSent: true };
+}
+
+const normalizeAreaCodeFromPhone = (phone) => {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) return digits.slice(1, 4);
+  if (digits.length === 10) return digits.slice(0, 3);
+  return null;
+};
+
+async function autoProvisionTwilioNumber({ user, agency }) {
+  const featureFlags = parseJsonObject(agency?.feature_flags, {});
+  const enabled = featureFlags.smsNumbersEnabled === true && featureFlags.smsAutoProvisionOnPrehire === true;
+  if (!enabled) return { skipped: true };
+
+  const existingAssignment = await TwilioNumberAssignment.findPrimaryForUser(user.id);
+  if (existingAssignment?.number_id) return { skipped: true, reason: 'already_assigned' };
+
+  const areaCode = normalizeAreaCodeFromPhone(user.personal_phone || user.phone_number || user.work_phone);
+  let candidates = await TwilioService.searchAvailableLocalNumbers({ areaCode, country: 'US', limit: 5 });
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    candidates = await TwilioService.searchAvailableLocalNumbers({ country: 'US', limit: 5 });
+  }
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    throw new Error('No available Twilio numbers found.');
+  }
+
+  const picked = candidates[0];
+  const smsUrl = process.env.TWILIO_SMS_WEBHOOK_URL || null;
+  const purchased = await TwilioService.purchaseNumber({
+    phoneNumber: picked.phoneNumber,
+    friendlyName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || null,
+    smsUrl
+  });
+
+  const record = await TwilioNumber.create({
+    agencyId: agency?.id || null,
+    phoneNumber: purchased.phoneNumber || picked.phoneNumber,
+    twilioSid: purchased.sid || null,
+    friendlyName: purchased.friendlyName || null,
+    capabilities: purchased.capabilities || null,
+    status: 'active'
+  });
+
+  await TwilioNumberAssignment.assign({ numberId: record.id, userId: user.id, isPrimary: true });
+  await User.update(user.id, { systemPhoneNumber: record.phone_number });
+  return { number: record.phone_number };
+}
 
 class PendingCompletionService {
   /**
@@ -83,6 +266,26 @@ class PendingCompletionService {
     }
     
     const now = new Date();
+
+    // Provision workspace account + optional SMS number before locking access
+    const userAgencies = await User.getAgencies(userId);
+    const agencyId = userAgencies?.[0]?.id || null;
+    if (!agencyId) {
+      throw new Error('User is not assigned to an organization.');
+    }
+    const Agency = (await import('../models/Agency.model.js')).default;
+    const agency = await Agency.findById(agencyId);
+    if (!agency) {
+      throw new Error('Organization not found for this user.');
+    }
+
+    const workspaceProvisioning = await provisionWorkspaceAccount({ user, agency });
+    let twilioProvisioning = null;
+    try {
+      twilioProvisioning = await autoProvisionTwilioNumber({ user, agency });
+    } catch (twilioError) {
+      console.warn('Twilio auto-provisioning failed:', twilioError?.message || twilioError);
+    }
     
     // Update user status and lock access
     // Do NOT generate temporary password or new passwordless token
@@ -105,7 +308,9 @@ class PendingCompletionService {
       success: true,
       status: 'PREHIRE_REVIEW',
       completedAt: now,
-      isAutoComplete
+      isAutoComplete,
+      workspaceProvisioning,
+      twilioProvisioning
     };
   }
 
