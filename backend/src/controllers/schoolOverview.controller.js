@@ -17,6 +17,48 @@ function makeInClausePlaceholders(count) {
   return Array.from({ length: count }, () => '?').join(',');
 }
 
+function parseJsonMaybe(v) {
+  if (!v) return null;
+  if (typeof v === 'object') return v;
+  if (typeof v !== 'string') return null;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return null;
+  }
+}
+
+async function getSchoolPortalNotificationsProgress(userId) {
+  const uid = safeInt(userId);
+  if (!uid) return {};
+  try {
+    const [rows] = await pool.execute(
+      `SELECT school_portal_notifications_progress
+       FROM user_preferences
+       WHERE user_id = ?
+       LIMIT 1`,
+      [uid]
+    );
+    const raw = rows?.[0]?.school_portal_notifications_progress ?? null;
+    const parsed = parseJsonMaybe(raw) || raw;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function buildLastSeenUnion(orgIds, lastSeenByOrg) {
+  if (!orgIds.length) return { sql: 'SELECT NULL AS org_id, NULL AS last_seen', params: [] };
+  const parts = orgIds.map((_, idx) => (idx === 0 ? 'SELECT ? AS org_id, ? AS last_seen' : 'UNION ALL SELECT ?, ?'));
+  const params = [];
+  for (const orgId of orgIds) {
+    const raw = lastSeenByOrg?.[orgId] || lastSeenByOrg?.[String(orgId)];
+    const lastSeen = raw ? String(raw) : '1970-01-01 00:00:00';
+    params.push(orgId, lastSeen);
+  }
+  return { sql: parts.join(' '), params };
+}
+
 /**
  * GET /api/dashboard/school-overview?agencyId=123&orgType=school|program|learning
  *
@@ -71,6 +113,7 @@ export const getSchoolOverview = async (req, res, next) => {
         clients_assigned: 0,
         providers_count: 0,
         provider_days: 0,
+        notifications_count: 0,
         slots_total: 0,
         slots_used: 0,
         slots_available: 0,
@@ -397,6 +440,106 @@ export const getSchoolOverview = async (req, res, next) => {
       const total = Number(t.slots_total || 0);
       const used = Number(t.slots_used || 0);
       t.slots_available = Math.max(0, total - used);
+    }
+
+    // School portal notifications (unread since user's last seen per org)
+    try {
+      const progress = await getSchoolPortalNotificationsProgress(req.user?.id);
+      const lastSeenByOrg = {};
+      for (const sid of schoolIds) {
+        const key = String(sid);
+        lastSeenByOrg[sid] = progress?.[key] || null;
+      }
+      const lastSeen = buildLastSeenUnion(schoolIds, lastSeenByOrg);
+      const addNotificationCounts = (rows) => {
+        addCountMap(rows, 'school_id', 'count', (t, v) => {
+          t.notifications_count = Number(t.notifications_count || 0) + Number(v || 0);
+        });
+      };
+
+      // Announcements
+      try {
+        const [rows] = await pool.execute(
+          `SELECT
+             a.organization_id AS school_id,
+             COUNT(*) AS count
+           FROM school_portal_announcements a
+           JOIN (${lastSeen.sql}) ls ON ls.org_id = a.organization_id
+           WHERE a.organization_id IN (${placeholders})
+             AND a.created_at > ls.last_seen
+           GROUP BY a.organization_id`,
+          [...lastSeen.params, ...schoolIds]
+        );
+        addNotificationCounts(rows);
+      } catch (e) {
+        if (!isMissingSchemaError(e)) throw e;
+      }
+
+      // Client status events
+      try {
+        const [rows] = await pool.execute(
+          `SELECT
+             coa.organization_id AS school_id,
+             COUNT(*) AS count
+           FROM client_status_history h
+           JOIN client_organization_assignments coa
+             ON coa.client_id = h.client_id
+            AND coa.is_active = TRUE
+           JOIN (${lastSeen.sql}) ls ON ls.org_id = coa.organization_id
+           WHERE coa.organization_id IN (${placeholders})
+             AND h.changed_at > ls.last_seen
+           GROUP BY coa.organization_id`,
+          [...lastSeen.params, ...schoolIds]
+        );
+        addNotificationCounts(rows);
+      } catch (e) {
+        if (!isMissingSchemaError(e)) throw e;
+      }
+
+      // Client comments
+      try {
+        const [rows] = await pool.execute(
+          `SELECT
+             coa.organization_id AS school_id,
+             COUNT(*) AS count
+           FROM client_notes n
+           JOIN client_organization_assignments coa
+             ON coa.client_id = n.client_id
+            AND coa.is_active = TRUE
+           JOIN (${lastSeen.sql}) ls ON ls.org_id = coa.organization_id
+           WHERE coa.organization_id IN (${placeholders})
+             AND n.is_internal_only = FALSE
+             AND (n.category IS NULL OR n.category = 'comment')
+             AND n.created_at > ls.last_seen
+           GROUP BY coa.organization_id`,
+          [...lastSeen.params, ...schoolIds]
+        );
+        addNotificationCounts(rows);
+      } catch (e) {
+        if (!isMissingSchemaError(e)) throw e;
+      }
+
+      // Client messages (support tickets)
+      try {
+        const [rows] = await pool.execute(
+          `SELECT
+             t.school_organization_id AS school_id,
+             COUNT(*) AS count
+           FROM support_ticket_messages m
+           JOIN support_tickets t ON t.id = m.ticket_id
+           JOIN (${lastSeen.sql}) ls ON ls.org_id = t.school_organization_id
+           WHERE t.school_organization_id IN (${placeholders})
+             AND t.client_id IS NOT NULL
+             AND m.created_at > ls.last_seen
+           GROUP BY t.school_organization_id`,
+          [...lastSeen.params, ...schoolIds]
+        );
+        addNotificationCounts(rows);
+      } catch (e) {
+        if (!isMissingSchemaError(e)) throw e;
+      }
+    } catch (e) {
+      if (!isMissingSchemaError(e)) throw e;
     }
 
     const out = schoolIds

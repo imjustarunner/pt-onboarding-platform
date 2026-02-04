@@ -90,32 +90,6 @@
                 <span v-if="s.skills_group_occurring_now" class="pill pill-accent">Skills Group Live</span>
               </div>
             </div>
-            <div class="card-actions" v-if="isSuperAdmin">
-              <button
-                v-if="!s.is_archived"
-                type="button"
-                class="btn btn-secondary btn-xs"
-                @click.stop="archiveSchool(s)"
-              >
-                Archive
-              </button>
-              <button
-                v-else
-                type="button"
-                class="btn btn-secondary btn-xs"
-                @click.stop="restoreSchool(s)"
-              >
-                Restore
-              </button>
-              <button
-                v-if="s.is_archived"
-                type="button"
-                class="btn btn-danger btn-xs"
-                @click.stop="deleteSchool(s)"
-              >
-                Delete
-              </button>
-            </div>
             <div class="card-cta">Open</div>
           </div>
 
@@ -132,9 +106,19 @@
               <div class="stat-label">Providers</div>
               <div class="stat-value">{{ s.providers_count }}</div>
             </div>
-            <div class="stat">
-              <div class="stat-label">Provider-Days</div>
-              <div class="stat-value">{{ s.provider_days }}</div>
+            <div
+              class="stat stat-notifications"
+              :class="{ active: Number(s.notifications_count || 0) > 0 }"
+              role="button"
+              tabindex="0"
+              @click.stop="openSchoolNotifications(s)"
+              @keydown.enter.prevent="openSchoolNotifications(s)"
+              @keydown.space.prevent="openSchoolNotifications(s)"
+            >
+              <div class="stat-label">Notifications</div>
+              <div class="stat-value" :class="{ attention: Number(s.notifications_count || 0) > 0 }">
+                {{ s.notifications_count }}
+              </div>
             </div>
             <div class="stat">
               <div class="stat-label">Slots Available</div>
@@ -307,64 +291,15 @@ const goToSchoolSkillsGroups = (school) => {
   router.push(`/${slug}/dashboard?sp=skills`);
 };
 
+const openSchoolNotifications = (school) => {
+  const slug = String(school?.school_slug || '').trim();
+  if (!slug) return;
+  router.push(`/${slug}/dashboard?sp=notifications`);
+};
+
 const sumSkillsParticipants = (school) => {
   const groups = Array.isArray(school?.active_skills_groups) ? school.active_skills_groups : [];
   return groups.reduce((acc, g) => acc + Number(g?.participants_count || 0), 0);
-};
-
-const archiveSchool = async (school) => {
-  const id = parseInt(String(school?.school_id || ''), 10);
-  if (!id) return;
-  const name = String(school?.school_name || 'this school');
-  if (!window.confirm(`Archive ${name}?`)) return;
-  try {
-    await api.post(`/agencies/${id}/archive`);
-    await fetchOverview();
-  } catch (e) {
-    alert(e?.response?.data?.error?.message || 'Failed to archive');
-  }
-};
-
-const restoreSchool = async (school) => {
-  const id = parseInt(String(school?.school_id || ''), 10);
-  if (!id) return;
-  const name = String(school?.school_name || 'this school');
-  if (!window.confirm(`Restore ${name}?`)) return;
-  try {
-    await api.post(`/agencies/${id}/restore`);
-    await fetchOverview();
-  } catch (e) {
-    alert(e?.response?.data?.error?.message || 'Failed to restore');
-  }
-};
-
-const deleteSchool = async (school) => {
-  const id = parseInt(String(school?.school_id || ''), 10);
-  if (!id) return;
-  const slug = String(school?.school_slug || '').trim();
-  const name = String(school?.school_name || 'this school');
-  const typed = window.prompt(`Type the school slug to permanently delete "${name}":`, '');
-  if (!typed || String(typed).trim() !== slug) {
-    alert('Delete cancelled (slug did not match).');
-    return;
-  }
-  try {
-    await api.delete(`/agencies/${id}`);
-    await fetchOverview();
-  } catch (e) {
-    const err = e?.response?.data?.error;
-    const msg = err?.message || 'Failed to delete';
-    const deps = Array.isArray(err?.dependencies) ? err.dependencies : [];
-    if (deps.length > 0) {
-      const lines = deps
-        .slice(0, 15)
-        .map((d) => `- ${d?.table || 'unknown'} (${Number(d?.count || 0)})`)
-        .join('\n');
-      alert(`${msg}\n\nDependencies:\n${lines}${deps.length > 15 ? '\n- …' : ''}`);
-      return;
-    }
-    alert(msg);
-  }
 };
 
 watch(
@@ -391,6 +326,16 @@ onMounted(async () => {
   padding-bottom: 12px;
   border-bottom: 2px solid var(--border);
   gap: 12px;
+}
+@media (max-width: 820px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
 }
 .header-left {
   display: flex;
@@ -443,6 +388,11 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 12px;
+}
+@media (max-width: 900px) {
+  .cards-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
 }
 .school-card {
   text-align: left;
@@ -599,6 +549,11 @@ onMounted(async () => {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
+@media (max-width: 980px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 @media (max-width: 680px) {
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -609,6 +564,30 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px;
+}
+.stat-notifications {
+  cursor: pointer;
+  border-color: rgba(14, 165, 233, 0.35);
+  background: rgba(14, 165, 233, 0.08);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.stat-notifications:hover {
+  border-color: rgba(14, 165, 233, 0.65);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+.stat-notifications.active {
+  border-color: rgba(14, 165, 233, 0.75);
+  background: rgba(14, 165, 233, 0.16);
+}
+.stat-notifications .stat-label {
+  color: #0369a1;
+}
+.stat-notifications .stat-value {
+  color: #0c4a6e;
+}
+.stat-value.attention {
+  color: #0c4a6e;
 }
 .stat-label {
   font-size: 12px;

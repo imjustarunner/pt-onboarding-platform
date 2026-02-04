@@ -938,6 +938,10 @@ const applyRequestedPortalMode = async (mode) => {
     await openDaysPanel();
     return;
   }
+  if (m === 'notifications') {
+    await openNotificationsPanel();
+    return;
+  }
   if (m === 'home') {
     portalMode.value = 'home';
     return;

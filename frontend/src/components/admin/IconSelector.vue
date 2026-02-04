@@ -4,7 +4,19 @@
       <div v-if="selectedIcon" class="selected-icon-preview">
         <img :src="getIconUrl(selectedIcon)" :alt="selectedIcon.name" class="icon-preview-img" @error="handleIconError" />
         <span class="icon-name">{{ selectedIcon.name }}</span>
+        <button
+          type="button"
+          class="btn btn-secondary btn-xs"
+          @click.stop="openIconPreview"
+          title="Open icon in a new tab"
+        >
+          View
+        </button>
         <button @click.stop="clearIcon" class="btn-remove-icon" title="Remove icon">×</button>
+      </div>
+      <div v-else-if="props.modelValue && selectedIconLoading" class="icon-placeholder">
+        <div class="icon-placeholder-icon">⏳</div>
+        <span class="icon-placeholder-text">Loading selected icon…</span>
       </div>
       <div v-else class="icon-placeholder">
         <div class="icon-placeholder-icon">📎</div>
@@ -114,6 +126,7 @@ const selectedAgency = ref('');
 const sortBy = ref('name');
 const tempSelectedIcon = ref(null);
 const selectedIcon = ref(null);
+const selectedIconLoading = ref(false);
 
 const availableAgencies = computed(() => {
   if (authStore.user?.role === 'super_admin') {
@@ -278,6 +291,13 @@ const clearIcon = () => {
   emit('update:modelValue', null);
 };
 
+const openIconPreview = () => {
+  if (!selectedIcon.value) return;
+  const url = getIconUrl(selectedIcon.value);
+  if (!url) return;
+  window.open(url, '_blank', 'noopener');
+};
+
 const handleIconError = (event) => {
   console.error('IconSelector: Failed to load icon image:', event.target.src);
   event.target.style.display = 'none';
@@ -309,37 +329,47 @@ const closeModal = () => {
 };
 
 watch(() => props.modelValue, async (newValue) => {
-  if (newValue && icons.value.length > 0) {
-    const foundIcon = icons.value.find(i => i.id === newValue);
-    if (foundIcon) {
-      selectedIcon.value = foundIcon;
-      tempSelectedIcon.value = foundIcon;
-    } else {
-      // Icon not in current list, try to fetch it for display purposes
-      try {
-        const iconResponse = await api.get(`/icons/${newValue}`);
-        if (iconResponse.data) {
-          selectedIcon.value = iconResponse.data;
-          tempSelectedIcon.value = iconResponse.data;
-          // Only add to icons list if it matches the current filter
-          const matchesFilter = 
-            (!selectedAgency.value || selectedAgency.value === '') || // All agencies selected
-            (selectedAgency.value === 'null' && iconResponse.data.agency_id === null) || // Platform selected and icon is platform
-            (selectedAgency.value && selectedAgency.value !== 'null' && iconResponse.data.agency_id === parseInt(selectedAgency.value)); // Agency selected and icon matches
-          
-          if (matchesFilter && !icons.value.find(i => i.id === iconResponse.data.id)) {
-            icons.value.push(iconResponse.data);
-          }
-        }
-      } catch (err) {
-        console.error('IconSelector: Failed to fetch icon:', err);
-        selectedIcon.value = null;
-        tempSelectedIcon.value = null;
-      }
-    }
-  } else if (!newValue) {
+  if (!newValue) {
     selectedIcon.value = null;
     tempSelectedIcon.value = null;
+    selectedIconLoading.value = false;
+    return;
+  }
+
+  const foundIcon = icons.value.find(i => i.id === newValue);
+  if (foundIcon) {
+    selectedIcon.value = foundIcon;
+    tempSelectedIcon.value = foundIcon;
+    selectedIconLoading.value = false;
+    return;
+  }
+
+  // Icon not in current list (or list not loaded); fetch it for preview.
+  try {
+    selectedIconLoading.value = true;
+    const iconResponse = await api.get(`/icons/${newValue}`);
+    if (iconResponse.data) {
+      selectedIcon.value = iconResponse.data;
+      tempSelectedIcon.value = iconResponse.data;
+      // Only add to icons list if it matches the current filter
+      const matchesFilter =
+        (!selectedAgency.value || selectedAgency.value === '') || // All agencies selected
+        (selectedAgency.value === 'null' && iconResponse.data.agency_id === null) || // Platform selected and icon is platform
+        (selectedAgency.value && selectedAgency.value !== 'null' && iconResponse.data.agency_id === parseInt(selectedAgency.value)); // Agency selected and icon matches
+
+      if (matchesFilter && !icons.value.find(i => i.id === iconResponse.data.id)) {
+        icons.value.push(iconResponse.data);
+      }
+    } else {
+      selectedIcon.value = null;
+      tempSelectedIcon.value = null;
+    }
+  } catch (err) {
+    console.error('IconSelector: Failed to fetch icon:', err);
+    selectedIcon.value = null;
+    tempSelectedIcon.value = null;
+  } finally {
+    selectedIconLoading.value = false;
   }
 }, { immediate: true });
 
