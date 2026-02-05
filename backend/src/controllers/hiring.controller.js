@@ -4,6 +4,7 @@ import HiringProfile from '../models/HiringProfile.model.js';
 import HiringNote from '../models/HiringNote.model.js';
 import HiringResearchReport from '../models/HiringResearchReport.model.js';
 import HiringResumeParse from '../models/HiringResumeParse.model.js';
+import HiringJobDescription from '../models/HiringJobDescription.model.js';
 import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import StorageService from '../services/storage.service.js';
@@ -162,9 +163,22 @@ export const createCandidate = async (req, res, next) => {
     const source = req.body?.source !== undefined ? String(req.body.source || '').trim() : null;
     const stage = req.body?.stage !== undefined ? String(req.body.stage || '').trim() : 'applied';
     const role = req.body?.role ? String(req.body.role).trim() : 'provider';
+    const jobDescriptionId = req.body?.jobDescriptionId !== undefined && req.body?.jobDescriptionId !== null && req.body?.jobDescriptionId !== ''
+      ? parseIntParam(req.body.jobDescriptionId)
+      : null;
+    const coverLetterText = req.body?.coverLetterText !== undefined
+      ? String(req.body.coverLetterText || '').trim().slice(0, 20000) || null
+      : null;
 
     if (!lastName) return res.status(400).json({ error: { message: 'Last name is required' } });
     if (!personalEmail) return res.status(400).json({ error: { message: 'personalEmail is required' } });
+
+    if (jobDescriptionId) {
+      const jd = await HiringJobDescription.findById(jobDescriptionId);
+      if (!jd || Number(jd.agency_id) !== Number(agencyId) || Number(jd.is_active) !== 1) {
+        return res.status(400).json({ error: { message: 'Invalid jobDescriptionId for this agency' } });
+      }
+    }
 
     // Create candidate user record (internal-only stage).
     const user = await User.create({
@@ -185,7 +199,9 @@ export const createCandidate = async (req, res, next) => {
       candidateUserId: user.id,
       stage,
       appliedRole: appliedRole || null,
-      source: source || null
+      source: source || null,
+      jobDescriptionId: jobDescriptionId || null,
+      coverLetterText: coverLetterText || null
     });
 
     res.status(201).json({
@@ -216,7 +232,120 @@ export const getCandidate = async (req, res, next) => {
     const latestResearch = await HiringResearchReport.findLatestByCandidateUserId(candidateUserId);
     const latestPreScreen = await HiringResearchReport.findLatestAiByCandidateUserId(candidateUserId);
 
-    res.json({ user, profile, notes, latestResearch, latestPreScreen });
+    let jobDescription = null;
+    if (profile?.job_description_id) {
+      const jd = await HiringJobDescription.findById(profile.job_description_id);
+      if (jd && Number(jd.agency_id) === Number(agencyId)) jobDescription = jd;
+    }
+
+    res.json({ user, profile, jobDescription, notes, latestResearch, latestPreScreen });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listJobDescriptions = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const includeInactive = String(req.query.includeInactive || '').trim() === '1';
+    const rows = await HiringJobDescription.listByAgencyId(agencyId, { includeInactive, limit: 500 });
+    res.json(
+      (rows || []).map((r) => ({
+        id: r.id,
+        agencyId: r.agency_id,
+        title: r.title,
+        descriptionText: r.description_text || null,
+        hasFile: !!r.storage_path,
+        originalName: r.original_name || null,
+        mimeType: r.mime_type || null,
+        isActive: r.is_active === 1 || r.is_active === true,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at
+      }))
+    );
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const createJobDescription = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.body?.agencyId || req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const title = String(req.body?.title || '').trim().slice(0, 255);
+    const descriptionTextRaw = req.body?.descriptionText !== undefined ? String(req.body.descriptionText || '') : '';
+    let descriptionText = descriptionTextRaw.trim();
+
+    if (!title) return res.status(400).json({ error: { message: 'title is required' } });
+
+    let storagePath = null;
+    let originalName = null;
+    let mimeType = null;
+
+    if (req.file) {
+      const fileBuffer = req.file.buffer;
+      originalName = req.file.originalname || 'job-description';
+      mimeType = req.file.mimetype || 'application/octet-stream';
+
+      // If the upload is plain text and no description was provided, use its content.
+      if (!descriptionText && mimeType === 'text/plain') {
+        try {
+          descriptionText = String(fileBuffer.toString('utf8') || '').trim().slice(0, 60000);
+        } catch {
+          // ignore
+        }
+      }
+
+      const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+      const safeExt = originalName.includes('.') ? `.${originalName.split('.').pop()}` : '';
+      const filename = `job-desc-${agencyId}-${uniqueSuffix}${safeExt}`;
+      const storageResult = await StorageService.saveAdminDoc(fileBuffer, filename, mimeType);
+      storagePath = storageResult.relativePath;
+    }
+
+    const created = await HiringJobDescription.create({
+      agencyId,
+      title,
+      descriptionText: descriptionText || null,
+      storagePath,
+      originalName,
+      mimeType,
+      createdByUserId: req.user.id,
+      isActive: true
+    });
+
+    res.status(201).json(created);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const viewJobDescriptionFile = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+
+    const jdId = parseIntParam(req.params.jobDescriptionId);
+    if (!jdId) return res.status(400).json({ error: { message: 'Invalid jobDescriptionId' } });
+
+    const jd = await HiringJobDescription.findById(jdId);
+    if (!jd || Number(jd.agency_id) !== Number(agencyId)) {
+      return res.status(404).json({ error: { message: 'Job description not found' } });
+    }
+    if (!jd.storage_path) {
+      return res.status(404).json({ error: { message: 'No file uploaded for this job description' } });
+    }
+
+    const url = await StorageService.getSignedUrl(jd.storage_path, 10);
+    res.json({
+      url,
+      expiresInMinutes: 10,
+      originalName: jd.original_name || null,
+      mimeType: jd.mime_type || null
+    });
   } catch (e) {
     next(e);
   }
@@ -319,6 +448,15 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
     const user = await User.findById(candidateUserId);
     if (!user) return res.status(404).json({ error: { message: 'Candidate not found' } });
 
+    const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
+    let jobDescription = null;
+    if (profile?.job_description_id) {
+      const jd = await HiringJobDescription.findById(profile.job_description_id);
+      if (jd && Number(jd.agency_id) === Number(agencyId) && (jd.is_active === 1 || jd.is_active === true)) {
+        jobDescription = jd;
+      }
+    }
+
     const candidateNameFromDb = `${user.first_name || ''} ${user.last_name || ''}`.trim();
     const candidateName = String(req.body?.candidateName || candidateNameFromDb || '').trim();
     // Prefer extracted resume text from uploaded resume(s).
@@ -335,6 +473,11 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
     }
     resumeText = resumeText.slice(0, 20000);
     const linkedInUrl = String(req.body?.linkedInUrl || '').trim().slice(0, 800);
+    const coverLetterText = String(req.body?.coverLetterText || profile?.cover_letter_text || '').trim().slice(0, 20000);
+
+    // Prefer job description associated with the candidate profile; allow override via request.
+    const jobTitle = String(req.body?.jobTitle || jobDescription?.title || '').trim().slice(0, 255);
+    const jobDescriptionText = String(req.body?.jobDescriptionText || jobDescription?.description_text || '').trim().slice(0, 60000);
 
     if (!resumeText) {
       return res.status(400).json({
@@ -353,7 +496,10 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
         ai = await generatePreScreenReportWithGoogleSearch({
           candidateName,
           resumeText,
-          linkedInUrl
+          linkedInUrl,
+          jobTitle,
+          jobDescriptionText,
+          coverLetterText
         });
       } catch (e) {
         // Common in some environments: Vertex+Search grounding is not permitted (403),
@@ -365,9 +511,23 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
         if (!canFallbackStatus) throw e;
 
         try {
-          ai = await generatePreScreenReportWithVertexNoSearch({ candidateName, resumeText, linkedInUrl });
+          ai = await generatePreScreenReportWithVertexNoSearch({
+            candidateName,
+            resumeText,
+            linkedInUrl,
+            jobTitle,
+            jobDescriptionText,
+            coverLetterText
+          });
         } catch (e2) {
-          ai = await generatePreScreenReportWithGeminiApiKey({ candidateName, resumeText, linkedInUrl });
+          ai = await generatePreScreenReportWithGeminiApiKey({
+            candidateName,
+            resumeText,
+            linkedInUrl,
+            jobTitle,
+            jobDescriptionText,
+            coverLetterText
+          });
         }
       }
     } catch (e) {
@@ -405,7 +565,11 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
         input: {
           candidateName: String(candidateName || '').slice(0, 180) || null,
           linkedInUrl: linkedInUrl || null,
-          resumeTextLength: resumeText.length
+          resumeTextLength: resumeText.length,
+          coverLetterTextLength: coverLetterText ? coverLetterText.length : 0,
+          jobTitle: jobTitle || null,
+          jobDescriptionTextLength: jobDescriptionText ? jobDescriptionText.length : 0,
+          jobDescriptionId: jobDescription?.id || null
         },
         grounding: ai.groundingMetadata || null
       },

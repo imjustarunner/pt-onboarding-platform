@@ -133,6 +133,10 @@
                 </div>
               </div>
               <div class="kv">
+                <div class="k">Job</div>
+                <div class="v">{{ detail.jobDescription?.title || detail.profile?.applied_role || '—' }}</div>
+              </div>
+              <div class="kv">
                 <div class="k">Applied role</div>
                 <div class="v">{{ detail.profile?.applied_role || '—' }}</div>
               </div>
@@ -143,6 +147,12 @@
               <div class="kv">
                 <div class="k">Phone</div>
                 <div class="v">{{ detail.user?.phone_number || '—' }}</div>
+              </div>
+              <div class="kv">
+                <div class="k">Cover letter</div>
+                <div class="v">
+                  <pre class="pre light-pre">{{ detail.profile?.cover_letter_text || '—' }}</pre>
+                </div>
               </div>
             </div>
 
@@ -381,8 +391,18 @@
             <input v-model="createForm.lastName" class="input" placeholder="Last name (required)" />
             <input v-model="createForm.personalEmail" class="input" placeholder="Personal email (required)" />
             <input v-model="createForm.phoneNumber" class="input" placeholder="Phone (optional)" />
-            <input v-model="createForm.appliedRole" class="input" placeholder="Applied role (optional)" />
+            <div class="job-row">
+              <select v-model="createForm.jobDescriptionId" class="input">
+                <option value="">Select job description…</option>
+                <option v-for="j in jobDescriptions" :key="j.id" :value="String(j.id)">
+                  {{ j.title }}
+                </option>
+              </select>
+              <button class="btn btn-secondary" @click="openJobDescriptions" type="button">Manage jobs</button>
+            </div>
+            <input v-model="createForm.appliedRole" class="input" placeholder="Applied role (optional override)" />
             <input v-model="createForm.source" class="input" placeholder="Source (optional)" />
+            <textarea v-model="createForm.coverLetterText" class="textarea" placeholder="Cover letter (optional)" rows="4" />
           </div>
           <div v-if="createError" class="error-banner">{{ createError }}</div>
         </div>
@@ -391,6 +411,56 @@
           <button class="btn btn-primary" @click="createApplicant" :disabled="createSaving">
             {{ createSaving ? 'Creating…' : 'Create' }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Job descriptions modal -->
+    <div v-if="showJobs" class="modal-overlay" @click.self="closeJobDescriptions">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Job descriptions</h3>
+          <button class="btn-close" @click="closeJobDescriptions" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="muted small" style="margin-bottom:8px;">
+            Create and name job descriptions so they can be selected when creating applicants.
+          </div>
+
+          <div v-if="jobsLoading" class="loading">Loading job descriptions…</div>
+          <div v-else class="job-list">
+            <div v-for="j in jobDescriptions" :key="j.id" class="job-item">
+              <div>
+                <div class="name">{{ j.title }}</div>
+                <div class="muted small">{{ j.updatedAt ? formatTime(j.updatedAt) : '' }}</div>
+              </div>
+              <div class="row-actions">
+                <button class="btn btn-secondary" @click="selectJobForCreate(j)" type="button">Select</button>
+                <button v-if="j.hasFile" class="btn btn-secondary" @click="viewJobFile(j)" type="button">View file</button>
+              </div>
+            </div>
+            <div v-if="jobDescriptions.length === 0" class="empty">No job descriptions yet.</div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="job-create">
+            <div class="muted small" style="margin-bottom:6px;">Add a new job description</div>
+            <input v-model="newJob.title" class="input" placeholder="Job title (e.g., School SLP)" />
+            <textarea
+              v-model="newJob.descriptionText"
+              class="textarea"
+              rows="6"
+              placeholder="Paste job description text here (recommended for best matching)"
+            ></textarea>
+            <input type="file" ref="jobFile" @change="onJobFileChange" />
+            <div v-if="jobCreateError" class="error-banner">{{ jobCreateError }}</div>
+            <div class="row-actions" style="justify-content:flex-end;">
+              <button class="btn btn-primary" @click="createJobDescription" :disabled="jobCreating || !newJob.title.trim()">
+                {{ jobCreating ? 'Saving…' : 'Save job description' }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -415,7 +485,7 @@ const q = ref('');
 
 const selectedId = ref(null);
 const detailLoading = ref(false);
-const detail = ref({ user: null, profile: null, notes: [], latestResearch: null, latestPreScreen: null });
+const detail = ref({ user: null, profile: null, jobDescription: null, notes: [], latestResearch: null, latestPreScreen: null });
 
 const tab = ref('profile');
 
@@ -626,7 +696,7 @@ const loadDetail = async () => {
   try {
     detailLoading.value = true;
     const r = await api.get(`/hiring/candidates/${selectedId.value}`, { params: { agencyId: effectiveAgencyId.value } });
-    detail.value = r.data || { user: null, profile: null, notes: [], latestResearch: null, latestPreScreen: null };
+    detail.value = r.data || { user: null, profile: null, jobDescription: null, notes: [], latestResearch: null, latestPreScreen: null };
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load candidate';
   } finally {
@@ -899,6 +969,26 @@ const createTask = async () => {
   }
 };
 
+// Job descriptions (agency-scoped)
+const jobDescriptions = ref([]);
+const jobsLoading = ref(false);
+
+const loadJobDescriptions = async () => {
+  if (!effectiveAgencyId.value) {
+    jobDescriptions.value = [];
+    return;
+  }
+  try {
+    jobsLoading.value = true;
+    const r = await api.get('/hiring/job-descriptions', { params: { agencyId: effectiveAgencyId.value } });
+    jobDescriptions.value = Array.isArray(r.data) ? r.data : [];
+  } catch {
+    jobDescriptions.value = [];
+  } finally {
+    jobsLoading.value = false;
+  }
+};
+
 // Create modal
 const showCreate = ref(false);
 const createSaving = ref(false);
@@ -908,14 +998,25 @@ const createForm = ref({
   lastName: '',
   personalEmail: '',
   phoneNumber: '',
+  jobDescriptionId: '',
   appliedRole: '',
-  source: ''
+  source: '',
+  coverLetterText: ''
 });
 
 const openCreate = () => {
   createError.value = '';
   createSaving.value = false;
-  createForm.value = { firstName: '', lastName: '', personalEmail: '', phoneNumber: '', appliedRole: '', source: '' };
+  createForm.value = {
+    firstName: '',
+    lastName: '',
+    personalEmail: '',
+    phoneNumber: '',
+    jobDescriptionId: '',
+    appliedRole: '',
+    source: '',
+    coverLetterText: ''
+  };
   showCreate.value = true;
 };
 const closeCreate = () => {
@@ -936,9 +1037,13 @@ const createApplicant = async () => {
       lastName: createForm.value.lastName,
       personalEmail: createForm.value.personalEmail,
       phoneNumber: createForm.value.phoneNumber || null,
+      jobDescriptionId: createForm.value.jobDescriptionId ? parseInt(String(createForm.value.jobDescriptionId), 10) : null,
       appliedRole: createForm.value.appliedRole || null,
       source: createForm.value.source || null
     };
+    if (createForm.value.coverLetterText && String(createForm.value.coverLetterText).trim()) {
+      body.coverLetterText = String(createForm.value.coverLetterText).trim();
+    }
     const r = await api.post('/hiring/candidates', body);
     const newId = r.data?.user?.id;
     closeCreate();
@@ -955,6 +1060,76 @@ const createApplicant = async () => {
     }
   } finally {
     createSaving.value = false;
+  }
+};
+
+// Job descriptions manager modal
+const showJobs = ref(false);
+const jobCreating = ref(false);
+const jobCreateError = ref('');
+const newJob = ref({ title: '', descriptionText: '' });
+const jobFile = ref(null);
+const jobSelectedFile = ref(null);
+
+const openJobDescriptions = async () => {
+  showJobs.value = true;
+  jobCreateError.value = '';
+  newJob.value = { title: '', descriptionText: '' };
+  jobSelectedFile.value = null;
+  if (jobFile.value) jobFile.value.value = '';
+  await loadJobDescriptions();
+};
+
+const closeJobDescriptions = () => {
+  showJobs.value = false;
+};
+
+const onJobFileChange = (e) => {
+  jobSelectedFile.value = e?.target?.files?.[0] || null;
+};
+
+const createJobDescription = async () => {
+  if (!effectiveAgencyId.value) return;
+  if (!newJob.value.title.trim()) return;
+  try {
+    jobCreating.value = true;
+    jobCreateError.value = '';
+    const fd = new FormData();
+    fd.append('agencyId', String(effectiveAgencyId.value));
+    fd.append('title', String(newJob.value.title || '').trim());
+    if (newJob.value.descriptionText && String(newJob.value.descriptionText).trim()) {
+      fd.append('descriptionText', String(newJob.value.descriptionText).trim());
+    }
+    if (jobSelectedFile.value) {
+      fd.append('file', jobSelectedFile.value);
+    }
+    await api.post('/hiring/job-descriptions', fd);
+    newJob.value = { title: '', descriptionText: '' };
+    jobSelectedFile.value = null;
+    if (jobFile.value) jobFile.value.value = '';
+    await loadJobDescriptions();
+  } catch (e) {
+    jobCreateError.value = e.response?.data?.error?.message || 'Failed to create job description';
+  } finally {
+    jobCreating.value = false;
+  }
+};
+
+const selectJobForCreate = (j) => {
+  if (!j?.id) return;
+  createForm.value.jobDescriptionId = String(j.id);
+  showJobs.value = false;
+};
+
+const viewJobFile = async (j) => {
+  if (!j?.id || !effectiveAgencyId.value) return;
+  try {
+    const resp = await api.get(`/hiring/job-descriptions/${j.id}/view`, { params: { agencyId: effectiveAgencyId.value } });
+    const url = resp.data?.url;
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    else alert('No URL returned');
+  } catch (e) {
+    alert(e.response?.data?.error?.message || 'Failed to open job description file');
   }
 };
 
@@ -983,8 +1158,9 @@ const noteAuthor = (n) => {
 watch(effectiveAgencyId, async (next) => {
   if (!next) return;
   await refresh();
+  await loadJobDescriptions();
   selectedId.value = null;
-  detail.value = { user: null, profile: null, notes: [], latestResearch: null, latestPreScreen: null };
+  detail.value = { user: null, profile: null, jobDescription: null, notes: [], latestResearch: null, latestPreScreen: null };
 });
 
 onMounted(async () => {
@@ -1019,6 +1195,7 @@ onMounted(async () => {
       selectedAgencyId.value = String(agencyChoices.value[0].id);
     }
   }
+  await loadJobDescriptions();
   await refresh();
 });
 </script>
@@ -1559,6 +1736,44 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+.job-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.divider {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 12px 0;
+}
+.job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.job-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+.pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+.light-pre {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px;
+  color: #111827;
 }
 .modal-actions {
   display: flex;

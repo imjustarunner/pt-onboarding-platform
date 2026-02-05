@@ -10,10 +10,13 @@ function sanitizeText(v, { maxLen }) {
   return s.length > maxLen ? s.slice(0, maxLen) : s;
 }
 
-function buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl }) {
+function buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl, jobTitle, jobDescriptionText, coverLetterText }) {
   const name = sanitizeText(candidateName, { maxLen: 180 });
   const resume = sanitizeText(resumeText, { maxLen: 16000 });
   const linkedin = sanitizeText(linkedInUrl, { maxLen: 500 });
+  const jt = sanitizeText(jobTitle, { maxLen: 255 });
+  const jd = sanitizeText(jobDescriptionText, { maxLen: 60000 });
+  const cl = sanitizeText(coverLetterText, { maxLen: 20000 });
 
   const systemPrompt =
     'Research this candidate. Verify their employment history against public records. Search for their GitHub or portfolio. Flag any discrepancies between the provided resume text and public data. Do not search for private social media.';
@@ -21,6 +24,12 @@ function buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl }) {
   const userPrompt = [
     `Candidate name: ${name || '(not provided)'}`,
     linkedin ? `LinkedIn URL (provided): ${linkedin}` : 'LinkedIn URL (provided): (none)',
+    '',
+    'Job posting (provided by recruiter/admin):',
+    jt ? `Job title: ${jt}` : 'Job title: (not provided)',
+    jd ? `Job description:\n${jd}` : 'Job description: (not provided)',
+    '',
+    cl ? `Cover letter (provided):\n${cl}` : 'Cover letter (provided): (none)',
     '',
     'Resume text (provided by recruiter/admin):',
     resume ? resume : '(none provided)',
@@ -30,11 +39,17 @@ function buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl }) {
     '- Look for professional artifacts: GitHub/GitLab, personal portfolio, publications, conference talks, package registries.',
     '- Verify each employment claim (company + title + dates) using only publicly available sources. If you cannot verify, say so.',
     '- If results could be a different person, label it "Unverified Potential Match" and explain why.',
+    '- Evaluate how the candidate matches the job posting criteria. Be concise and specific.',
     '',
     'Output requirements:',
     '- Output Markdown.',
+    '- Be concise. Prefer bullets over paragraphs.',
     '- Include an "Identity & Match Confidence" section (how you determined it is the same person).',
     '- Include an "Employment Verification" section (table: employer, claimed, public evidence, status).',
+    '- Include a "Job Match Summary" section with:',
+    '  - Strengths (3-8 bullets, each maps to a job requirement).',
+    '  - Weaknesses / discussion points (3-8 bullets, each maps to a job requirement).',
+    '  - Requirements checklist (bullet list of key criteria inferred from the job description, mark as Meets / Partially meets / Does not meet / Unknown).',
     '- Include a "Discrepancies" section (bullet list).',
     '- Include a "Professional Artifacts" section (links + 1-sentence notes).',
     '- Include a "Sources" section with direct URLs for every factual claim you relied on.',
@@ -42,20 +57,34 @@ function buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl }) {
     '- Do NOT include or reference private social media.'
   ].join('\n');
 
-  return { systemPrompt, userPrompt, normalized: { name, resume, linkedin } };
+  return { systemPrompt, userPrompt, normalized: { name, resume, linkedin, jobTitle: jt, jobDescriptionText: jd, coverLetterText: cl } };
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function generatePreScreenReportWithGeminiApiKey({ candidateName, resumeText, linkedInUrl }) {
+export async function generatePreScreenReportWithGeminiApiKey({
+  candidateName,
+  resumeText,
+  linkedInUrl,
+  jobTitle = '',
+  jobDescriptionText = '',
+  coverLetterText = ''
+}) {
   const maxOutputTokens = Math.min(
     Math.max(parseInt(process.env.GEMINI_PRESCREEN_MAX_OUTPUT_TOKENS || '1800', 10) || 1800, 300),
     4096
   );
 
-  const { systemPrompt, userPrompt, normalized } = buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl });
+  const { systemPrompt, userPrompt, normalized } = buildPreScreenPrompt({
+    candidateName,
+    resumeText,
+    linkedInUrl,
+    jobTitle,
+    jobDescriptionText,
+    coverLetterText
+  });
 
   const prompt = [systemPrompt, '', userPrompt].filter(Boolean).join('\n');
   const { text, latencyMs, modelName } = await callGeminiText({
@@ -103,6 +132,9 @@ export async function generatePreScreenReportWithGoogleSearch({
   candidateName,
   resumeText,
   linkedInUrl,
+  jobTitle = '',
+  jobDescriptionText = '',
+  coverLetterText = '',
   excludeDomains = []
 }) {
   const projectId = process.env.GCP_PROJECT_ID || process.env.GCS_PROJECT_ID || '';
@@ -123,7 +155,14 @@ export async function generatePreScreenReportWithGoogleSearch({
     throw err;
   }
 
-  const { systemPrompt, userPrompt, normalized } = buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl });
+  const { systemPrompt, userPrompt, normalized } = buildPreScreenPrompt({
+    candidateName,
+    resumeText,
+    linkedInUrl,
+    jobTitle,
+    jobDescriptionText,
+    coverLetterText
+  });
 
   const token = await getAccessToken();
   const url = `https://${encodeURIComponent(location)}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(
@@ -233,7 +272,14 @@ export async function generatePreScreenReportWithGoogleSearch({
   }
 }
 
-export async function generatePreScreenReportWithVertexNoSearch({ candidateName, resumeText, linkedInUrl }) {
+export async function generatePreScreenReportWithVertexNoSearch({
+  candidateName,
+  resumeText,
+  linkedInUrl,
+  jobTitle = '',
+  jobDescriptionText = '',
+  coverLetterText = ''
+}) {
   const projectId = process.env.GCP_PROJECT_ID || process.env.GCS_PROJECT_ID || '';
   const location = String(process.env.VERTEX_AI_LOCATION || 'us-central1').trim() || 'us-central1';
   const modelId = String(process.env.VERTEX_AI_RESEARCH_MODEL || 'gemini-2.5-pro').trim() || 'gemini-2.5-pro';
@@ -252,7 +298,14 @@ export async function generatePreScreenReportWithVertexNoSearch({ candidateName,
     throw err;
   }
 
-  const { systemPrompt, userPrompt, normalized } = buildPreScreenPrompt({ candidateName, resumeText, linkedInUrl });
+  const { systemPrompt, userPrompt, normalized } = buildPreScreenPrompt({
+    candidateName,
+    resumeText,
+    linkedInUrl,
+    jobTitle,
+    jobDescriptionText,
+    coverLetterText
+  });
   const token = await getAccessToken();
   const url = `https://${encodeURIComponent(location)}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(
     projectId

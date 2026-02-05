@@ -5,6 +5,9 @@ import {
   listCandidates,
   createCandidate,
   listHiringAssignees,
+  listJobDescriptions,
+  createJobDescription,
+  viewJobDescriptionFile,
   getCandidate,
   createCandidateNote,
   listCandidateResumes,
@@ -50,6 +53,9 @@ const upload = multer({
 router.get('/candidates', listCandidates);
 router.post('/candidates', createCandidate);
 router.get('/assignees', listHiringAssignees);
+router.get('/job-descriptions', listJobDescriptions);
+router.post('/job-descriptions', upload.single('file'), createJobDescription);
+router.get('/job-descriptions/:jobDescriptionId/view', viewJobDescriptionFile);
 router.get('/candidates/:userId', getCandidate);
 router.post('/candidates/:userId/notes', createCandidateNote);
 router.get('/candidates/:userId/tasks', listCandidateTasks);
