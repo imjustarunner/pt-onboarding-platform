@@ -78,7 +78,12 @@
             <div v-if="ocrWipeMessage" class="success-message">{{ ocrWipeMessage }}</div>
 
             <div v-if="pdfPreviewUrl" class="ocr-section">
-              <h4>Preview Packet</h4>
+              <div class="section-header">
+                <h4>Preview Packet</h4>
+                <a class="btn btn-xs btn-secondary" :href="pdfPreviewUrl" target="_blank" rel="noreferrer">
+                  Open in new tab
+                </a>
+              </div>
               <PDFPreview :pdfUrl="pdfPreviewUrl" />
             </div>
 
@@ -90,6 +95,12 @@
                 </button>
               </div>
               <p class="muted">Copy each section into your EHR, then wipe to remove it from this tab.</p>
+              <div class="ocr-toggle">
+                <label class="checkbox-row">
+                  <input type="checkbox" v-model="showRawOcr" />
+                  Show raw OCR
+                </label>
+              </div>
               <textarea class="ocr-text" readonly :value="ocrText"></textarea>
 
               <div v-if="pageOneLines.length" class="ocr-section">
@@ -103,7 +114,7 @@
                     <button class="btn btn-xs btn-secondary" type="button" @click="copyText(pair.answer || pair.question)">Copy</button>
                   </div>
                 </div>
-                <div class="answer-list">
+                <div v-if="showRawOcr" class="answer-list">
                   <div v-for="(line, idx) in pageOneLines" :key="`p1-${idx}`" class="answer-row">
                     <span>{{ line }}</span>
                     <button class="btn btn-xs btn-secondary" type="button" @click="copyText(line)">Copy</button>
@@ -217,6 +228,7 @@ const ocrText = ref('');
 const ocrRequestId = ref(null);
 const ocrClearing = ref(false);
 const ocrWipeMessage = ref('');
+const showRawOcr = ref(false);
 const firstName = ref('');
 const lastName = ref('');
 
@@ -261,7 +273,9 @@ const noisePrefixes = [
   'page',
   'colorado',
   'mental health',
-  'therapy'
+  'therapy',
+  'consent',
+  'acknowledgement'
 ];
 const noiseExact = new Set(['•', '-', '—', '_', '.', '...', '']);
 const isNoiseLine = (line) => {
@@ -273,6 +287,7 @@ const isNoiseLine = (line) => {
   if (noisePrefixes.some((p) => lower.startsWith(p))) return true;
   if (lower.startsWith('consent to release')) return true;
   if (lower.startsWith('acknowledgement and consent')) return true;
+  if (lower.startsWith('please select the answer')) return true;
   return false;
 };
 
@@ -359,7 +374,10 @@ const parseYesNo = (line) => {
 const cleanAnswer = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
-  const cleaned = raw.replace(/^[\s:–—\-_]+/, '').replace(/[\s:–—\-_]+$/, '').trim();
+  const cleaned = raw
+    .replace(/^[\s:–—\-_•]+/, '')
+    .replace(/[\s:–—\-_•]+$/, '')
+    .trim();
   if (!cleaned || cleaned === '.' || cleaned === '—') return '';
   return cleaned;
 };
@@ -405,7 +423,19 @@ const extractQaPairs = (lines) => {
         i += 1;
       }
     }
-    pairs.push({ question, answer: cleanAnswer(answer) });
+    const cleanedAnswer = cleanAnswer(answer);
+    if (!cleanedAnswer) {
+      // Try one more line ahead for OCR that splits labels and values.
+      if (lines[i + 1] && !isQuestionLine(lines[i + 1])) {
+        const nextAnswer = cleanAnswer(lines[i + 1]);
+        if (nextAnswer) {
+          pairs.push({ question, answer: nextAnswer });
+          i += 1;
+          continue;
+        }
+      }
+    }
+    pairs.push({ question, answer: cleanedAnswer });
   }
   return pairs.filter((p) => p.question);
 };
@@ -662,6 +692,7 @@ const runOcr = async () => {
       return;
     }
     ocrText.value = request.result_text || '';
+    showRawOcr.value = false;
     if (ocrText.value) {
       maybeAutofillName(ocrText.value);
     }
@@ -801,6 +832,18 @@ const applyInitials = async () => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.ocr-toggle {
+  margin: 8px 0 12px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .section-header {
