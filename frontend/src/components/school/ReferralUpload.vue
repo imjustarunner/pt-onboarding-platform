@@ -97,6 +97,12 @@
                   <h4>Page 1 Answers</h4>
                   <button class="btn btn-xs btn-secondary" type="button" @click="copyLines(pageOneLines)">Copy Section</button>
                 </div>
+                <div v-if="pageOneQaPairs.length" class="answer-list qa-list">
+                  <div v-for="(pair, idx) in pageOneQaPairs" :key="`p1qa-${idx}`" class="answer-row">
+                    <span><strong>{{ pair.question }}</strong> {{ pair.answer ? `— ${pair.answer}` : '' }}</span>
+                    <button class="btn btn-xs btn-secondary" type="button" @click="copyText(pair.answer || pair.question)">Copy</button>
+                  </div>
+                </div>
                 <div class="answer-list">
                   <div v-for="(line, idx) in pageOneLines" :key="`p1-${idx}`" class="answer-row">
                     <span>{{ line }}</span>
@@ -244,6 +250,107 @@ const pageOneLines = computed(() => {
   return toLines(pages[0] || '');
 });
 
+const questionLabels = [
+  "Dependent's Name",
+  'Dependent’s Name',
+  "Dependent's Sex",
+  'Dependent’s Sex',
+  "Dependent's Date of Birth",
+  'Dependent’s Date of Birth',
+  "Dependent's Age",
+  'Dependent’s Age',
+  "Dependent's Grade",
+  'Dependent’s Grade',
+  "Dependent's Address",
+  'Dependent’s Address',
+  "Dependent's City",
+  'Dependent’s City',
+  'State',
+  'Zip Code',
+  'Preferred language for Dependent',
+  'Preferred language for Parent/Guardian',
+  'Are you the legal parent or custodian of the above-named minor',
+  'I have a legal right to obtain treatment for the above-named minor',
+  'Are you willing to provide documentation',
+  'Your name',
+  'Your phone number',
+  'Your email address',
+  'List any other parent/guardian name',
+  'Primary Insurance',
+  'Secondary Insurance',
+  'Policy Holder',
+  'Secondary Holder',
+  'Member ID',
+  'Secondary ID',
+  'Policy Group',
+  'Secondary Group',
+  'History of physical abuse',
+  'History of neglect',
+  'History of Emotional/Mental Abuse',
+  'Please explain'
+];
+
+const normalizeQuestion = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9?]+/g, ' ')
+    .trim();
+
+const isQuestionLine = (line) => {
+  const raw = String(line || '');
+  if (!raw) return false;
+  if (raw.includes('?')) return true;
+  const normalized = normalizeQuestion(raw);
+  return questionLabels.some((q) => normalized.startsWith(normalizeQuestion(q)));
+};
+
+const parseYesNo = (line) => {
+  const raw = String(line || '');
+  if (!/yes/i.test(raw) || !/no/i.test(raw)) return '';
+  const yesMarked = /yes[^a-z0-9]{0,3}[v✓x]/i.test(raw) || /[v✓x][^a-z0-9]{0,3}yes/i.test(raw);
+  const noMarked = /no[^a-z0-9]{0,3}[v✓x]/i.test(raw) || /[v✓x][^a-z0-9]{0,3}no/i.test(raw);
+  if (yesMarked && !noMarked) return 'Yes';
+  if (noMarked && !yesMarked) return 'No';
+  return '';
+};
+
+const stripQuestionLabel = (line) => {
+  const raw = String(line || '').trim();
+  const normalized = normalizeQuestion(raw);
+  const match = questionLabels.find((q) => normalized.startsWith(normalizeQuestion(q)));
+  if (!match) return raw;
+  const idx = raw.toLowerCase().indexOf(match.toLowerCase());
+  if (idx === -1) return raw;
+  const tail = raw.slice(idx + match.length).replace(/^[:\-\s]+/, '');
+  return tail.trim();
+};
+
+const extractQaPairs = (lines) => {
+  const pairs = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!isQuestionLine(line)) continue;
+    const question = stripQuestionLabel(line).length ? line : line.trim();
+    let answer = '';
+    const yesNo = parseYesNo(line);
+    if (yesNo) {
+      answer = yesNo;
+    } else {
+      const inline = stripQuestionLabel(line);
+      if (inline && inline !== line.trim()) {
+        answer = inline;
+      } else if (lines[i + 1] && !isQuestionLine(lines[i + 1])) {
+        answer = lines[i + 1];
+        i += 1;
+      }
+    }
+    pairs.push({ question: line.trim(), answer: answer.trim() });
+  }
+  return pairs.filter((p) => p.question);
+};
+
+const pageOneQaPairs = computed(() => extractQaPairs(pageOneLines.value));
+
 const pageTwoLines = computed(() => {
   if (!ocrText.value) return [];
   const pages = splitPages(ocrText.value);
@@ -312,6 +419,17 @@ const extractNameFromOcr = (text) => {
 
 const maybeAutofillName = (text) => {
   if (firstName.value || lastName.value) return;
+  const qaName = pageOneQaPairs.value.find((p) =>
+    /dependent(?:'s)?\s+name/i.test(p.question)
+  );
+  if (qaName && qaName.answer) {
+    const parts = qaName.answer.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      firstName.value = parts[0];
+      lastName.value = parts.slice(1).join(' ');
+      return;
+    }
+  }
   const extracted = extractNameFromOcr(text);
   if (!extracted) return;
   firstName.value = extracted.firstName || '';
@@ -640,6 +758,10 @@ const applyInitials = async () => {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
+}
+
+.qa-list .answer-row {
+  background: #f8fafc;
 }
 
 .psc-summary {
