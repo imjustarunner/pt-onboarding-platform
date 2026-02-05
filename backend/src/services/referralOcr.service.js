@@ -183,13 +183,23 @@ class ReferralOcrService {
     const bucket = await StorageService.getGCSBucket();
     const prefix = `referrals_ocr_tmp/${Date.now()}-${Math.random().toString(36).slice(2)}/`;
     const gcsUri = `gs://${bucket.name}/${prefix}`;
+    const inputPath = `${prefix}input.pdf`;
+    const inputFile = bucket.file(inputPath);
     let files = [];
     try {
+      await inputFile.save(buffer, {
+        contentType: 'application/pdf',
+        resumable: false,
+        metadata: {
+          uploadType: 'referral_ocr_input',
+          createdAt: new Date().toISOString()
+        }
+      });
       const [operation] = await getVisionClient().asyncBatchAnnotateFiles({
         requests: [
           {
             inputConfig: {
-              content: buffer,
+              gcsSource: { uri: `gs://${bucket.name}/${inputPath}` },
               mimeType: 'application/pdf',
               pages: Array.isArray(pagesToScan) && pagesToScan.length ? pagesToScan : undefined
             },
@@ -225,6 +235,11 @@ class ReferralOcrService {
       });
       throw error;
     } finally {
+      try {
+        await inputFile.delete();
+      } catch {
+        // ignore cleanup failures
+      }
       if (files.length) {
         await Promise.allSettled(files.map((f) => f.delete()));
       }
