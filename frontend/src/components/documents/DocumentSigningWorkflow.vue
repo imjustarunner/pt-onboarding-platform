@@ -64,60 +64,114 @@
     <div v-else-if="currentStep === 3" class="step step-sign">
       <h2>Sign Document</h2>
       <p class="instruction">Please sign the document using the signature pad below.</p>
-      <div v-if="visibleFieldDefinitions.length > 0" class="field-inputs">
-        <h3>Required Fields</h3>
-        <div v-for="field in visibleFieldDefinitions" :key="field.id" class="field-input">
-          <label>{{ field.label || field.type }}</label>
-          <input
-            v-if="field.type !== 'date' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio'"
-            v-model="fieldValues[field.id]"
-            :type="field.type === 'ssn' ? 'password' : 'text'"
-            :placeholder="field.type === 'ssn' ? 'Enter SSN' : 'Enter value'"
-            :disabled="loading"
-            :data-field-id="field.id"
+      <div v-if="visibleFieldDefinitions.length > 0" class="sign-layout">
+        <div v-if="pdfUrl" class="sign-pdf">
+          <PDFPreview
+            :pdf-url="pdfUrl"
+            :markers="pdfMarkers"
+            :active-marker-id="activeMarkerId"
+            ref="signPdfRef"
+            @marker-click="handleMarkerClick"
           />
-          <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
-            <input v-model="fieldValues[field.id]" type="checkbox" :disabled="loading" />
-            <span>{{ field.label || 'I agree' }}</span>
+          <p class="note small">Tap highlighted boxes in the PDF to jump to that field.</p>
+        </div>
+        <div class="field-inputs">
+          <h3>Required Fields</h3>
+          <div v-if="currentField" class="field-step">
+            <div class="field-step-header">
+              <div class="field-step-title">
+                {{ formatFieldLabel(currentField) }}
+                <span v-if="currentField.required" class="required-badge">Required</span>
+              </div>
+              <div class="field-step-count">
+                {{ activeFieldIndex + 1 }} / {{ orderedFields.length }}
+              </div>
+            </div>
+            <div
+              class="field-input active"
+              :data-field-input-id="currentField.id"
+            >
+            <div class="field-header">
+              <label>{{ formatFieldLabel(currentField) }}</label>
+              <button
+                v-if="pdfUrl"
+                type="button"
+                class="btn btn-xs btn-secondary"
+                @click="focusFieldOnPdf(currentField)"
+              >
+                View on PDF
+              </button>
+            </div>
+          <input
+            v-if="currentField.type !== 'date' && currentField.type !== 'checkbox' && currentField.type !== 'select' && currentField.type !== 'radio'"
+            v-model="fieldValues[currentField.id]"
+            :type="currentField.type === 'ssn' ? 'password' : 'text'"
+            :placeholder="currentField.type === 'ssn' ? 'Enter SSN' : 'Enter value'"
+            :disabled="loading"
+            :data-field-id="currentField.id"
+          />
+          <label v-else-if="currentField.type === 'checkbox'" class="checkbox-row">
+            <input v-model="fieldValues[currentField.id]" type="checkbox" :disabled="loading" />
+            <span>{{ formatFieldLabel(currentField) }}</span>
           </label>
           <select
-            v-else-if="field.type === 'select'"
-            v-model="fieldValues[field.id]"
+            v-else-if="currentField.type === 'select'"
+            v-model="fieldValues[currentField.id]"
             :disabled="loading"
-            :data-field-id="field.id"
+            :data-field-id="currentField.id"
           >
             <option value="">Select an option</option>
-            <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
+            <option v-for="opt in currentField.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
               {{ opt.label || opt.value }}
             </option>
           </select>
-          <div v-else-if="field.type === 'radio'" class="radio-group" :data-field-id="field.id">
-            <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
+          <div v-else-if="currentField.type === 'radio'" class="radio-group" :data-field-id="currentField.id">
+            <label v-for="opt in currentField.options || []" :key="opt.value || opt.label" class="radio-row">
               <input
                 type="radio"
-                :name="`field_${field.id}`"
+                :name="`field_${currentField.id}`"
                 :value="opt.value || opt.label"
-                v-model="fieldValues[field.id]"
+                v-model="fieldValues[currentField.id]"
                 :disabled="loading"
               />
               <span>{{ opt.label || opt.value }}</span>
             </label>
           </div>
           <input
-            v-else-if="field.autoToday"
-            v-model="fieldValues[field.id]"
+            v-else-if="currentField.autoToday"
+            v-model="fieldValues[currentField.id]"
             type="text"
             :disabled="true"
-            :data-field-id="field.id"
+            :data-field-id="currentField.id"
           />
           <input
             v-else
-            v-model="fieldValues[field.id]"
+            v-model="fieldValues[currentField.id]"
             type="date"
             :disabled="loading"
-            :data-field-id="field.id"
+            :data-field-id="currentField.id"
           />
-          <small v-if="fieldErrors[field.id]" class="error-text">{{ fieldErrors[field.id] }}</small>
+          <small v-if="fieldErrors[currentField.id]" class="error-text">{{ fieldErrors[currentField.id] }}</small>
+            </div>
+            <div class="field-step-actions">
+              <button
+                type="button"
+                class="btn btn-secondary"
+                @click="goToPrevField"
+                :disabled="activeFieldIndex === 0"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                class="btn btn-primary"
+                @click="goToNextField"
+                :disabled="activeFieldIndex >= orderedFields.length - 1"
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       </div>
       <SignaturePad 
@@ -166,7 +220,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, nextTick, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import SignaturePad from '../SignaturePad.vue';
@@ -203,11 +257,15 @@ const reviewPage = ref(1);
 const reviewTotalPages = ref(0);
 const canProceed = ref(true);
 const pdfPreviewRef = ref(null);
+const signPdfRef = ref(null);
 const pageNotice = ref('');
 let pageNoticeTimer = null;
 const fieldDefinitions = ref([]);
 const fieldValues = ref({});
 const fieldErrors = ref({});
+const activeFieldId = ref(null);
+const activeMarkerId = ref(null);
+const activeFieldIndex = ref(0);
 
 const isFieldVisible = (def, values) => {
   const showIf = def?.showIf;
@@ -226,6 +284,165 @@ const isFieldVisible = (def, values) => {
 const visibleFieldDefinitions = computed(() =>
   fieldDefinitions.value.filter((def) => isFieldVisible(def, fieldValues.value))
 );
+
+const formatFieldType = (type) => {
+  switch (type) {
+    case 'text':
+      return 'Text field';
+    case 'ssn':
+      return 'SSN';
+    case 'date':
+      return 'Date';
+    case 'initials':
+      return 'Initials';
+    case 'checkbox':
+      return 'Checkbox';
+    case 'select':
+      return 'Select';
+    case 'radio':
+      return 'Radio';
+    default:
+      return 'Field';
+  }
+};
+
+const formatFieldLabel = (field) => field?.label || formatFieldType(field?.type);
+
+const pdfMarkers = computed(() => {
+  const markers = [];
+  visibleFieldDefinitions.value.forEach((field) => {
+    if (field.type === 'radio') {
+      (field.options || []).forEach((opt) => {
+        if (opt?.x === null || opt?.y === null) return;
+        markers.push({
+          id: `${field.id}_${opt.id}`,
+          fieldId: field.id,
+          label: opt.label || field.label || formatFieldType(field.type),
+          type: field.type,
+          x: opt.x,
+          y: opt.y,
+          width: opt.width ?? 20,
+          height: opt.height ?? 20,
+          page: opt.page ?? field.page ?? 1
+        });
+      });
+      return;
+    }
+    if (field.x === null || field.y === null) return;
+    markers.push({
+      id: field.id,
+      fieldId: field.id,
+      label: field.label || formatFieldType(field.type),
+      type: field.type,
+      x: field.x,
+      y: field.y,
+      width: field.width ?? (field.type === 'checkbox' ? 20 : 120),
+      height: field.height ?? (field.type === 'checkbox' ? 20 : 24),
+      page: field.page ?? 1
+    });
+  });
+  return markers;
+});
+
+const orderedFields = computed(() => visibleFieldDefinitions.value);
+
+const currentField = computed(() => orderedFields.value[activeFieldIndex.value] || null);
+
+const selectFieldByIndex = (index) => {
+  const total = orderedFields.value.length;
+  if (!total) return;
+  const nextIndex = Math.max(0, Math.min(index, total - 1));
+  activeFieldIndex.value = nextIndex;
+  const field = orderedFields.value[nextIndex];
+  if (field) {
+    activeFieldId.value = field.id;
+    const marker = pdfMarkers.value.find((m) => m.fieldId === field.id);
+    activeMarkerId.value = marker?.id || null;
+    if (marker?.page && signPdfRef.value?.goToPage) {
+      signPdfRef.value.goToPage(marker.page);
+    }
+    scrollToField(field.id);
+  }
+};
+
+const validateFieldValue = (field) => {
+  if (!field) return true;
+  if (!field.required) return true;
+  const value = fieldValues.value[field.id];
+  if (field.type === 'date' && field.autoToday) return true;
+  if (field.type === 'checkbox') return value === true;
+  if (field.type === 'select' || field.type === 'radio') {
+    const options = Array.isArray(field.options) ? field.options : [];
+    const optionValues = options.map((opt) => String(opt.value ?? opt.label ?? '')).filter(Boolean);
+    if (!value) return false;
+    return optionValues.length === 0 || optionValues.includes(String(value));
+  }
+  return !(value === null || value === undefined || String(value).trim() === '');
+};
+
+const goToNextField = () => {
+  const field = currentField.value;
+  if (field && !validateFieldValue(field)) {
+    fieldErrors.value = { ...fieldErrors.value, [field.id]: 'This field is required' };
+    error.value = 'Please complete the current field before continuing.';
+    errorDetails.value = null;
+    return;
+  }
+  error.value = '';
+  selectFieldByIndex(activeFieldIndex.value + 1);
+};
+
+const goToPrevField = () => {
+  error.value = '';
+  selectFieldByIndex(activeFieldIndex.value - 1);
+};
+
+const scrollToField = (fieldId) => {
+  if (!fieldId) return;
+  nextTick(() => {
+    const el = document.querySelector(`[data-field-input-id="${fieldId}"]`);
+    if (el?.scrollIntoView) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+};
+
+const handleMarkerClick = (marker) => {
+  if (!marker) return;
+  activeMarkerId.value = marker.id;
+  activeFieldId.value = marker.fieldId || null;
+  const idx = orderedFields.value.findIndex((f) => f.id === marker.fieldId);
+  if (idx >= 0) {
+    activeFieldIndex.value = idx;
+  }
+  scrollToField(marker.fieldId);
+};
+
+const focusFieldOnPdf = (field) => {
+  const marker = pdfMarkers.value.find((m) => m.fieldId === field.id);
+  if (marker?.page && signPdfRef.value?.goToPage) {
+    signPdfRef.value.goToPage(marker.page);
+  }
+  activeMarkerId.value = marker?.id || null;
+  activeFieldId.value = field.id;
+  const idx = orderedFields.value.findIndex((f) => f.id === field.id);
+  if (idx >= 0) {
+    activeFieldIndex.value = idx;
+  }
+};
+
+watch(visibleFieldDefinitions, (nextVal) => {
+  if (!nextVal.length) {
+    activeFieldIndex.value = 0;
+    activeFieldId.value = null;
+    activeMarkerId.value = null;
+    return;
+  }
+  if (activeFieldIndex.value >= nextVal.length) {
+    activeFieldIndex.value = 0;
+  }
+  selectFieldByIndex(activeFieldIndex.value);
+}, { immediate: true });
 
 const isAdminUser = computed(() => {
   const role = authStore.user?.role;
@@ -690,6 +907,67 @@ onMounted(() => {
   border-radius: 8px;
 }
 
+.sign-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+.sign-pdf .note.small {
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.field-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field-step-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.field-step-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.field-step-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.required-badge {
+  font-size: 11px;
+  color: #8a4a00;
+  background: rgba(255, 140, 0, 0.14);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.field-step-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
 .field-inputs h3 {
   margin: 0 0 12px 0;
 }
@@ -699,6 +977,14 @@ onMounted(() => {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.field-input.active {
+  border-color: #1f4e79;
+  background: rgba(31, 78, 121, 0.08);
 }
 
 .field-input input,
@@ -757,6 +1043,12 @@ onMounted(() => {
 .success-message p {
   margin: 8px 0;
   color: #155724;
+}
+
+@media (max-width: 960px) {
+  .sign-layout {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
 

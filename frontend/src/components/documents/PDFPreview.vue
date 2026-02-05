@@ -20,7 +20,21 @@
     <div class="viewer" ref="containerRef">
       <div v-if="loading" class="loading">Loading PDF…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
-      <canvas v-else ref="canvasRef" class="pdf-canvas"></canvas>
+      <div v-else class="canvas-layer">
+        <canvas ref="canvasRef" class="pdf-canvas"></canvas>
+        <button
+          v-for="marker in markers"
+          :key="marker.id"
+          class="pdf-marker"
+          :class="{ active: marker.id === activeMarkerId }"
+          :style="markerStyles[marker.id] || { display: 'none' }"
+          type="button"
+          @click.stop="emit('marker-click', marker)"
+          :aria-label="marker.label || 'Custom field'"
+        >
+          <span class="marker-label">{{ marker.label || marker.type || 'Field' }}</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -33,10 +47,12 @@ const workerVersion = pdfjsLib.version || '5.4.530';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${workerVersion}/build/pdf.worker.min.mjs`;
 
 const props = defineProps({
-  pdfUrl: { type: String, required: true }
+  pdfUrl: { type: String, required: true },
+  markers: { type: Array, default: () => [] },
+  activeMarkerId: { type: String, default: null }
 });
 
-const emit = defineEmits(['loaded', 'page-change']);
+const emit = defineEmits(['loaded', 'page-change', 'marker-click']);
 
 const containerRef = ref(null);
 const canvasRef = ref(null);
@@ -46,11 +62,13 @@ const error = ref('');
 const currentPage = ref(1);
 const totalPages = ref(0);
 const scale = ref(1.0);
+const markerStyles = ref({});
 
 let pdfDoc = null;
 let rendering = false;
 let didInitialFit = false;
 let userZoomed = false;
+let lastViewport = null;
 
 const fitToWidth = async (page) => {
   if (!containerRef.value) return;
@@ -76,6 +94,7 @@ const renderPage = async (pageNum) => {
       didInitialFit = true;
     }
     const viewport = page.getViewport({ scale: scale.value });
+    lastViewport = viewport;
 
     const ctx = canvas.getContext('2d');
     canvas.width = viewport.width;
@@ -83,12 +102,39 @@ const renderPage = async (pageNum) => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     await page.render({ canvasContext: ctx, viewport }).promise;
+    updateMarkerStyles();
   } catch (e) {
     console.error('PDF render error:', e);
     error.value = e?.message || 'Failed to render PDF';
   } finally {
     rendering = false;
   }
+};
+
+const updateMarkerStyles = () => {
+  if (!canvasRef.value || !lastViewport) return;
+  const canvas = canvasRef.value;
+  const canvasWidth = canvas.width || lastViewport.width;
+  const canvasHeight = canvas.height || lastViewport.height;
+  const styles = {};
+  const pageMarkers = (props.markers || []).filter((m) => (m.page || 1) === currentPage.value);
+
+  pageMarkers.forEach((marker) => {
+    if (marker.x === null || marker.y === null) return;
+    const pdfYFromTop = lastViewport.height - marker.y;
+    const canvasX = (marker.x / lastViewport.width) * canvasWidth;
+    const canvasY = (pdfYFromTop / lastViewport.height) * canvasHeight;
+    const canvasWidthPdf = (marker.width / lastViewport.width) * canvasWidth;
+    const canvasHeightPdf = (marker.height / lastViewport.height) * canvasHeight;
+    const previewTop = canvasY - canvasHeightPdf;
+    styles[marker.id] = {
+      left: `${canvasX}px`,
+      top: `${previewTop}px`,
+      width: `${canvasWidthPdf}px`,
+      height: `${canvasHeightPdf}px`
+    };
+  });
+  markerStyles.value = styles;
 };
 
 const loadPdf = async () => {
@@ -100,6 +146,7 @@ const loadPdf = async () => {
   pdfDoc = null;
   didInitialFit = false;
   userZoomed = false;
+  lastViewport = null;
 
   try {
     // Use CORS-enabled XHR (backend already sets ACAO for localhost:5173)
@@ -155,6 +202,14 @@ const zoomOut = async () => {
 watch(() => props.pdfUrl, () => {
   loadPdf();
 }, { immediate: true });
+
+watch(
+  () => [props.markers, currentPage.value, scale.value],
+  () => {
+    updateMarkerStyles();
+  },
+  { deep: true }
+);
 
 defineExpose({
   goToPage,
@@ -220,10 +275,45 @@ onMounted(() => {
   width: 100%;
 }
 
+.canvas-layer {
+  position: relative;
+  display: inline-block;
+}
+
 .pdf-canvas {
   display: block;
   margin: 0;
   background: white;
+}
+
+.pdf-marker {
+  position: absolute;
+  border: 2px dashed #ff8c00;
+  background: rgba(255, 140, 0, 0.12);
+  color: #8a4a00;
+  font-size: 10px;
+  line-height: 1.2;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.pdf-marker.active {
+  border-color: #1f4e79;
+  background: rgba(31, 78, 121, 0.14);
+  color: #1f4e79;
+}
+
+.marker-label {
+  background: rgba(255, 255, 255, 0.9);
+  padding: 2px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .loading,
