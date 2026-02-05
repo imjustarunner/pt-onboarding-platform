@@ -482,6 +482,28 @@ class DocumentTemplate {
       console.error('Error checking for icon_id column:', err);
     }
 
+    // Optional columns (organization / letter layout / custom fields).
+    let hasOrganizationColumn = false;
+    let hasLayoutTypeColumn = false;
+    let hasLetterheadColumn = false;
+    let hasLetterHeaderColumn = false;
+    let hasLetterFooterColumn = false;
+    let hasFieldDefinitionsColumn = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'document_templates' AND COLUMN_NAME IN ('organization_id','layout_type','letterhead_template_id','letter_header_html','letter_footer_html','field_definitions')"
+      );
+      const set = new Set((cols || []).map((r) => r.COLUMN_NAME));
+      hasOrganizationColumn = set.has('organization_id');
+      hasLayoutTypeColumn = set.has('layout_type');
+      hasLetterheadColumn = set.has('letterhead_template_id');
+      hasLetterHeaderColumn = set.has('letter_header_html');
+      hasLetterFooterColumn = set.has('letter_footer_html');
+      hasFieldDefinitionsColumn = set.has('field_definitions');
+    } catch {
+      // ignore (older DBs)
+    }
+
     // Use default values when destructuring to prevent undefined
     // But also check if fields exist in templateData to know what to update
     const {
