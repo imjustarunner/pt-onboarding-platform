@@ -91,10 +91,10 @@
               <div class="ocr-extracted-header">
                 <h4>Extracted Info (One-time)</h4>
                 <button class="btn btn-secondary btn-xs" type="button" :disabled="ocrClearing" @click="clearOcr">
-                  {{ ocrClearing ? 'Wiping…' : 'Wipe Extracted Info' }}
+                  {{ ocrClearing ? 'Wiping…' : 'Wipe Text' }}
                 </button>
               </div>
-              <p class="muted">Copy each section into your EHR, then wipe to remove it from this tab.</p>
+              <p class="muted">Copy each section into your EHR. Text is stored for 7 days unless wiped.</p>
               <div class="ocr-toggle">
                 <label class="checkbox-row">
                   <input type="checkbox" v-model="showRawOcr" />
@@ -395,10 +395,19 @@ const isQuestionLine = (line) => {
 const parseYesNo = (line) => {
   const raw = String(line || '');
   if (!/yes/i.test(raw) || !/no/i.test(raw)) return '';
-  const yesMarked = /yes[^a-z0-9]{0,3}[v✓x]/i.test(raw) || /[v✓x][^a-z0-9]{0,3}yes/i.test(raw);
-  const noMarked = /no[^a-z0-9]{0,3}[v✓x]/i.test(raw) || /[v✓x][^a-z0-9]{0,3}no/i.test(raw);
-  if (yesMarked && !noMarked) return 'Yes';
+  const yesMarked = /yes[^a-z0-9]{0,4}[v✓x]/i.test(raw) || /[v✓x][^a-z0-9]{0,4}yes/i.test(raw);
+  const noMarked = /no[^a-z0-9]{0,4}[v✓x]/i.test(raw) || /[v✓x][^a-z0-9]{0,4}no/i.test(raw);
   if (noMarked && !yesMarked) return 'No';
+  if (yesMarked && !noMarked) return 'Yes';
+  const yesIdx = raw.toLowerCase().indexOf('yes');
+  const noIdx = raw.toLowerCase().indexOf('no');
+  const markIdx = raw.search(/[v✓x]/i);
+  if (markIdx >= 0) {
+    const distYes = yesIdx >= 0 ? Math.abs(markIdx - yesIdx) : Number.POSITIVE_INFINITY;
+    const distNo = noIdx >= 0 ? Math.abs(markIdx - noIdx) : Number.POSITIVE_INFINITY;
+    if (distNo < distYes) return 'No';
+    if (distYes < distNo) return 'Yes';
+  }
   return '';
 };
 

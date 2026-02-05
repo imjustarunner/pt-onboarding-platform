@@ -59,11 +59,13 @@ export const requestReferralOcr = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'No PHI document found for client' } });
     }
 
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     const request = await ClientReferralOcr.create({
       clientId,
       phiDocumentId: doc.id,
       requestedByUserId: req.user.id,
-      status: 'queued'
+      status: 'queued',
+      expiresAt
     });
 
     res.status(201).json({ request });
@@ -84,7 +86,21 @@ export const listReferralOcrRequests = async (req, res, next) => {
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const requests = await ClientReferralOcr.findByClientId(clientId);
-    res.json({ requests });
+    const now = Date.now();
+    for (const r of requests || []) {
+      if (!r?.expires_at) continue;
+      const exp = new Date(r.expires_at).getTime();
+      if (Number.isFinite(exp) && exp <= now && r.result_text) {
+        // Best-effort: purge expired text
+        await ClientReferralOcr.updateById(r.id, {
+          result_text: null,
+          error_message: 'Extracted text expired',
+          status: 'expired'
+        });
+      }
+    }
+    const refreshed = await ClientReferralOcr.findByClientId(clientId);
+    res.json({ requests: refreshed });
   } catch (error) {
     next(error);
   }
@@ -97,6 +113,12 @@ export const processReferralOcrRequest = async (req, res, next) => {
 
     const request = await ClientReferralOcr.findById(requestId);
     if (!request) return res.status(404).json({ error: { message: 'OCR request not found' } });
+    if (request.expires_at) {
+      const exp = new Date(request.expires_at).getTime();
+      if (Number.isFinite(exp) && exp <= Date.now()) {
+        return res.status(410).json({ error: { message: 'OCR request expired. Please re-run extraction.' } });
+      }
+    }
 
     const client = await Client.findById(request.client_id, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
@@ -195,7 +217,8 @@ export const clearReferralOcrResult = async (req, res, next) => {
 
     const updated = await ClientReferralOcr.updateById(requestId, {
       result_text: null,
-      error_message: null
+      error_message: 'Extracted text cleared',
+      status: 'cleared'
     });
     res.json({ request: updated, cleared: true });
   } catch (error) {

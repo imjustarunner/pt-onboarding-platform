@@ -58,7 +58,7 @@
                 :title="ocrDisabledReason(d)"
                 @click="requestOcr(d)"
               >
-                OCR
+                Extract Text
               </button>
             </td>
           </tr>
@@ -85,7 +85,7 @@
 
     <div class="ocr-panel">
       <div class="ocr-header">
-        <h4>OCR requests</h4>
+        <h4>Extracted Text</h4>
         <div v-if="ocrLoading" class="muted">Loading…</div>
       </div>
       <div v-if="ocrError" class="error">{{ ocrError }}</div>
@@ -119,7 +119,7 @@
           </div>
           <div v-if="r.error_message" class="error">{{ r.error_message }}</div>
           <pre v-else-if="r.result_text" class="ocr-text">{{ r.result_text }}</pre>
-          <div v-else class="muted">Awaiting processing…</div>
+          <div v-else class="muted">Queued…</div>
         </div>
       </div>
     </div>
@@ -318,10 +318,25 @@ const requestOcr = async (doc) => {
   try {
     ocrSubmitting.value = true;
     ocrError.value = '';
-    await api.post(`/referrals/${props.clientId}/ocr`, { phiDocumentId: doc.id });
+    const existing = await api.get(`/referrals/${props.clientId}/ocr`);
+    const requests = existing.data?.requests || [];
+    const latest = requests.find((r) => Number(r.phi_document_id) === Number(doc.id)) || requests[0];
+    if (latest?.status === 'completed' && latest?.result_text) {
+      await reloadOcr();
+      return;
+    }
+    if (latest?.status && latest.status !== 'completed') {
+      ocrError.value = latest.error_message || 'Extraction already queued. Please wait.';
+      return;
+    }
+    const req = await api.post(`/referrals/${props.clientId}/ocr`, { phiDocumentId: doc.id });
+    const reqId = req.data?.request?.id;
+    if (reqId) {
+      await api.post(`/referrals/${props.clientId}/ocr/${reqId}/process`);
+    }
     await reloadOcr();
   } catch (e) {
-    ocrError.value = e.response?.data?.error?.message || 'Failed to request OCR';
+    ocrError.value = e.response?.data?.error?.message || 'Failed to extract text';
   } finally {
     ocrSubmitting.value = false;
   }
