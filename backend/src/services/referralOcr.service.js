@@ -23,11 +23,14 @@ class ReferralOcrService {
     if (type.includes('pdf')) {
       const { pagesToScan, printedLines } = await this.getPdfPageSelection(buffer);
       const visionText = await this.extractPdfWithVision({ buffer, pagesToScan });
-      if (!visionText) {
-        // Fallback: best-effort to return whatever text is available.
-        return await this.extractPdfText(buffer, pagesToScan);
+      if (!visionText || !visionText.trim()) {
+        throw new Error('No handwritten text detected from Vision OCR.');
       }
-      return this.filterHandwrittenText(visionText, printedLines);
+      const filtered = this.filterHandwrittenText(visionText, printedLines);
+      if (!filtered || !filtered.trim()) {
+        throw new Error('No handwritten text detected after filtering printed content.');
+      }
+      return filtered;
     }
     const [res] = await getVisionClient().textDetection(buffer);
     const text = res?.fullTextAnnotation?.text || res?.textAnnotations?.[0]?.description || '';
@@ -162,8 +165,13 @@ class ReferralOcrService {
         }
       }
       return chunks.join('\n').trim();
-    } catch {
-      return '';
+    } catch (error) {
+      console.error('Vision PDF OCR failed.', {
+        message: error?.message || 'Unknown error',
+        code: error?.code,
+        details: error?.details || error?.errors
+      });
+      throw error;
     } finally {
       if (files.length) {
         await Promise.allSettled(files.map((f) => f.delete()));
