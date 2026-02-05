@@ -136,7 +136,7 @@
                   @keydown.enter.stop.prevent="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? openWaitlistNote(client) : null"
                   @keydown.space.stop.prevent="String(client.client_status_key || '').toLowerCase() === 'waitlist' ? openWaitlistNote(client) : null"
                 >
-                  {{ client.client_status_label || '—' }}
+                  {{ formatClientStatusLabel(client) }}
                   <div
                     v-if="String(client.client_status_key || '').toLowerCase() === 'waitlist' && String(hoveredWaitlistClientId) === String(client.id)"
                     class="waitlist-tooltip"
@@ -525,6 +525,23 @@ const formatRosterLabel = (client) => {
   const code = String(client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
   if (props.clientLabelMode === 'initials') return initials || code || '—';
   return code || initials || '—';
+};
+
+const formatClientStatusLabel = (client) => {
+  const label = String(client?.client_status_label || '').trim();
+  if (label) return label;
+  const status = String(client?.status || '').toUpperCase();
+  const map = {
+    'PACKET': 'Packet',
+    'SCREENER': 'Screener',
+    'RETURNING': 'Returning',
+    'PENDING_REVIEW': 'Pending',
+    'ACTIVE': 'Current',
+    'ON_HOLD': 'Waitlist',
+    'DECLINED': 'Declined',
+    'ARCHIVED': 'Archived'
+  };
+  return map[status] || '—';
 };
 
 const rosterLabelTitle = (client) => {

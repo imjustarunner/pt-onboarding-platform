@@ -121,6 +121,16 @@
                 </div>
               </div>
 
+            <div v-if="psc17Answers.length" class="ocr-section">
+              <h4>PSC-17 Selections</h4>
+              <div class="answer-list">
+                <div v-for="(ans, idx) in psc17Answers" :key="`psc-${idx}`" class="answer-row">
+                  <span>#{{ idx + 1 }} — {{ ans === 0 ? 'Never' : ans === 1 ? 'Sometimes' : ans === 2 ? 'Often' : 'Unclear' }}</span>
+                  <button class="btn btn-xs btn-secondary" type="button" @click="copyText(ans === 0 ? 'Never' : ans === 1 ? 'Sometimes' : ans === 2 ? 'Often' : '')">Copy</button>
+                </div>
+              </div>
+            </div>
+
               <div v-if="pageTwoExtras.length" class="ocr-section">
                 <div class="section-header">
                   <h4>Page 2 Additional Answers</h4>
@@ -359,45 +369,74 @@ const pageTwoLines = computed(() => {
 
 const parsePsc17 = (lines) => {
   const answers = Array(17).fill(null);
-  const mapWord = (v) => {
-    const s = String(v || '').toLowerCase();
-    if (s.includes('never')) return 0;
-    if (s.includes('sometimes')) return 1;
-    if (s.includes('often')) return 2;
-    if (s === '0' || s === '1' || s === '2') return Number(s);
+  const markers = ['[', ']', '(', ')', '{', '}', '✓', 'v', 'V', 'x', 'X', '*', '•'];
+  const normalize = (s) => String(s || '').toLowerCase();
+  const isMarked = (line, word) => {
+    const lower = normalize(line);
+    const target = word.toLowerCase();
+    let idx = lower.indexOf(target);
+    while (idx !== -1) {
+      const start = Math.max(0, idx - 3);
+      const end = Math.min(lower.length, idx + target.length + 3);
+      const window = lower.slice(start, end);
+      if (markers.some((m) => window.includes(m))) return true;
+      idx = lower.indexOf(target, idx + target.length);
+    }
+    return false;
+  };
+  const detectAnswer = (line) => {
+    const lower = normalize(line);
+    const hasNever = lower.includes('never');
+    const hasSometimes = lower.includes('sometimes');
+    const hasOften = lower.includes('often');
+    if (!(hasNever || hasSometimes || hasOften)) return null;
+    if (hasNever && isMarked(line, 'never')) return 0;
+    if (hasSometimes && isMarked(line, 'sometimes')) return 1;
+    if (hasOften && isMarked(line, 'often')) return 2;
     return null;
   };
+  const assign = (idx, value) => {
+    if (idx < 1 || idx > 17) return;
+    if (answers[idx - 1] === null && value !== null) answers[idx - 1] = value;
+  };
+
   lines.forEach((line) => {
     const m = line.match(/^\s*(\d{1,2})[\).:\-]/);
     if (!m) return;
     const idx = Number(m[1]);
-    if (idx < 1 || idx > 17) return;
-    const token = line.match(/(never|sometimes|often|\b0\b|\b1\b|\b2\b)/i);
-    if (!token) return;
-    answers[idx - 1] = mapWord(token[1]);
+    const value = detectAnswer(line);
+    assign(idx, value);
   });
 
   if (answers.filter((v) => v !== null).length < 17) {
-    const tokens = lines
-      .join(' ')
-      .match(/(never|sometimes|often|\b0\b|\b1\b|\b2\b)/gi);
-    if (tokens && tokens.length >= 17) {
-      tokens.slice(0, 17).forEach((t, i) => {
-        if (answers[i] === null) answers[i] = mapWord(t);
+    const stitched = lines.join(' ');
+    const tokenMatch = stitched.match(/(never|sometimes|often)/gi);
+    if (tokenMatch && tokenMatch.length >= 17) {
+      tokenMatch.slice(0, 17).forEach((t, i) => {
+        if (answers[i] === null) {
+          if (t.toLowerCase() === 'never') answers[i] = 0;
+          if (t.toLowerCase() === 'sometimes') answers[i] = 1;
+          if (t.toLowerCase() === 'often') answers[i] = 2;
+        }
       });
     }
   }
 
-  if (answers.some((v) => v === null)) return null;
   const attentionIdx = [0, 1, 2, 3, 6];
   const internalIdx = [4, 5, 8, 9, 10];
   const externalIdx = [7, 11, 12, 13, 14, 15, 16];
   const sum = (idxs) => idxs.reduce((acc, i) => acc + (answers[i] || 0), 0);
+  if (answers.some((v) => v === null)) {
+    return { answers, summary: null };
+  }
   return {
-    total: answers.reduce((a, b) => a + (b || 0), 0),
-    attention: sum(attentionIdx),
-    internalizing: sum(internalIdx),
-    externalizing: sum(externalIdx)
+    answers,
+    summary: {
+      total: answers.reduce((a, b) => a + (b || 0), 0),
+      attention: sum(attentionIdx),
+      internalizing: sum(internalIdx),
+      externalizing: sum(externalIdx)
+    }
   };
 };
 
@@ -436,7 +475,9 @@ const maybeAutofillName = (text) => {
   lastName.value = extracted.lastName || '';
 };
 
-const psc17Summary = computed(() => parsePsc17(pageTwoLines.value));
+const psc17Data = computed(() => parsePsc17(pageTwoLines.value));
+const psc17Summary = computed(() => psc17Data.value?.summary || null);
+const psc17Answers = computed(() => psc17Data.value?.answers || []);
 
 const pageTwoExtras = computed(() => {
   if (!pageTwoLines.value.length) return [];
