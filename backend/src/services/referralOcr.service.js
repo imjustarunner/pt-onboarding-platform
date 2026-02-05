@@ -1,5 +1,6 @@
 import { ImageAnnotatorClient } from '@google-cloud/vision';
 import dommatrixPkg from 'dommatrix';
+import StorageService from './storage.service.js';
 
 let visionClient = null;
 
@@ -20,14 +21,154 @@ class ReferralOcrService {
     }
     const type = String(mimeType || '').toLowerCase();
     if (type.includes('pdf')) {
-      const pdfParseModule = await import('pdf-parse');
-      const pdfParseFn = pdfParseModule.default?.default || pdfParseModule.default || pdfParseModule;
-      const result = await pdfParseFn(buffer);
-      return result.text || '';
+      const { pagesToScan, printedLines } = await this.getPdfPageSelection(buffer);
+      const visionText = await this.extractPdfWithVision({ buffer, pagesToScan });
+      if (!visionText) {
+        // Fallback: best-effort to return whatever text is available.
+        return await this.extractPdfText(buffer, pagesToScan);
+      }
+      return this.filterHandwrittenText(visionText, printedLines);
     }
     const [res] = await getVisionClient().textDetection(buffer);
     const text = res?.fullTextAnnotation?.text || res?.textAnnotations?.[0]?.description || '';
     return text || '';
+  }
+
+  static async extractPdfText(buffer, pagesToScan) {
+    const { pages } = await this.parsePdfPages(buffer);
+    if (!pages?.length) return '';
+    if (!Array.isArray(pagesToScan) || pagesToScan.length === 0) {
+      return pages.join('\n');
+    }
+    const selected = pagesToScan
+      .map((n) => pages[n - 1])
+      .filter((p) => typeof p === 'string' && p.trim().length > 0);
+    return selected.join('\n');
+  }
+
+  static async parsePdfPages(buffer) {
+    const pdfParseModule = await import('pdf-parse');
+    const pdfParseFn = pdfParseModule.default?.default || pdfParseModule.default || pdfParseModule;
+    const result = await pdfParseFn(buffer);
+    const rawPages = String(result?.text || '').split(/\f/);
+    const numPages = Number(result?.numpages || rawPages.length || 0);
+    const pages = rawPages.length >= numPages ? rawPages : rawPages.concat(Array(numPages - rawPages.length).fill(''));
+    return { pages, numPages };
+  }
+
+  static normalizeLine(line) {
+    return String(line || '')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  static getPageNumberFromLine(line) {
+    const raw = String(line || '').trim();
+    if (!raw) return null;
+    const lower = raw.toLowerCase();
+    const pageMatch = lower.match(/^page\s*(\d{1,2})(?:\s*of\s*\d{1,2})?$/i);
+    if (pageMatch) return parseInt(pageMatch[1], 10);
+    const numMatch = lower.match(/^(\d{1,2})$/);
+    if (numMatch) return parseInt(numMatch[1], 10);
+    return null;
+  }
+
+  static async getPdfPageSelection(buffer) {
+    const { pages, numPages } = await this.parsePdfPages(buffer);
+    const printedLines = new Set();
+    const pageNumberIndex = new Map();
+
+    pages.forEach((pageText, idx) => {
+      const lines = String(pageText || '')
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+      const lastLine = lines[lines.length - 1] || '';
+      const pageNum = this.getPageNumberFromLine(lastLine);
+      if (pageNum === 1 || pageNum === 2) {
+        pageNumberIndex.set(pageNum, idx + 1); // Vision pages are 1-based
+      }
+    });
+
+    let pagesToScan = [];
+    if (pageNumberIndex.has(1) && pageNumberIndex.has(2)) {
+      pagesToScan = [pageNumberIndex.get(1), pageNumberIndex.get(2)];
+    } else if (numPages >= 3) {
+      pagesToScan = [2, 3].filter((n) => n <= numPages);
+    } else {
+      pagesToScan = [1, 2].filter((n) => n <= numPages);
+    }
+
+    for (const p of pagesToScan) {
+      const text = pages[p - 1] || '';
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => this.normalizeLine(l))
+        .filter((l) => l.length > 0);
+      lines.forEach((l) => printedLines.add(l));
+    }
+
+    return { pagesToScan, printedLines };
+  }
+
+  static filterHandwrittenText(text, printedLines) {
+    if (!text) return '';
+    if (!printedLines || printedLines.size === 0) return text;
+    const lines = String(text || '')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    const filtered = lines.filter((line) => !printedLines.has(this.normalizeLine(line)));
+    const filteredText = filtered.join('\n').trim();
+    return filteredText || text;
+  }
+
+  static async extractPdfWithVision({ buffer, pagesToScan }) {
+    const bucket = await StorageService.getGCSBucket();
+    const prefix = `referrals_ocr_tmp/${Date.now()}-${Math.random().toString(36).slice(2)}/`;
+    const gcsUri = `gs://${bucket.name}/${prefix}`;
+    let files = [];
+    try {
+      const [operation] = await getVisionClient().asyncBatchAnnotateFiles({
+        requests: [
+          {
+            inputConfig: {
+              content: buffer,
+              mimeType: 'application/pdf',
+              pages: Array.isArray(pagesToScan) && pagesToScan.length ? pagesToScan : undefined
+            },
+            features: [{ type: 'DOCUMENT_TEXT_DETECTION' }]
+          }
+        ],
+        outputConfig: { gcsDestination: { uri: gcsUri } }
+      });
+      await operation.promise();
+
+      const [listed] = await bucket.getFiles({ prefix });
+      files = listed || [];
+      const chunks = [];
+      for (const file of files) {
+        try {
+          const [content] = await file.download();
+          const json = JSON.parse(content.toString('utf8'));
+          const responses = Array.isArray(json?.responses) ? json.responses : [];
+          responses.forEach((r) => {
+            const txt = r?.fullTextAnnotation?.text || r?.textAnnotations?.[0]?.description || '';
+            if (txt) chunks.push(txt);
+          });
+        } catch {
+          // ignore malformed chunk
+        }
+      }
+      return chunks.join('\n').trim();
+    } catch {
+      return '';
+    } finally {
+      if (files.length) {
+        await Promise.allSettled(files.map((f) => f.delete()));
+      }
+    }
   }
 }
 
