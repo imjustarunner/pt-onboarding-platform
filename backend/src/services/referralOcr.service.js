@@ -2,6 +2,7 @@ import { ImageAnnotatorClient } from '@google-cloud/vision';
 import dommatrixPkg from 'dommatrix';
 import StorageService from './storage.service.js';
 import { createRequire } from 'module';
+import { PDFDocument } from 'pdf-lib';
 
 let visionClient = null;
 
@@ -60,11 +61,23 @@ class ReferralOcrService {
 
   static async parsePdfPages(buffer) {
     const pdfParseFn = await this.resolvePdfParse();
+    if (typeof pdfParseFn !== 'function') {
+      throw new Error('pdf-parse unavailable');
+    }
     const result = await pdfParseFn(buffer);
     const rawPages = String(result?.text || '').split(/\f/);
     const numPages = Number(result?.numpages || rawPages.length || 0);
     const pages = rawPages.length >= numPages ? rawPages : rawPages.concat(Array(numPages - rawPages.length).fill(''));
     return { pages, numPages };
+  }
+
+  static async getPdfPageCount(buffer) {
+    try {
+      const doc = await PDFDocument.load(buffer);
+      return doc.getPageCount();
+    } catch {
+      return 0;
+    }
   }
 
   static async resolvePdfParse() {
@@ -83,7 +96,7 @@ class ReferralOcrService {
     } catch {
       // fall through
     }
-    throw new Error('pdf-parse failed to load. OCR PDF parsing unavailable.');
+    return null;
   }
 
   static normalizeLine(line) {
@@ -105,21 +118,31 @@ class ReferralOcrService {
   }
 
   static async getPdfPageSelection(buffer) {
-    const { pages, numPages } = await this.parsePdfPages(buffer);
+    let pages = [];
+    let numPages = 0;
+    try {
+      const parsed = await this.parsePdfPages(buffer);
+      pages = parsed.pages || [];
+      numPages = parsed.numPages || 0;
+    } catch {
+      numPages = await this.getPdfPageCount(buffer);
+    }
     const printedLines = new Set();
     const pageNumberIndex = new Map();
 
-    pages.forEach((pageText, idx) => {
-      const lines = String(pageText || '')
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
-      const lastLine = lines[lines.length - 1] || '';
-      const pageNum = this.getPageNumberFromLine(lastLine);
-      if (pageNum === 1 || pageNum === 2) {
-        pageNumberIndex.set(pageNum, idx + 1); // Vision pages are 1-based
-      }
-    });
+    if (pages.length) {
+      pages.forEach((pageText, idx) => {
+        const lines = String(pageText || '')
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0);
+        const lastLine = lines[lines.length - 1] || '';
+        const pageNum = this.getPageNumberFromLine(lastLine);
+        if (pageNum === 1 || pageNum === 2) {
+          pageNumberIndex.set(pageNum, idx + 1); // Vision pages are 1-based
+        }
+      });
+    }
 
     let pagesToScan = [];
     if (pageNumberIndex.has(1) && pageNumberIndex.has(2)) {
@@ -130,13 +153,15 @@ class ReferralOcrService {
       pagesToScan = [1, 2].filter((n) => n <= numPages);
     }
 
-    for (const p of pagesToScan) {
-      const text = pages[p - 1] || '';
-      const lines = text
-        .split(/\r?\n/)
-        .map((l) => this.normalizeLine(l))
-        .filter((l) => l.length > 0);
-      lines.forEach((l) => printedLines.add(l));
+    if (pages.length) {
+      for (const p of pagesToScan) {
+        const text = pages[p - 1] || '';
+        const lines = text
+          .split(/\r?\n/)
+          .map((l) => this.normalizeLine(l))
+          .filter((l) => l.length > 0);
+        lines.forEach((l) => printedLines.add(l));
+      }
     }
 
     return { pagesToScan, printedLines };
