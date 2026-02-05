@@ -11,7 +11,7 @@ const props = defineProps({
   status: {
     type: String,
     required: true,
-    validator: (value) => ['PENDING_REVIEW', 'ACTIVE', 'ON_HOLD', 'DECLINED', 'ARCHIVED'].includes(value)
+    validator: (value) => ['PENDING_REVIEW', 'ACTIVE', 'ON_HOLD', 'DECLINED', 'ARCHIVED', 'PACKET', 'SCREENER', 'RETURNING'].includes(value)
   }
 });
 
@@ -19,20 +19,26 @@ const statusClass = computed(() => {
   const statusMap = {
     'PENDING_REVIEW': 'pending-review',
     'ACTIVE': 'active',
-    'ON_HOLD': 'on-hold',
+    'ON_HOLD': 'waitlist',
     'DECLINED': 'declined',
-    'ARCHIVED': 'archived'
+    'ARCHIVED': 'archived',
+    'PACKET': 'packet',
+    'SCREENER': 'screener',
+    'RETURNING': 'returning'
   };
   return statusMap[props.status] || 'pending-review';
 });
 
 const displayText = computed(() => {
   const textMap = {
-    'PENDING_REVIEW': 'Pending Review',
-    'ACTIVE': 'Active',
-    'ON_HOLD': 'On Hold',
+    'PENDING_REVIEW': 'Pending',
+    'ACTIVE': 'Current',
+    'ON_HOLD': 'Waitlist',
     'DECLINED': 'Declined',
-    'ARCHIVED': 'Archived'
+    'ARCHIVED': 'Archived',
+    'PACKET': 'Packet',
+    'SCREENER': 'Screener',
+    'RETURNING': 'Returning'
   };
   return textMap[props.status] || props.status;
 });
@@ -61,10 +67,28 @@ const displayText = computed(() => {
   border: 1px solid #28a745;
 }
 
-.status-on-hold {
+.status-waitlist {
   background: #ffeaa7;
   color: #856404;
   border: 1px solid #fdcb6e;
+}
+
+.status-packet {
+  background: #e7f1ff;
+  color: #1f4e79;
+  border: 1px solid #8ab4f8;
+}
+
+.status-screener {
+  background: #f0f7ff;
+  color: #0b5ed7;
+  border: 1px solid #9ec5fe;
+}
+
+.status-returning {
+  background: #e8f5e9;
+  color: #1b5e20;
+  border: 1px solid #81c784;
 }
 
 .status-declined {

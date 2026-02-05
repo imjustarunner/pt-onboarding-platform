@@ -9,6 +9,8 @@ import AgencySchool from '../models/AgencySchool.model.js';
 import { notifyPaperworkReceived } from '../services/clientNotifications.service.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
+import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
+import { resolvePaperworkStatusId, seedClientAffiliations, seedClientPaperworkItems } from '../utils/clientProvisioning.js';
 
 // Configure multer for memory storage (files will be uploaded to GCS)
 const upload = multer({
@@ -127,7 +129,10 @@ export const uploadReferralPacket = [
         ? `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || req.user.email || `User ${req.user.id}`
         : 'public_upload';
 
-      // Create client record with status = PENDING_REVIEW
+      const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
+      const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
+
+      // Create client record with status = PACKET
       // Note: initials will need to be extracted from OCR or provided separately
       // For now, we'll use a placeholder
       const client = await Client.create({
@@ -135,12 +140,21 @@ export const uploadReferralPacket = [
         agency_id: agencyId,
         provider_id: null, // No provider assigned yet
         initials: 'TBD', // Placeholder - should be extracted from OCR or form
-        status: 'PENDING_REVIEW',
+        identifier_code: identifierCode,
+        status: 'PACKET',
         submission_date: new Date().toISOString().split('T')[0],
         document_status: 'PACKET',
+        paperwork_status_id: paperworkStatusId,
         source,
         created_by_user_id: uploaderId
       });
+
+      await seedClientAffiliations({
+        clientId: client.id,
+        agencyId,
+        organizationId: organization.id
+      });
+      await seedClientPaperworkItems({ clientId: client.id, agencyId });
 
       // Log to status history
       await ClientStatusHistory.create({
@@ -148,7 +162,7 @@ export const uploadReferralPacket = [
         changed_by_user_id: uploaderId,
         field_changed: 'created',
         from_value: null,
-        to_value: JSON.stringify({ source, document_status: 'PACKET' }),
+        to_value: JSON.stringify({ source, status: 'PACKET', document_status: 'PACKET' }),
         note: `Client created via referral packet upload (${uploaderLabel})`
       });
 

@@ -257,11 +257,14 @@ const formatDocStatus = (s) => {
 
 const formatClientStatus = (s) => {
   const m = {
-    PENDING_REVIEW: 'Pending review',
-    ACTIVE: 'Active',
-    ON_HOLD: 'On hold',
+    PENDING_REVIEW: 'Pending',
+    ACTIVE: 'Current',
+    ON_HOLD: 'Waitlist',
     DECLINED: 'Declined',
-    ARCHIVED: 'Archived'
+    ARCHIVED: 'Archived',
+    PACKET: 'Packet',
+    SCREENER: 'Screener',
+    RETURNING: 'Returning'
   };
   return m[s] || s || '-';
 };

@@ -547,6 +547,7 @@ const formatDocSummary = (client) => {
   const parts = [];
   const normalizedStatus =
     statusKey === 'new_docs' ? 'Docs Needed' :
+    statusKey === 'all_needed' ? 'All Needed' :
     statusKey === 'completed' ? 'Received' :
     (roiExpired ? 'ROI Expired' : status);
   if (normalizedStatus) parts.push(normalizedStatus);

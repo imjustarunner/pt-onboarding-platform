@@ -97,14 +97,25 @@
               <strong>{{ formatDateTime(r.created_at) }}</strong>
               <span class="ocr-status">{{ r.status }}</span>
             </div>
-            <button
-              v-if="r.result_text"
-              class="btn btn-secondary btn-sm"
-              type="button"
-              @click="copyOcrText(r.result_text)"
-            >
-              Copy
-            </button>
+            <div class="ocr-actions">
+              <button
+                v-if="r.result_text"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                @click="copyOcrText(r.result_text)"
+              >
+                Copy
+              </button>
+              <button
+                v-if="r.result_text"
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="ocrWiping"
+                @click="clearOcrRequest(r)"
+              >
+                {{ ocrWiping ? 'Wiping…' : 'Wipe' }}
+              </button>
+            </div>
           </div>
           <div v-if="r.error_message" class="error">{{ r.error_message }}</div>
           <pre v-else-if="r.result_text" class="ocr-text">{{ r.result_text }}</pre>
@@ -149,6 +160,7 @@ const ocrLoading = ref(false);
 const opening = ref(false);
 const uploading = ref(false);
 const ocrSubmitting = ref(false);
+const ocrWiping = ref(false);
 const error = ref('');
 const auditError = ref('');
 const ocrError = ref('');
@@ -323,6 +335,21 @@ const copyOcrText = async (text) => {
   }
 };
 
+const clearOcrRequest = async (request) => {
+  if (!request?.id) return;
+  if (!window.confirm('Wipe extracted OCR text for this request? This cannot be undone.')) return;
+  try {
+    ocrWiping.value = true;
+    ocrError.value = '';
+    await api.post(`/referrals/${props.clientId}/ocr/${request.id}/clear`);
+    await reloadOcr();
+  } catch (e) {
+    ocrError.value = e.response?.data?.error?.message || 'Failed to wipe OCR text';
+  } finally {
+    ocrWiping.value = false;
+  }
+};
+
 onMounted(reload);
 watch(() => props.clientId, reload);
 </script>
@@ -360,6 +387,12 @@ watch(() => props.clientId, reload);
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+.ocr-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .loading {
   padding: 12px;

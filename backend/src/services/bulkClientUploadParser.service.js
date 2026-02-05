@@ -69,12 +69,16 @@ const normalizeWorkflow = (value) => {
   const s = raw.toLowerCase().replace(/\s+/g, ' ').trim();
   if (s === 'pending' || s === 'pending review' || s === 'pending_review') return 'PENDING_REVIEW';
   if (s === 'active' || s === 'current') return 'ACTIVE';
+  if (s === 'packet') return 'PACKET';
+  if (s === 'screener' || s === 'screening') return 'SCREENER';
+  if (s === 'returning') return 'RETURNING';
+  if (s === 'waitlist' || s === 'wait list') return 'ON_HOLD';
   if (s === 'on hold' || s === 'on_hold' || s === 'hold') return 'ON_HOLD';
   if (s === 'declined' || s === 'denied') return 'DECLINED';
   if (s === 'archived' || s === 'archive') return 'ARCHIVED';
   // If the sheet already uses canonical enum values, accept them.
   const upper = raw.toUpperCase().trim();
-  const allowed = new Set(['PENDING_REVIEW', 'ACTIVE', 'ON_HOLD', 'DECLINED', 'ARCHIVED']);
+  const allowed = new Set(['PENDING_REVIEW', 'ACTIVE', 'ON_HOLD', 'DECLINED', 'ARCHIVED', 'PACKET', 'SCREENER', 'RETURNING']);
   return allowed.has(upper) ? upper : '';
 };
 

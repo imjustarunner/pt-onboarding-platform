@@ -1700,7 +1700,7 @@ export const updateClientStatus = async (req, res, next) => {
     }
 
     // Validate status
-    const validStatuses = ['PENDING_REVIEW', 'ACTIVE', 'ON_HOLD', 'DECLINED', 'ARCHIVED'];
+    const validStatuses = ['PENDING_REVIEW', 'ACTIVE', 'ON_HOLD', 'DECLINED', 'ARCHIVED', 'PACKET', 'SCREENER', 'RETURNING'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ 
         error: { message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` } 

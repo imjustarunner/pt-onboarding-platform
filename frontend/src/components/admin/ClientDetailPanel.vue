@@ -1543,6 +1543,10 @@ const onMarkDocsCompletedFromOverview = async () => {
 };
 
 const documentStatusSummaryText = computed(() => {
+  const statusKey = String(props.client?.paperwork_status_key || '').toLowerCase();
+  if (statusKey === 'all_needed') {
+    return props.client?.paperwork_status_label || 'All Needed';
+  }
   const count = props.client?.paperwork_needed_count;
   if (count === undefined || count === null) return '';
   const n = Number(count);

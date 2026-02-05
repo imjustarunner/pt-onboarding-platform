@@ -1721,6 +1721,10 @@ const formatDate = (dateString) => {
 
 const formatDocumentStatusSummary = (client) => {
   if (!client) return '-';
+  const statusKey = String(client.paperwork_status_key || '').toLowerCase();
+  if (statusKey === 'all_needed') {
+    return client.paperwork_status_label || 'All Needed';
+  }
   const cnt = client.paperwork_needed_count;
   if (cnt !== undefined && cnt !== null && cnt !== '') {
     const n = Number(cnt);

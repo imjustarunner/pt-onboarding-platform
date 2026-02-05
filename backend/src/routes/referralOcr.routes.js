@@ -1,7 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { listReferralOcrRequests, processReferralOcrRequest, requestReferralOcr, setReferralProfileInitials } from '../controllers/referralOcr.controller.js';
+import { clearReferralOcrResult, listReferralOcrRequests, processReferralOcrRequest, requestReferralOcr, setReferralProfileInitials } from '../controllers/referralOcr.controller.js';
 
 const router = express.Router();
 
@@ -24,5 +24,7 @@ router.post(
   ],
   setReferralProfileInitials
 );
+
+router.post('/:clientId/ocr/:requestId/clear', authenticate, clearReferralOcrResult);
 
 export default router;

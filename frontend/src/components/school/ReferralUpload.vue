@@ -75,57 +75,74 @@
               </button>
             </div>
             <div v-if="ocrError" class="error-message">{{ ocrError }}</div>
-            <textarea v-if="ocrText" class="ocr-text" readonly :value="ocrText"></textarea>
+            <div v-if="ocrWipeMessage" class="success-message">{{ ocrWipeMessage }}</div>
 
-            <div v-if="pageOneLines.length" class="ocr-section">
-              <h4>Page 1 Answers</h4>
-              <div class="answer-list">
-                <div v-for="(line, idx) in pageOneLines" :key="`p1-${idx}`" class="answer-row">
-                  <span>{{ line }}</span>
-                  <button class="btn btn-xs btn-secondary" type="button" @click="copyText(line)">Copy</button>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="psc17Summary" class="ocr-section">
-              <h4>PSC-17 Score (Page 2)</h4>
-              <div class="psc-summary">
-                <div>Total: {{ psc17Summary.total }} (Cutoff >= 15)</div>
-                <div>Attention: {{ psc17Summary.attention }} (Cutoff >= 7)</div>
-                <div>Internalizing: {{ psc17Summary.internalizing }} (Cutoff >= 5)</div>
-                <div>Externalizing: {{ psc17Summary.externalizing }} (Cutoff >= 7)</div>
-              </div>
-            </div>
-
-            <div v-if="pageTwoExtras.length" class="ocr-section">
-              <h4>Page 2 Additional Answers</h4>
-              <div class="answer-list">
-                <div v-for="(line, idx) in pageTwoExtras" :key="`p2-${idx}`" class="answer-row">
-                  <span>{{ line }}</span>
-                  <button class="btn btn-xs btn-secondary" type="button" @click="copyText(line)">Copy</button>
-                </div>
-              </div>
-            </div>
-
-            <div class="profile-builder">
-              <div class="form-group">
-                <label>First name (for initials)</label>
-                <input v-model="firstName" type="text" placeholder="First name" />
-              </div>
-              <div class="form-group">
-                <label>Last name (for initials)</label>
-                <input v-model="lastName" type="text" placeholder="Last name" />
-              </div>
-              <div class="abbr-row">
-                <div class="abbr-code">{{ abbreviatedName || '---' }}</div>
-                <button class="btn btn-secondary btn-sm" type="button" :disabled="!abbreviatedName" @click="copyText(abbreviatedName)">
-                  Copy Code
-                </button>
-                <button class="btn btn-primary btn-sm" type="button" :disabled="!abbreviatedName || ocrLoading" @click="applyInitials">
-                  Set Client Initials
+            <div v-if="ocrText" class="ocr-extracted">
+              <div class="ocr-extracted-header">
+                <h4>Extracted Info (One-time)</h4>
+                <button class="btn btn-secondary btn-xs" type="button" :disabled="ocrClearing" @click="clearOcr">
+                  {{ ocrClearing ? 'Wiping…' : 'Wipe Extracted Info' }}
                 </button>
               </div>
-              <p class="muted">Format: first three of first name + first three of last name (e.g., AbcDef).</p>
+              <p class="muted">Copy each section into your EHR, then wipe to remove it from this tab.</p>
+              <textarea class="ocr-text" readonly :value="ocrText"></textarea>
+
+              <div v-if="pageOneLines.length" class="ocr-section">
+                <div class="section-header">
+                  <h4>Page 1 Answers</h4>
+                  <button class="btn btn-xs btn-secondary" type="button" @click="copyLines(pageOneLines)">Copy Section</button>
+                </div>
+                <div class="answer-list">
+                  <div v-for="(line, idx) in pageOneLines" :key="`p1-${idx}`" class="answer-row">
+                    <span>{{ line }}</span>
+                    <button class="btn btn-xs btn-secondary" type="button" @click="copyText(line)">Copy</button>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="psc17Summary" class="ocr-section">
+                <h4>PSC-17 Score (Page 2)</h4>
+                <div class="psc-summary">
+                  <div>Total: {{ psc17Summary.total }} (Cutoff >= 15)</div>
+                  <div>Attention: {{ psc17Summary.attention }} (Cutoff >= 7)</div>
+                  <div>Internalizing: {{ psc17Summary.internalizing }} (Cutoff >= 5)</div>
+                  <div>Externalizing: {{ psc17Summary.externalizing }} (Cutoff >= 7)</div>
+                </div>
+              </div>
+
+              <div v-if="pageTwoExtras.length" class="ocr-section">
+                <div class="section-header">
+                  <h4>Page 2 Additional Answers</h4>
+                  <button class="btn btn-xs btn-secondary" type="button" @click="copyLines(pageTwoExtras)">Copy Section</button>
+                </div>
+                <div class="answer-list">
+                  <div v-for="(line, idx) in pageTwoExtras" :key="`p2-${idx}`" class="answer-row">
+                    <span>{{ line }}</span>
+                    <button class="btn btn-xs btn-secondary" type="button" @click="copyText(line)">Copy</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="profile-builder">
+                <div class="form-group">
+                  <label>First name (for initials)</label>
+                  <input v-model="firstName" type="text" placeholder="First name" />
+                </div>
+                <div class="form-group">
+                  <label>Last name (for initials)</label>
+                  <input v-model="lastName" type="text" placeholder="Last name" />
+                </div>
+                <div class="abbr-row">
+                  <div class="abbr-code">{{ abbreviatedName || '---' }}</div>
+                  <button class="btn btn-secondary btn-sm" type="button" :disabled="!abbreviatedName" @click="copyText(abbreviatedName)">
+                    Copy Code
+                  </button>
+                  <button class="btn btn-primary btn-sm" type="button" :disabled="!abbreviatedName || ocrLoading" @click="applyInitials">
+                    Set Client Initials
+                  </button>
+                </div>
+                <p class="muted">Format: first three of first name + first three of last name (e.g., AbcDef).</p>
+              </div>
             </div>
           </div>
 
@@ -175,6 +192,8 @@ const ocrLoading = ref(false);
 const ocrError = ref('');
 const ocrText = ref('');
 const ocrRequestId = ref(null);
+const ocrClearing = ref(false);
+const ocrWipeMessage = ref('');
 const firstName = ref('');
 const lastName = ref('');
 
@@ -379,22 +398,48 @@ const copyText = async (text) => {
   }
 };
 
+const copyLines = (lines) => copyText((lines || []).join('\n'));
+
 const runOcr = async () => {
   if (!clientId.value) return;
   ocrLoading.value = true;
   ocrError.value = '';
   ocrText.value = '';
+  ocrWipeMessage.value = '';
   try {
     const req = await api.post(`/referrals/${clientId.value}/ocr`, {
       phiDocumentId: phiDocumentId.value || null
     });
     ocrRequestId.value = req.data?.request?.id || null;
     const result = await api.post(`/referrals/${clientId.value}/ocr/${ocrRequestId.value}/process`);
-    ocrText.value = result.data?.request?.result_text || '';
+    const request = result.data?.request || {};
+    if (request.status && request.status !== 'completed') {
+      ocrError.value = request.error_message || 'OCR failed. Please try again later.';
+      ocrText.value = '';
+      return;
+    }
+    ocrText.value = request.result_text || '';
   } catch (e) {
     ocrError.value = e.response?.data?.error?.message || 'OCR failed. Please try again later.';
   } finally {
     ocrLoading.value = false;
+  }
+};
+
+const clearOcr = async () => {
+  if (!clientId.value || !ocrRequestId.value) return;
+  if (!window.confirm('Wipe extracted info for this packet? This cannot be undone.')) return;
+  ocrClearing.value = true;
+  ocrError.value = '';
+  ocrWipeMessage.value = '';
+  try {
+    await api.post(`/referrals/${clientId.value}/ocr/${ocrRequestId.value}/clear`);
+    ocrText.value = '';
+    ocrWipeMessage.value = 'Extracted info wiped.';
+  } catch (e) {
+    ocrError.value = e.response?.data?.error?.message || 'Failed to wipe extracted info.';
+  } finally {
+    ocrClearing.value = false;
   }
 };
 
@@ -495,6 +540,28 @@ const applyInitials = async () => {
   margin-top: 24px;
   padding-top: 20px;
   border-top: 1px solid var(--border);
+}
+
+.ocr-extracted {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.ocr-extracted-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 

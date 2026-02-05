@@ -174,3 +174,31 @@ export const setReferralProfileInitials = async (req, res, next) => {
     next(error);
   }
 };
+
+export const clearReferralOcrResult = async (req, res, next) => {
+  try {
+    const clientId = parseInt(req.params.clientId, 10);
+    const requestId = parseInt(req.params.requestId, 10);
+    if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
+    if (!requestId) return res.status(400).json({ error: { message: 'requestId is required' } });
+
+    const request = await ClientReferralOcr.findById(requestId);
+    if (!request || request.client_id !== clientId) {
+      return res.status(404).json({ error: { message: 'OCR request not found' } });
+    }
+
+    const client = await Client.findById(clientId, { includeSensitive: true });
+    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
+
+    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
+    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const updated = await ClientReferralOcr.updateById(requestId, {
+      result_text: null,
+      error_message: null
+    });
+    res.json({ request: updated, cleared: true });
+  } catch (error) {
+    next(error);
+  }
+};

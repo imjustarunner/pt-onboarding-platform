@@ -289,6 +289,7 @@ const normalizeDocStatusLabel = (c) => {
   const key = String(c?.paperwork_status_key || '').toLowerCase();
   const base = String(c?.paperwork_status_label || c?.document_status || '').trim();
   if (key === 'new_docs') return 'Docs Needed';
+  if (key === 'all_needed') return base || 'All Needed';
   if (key === 'completed') return 'Received';
   return base || '—';
 };

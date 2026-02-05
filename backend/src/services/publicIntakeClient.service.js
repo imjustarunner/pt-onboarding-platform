@@ -5,6 +5,8 @@ import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import User from '../models/User.model.js';
+import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
+import { resolvePaperworkStatusId, seedClientAffiliations, seedClientPaperworkItems } from '../utils/clientProvisioning.js';
 
 const deriveInitials = (fullName) => {
   const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
@@ -63,6 +65,9 @@ class PublicIntakeClientService {
       const initials = String(clientPayload?.initials || deriveInitials(fullName)).trim() || 'TBD';
       const contactPhone = String(clientPayload?.contactPhone || '').trim() || null;
 
+      const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
+      const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
+
       const client = await Client.create({
         organization_id: organizationId,
         agency_id: agencyId,
@@ -70,19 +75,28 @@ class PublicIntakeClientService {
         initials,
         full_name: fullName || null,
         contact_phone: contactPhone,
-        status: 'PENDING_REVIEW',
+        identifier_code: identifierCode,
+        status: 'PACKET',
         submission_date: new Date().toISOString().split('T')[0],
         document_status: 'UPLOADED',
+        paperwork_status_id: paperworkStatusId,
         source: 'PUBLIC_INTAKE_LINK',
         created_by_user_id: null
       });
+
+      await seedClientAffiliations({
+        clientId: client.id,
+        agencyId,
+        organizationId
+      });
+      await seedClientPaperworkItems({ clientId: client.id, agencyId });
 
       await ClientStatusHistory.create({
         client_id: client.id,
         changed_by_user_id: null,
         field_changed: 'created',
         from_value: null,
-        to_value: JSON.stringify({ source: 'PUBLIC_INTAKE_LINK' }),
+        to_value: JSON.stringify({ source: 'PUBLIC_INTAKE_LINK', status: 'PACKET' }),
         note: 'Client created via public intake link'
       });
 
