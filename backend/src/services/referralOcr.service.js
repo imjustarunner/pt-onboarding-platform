@@ -203,10 +203,10 @@ class ReferralOcrService {
               mimeType: 'application/pdf',
               pages: Array.isArray(pagesToScan) && pagesToScan.length ? pagesToScan : undefined
             },
-            features: [{ type: 'DOCUMENT_TEXT_DETECTION' }]
+            features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
+            outputConfig: { gcsDestination: { uri: gcsUri } }
           }
-        ],
-        outputConfig: { gcsDestination: { uri: gcsUri } }
+        ]
       });
       await operation.promise();
 
