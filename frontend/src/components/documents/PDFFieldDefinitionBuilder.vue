@@ -163,6 +163,8 @@ const fields = ref([]);
 const fieldStyles = ref({});
 let pdfDoc = null;
 let rendering = false;
+let syncingFromParent = false;
+let syncingToParent = false;
 
 const normalizeOption = (opt = {}) => ({
   id: opt.id || `opt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -231,7 +233,16 @@ const syncToParent = () => {
 watch(
   () => props.modelValue,
   (nextVal) => {
+    if (syncingToParent) {
+      syncingToParent = false;
+      return;
+    }
+    syncingFromParent = true;
     fields.value = (nextVal || []).map(normalizeField);
+    nextTick(() => {
+      updateFieldStyles();
+      syncingFromParent = false;
+    });
   },
   { immediate: true, deep: true }
 );
@@ -239,6 +250,8 @@ watch(
 watch(
   fields,
   () => {
+    if (syncingFromParent) return;
+    syncingToParent = true;
     syncToParent();
     updateFieldStyles();
   },
