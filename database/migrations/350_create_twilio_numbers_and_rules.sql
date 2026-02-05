@@ -81,5 +81,6 @@ GROUP BY u.system_phone_number;
 INSERT INTO twilio_number_assignments (number_id, user_id, is_primary, is_active)
 SELECT tn.id, u.id, TRUE, TRUE
 FROM users u
-JOIN twilio_numbers tn ON tn.phone_number = u.system_phone_number
+JOIN twilio_numbers tn
+  ON tn.phone_number COLLATE utf8mb4_0900_ai_ci = u.system_phone_number COLLATE utf8mb4_0900_ai_ci
 WHERE u.system_phone_number IS NOT NULL;
