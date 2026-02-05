@@ -27,6 +27,48 @@ const buildAbbreviatedName = (firstName, lastName) => {
   return `${first}${last}`.trim();
 };
 
+const buildOcrAad = ({ clientId, requestId, phiDocumentId }) =>
+  JSON.stringify({
+    type: 'referral_ocr',
+    clientId,
+    requestId,
+    phiDocumentId
+  });
+
+const hydrateRequest = async (request) => {
+  if (!request) return null;
+  const clean = {
+    id: request.id,
+    client_id: request.client_id,
+    phi_document_id: request.phi_document_id,
+    requested_by_user_id: request.requested_by_user_id,
+    status: request.status,
+    error_message: request.error_message,
+    created_at: request.created_at,
+    updated_at: request.updated_at,
+    expires_at: request.expires_at,
+    result_text: null
+  };
+  if (!request.result_text_encrypted || !request.is_encrypted) {
+    return clean;
+  }
+  try {
+    const decrypted = await DocumentEncryptionService.decryptBuffer({
+      encryptedBuffer: request.result_text_encrypted,
+      encryptionKeyId: request.encryption_key_id,
+      encryptionWrappedKeyB64: request.encryption_wrapped_key,
+      encryptionIvB64: request.encryption_iv,
+      encryptionAuthTagB64: request.encryption_auth_tag,
+      aad: request.encryption_aad
+    });
+    clean.result_text = decrypted.toString('utf8');
+  } catch (e) {
+    clean.error_message = 'Unable to decrypt extracted text';
+    clean.status = 'failed';
+  }
+  return clean;
+};
+
 export const requestReferralOcr = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -68,7 +110,8 @@ export const requestReferralOcr = async (req, res, next) => {
       expiresAt
     });
 
-    res.status(201).json({ request });
+    const hydrated = await hydrateRequest(request);
+    res.status(201).json({ request: hydrated });
   } catch (error) {
     next(error);
   }
@@ -90,17 +133,28 @@ export const listReferralOcrRequests = async (req, res, next) => {
     for (const r of requests || []) {
       if (!r?.expires_at) continue;
       const exp = new Date(r.expires_at).getTime();
-      if (Number.isFinite(exp) && exp <= now && r.result_text) {
+      if (Number.isFinite(exp) && exp <= now && r.result_text_encrypted) {
         // Best-effort: purge expired text
         await ClientReferralOcr.updateById(r.id, {
-          result_text: null,
+          result_text_encrypted: null,
+          is_encrypted: false,
+          encryption_key_id: null,
+          encryption_wrapped_key: null,
+          encryption_iv: null,
+          encryption_auth_tag: null,
+          encryption_alg: null,
+          encryption_aad: null,
           error_message: 'Extracted text expired',
           status: 'expired'
         });
       }
     }
     const refreshed = await ClientReferralOcr.findByClientId(clientId);
-    res.json({ requests: refreshed });
+    const hydrated = [];
+    for (const r of refreshed || []) {
+      hydrated.push(await hydrateRequest(r));
+    }
+    res.json({ requests: hydrated });
   } catch (error) {
     next(error);
   }
@@ -150,13 +204,33 @@ export const processReferralOcrRequest = async (req, res, next) => {
     let text = '';
     try {
       text = await ReferralOcrService.extractText({ buffer, mimeType: doc.mime_type });
-      await ClientReferralOcr.updateById(requestId, { status: 'completed', result_text: text, error_message: null });
+      const aad = buildOcrAad({
+        clientId: request.client_id,
+        requestId,
+        phiDocumentId: request.phi_document_id
+      });
+      const encrypted = await DocumentEncryptionService.encryptBuffer(Buffer.from(String(text || ''), 'utf8'), {
+        aad
+      });
+      await ClientReferralOcr.updateById(requestId, {
+        status: 'completed',
+        result_text_encrypted: encrypted.encryptedBuffer,
+        is_encrypted: true,
+        encryption_key_id: encrypted.encryptionKeyId,
+        encryption_wrapped_key: encrypted.encryptionWrappedKeyB64,
+        encryption_iv: encrypted.encryptionIvB64,
+        encryption_auth_tag: encrypted.encryptionAuthTagB64,
+        encryption_alg: encrypted.encryptionAlg,
+        encryption_aad: aad,
+        error_message: null
+      });
     } catch (e) {
       await ClientReferralOcr.updateById(requestId, { status: 'failed', error_message: e.message || 'OCR failed' });
     }
 
     const updated = await ClientReferralOcr.findById(requestId);
-    res.json({ request: updated });
+    const hydrated = await hydrateRequest(updated);
+    res.json({ request: hydrated });
   } catch (error) {
     next(error);
   }
@@ -216,11 +290,19 @@ export const clearReferralOcrResult = async (req, res, next) => {
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const updated = await ClientReferralOcr.updateById(requestId, {
-      result_text: null,
+      result_text_encrypted: null,
+      is_encrypted: false,
+      encryption_key_id: null,
+      encryption_wrapped_key: null,
+      encryption_iv: null,
+      encryption_auth_tag: null,
+      encryption_alg: null,
+      encryption_aad: null,
       error_message: 'Extracted text cleared',
       status: 'cleared'
     });
-    res.json({ request: updated, cleared: true });
+    const hydrated = await hydrateRequest(updated);
+    res.json({ request: hydrated, cleared: true });
   } catch (error) {
     next(error);
   }
