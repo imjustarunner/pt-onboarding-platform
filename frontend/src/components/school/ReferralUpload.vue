@@ -77,6 +77,11 @@
             <div v-if="ocrError" class="error-message">{{ ocrError }}</div>
             <div v-if="ocrWipeMessage" class="success-message">{{ ocrWipeMessage }}</div>
 
+            <div v-if="pdfPreviewUrl" class="ocr-section">
+              <h4>Preview Packet</h4>
+              <PDFPreview :pdfUrl="pdfPreviewUrl" />
+            </div>
+
             <div v-if="ocrText" class="ocr-extracted">
               <div class="ocr-extracted-header">
                 <h4>Extracted Info (One-time)</h4>
@@ -165,6 +170,7 @@
 import { ref, computed } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import PDFPreview from '../documents/PDFPreview.vue';
 
 const props = defineProps({
   organizationSlug: {
@@ -213,6 +219,11 @@ const abbreviatedName = computed(() => {
 const canRunOcr = computed(() => true);
 const isAuthenticated = computed(() => authStore.isAuthenticated);
 const canUseOcr = computed(() => ['super_admin', 'admin', 'staff', 'support'].includes(roleNorm.value));
+const pdfPreviewUrl = computed(() => {
+  if (!phiDocumentId.value) return '';
+  const base = String(api.defaults?.baseURL || '').replace(/\/+$/, '');
+  return `${base}/phi-documents/${phiDocumentId.value}/view`;
+});
 
 const splitPages = (text) => {
   if (!text) return [];
@@ -281,6 +292,30 @@ const parsePsc17 = (lines) => {
     internalizing: sum(internalIdx),
     externalizing: sum(externalIdx)
   };
+};
+
+const extractNameFromOcr = (text) => {
+  const raw = String(text || '');
+  if (!raw) return null;
+  const patterns = [
+    /dependent(?:'s)?\s+name\s*[:\-]?\s*([A-Za-z'`.-]+)\s+([A-Za-z'`.-]+)/i,
+    /student\s+name\s*[:\-]?\s*([A-Za-z'`.-]+)\s+([A-Za-z'`.-]+)/i
+  ];
+  for (const re of patterns) {
+    const match = raw.match(re);
+    if (match) {
+      return { firstName: match[1], lastName: match[2] };
+    }
+  }
+  return null;
+};
+
+const maybeAutofillName = (text) => {
+  if (firstName.value || lastName.value) return;
+  const extracted = extractNameFromOcr(text);
+  if (!extracted) return;
+  firstName.value = extracted.firstName || '';
+  lastName.value = extracted.lastName || '';
 };
 
 const psc17Summary = computed(() => parsePsc17(pageTwoLines.value));
@@ -417,6 +452,9 @@ const runOcr = async () => {
       return;
     }
     ocrText.value = request.result_text || '';
+    if (ocrText.value) {
+      maybeAutofillName(ocrText.value);
+    }
   } catch (e) {
     ocrError.value = e.response?.data?.error?.message || 'OCR failed. Please try again later.';
   } finally {

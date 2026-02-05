@@ -294,7 +294,7 @@
               <span v-else>{{ client.organization_name || '-' }}</span>
             </td>
             <td v-if="columnPrefs.clientStatus">
-              {{ client.client_status_label || '-' }}
+              {{ formatClientStatus(client) }}
             </td>
             <td v-if="columnPrefs.provider">
               {{ client.provider_name || 'Not assigned' }}
@@ -1748,6 +1748,23 @@ const formatDocumentStatus = (status) => {
     'REJECTED': 'Rejected'
   };
   return statusMap[status] || status;
+};
+
+const formatClientStatus = (client) => {
+  const label = String(client?.client_status_label || '').trim();
+  if (label) return label;
+  const status = String(client?.status || '').toUpperCase();
+  const map = {
+    'PACKET': 'Packet',
+    'SCREENER': 'Screener',
+    'RETURNING': 'Returning',
+    'PENDING_REVIEW': 'Pending',
+    'ACTIVE': 'Current',
+    'ON_HOLD': 'Waitlist',
+    'DECLINED': 'Declined',
+    'ARCHIVED': 'Archived'
+  };
+  return map[status] || (status ? status.toLowerCase() : '-');
 };
 
 const startEditStatus = async (client) => {
