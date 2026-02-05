@@ -179,12 +179,29 @@
           </div>
 
           <div class="form-actions">
-            <button type="button" @click="$emit('close')" class="btn btn-secondary">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="confirmClose() ? $emit('close') : null"
+            >
               Cancel
             </button>
-            <button type="submit" class="btn btn-primary" :disabled="!isAuthenticated || !selectedFile || uploading">
+            <button
+              v-if="!uploadComplete"
+              type="submit"
+              class="btn btn-primary"
+              :disabled="!isAuthenticated || !selectedFile || uploading"
+            >
               <span v-if="uploading">Uploading...</span>
               <span v-else>Upload Referral Packet</span>
+            </button>
+            <button
+              v-else
+              type="button"
+              class="btn btn-primary"
+              @click="confirmClose() ? $emit('close') : null"
+            >
+              Close
             </button>
           </div>
         </form>
@@ -230,6 +247,7 @@ const ocrClearing = ref(false);
 const ocrWipeMessage = ref('');
 const showRawOcr = ref(false);
 const packetConfig = ref({ questions: [], ignore: [] });
+const initialsSet = ref(false);
 const firstName = ref('');
 const lastName = ref('');
 
@@ -653,6 +671,15 @@ const handleLogin = async () => {
   }
 };
 
+const uploadComplete = computed(() => !!clientId.value);
+
+const confirmClose = () => {
+  if (canUseOcr.value && uploadComplete.value && !initialsSet.value) {
+    return window.confirm('Initials were not set. Close anyway?');
+  }
+  return true;
+};
+
 const handleUpload = async () => {
   if (!isAuthenticated.value) {
     error.value = 'Please sign in before uploading a referral packet.';
@@ -710,6 +737,21 @@ const runOcr = async () => {
   ocrText.value = '';
   ocrWipeMessage.value = '';
   try {
+    const existing = await api.get(`/referrals/${clientId.value}/ocr`);
+    const requests = existing.data?.requests || [];
+    const latest = requests.find((r) => Number(r.phi_document_id) === Number(phiDocumentId.value)) || requests[0];
+    if (latest?.status === 'completed' && latest?.result_text) {
+      ocrRequestId.value = latest.id;
+      ocrText.value = latest.result_text || '';
+      if (ocrText.value) {
+        maybeAutofillName(ocrText.value);
+      }
+      return;
+    }
+    if (latest?.status && latest.status !== 'completed') {
+      ocrError.value = latest.error_message || 'OCR already queued. Please wait a moment.';
+      return;
+    }
     const req = await api.post(`/referrals/${clientId.value}/ocr`, {
       phiDocumentId: phiDocumentId.value || null
     });
@@ -760,6 +802,7 @@ const applyInitials = async () => {
       firstName: firstName.value,
       lastName: lastName.value
     });
+    initialsSet.value = true;
   } catch (e) {
     ocrError.value = e.response?.data?.error?.message || 'Failed to set initials.';
   } finally {

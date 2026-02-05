@@ -10,6 +10,7 @@ import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { notifyClientBecameCurrent, notifyPaperworkReceived } from '../services/clientNotifications.service.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
 import crypto from 'crypto';
+import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 
 function normalizeSixDigitClientCode(value) {
   const raw = String(value || '').trim();
@@ -1716,6 +1717,32 @@ export const updateClientStatus = async (req, res, next) => {
 
     // Update status with history logging
     const updatedClient = await Client.updateStatus(id, status, userId, note);
+
+    // Best-effort: sync client_status_id to match workflow status
+    try {
+      const statusKeyMap = {
+        PACKET: 'packet',
+        SCREENER: 'screener',
+        RETURNING: 'returning',
+        PENDING_REVIEW: 'pending',
+        ACTIVE: 'current',
+        ON_HOLD: 'waitlist',
+        DECLINED: 'declined',
+        ARCHIVED: 'archived'
+      };
+      const statusKey = statusKeyMap[String(status || '').toUpperCase()] || null;
+      if (statusKey && currentClient?.agency_id) {
+        const csId = await getClientStatusIdByKey({
+          agencyId: currentClient.agency_id,
+          statusKey
+        });
+        if (csId) {
+          await Client.update(id, { client_status_id: csId }, userId);
+        }
+      }
+    } catch {
+      // best-effort only
+    }
 
     res.json(updatedClient);
   } catch (error) {

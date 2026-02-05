@@ -11,6 +11,7 @@ import DocumentEncryptionService from '../services/documentEncryption.service.js
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
 import { resolvePaperworkStatusId, seedClientAffiliations, seedClientPaperworkItems } from '../utils/clientProvisioning.js';
+import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 
 // Configure multer for memory storage (files will be uploaded to GCS)
 const upload = multer({
@@ -131,6 +132,7 @@ export const uploadReferralPacket = [
 
       const identifierCode = await generateUniqueSixDigitClientCode({ agencyId });
       const paperworkStatusId = await resolvePaperworkStatusId({ agencyId });
+      const clientStatusId = await getClientStatusIdByKey({ agencyId, statusKey: 'packet' });
 
       // Create client record with status = PACKET
       // Note: initials will need to be extracted from OCR or provided separately
@@ -145,6 +147,7 @@ export const uploadReferralPacket = [
         submission_date: new Date().toISOString().split('T')[0],
         document_status: 'PACKET',
         paperwork_status_id: paperworkStatusId,
+        client_status_id: clientStatusId,
         source,
         created_by_user_id: uploaderId
       });
