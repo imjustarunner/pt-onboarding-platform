@@ -15,39 +15,25 @@
         </div>
       </div>
 
-      <!-- Three Action Options -->
+      <!-- Action Options -->
       <div class="action-cards">
         <!-- Option 1: Digital Link -->
-        <div class="action-card" @click="handleDigitalLink">
+        <div class="action-card" @click="openIntakeLink">
           <div class="action-icon">🔗</div>
-          <h3>Digital Link</h3>
-          <p>New Client Intake</p>
-          <span class="action-note">Coming soon</span>
+          <h3>Parent Intake Link</h3>
+          <p>Same link as the QR code for this school</p>
+          <span class="action-note">Open link</span>
         </div>
 
-        <!-- Option 2: Upload Referral Packet -->
-        <div class="action-card" @click="showUploadModal = true">
-          <div class="action-icon">📤</div>
-          <h3>Upload New Referral Packet</h3>
-          <p>No login required</p>
-        </div>
-
-        <!-- Option 3: School Staff Login -->
+        <!-- Option 2: School Staff Login -->
         <div class="action-card" @click="showLoginModal = true">
           <div class="action-icon">🔐</div>
           <h3>School Staff Login</h3>
           <p>Access your portal</p>
         </div>
       </div>
+      <div v-if="intakeLinkError" class="error-message">{{ intakeLinkError }}</div>
     </div>
-
-    <!-- Referral Upload Modal -->
-    <ReferralUpload
-      v-if="showUploadModal"
-      :organization-slug="organizationSlug"
-      @close="showUploadModal = false"
-      @uploaded="handleUploadSuccess"
-    />
 
     <!-- Staff Login Modal -->
     <StaffLoginModal
@@ -68,7 +54,6 @@ import { useOrganizationStore } from '../../store/organization';
 import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
 import BrandingLogo from '../../components/BrandingLogo.vue';
-import ReferralUpload from '../../components/school/ReferralUpload.vue';
 import StaffLoginModal from '../../components/school/StaffLoginModal.vue';
 import PoweredByFooter from '../../components/PoweredByFooter.vue';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
@@ -78,8 +63,10 @@ const router = useRouter();
 const organizationStore = useOrganizationStore();
 const brandingStore = useBrandingStore();
 
-const showUploadModal = ref(false);
 const showLoginModal = ref(false);
+const intakeLinkLoading = ref(false);
+const intakeLinkError = ref('');
+const intakeLink = ref(null);
 
 const organizationSlug = computed(() => route.params.organizationSlug);
 
@@ -104,13 +91,34 @@ const schoolLogoUrl = computed(() => {
   return null;
 });
 
-const handleDigitalLink = () => {
-  // Placeholder for future digital intake workflow
-  alert('Digital Link feature coming soon!');
+const intakeLinkUrl = computed(() => {
+  const key = intakeLink.value?.public_key || '';
+  if (!key) return '';
+  return `${window.location.origin}/intake/${key}`;
+});
+
+const loadIntakeLink = async () => {
+  if (!organizationStore.currentOrganization?.id && !organizationStore.organizationContext?.id) return;
+  const orgId = organizationStore.currentOrganization?.id || organizationStore.organizationContext?.id;
+  try {
+    intakeLinkLoading.value = true;
+    intakeLinkError.value = '';
+    const resp = await api.get(`/public-intake/school/${orgId}`);
+    intakeLink.value = resp.data?.link || null;
+  } catch (e) {
+    intakeLink.value = null;
+    intakeLinkError.value = e.response?.data?.error?.message || 'Failed to load intake link';
+  } finally {
+    intakeLinkLoading.value = false;
+  }
 };
 
-const handleUploadSuccess = () => {
-  // Keep the modal open so OCR + initials can be completed.
+const openIntakeLink = async () => {
+  if (!intakeLinkUrl.value) {
+    await loadIntakeLink();
+  }
+  if (!intakeLinkUrl.value) return;
+  window.open(intakeLinkUrl.value, '_blank', 'noopener');
 };
 
 const handleLoginSuccess = () => {
@@ -150,6 +158,7 @@ onMounted(async () => {
 
     // If this IS a school, apply portal theme so splash is fully branded
     await brandingStore.fetchAgencyTheme(organizationSlug.value);
+    await loadIntakeLink();
   }
 });
 </script>

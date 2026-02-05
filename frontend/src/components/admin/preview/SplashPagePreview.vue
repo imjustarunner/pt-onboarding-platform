@@ -7,24 +7,17 @@
         <h1 v-if="organizationName" class="organization-name">{{ organizationName }}</h1>
       </div>
 
-      <!-- Three Action Options -->
+      <!-- Action Options -->
       <div class="action-cards">
         <!-- Option 1: Digital Link -->
         <div class="action-card" @click="handleDigitalLink">
           <div class="action-icon">🔗</div>
-          <h3>Digital Link</h3>
-          <p>New Client Intake</p>
-          <span class="action-note">Coming soon</span>
+          <h3>Parent Intake Link</h3>
+          <p>Same link as the QR code for this school</p>
+          <span class="action-note">Preview mode</span>
         </div>
 
-        <!-- Option 2: Upload Referral Packet -->
-        <div class="action-card" @click="handleUploadClick">
-          <div class="action-icon">📤</div>
-          <h3>Upload New Referral Packet</h3>
-          <p>No login required</p>
-        </div>
-
-        <!-- Option 3: School Staff Login -->
+        <!-- Option 2: School Staff Login -->
         <div class="action-card" @click="handleLoginClick">
           <div class="action-icon">🔐</div>
           <h3>School Staff Login</h3>
@@ -74,11 +67,6 @@ const organizationLogoUrl = computed(() => {
 const handleDigitalLink = () => {
   // In preview mode, just show a message
   alert('Digital Link feature coming soon! (Preview mode)');
-};
-
-const handleUploadClick = () => {
-  // In preview mode, just show a message
-  alert('Upload Referral Packet feature (Preview mode)');
 };
 
 const handleLoginClick = () => {

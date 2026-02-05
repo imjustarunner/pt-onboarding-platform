@@ -21,6 +21,7 @@
                   @dragover.prevent
                   @drop.prevent="handleFileDrop"
                   accept=".pdf,.jpg,.jpeg,.png"
+                  :disabled="!isAuthenticated"
                   required
                 />
                 <div v-if="!selectedFile" class="file-placeholder">
@@ -45,19 +46,26 @@
             {{ success }}
           </div>
 
+          <div v-if="!isAuthenticated" class="auth-panel">
+            <h3>Sign in to upload</h3>
+            <p class="muted">Use your school account to submit a referral packet.</p>
+            <div v-if="authError" class="error-message">{{ authError }}</div>
+            <div class="form-group">
+              <label>Email</label>
+              <input v-model="authEmail" type="email" placeholder="you@school.org" />
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input v-model="authPassword" type="password" placeholder="Password" />
+            </div>
+            <button class="btn btn-secondary" type="button" :disabled="authLoading" @click="handleLogin">
+              {{ authLoading ? 'Signing in...' : 'Sign in to upload' }}
+            </button>
+          </div>
+
           <div v-if="clientId && phiDocumentId" class="ocr-panel">
             <h3>Extract Handwritten Data</h3>
             <p class="muted">Use OCR to extract text and quickly copy details for EHR entry.</p>
-            <div class="scan-status">
-              <div class="scan-label">
-                Scan status:
-                <strong>{{ scanStatusLabel }}</strong>
-              </div>
-              <div v-if="scanStatusMessage" class="muted">{{ scanStatusMessage }}</div>
-              <div class="scan-bar">
-                <div class="scan-bar-fill" :class="scanStatusClass" :style="{ width: scanProgress + '%' }"></div>
-              </div>
-            </div>
             <div class="ocr-actions">
               <button class="btn btn-secondary" type="button" :disabled="ocrLoading || !canRunOcr" @click="runOcr">
                 {{ ocrLoading ? 'Extracting...' : 'Extract Text' }}
@@ -125,7 +133,7 @@
             <button type="button" @click="$emit('close')" class="btn btn-secondary">
               Cancel
             </button>
-            <button type="submit" class="btn btn-primary" :disabled="!selectedFile || uploading">
+            <button type="submit" class="btn btn-primary" :disabled="!isAuthenticated || !selectedFile || uploading">
               <span v-if="uploading">Uploading...</span>
               <span v-else>Upload Referral Packet</span>
             </button>
@@ -137,8 +145,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onBeforeUnmount } from 'vue';
+import { ref, computed } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
 
 const props = defineProps({
   organizationSlug: {
@@ -149,12 +158,17 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'uploaded']);
 
+const authStore = useAuthStore();
 const fileInput = ref(null);
 const selectedFile = ref(null);
 const isDragging = ref(false);
 const uploading = ref(false);
 const error = ref('');
 const success = ref('');
+const authEmail = ref('');
+const authPassword = ref('');
+const authLoading = ref(false);
+const authError = ref('');
 const clientId = ref(null);
 const phiDocumentId = ref(null);
 const ocrLoading = ref(false);
@@ -163,10 +177,6 @@ const ocrText = ref('');
 const ocrRequestId = ref(null);
 const firstName = ref('');
 const lastName = ref('');
-const scanStatus = ref('');
-const scanResult = ref('');
-const scanUpdatedAt = ref('');
-const scanPolling = ref(null);
 
 const abbreviatedName = computed(() => {
   const clean = (value) => String(value || '').replace(/[^A-Za-z]/g, '');
@@ -180,42 +190,8 @@ const abbreviatedName = computed(() => {
   return code || '';
 });
 
-const canRunOcr = computed(() => scanStatus.value === 'clean');
-
-const scanStatusLabel = computed(() => {
-  const s = String(scanStatus.value || '').toLowerCase();
-  if (!s) return 'Pending';
-  if (s === 'clean') return 'Clean';
-  if (s === 'infected') return 'Blocked (Infected)';
-  if (s === 'error') return 'Scan Error';
-  return s;
-});
-
-const scanStatusMessage = computed(() => {
-  const s = String(scanStatus.value || '').toLowerCase();
-  if (!s || s === 'pending') return 'Security scan is running. OCR will unlock when complete.';
-  if (s === 'clean') return 'Scan complete. OCR is available.';
-  if (s === 'infected') return 'Upload blocked due to security scan.';
-  if (s === 'error') return 'Scan failed. Please contact support.';
-  return '';
-});
-
-const scanProgress = computed(() => {
-  const s = String(scanStatus.value || '').toLowerCase();
-  if (!s || s === 'pending') return 35;
-  if (s === 'clean') return 100;
-  if (s === 'infected') return 100;
-  if (s === 'error') return 100;
-  return 50;
-});
-
-const scanStatusClass = computed(() => {
-  const s = String(scanStatus.value || '').toLowerCase();
-  if (s === 'clean') return 'scan-clean';
-  if (s === 'infected') return 'scan-bad';
-  if (s === 'error') return 'scan-bad';
-  return 'scan-pending';
-});
+const canRunOcr = computed(() => true);
+const isAuthenticated = computed(() => authStore.isAuthenticated);
 
 const splitPages = (text) => {
   if (!text) return [];
@@ -336,7 +312,30 @@ const formatFileSize = (bytes) => {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
 };
 
+const handleLogin = async () => {
+  authError.value = '';
+  if (!authEmail.value || !authPassword.value) {
+    authError.value = 'Email and password are required.';
+    return;
+  }
+  authLoading.value = true;
+  try {
+    const result = await authStore.login(authEmail.value, authPassword.value, props.organizationSlug);
+    if (!result?.success) {
+      authError.value = result?.error || 'Login failed. Please check your credentials.';
+    }
+  } catch (e) {
+    authError.value = e?.response?.data?.error?.message || 'Login failed. Please try again.';
+  } finally {
+    authLoading.value = false;
+  }
+};
+
 const handleUpload = async () => {
+  if (!isAuthenticated.value) {
+    error.value = 'Please sign in before uploading a referral packet.';
+    return;
+  }
   if (!selectedFile.value) {
     error.value = 'Please select a file';
     return;
@@ -359,10 +358,8 @@ const handleUpload = async () => {
     success.value = 'Referral packet uploaded successfully!';
     clientId.value = response.data?.clientId || null;
     phiDocumentId.value = response.data?.phiDocumentId || null;
-    scanStatus.value = response.data?.scanStatus || 'pending';
     if (clientId.value && phiDocumentId.value) {
-      await refreshScanStatus();
-      startScanPolling();
+      // OCR can be run immediately after upload.
     }
     
     emit('uploaded', response.data);
@@ -401,33 +398,6 @@ const runOcr = async () => {
   }
 };
 
-const refreshScanStatus = async () => {
-  if (!clientId.value || !phiDocumentId.value) return;
-  try {
-    const resp = await api.get(`/referrals/${clientId.value}/phi-documents/${phiDocumentId.value}/status`);
-    const doc = resp.data?.document || {};
-    scanStatus.value = doc.scan_status || 'pending';
-    scanResult.value = doc.scan_result || '';
-    scanUpdatedAt.value = doc.scanned_at || doc.uploaded_at || '';
-  } catch {
-    // ignore polling errors
-  }
-};
-
-const startScanPolling = () => {
-  if (scanPolling.value) clearInterval(scanPolling.value);
-  scanPolling.value = setInterval(async () => {
-    await refreshScanStatus();
-    if (scanStatus.value === 'clean' || scanStatus.value === 'infected') {
-      clearInterval(scanPolling.value);
-      scanPolling.value = null;
-    }
-  }, 5000);
-};
-
-onBeforeUnmount(() => {
-  if (scanPolling.value) clearInterval(scanPolling.value);
-});
 
 const applyInitials = async () => {
   if (!clientId.value || !ocrRequestId.value || !abbreviatedName.value) return;
@@ -513,50 +483,20 @@ const applyInitials = async () => {
   width: 100%;
 }
 
+.auth-panel {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
 .ocr-panel {
   margin-top: 24px;
   padding-top: 20px;
   border-top: 1px solid var(--border);
 }
 
-.scan-status {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
-  margin-bottom: 12px;
-  background: #f8f9fa;
-}
-
-.scan-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.scan-bar {
-  height: 8px;
-  border-radius: 999px;
-  background: #e9ecef;
-  overflow: hidden;
-}
-
-.scan-bar-fill {
-  height: 100%;
-  transition: width 0.3s ease;
-}
-
-.scan-pending {
-  background: #f0ad4e;
-}
-
-.scan-clean {
-  background: #28a745;
-}
-
-.scan-bad {
-  background: #dc3545;
-}
 
 .ocr-actions {
   display: flex;

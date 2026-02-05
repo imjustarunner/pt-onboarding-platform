@@ -55,7 +55,6 @@ import supervisorAssignmentRoutes from './routes/supervisorAssignment.routes.js'
 import supervisionSessionsRoutes from './routes/supervisionSessions.routes.js';
 import healthCheckRoutes from './routes/healthCheck.routes.js';
 import referralUploadRoutes from './routes/referralUpload.routes.js';
-import referralScanRoutes from './routes/referralScan.routes.js';
 import referralOcrRoutes from './routes/referralOcr.routes.js';
 import publicIntakeRoutes from './routes/publicIntake.routes.js';
 import intakeLinksRoutes from './routes/intakeLinks.routes.js';
@@ -517,7 +516,6 @@ app.use('/api/activity-log', activityLogRoutes);
 app.use('/api/supervisor-assignments', supervisorAssignmentRoutes);
 app.use('/api/supervision', supervisionSessionsRoutes);
 app.use('/api/organizations', referralUploadRoutes); // Organization routes (referral upload, etc.)
-app.use('/api/referrals', referralScanRoutes);
 app.use('/api/referrals', referralOcrRoutes);
 app.use('/api/public-intake', publicIntakeRoutes);
 app.use('/api/intake-links', intakeLinksRoutes);

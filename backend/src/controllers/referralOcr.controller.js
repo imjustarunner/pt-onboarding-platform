@@ -59,10 +59,6 @@ export const requestReferralOcr = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'No PHI document found for client' } });
     }
 
-    if (doc.scan_status && doc.scan_status !== 'clean') {
-      return res.status(409).json({ error: { message: 'Document has not passed security scanning yet.' } });
-    }
-
     const request = await ClientReferralOcr.create({
       clientId,
       phiDocumentId: doc.id,
@@ -94,39 +90,6 @@ export const listReferralOcrRequests = async (req, res, next) => {
   }
 };
 
-export const getReferralDocumentStatus = async (req, res, next) => {
-  try {
-    const clientId = parseInt(req.params.clientId, 10);
-    const phiDocumentId = parseInt(req.params.phiDocumentId, 10);
-    if (!clientId || !phiDocumentId) {
-      return res.status(400).json({ error: { message: 'clientId and phiDocumentId are required' } });
-    }
-
-    const client = await Client.findById(clientId, { includeSensitive: true });
-    if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
-
-    const allowed = await userCanAccessClient({ requestingUserId: req.user.id, requestingUserRole: req.user.role, client });
-    if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const doc = await ClientPhiDocument.findById(phiDocumentId);
-    if (!doc || doc.client_id !== clientId) {
-      return res.status(404).json({ error: { message: 'PHI document not found for client' } });
-    }
-
-    res.json({
-      document: {
-        id: doc.id,
-        scan_status: doc.scan_status,
-        scan_result: doc.scan_result,
-        scanned_at: doc.scanned_at,
-        uploaded_at: doc.uploaded_at
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
 export const processReferralOcrRequest = async (req, res, next) => {
   try {
     const requestId = parseInt(req.params.requestId, 10);
@@ -143,9 +106,6 @@ export const processReferralOcrRequest = async (req, res, next) => {
 
     const doc = await ClientPhiDocument.findById(request.phi_document_id);
     if (!doc) return res.status(404).json({ error: { message: 'PHI document not found' } });
-    if (doc.scan_status && doc.scan_status !== 'clean') {
-      return res.status(409).json({ error: { message: 'Document has not passed security scanning yet.' } });
-    }
 
     const encryptedBuffer = await StorageService.readObject(doc.storage_path);
     let buffer = encryptedBuffer;

@@ -1,12 +1,11 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { listReferralOcrRequests, processReferralOcrRequest, requestReferralOcr, setReferralProfileInitials, getReferralDocumentStatus } from '../controllers/referralOcr.controller.js';
+import { listReferralOcrRequests, processReferralOcrRequest, requestReferralOcr, setReferralProfileInitials } from '../controllers/referralOcr.controller.js';
 
 const router = express.Router();
 
 router.get('/:clientId/ocr', authenticate, listReferralOcrRequests);
-router.get('/:clientId/phi-documents/:phiDocumentId/status', authenticate, getReferralDocumentStatus);
 
 router.post(
   '/:clientId/ocr',

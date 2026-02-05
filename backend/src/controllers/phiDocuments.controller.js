@@ -169,14 +169,6 @@ export const viewPhiDocument = async (req, res, next) => {
       // ignore
     }
 
-    if (doc.scan_status && doc.scan_status !== 'clean') {
-      return res.status(409).json({
-        error: {
-          message: 'Document is not yet cleared for download. Please wait for scanning to complete.'
-        }
-      });
-    }
-
     if (doc.is_encrypted) {
       const encryptedBuffer = await StorageService.readObject(doc.storage_path);
       const decryptedBuffer = await DocumentEncryptionService.decryptBuffer({

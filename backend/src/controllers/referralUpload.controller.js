@@ -95,7 +95,6 @@ export const uploadReferralPacket = [
           uploadedAt: new Date().toISOString(),
           originalName: sanitizedFilename,
           originalContentType: req.file.mimetype,
-          scanStatus: 'pending',
           isEncrypted: 'true',
           encryptionKeyId: encryptionResult.encryptionKeyId,
           encryptionWrappedKey: encryptionResult.encryptionWrappedKeyB64,
@@ -168,7 +167,6 @@ export const uploadReferralPacket = [
           originalName: req.file.originalname || null,
           mimeType: req.file.mimetype || null,
           uploadedByUserId: uploaderId,
-          scanStatus: 'pending',
           quarantinePath,
           isEncrypted: true,
           encryptionKeyId: encryptionResult.encryptionKeyId,
@@ -212,7 +210,6 @@ export const uploadReferralPacket = [
         success: true,
         message: 'Referral packet uploaded successfully. Client record created.',
         phiDocumentId: phiDoc?.id || null,
-        scanStatus: phiDoc?.scan_status || 'pending',
         organizationId: organization.id,
         clientId: client.id
       });
