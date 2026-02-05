@@ -39,9 +39,21 @@
           <p>No archived training focuses.</p>
         </div>
         <div v-else class="archive-table-container">
+          <div v-if="selectedCount('training-focuses') > 0" class="bulk-actions">
+            <span>{{ selectedCount('training-focuses') }} selected</span>
+            <button class="btn btn-success btn-sm" @click="runBulk('training-focuses', 'restore')">Restore Selected</button>
+            <button class="btn btn-danger btn-sm" @click="runBulk('training-focuses', 'delete')">Delete Selected</button>
+          </div>
           <table class="archive-table">
             <thead>
               <tr>
+                <th class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isAllSelected('training-focuses', archivedTrainingFocuses)"
+                    @change="toggleSelectAll('training-focuses', archivedTrainingFocuses, $event)"
+                  />
+                </th>
                 <th>Name</th>
                 <th>Description</th>
                 <th>Archived Date</th>
@@ -51,6 +63,13 @@
             </thead>
             <tbody>
               <tr v-for="focus in archivedTrainingFocuses" :key="focus.id">
+                <td class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isSelected('training-focuses', focus.id)"
+                    @change="toggleSelected('training-focuses', focus.id, $event)"
+                  />
+                </td>
                 <td class="name-cell">{{ focus.name }}</td>
                 <td class="description-cell">{{ focus.description || '-' }}</td>
                 <td>{{ formatDate(focus.archived_at) }}</td>
@@ -77,9 +96,21 @@
           <p>No archived modules.</p>
         </div>
         <div v-else class="archive-table-container">
+          <div v-if="selectedCount('modules') > 0" class="bulk-actions">
+            <span>{{ selectedCount('modules') }} selected</span>
+            <button class="btn btn-success btn-sm" @click="runBulk('modules', 'restore')">Restore Selected</button>
+            <button class="btn btn-danger btn-sm" @click="runBulk('modules', 'delete')">Delete Selected</button>
+          </div>
           <table class="archive-table">
             <thead>
               <tr>
+                <th class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isAllSelected('modules', archivedModules)"
+                    @change="toggleSelectAll('modules', archivedModules, $event)"
+                  />
+                </th>
                 <th>Title</th>
                 <th>Description</th>
                 <th>Archived Date</th>
@@ -89,6 +120,13 @@
             </thead>
             <tbody>
               <tr v-for="module in archivedModules" :key="module.id">
+                <td class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isSelected('modules', module.id)"
+                    @change="toggleSelected('modules', module.id, $event)"
+                  />
+                </td>
                 <td class="name-cell">{{ module.title }}</td>
                 <td class="description-cell">{{ module.description || '-' }}</td>
                 <td>{{ formatDate(module.archived_at) }}</td>
@@ -115,9 +153,21 @@
           <p>No archived users.</p>
         </div>
         <div v-else class="archive-table-container">
+          <div v-if="selectedCount('users') > 0" class="bulk-actions">
+            <span>{{ selectedCount('users') }} selected</span>
+            <button class="btn btn-success btn-sm" @click="runBulk('users', 'restore')">Restore Selected</button>
+            <button class="btn btn-danger btn-sm" @click="runBulk('users', 'delete')">Delete Selected</button>
+          </div>
           <table class="archive-table">
             <thead>
               <tr>
+                <th class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isAllSelected('users', archivedUsers)"
+                    @change="toggleSelectAll('users', archivedUsers, $event)"
+                  />
+                </th>
                 <th>Name</th>
                 <th>Email</th>
                 <th>Role</th>
@@ -128,6 +178,13 @@
             </thead>
             <tbody>
               <tr v-for="user in archivedUsers" :key="user.id">
+                <td class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isSelected('users', user.id)"
+                    @change="toggleSelected('users', user.id, $event)"
+                  />
+                </td>
                 <td class="name-cell">{{ user.first_name }} {{ user.last_name }}</td>
                 <td>{{ user.email }}</td>
                 <td>{{ user.role }}</td>
@@ -155,9 +212,21 @@
           <p>No archived documents.</p>
         </div>
         <div v-else class="archive-table-container">
+          <div v-if="selectedCount('documents') > 0" class="bulk-actions">
+            <span>{{ selectedCount('documents') }} selected</span>
+            <button class="btn btn-success btn-sm" @click="runBulk('documents', 'restore')">Restore Selected</button>
+            <button class="btn btn-danger btn-sm" @click="runBulk('documents', 'delete')">Delete Selected</button>
+          </div>
           <table class="archive-table">
             <thead>
               <tr>
+                <th class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isAllSelected('documents', archivedDocuments)"
+                    @change="toggleSelectAll('documents', archivedDocuments, $event)"
+                  />
+                </th>
                 <th>Name</th>
                 <th>Description</th>
                 <th>Type</th>
@@ -168,6 +237,13 @@
             </thead>
             <tbody>
               <tr v-for="document in archivedDocuments" :key="document.id">
+                <td class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isSelected('documents', document.id)"
+                    @change="toggleSelected('documents', document.id, $event)"
+                  />
+                </td>
                 <td class="name-cell">{{ document.name }}</td>
                 <td class="description-cell">{{ document.description || '-' }}</td>
                 <td>{{ document.document_type || 'N/A' }}</td>
@@ -195,9 +271,21 @@
           <p>No archived clients.</p>
         </div>
         <div v-else class="archive-table-container">
+          <div v-if="selectedCount('clients') > 0" class="bulk-actions">
+            <span>{{ selectedCount('clients') }} selected</span>
+            <button class="btn btn-success btn-sm" @click="runBulk('clients', 'restore')">Restore Selected</button>
+            <button class="btn btn-danger btn-sm" @click="runBulk('clients', 'delete')">Delete Selected</button>
+          </div>
           <table class="archive-table">
             <thead>
               <tr>
+                <th class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isAllSelected('clients', archivedClients)"
+                    @change="toggleSelectAll('clients', archivedClients, $event)"
+                  />
+                </th>
                 <th>Initials</th>
                 <th>Client Code</th>
                 <th>School</th>
@@ -207,6 +295,13 @@
             </thead>
             <tbody>
               <tr v-for="c in archivedClients" :key="c.id">
+                <td class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isSelected('clients', c.id)"
+                    @change="toggleSelected('clients', c.id, $event)"
+                  />
+                </td>
                 <td class="name-cell">{{ c.initials }}</td>
                 <td>{{ c.identifier_code || '-' }}</td>
                 <td>{{ c.organization_name || ('Org ID: ' + c.organization_id) }}</td>
@@ -229,9 +324,21 @@
           <p>No archived agencies.</p>
         </div>
         <div v-else class="archive-table-container">
+          <div v-if="selectedCount('agencies') > 0" class="bulk-actions">
+            <span>{{ selectedCount('agencies') }} selected</span>
+            <button class="btn btn-success btn-sm" @click="runBulk('agencies', 'restore')">Restore Selected</button>
+            <button class="btn btn-danger btn-sm" @click="runBulk('agencies', 'delete')">Delete Selected</button>
+          </div>
           <table class="archive-table">
             <thead>
               <tr>
+                <th class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isAllSelected('agencies', archivedAgencies)"
+                    @change="toggleSelectAll('agencies', archivedAgencies, $event)"
+                  />
+                </th>
                 <th>Name</th>
                 <th>Slug</th>
                 <th>Archived Date</th>
@@ -241,6 +348,13 @@
             </thead>
             <tbody>
               <tr v-for="agency in archivedAgencies" :key="agency.id">
+                <td class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isSelected('agencies', agency.id)"
+                    @change="toggleSelected('agencies', agency.id, $event)"
+                  />
+                </td>
                 <td class="name-cell">{{ agency.name }}</td>
                 <td>{{ agency.slug || '-' }}</td>
                 <td>{{ formatDate(agency.archived_at) }}</td>
@@ -266,9 +380,21 @@
           <p>No archived buildings.</p>
         </div>
         <div v-else class="archive-table-container">
+          <div v-if="selectedCount('buildings') > 0" class="bulk-actions">
+            <span>{{ selectedCount('buildings') }} selected</span>
+            <button class="btn btn-success btn-sm" @click="runBulk('buildings', 'restore')">Restore Selected</button>
+            <button class="btn btn-danger btn-sm" @click="runBulk('buildings', 'delete')">Delete Selected</button>
+          </div>
           <table class="archive-table">
             <thead>
               <tr>
+                <th class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isAllSelected('buildings', archivedBuildings)"
+                    @change="toggleSelectAll('buildings', archivedBuildings, $event)"
+                  />
+                </th>
                 <th>Name</th>
                 <th>Primary Agency</th>
                 <th>Archived Date</th>
@@ -277,6 +403,13 @@
             </thead>
             <tbody>
               <tr v-for="b in archivedBuildings" :key="b.id">
+                <td class="select-col">
+                  <input
+                    type="checkbox"
+                    :checked="isSelected('buildings', b.id)"
+                    @change="toggleSelected('buildings', b.id, $event)"
+                  />
+                </td>
                 <td class="name-cell">{{ b.name }}</td>
                 <td>Agency ID: {{ b.agency_id }}</td>
                 <td>{{ formatDate(b.archived_at || b.updated_at) }}</td>
@@ -318,6 +451,22 @@ const loadingClients = ref(false);
 const loadingAgencies = ref(false);
 const loadingBuildings = ref(false);
 
+const tabIds = [
+  'training-focuses',
+  'modules',
+  'users',
+  'documents',
+  'clients',
+  'agencies',
+  'buildings'
+];
+const selectedIdsByTab = ref(
+  tabIds.reduce((acc, id) => {
+    acc[id] = new Set();
+    return acc;
+  }, {})
+);
+
 // For super_admin: allow choosing "All agencies" vs a specific agency.
 // Do NOT implicitly filter by agencyStore.currentAgency for super_admin, since it's persisted in localStorage
 // and unintentionally hides "global" results.
@@ -345,6 +494,54 @@ const tabs = computed(() => {
   
   return allTabs;
 });
+
+const getSelectedSet = (tabId) => selectedIdsByTab.value[tabId] || new Set();
+
+const selectedCount = (tabId) => getSelectedSet(tabId).size;
+
+const isSelected = (tabId, id) => getSelectedSet(tabId).has(id);
+
+const updateSelectedSet = (tabId, updater) => {
+  const next = new Set(getSelectedSet(tabId));
+  updater(next);
+  selectedIdsByTab.value = {
+    ...selectedIdsByTab.value,
+    [tabId]: next
+  };
+};
+
+const toggleSelected = (tabId, id, event) => {
+  const checked = event?.target?.checked;
+  updateSelectedSet(tabId, (set) => {
+    if (checked) {
+      set.add(id);
+    } else {
+      set.delete(id);
+    }
+  });
+};
+
+const isAllSelected = (tabId, items) => {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return false;
+  const set = getSelectedSet(tabId);
+  return list.every((item) => set.has(item.id));
+};
+
+const toggleSelectAll = (tabId, items, event) => {
+  const checked = event?.target?.checked;
+  const list = Array.isArray(items) ? items : [];
+  updateSelectedSet(tabId, (set) => {
+    set.clear();
+    if (checked) {
+      list.forEach((item) => set.add(item.id));
+    }
+  });
+};
+
+const clearSelection = (tabId) => {
+  updateSelectedSet(tabId, (set) => set.clear());
+};
 
 const getSelectedArchivedByAgencyId = () => {
   if (authStore.user?.role === 'super_admin') {
@@ -374,6 +571,7 @@ const fetchArchivedTrainingFocuses = async () => {
     archivedTrainingFocuses.value = [];
   } finally {
     loadingTrainingFocuses.value = false;
+    clearSelection('training-focuses');
   }
 };
 
@@ -391,6 +589,7 @@ const fetchArchivedModules = async () => {
     archivedModules.value = [];
   } finally {
     loadingModules.value = false;
+    clearSelection('modules');
   }
 };
 
@@ -408,6 +607,7 @@ const fetchArchivedUsers = async () => {
     archivedUsers.value = [];
   } finally {
     loadingUsers.value = false;
+    clearSelection('users');
   }
 };
 
@@ -425,6 +625,7 @@ const fetchArchivedDocuments = async () => {
     archivedDocuments.value = [];
   } finally {
     loadingDocuments.value = false;
+    clearSelection('documents');
   }
 };
 
@@ -441,6 +642,7 @@ const fetchArchivedClients = async () => {
     archivedClients.value = [];
   } finally {
     loadingClients.value = false;
+    clearSelection('clients');
   }
 };
 
@@ -460,6 +662,7 @@ const fetchArchivedAgencies = async () => {
     archivedAgencies.value = [];
   } finally {
     loadingAgencies.value = false;
+    clearSelection('agencies');
   }
 };
 
@@ -479,6 +682,7 @@ const fetchArchivedBuildings = async () => {
     archivedBuildings.value = [];
   } finally {
     loadingBuildings.value = false;
+    clearSelection('buildings');
   }
 };
 
@@ -498,6 +702,97 @@ const fetchAllArchived = async () => {
   }
   
   await Promise.all(promises);
+};
+
+const bulkConfigs = {
+  'training-focuses': {
+    label: 'training focus',
+    restore: (id) => api.post(`/training-focuses/${id}/restore`),
+    remove: (id) => api.delete(`/training-focuses/${id}`),
+    refresh: fetchArchivedTrainingFocuses
+  },
+  modules: {
+    label: 'module',
+    restore: (id) => api.post(`/modules/${id}/restore`),
+    remove: (id) => api.delete(`/modules/${id}`),
+    refresh: fetchArchivedModules
+  },
+  users: {
+    label: 'user',
+    restore: (id) => api.post(`/users/${id}/restore`),
+    remove: (id) => api.delete(`/users/${id}`),
+    refresh: fetchArchivedUsers
+  },
+  documents: {
+    label: 'document',
+    restore: (id) => api.post(`/document-templates/${id}/restore`),
+    remove: (id) => api.delete(`/document-templates/${id}`),
+    refresh: fetchArchivedDocuments
+  },
+  clients: {
+    label: 'client',
+    restore: (id) => api.post(`/clients/${id}/unarchive`),
+    remove: (id) => api.delete(`/clients/${id}`),
+    refresh: fetchArchivedClients
+  },
+  agencies: {
+    label: 'agency',
+    restore: (id) => api.post(`/agencies/${id}/restore`),
+    remove: (id) => api.delete(`/agencies/${id}`),
+    refresh: fetchArchivedAgencies
+  },
+  buildings: {
+    label: 'building',
+    restore: (id) => api.post(`/offices/${id}/restore`),
+    remove: (id) => api.delete(`/offices/${id}`),
+    refresh: fetchArchivedBuildings
+  }
+};
+
+const runBulk = async (tabId, action) => {
+  const ids = Array.from(getSelectedSet(tabId));
+  if (!ids.length) return;
+  const config = bulkConfigs[tabId];
+  if (!config) return;
+  const label = config.label;
+  const actionVerb = action === 'restore' ? 'restore' : 'permanently delete';
+  const confirmMessage =
+    action === 'restore'
+      ? `Restore ${ids.length} selected ${label}${ids.length === 1 ? '' : 's'}?`
+      : `Permanently delete ${ids.length} selected ${label}${ids.length === 1 ? '' : 's'}? This action CANNOT be undone.`;
+  if (!confirm(confirmMessage)) {
+    return;
+  }
+
+  const failures = [];
+  const concurrency = 5;
+  let i = 0;
+  const worker = async () => {
+    while (i < ids.length) {
+      const id = ids[i++];
+      try {
+        if (action === 'restore') {
+          await config.restore(id);
+        } else {
+          await config.remove(id);
+        }
+      } catch (err) {
+        failures.push({ id, err });
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, worker));
+  await config.refresh();
+  clearSelection(tabId);
+
+  if (failures.length > 0) {
+    alert(
+      `Bulk ${actionVerb} finished with ${failures.length} failure${failures.length === 1 ? '' : 's'}.`
+    );
+  } else {
+    alert(`Bulk ${actionVerb} successful for ${ids.length} ${label}${ids.length === 1 ? '' : 's'}.`);
+  }
 };
 
 const restoreTrainingFocus = async (id) => {
@@ -799,6 +1094,25 @@ onMounted(async () => {
   background: white;
   border-radius: 8px;
   border: 1px solid var(--border);
+}
+
+.bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  font-size: 13px;
+}
+
+.select-col {
+  width: 28px;
+  text-align: center;
+}
+
+.select-col input[type='checkbox'] {
+  cursor: pointer;
 }
 
 .archive-table {
