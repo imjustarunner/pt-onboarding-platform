@@ -7,6 +7,27 @@ const parseAgencyId = (req) => {
   return Number.isFinite(id) && id > 0 ? id : null;
 };
 
+const safeJsonObject = (v) => {
+  if (!v) return {};
+  if (typeof v === 'object') return v;
+  try {
+    const parsed = JSON.parse(String(v));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const fetchAgencyCustomParameters = async (agencyId) => {
+  const [rows] = await pool.execute(`SELECT custom_parameters FROM agencies WHERE id = ?`, [agencyId]);
+  const raw = rows?.[0]?.custom_parameters || null;
+  return safeJsonObject(raw);
+};
+
+const saveAgencyCustomParameters = async (agencyId, custom) => {
+  await pool.execute(`UPDATE agencies SET custom_parameters = ? WHERE id = ?`, [JSON.stringify(custom || {}), agencyId]);
+};
+
 export const listClientStatuses = async (req, res, next) => {
   try {
     const agencyId = parseAgencyId(req);
@@ -155,6 +176,46 @@ export const upsertInsuranceType = async (req, res, next) => {
       [agencyId, String(insuranceKey).trim()]
     );
     res.status(201).json(rows[0] || null);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const getPacketOcrConfig = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const custom = await fetchAgencyCustomParameters(agencyId);
+    const raw = custom.packet_ocr_config || {};
+    const questions = Array.isArray(raw.questions) ? raw.questions : [];
+    const ignore = Array.isArray(raw.ignore) ? raw.ignore : [];
+    res.json({ questions, ignore });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const updatePacketOcrConfig = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const questions = Array.isArray(req.body?.questions) ? req.body.questions : [];
+    const ignore = Array.isArray(req.body?.ignore) ? req.body.ignore : [];
+    const normalizedQuestions = questions
+      .map((q) => ({
+        number: q?.number ? parseInt(q.number, 10) : null,
+        label: String(q?.label || '').trim()
+      }))
+      .filter((q) => q.label);
+    const normalizedIgnore = ignore.map((i) => String(i || '').trim()).filter(Boolean);
+
+    const custom = await fetchAgencyCustomParameters(agencyId);
+    custom.packet_ocr_config = {
+      questions: normalizedQuestions,
+      ignore: normalizedIgnore
+    };
+    await saveAgencyCustomParameters(agencyId, custom);
+    res.json(custom.packet_ocr_config);
   } catch (e) {
     next(e);
   }

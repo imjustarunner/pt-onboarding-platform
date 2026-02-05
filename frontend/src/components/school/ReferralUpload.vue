@@ -229,6 +229,7 @@ const ocrRequestId = ref(null);
 const ocrClearing = ref(false);
 const ocrWipeMessage = ref('');
 const showRawOcr = ref(false);
+const packetConfig = ref({ questions: [], ignore: [] });
 const firstName = ref('');
 const lastName = ref('');
 
@@ -266,7 +267,7 @@ const toLines = (text) =>
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
 
-const noisePrefixes = [
+const defaultNoisePrefixes = [
   'itsco',
   'intake',
   'version',
@@ -278,13 +279,19 @@ const noisePrefixes = [
   'acknowledgement'
 ];
 const noiseExact = new Set(['•', '-', '—', '_', '.', '...', '']);
+const getIgnoreList = () => {
+  const custom = Array.isArray(packetConfig.value?.ignore) ? packetConfig.value.ignore : [];
+  return custom.map((l) => String(l || '').trim()).filter(Boolean);
+};
 const isNoiseLine = (line) => {
   const raw = String(line || '').trim();
   if (!raw) return true;
   if (noiseExact.has(raw)) return true;
   const lower = raw.toLowerCase();
   if (lower.length <= 1) return true;
-  if (noisePrefixes.some((p) => lower.startsWith(p))) return true;
+  if (defaultNoisePrefixes.some((p) => lower.startsWith(p))) return true;
+  const ignore = getIgnoreList();
+  if (ignore.some((p) => lower.startsWith(String(p).toLowerCase()))) return true;
   if (lower.startsWith('consent to release')) return true;
   if (lower.startsWith('acknowledgement and consent')) return true;
   if (lower.startsWith('please select the answer')) return true;
@@ -297,7 +304,7 @@ const pageOneLines = computed(() => {
   return toLines(pages[0] || '').filter((l) => !isNoiseLine(l));
 });
 
-const questionLabels = [
+const defaultQuestionLabels = [
   "Dependent's Name",
   'Dependent’s Name',
   "Dependent's Sex",
@@ -337,6 +344,12 @@ const questionLabels = [
   'Please explain'
 ];
 
+const questionLabels = computed(() => {
+  const custom = Array.isArray(packetConfig.value?.questions) ? packetConfig.value.questions : [];
+  const labels = custom.map((q) => String(q?.label || '').trim()).filter(Boolean);
+  return labels.length ? labels : defaultQuestionLabels;
+});
+
 const normalizeQuestion = (value) =>
   String(value || '')
     .toLowerCase()
@@ -346,7 +359,7 @@ const normalizeQuestion = (value) =>
 const findLabelMatches = (line) => {
   const lower = String(line || '').toLowerCase();
   const matches = [];
-  questionLabels.forEach((label) => {
+  questionLabels.value.forEach((label) => {
     const idx = lower.indexOf(label.toLowerCase());
     if (idx >= 0) matches.push({ label, idx });
   });
@@ -358,7 +371,7 @@ const isQuestionLine = (line) => {
   if (!raw) return false;
   if (raw.includes('?')) return true;
   const normalized = normalizeQuestion(raw);
-  return questionLabels.some((q) => normalized.startsWith(normalizeQuestion(q)));
+  return questionLabels.value.some((q) => normalized.startsWith(normalizeQuestion(q)));
 };
 
 const parseYesNo = (line) => {
@@ -385,7 +398,7 @@ const cleanAnswer = (value) => {
 const stripQuestionLabel = (line) => {
   const raw = String(line || '').trim();
   const normalized = normalizeQuestion(raw);
-  const match = questionLabels.find((q) => normalized.startsWith(normalizeQuestion(q)));
+  const match = questionLabels.value.find((q) => normalized.startsWith(normalizeQuestion(q)));
   if (!match) return raw;
   const idx = raw.toLowerCase().indexOf(match.toLowerCase());
   if (idx === -1) return raw;
@@ -556,6 +569,19 @@ const maybeAutofillName = (text) => {
   lastName.value = extracted.lastName || '';
 };
 
+const loadPacketConfig = async (agencyId) => {
+  if (!agencyId) return;
+  try {
+    const resp = await api.get('/client-settings/packet-ocr-config', { params: { agencyId } });
+    packetConfig.value = {
+      questions: Array.isArray(resp.data?.questions) ? resp.data.questions : [],
+      ignore: Array.isArray(resp.data?.ignore) ? resp.data.ignore : []
+    };
+  } catch {
+    packetConfig.value = { questions: [], ignore: [] };
+  }
+};
+
 const psc17Data = computed(() => parsePsc17(pageTwoLines.value));
 const psc17Summary = computed(() => psc17Data.value?.summary || null);
 const psc17Answers = computed(() => psc17Data.value?.answers || []);
@@ -650,6 +676,10 @@ const handleUpload = async () => {
     success.value = 'Referral packet uploaded successfully!';
     clientId.value = response.data?.clientId || null;
     phiDocumentId.value = response.data?.phiDocumentId || null;
+    const agencyId = response.data?.agencyId || null;
+    if (agencyId) {
+      await loadPacketConfig(agencyId);
+    }
     if (clientId.value && phiDocumentId.value) {
       // OCR can be run immediately after upload.
     }

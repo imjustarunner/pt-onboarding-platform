@@ -9,7 +9,9 @@ import {
   listInsuranceTypes,
   upsertInsuranceType,
   listLanguageOptions,
-  createLanguageOption
+  createLanguageOption,
+  getPacketOcrConfig,
+  updatePacketOcrConfig
 } from '../controllers/clientSettings.controller.js';
 
 const router = express.Router();
@@ -111,6 +113,19 @@ router.post(
   authenticate,
   [body('label').isString().isLength({ min: 1, max: 128 })],
   createLanguageOption
+);
+
+// Packet OCR configuration (agency-scoped)
+router.get('/packet-ocr-config', authenticate, requireAgencyAccess, getPacketOcrConfig);
+router.put(
+  '/packet-ocr-config',
+  authenticate,
+  requireAgencyAdmin,
+  [
+    body('questions').optional().isArray(),
+    body('ignore').optional().isArray()
+  ],
+  updatePacketOcrConfig
 );
 
 export default router;

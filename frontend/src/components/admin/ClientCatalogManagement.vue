@@ -9,6 +9,7 @@
       <button :class="['tab', { active: activeTab === 'client-statuses' }]" @click="activeTab = 'client-statuses'">Client Status</button>
       <button :class="['tab', { active: activeTab === 'paperwork-statuses' }]" @click="activeTab = 'paperwork-statuses'">Paperwork Status</button>
       <button :class="['tab', { active: activeTab === 'insurance-types' }]" @click="activeTab = 'insurance-types'">Insurance Types</button>
+      <button :class="['tab', { active: activeTab === 'packet-ocr' }]" @click="activeTab = 'packet-ocr'">Packet OCR</button>
     </div>
 
     <div v-if="!agencyId" class="empty-state">
@@ -16,13 +17,35 @@
     </div>
 
     <div v-else class="panel">
-      <div class="panel-actions">
+      <div v-if="activeTab === 'packet-ocr'" class="panel-actions">
+        <button class="btn btn-primary" @click="savePacketConfig" :disabled="savingPacket">Save</button>
+        <button class="btn btn-secondary" @click="reload" :disabled="loading">Refresh</button>
+      </div>
+      <div v-else class="panel-actions">
         <button class="btn btn-primary" @click="addRow">Add</button>
         <button class="btn btn-secondary" @click="reload" :disabled="loading">Refresh</button>
       </div>
 
       <div v-if="loading" class="loading">Loading…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
+
+      <div v-else-if="activeTab === 'packet-ocr'" class="packet-ocr-panel">
+        <p class="muted">
+          Configure the packet questions and ignore list used to clean OCR output. One line per item.
+        </p>
+        <div class="packet-ocr-grid">
+          <div class="packet-ocr-column">
+            <h4>Questions (numbered)</h4>
+            <textarea v-model="packetQuestionsText" class="textarea" rows="14" placeholder="1. Dependent's Name&#10;2. Dependent's Sex&#10;3. Dependent's Date of Birth" />
+          </div>
+          <div class="packet-ocr-column">
+            <h4>Ignore Lines</h4>
+            <textarea v-model="packetIgnoreText" class="textarea" rows="14" placeholder="ITSCO&#10;Version&#10;PAGE&#10;Acknowledgement and Consent" />
+          </div>
+        </div>
+        <div v-if="packetError" class="error">{{ packetError }}</div>
+        <div v-if="packetSaved" class="success">Packet OCR settings saved.</div>
+      </div>
 
       <div v-else class="table-wrap">
         <table class="table">
@@ -71,6 +94,11 @@ const loading = ref(false);
 const error = ref('');
 const rows = ref([]);
 const savingIds = ref(new Set());
+const packetQuestionsText = ref('');
+const packetIgnoreText = ref('');
+const packetError = ref('');
+const packetSaved = ref(false);
+const savingPacket = ref(false);
 
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
 
@@ -98,10 +126,31 @@ const reload = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const resp = await api.get(endpoint.value, { params: { agencyId: agencyId.value } });
-    hydrate(resp.data);
+    packetError.value = '';
+    packetSaved.value = false;
+    if (activeTab.value === 'packet-ocr') {
+      const resp = await api.get('/client-settings/packet-ocr-config', { params: { agencyId: agencyId.value } });
+      const questions = Array.isArray(resp.data?.questions) ? resp.data.questions : [];
+      const ignore = Array.isArray(resp.data?.ignore) ? resp.data.ignore : [];
+      packetQuestionsText.value = questions
+        .map((q, idx) => {
+          const num = q?.number ? String(q.number) : String(idx + 1);
+          return `${num}. ${String(q?.label || '').trim()}`;
+        })
+        .join('\n')
+        .trim();
+      packetIgnoreText.value = ignore.join('\n');
+    } else {
+      const resp = await api.get(endpoint.value, { params: { agencyId: agencyId.value } });
+      hydrate(resp.data);
+    }
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to load settings';
+    const message = e.response?.data?.error?.message || 'Failed to load settings';
+    if (activeTab.value === 'packet-ocr') {
+      packetError.value = message;
+    } else {
+      error.value = message;
+    }
   } finally {
     loading.value = false;
   }
@@ -164,6 +213,44 @@ onMounted(async () => {
 watch([agencyId, activeTab], async () => {
   await reload();
 });
+
+const parseQuestionLines = (text) => {
+  const lines = String(text || '')
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return lines.map((line, idx) => {
+    const match = line.match(/^(\d{1,3})\s*[\).\-\:]\s*(.+)$/);
+    if (match) {
+      return { number: parseInt(match[1], 10), label: match[2].trim() };
+    }
+    return { number: idx + 1, label: line.replace(/^[-•]+/, '').trim() };
+  });
+};
+
+const savePacketConfig = async () => {
+  if (!agencyId.value) return;
+  try {
+    savingPacket.value = true;
+    packetError.value = '';
+    packetSaved.value = false;
+    const questions = parseQuestionLines(packetQuestionsText.value).filter((q) => q.label);
+    const ignore = String(packetIgnoreText.value || '')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    await api.put('/client-settings/packet-ocr-config', {
+      agencyId: agencyId.value,
+      questions,
+      ignore
+    });
+    packetSaved.value = true;
+  } catch (e) {
+    packetError.value = e.response?.data?.error?.message || 'Failed to save packet OCR settings';
+  } finally {
+    savingPacket.value = false;
+  }
+};
 </script>
 
 <style scoped>
@@ -208,6 +295,29 @@ watch([agencyId, activeTab], async () => {
   gap: 8px;
   justify-content: flex-end;
   margin-bottom: 12px;
+}
+.packet-ocr-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.packet-ocr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.packet-ocr-column h4 {
+  margin: 0 0 8px;
+}
+
+.textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 13px;
+  resize: vertical;
 }
 .table-wrap {
   overflow: auto;

@@ -225,7 +225,8 @@ export const uploadReferralPacket = [
         message: 'Referral packet uploaded successfully. Client record created.',
         phiDocumentId: phiDoc?.id || null,
         organizationId: organization.id,
-        clientId: client.id
+        clientId: client.id,
+        agencyId
       });
     } catch (error) {
       console.error('Referral upload error:', error);
