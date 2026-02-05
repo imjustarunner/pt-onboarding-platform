@@ -1,6 +1,7 @@
 import { ImageAnnotatorClient } from '@google-cloud/vision';
 import dommatrixPkg from 'dommatrix';
 import StorageService from './storage.service.js';
+import { createRequire } from 'module';
 
 let visionClient = null;
 
@@ -58,13 +59,31 @@ class ReferralOcrService {
   }
 
   static async parsePdfPages(buffer) {
-    const pdfParseModule = await import('pdf-parse');
-    const pdfParseFn = pdfParseModule.default?.default || pdfParseModule.default || pdfParseModule;
+    const pdfParseFn = await this.resolvePdfParse();
     const result = await pdfParseFn(buffer);
     const rawPages = String(result?.text || '').split(/\f/);
     const numPages = Number(result?.numpages || rawPages.length || 0);
     const pages = rawPages.length >= numPages ? rawPages : rawPages.concat(Array(numPages - rawPages.length).fill(''));
     return { pages, numPages };
+  }
+
+  static async resolvePdfParse() {
+    try {
+      const pdfParseModule = await import('pdf-parse');
+      const fn = pdfParseModule?.default?.default || pdfParseModule?.default || pdfParseModule;
+      if (typeof fn === 'function') return fn;
+    } catch {
+      // fall through to require
+    }
+    try {
+      const require = createRequire(import.meta.url);
+      const pdfParseModule = require('pdf-parse');
+      const fn = pdfParseModule?.default || pdfParseModule;
+      if (typeof fn === 'function') return fn;
+    } catch {
+      // fall through
+    }
+    throw new Error('pdf-parse failed to load. OCR PDF parsing unavailable.');
   }
 
   static normalizeLine(line) {
