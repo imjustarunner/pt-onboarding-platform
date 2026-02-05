@@ -368,11 +368,7 @@ const handleUpload = async () => {
     const formData = new FormData();
     formData.append('file', selectedFile.value);
 
-    const response = await api.post(`/organizations/${props.organizationSlug}/upload-referral`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    });
+    const response = await api.post(`/organizations/${props.organizationSlug}/upload-referral`, formData);
 
     success.value = 'Referral packet uploaded successfully!';
     clientId.value = response.data?.clientId || null;
