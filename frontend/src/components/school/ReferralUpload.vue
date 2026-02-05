@@ -254,10 +254,32 @@ const toLines = (text) =>
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
 
+const noisePrefixes = [
+  'itsco',
+  'intake',
+  'version',
+  'page',
+  'colorado',
+  'mental health',
+  'therapy'
+];
+const noiseExact = new Set(['•', '-', '—', '_', '.', '...', '']);
+const isNoiseLine = (line) => {
+  const raw = String(line || '').trim();
+  if (!raw) return true;
+  if (noiseExact.has(raw)) return true;
+  const lower = raw.toLowerCase();
+  if (lower.length <= 1) return true;
+  if (noisePrefixes.some((p) => lower.startsWith(p))) return true;
+  if (lower.startsWith('consent to release')) return true;
+  if (lower.startsWith('acknowledgement and consent')) return true;
+  return false;
+};
+
 const pageOneLines = computed(() => {
   if (!ocrText.value) return [];
   const pages = splitPages(ocrText.value);
-  return toLines(pages[0] || '');
+  return toLines(pages[0] || '').filter((l) => !isNoiseLine(l));
 });
 
 const questionLabels = [
@@ -306,6 +328,16 @@ const normalizeQuestion = (value) =>
     .replace(/[^a-z0-9?]+/g, ' ')
     .trim();
 
+const findLabelMatches = (line) => {
+  const lower = String(line || '').toLowerCase();
+  const matches = [];
+  questionLabels.forEach((label) => {
+    const idx = lower.indexOf(label.toLowerCase());
+    if (idx >= 0) matches.push({ label, idx });
+  });
+  return matches.sort((a, b) => a.idx - b.idx);
+};
+
 const isQuestionLine = (line) => {
   const raw = String(line || '');
   if (!raw) return false;
@@ -324,6 +356,14 @@ const parseYesNo = (line) => {
   return '';
 };
 
+const cleanAnswer = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const cleaned = raw.replace(/^[\s:–—\-_]+/, '').replace(/[\s:–—\-_]+$/, '').trim();
+  if (!cleaned || cleaned === '.' || cleaned === '—') return '';
+  return cleaned;
+};
+
 const stripQuestionLabel = (line) => {
   const raw = String(line || '').trim();
   const normalized = normalizeQuestion(raw);
@@ -332,7 +372,7 @@ const stripQuestionLabel = (line) => {
   const idx = raw.toLowerCase().indexOf(match.toLowerCase());
   if (idx === -1) return raw;
   const tail = raw.slice(idx + match.length).replace(/^[:\-\s]+/, '');
-  return tail.trim();
+  return cleanAnswer(tail);
 };
 
 const extractQaPairs = (lines) => {
@@ -340,7 +380,18 @@ const extractQaPairs = (lines) => {
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (!isQuestionLine(line)) continue;
-    const question = stripQuestionLabel(line).length ? line : line.trim();
+    const labelMatches = findLabelMatches(line);
+    if (labelMatches.length > 1) {
+      for (let m = 0; m < labelMatches.length; m += 1) {
+        const current = labelMatches[m];
+        const next = labelMatches[m + 1];
+        const segment = line.slice(current.idx + current.label.length, next ? next.idx : line.length);
+        const answer = cleanAnswer(segment);
+        pairs.push({ question: current.label.trim(), answer });
+      }
+      continue;
+    }
+    const question = labelMatches[0]?.label || line.trim();
     let answer = '';
     const yesNo = parseYesNo(line);
     if (yesNo) {
@@ -350,11 +401,11 @@ const extractQaPairs = (lines) => {
       if (inline && inline !== line.trim()) {
         answer = inline;
       } else if (lines[i + 1] && !isQuestionLine(lines[i + 1])) {
-        answer = lines[i + 1];
+        answer = cleanAnswer(lines[i + 1]);
         i += 1;
       }
     }
-    pairs.push({ question: line.trim(), answer: answer.trim() });
+    pairs.push({ question, answer: cleanAnswer(answer) });
   }
   return pairs.filter((p) => p.question);
 };

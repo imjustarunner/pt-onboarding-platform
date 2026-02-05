@@ -52,7 +52,7 @@ class AgencySchool {
    */
   static async listBillingSchoolsByAgency(agencyId, { includeInactive = false } = {}) {
     const parsedAgencyId = parseInt(agencyId, 10);
-    const activeClause = includeInactive ? '1=1' : 'is_active = TRUE';
+    const activeClause = includeInactive ? '1=1' : 'asx.is_active = TRUE';
 
     const [rows] = await pool.execute(
       `SELECT
@@ -87,7 +87,7 @@ class AgencySchool {
        INNER JOIN agencies s ON s.id = oa.organization_id
        WHERE oa.agency_id = ?
          AND s.organization_type = 'school'
-         AND (${activeClause})
+         AND (${includeInactive ? '1=1' : 'oa.is_active = TRUE'})
 
        ORDER BY school_name ASC`,
       [parsedAgencyId, parsedAgencyId]
