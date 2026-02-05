@@ -13,6 +13,10 @@ import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import Client from '../models/Client.model.js';
 import StorageService from '../services/storage.service.js';
 import EmailService from '../services/email.service.js';
+import Agency from '../models/Agency.model.js';
+import AgencySchool from '../models/AgencySchool.model.js';
+import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
+import User from '../models/User.model.js';
 
 const normalizeName = (name) => String(name || '').trim();
 
@@ -65,6 +69,58 @@ const buildAuditTrail = ({ link, submission }) => ({
   userAgent: submission.user_agent
 });
 
+const toOrgPayload = (org) => {
+  if (!org) return null;
+  return {
+    id: org.id,
+    name: org.name || null,
+    official_name: org.official_name || null,
+    organization_type: org.organization_type || null,
+    logo_url: org.logo_url || null,
+    logo_path: org.logo_path || null
+  };
+};
+
+const resolveIntakeOrgContext = async (link) => {
+  if (!link) return { organization: null, agency: null };
+
+  const scope = String(link.scope_type || 'agency');
+  const orgId = link.organization_id ? parseInt(link.organization_id, 10) : null;
+  let organization = null;
+  let agency = null;
+
+  if (orgId) {
+    organization = await Agency.findById(orgId);
+  }
+
+  if (scope === 'agency') {
+    agency = organization;
+    if (!agency && link.created_by_user_id) {
+      try {
+        const agencies = await User.getAgencies(link.created_by_user_id);
+        agency = agencies.find((a) => String(a.organization_type || 'agency') === 'agency') || agencies[0] || null;
+      } catch {
+        agency = null;
+      }
+    }
+    return { organization, agency };
+  }
+
+  let agencyId = null;
+  if (orgId) {
+    if (scope === 'school') {
+      agencyId = await AgencySchool.getActiveAgencyIdForSchool(orgId);
+    }
+    if (!agencyId) {
+      agencyId = await OrganizationAffiliation.getActiveAgencyIdForOrganization(orgId);
+    }
+  }
+  if (agencyId) {
+    agency = await Agency.findById(agencyId);
+  }
+  return { organization, agency };
+};
+
 const loadAllowedTemplates = async (link) => {
   const allowedIds = Array.isArray(link.allowed_document_template_ids)
     ? link.allowed_document_template_ids
@@ -98,6 +154,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
     }
 
     const templates = await loadAllowedTemplates(link);
+    const { organization, agency } = await resolveIntakeOrgContext(link);
     res.json({
       link: {
         id: link.id,
@@ -111,6 +168,8 @@ export const getPublicIntakeLink = async (req, res, next) => {
         intake_fields: link.intake_fields,
         intake_steps: link.intake_steps
       },
+      organization: toOrgPayload(organization),
+      agency: toOrgPayload(agency),
       templates: templates.map(t => ({
         id: t.id,
         name: t.name,

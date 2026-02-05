@@ -7,7 +7,22 @@
       <h2>{{ link?.title || 'Digital Intake' }}</h2>
       <p v-if="link?.description" class="muted">{{ link.description }}</p>
 
-      <div v-if="step === 1" class="step">
+      <div v-if="step === 0" class="step cover-step">
+        <div class="cover-card">
+          <div class="cover-logo" v-if="currentIntro?.logoUrl">
+            <img :src="currentIntro.logoUrl" :alt="currentIntro.altText" />
+          </div>
+          <div class="cover-title">{{ currentIntro?.displayName || 'Welcome' }}</div>
+          <div v-if="currentIntro?.subtitle" class="cover-subtitle">{{ currentIntro.subtitle }}</div>
+          <div class="actions">
+            <button class="btn btn-primary" type="button" @click="advanceIntro">
+              Next
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="step === 1" class="step">
         <h3>Guardian + Client Information</h3>
         <div class="form-grid">
           <div class="form-group">
@@ -295,6 +310,7 @@ import { useRoute } from 'vue-router';
 import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
+import { toUploadsUrl } from '../utils/uploadsUrl';
 
 const route = useRoute();
 const publicKey = route.params.publicKey;
@@ -303,6 +319,9 @@ const loading = ref(true);
 const error = ref('');
 const link = ref(null);
 const templates = ref([]);
+const agencyInfo = ref(null);
+const organizationInfo = ref(null);
+const introIndex = ref(0);
 const intakeSteps = computed(() =>
   Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : []
 );
@@ -354,6 +373,47 @@ const intakeResponses = reactive({
 });
 const downloadUrl = ref('');
 const clientBundleLinks = ref([]);
+
+const resolveLogoUrl = (org) => {
+  if (!org) return null;
+  if (org.logo_path) return toUploadsUrl(org.logo_path);
+  if (org.logo_url) return org.logo_url;
+  return null;
+};
+
+const getDisplayName = (org) => {
+  if (!org) return null;
+  return org.official_name || org.name || null;
+};
+
+const introScreens = computed(() => {
+  const screens = [];
+  const agencyName = getDisplayName(agencyInfo.value);
+  if (agencyName) {
+    screens.push({
+      key: 'agency',
+      displayName: agencyName,
+      logoUrl: resolveLogoUrl(agencyInfo.value),
+      altText: `${agencyName} logo`,
+      subtitle: 'Tap Next to continue'
+    });
+  }
+
+  const orgName = getDisplayName(organizationInfo.value);
+  if (orgName && organizationInfo.value?.id !== agencyInfo.value?.id) {
+    screens.push({
+      key: 'organization',
+      displayName: orgName,
+      logoUrl: resolveLogoUrl(organizationInfo.value),
+      altText: `${orgName} logo`,
+      subtitle: 'Tap Next to continue'
+    });
+  }
+
+  return screens;
+});
+
+const currentIntro = computed(() => introScreens.value[introIndex.value] || null);
 
 const currentDoc = computed(() => {
   if (currentFlowStep.value?.type === 'document') {
@@ -426,6 +486,8 @@ const loadLink = async () => {
     const resp = await api.get(`/public-intake/${publicKey}`);
     link.value = resp.data?.link || null;
     templates.value = resp.data?.templates || [];
+    agencyInfo.value = resp.data?.agency || null;
+    organizationInfo.value = resp.data?.organization || null;
     if (!templates.value.length) {
       error.value = 'No documents configured for this intake link.';
     }
@@ -710,6 +772,14 @@ const currentQuestionFields = computed(() => {
 
 const questionValues = computed(() => intakeResponses.submission);
 
+const advanceIntro = () => {
+  if (introIndex.value < introScreens.value.length - 1) {
+    introIndex.value += 1;
+    return;
+  }
+  step.value = 1;
+};
+
 const nextFlowStep = async () => {
   if (currentFlowIndex.value < flowSteps.value.length - 1) {
     currentFlowIndex.value += 1;
@@ -734,6 +804,9 @@ onMounted(async () => {
   if (stored) {
     submissionId.value = parseInt(stored, 10) || null;
     await loadResumeStatus();
+  } else if (introScreens.value.length) {
+    step.value = 0;
+    introIndex.value = 0;
   }
   initializeFieldValues();
   await loadPdfPreview();
@@ -892,6 +965,39 @@ onMounted(async () => {
   border: none;
 }
 .muted {
+  color: var(--text-secondary);
+}
+
+.cover-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cover-card {
+  width: 100%;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt);
+  text-align: center;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+}
+
+.cover-logo img {
+  max-width: 240px;
+  max-height: 140px;
+  object-fit: contain;
+}
+
+.cover-title {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.cover-subtitle {
   color: var(--text-secondary);
 }
 

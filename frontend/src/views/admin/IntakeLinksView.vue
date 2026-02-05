@@ -197,7 +197,7 @@
 
               <div v-if="form.intakeSteps.length === 0" class="muted">No steps yet.</div>
 
-              <div v-for="(step, idx) in form.intakeSteps" :key="step.id" class="step-card">
+              <div v-for="(step, idx) in safeSteps" :key="step.id" class="step-card">
                 <div class="step-header">
                   <strong>{{ step.type === 'document' ? 'Document' : 'Questions' }}</strong>
                   <div class="step-controls">
@@ -513,9 +513,29 @@ const createQuickLink = async () => {
 
 const createId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
+const sanitizeSteps = (steps) => {
+  const raw = Array.isArray(steps) ? steps : [];
+  const out = raw.filter((s) => s && typeof s === 'object');
+  out.forEach((s) => {
+    if (!s.id) s.id = createId('step');
+    if (!s.type) {
+      s.type = s.templateId ? 'document' : 'questions';
+    }
+    if (s.type === 'questions' && !Array.isArray(s.fields)) {
+      s.fields = [];
+    }
+    if (s.type === 'document' && s.templateId === undefined) {
+      s.templateId = null;
+    }
+  });
+  return out;
+};
+
+const safeSteps = computed(() => sanitizeSteps(form.intakeSteps));
+
 const normalizeIntakeSteps = (link) => {
   if (Array.isArray(link?.intake_steps) && link.intake_steps.length) {
-    return link.intake_steps;
+    return sanitizeSteps(link.intake_steps);
   }
   const steps = [];
   if (Array.isArray(link?.intake_fields) && link.intake_fields.length) {
@@ -541,6 +561,7 @@ const removeStep = (idx) => {
 };
 
 const moveStep = (idx, dir) => {
+  form.intakeSteps = sanitizeSteps(form.intakeSteps);
   const next = idx + dir;
   if (next < 0 || next >= form.intakeSteps.length) return;
   const copy = [...form.intakeSteps];
@@ -574,7 +595,7 @@ const removeOption = (field, idx) => {
 };
 
 const buildPayloadFromSteps = () => {
-  const intakeSteps = form.intakeSteps.map((step) => ({ ...step }));
+  const intakeSteps = sanitizeSteps(form.intakeSteps).map((step) => ({ ...step }));
   const intakeFields = [];
   const allowedDocumentTemplateIds = [];
   intakeSteps.forEach((step) => {
