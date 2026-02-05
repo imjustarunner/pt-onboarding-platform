@@ -63,7 +63,7 @@
             </button>
           </div>
 
-          <div v-if="clientId && phiDocumentId" class="ocr-panel">
+          <div v-if="canUseOcr && clientId && phiDocumentId" class="ocr-panel">
             <h3>Extract Handwritten Data</h3>
             <p class="muted">Use OCR to extract text and quickly copy details for EHR entry.</p>
             <div class="ocr-actions">
@@ -176,6 +176,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'uploaded']);
 
 const authStore = useAuthStore();
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
 const fileInput = ref(null);
 const selectedFile = ref(null);
 const isDragging = ref(false);
@@ -211,6 +212,7 @@ const abbreviatedName = computed(() => {
 
 const canRunOcr = computed(() => true);
 const isAuthenticated = computed(() => authStore.isAuthenticated);
+const canUseOcr = computed(() => ['super_admin', 'admin', 'staff', 'support'].includes(roleNorm.value));
 
 const splitPages = (text) => {
   if (!text) return [];
