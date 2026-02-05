@@ -1,8 +1,23 @@
+import pool from '../config/database.js';
 import UserCommunication from '../models/UserCommunication.model.js';
 import EmailTemplate from '../models/EmailTemplate.model.js';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import EmailService from '../services/email.service.js';
+
+const isAdminLike = (role) => {
+  const r = String(role || '').toLowerCase();
+  return r === 'admin' || r === 'support' || r === 'staff' || r === 'super_admin';
+};
+
+const ensureAgencyAccess = async (req, agencyId) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role === 'super_admin') return { ok: true };
+  const agencies = await User.getAgencies(req.user.id);
+  const ok = (agencies || []).some((a) => Number(a?.id) === Number(agencyId));
+  return ok ? { ok: true } : { ok: false, status: 403, message: 'Access denied' };
+};
 
 export const getUserCommunications = async (req, res, next) => {
   try {
@@ -132,6 +147,135 @@ export const regenerateEmail = async (req, res, next) => {
       parameters,
       note: 'Some parameters (like TEMP_PASSWORD and RESET_TOKEN_LINK) may be missing as they are not stored for security reasons.'
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const listPendingCommunications = async (req, res, next) => {
+  try {
+    if (!isAdminLike(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const agencyId = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const access = await ensureAgencyAccess(req, agencyId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const channel = req.query?.channel ? String(req.query.channel).trim().toLowerCase() : null;
+    const status = req.query?.status ? String(req.query.status).trim().toLowerCase() : null;
+    const limitRaw = req.query?.limit ? parseInt(String(req.query.limit), 10) : null;
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 100;
+
+    const statusList = status
+      ? [status]
+      : ['pending', 'failed', 'bounced', 'undelivered'];
+    const statuses = statusList.filter(Boolean);
+    const statusPlaceholders = statuses.map(() => '?').join(',');
+
+    const where = ['uc.agency_id = ?', `uc.delivery_status IN (${statusPlaceholders})`];
+    const params = [agencyId, ...statuses];
+    if (channel) {
+      where.push('uc.channel = ?');
+      params.push(channel);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT uc.*,
+              u.email as user_email, u.first_name as user_first_name, u.last_name as user_last_name,
+              a.name as agency_name,
+              gb.first_name as generated_by_first_name, gb.last_name as generated_by_last_name
+       FROM user_communications uc
+       LEFT JOIN users u ON uc.user_id = u.id
+       LEFT JOIN agencies a ON uc.agency_id = a.id
+       LEFT JOIN users gb ON uc.generated_by_user_id = gb.id
+       WHERE ${where.join(' AND ')}
+       ORDER BY uc.generated_at DESC, uc.id DESC
+       LIMIT ${limit}`,
+      params
+    );
+    res.json(rows || []);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const approveCommunication = async (req, res, next) => {
+  try {
+    if (!isAdminLike(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid communication id' } });
+
+    const comm = await UserCommunication.findById(id);
+    if (!comm) return res.status(404).json({ error: { message: 'Communication not found' } });
+
+    const access = await ensureAgencyAccess(req, comm.agency_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    if (String(comm.channel || '').toLowerCase() !== 'email') {
+      return res.status(409).json({ error: { message: 'Only email approvals are supported right now' } });
+    }
+
+    const subject = String(comm.subject || '').trim();
+    const body = String(comm.body || '').trim();
+    if (!comm.recipient_address || !body) {
+      return res.status(400).json({ error: { message: 'Missing recipient or body' } });
+    }
+
+    const result = await EmailService.sendEmail({
+      to: comm.recipient_address,
+      subject: subject || 'Notification',
+      text: body,
+      html: null,
+      source: 'manual',
+      agencyId: comm.agency_id
+    });
+
+    if (result?.skipped) {
+      return res.status(409).json({ error: { message: `Email send blocked: ${result.reason}` } });
+    }
+
+    const updated = await UserCommunication.updateDeliveryStatus(
+      comm.id,
+      'sent',
+      result?.id || null,
+      null,
+      null,
+      { approvedByUserId: req.user.id }
+    );
+    res.json(updated || null);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const cancelCommunication = async (req, res, next) => {
+  try {
+    if (!isAdminLike(req.user?.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: { message: 'Invalid communication id' } });
+
+    const comm = await UserCommunication.findById(id);
+    if (!comm) return res.status(404).json({ error: { message: 'Communication not found' } });
+
+    const access = await ensureAgencyAccess(req, comm.agency_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const updated = await UserCommunication.updateDeliveryStatus(
+      comm.id,
+      'cancelled',
+      null,
+      null,
+      'cancelled',
+      { cancelledByUserId: req.user.id }
+    );
+    res.json(updated || null);
   } catch (error) {
     next(error);
   }

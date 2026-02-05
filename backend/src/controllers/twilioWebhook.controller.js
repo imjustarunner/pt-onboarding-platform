@@ -11,6 +11,7 @@ import TwilioNumberRule from '../models/TwilioNumberRule.model.js';
 import TwilioOptInState from '../models/TwilioOptInState.model.js';
 import Agency from '../models/Agency.model.js';
 import { resolveInboundRoute } from '../services/twilioNumberRouting.service.js';
+import { handleAgencyCampaignInbound } from './agencyCampaigns.controller.js';
 
 function twimlResponse(message) {
   // Minimal TwiML response
@@ -137,6 +138,11 @@ export const inboundSmsWebhook = async (req, res, next) => {
 
     if (!from || !to) {
       return res.status(400).send('Missing From/To');
+    }
+
+    const campaignHandled = await handleAgencyCampaignInbound({ from, to, body });
+    if (campaignHandled?.handled) {
+      return res.status(200).type('text/xml').send(twimlResponse(campaignHandled.responseMessage || 'Thanks!'));
     }
 
     const route = await resolveInboundRoute({ toNumber: to, fromNumber: from });

@@ -12,7 +12,10 @@ import {
   deleteSupportTicketMessage,
   answerSupportTicket,
   claimSupportTicket,
-  unclaimSupportTicket
+  unclaimSupportTicket,
+  listSupportTicketAssignees,
+  assignSupportTicket,
+  closeSupportTicket
 } from '../controllers/supportTickets.controller.js';
 
 const router = express.Router();
@@ -30,6 +33,7 @@ router.get('/client-tickets', listClientSupportTickets);
 
 // Admin/support: queue (optionally filter by schoolOrganizationId/status)
 router.get('/', listSupportTicketsQueue);
+router.get('/assignees', listSupportTicketAssignees);
 
 // School staff: create ticket
 router.post('/', createSupportTicket);
@@ -47,6 +51,12 @@ router.post('/:id/claim', claimSupportTicket);
 
 // Admin/support/staff: unclaim ticket (return to queue)
 router.post('/:id/unclaim', unclaimSupportTicket);
+
+// Admin/support: assign ticket to user
+router.post('/:id/assign', assignSupportTicket);
+
+// Staff/admin/support: close ticket
+router.post('/:id/close', closeSupportTicket);
 
 export default router;
 

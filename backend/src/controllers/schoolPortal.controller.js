@@ -7,6 +7,7 @@ import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import UserPreferences from '../models/UserPreferences.model.js';
 import pool from '../config/database.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
@@ -52,6 +53,118 @@ function parseJsonMaybe(v) {
   }
 }
 
+function normalizeNotificationsProgress(raw) {
+  const parsed = parseJsonMaybe(raw) || raw;
+  if (parsed && typeof parsed === 'object' && parsed.by_org) return parsed;
+  const legacy = parsed && typeof parsed === 'object' ? parsed : {};
+  return {
+    by_org: legacy,
+    by_org_kind: {},
+    by_org_client_kind: {}
+  };
+}
+
+function getLastSeenByOrg(progress, orgId) {
+  const key = String(orgId);
+  return progress?.by_org?.[key] || null;
+}
+
+function getLastSeenByOrgKind(progress, orgId, kind) {
+  const key = String(orgId);
+  const k = String(kind || '');
+  return progress?.by_org_kind?.[key]?.[k] || null;
+}
+
+function getLastSeenByOrgClientKind(progress, orgId, clientId, kind) {
+  const key = String(orgId);
+  const cid = String(clientId || '');
+  const k = String(kind || '');
+  return progress?.by_org_client_kind?.[key]?.[cid]?.[k] || null;
+}
+
+function setLastSeenByOrg(progress, orgId, iso) {
+  const key = String(orgId);
+  const next = { ...progress, by_org: { ...(progress?.by_org || {}) } };
+  next.by_org[key] = iso;
+  return next;
+}
+
+function setLastSeenByOrgKind(progress, orgId, kind, iso) {
+  const key = String(orgId);
+  const k = String(kind || '');
+  const byOrg = { ...(progress?.by_org_kind || {}) };
+  const byKind = { ...(byOrg[key] || {}) };
+  byKind[k] = iso;
+  byOrg[key] = byKind;
+  return { ...progress, by_org_kind: byOrg };
+}
+
+function setLastSeenByOrgClientKind(progress, orgId, clientId, kind, iso) {
+  const key = String(orgId);
+  const cid = String(clientId || '');
+  const k = String(kind || '');
+  const byOrg = { ...(progress?.by_org_client_kind || {}) };
+  const byClient = { ...(byOrg[key] || {}) };
+  const byKind = { ...(byClient[cid] || {}) };
+  byKind[k] = iso;
+  byClient[cid] = byKind;
+  byOrg[key] = byClient;
+  return { ...progress, by_org_client_kind: byOrg };
+}
+
+async function getUnreadClientUpdateCounts({ userId, orgId, clientIds }) {
+  if (!userId || !orgId || !Array.isArray(clientIds) || clientIds.length === 0) return new Map();
+  const progress = await getUserNotificationsProgress(userId);
+  const orgKey = String(orgId);
+  const byClient = progress?.by_org_client_kind?.[orgKey] || {};
+  const byKind = progress?.by_org_kind?.[orgKey] || {};
+  const orgLastSeen = progress?.by_org?.[orgKey] || null;
+  const toMs = (v) => {
+    try {
+      const t = v ? new Date(v).getTime() : 0;
+      return Number.isFinite(t) ? t : 0;
+    } catch {
+      return 0;
+    }
+  };
+  const getLastSeenMs = (clientId, kind) => {
+    const cid = String(clientId);
+    const raw = byClient?.[cid]?.[kind] || byKind?.[kind] || orgLastSeen;
+    return toMs(raw);
+  };
+
+  const placeholders = clientIds.map(() => '?').join(',');
+  const [rows] = await pool.execute(
+    `SELECT id, client_id, field_changed, changed_at
+     FROM client_status_history
+     WHERE client_id IN (${placeholders})
+       AND field_changed IN ('compliance_checklist', 'client_status_id', 'status', 'provider_id', 'provider_user_id')
+     ORDER BY changed_at DESC
+     LIMIT 2000`,
+    clientIds
+  );
+
+  const counts = new Map();
+  for (const r of rows || []) {
+    const cid = Number(r.client_id);
+    if (!cid) continue;
+    const field = String(r.field_changed || '').trim();
+    const kind =
+      field === 'compliance_checklist'
+        ? 'checklist'
+        : (field === 'client_status_id' || field === 'status')
+          ? 'status'
+          : (field === 'provider_id' || field === 'provider_user_id')
+            ? 'assignment'
+            : 'status';
+    const changedMs = toMs(r.changed_at);
+    const lastSeenMs = getLastSeenMs(cid, kind);
+    if (!Number.isFinite(changedMs) || changedMs <= lastSeenMs) continue;
+    counts.set(cid, (counts.get(cid) || 0) + 1);
+  }
+  return counts;
+}
+
 async function getUserNotificationCategories(userId) {
   const uid = parseInt(userId, 10);
   if (!uid) return {};
@@ -68,6 +181,24 @@ async function getUserNotificationCategories(userId) {
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
+  }
+}
+
+async function getUserNotificationsProgress(userId) {
+  const uid = parseInt(userId, 10);
+  if (!uid) return normalizeNotificationsProgress({});
+  try {
+    const [rows] = await pool.execute(
+      `SELECT school_portal_notifications_progress
+       FROM user_preferences
+       WHERE user_id = ?
+       LIMIT 1`,
+      [uid]
+    );
+    const raw = rows?.[0]?.school_portal_notifications_progress ?? null;
+    return normalizeNotificationsProgress(raw);
+  } catch {
+    return normalizeNotificationsProgress({});
   }
 }
 
@@ -118,6 +249,43 @@ async function providerHasSchoolAccess({ providerUserId, schoolOrganizationId })
   }
 }
 
+async function getProviderAssignedClientIds({ providerUserId, schoolOrganizationId }) {
+  const uid = parseInt(providerUserId, 10);
+  const orgId = parseInt(schoolOrganizationId, 10);
+  if (!uid || !orgId) return [];
+  try {
+    const [rows] = await pool.execute(
+      `SELECT DISTINCT cpa.client_id
+       FROM client_provider_assignments cpa
+       JOIN clients c ON c.id = cpa.client_id
+       WHERE cpa.organization_id = ?
+         AND cpa.provider_user_id = ?
+         AND cpa.is_active = TRUE
+         AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')`,
+      [orgId, uid]
+    );
+    return (rows || []).map((r) => Number(r.client_id)).filter(Boolean);
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE') || msg.includes('Unknown column') || msg.includes('ER_BAD_FIELD_ERROR');
+    if (!missing) throw e;
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT c.id AS client_id
+       FROM clients c
+       WHERE c.organization_id = ?
+         AND c.provider_id = ?
+         AND (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')`,
+      [orgId, uid]
+    );
+    return (rows || []).map((r) => Number(r.client_id)).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 async function userHasOrgOrAffiliatedAgencyAccess({ userId, role, schoolOrganizationId }) {
   if (!userId) return false;
   const userOrgs = await User.getAgencies(userId);
@@ -158,6 +326,7 @@ export const getSchoolClients = async (req, res, next) => {
     const userId = req.user?.id;
     const userRole = req.user?.role;
     const skillsOnly = String(req.query?.skillsOnly || '').toLowerCase() === 'true';
+    const clientIdFilter = req.query?.clientId ? parseInt(req.query.clientId, 10) : null;
 
     // Providers ARE allowed to view the roster, but only for clients assigned to them
     // (restricted fields, no sensitive data).
@@ -239,10 +408,11 @@ export const getSchoolClients = async (req, res, next) => {
          WHERE (c.status IS NULL OR UPPER(c.status) <> 'ARCHIVED')
            AND (cs.status_key IS NULL OR LOWER(cs.status_key) <> 'archived')
            AND (? = 0 OR c.skills = TRUE)
+           AND (? IS NULL OR c.id = ?)
            AND (? IS NULL OR cpa.provider_user_id = ?)
          GROUP BY c.id
          ORDER BY c.submission_date DESC, c.id DESC`,
-        [providerUserId, providerUserId, orgId, skillsOnly ? 1 : 0, providerUserId, providerUserId]
+        [providerUserId, providerUserId, orgId, skillsOnly ? 1 : 0, clientIdFilter, clientIdFilter, providerUserId, providerUserId]
       );
       clients = rows || [];
     } catch (e) {
@@ -262,6 +432,7 @@ export const getSchoolClients = async (req, res, next) => {
         const label = String(c?.client_status_label || '').toLowerCase();
         return workflow !== 'ARCHIVED' && key !== 'archived' && label !== 'archived';
       });
+      if (clientIdFilter) clients = (clients || []).filter((c) => Number(c?.id) === Number(clientIdFilter));
       if (skillsOnly) clients = (clients || []).filter((c) => !!c?.skills);
     }
 
@@ -321,6 +492,20 @@ export const getSchoolClients = async (req, res, next) => {
       // ignore (tables may not exist yet)
     }
 
+    const unreadUpdatesByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      const orgId = parseInt(organizationId, 10);
+      if (clientIds.length > 0 && userId && orgId) {
+        const counts = await getUnreadClientUpdateCounts({ userId, orgId, clientIds });
+        for (const [cid, cnt] of counts.entries()) {
+          unreadUpdatesByClientId.set(Number(cid), Number(cnt || 0));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     // Format response: Only include non-sensitive fields
     const restrictedClients = clients.map(client => {
       return {
@@ -351,7 +536,8 @@ export const getSchoolClients = async (req, res, next) => {
         roi_expires_at: client.roi_expires_at || null,
         skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0,
-        unread_ticket_messages_count: unreadTicketMsgsByClientId.get(Number(client.id)) || 0
+        unread_ticket_messages_count: unreadTicketMsgsByClientId.get(Number(client.id)) || 0,
+        unread_updates_count: unreadUpdatesByClientId.get(Number(client.id)) || 0
       };
     });
 
@@ -563,6 +749,19 @@ export const getProviderMyRoster = async (req, res, next) => {
       // ignore (tables may not exist yet)
     }
 
+    const unreadUpdatesByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      if (clientIds.length > 0 && userId && orgId) {
+        const counts = await getUnreadClientUpdateCounts({ userId, orgId, clientIds });
+        for (const [cid, cnt] of counts.entries()) {
+          unreadUpdatesByClientId.set(Number(cid), Number(cnt || 0));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     const restrictedClients = clients.map((client) => {
       return {
         id: client.id,
@@ -589,7 +788,8 @@ export const getProviderMyRoster = async (req, res, next) => {
         roi_expires_at: client.roi_expires_at || null,
         skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0,
-        unread_ticket_messages_count: unreadTicketMsgsByClientId.get(Number(client.id)) || 0
+        unread_ticket_messages_count: unreadTicketMsgsByClientId.get(Number(client.id)) || 0,
+        unread_updates_count: unreadUpdatesByClientId.get(Number(client.id)) || 0
       };
     });
 
@@ -1165,6 +1365,10 @@ export const getClientWaitlistNote = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
     }
 
+    const providerUserId = roleNorm === 'provider' ? Number(userId) : null;
+    const providerClientIds = providerUserId ? await getProviderAssignedClientIds({ providerUserId, schoolOrganizationId: orgId }) : [];
+    const providerClientPlaceholders = providerClientIds.map(() => '?').join(',');
+
     // Providers can only read waitlist notes for clients assigned to them in this org.
     if (roleNorm === 'provider') {
       const assigned = await providerAssignedToClientInOrg({ providerUserId: userId, clientId, orgId });
@@ -1366,134 +1570,291 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
 
     // Per-user client notification toggles (default ON when missing).
     const categories = await getUserNotificationCategories(userId);
+    const allowAnnouncements = categories.school_portal_announcements !== false;
     const allowClientUpdates = categories.school_portal_client_updates !== false;
+    const allowStatusUpdates = categories.school_portal_client_update_status !== false;
+    const allowProviderUpdates = categories.school_portal_client_update_provider !== false;
+    const allowServiceDayUpdates = categories.school_portal_client_update_service_day !== false;
+    const allowSubmissionDateUpdates = categories.school_portal_client_update_submission_date !== false;
+    const allowDocumentDateUpdates = categories.school_portal_client_update_document_date !== false;
     const allowOrgSwaps = categories.school_portal_client_update_org_swaps !== false;
+    const allowOtherUpdates = categories.school_portal_client_update_other !== false;
     const allowClientComments = categories.school_portal_client_comments !== false;
     const allowClientMessages = categories.school_portal_client_messages !== false;
+    const allowTickets = categories.school_portal_ticket_activity !== false;
+    const allowClientCreated = categories.school_portal_client_created !== false;
+    const allowProviderSlots = categories.school_portal_provider_slots !== false;
+    const allowProviderDayAdded = categories.school_portal_provider_day_added !== false;
+    const allowDocsLinks = categories.school_portal_docs_links !== false;
+    const allowChecklist = categories.school_portal_checklist_updates !== false;
+    const allowAssignments = categories.school_portal_client_assignments !== false;
 
     // Manual announcements (all, newest-first)
     let announcements = [];
     try {
-      const [rows] = await pool.execute(
-        `SELECT
-           a.id,
-           a.organization_id,
-           a.title,
-           a.message,
-           a.starts_at,
-           a.ends_at,
-           a.created_at,
-           u.first_name,
-           u.last_name
-         FROM school_portal_announcements a
-         LEFT JOIN users u ON u.id = a.created_by_user_id
-         WHERE a.organization_id = ?
-         ORDER BY a.created_at DESC, a.id DESC
-         LIMIT 200`,
-        [orgId]
-      );
-      announcements = (rows || []).map((r) => ({
-        id: `announcement:${r.id}`,
-        kind: 'announcement',
-        created_at: r.created_at,
-        starts_at: r.starts_at,
-        ends_at: r.ends_at,
-        title: r.title || 'Announcement',
-        message: r.message || '',
-        actor_name: [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim() || null
-      }));
+      if (!allowAnnouncements) {
+        announcements = [];
+      } else {
+        const [rows] = await pool.execute(
+          `SELECT
+             a.id,
+             a.organization_id,
+             a.title,
+             a.message,
+             a.starts_at,
+             a.ends_at,
+             a.created_at,
+             u.first_name,
+             u.last_name
+           FROM school_portal_announcements a
+           LEFT JOIN users u ON u.id = a.created_by_user_id
+           WHERE a.organization_id = ?
+           ORDER BY a.created_at DESC, a.id DESC
+           LIMIT 200`,
+          [orgId]
+        );
+        announcements = (rows || []).map((r) => ({
+          id: `announcement:${r.id}`,
+          kind: 'announcement',
+          created_at: r.created_at,
+          starts_at: r.starts_at,
+          ends_at: r.ends_at,
+          title: r.title || 'Announcement',
+          message: r.message || '',
+          actor_name: [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim() || null
+        }));
+      }
     } catch (e) {
       // table may not exist yet; ignore
       announcements = [];
     }
 
-    // Client events from client_status_history (scoped to clients affiliated with this org)
+    // Client history from client_status_history (scoped to clients affiliated with this org)
     let events = [];
+    let checklistUpdates = [];
+    let statusChanges = [];
+    let assignmentChanges = [];
     try {
-      if (!allowClientUpdates) {
+      const needsHistory =
+        allowClientUpdates || allowChecklist || allowAssignments || allowStatusUpdates || allowServiceDayUpdates || allowSubmissionDateUpdates
+        || allowDocumentDateUpdates || allowOrgSwaps || allowOtherUpdates;
+      if (!needsHistory) {
         events = [];
-      } else {
-      const [rows] = await pool.execute(
-        `SELECT
-           h.id,
-           h.client_id,
-           h.field_changed,
-           h.from_value,
-           h.to_value,
-           h.note,
-           h.changed_at,
-           c.initials,
-           c.identifier_code,
-           u.first_name AS actor_first_name,
-           u.last_name AS actor_last_name
-         FROM client_status_history h
-         JOIN client_organization_assignments coa
-           ON coa.client_id = h.client_id
-          AND coa.organization_id = ?
-          AND coa.is_active = TRUE
-         JOIN clients c ON c.id = h.client_id
-         LEFT JOIN users u ON u.id = h.changed_by_user_id
-         WHERE 1=1
-         ORDER BY h.changed_at DESC, h.id DESC
-         LIMIT 400`,
-        [orgId]
-      );
-      events = (rows || [])
-        .map((r) => {
-        const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
-        const clientLabel = String(r.identifier_code || r.initials || '—');
-        const field = String(r.field_changed || '').trim();
+      } else if (!providerUserId || providerClientIds.length > 0) {
+        const providerFilter = providerUserId ? `AND h.client_id IN (${providerClientPlaceholders})` : '';
+        const params = providerUserId ? [orgId, ...providerClientIds] : [orgId];
+        const [rows] = await pool.execute(
+          `SELECT
+             h.id,
+             h.client_id,
+             h.field_changed,
+             h.from_value,
+             h.to_value,
+             h.note,
+             h.changed_at,
+             c.initials,
+             c.identifier_code,
+             u.first_name AS actor_first_name,
+             u.last_name AS actor_last_name
+           FROM client_status_history h
+           JOIN client_organization_assignments coa
+             ON coa.client_id = h.client_id
+            AND coa.organization_id = ?
+            AND coa.is_active = TRUE
+           JOIN clients c ON c.id = h.client_id
+           LEFT JOIN users u ON u.id = h.changed_by_user_id
+           WHERE 1=1
+           ${providerFilter}
+           ORDER BY h.changed_at DESC, h.id DESC
+           LIMIT 800`,
+          params
+        );
 
-        // Filter "organization swap" events if disabled.
-        if (!allowOrgSwaps && field === 'organization_id') return null;
+        const history = Array.isArray(rows) ? rows : [];
+        const statusIds = new Set();
+        const providerIds = new Set();
+        for (const r of history) {
+          if (String(r.field_changed || '') === 'client_status_id') {
+            const fromId = parseInt(r.from_value, 10);
+            const toId = parseInt(r.to_value, 10);
+            if (Number.isFinite(fromId)) statusIds.add(fromId);
+            if (Number.isFinite(toId)) statusIds.add(toId);
+          }
+          if (['provider_id', 'provider_user_id'].includes(String(r.field_changed || ''))) {
+            const fromId = parseInt(r.from_value, 10);
+            const toId = parseInt(r.to_value, 10);
+            if (Number.isFinite(fromId)) providerIds.add(fromId);
+            if (Number.isFinite(toId)) providerIds.add(toId);
+          }
+        }
 
-        // Avoid exposing raw field slugs; keep message professional + short.
-        const title =
-          field === 'client_status_id' || field === 'status'
-            ? 'Client status updated'
-            : field === 'provider_id' || field === 'provider_user_id'
-              ? 'Provider assignment updated'
-              : field === 'service_day'
-                ? 'Assigned day updated'
-                : field === 'submission_date'
-                  ? 'Submission date updated'
-                  : field === 'doc_date'
-                    ? 'Document date updated'
-                    : field === 'organization_id'
-                      ? 'Organization updated'
-                      : 'Client updated';
+        const statusLabels = new Map();
+        if (statusIds.size > 0) {
+          const ids = Array.from(statusIds);
+          const [sRows] = await pool.execute(
+            `SELECT id, label FROM client_statuses WHERE id IN (${ids.map(() => '?').join(',')})`,
+            ids
+          );
+          for (const r of sRows || []) statusLabels.set(Number(r.id), String(r.label || ''));
+        }
 
-        const msg =
-          field === 'client_status_id' || field === 'status'
-            ? `${clientLabel}: status updated`
-            : field === 'provider_id' || field === 'provider_user_id'
-              ? `${clientLabel}: provider assignment updated`
-              : field === 'service_day'
-                ? `${clientLabel}: assigned day updated`
-                : field === 'submission_date'
-                  ? `${clientLabel}: submission date updated`
-                  : field === 'doc_date'
-                    ? `${clientLabel}: document date updated`
-                    : field === 'organization_id'
-                      ? `${clientLabel}: organization updated`
-                      : `${clientLabel}: updated`;
+        const providerNames = new Map();
+        if (providerIds.size > 0) {
+          const ids = Array.from(providerIds);
+          const [pRows] = await pool.execute(
+            `SELECT id, first_name, last_name FROM users WHERE id IN (${ids.map(() => '?').join(',')})`,
+            ids
+          );
+          for (const r of pRows || []) {
+            const name = [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim();
+            providerNames.set(Number(r.id), name || `Provider ${r.id}`);
+          }
+        }
 
-        return {
-          id: `client_event:${r.id}`,
-          kind: 'client_event',
-          created_at: r.changed_at,
-          title,
-          message: msg,
-          actor_name: actor || null,
-          client_id: Number(r.client_id),
-          client_initials: r.initials || null,
-          client_identifier_code: r.identifier_code || null
+        const parseMaybe = (v) => {
+          if (!v) return null;
+          if (typeof v === 'object') return v;
+          if (typeof v !== 'string') return null;
+          try {
+            return JSON.parse(v);
+          } catch {
+            return null;
+          }
         };
-      })
-        .filter(Boolean);
+
+        for (const r of history) {
+          const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
+          const clientLabel = String(r.identifier_code || r.initials || '—');
+          const field = String(r.field_changed || '').trim();
+
+          if (field === 'compliance_checklist' && allowChecklist) {
+            const fromObj = parseMaybe(r.from_value) || {};
+            const toObj = parseMaybe(r.to_value) || {};
+            const checklistEvents = [
+              { key: 'parentsContactedAt', label: 'Parent contacted' },
+              { key: 'intakeAt', label: 'Intake date entered' },
+              { key: 'firstServiceAt', label: 'First service date entered' }
+            ];
+            for (const ev of checklistEvents) {
+              if (!toObj?.[ev.key] || toObj?.[ev.key] === fromObj?.[ev.key]) continue;
+              checklistUpdates.push({
+                id: `checklist:${r.id}:${ev.key}`,
+                kind: 'checklist',
+                created_at: r.changed_at,
+                title: 'Checklist updated',
+                message: `${clientLabel}: ${ev.label}`,
+                actor_name: actor || null,
+                client_id: Number(r.client_id),
+                client_initials: r.initials || null,
+                client_identifier_code: r.identifier_code || null
+              });
+            }
+            continue;
+          }
+
+          if ((field === 'client_status_id' || field === 'status') && allowStatusUpdates) {
+            let fromLabel = String(r.from_value || '').trim();
+            let toLabel = String(r.to_value || '').trim();
+            if (field === 'client_status_id') {
+              const fromId = parseInt(r.from_value, 10);
+              const toId = parseInt(r.to_value, 10);
+              if (Number.isFinite(fromId)) fromLabel = statusLabels.get(fromId) || `Status ${fromId}`;
+              if (Number.isFinite(toId)) toLabel = statusLabels.get(toId) || `Status ${toId}`;
+            }
+            statusChanges.push({
+              id: `status:${r.id}`,
+              kind: 'status',
+              created_at: r.changed_at,
+              title: 'Status changed',
+              message: `${clientLabel}: ${fromLabel || 'Unknown'} → ${toLabel || 'Unknown'}`,
+              actor_name: actor || null,
+              client_id: Number(r.client_id),
+              client_initials: r.initials || null,
+              client_identifier_code: r.identifier_code || null
+            });
+            continue;
+          }
+
+          if (['provider_id', 'provider_user_id'].includes(field) && allowAssignments) {
+            const toId = parseInt(r.to_value, 10);
+            if (!Number.isFinite(toId)) continue;
+            const toName = providerNames.get(toId) || `Provider ${toId}`;
+            assignmentChanges.push({
+              id: `assignment:${r.id}`,
+              kind: 'assignment',
+              created_at: r.changed_at,
+              title: 'Client assigned',
+              message: `${clientLabel}: assigned to ${toName}`,
+              actor_name: actor || null,
+              client_id: Number(r.client_id),
+              client_initials: r.initials || null,
+              client_identifier_code: r.identifier_code || null
+            });
+            continue;
+          }
+
+          if (!allowClientUpdates) continue;
+
+          if (!allowOrgSwaps && field === 'organization_id') continue;
+          if ((field === 'provider_id' || field === 'provider_user_id') && !allowAssignments) continue;
+          if (field === 'service_day' && !allowServiceDayUpdates) continue;
+          if (field === 'submission_date' && !allowSubmissionDateUpdates) continue;
+          if (field === 'doc_date' && !allowDocumentDateUpdates) continue;
+          if (
+            !['client_status_id', 'status', 'provider_id', 'provider_user_id', 'service_day', 'submission_date', 'doc_date', 'organization_id'].includes(field)
+            && !allowOtherUpdates
+          ) {
+            continue;
+          }
+
+          const title =
+            field === 'client_status_id' || field === 'status'
+              ? 'Client status updated'
+              : field === 'provider_id' || field === 'provider_user_id'
+                ? 'Provider assignment updated'
+                : field === 'service_day'
+                  ? 'Assigned day updated'
+                  : field === 'submission_date'
+                    ? 'Submission date updated'
+                    : field === 'doc_date'
+                      ? 'Document date updated'
+                      : field === 'organization_id'
+                        ? 'Organization updated'
+                        : 'Client updated';
+
+          const msg =
+            field === 'client_status_id' || field === 'status'
+              ? `${clientLabel}: status updated`
+              : field === 'provider_id' || field === 'provider_user_id'
+                ? `${clientLabel}: provider assignment updated`
+                : field === 'service_day'
+                  ? `${clientLabel}: assigned day updated`
+                  : field === 'submission_date'
+                    ? `${clientLabel}: submission date updated`
+                    : field === 'doc_date'
+                      ? `${clientLabel}: document date updated`
+                      : field === 'organization_id'
+                        ? `${clientLabel}: organization updated`
+                        : `${clientLabel}: updated`;
+
+          events.push({
+            id: `client_event:${r.id}`,
+            kind: 'client_event',
+            created_at: r.changed_at,
+            title,
+            message: msg,
+            actor_name: actor || null,
+            client_id: Number(r.client_id),
+            client_initials: r.initials || null,
+            client_identifier_code: r.identifier_code || null
+          });
+        }
       }
     } catch (e) {
       events = [];
+      checklistUpdates = [];
+      statusChanges = [];
+      assignmentChanges = [];
     }
 
     // Client comments (client_notes, non-internal, category=comment)
@@ -1501,7 +1862,9 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     try {
       if (!allowClientComments) {
         comments = [];
-      } else {
+      } else if (!providerUserId || providerClientIds.length > 0) {
+        const providerFilter = providerUserId ? `AND n.client_id IN (${providerClientPlaceholders})` : '';
+        const params = providerUserId ? [orgId, ...providerClientIds] : [orgId];
         const [rows] = await pool.execute(
           `SELECT
              n.id,
@@ -1521,9 +1884,10 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
            LEFT JOIN users u ON u.id = n.author_id
            WHERE n.is_internal_only = FALSE
              AND (n.category IS NULL OR n.category = 'comment')
+             ${providerFilter}
            ORDER BY n.created_at DESC, n.id DESC
            LIMIT 400`,
-          [orgId]
+          params
         );
         comments = (rows || []).map((r) => {
           const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
@@ -1552,34 +1916,38 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     try {
       if (!allowClientMessages) {
         messages = [];
-      } else if (await hasSupportTicketMessagesTable()) {
-        const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
-        const [rows] = await pool.execute(
-          `SELECT
-             m.id,
-             t.client_id,
-             m.body,
-             m.created_at,
-             c.initials,
-             c.identifier_code,
-             u.first_name AS actor_first_name,
-             u.last_name AS actor_last_name
-           FROM support_ticket_messages m
-           JOIN support_tickets t ON t.id = m.ticket_id
-           JOIN client_organization_assignments coa
-             ON coa.client_id = t.client_id
-            AND coa.organization_id = ?
-            AND coa.is_active = TRUE
-           JOIN clients c ON c.id = t.client_id
-           LEFT JOIN users u ON u.id = m.author_user_id
-           WHERE t.school_organization_id = ?
-             AND t.client_id IS NOT NULL
-             ${hasSoftDelete ? 'AND (m.is_deleted IS NULL OR m.is_deleted = 0)' : ''}
-           ORDER BY m.created_at DESC, m.id DESC
-           LIMIT 400`,
-          [orgId, orgId]
-        );
-        messages = (rows || []).map((r) => {
+      } else if (!providerUserId || providerClientIds.length > 0) {
+        if (await hasSupportTicketMessagesTable()) {
+          const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
+          const providerFilter = providerUserId ? `AND t.client_id IN (${providerClientPlaceholders})` : '';
+          const params = providerUserId ? [orgId, orgId, ...providerClientIds] : [orgId, orgId];
+          const [rows] = await pool.execute(
+            `SELECT
+               m.id,
+               t.client_id,
+               m.body,
+               m.created_at,
+               c.initials,
+               c.identifier_code,
+               u.first_name AS actor_first_name,
+               u.last_name AS actor_last_name
+             FROM support_ticket_messages m
+             JOIN support_tickets t ON t.id = m.ticket_id
+             JOIN client_organization_assignments coa
+               ON coa.client_id = t.client_id
+              AND coa.organization_id = ?
+              AND coa.is_active = TRUE
+             JOIN clients c ON c.id = t.client_id
+             LEFT JOIN users u ON u.id = m.author_user_id
+             WHERE t.school_organization_id = ?
+               AND t.client_id IS NOT NULL
+               ${hasSoftDelete ? 'AND (m.is_deleted IS NULL OR m.is_deleted = 0)' : ''}
+               ${providerFilter}
+             ORDER BY m.created_at DESC, m.id DESC
+             LIMIT 400`,
+            params
+          );
+          messages = (rows || []).map((r) => {
           const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
           const clientLabel = String(r.identifier_code || r.initials || '—');
           const raw = String(r.body || '').trim();
@@ -1587,6 +1955,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           return {
             id: `ticket_message:${r.id}`,
             kind: 'message',
+            category: 'ticket',
             created_at: r.created_at,
             title: 'New message',
             message: snippet ? `${clientLabel}: ${snippet}` : `${clientLabel}: new message`,
@@ -1595,13 +1964,372 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
             client_initials: r.initials || null,
             client_identifier_code: r.identifier_code || null
           };
-        });
+          });
+        }
       }
     } catch {
       messages = [];
     }
 
-    const all = [...announcements, ...events, ...comments, ...messages].sort((a, b) => {
+    // Ticket activity (created, reply, closed)
+    let ticketActivity = [];
+    try {
+      if (!allowTickets || roleNorm === 'provider') {
+        ticketActivity = [];
+      } else if (await hasSupportTicketMessagesTable()) {
+        const [ticketRows] = await pool.execute(
+          `SELECT
+             t.id,
+             t.client_id,
+             t.status,
+             t.subject,
+             t.question,
+             t.created_at,
+             t.updated_at,
+             c.initials,
+             c.identifier_code,
+             u.first_name AS actor_first_name,
+             u.last_name AS actor_last_name
+           FROM support_tickets t
+           LEFT JOIN clients c ON c.id = t.client_id
+           LEFT JOIN users u ON u.id = t.created_by_user_id
+           WHERE t.school_organization_id = ?
+           ORDER BY t.created_at DESC, t.id DESC
+           LIMIT 200`,
+          [orgId]
+        );
+        const createdItems = (ticketRows || []).map((r) => {
+          const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
+          const clientLabel = String(r.identifier_code || r.initials || '—');
+          const subj = String(r.subject || '').trim() || 'Ticket';
+          return {
+            id: `ticket_created:${r.id}`,
+            kind: 'ticket',
+            category: 'ticket',
+            created_at: r.created_at,
+            title: 'New ticket',
+            message: r.client_id ? `${clientLabel}: ${subj}` : subj,
+            actor_name: actor || null,
+            client_id: r.client_id ? Number(r.client_id) : null,
+            client_initials: r.initials || null,
+            client_identifier_code: r.identifier_code || null
+          };
+        });
+
+        const closedItems = (ticketRows || [])
+          .filter((r) => String(r.status || '').toLowerCase() === 'closed')
+          .map((r) => {
+            const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
+            const clientLabel = String(r.identifier_code || r.initials || '—');
+            const subj = String(r.subject || '').trim() || 'Ticket';
+            return {
+              id: `ticket_closed:${r.id}`,
+              kind: 'ticket',
+              category: 'ticket',
+              created_at: r.updated_at || r.created_at,
+              title: 'Ticket closed',
+              message: r.client_id ? `${clientLabel}: ${subj}` : subj,
+              actor_name: actor || null,
+              client_id: r.client_id ? Number(r.client_id) : null,
+              client_initials: r.initials || null,
+              client_identifier_code: r.identifier_code || null
+            };
+          });
+
+        const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
+        const [replyRows] = await pool.execute(
+          `SELECT
+             m.id,
+             m.ticket_id,
+             m.body,
+             m.created_at,
+             t.client_id,
+             c.initials,
+             c.identifier_code,
+             u.first_name AS actor_first_name,
+             u.last_name AS actor_last_name
+           FROM support_ticket_messages m
+           JOIN support_tickets t ON t.id = m.ticket_id
+           LEFT JOIN clients c ON c.id = t.client_id
+           LEFT JOIN users u ON u.id = m.author_user_id
+           WHERE t.school_organization_id = ?
+             ${hasSoftDelete ? 'AND (m.is_deleted IS NULL OR m.is_deleted = 0)' : ''}
+           ORDER BY m.created_at DESC, m.id DESC
+           LIMIT 200`,
+          [orgId]
+        );
+        const replyItems = (replyRows || []).map((r) => {
+          const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
+          const clientLabel = String(r.identifier_code || r.initials || '—');
+          const raw = String(r.body || '').trim();
+          const snippet = raw.length > 160 ? `${raw.slice(0, 160)}…` : raw;
+          return {
+            id: `ticket_reply:${r.id}`,
+            kind: 'ticket',
+            category: 'ticket',
+            created_at: r.created_at,
+            title: 'Ticket reply',
+            message: r.client_id ? `${clientLabel}: ${snippet || 'reply added'}` : snippet || 'reply added',
+            actor_name: actor || null,
+            client_id: r.client_id ? Number(r.client_id) : null,
+            client_initials: r.initials || null,
+            client_identifier_code: r.identifier_code || null
+          };
+        });
+
+        ticketActivity = [...createdItems, ...closedItems, ...replyItems];
+      }
+    } catch {
+      ticketActivity = [];
+    }
+
+    // Client created notifications
+    let clientCreated = [];
+    try {
+      if (!allowClientCreated) {
+        clientCreated = [];
+      } else if (!providerUserId || providerClientIds.length > 0) {
+        const providerFilter = providerUserId ? `AND c.id IN (${providerClientPlaceholders})` : '';
+        const params = providerUserId ? [orgId, ...providerClientIds] : [orgId];
+        const [rows] = await pool.execute(
+          `SELECT
+             c.id,
+             c.created_at,
+             c.source,
+             c.initials,
+             c.identifier_code,
+             u.first_name,
+             u.last_name
+           FROM clients c
+           JOIN client_organization_assignments coa
+             ON coa.client_id = c.id
+            AND coa.organization_id = ?
+            AND coa.is_active = TRUE
+           LEFT JOIN users u ON u.id = c.created_by_user_id
+           WHERE 1=1
+           ${providerFilter}
+           ORDER BY c.created_at DESC, c.id DESC
+           LIMIT 200`,
+          params
+        );
+        const sourceLabel = (src) => {
+          const s = String(src || '').toLowerCase();
+          if (s.includes('packet') || s.includes('upload')) return 'packet';
+          if (s.includes('email')) return 'email';
+          if (s.includes('public_intake_link') || s.includes('intake_link')) return 'link or QR';
+          if (s.includes('bulk_import')) return 'import';
+          return 'manual';
+        };
+        clientCreated = (rows || []).map((r) => {
+          const actor = [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim();
+          const clientLabel = String(r.identifier_code || r.initials || '—');
+          const source = sourceLabel(r.source);
+          const msg = actor ? `${clientLabel}: added by ${actor}` : `${clientLabel}: added via ${source}`;
+          return {
+            id: `client_created:${r.id}`,
+            kind: 'client_created',
+            created_at: r.created_at,
+            title: 'New client added',
+            message: msg,
+            actor_name: actor || null,
+            client_id: Number(r.id),
+            client_initials: r.initials || null,
+            client_identifier_code: r.identifier_code || null
+          };
+        });
+      }
+    } catch {
+      clientCreated = [];
+    }
+
+    // Provider slot updates (added/closed)
+    let providerSlots = [];
+    try {
+      if (!allowProviderSlots || roleNorm === 'provider') {
+        providerSlots = [];
+      } else {
+        const [rows] = await pool.execute(
+          `SELECT
+             psa.id,
+             psa.provider_user_id,
+             psa.school_organization_id,
+             psa.day_of_week,
+             psa.slots_total,
+             psa.slots_available,
+             psa.is_active,
+             psa.created_at,
+             psa.updated_at,
+             u.first_name,
+             u.last_name
+           FROM provider_school_assignments psa
+           LEFT JOIN users u ON u.id = psa.provider_user_id
+           WHERE psa.school_organization_id = ?
+           ORDER BY psa.updated_at DESC, psa.id DESC
+           LIMIT 200`,
+          [orgId]
+        );
+        providerSlots = (rows || []).map((r) => {
+          const name = [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim() || 'Provider';
+          const isClosed = r.is_active === 0 || r.is_active === false;
+          const title = isClosed ? 'Provider closed' : 'Provider slots updated';
+          const message = isClosed ? `${name}: closed schedule` : `${name}: ${Number(r.slots_total || 0)} slots`;
+          return {
+            id: `provider_slots:${r.id}:${isClosed ? 'closed' : 'updated'}`,
+            kind: 'provider_slots',
+            created_at: r.updated_at || r.created_at,
+            title,
+            message,
+            actor_name: null
+          };
+        });
+      }
+    } catch {
+      providerSlots = [];
+    }
+
+    // Provider added to day
+    let providerDayAdded = [];
+    try {
+      if (!allowProviderDayAdded || roleNorm === 'provider') {
+        providerDayAdded = [];
+      } else {
+        const [rows] = await pool.execute(
+          `SELECT
+             a.id,
+             a.weekday,
+             a.provider_user_id,
+             a.created_at,
+             a.created_by_user_id,
+             p.first_name AS provider_first_name,
+             p.last_name AS provider_last_name,
+             u.first_name AS actor_first_name,
+             u.last_name AS actor_last_name
+           FROM school_day_provider_assignments a
+           JOIN users p ON p.id = a.provider_user_id
+           LEFT JOIN users u ON u.id = a.created_by_user_id
+           WHERE a.school_organization_id = ?
+             AND a.is_active = TRUE
+           ORDER BY a.created_at DESC, a.id DESC
+           LIMIT 200`,
+          [orgId]
+        );
+        providerDayAdded = (rows || []).map((r) => {
+          const providerName = [String(r.provider_first_name || '').trim(), String(r.provider_last_name || '').trim()].filter(Boolean).join(' ').trim() || 'Provider';
+          const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
+          const day = String(r.weekday || '').trim();
+          return {
+            id: `provider_day:${r.id}`,
+            kind: 'provider_day',
+            created_at: r.created_at,
+            title: 'Provider added to day',
+            message: day ? `${providerName}: ${day}` : `${providerName}: added`,
+            actor_name: actor || null
+          };
+        });
+      }
+    } catch {
+      providerDayAdded = [];
+    }
+
+    // Documents/links added
+    let docsLinks = [];
+    try {
+      if (!allowDocsLinks) {
+        docsLinks = [];
+      } else {
+        let phiItems = [];
+        if (!providerUserId || providerClientIds.length > 0) {
+          const docParams = providerUserId && providerClientIds.length > 0 ? [orgId, ...providerClientIds] : [orgId];
+          const docFilter = providerUserId ? `AND c.id IN (${providerClientPlaceholders})` : '';
+          const [phiRows] = await pool.execute(
+            `SELECT
+               d.id,
+               d.client_id,
+               d.original_name,
+               d.uploaded_at,
+               c.initials,
+               c.identifier_code,
+               u.first_name,
+               u.last_name
+             FROM client_phi_documents d
+             JOIN clients c ON c.id = d.client_id
+             JOIN client_organization_assignments coa
+               ON coa.client_id = d.client_id
+              AND coa.organization_id = ?
+              AND coa.is_active = TRUE
+             LEFT JOIN users u ON u.id = d.uploaded_by_user_id
+             WHERE 1=1
+             ${docFilter}
+             ORDER BY d.uploaded_at DESC, d.id DESC
+             LIMIT 200`,
+            docParams
+          );
+          phiItems = (phiRows || []).map((r) => {
+          const actor = [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim();
+          const clientLabel = String(r.identifier_code || r.initials || '—');
+          const name = String(r.original_name || '').trim() || 'document';
+          return {
+            id: `doc:${r.id}`,
+            kind: 'doc',
+            created_at: r.uploaded_at,
+            title: 'New document added',
+            message: `${clientLabel}: ${name}`,
+            actor_name: actor || null,
+            client_id: Number(r.client_id),
+            client_initials: r.initials || null,
+            client_identifier_code: r.identifier_code || null
+          };
+          });
+        }
+
+        const [pubRows] = await pool.execute(
+          `SELECT
+             d.id,
+             d.title,
+             d.link_url,
+             d.created_at,
+             u.first_name,
+             u.last_name
+           FROM school_public_documents d
+           LEFT JOIN users u ON u.id = d.uploaded_by_user_id
+           WHERE d.school_organization_id = ?
+           ORDER BY d.created_at DESC, d.id DESC
+           LIMIT 200`,
+          [orgId]
+        );
+        const pubItems = (pubRows || []).map((r) => {
+          const actor = [String(r.first_name || '').trim(), String(r.last_name || '').trim()].filter(Boolean).join(' ').trim();
+          const isLink = !!String(r.link_url || '').trim();
+          return {
+            id: `public_doc:${r.id}`,
+            kind: 'doc',
+            created_at: r.created_at,
+            title: isLink ? 'New link added' : 'New document added',
+            message: String(r.title || '').trim() || (isLink ? 'Link added' : 'Document added'),
+            actor_name: actor || null
+          };
+        });
+
+        docsLinks = [...phiItems, ...pubItems];
+      }
+    } catch {
+      docsLinks = [];
+    }
+
+    const all = [
+      ...announcements,
+      ...events,
+      ...checklistUpdates,
+      ...statusChanges,
+      ...assignmentChanges,
+      ...comments,
+      ...messages,
+      ...ticketActivity,
+      ...clientCreated,
+      ...providerSlots,
+      ...docsLinks,
+      ...providerDayAdded
+    ].sort((a, b) => {
       const at = new Date(a.created_at || 0).getTime();
       const bt = new Date(b.created_at || 0).getTime();
       if (at !== bt) return bt - at;
@@ -1609,6 +2337,47 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     });
 
     res.json(all.slice(0, 500));
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Mark school portal notifications as read for the current user.
+ * POST /api/school-portal/:organizationId/notifications/read
+ * body: { kind?: string, clientId?: number }
+ */
+export const markSchoolPortalNotificationsRead = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const kindRaw = String(req.body?.kind || '').trim().toLowerCase();
+    const normalizedKind = kindRaw === 'all' ? '' : kindRaw;
+    const clientIdRaw = req.body?.clientId ?? req.body?.client_id ?? null;
+    const clientId = clientIdRaw ? parseInt(clientIdRaw, 10) : null;
+    const nowIso = new Date().toISOString();
+
+    let progress = await getUserNotificationsProgress(userId);
+    if (!normalizedKind && !clientId) {
+      progress = setLastSeenByOrg(progress, orgId, nowIso);
+    } else if (normalizedKind && clientId) {
+      progress = setLastSeenByOrgClientKind(progress, orgId, clientId, normalizedKind, nowIso);
+    } else if (normalizedKind) {
+      progress = setLastSeenByOrgKind(progress, orgId, normalizedKind, nowIso);
+    }
+
+    await UserPreferences.update(userId, { school_portal_notifications_progress: progress });
+    res.json({ ok: true, progress });
   } catch (e) {
     next(e);
   }

@@ -41,6 +41,9 @@ async function getSchoolPortalNotificationsProgress(userId) {
     );
     const raw = rows?.[0]?.school_portal_notifications_progress ?? null;
     const parsed = parseJsonMaybe(raw) || raw;
+    if (parsed && typeof parsed === 'object' && parsed.by_org) {
+      return parsed.by_org || {};
+    }
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
@@ -110,10 +113,14 @@ export const getSchoolOverview = async (req, res, next) => {
         district_name: null,
         school_state: s?.state || null,
         clients_current: 0,
+        clients_packet: 0,
+        clients_screener: 0,
         clients_assigned: 0,
         providers_count: 0,
         provider_days: 0,
         notifications_count: 0,
+        notifications_comments_count: 0,
+        notifications_messages_count: 0,
         slots_total: 0,
         slots_used: 0,
         slots_available: 0,
@@ -280,6 +287,8 @@ export const getSchoolOverview = async (req, res, next) => {
         `SELECT
            coa.organization_id AS school_id,
            SUM(CASE WHEN cs.status_key = 'current' THEN 1 ELSE 0 END) AS clients_current,
+           SUM(CASE WHEN cs.status_key = 'packet' THEN 1 ELSE 0 END) AS clients_packet,
+           SUM(CASE WHEN cs.status_key = 'screener' THEN 1 ELSE 0 END) AS clients_screener,
            SUM(CASE WHEN cs.status_key = 'waitlist' THEN 1 ELSE 0 END) AS waitlist_count
          FROM client_organization_assignments coa
          JOIN clients c ON c.id = coa.client_id
@@ -295,6 +304,8 @@ export const getSchoolOverview = async (req, res, next) => {
         const target = bySchoolId.get(sid);
         if (!target) continue;
         target.clients_current = Number(r?.clients_current || 0);
+        target.clients_packet = Number(r?.clients_packet || 0);
+        target.clients_screener = Number(r?.clients_screener || 0);
         target.waitlist_count = Number(r?.waitlist_count || 0);
       }
 
@@ -335,6 +346,8 @@ export const getSchoolOverview = async (req, res, next) => {
           `SELECT
              c.organization_id AS school_id,
              SUM(CASE WHEN cs.status_key = 'current' THEN 1 ELSE 0 END) AS clients_current,
+             SUM(CASE WHEN cs.status_key = 'packet' THEN 1 ELSE 0 END) AS clients_packet,
+             SUM(CASE WHEN cs.status_key = 'screener' THEN 1 ELSE 0 END) AS clients_screener,
              SUM(CASE WHEN cs.status_key = 'waitlist' THEN 1 ELSE 0 END) AS waitlist_count,
              SUM(
                CASE
@@ -357,6 +370,8 @@ export const getSchoolOverview = async (req, res, next) => {
           const target = bySchoolId.get(sid);
           if (!target) continue;
           target.clients_current = Number(r?.clients_current || 0);
+          target.clients_packet = Number(r?.clients_packet || 0);
+          target.clients_screener = Number(r?.clients_screener || 0);
           target.waitlist_count = Number(r?.waitlist_count || 0);
           target.docs_needs_count = Number(r?.docs_needs_count || 0);
         }
@@ -515,6 +530,9 @@ export const getSchoolOverview = async (req, res, next) => {
           [...lastSeen.params, ...schoolIds]
         );
         addNotificationCounts(rows);
+        addCountMap(rows, 'school_id', 'count', (t, v) => {
+          t.notifications_comments_count = Number(t.notifications_comments_count || 0) + Number(v || 0);
+        });
       } catch (e) {
         if (!isMissingSchemaError(e)) throw e;
       }
@@ -535,6 +553,9 @@ export const getSchoolOverview = async (req, res, next) => {
           [...lastSeen.params, ...schoolIds]
         );
         addNotificationCounts(rows);
+        addCountMap(rows, 'school_id', 'count', (t, v) => {
+          t.notifications_messages_count = Number(t.notifications_messages_count || 0) + Number(v || 0);
+        });
       } catch (e) {
         if (!isMissingSchemaError(e)) throw e;
       }

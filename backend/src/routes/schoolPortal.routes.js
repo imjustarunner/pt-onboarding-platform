@@ -12,6 +12,7 @@ import {
   listClientComments,
   createClientComment,
   listSchoolPortalNotificationsFeed,
+  markSchoolPortalNotificationsRead,
   listSchoolPortalBannerAnnouncements,
   createSchoolPortalAnnouncement
 } from '../controllers/schoolPortal.controller.js';
@@ -68,6 +69,7 @@ router.put('/:organizationId/clients/:clientId/waitlist-note', authenticate, ups
 router.get('/:organizationId/clients/:clientId/comments', authenticate, listClientComments);
 router.post('/:organizationId/clients/:clientId/comments', authenticate, createClientComment);
 router.get('/:organizationId/notifications/feed', authenticate, listSchoolPortalNotificationsFeed);
+router.post('/:organizationId/notifications/read', authenticate, markSchoolPortalNotificationsRead);
 router.get('/:organizationId/announcements/banner', authenticate, listSchoolPortalBannerAnnouncements);
 router.post('/:organizationId/announcements', authenticate, createSchoolPortalAnnouncement);
 router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);

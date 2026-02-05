@@ -639,6 +639,7 @@
               v-if="organizationId"
               :school-organization-id="organizationId"
               :client-label-mode="clientLabelMode"
+              :initial-filter="notificationsFilter"
               @close="portalMode = 'home'"
               @updated="onNotificationsUpdated"
             />
@@ -923,6 +924,12 @@ const adminClientLoading = ref(false);
 const cardIconOrg = ref(null); // affiliated agency record (for School Portal card icon overrides)
 
 const requestedPortalMode = computed(() => String(route.query?.sp || '').trim().toLowerCase());
+const notificationsFilter = computed(() => String(route.query?.notif || '').trim().toLowerCase());
+const requestedClientId = computed(() => {
+  const raw = route.query?.clientId ?? route.query?.client_id ?? '';
+  const n = Number.parseInt(String(raw || ''), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+});
 
 const applyRequestedPortalMode = async (mode) => {
   const m = String(mode || '').trim().toLowerCase();
@@ -1059,6 +1066,13 @@ const loadNotificationsPreview = async () => {
 
 const openNotificationsPanel = async () => {
   portalMode.value = 'notifications';
+  const nextQuery = { ...(route.query || {}), sp: 'notifications' };
+  delete nextQuery.notif;
+  try {
+    await router.replace({ query: nextQuery });
+  } catch {
+    // ignore navigation failures
+  }
   // Preview will be refreshed by the panel itself on open/mark seen, but keep badge responsive.
   await Promise.all([loadNotificationsPreview(), loadBannerAnnouncements()]);
 };
@@ -1345,6 +1359,22 @@ const openClient = (client) => {
   selectedClient.value = client;
 };
 
+const openClientFromQuery = async () => {
+  if (!organizationId.value || !requestedClientId.value) return;
+  try {
+    const r = await api.get(`/school-portal/${organizationId.value}/clients`, {
+      params: { clientId: requestedClientId.value }
+    });
+    const list = Array.isArray(r.data) ? r.data : [];
+    const found = list.find((c) => Number(c?.id) === Number(requestedClientId.value));
+    if (found) {
+      selectedClient.value = found;
+    }
+  } catch {
+    // ignore
+  }
+};
+
 const openAdminClientEditor = async (client) => {
   if (!client?.id) return;
   adminClientLoading.value = true;
@@ -1410,6 +1440,7 @@ onMounted(async () => {
     await loadNotificationsPreview();
     await loadBannerAnnouncements();
     if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
+    await openClientFromQuery();
   }
 
   // Best-effort: resolve active affiliated agency for icon overrides + settings button.
@@ -1431,6 +1462,7 @@ watch(organizationId, async (id) => {
   await loadNotificationsPreview();
   await loadBannerAnnouncements();
   if (portalMode.value === 'days' && store.selectedWeekday) await loadForDay(store.selectedWeekday);
+  await openClientFromQuery();
 
   await ensureAffiliation();
 });

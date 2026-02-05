@@ -50,7 +50,7 @@ describe('SchoolNotificationsPanel', () => {
     vi.useRealTimers();
   });
 
-  it('marks notifications as seen on open', async () => {
+  it('does not mark notifications as seen on open', async () => {
     const wrapper = mount(SchoolNotificationsPanel, {
       props: { schoolOrganizationId: 123 },
       global: { plugins: [pinia] }
@@ -65,14 +65,21 @@ describe('SchoolNotificationsPanel', () => {
     // Admins can create announcements.
     expect(wrapper.text()).toContain('Create announcement');
 
-    // Panel should have marked as seen now.
-    expect(api.put).toHaveBeenCalled();
-    const lastCall = api.put.mock.calls[api.put.mock.calls.length - 1];
-    expect(lastCall?.[0]).toBe('/users/5/preferences');
-    expect(lastCall?.[1]?.school_portal_notifications_progress?.['123']).toBe('2026-01-10T12:00:00.000Z');
+    // Panel should not mark as seen automatically.
+    expect(api.post).not.toHaveBeenCalled();
 
-    // Items should no longer be unread after markSeenNow().
-    expect(wrapper.findAll('.item.unread').length).toBe(0);
+    // Items should still be unread.
+    expect(wrapper.findAll('.item.unread').length).toBeGreaterThan(0);
+
+    // Mark all read should update preferences.
+    const buttons = wrapper.findAll('button');
+    const markBtn = buttons.find((btn) => btn.text().includes('Mark all read'));
+    expect(markBtn).toBeTruthy();
+    await markBtn.trigger('click');
+    await nextTick();
+    expect(api.post).toHaveBeenCalled();
+    const lastCall = api.post.mock.calls[api.post.mock.calls.length - 1];
+    expect(lastCall?.[0]).toBe('/school-portal/123/notifications/read');
   });
 });
 

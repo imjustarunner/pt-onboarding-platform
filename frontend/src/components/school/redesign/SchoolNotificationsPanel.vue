@@ -56,6 +56,89 @@
       <button class="btn btn-secondary btn-sm" type="button" @click="refresh" :disabled="loading">
         {{ loading ? 'Refreshing…' : 'Refresh' }}
       </button>
+      <button class="btn btn-secondary btn-sm" type="button" @click="markAllRead" :disabled="loading || prefsLoading">
+        Mark all read
+      </button>
+      <div class="toolbar-divider" />
+      <div class="filter-group" role="group" aria-label="Notification filters">
+        <button class="filter-btn" type="button" :class="{ active: activeFilter === 'all' }" @click="setFilter('all')">
+          Show all
+        </button>
+        <button class="filter-btn" type="button" :class="{ active: activeFilter === 'message' }" @click="setFilter('message')">
+          Messages
+        </button>
+        <button class="filter-btn" type="button" :class="{ active: activeFilter === 'comment' }" @click="setFilter('comment')">
+          Comments
+        </button>
+        <button class="filter-btn" type="button" :class="{ active: activeFilter === 'announcement' }" @click="setFilter('announcement')">
+          Announcements
+        </button>
+        <button class="filter-btn" type="button" :class="{ active: activeFilter === 'ticket' }" @click="setFilter('ticket')">
+          Tickets
+        </button>
+        <button class="filter-btn" type="button" :class="{ active: activeFilter === 'checklist' }" @click="setFilter('checklist')">
+          Checklist
+        </button>
+      </div>
+      <div class="toolbar-divider" />
+      <label class="selector">
+        <span class="selector-label">Sort</span>
+        <select v-model="sortOrder" class="selector-select">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+        </select>
+      </label>
+      <div v-if="activeFilter === 'all'" class="selector-box" role="group" aria-label="Show notification types">
+        <div class="selector-title">Show</div>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.client_event" />
+          Updates
+        </label>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.message" />
+          Messages
+        </label>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.comment" />
+          Comments
+        </label>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.announcement" />
+          Announcements
+        </label>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.ticket" />
+          Tickets
+        </label>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.checklist" />
+          Checklist
+        </label>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.status" />
+          Status
+        </label>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.assignment" />
+          Assignments
+        </label>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.client_created" />
+          New clients
+        </label>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.provider_slots" />
+          Provider slots
+        </label>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.provider_day" />
+          Provider day added
+        </label>
+        <label class="selector-option">
+          <input type="checkbox" v-model="visibleKinds.doc" />
+          Docs/links
+        </label>
+      </div>
       <div class="spacer" />
       <div class="muted-small" v-if="unreadCount > 0">
         {{ unreadCount }} unread
@@ -66,9 +149,9 @@
     <div v-else-if="error" class="error">{{ error }}</div>
 
     <div v-else class="feed">
-      <div v-if="items.length === 0" class="empty">No notifications yet.</div>
+      <div v-if="filteredItems.length === 0" class="empty">{{ emptyText }}</div>
       <button
-        v-for="it in items"
+        v-for="it in filteredItems"
         :key="it.id"
         class="item"
         type="button"
@@ -116,26 +199,113 @@
           These control which client notifications show in this School Portal notifications feed.
         </div>
 
-        <label class="toggle">
-          <input type="checkbox" v-model="settings.clientUpdates" :disabled="savingSettings" />
-          <span class="toggle-label">Client updates</span>
-        </label>
+        <div class="settings-section">
+          <div class="settings-title">Announcements</div>
+          <label class="toggle">
+            <input type="checkbox" v-model="settings.announcements" :disabled="savingSettings" />
+            <span class="toggle-label">School announcements</span>
+          </label>
+        </div>
 
-        <label class="toggle" style="padding-left: 18px;">
-          <input type="checkbox" v-model="settings.orgSwaps" :disabled="savingSettings || !settings.clientUpdates" />
-          <span class="toggle-label">Organization changes</span>
-          <span class="muted-small" style="margin-left: 8px;">(organization_id swapped)</span>
-        </label>
+        <div class="settings-section">
+          <div class="settings-title">Tickets</div>
+          <label class="toggle">
+            <input type="checkbox" v-model="settings.tickets" :disabled="savingSettings" />
+            <span class="toggle-label">Ticket activity</span>
+          </label>
+        </div>
 
-        <label class="toggle">
-          <input type="checkbox" v-model="settings.clientComments" :disabled="savingSettings" />
-          <span class="toggle-label">Client comments</span>
-        </label>
+        <div class="settings-section">
+          <div class="settings-title">Client intake</div>
+          <label class="toggle">
+            <input type="checkbox" v-model="settings.clientCreated" :disabled="savingSettings" />
+            <span class="toggle-label">New client added</span>
+          </label>
+        </div>
 
-        <label class="toggle">
-          <input type="checkbox" v-model="settings.clientMessages" :disabled="savingSettings" />
-          <span class="toggle-label">Client messages</span>
-        </label>
+        <div class="settings-section">
+          <div class="settings-title">Providers</div>
+          <label class="toggle">
+            <input type="checkbox" v-model="settings.providerSlots" :disabled="savingSettings" />
+            <span class="toggle-label">Provider slots added/closed</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" v-model="settings.providerDayAdded" :disabled="savingSettings" />
+            <span class="toggle-label">Provider added to day</span>
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-title">Documents</div>
+          <label class="toggle">
+            <input type="checkbox" v-model="settings.docsLinks" :disabled="savingSettings" />
+            <span class="toggle-label">New document/link added</span>
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-title">Client updates</div>
+          <label class="toggle">
+            <input type="checkbox" v-model="settings.clientUpdates" :disabled="savingSettings" />
+            <span class="toggle-label">All client updates</span>
+          </label>
+          <label class="toggle settings-subtoggle">
+            <input type="checkbox" v-model="settings.statusUpdates" :disabled="savingSettings || !settings.clientUpdates" />
+            <span class="toggle-label">Status changes</span>
+          </label>
+          <label class="toggle settings-subtoggle">
+            <input type="checkbox" v-model="settings.providerUpdates" :disabled="savingSettings || !settings.clientUpdates" />
+            <span class="toggle-label">Provider assignment changes</span>
+          </label>
+          <label class="toggle settings-subtoggle">
+            <input type="checkbox" v-model="settings.serviceDayUpdates" :disabled="savingSettings || !settings.clientUpdates" />
+            <span class="toggle-label">Service day changes</span>
+          </label>
+          <label class="toggle settings-subtoggle">
+            <input type="checkbox" v-model="settings.submissionDateUpdates" :disabled="savingSettings || !settings.clientUpdates" />
+            <span class="toggle-label">Submission date changes</span>
+          </label>
+          <label class="toggle settings-subtoggle">
+            <input type="checkbox" v-model="settings.documentDateUpdates" :disabled="savingSettings || !settings.clientUpdates" />
+            <span class="toggle-label">Document date changes</span>
+          </label>
+          <label class="toggle settings-subtoggle">
+            <input type="checkbox" v-model="settings.orgSwaps" :disabled="savingSettings || !settings.clientUpdates" />
+            <span class="toggle-label">Organization changes</span>
+          </label>
+          <label class="toggle settings-subtoggle">
+            <input type="checkbox" v-model="settings.otherUpdates" :disabled="savingSettings || !settings.clientUpdates" />
+            <span class="toggle-label">Other client updates</span>
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-title">Checklist</div>
+          <label class="toggle">
+            <input type="checkbox" v-model="settings.checklistUpdates" :disabled="savingSettings" />
+            <span class="toggle-label">Checklist updates</span>
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-title">Assignments</div>
+          <label class="toggle">
+            <input type="checkbox" v-model="settings.assignments" :disabled="savingSettings" />
+            <span class="toggle-label">Client assigned to provider</span>
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-title">Client activity</div>
+          <label class="toggle">
+            <input type="checkbox" v-model="settings.clientComments" :disabled="savingSettings" />
+            <span class="toggle-label">Client comments</span>
+          </label>
+          <label class="toggle">
+            <input type="checkbox" v-model="settings.clientMessages" :disabled="savingSettings" />
+            <span class="toggle-label">Client messages</span>
+          </label>
+        </div>
 
         <div style="display:flex; gap: 10px; margin-top: 14px; align-items:center;">
           <button class="btn btn-primary" type="button" @click="saveSettings" :disabled="savingSettings">
@@ -156,7 +326,8 @@ import { useAuthStore } from '../../../store/auth';
 
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
-  clientLabelMode: { type: String, default: 'codes' } // 'codes' | 'initials'
+  clientLabelMode: { type: String, default: 'codes' }, // 'codes' | 'initials'
+  initialFilter: { type: String, default: '' }
 });
 
 const emit = defineEmits(['close', 'updated']);
@@ -169,9 +340,93 @@ const canCreateAnnouncements = computed(() => !!authStore.user?.id);
 const loading = ref(false);
 const error = ref('');
 const items = ref([]);
+const activeFilter = ref('all');
+const sortOrder = ref('newest');
+const visibleKinds = ref({
+  client_event: true,
+  message: true,
+  comment: true,
+  announcement: true,
+  ticket: true,
+  checklist: true,
+  status: true,
+  assignment: true,
+  client_created: true,
+  provider_slots: true,
+  provider_day: true,
+  doc: true
+});
+
+const normalizeFilter = (raw) => {
+  const v = String(raw || '').trim().toLowerCase();
+  if (v === 'comments' || v === 'comment') return 'comment';
+  if (v === 'messages' || v === 'message') return 'message';
+  if (v === 'announcements' || v === 'announcement') return 'announcement';
+  if (v === 'tickets' || v === 'ticket') return 'ticket';
+  if (v === 'checklist' || v === 'checklists') return 'checklist';
+  return 'all';
+};
+
+const setFilter = (next) => {
+  activeFilter.value = normalizeFilter(next);
+};
+
+const sortedItems = computed(() => {
+  const list = items.value || [];
+  const dir = sortOrder.value === 'oldest' ? 1 : -1;
+  return list.slice().sort((a, b) => {
+    const at = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const bt = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    if (at !== bt) return (at - bt) * dir;
+    return String(a?.id || '').localeCompare(String(b?.id || '')) * dir;
+  });
+});
+
+const filteredItems = computed(() => {
+  const list = sortedItems.value || [];
+  if (activeFilter.value !== 'all') {
+    if (activeFilter.value === 'ticket') {
+      return list.filter((it) => {
+        const kind = String(it?.kind || '').toLowerCase();
+        const category = String(it?.category || '').toLowerCase();
+        return kind === 'ticket' || category === 'ticket';
+      });
+    }
+    return list.filter((it) => String(it?.kind || '').toLowerCase() === activeFilter.value);
+  }
+  return list.filter((it) => {
+    const k = String(it?.kind || '').toLowerCase();
+    const category = String(it?.category || '').toLowerCase();
+    if (category === 'ticket') return !!visibleKinds.value.ticket;
+    if (k === 'client_event') return !!visibleKinds.value.client_event;
+    if (k === 'message') return !!visibleKinds.value.message;
+    if (k === 'comment') return !!visibleKinds.value.comment;
+    if (k === 'announcement') return !!visibleKinds.value.announcement;
+    if (k === 'ticket') return !!visibleKinds.value.ticket;
+    if (k === 'checklist') return !!visibleKinds.value.checklist;
+    if (k === 'status') return !!visibleKinds.value.status;
+    if (k === 'assignment') return !!visibleKinds.value.assignment;
+    if (k === 'client_created') return !!visibleKinds.value.client_created;
+    if (k === 'provider_slots') return !!visibleKinds.value.provider_slots;
+    if (k === 'provider_day') return !!visibleKinds.value.provider_day;
+    if (k === 'doc') return !!visibleKinds.value.doc;
+    return true;
+  });
+});
+
+const emptyText = computed(() => {
+  if (activeFilter.value === 'comment') return 'No new comments yet.';
+  if (activeFilter.value === 'message') return 'No new messages yet.';
+  if (activeFilter.value === 'announcement') return 'No announcements yet.';
+  if (activeFilter.value === 'ticket') return 'No ticket activity yet.';
+  if (activeFilter.value === 'checklist') return 'No checklist updates yet.';
+  return 'No notifications yet.';
+});
 
 const prefsLoading = ref(false);
-const lastSeenIso = ref(''); // for this org
+const lastSeenOrg = ref(''); // for this org
+const lastSeenByKind = ref({});
+const lastSeenByClientKind = ref({});
 
 const parseJsonMaybe = (v) => {
   if (!v) return null;
@@ -189,11 +444,31 @@ const savingSettings = ref(false);
 const settingsSaved = ref(false);
 const settingsError = ref('');
 const settings = ref({
+  announcements: true,
+  tickets: true,
+  clientCreated: true,
+  providerSlots: true,
+  providerDayAdded: true,
+  docsLinks: true,
+  checklistUpdates: true,
   clientUpdates: true,
+  statusUpdates: true,
+  providerUpdates: true,
+  serviceDayUpdates: true,
+  submissionDateUpdates: true,
+  documentDateUpdates: true,
   orgSwaps: true,
+  otherUpdates: true,
+  assignments: true,
   clientComments: true,
   clientMessages: true
 });
+
+const normalizeProgress = (raw) => {
+  if (raw && typeof raw === 'object' && raw.by_org) return raw;
+  const legacy = raw && typeof raw === 'object' ? raw : {};
+  return { by_org: legacy, by_org_kind: {}, by_org_client_kind: {} };
+};
 
 const loadLastSeen = async () => {
   try {
@@ -202,12 +477,15 @@ const loadLastSeen = async () => {
     prefsLoading.value = true;
     const pref = (await api.get(`/users/${uid}/preferences`)).data || {};
     const raw = pref.school_portal_notifications_progress;
-    const m = parseJsonMaybe(raw) || raw;
+    const m = normalizeProgress(parseJsonMaybe(raw) || raw);
     const key = String(props.schoolOrganizationId);
-    const v = m && typeof m === 'object' ? String(m[key] || '') : '';
-    lastSeenIso.value = v;
+    lastSeenOrg.value = String(m?.by_org?.[key] || '');
+    lastSeenByKind.value = m?.by_org_kind?.[key] || {};
+    lastSeenByClientKind.value = m?.by_org_client_kind?.[key] || {};
   } catch {
-    lastSeenIso.value = '';
+    lastSeenOrg.value = '';
+    lastSeenByKind.value = {};
+    lastSeenByClientKind.value = {};
   } finally {
     prefsLoading.value = false;
   }
@@ -232,8 +510,22 @@ const openSettings = async () => {
   showSettings.value = true;
   const cats = await loadCategories();
   settings.value = {
+    announcements: cats.school_portal_announcements !== false,
+    tickets: cats.school_portal_ticket_activity !== false,
+    clientCreated: cats.school_portal_client_created !== false,
+    providerSlots: cats.school_portal_provider_slots !== false,
+    providerDayAdded: cats.school_portal_provider_day_added !== false,
+    docsLinks: cats.school_portal_docs_links !== false,
+    checklistUpdates: cats.school_portal_checklist_updates !== false,
     clientUpdates: cats.school_portal_client_updates !== false,
+    statusUpdates: cats.school_portal_client_update_status !== false,
+    providerUpdates: cats.school_portal_client_update_provider !== false,
+    serviceDayUpdates: cats.school_portal_client_update_service_day !== false,
+    submissionDateUpdates: cats.school_portal_client_update_submission_date !== false,
+    documentDateUpdates: cats.school_portal_client_update_document_date !== false,
     orgSwaps: cats.school_portal_client_update_org_swaps !== false,
+    otherUpdates: cats.school_portal_client_update_other !== false,
+    assignments: cats.school_portal_client_assignments !== false,
     clientComments: cats.school_portal_client_comments !== false,
     clientMessages: cats.school_portal_client_messages !== false
   };
@@ -255,8 +547,22 @@ const saveSettings = async () => {
 
     const existing = await loadCategories();
     const next = { ...(existing || {}) };
+    next.school_portal_announcements = !!settings.value.announcements;
+    next.school_portal_ticket_activity = !!settings.value.tickets;
+    next.school_portal_client_created = !!settings.value.clientCreated;
+    next.school_portal_provider_slots = !!settings.value.providerSlots;
+    next.school_portal_provider_day_added = !!settings.value.providerDayAdded;
+    next.school_portal_docs_links = !!settings.value.docsLinks;
+    next.school_portal_checklist_updates = !!settings.value.checklistUpdates;
     next.school_portal_client_updates = !!settings.value.clientUpdates;
+    next.school_portal_client_update_status = !!settings.value.statusUpdates;
+    next.school_portal_client_update_provider = !!settings.value.providerUpdates;
+    next.school_portal_client_update_service_day = !!settings.value.serviceDayUpdates;
+    next.school_portal_client_update_submission_date = !!settings.value.submissionDateUpdates;
+    next.school_portal_client_update_document_date = !!settings.value.documentDateUpdates;
     next.school_portal_client_update_org_swaps = !!settings.value.orgSwaps;
+    next.school_portal_client_update_other = !!settings.value.otherUpdates;
+    next.school_portal_client_assignments = !!settings.value.assignments;
     next.school_portal_client_comments = !!settings.value.clientComments;
     next.school_portal_client_messages = !!settings.value.clientMessages;
 
@@ -274,26 +580,22 @@ const saveSettings = async () => {
   }
 };
 
-const markSeenNow = async () => {
+const markRead = async ({ kind, clientId } = {}) => {
   try {
-    const uid = authStore.user?.id;
-    if (!uid) return;
-    const nowIso = new Date().toISOString();
-
-    // Merge with existing map (best-effort).
-    const pref = (await api.get(`/users/${uid}/preferences`)).data || {};
-    const raw = pref.school_portal_notifications_progress;
-    const m = parseJsonMaybe(raw) || raw;
-    const next = (m && typeof m === 'object') ? { ...m } : {};
-    next[String(props.schoolOrganizationId)] = nowIso;
-
-    await api.put(`/users/${uid}/preferences`, {
-      school_portal_notifications_progress: next
+    if (!props.schoolOrganizationId) return;
+    await api.post(`/school-portal/${props.schoolOrganizationId}/notifications/read`, {
+      kind: kind || undefined,
+      clientId: clientId || undefined
     });
-    lastSeenIso.value = nowIso;
+    await loadLastSeen();
   } catch {
     // ignore (should never block viewing)
   }
+};
+
+const markAllRead = async () => {
+  await markRead({ kind: 'all' });
+  emit('updated');
 };
 
 const fetchFeed = async () => {
@@ -317,21 +619,35 @@ const refresh = async () => {
   emit('updated');
 };
 
-const lastSeenMs = computed(() => {
+const toMs = (v) => {
   try {
-    const t = lastSeenIso.value ? new Date(lastSeenIso.value).getTime() : 0;
+    const t = v ? new Date(v).getTime() : 0;
     return Number.isFinite(t) ? t : 0;
   } catch {
     return 0;
   }
-});
+};
+
+const lastSeenMs = computed(() => toMs(lastSeenOrg.value));
+
+const lastSeenForItem = (it) => {
+  const kind = String(it?.kind || '').toLowerCase();
+  const clientId = it?.client_id ? String(it.client_id) : '';
+  if (clientId) {
+    const byClient = lastSeenByClientKind.value?.[clientId] || {};
+    if (byClient?.[kind]) return toMs(byClient[kind]);
+  }
+  if (lastSeenByKind.value?.[kind]) return toMs(lastSeenByKind.value[kind]);
+  return lastSeenMs.value;
+};
 
 const isUnread = (it) => {
   const t = it?.created_at ? new Date(it.created_at).getTime() : 0;
-  return Number.isFinite(t) && t > lastSeenMs.value;
+  const lastSeen = lastSeenForItem(it);
+  return Number.isFinite(t) && t > lastSeen;
 };
 
-const unreadCount = computed(() => (items.value || []).filter(isUnread).length);
+const unreadCount = computed(() => (filteredItems.value || []).filter(isUnread).length);
 
 const isClickable = (it) => {
   const kind = String(it?.kind || '').toLowerCase();
@@ -397,10 +713,12 @@ const showDetail = ({ title, meta, text }) => {
 };
 
 const handleItemClick = async (it) => {
-  if (!isClickable(it)) return;
   const kind = String(it?.kind || '').toLowerCase();
-  const orgId = Number(props.schoolOrganizationId || 0);
   const clientId = Number(it?.client_id || 0);
+  await markRead({ kind, clientId: clientId || null });
+
+  if (!isClickable(it)) return;
+  const orgId = Number(props.schoolOrganizationId || 0);
   if (!orgId || !clientId) return;
 
   detailOpen.value = true;
@@ -519,9 +837,18 @@ watch(
   async () => {
     items.value = [];
     error.value = '';
-    lastSeenIso.value = '';
+    lastSeenOrg.value = '';
+    lastSeenByKind.value = {};
+    lastSeenByClientKind.value = {};
     await refresh();
-    await markSeenNow();
+  },
+  { immediate: true }
+);
+
+watch(
+  () => props.initialFilter,
+  (next) => {
+    activeFilter.value = normalizeFilter(next);
   },
   { immediate: true }
 );
@@ -554,9 +881,95 @@ watch(
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 .spacer {
   flex: 1;
+}
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+}
+.filter-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.filter-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.filter-btn.active {
+  background: rgba(14, 165, 233, 0.12);
+  border-color: rgba(14, 165, 233, 0.5);
+  color: #0369a1;
+}
+.selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+.selector-select {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  background: white;
+  font-size: 12px;
+  font-weight: 700;
+}
+.selector-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt);
+  flex-wrap: wrap;
+}
+.selector-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+.selector-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.settings-section {
+  padding: 8px 0 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+.settings-section:first-of-type {
+  border-top: none;
+  margin-top: 0;
+}
+.settings-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.settings-subtoggle {
+  padding-left: 18px;
 }
 
 .modal-overlay {
@@ -627,8 +1040,9 @@ watch(
   cursor: default;
 }
 .item.unread {
-  border-color: rgba(47, 143, 131, 0.45);
-  background: rgba(47, 143, 131, 0.08);
+  border-color: rgba(14, 165, 233, 0.55);
+  background: rgba(14, 165, 233, 0.12);
+  box-shadow: inset 3px 0 0 rgba(14, 165, 233, 0.6);
 }
 .item.clickable {
   cursor: pointer;

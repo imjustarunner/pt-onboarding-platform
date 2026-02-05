@@ -81,6 +81,22 @@ async function ensureOrgAccess(req, schoolOrganizationId) {
   return { ok: true, org, schoolOrganizationId: sid };
 }
 
+async function ensureAgencyAccess(req, agencyId) {
+  const aid = parseInt(agencyId, 10);
+  if (!aid) return { ok: false, status: 400, message: 'Invalid agencyId' };
+
+  const agency = await Agency.findById(aid);
+  if (!agency) return { ok: false, status: 404, message: 'Agency not found' };
+
+  if (req.user?.role !== 'super_admin') {
+    const agencies = await User.getAgencies(req.user.id);
+    const hasAccess = (agencies || []).some((a) => parseInt(a.id, 10) === aid);
+    if (!hasAccess) return { ok: false, status: 403, message: 'Access denied' };
+  }
+
+  return { ok: true, agency, agencyId: aid };
+}
+
 async function ensureClientInOrg({ clientId, schoolOrganizationId }) {
   const cid = parseInt(clientId, 10);
   const sid = parseInt(schoolOrganizationId, 10);
@@ -165,8 +181,10 @@ export const listMySupportTickets = async (req, res, next) => {
 
 export const listSupportTicketsQueue = async (req, res, next) => {
   try {
-    if (!isAgencyAdminUser(req)) {
-      return res.status(403).json({ error: { message: 'Only admin/support can view the support ticket queue' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canView) {
+      return res.status(403).json({ error: { message: 'Only staff/admin/support can view the support ticket queue' } });
     }
 
     const schoolOrganizationId = req.query?.schoolOrganizationId ? parseInt(req.query.schoolOrganizationId, 10) : null;
@@ -487,6 +505,10 @@ export const listSupportTicketMessages = async (req, res, next) => {
     const access = await ensureOrgAccess(req, ticket.school_organization_id);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
+    const role = String(req.user?.role || '').toLowerCase();
+    const canView = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
+
     if (!(await hasSupportTicketMessagesTable())) {
       return res.json({ ticket, messages: [] });
     }
@@ -747,8 +769,10 @@ export const answerSupportTicket = async (req, res, next) => {
 
 export const claimSupportTicket = async (req, res, next) => {
   try {
-    if (!isAgencyAdminUser(req)) {
-      return res.status(403).json({ error: { message: 'Only admin/support can claim support tickets' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    const canClaim = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canClaim) {
+      return res.status(403).json({ error: { message: 'Only staff/admin/support can claim support tickets' } });
     }
 
     const ticketId = parseInt(req.params.id, 10);
@@ -790,8 +814,10 @@ export const claimSupportTicket = async (req, res, next) => {
 
 export const unclaimSupportTicket = async (req, res, next) => {
   try {
-    if (!isAgencyAdminUser(req)) {
-      return res.status(403).json({ error: { message: 'Only admin/support can unclaim support tickets' } });
+    const role = String(req.user?.role || '').toLowerCase();
+    const canUnclaim = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canUnclaim) {
+      return res.status(403).json({ error: { message: 'Only staff/admin/support can unclaim support tickets' } });
     }
 
     const ticketId = parseInt(req.params.id, 10);
@@ -822,6 +848,111 @@ export const unclaimSupportTicket = async (req, res, next) => {
        WHERE id = ?`,
       [ticketId]
     );
+
+    const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
+    res.json(out?.[0] || null);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const listSupportTicketAssignees = async (req, res, next) => {
+  try {
+    const agencyId = req.query?.agencyId ? parseInt(req.query.agencyId, 10) : null;
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const canView = isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canView) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    const access = await ensureAgencyAccess(req, agencyId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const [rows] = await pool.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.role
+       FROM users u
+       JOIN user_agencies ua ON ua.user_id = u.id
+       WHERE ua.agency_id = ?
+         AND LOWER(COALESCE(u.role, '')) IN ('admin','support','staff')
+         AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+         AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'
+       ORDER BY u.last_name ASC, u.first_name ASC`,
+      [agencyId]
+    );
+    res.json({ users: rows || [] });
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const assignSupportTicket = async (req, res, next) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const canAssign = isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canAssign) return res.status(403).json({ error: { message: 'Only admin/support can assign tickets' } });
+
+    const ticketId = parseInt(req.params.id, 10);
+    const assigneeId = req.body?.assigneeUserId ? parseInt(req.body.assigneeUserId, 10) : null;
+    if (!ticketId || !assigneeId) return res.status(400).json({ error: { message: 'ticket id and assigneeUserId are required' } });
+
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = rows?.[0];
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    await pool.execute(
+      `UPDATE support_tickets
+       SET claimed_by_user_id = ?, claimed_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [assigneeId, ticketId]
+    );
+
+    const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
+    res.json(out?.[0] || null);
+  } catch (e) {
+    next(e);
+  }
+};
+
+export const closeSupportTicket = async (req, res, next) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const canClose = role === 'school_staff' || isAgencyAdminUser(req) || role === 'super_admin';
+    if (!canClose) return res.status(403).json({ error: { message: 'Only staff/admin/support can close tickets' } });
+
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const [rows] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ? LIMIT 1`, [ticketId]);
+    const ticket = rows?.[0];
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    await pool.execute(
+      `UPDATE support_tickets
+       SET status = 'closed',
+           answered_by_user_id = ?,
+           answered_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [req.user.id, ticketId]
+    );
+
+    // Best-effort: append closure note to thread.
+    try {
+      if (await hasSupportTicketMessagesTable()) {
+        await pool.execute(
+          `INSERT INTO support_ticket_messages (ticket_id, parent_message_id, author_user_id, author_role, body)
+           VALUES (?, NULL, ?, ?, ?)`,
+          [ticketId, req.user.id, String(req.user?.role || ''), 'Ticket closed']
+        );
+      }
+    } catch {
+      // ignore
+    }
 
     const [out] = await pool.execute(`SELECT * FROM support_tickets WHERE id = ?`, [ticketId]);
     res.json(out?.[0] || null);

@@ -185,6 +185,11 @@
                       :to="orgTo('/admin/communications/chats')"
                       @click="closeAllNavMenus"
                     >Chats</router-link>
+                    <router-link
+                      v-if="canUseAgencyCampaigns"
+                      :to="orgTo('/admin/communications/campaigns')"
+                      @click="closeAllNavMenus"
+                    >Campaigns</router-link>
                     <router-link :to="orgTo('/notifications')" @click="closeAllNavMenus">
                       Notifications
                       <span
@@ -194,6 +199,9 @@
                       >
                         {{ notificationsUnreadCount }}
                       </span>
+                    </router-link>
+                    <router-link :to="orgTo('/tickets')" @click="closeAllNavMenus">
+                      Tickets
                     </router-link>
                     <router-link v-if="canShowScheduleTopNav" :to="orgTo('/schedule')" @click="closeAllNavMenus">
                       Schedule
@@ -356,6 +364,12 @@
                 Notifications
                 <span class="mobile-obnoxious-badge" v-if="notificationsUnreadCount > 0">{{ notificationsUnreadCount }}</span>
               </router-link>
+              <router-link
+                :to="orgTo('/tickets')"
+                v-if="(isAdmin || user?.role === 'staff' || user?.role === 'support' || user?.role === 'super_admin')"
+                @click="closeMobileMenu"
+                class="mobile-nav-link"
+              >Tickets</router-link>
               <router-link
                 :to="orgTo('/schedule')"
                 v-if="canShowScheduleTopNav"
@@ -791,12 +805,18 @@ const currentAgencyFeatureFlags = computed(() => {
 });
 
 const noteAidEnabled = computed(() => isTruthyFlag(currentAgencyFeatureFlags.value?.noteAidEnabled));
+const canUseAgencyCampaigns = computed(() => {
+  const enabled = isTruthyFlag(currentAgencyFeatureFlags.value?.agency_campaigns_enabled);
+  if (!enabled) return false;
+  return isAdmin || user?.role === 'support' || user?.role === 'staff' || user?.role === 'super_admin' || user?.role === 'clinical_practice_assistant';
+});
 const canUseEngagementFeed = computed(() => {
   return (isAdmin || user?.role === 'clinical_practice_assistant') && hasCapability('canUseChat');
 });
 const showEngagementMenu = computed(() => {
   return (
     canUseEngagementFeed.value ||
+    canUseAgencyCampaigns.value ||
     canShowScheduleTopNav.value ||
     noteAidEnabled.value ||
     notificationsUnreadCount.value > 0

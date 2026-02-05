@@ -2,7 +2,7 @@
   <div class="page">
     <div class="header" data-tour="tickets-header">
       <div>
-        <h2 style="margin: 0;" data-tour="tickets-title">Support tickets</h2>
+        <h2 style="margin: 0;" data-tour="tickets-title">Tickets</h2>
         <div class="muted">Queue (school staff requests)</div>
       </div>
       <div class="actions" data-tour="tickets-filters">
@@ -52,11 +52,12 @@
                 Claimed: {{ formatClaimedBy(t) }}
               </span>
             </div>
-            <div class="meta">
+          <div class="meta">
               <span v-if="t.school_name">{{ t.school_name }}</span>
               <span v-else>School ID {{ t.school_organization_id }}</span>
               <span>•</span>
               <span>{{ formatDateTime(t.created_at) }}</span>
+              <span v-if="isStale(t)" class="pill stale">STALE</span>
             </div>
           </div>
           <div class="right">
@@ -66,9 +67,9 @@
               type="button"
               @click="claimTicket(t)"
               :disabled="claimingId === t.id"
-              title="Claim this ticket so it’s assigned to you"
+              title="Assign this ticket to you"
             >
-              {{ claimingId === t.id ? 'Claiming…' : 'Claim' }}
+              {{ claimingId === t.id ? 'Assigning…' : claimLabel }}
             </button>
             <button
               v-else-if="Number(t.claimed_by_user_id) === Number(myUserId)"
@@ -92,6 +93,39 @@
             <button class="btn btn-secondary btn-sm" type="button" @click="toggleAnswer(t.id)">
               {{ openAnswerId === t.id ? 'Close' : 'Answer' }}
             </button>
+            <button
+              v-if="Number(t.claimed_by_user_id) && Number(t.claimed_by_user_id) !== Number(myUserId)"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="confirmJoin(t)"
+              title="Join this ticket thread"
+            >
+              Join
+            </button>
+            <button
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="confirmClose(t)"
+              title="Close this ticket"
+            >
+              Close
+            </button>
+            <div v-if="canAssignOthers" class="assign">
+              <select v-model="assigneeByTicket[t.id]" class="input input-sm">
+                <option value="">Assign…</option>
+                <option v-for="u in assignees" :key="u.id" :value="String(u.id)">
+                  {{ formatAssignee(u) }}
+                </option>
+              </select>
+              <button
+                class="btn btn-secondary btn-sm"
+                type="button"
+                :disabled="assigningId === t.id || !assigneeByTicket[t.id]"
+                @click="confirmAssign(t)"
+              >
+                {{ assigningId === t.id ? 'Assigning…' : 'Assign' }}
+              </button>
+            </div>
             <button
               v-if="t.answer && (String(t.status || '').toLowerCase() === 'answered' || String(t.status || '').toLowerCase() === 'closed')"
               class="btn btn-secondary btn-sm"
@@ -142,18 +176,78 @@
       </div>
     </div>
   </div>
+
+  <div v-if="confirmOpen" class="modal-overlay" @click.self="closeConfirm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 style="margin:0;">{{ confirmTitle }}</h3>
+        <button class="btn-close" type="button" title="Close" @click="closeConfirm">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="muted" style="margin-bottom: 10px;">{{ confirmMessage }}</div>
+        <label class="field">
+          Type <strong>{{ confirmWord }}</strong> to confirm
+          <input v-model="confirmInput" class="input" type="text" />
+        </label>
+        <div style="display:flex; gap: 8px; margin-top: 10px;">
+          <button class="btn btn-primary" type="button" :disabled="!confirmReady" @click="submitConfirm">
+            Confirm
+          </button>
+          <button class="btn btn-secondary" type="button" @click="closeConfirm">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="threadOpen" class="modal-overlay" @click.self="closeThread">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 style="margin:0;">Ticket thread</h3>
+        <button class="btn-close" type="button" title="Close" @click="closeThread">×</button>
+      </div>
+      <div class="modal-body">
+        <div v-if="threadLoading" class="muted">Loading…</div>
+        <div v-else-if="threadError" class="error">{{ threadError }}</div>
+        <div v-else class="thread-list">
+          <div v-if="threadMessages.length === 0" class="muted">No messages yet.</div>
+          <div v-else class="thread-item" v-for="m in threadMessages" :key="m.id">
+            <div class="thread-meta">
+              <span class="thread-author">{{ formatThreadAuthor(m) }}</span>
+              <span class="thread-time">{{ formatDateTime(m.created_at) }}</span>
+            </div>
+            <div class="thread-body">{{ m.body || '(deleted)' }}</div>
+          </div>
+        </div>
+        <label class="field" style="margin-top: 12px;">
+          Add message
+          <textarea v-model="threadBody" class="textarea" rows="3" placeholder="Type a reply…" />
+        </label>
+        <div style="display:flex; gap: 8px;">
+          <button class="btn btn-primary" type="button" :disabled="threadSending || !threadBody.trim()" @click="sendThreadMessage">
+            {{ threadSending ? 'Sending…' : 'Send' }}
+          </button>
+          <button class="btn btn-secondary" type="button" @click="closeThread">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 const myUserId = authStore.user?.id || null;
+const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canAssignOthers = computed(() => roleNorm.value === 'admin' || roleNorm.value === 'support' || roleNorm.value === 'super_admin');
+const claimLabel = computed(() => (roleNorm.value === 'school_staff' || roleNorm.value === 'staff' ? 'Assign to me' : 'Claim'));
 
 const tickets = ref([]);
 const loading = ref(false);
@@ -172,6 +266,40 @@ const answerError = ref('');
 const claimingId = ref(null);
 const unclaimingId = ref(null);
 const convertingFaqId = ref(null);
+const assignees = ref([]);
+const assigneeByTicket = ref({});
+const assigningId = ref(null);
+const confirmOpen = ref(false);
+const confirmAction = ref('');
+const confirmTicket = ref(null);
+const confirmInput = ref('');
+const threadOpen = ref(false);
+const threadTicket = ref(null);
+const threadMessages = ref([]);
+const threadLoading = ref(false);
+const threadError = ref('');
+const threadBody = ref('');
+const threadSending = ref(false);
+
+const confirmWord = computed(() => {
+  if (confirmAction.value === 'assign') return 'ASSIGN';
+  if (confirmAction.value === 'join') return 'JOIN';
+  if (confirmAction.value === 'close') return 'CLOSE';
+  return 'CONFIRM';
+});
+const confirmTitle = computed(() => {
+  if (confirmAction.value === 'assign') return 'Re-assign ticket';
+  if (confirmAction.value === 'join') return 'Join ticket';
+  if (confirmAction.value === 'close') return 'Close ticket';
+  return 'Confirm';
+});
+const confirmMessage = computed(() => {
+  if (confirmAction.value === 'assign') return 'This will re-assign the ticket. Continue?';
+  if (confirmAction.value === 'join') return 'You are about to join a ticket claimed by another team member.';
+  if (confirmAction.value === 'close') return 'This will close the ticket.';
+  return 'Please confirm.';
+});
+const confirmReady = computed(() => String(confirmInput.value || '').trim().toUpperCase() === confirmWord.value);
 
 const syncFromQuery = () => {
   const qSchool = route.query?.schoolOrganizationId;
@@ -193,6 +321,31 @@ const syncFromQuery = () => {
     const n = Number(qTicketId);
     if (Number.isFinite(n) && n > 0) openAnswerId.value = n;
   }
+};
+
+const resolveAgencyId = () => {
+  const current = agencyStore.currentAgency?.value || agencyStore.currentAgency;
+  if (current?.id) return Number(current.id);
+  const list = agencyStore.userAgencies?.value || agencyStore.userAgencies || [];
+  return list?.[0]?.id ? Number(list[0].id) : null;
+};
+
+const loadAssignees = async () => {
+  if (!canAssignOthers.value) return;
+  try {
+    await agencyStore.fetchUserAgencies();
+    const agencyId = resolveAgencyId();
+    if (!agencyId) return;
+    const resp = await api.get('/support-tickets/assignees', { params: { agencyId } });
+    assignees.value = Array.isArray(resp.data?.users) ? resp.data.users : [];
+  } catch {
+    assignees.value = [];
+  }
+};
+
+const formatAssignee = (u) => {
+  const name = [String(u.first_name || '').trim(), String(u.last_name || '').trim()].filter(Boolean).join(' ').trim();
+  return name || `User #${u.id}`;
 };
 
 const pushQuery = () => {
@@ -227,6 +380,12 @@ const load = async () => {
 
     const r = await api.get('/support-tickets', { params });
     tickets.value = Array.isArray(r.data) ? r.data : [];
+
+    const nextAssignees = {};
+    for (const t of tickets.value) {
+      if (t?.claimed_by_user_id) nextAssignees[t.id] = String(t.claimed_by_user_id);
+    }
+    assigneeByTicket.value = nextAssignees;
 
     // If a ticketId was supplied in the URL but isn't in the current list, clear it.
     if (openAnswerId.value && !(tickets.value || []).some((t) => Number(t?.id) === Number(openAnswerId.value))) {
@@ -288,6 +447,144 @@ const unclaimTicket = async (t) => {
   }
 };
 
+const confirmAssign = (t) => {
+  const current = Number(t?.claimed_by_user_id || 0);
+  const next = Number(assigneeByTicket.value?.[t?.id] || 0);
+  if (!t?.id || !next) return;
+  if (current && current !== next) {
+    confirmAction.value = 'assign';
+    confirmTicket.value = t;
+    confirmInput.value = '';
+    confirmOpen.value = true;
+    return;
+  }
+  assignTicket(t);
+};
+
+const confirmJoin = (t) => {
+  if (!t?.id) return;
+  confirmAction.value = 'join';
+  confirmTicket.value = t;
+  confirmInput.value = '';
+  confirmOpen.value = true;
+};
+
+const confirmClose = (t) => {
+  if (!t?.id) return;
+  confirmAction.value = 'close';
+  confirmTicket.value = t;
+  confirmInput.value = '';
+  confirmOpen.value = true;
+};
+
+const closeConfirm = () => {
+  confirmOpen.value = false;
+  confirmAction.value = '';
+  confirmTicket.value = null;
+  confirmInput.value = '';
+};
+
+const submitConfirm = async () => {
+  if (!confirmReady.value) return;
+  const t = confirmTicket.value;
+  const action = confirmAction.value;
+  closeConfirm();
+  if (action === 'assign') {
+    await assignTicket(t);
+    return;
+  }
+  if (action === 'join') {
+    await openThread(t);
+    return;
+  }
+  if (action === 'close') {
+    await closeTicket(t);
+  }
+};
+
+const assignTicket = async (t) => {
+  try {
+    if (!t?.id) return;
+    const assigneeUserId = Number(assigneeByTicket.value?.[t.id] || 0);
+    if (!assigneeUserId) return;
+    assigningId.value = t.id;
+    await api.post(`/support-tickets/${t.id}/assign`, { assigneeUserId });
+    await load();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to assign ticket';
+  } finally {
+    assigningId.value = null;
+  }
+};
+
+const closeTicket = async (t) => {
+  try {
+    if (!t?.id) return;
+    assigningId.value = t.id;
+    await api.post(`/support-tickets/${t.id}/close`);
+    await load();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Failed to close ticket';
+  } finally {
+    assigningId.value = null;
+  }
+};
+
+const openThread = async (t) => {
+  try {
+    threadOpen.value = true;
+    threadTicket.value = t;
+    threadLoading.value = true;
+    threadError.value = '';
+    const r = await api.get(`/support-tickets/${t.id}/messages`);
+    threadMessages.value = Array.isArray(r.data?.messages) ? r.data.messages : [];
+  } catch (e) {
+    threadError.value = e.response?.data?.error?.message || 'Failed to load thread';
+    threadMessages.value = [];
+  } finally {
+    threadLoading.value = false;
+  }
+};
+
+const closeThread = () => {
+  threadOpen.value = false;
+  threadTicket.value = null;
+  threadMessages.value = [];
+  threadError.value = '';
+  threadBody.value = '';
+};
+
+const sendThreadMessage = async () => {
+  try {
+    if (!threadTicket.value?.id) return;
+    threadSending.value = true;
+    const r = await api.post(`/support-tickets/${threadTicket.value.id}/messages`, { body: threadBody.value });
+    const msg = r.data?.message || null;
+    if (msg) threadMessages.value = [...threadMessages.value, msg];
+    threadBody.value = '';
+  } catch (e) {
+    threadError.value = e.response?.data?.error?.message || 'Failed to send message';
+  } finally {
+    threadSending.value = false;
+  }
+};
+
+const formatThreadAuthor = (m) => {
+  const fn = String(m?.author_first_name || '').trim();
+  const ln = String(m?.author_last_name || '').trim();
+  const name = [fn, ln].filter(Boolean).join(' ').trim();
+  return name || `User #${m?.author_user_id || '—'}`;
+};
+
+const isStale = (t) => {
+  if (!t?.claimed_by_user_id || Number(t.claimed_by_user_id) === Number(myUserId)) return false;
+  if (String(t.status || '').toLowerCase() !== 'open') return false;
+  const claimedAt = t.claimed_at ? new Date(t.claimed_at).getTime() : 0;
+  if (!Number.isFinite(claimedAt) || claimedAt <= 0) return false;
+  const hours = (Date.now() - claimedAt) / (1000 * 60 * 60);
+  return hours >= 24;
+};
+
 const submitAnswer = async (t) => {
   try {
     submitting.value = true;
@@ -335,6 +632,7 @@ const formatStatus = (s) => {
 
 onMounted(async () => {
   syncFromQuery();
+  await loadAssignees();
   await load();
 });
 </script>
@@ -358,6 +656,41 @@ onMounted(async () => {
   gap: 10px;
   align-items: end;
   flex-wrap: wrap;
+}
+.stale {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #b91c1c;
+}
+.thread-list {
+  display: grid;
+  gap: 10px;
+}
+.thread-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--bg-alt);
+}
+.thread-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.thread-body {
+  white-space: pre-wrap;
+}
+.assign {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.input-sm {
+  padding: 6px 8px;
+  font-size: 12px;
 }
 .field {
   font-size: 12px;

@@ -23,9 +23,29 @@
         </select>
       </div>
 
-      <div class="control" style="flex: 1;">
+      <div class="control control-search" style="flex: 1;">
         <label class="control-label">Search</label>
-        <input v-model="searchQuery" class="control-input" type="text" :placeholder="searchPlaceholder" data-tour="schools-overview-search" />
+        <div class="search-row">
+          <input
+            v-model="searchQuery"
+            class="control-input control-input-search"
+            type="text"
+            :placeholder="searchPlaceholder"
+            data-tour="schools-overview-search"
+          />
+          <div v-if="districtOptions.length > 1" class="district-buttons" role="group" aria-label="District filter">
+            <button
+              v-for="d in districtOptions"
+              :key="`district-${d.value}`"
+              type="button"
+              class="district-btn"
+              :class="{ active: selectedDistrict === d.value }"
+              @click="selectedDistrict = d.value"
+            >
+              {{ d.label }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="control">
@@ -94,13 +114,16 @@
           </div>
 
           <div class="stats-grid">
-            <div class="stat">
-              <div class="stat-label">Students (Current)</div>
-              <div class="stat-value">{{ s.clients_current }}</div>
-            </div>
-            <div class="stat">
-              <div class="stat-label">Students (Assigned)</div>
-              <div class="stat-value">{{ s.clients_assigned }}</div>
+            <div
+              class="stat stat-clickable"
+              role="button"
+              tabindex="0"
+              @click.stop="cycleStudentStatus(s)"
+              @keydown.enter.prevent="cycleStudentStatus(s)"
+              @keydown.space.prevent="cycleStudentStatus(s)"
+            >
+              <div class="stat-label">{{ studentStatusLabel(s) }}</div>
+              <div class="stat-value">{{ studentStatusValue(s) }}</div>
             </div>
             <div class="stat">
               <div class="stat-label">Providers</div>
@@ -118,6 +141,34 @@
               <div class="stat-label">Notifications</div>
               <div class="stat-value" :class="{ attention: Number(s.notifications_count || 0) > 0 }">
                 {{ s.notifications_count }}
+              </div>
+            </div>
+            <div
+              class="stat stat-comments"
+              :class="{ active: Number(s.notifications_comments_count || 0) > 0 }"
+              role="button"
+              tabindex="0"
+              @click.stop="openSchoolNotificationsFiltered(s, 'comments')"
+              @keydown.enter.prevent="openSchoolNotificationsFiltered(s, 'comments')"
+              @keydown.space.prevent="openSchoolNotificationsFiltered(s, 'comments')"
+            >
+              <div class="stat-label">New Comments</div>
+              <div class="stat-value" :class="{ attention: Number(s.notifications_comments_count || 0) > 0 }">
+                {{ s.notifications_comments_count }}
+              </div>
+            </div>
+            <div
+              class="stat stat-messages"
+              :class="{ active: Number(s.notifications_messages_count || 0) > 0 }"
+              role="button"
+              tabindex="0"
+              @click.stop="openSchoolNotificationsFiltered(s, 'messages')"
+              @keydown.enter.prevent="openSchoolNotificationsFiltered(s, 'messages')"
+              @keydown.space.prevent="openSchoolNotificationsFiltered(s, 'messages')"
+            >
+              <div class="stat-label">New Messages</div>
+              <div class="stat-value" :class="{ attention: Number(s.notifications_messages_count || 0) > 0 }">
+                {{ s.notifications_messages_count }}
               </div>
             </div>
             <div class="stat">
@@ -162,6 +213,7 @@ const error = ref('');
 const schools = ref([]);
 const searchQuery = ref('');
 const sortBy = ref('school_name-asc');
+const selectedDistrict = ref('all');
 
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
@@ -189,8 +241,42 @@ const emptyStateText = computed(() => {
   return 'No affiliated schools found for this agency.';
 });
 
+const districtOptions = computed(() => {
+  const values = new Set();
+  for (const s of schools.value || []) {
+    const name = String(s?.district_name || '').trim();
+    if (name) values.add(name);
+  }
+  const sorted = Array.from(values).sort((a, b) => a.localeCompare(b));
+  return [{ label: 'All', value: 'all' }, ...sorted.map((d) => ({ label: d, value: d }))];
+});
+
 const agencyOptions = ref([]);
 const selectedAgencyId = ref('');
+const studentStatusBySchool = ref({});
+const studentStatusOrder = ['current', 'packet', 'screener', 'waitlist'];
+
+const studentStatusKeyFor = (school) => {
+  const sid = String(school?.school_id || '');
+  if (!sid) return 'current';
+  return studentStatusBySchool.value?.[sid] || 'current';
+};
+
+const studentStatusLabel = (school) => {
+  const key = studentStatusKeyFor(school);
+  if (key === 'packet') return 'Students (Packet)';
+  if (key === 'screener') return 'Students (Screener)';
+  if (key === 'waitlist') return 'Students (Waitlist)';
+  return 'Students (Current)';
+};
+
+const studentStatusValue = (school) => {
+  const key = studentStatusKeyFor(school);
+  if (key === 'packet') return Number(school?.clients_packet || 0);
+  if (key === 'screener') return Number(school?.clients_screener || 0);
+  if (key === 'waitlist') return Number(school?.waitlist_count || 0);
+  return Number(school?.clients_current || 0);
+};
 
 const resolveDefaultAgencyId = () => {
   const current = agencyStore.currentAgency?.value || agencyStore.currentAgency;
@@ -240,9 +326,13 @@ const refresh = async () => {
 
 const filteredSchools = computed(() => {
   const q = String(searchQuery.value || '').trim().toLowerCase();
-  const base = q
-    ? (schools.value || []).filter((s) => String(s?.school_name || '').toLowerCase().includes(q))
+  const district = String(selectedDistrict.value || 'all');
+  const withDistrict = district && district !== 'all'
+    ? (schools.value || []).filter((s) => String(s?.district_name || '').trim() === district)
     : (schools.value || []);
+  const base = q
+    ? withDistrict.filter((s) => String(s?.school_name || '').toLowerCase().includes(q))
+    : withDistrict;
 
   const [field, dirRaw] = String(sortBy.value || 'school_name-asc').split('-');
   const dir = dirRaw === 'desc' ? -1 : 1;
@@ -295,6 +385,22 @@ const openSchoolNotifications = (school) => {
   const slug = String(school?.school_slug || '').trim();
   if (!slug) return;
   router.push(`/${slug}/dashboard?sp=notifications`);
+};
+
+const openSchoolNotificationsFiltered = (school, filter) => {
+  const slug = String(school?.school_slug || '').trim();
+  if (!slug) return;
+  const key = filter === 'messages' ? 'messages' : 'comments';
+  router.push(`/${slug}/dashboard?sp=notifications&notif=${key}`);
+};
+
+const cycleStudentStatus = (school) => {
+  const sid = String(school?.school_id || '');
+  if (!sid) return;
+  const current = studentStatusKeyFor(school);
+  const idx = studentStatusOrder.indexOf(current);
+  const next = studentStatusOrder[(idx + 1) % studentStatusOrder.length] || 'current';
+  studentStatusBySchool.value = { ...studentStatusBySchool.value, [sid]: next };
 };
 
 const sumSkillsParticipants = (school) => {
@@ -380,18 +486,62 @@ onMounted(async () => {
   padding: 10px 12px;
   background: white;
 }
+.control-search {
+  min-width: 320px;
+}
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.control-input-search {
+  flex: 1 1 320px;
+  max-width: 420px;
+}
+.district-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.district-btn {
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.12);
+  color: #065f46;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  line-height: 1;
+  white-space: nowrap;
+}
+.district-btn:hover {
+  border-color: rgba(16, 185, 129, 0.55);
+  background: rgba(16, 185, 129, 0.2);
+}
+.district-btn.active {
+  border-color: rgba(16, 185, 129, 0.8);
+  background: rgba(16, 185, 129, 0.28);
+}
 
 .cards-wrap {
   margin-top: 10px;
 }
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
 }
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
   .cards-grid {
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 780px) {
+  .cards-grid {
+    grid-template-columns: 1fr;
   }
 }
 .school-card {
@@ -399,7 +549,7 @@ onMounted(async () => {
   background: white;
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 14px;
+  padding: 16px;
   cursor: pointer;
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
 }
@@ -570,6 +720,49 @@ onMounted(async () => {
   border-color: rgba(14, 165, 233, 0.35);
   background: rgba(14, 165, 233, 0.08);
   transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.stat-clickable {
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.stat-clickable:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+.stat-comments {
+  cursor: pointer;
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.1);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.stat-comments:hover {
+  border-color: rgba(16, 185, 129, 0.6);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+.stat-comments .stat-label {
+  color: #065f46;
+}
+.stat-comments .stat-value {
+  color: #065f46;
+}
+.stat-messages {
+  cursor: pointer;
+  border-color: rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.1);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.stat-messages:hover {
+  border-color: rgba(99, 102, 241, 0.6);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+.stat-messages .stat-label {
+  color: #3730a3;
+}
+.stat-messages .stat-value {
+  color: #3730a3;
 }
 .stat-notifications:hover {
   border-color: rgba(14, 165, 233, 0.65);

@@ -27,6 +27,10 @@
             <span class="unread-badge unread-badge-messages unread-badge-legend" aria-hidden="true">1</span>
             <span class="unread-legend-text">New message(s)</span>
           </div>
+          <div class="unread-legend-item">
+            <span class="unread-badge unread-badge-updates unread-badge-legend" aria-hidden="true">1</span>
+            <span class="unread-legend-text">New updates</span>
+          </div>
           <div class="unread-legend-hint">Click a bubble to open it.</div>
         </div>
         <input
@@ -115,6 +119,15 @@
                   @click.stop="openClient(client, 'messages')"
                 >
                   {{ Number(client.unread_ticket_messages_count || 0) }}
+                </button>
+                <button
+                  v-if="Number(client.unread_updates_count || 0) > 0"
+                  class="unread-badge unread-badge-updates"
+                  type="button"
+                  :title="`${Number(client.unread_updates_count || 0)} new update(s) — click to open`"
+                  @click.stop="openClientUpdates(client)"
+                >
+                  {{ Number(client.unread_updates_count || 0) }}
                 </button>
               </div>
             </td>
@@ -594,9 +607,42 @@ const psychotherapyCell = (client) => {
   return { total: Number.isFinite(total) ? total : 0, title };
 };
 
+const updateClientCounts = (clientId, nextCounts) => {
+  if (!clientId) return;
+  clients.value = (clients.value || []).map((c) => {
+    if (Number(c?.id) !== Number(clientId)) return c;
+    return { ...c, ...(nextCounts || {}) };
+  });
+};
+
+const markClientUpdatesRead = async (client) => {
+  try {
+    const orgId = props.organizationId;
+    if (!orgId || !client?.id) return;
+    const kinds = ['checklist', 'status', 'assignment'];
+    await Promise.all(
+      kinds.map((kind) => api.post(`/school-portal/${orgId}/notifications/read`, { kind, clientId: client.id }))
+    );
+  } catch {
+    // ignore
+  }
+};
+
 const openClient = (client, initialPane = null) => {
   selectedClient.value = client;
   selectedClientInitialPane.value = initialPane;
+  if (initialPane === 'comments') {
+    updateClientCounts(client?.id, { unread_notes_count: 0 });
+  }
+  if (initialPane === 'messages') {
+    updateClientCounts(client?.id, { unread_ticket_messages_count: 0 });
+  }
+};
+
+const openClientUpdates = async (client) => {
+  openClient(client);
+  await markClientUpdatesRead(client);
+  updateClientCounts(client?.id, { unread_updates_count: 0 });
 };
 
 const openWaitlistNote = (client) => {
@@ -720,6 +766,11 @@ onMounted(() => {
   background: rgba(155, 81, 224, 0.12);
   border-color: rgba(155, 81, 224, 0.35);
   color: #6a2aa3;
+}
+.unread-badge-updates {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #065f46;
 }
 .unread-badge:focus {
   outline: 2px solid rgba(59, 130, 246, 0.45);

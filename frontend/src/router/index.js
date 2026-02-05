@@ -409,6 +409,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['schedule_manager', 'provider', 'staff', 'school_staff'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/communications/campaigns',
+    name: 'OrganizationAgencyCampaigns',
+    component: () => import('../views/admin/AgencyCampaignsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'school_staff', 'provider', 'clinical_practice_assistant', 'supervisor', 'schedule_manager'], organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/communications/thread/:userId/:clientId',
     name: 'OrganizationCommunicationThread',
     component: () => import('../views/admin/CommunicationThreadView.vue'),
@@ -747,6 +753,18 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
   },
   {
+    path: '/tickets',
+    name: 'TicketsQueue',
+    component: () => import('../views/admin/SupportTicketsQueueView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+  },
+  {
+    path: '/:organizationSlug/tickets',
+    name: 'OrganizationTicketsQueue',
+    component: () => import('../views/admin/SupportTicketsQueueView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
+  },
+  {
     path: '/admin/faqs',
     name: 'FaqManagement',
     component: () => import('../views/admin/FaqManagementView.vue'),
@@ -769,6 +787,12 @@ const routes = [
     name: 'PlatformChats',
     component: () => import('../views/admin/PlatformChatsView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff', 'school_staff'] }
+  },
+  {
+    path: '/admin/communications/campaigns',
+    name: 'AgencyCampaigns',
+    component: () => import('../views/admin/AgencyCampaignsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin', 'school_staff', 'provider', 'clinical_practice_assistant', 'supervisor', 'schedule_manager'] }
   },
   {
     path: '/admin/communications/thread/:userId/:clientId',

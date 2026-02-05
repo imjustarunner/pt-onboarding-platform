@@ -66,6 +66,16 @@
           <p class="stat-value">{{ stats.activeUsers }}</p>
         </component>
 
+        <component
+          :is="previewMode ? 'div' : 'router-link'"
+          :to="previewMode ? null : '/tickets?mine=1&status=open'"
+          class="stat-card"
+          :class="{ 'preview-disabled': previewMode }"
+        >
+          <h3>My Open Tickets</h3>
+          <p class="stat-value">{{ myOpenTickets }}</p>
+        </component>
+
         <button
           v-if="!previewMode && (isSupervisor(user) || user?.role === 'clinical_practice_assistant')"
           type="button"
@@ -123,6 +133,8 @@ const props = defineProps({
     default: null
   }
 });
+
+const myOpenTickets = ref('—');
 
 const agencyStore = useAgencyStore();
 const brandingStore = useBrandingStore();
@@ -571,6 +583,19 @@ onMounted(async () => {
   await fetchStats();
   await fetchOrgOverviewSummary();
 });
+
+const loadMyOpenTickets = async () => {
+  if (props.previewMode) return;
+  try {
+    const r = await api.get('/support-tickets', { params: { mine: true, status: 'open' } });
+    const list = Array.isArray(r.data) ? r.data : [];
+    myOpenTickets.value = String(list.length);
+  } catch {
+    myOpenTickets.value = '—';
+  }
+};
+
+onMounted(loadMyOpenTickets);
 </script>
 
 <style scoped>

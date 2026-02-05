@@ -2,7 +2,10 @@ import express from 'express';
 import {
   getUserCommunications,
   getCommunication,
-  regenerateEmail
+  regenerateEmail,
+  listPendingCommunications,
+  approveCommunication,
+  cancelCommunication
 } from '../controllers/userCommunication.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
@@ -19,5 +22,10 @@ router.get('/users/:userId/communications/:id', getCommunication);
 
 // Regenerate email from template
 router.post('/users/:userId/communications/:id/regenerate', regenerateEmail);
+
+// Platform communications (pending/approval)
+router.get('/communications/pending', listPendingCommunications);
+router.post('/communications/:id/approve', approveCommunication);
+router.post('/communications/:id/cancel', cancelCommunication);
 
 export default router;

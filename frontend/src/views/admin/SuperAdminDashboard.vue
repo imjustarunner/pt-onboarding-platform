@@ -65,6 +65,11 @@
           <p class="stat-value">{{ stats.totalModules }}</p>
         </router-link>
 
+        <router-link to="/tickets?mine=1&status=open" class="stat-card">
+          <h3>My Open Tickets</h3>
+          <p class="stat-value">{{ myOpenTickets }}</p>
+        </router-link>
+
         <button
           v-if="isSupervisor(user)"
           type="button"
@@ -118,6 +123,7 @@ import SupervisionModal from '../../components/supervision/SupervisionModal.vue'
 const authStore = useAuthStore();
 const user = computed(() => authStore.user);
 const showSupervisionModal = ref(false);
+const myOpenTickets = ref('—');
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const currentAgency = computed(() => agencyStore.currentAgency);
@@ -545,6 +551,18 @@ onMounted(async () => {
   await fetchStats();
   await fetchOrgOverviewSummary();
 });
+
+const loadMyOpenTickets = async () => {
+  try {
+    const r = await api.get('/support-tickets', { params: { mine: true, status: 'open' } });
+    const list = Array.isArray(r.data) ? r.data : [];
+    myOpenTickets.value = String(list.length);
+  } catch {
+    myOpenTickets.value = '—';
+  }
+};
+
+onMounted(loadMyOpenTickets);
 </script>
 
 <style scoped>
