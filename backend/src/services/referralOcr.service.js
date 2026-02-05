@@ -14,9 +14,17 @@ function getVisionClient() {
 class ReferralOcrService {
   static async extractText({ buffer, mimeType }) {
     if (typeof globalThis.DOMMatrix === 'undefined') {
-      const { DOMMatrix } = dommatrixPkg || {};
-      if (DOMMatrix) {
-        globalThis.DOMMatrix = DOMMatrix;
+      const candidates = [
+        dommatrixPkg?.DOMMatrix,
+        dommatrixPkg?.default?.DOMMatrix,
+        dommatrixPkg?.default,
+        dommatrixPkg
+      ];
+      const resolved = candidates.find((candidate) => typeof candidate === 'function');
+      if (resolved) {
+        globalThis.DOMMatrix = resolved;
+      } else {
+        throw new Error('DOMMatrix polyfill missing. Unable to initialize PDF OCR.');
       }
     }
     const type = String(mimeType || '').toLowerCase();
