@@ -466,7 +466,7 @@ class DocumentSigningService {
       if (def.type === 'checkbox') {
         const truthy = value === true || value === 'true' || value === '1' || value === 1 || value === 'yes' || value === 'on' || value === 'checked';
         if (!truthy) continue;
-        const mark = '✓';
+        const mark = 'X';
         const boxWidth = Number(def.width) || 20;
         const boxHeight = Number(def.height) || 20;
         const markSize = Math.min(14, Math.max(10, boxHeight - 4));
@@ -490,7 +490,7 @@ class DocumentSigningService {
           (opt) => String(opt.value ?? opt.label ?? '') === String(value)
         );
         if (!selected || selected.x === null || selected.y === null) continue;
-        const mark = '✓';
+        const mark = 'X';
         const boxWidth = Number(selected.width ?? def.width) || 20;
         const boxHeight = Number(selected.height ?? def.height) || 20;
         const markSize = Math.min(14, Math.max(10, boxHeight - 4));

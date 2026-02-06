@@ -208,7 +208,7 @@
     />
 
     <!-- Create HTML Template Modal -->
-    <div v-if="showCreateModal" class="modal-overlay" @click="showCreateModal = false">
+    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
       <div class="modal-content" @click.stop>
         <h2>Create HTML Template</h2>
         <form @submit.prevent="saveHTMLTemplate">
@@ -372,7 +372,7 @@
     />
 
     <!-- Edit Document Modal -->
-    <div v-if="showEditModal && editingTemplate" class="modal-overlay" @click="showEditModal = false">
+    <div v-if="showEditModal && editingTemplate" class="modal-overlay" @click.self="showEditModal = false">
       <div class="modal-content large" @click.stop>
         <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
           <h2>Edit Document: {{ editingTemplate.name }}</h2>
@@ -526,7 +526,7 @@
     />
 
     <!-- Preview Modal -->
-    <div v-if="showPreviewModal && templateToPreview" class="modal-overlay" @click="showPreviewModal = false">
+    <div v-if="showPreviewModal && templateToPreview" class="modal-overlay" @click.self="showPreviewModal = false">
       <div class="modal-content large" @click.stop>
         <div class="preview-header">
           <div style="display: flex; flex-direction: column; gap: 6px;">
