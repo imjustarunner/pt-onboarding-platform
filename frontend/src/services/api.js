@@ -60,13 +60,20 @@ api.interceptors.response.use(
 
     // Don't redirect on 401 if we're already on the login page or setup pages
     // Also don't redirect immediately after login (give cookie time to be available)
-    const isLoginPage = window.location.pathname.includes('/login');
+    const path = window.location.pathname || '';
+    const isLoginPage = path.includes('/login');
     const isPasswordlessLogin = window.location.pathname.includes('/passwordless-login');
     const isInitialSetup = window.location.pathname.includes('/initial-setup');
     const justLoggedIn = sessionStorage.getItem('justLoggedIn') === 'true';
     const skipAuthRedirect = !!error?.config?.skipAuthRedirect;
     const reqUrl = String(error?.config?.url || '');
-    const isPublicApi = reqUrl.includes('/public/') || reqUrl.startsWith('/public/');
+    const isPublicApi =
+      reqUrl.includes('/public/') ||
+      reqUrl.startsWith('/public/') ||
+      reqUrl.includes('/public-intake') ||
+      reqUrl.startsWith('/public-intake');
+    const publicPathPrefixes = ['/intake/', '/schools', '/kiosk/'];
+    const isPublicPath = publicPathPrefixes.some((prefix) => path.startsWith(prefix));
     
     if (
       error.response?.status === 401 &&
@@ -74,7 +81,8 @@ api.interceptors.response.use(
       !isPasswordlessLogin &&
       !isInitialSetup &&
       !skipAuthRedirect &&
-      !isPublicApi
+      !isPublicApi &&
+      !isPublicPath
     ) {
       // If we just logged in, this might be a cookie timing issue
       // Give it one retry before logging out
