@@ -69,7 +69,15 @@
         <tbody>
           <tr v-for="link in filteredLinks" :key="link.id">
             <td>{{ link.title || `Link ${link.id}` }}</td>
-            <td>{{ link.scope_type }} {{ link.organization_id ? `#${link.organization_id}` : '' }}</td>
+            <td>
+              {{ link.scope_type }}
+              <span v-if="link.organization_id">
+                {{
+                  organizationLookup.get(Number(link.organization_id))?.name
+                    || `#${link.organization_id}`
+                }}
+              </span>
+            </td>
             <td>{{ link.is_active ? 'Yes' : 'No' }}</td>
             <td>{{ link.create_guardian ? 'Yes' : 'No' }}</td>
             <td>{{ (link.allowed_document_template_ids || []).length }}</td>
@@ -221,7 +229,7 @@
 
                 <div v-else class="question-builder">
                   <div class="question-list">
-                    <div v-for="(field, fIdx) in step.fields" :key="field.id" class="question-row">
+                    <div v-for="(field, fIdx) in getStepFields(step)" :key="field.id || fIdx" class="question-row">
                       <input v-model="field.label" placeholder="Question label" />
                       <input v-model="field.key" placeholder="Key (e.g., grade)" />
                       <select v-model="field.type">
@@ -239,7 +247,12 @@
                       <button class="btn btn-xs btn-danger" type="button" @click="removeField(step, fIdx)">×</button>
                     </div>
 
-                    <div v-for="field in step.fields" :key="`${field.id}-opts`" v-if="field.type === 'select' || field.type === 'radio'" class="option-list">
+                    <div
+                      v-for="field in getStepFields(step)"
+                      :key="`${field.id || field.key || 'field'}-opts`"
+                      v-if="field?.type === 'select' || field?.type === 'radio'"
+                      class="option-list"
+                    >
                       <div v-for="(opt, oIdx) in field.options" :key="opt.id" class="option-row">
                         <input v-model="opt.label" placeholder="Option label" />
                         <input v-model="opt.value" placeholder="Value" />
@@ -532,6 +545,11 @@ const sanitizeSteps = (steps) => {
 };
 
 const safeSteps = computed(() => sanitizeSteps(form.intakeSteps));
+
+const getStepFields = (step) => {
+  if (!step || !Array.isArray(step.fields)) return [];
+  return step.fields.filter((f) => f && typeof f === 'object');
+};
 
 const normalizeIntakeSteps = (link) => {
   if (Array.isArray(link?.intake_steps) && link.intake_steps.length) {
