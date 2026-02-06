@@ -435,6 +435,15 @@
           </div>
 
           <div class="card">
+            <h3 class="card-title">Helper widget</h3>
+            <label class="field checkbox">
+              <input v-model="prefs.helper_enabled" type="checkbox" :disabled="viewOnly" />
+              Enable the in-app helper
+            </label>
+            <div class="field-help">If disabled, the helper will stay hidden unless an admin force-enables it.</div>
+          </div>
+
+          <div class="card">
             <h3 class="card-title">Default landing page</h3>
             <div class="field">
               <label>When I log in, take me to…</label>
@@ -551,6 +560,7 @@ const prefs = ref({
   reduced_motion: false,
   high_contrast_mode: false,
   larger_text: false,
+  helper_enabled: true,
   default_landing_page: 'dashboard'
 });
 
@@ -744,6 +754,7 @@ const save = async () => {
       reduced_motion: !!prefs.value.reduced_motion,
       high_contrast_mode: !!prefs.value.high_contrast_mode,
       larger_text: !!prefs.value.larger_text,
+      helper_enabled: !!prefs.value.helper_enabled,
       default_landing_page: prefs.value.default_landing_page || 'dashboard'
     };
 

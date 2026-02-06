@@ -3,6 +3,8 @@ import User from '../../models/User.model.js';
 import Task from '../../models/Task.model.js';
 import HiringProfile from '../../models/HiringProfile.model.js';
 import HiringNote from '../../models/HiringNote.model.js';
+import ProviderSearchIndex from '../../models/ProviderSearchIndex.model.js';
+import ProviderAvailabilityService from '../providerAvailability.service.js';
 import { getUserCapabilities } from '../../utils/capabilities.js';
 
 function str(v, maxLen = 2000) {
@@ -42,6 +44,23 @@ async function ensureCandidateInAgency(candidateUserId, agencyId) {
     [candidateUserId, agencyId]
   );
   return rows.length > 0;
+}
+
+async function ensureUserInAgency(userId, agencyId) {
+  const uid = intOrNull(userId);
+  const aid = intOrNull(agencyId);
+  if (!uid || !aid) {
+    const err = new Error('userId and agencyId are required');
+    err.status = 400;
+    throw err;
+  }
+  const ok = await ensureCandidateInAgency(uid, aid);
+  if (!ok) {
+    const err = new Error('User not found in this agency');
+    err.status = 404;
+    throw err;
+  }
+  return true;
 }
 
 function assertBackofficeAdmin(reqUser) {
@@ -155,6 +174,68 @@ export function getToolSchemas() {
           stage: { type: 'string' }
         },
         required: ['agencyId', 'candidateUserId', 'stage']
+      }
+    },
+    {
+      name: 'searchProviders',
+      description: 'Search providers in an agency by structured filters or free text.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          agencyId: { type: 'integer' },
+          textQuery: { type: 'string' },
+          filters: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                fieldKey: { type: 'string' },
+                op: { type: 'string', enum: ['hasOption', 'textContains', 'equals'] },
+                value: { type: 'string' }
+              },
+              required: ['fieldKey', 'op', 'value']
+            }
+          },
+          limit: { type: 'integer' },
+          offset: { type: 'integer' }
+        },
+        required: ['agencyId']
+      }
+    },
+    {
+      name: 'getProviderProfileFields',
+      description: 'Fetch provider profile fields and values (Provider Info tab).',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          agencyId: { type: 'integer' },
+          providerId: { type: 'integer' },
+          fieldKeys: {
+            type: 'array',
+            items: { type: 'string' }
+          }
+        },
+        required: ['agencyId', 'providerId']
+      }
+    },
+    {
+      name: 'getProviderIntakeAvailability',
+      description: 'Fetch provider intake availability (virtual + in-person slots).',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          agencyId: { type: 'integer' },
+          providerId: { type: 'integer' },
+          weekStartYmd: { type: 'string', description: 'YYYY-MM-DD (week start; Monday)' },
+          includeGoogleBusy: { type: 'boolean' },
+          slotMinutes: { type: 'integer' },
+          modality: { type: 'string', enum: ['VIRTUAL', 'IN_PERSON', 'ALL'] }
+        },
+        required: ['agencyId', 'providerId']
       }
     }
   ];
@@ -318,6 +399,94 @@ export async function executeToolCall({ req, toolCall }) {
     }
     const profile = await HiringProfile.upsert({ candidateUserId, stage });
     return { ok: true, tool: name, result: { profile } };
+  }
+
+  if (name === 'searchProviders') {
+    const agencyId = intOrNull(args.agencyId);
+    await ensureAgencyAccess(req.user, agencyId);
+    const textQuery = args.textQuery == null ? '' : str(args.textQuery, 500);
+    const filters = Array.isArray(args.filters) ? args.filters : [];
+    const limitRaw = intOrNull(args.limit);
+    const offsetRaw = intOrNull(args.offset);
+    const limit = Math.min(Math.max(1, Number(limitRaw || 50)), 100);
+    const offset = Math.max(0, Number(offsetRaw || 0));
+    const out = await ProviderSearchIndex.search({
+      agencyId,
+      filters,
+      limit,
+      offset,
+      textQuery
+    });
+    return { ok: true, tool: name, result: out };
+  }
+
+  if (name === 'getProviderProfileFields') {
+    const agencyId = intOrNull(args.agencyId);
+    const providerId = intOrNull(args.providerId);
+    await ensureAgencyAccess(req.user, agencyId);
+    await ensureUserInAgency(providerId, agencyId);
+
+    const fieldKeys = Array.isArray(args.fieldKeys)
+      ? args.fieldKeys.map((k) => str(k, 191)).filter(Boolean).slice(0, 80)
+      : [];
+    const whereKeysSql = fieldKeys.length ? ` AND uifd.field_key IN (${fieldKeys.map(() => '?').join(',')})` : '';
+
+    const [rows] = await pool.execute(
+      `SELECT
+         uiv.value,
+         uifd.field_key,
+         uifd.field_label,
+         uifd.field_type,
+         uifd.options
+       FROM user_info_values uiv
+       JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
+       WHERE uiv.user_id = ?${whereKeysSql}
+       ORDER BY uifd.field_key ASC`,
+      fieldKeys.length ? [providerId, ...fieldKeys] : [providerId]
+    );
+
+    return { ok: true, tool: name, result: { providerId, fields: rows || [] } };
+  }
+
+  if (name === 'getProviderIntakeAvailability') {
+    const agencyId = intOrNull(args.agencyId);
+    const providerId = intOrNull(args.providerId);
+    await ensureAgencyAccess(req.user, agencyId);
+    await ensureUserInAgency(providerId, agencyId);
+
+    const weekStartYmd = str(args.weekStartYmd || new Date().toISOString().slice(0, 10), 10);
+    const includeGoogleBusy =
+      args.includeGoogleBusy === true || args.includeGoogleBusy === 1 || args.includeGoogleBusy === '1';
+    const slotMinutesRaw = intOrNull(args.slotMinutes);
+    const slotMinutes = Math.min(Math.max(15, Number(slotMinutesRaw || 60)), 180);
+    const modality = String(args.modality || 'ALL').trim().toUpperCase();
+
+    const availability = await ProviderAvailabilityService.computeWeekAvailability({
+      agencyId,
+      providerId,
+      weekStartYmd,
+      includeGoogleBusy,
+      externalCalendarIds: [],
+      slotMinutes,
+      intakeOnly: true
+    });
+
+    const result = {
+      ok: true,
+      agencyId,
+      providerId,
+      weekStart: availability.weekStart,
+      weekEnd: availability.weekEnd,
+      timeZone: availability.timeZone,
+      slotMinutes: availability.slotMinutes,
+      virtualSlots: availability.virtualSlots || [],
+      inPersonSlots: availability.inPersonSlots || []
+    };
+
+    if (modality === 'VIRTUAL') result.inPersonSlots = [];
+    if (modality === 'IN_PERSON') result.virtualSlots = [];
+
+    return { ok: true, tool: name, result };
   }
 
   const err = new Error(`Unknown tool: ${name}`);

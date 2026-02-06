@@ -2,20 +2,28 @@
   <div
     v-if="enabled"
     class="helper-root"
-    :class="positionClass"
+    :class="[positionClass, { drawer: isDrawer }]"
     :style="anchoredStyle"
+    @mouseenter="handleMouseEnter"
+    @mouseleave="handleMouseLeave"
   >
     <button
       type="button"
       class="helper-avatar"
+      :style="{ width: `${avatarSizePx}px`, height: `${avatarSizePx}px` }"
       @click="open = !open; if (open) setDismissed(false)"
       :aria-expanded="open ? 'true' : 'false'"
     >
-      <img v-if="imageUrl" :src="imageUrl" alt="Helper" />
+      <img v-if="resolvedImageUrl" :src="resolvedImageUrl" alt="Helper" />
       <span v-else aria-hidden="true">?</span>
     </button>
 
-    <div v-if="open && message" class="helper-panel" @click.stop>
+    <div
+      v-if="isDrawer"
+      class="helper-panel drawer-panel"
+      :class="{ open }"
+      @click.stop
+    >
       <div class="helper-head">
         <div class="helper-title">Helper</div>
         <button
@@ -26,7 +34,44 @@
         >×</button>
       </div>
 
-      <div class="helper-msg">
+      <div v-if="message" class="helper-msg">
+        {{ message }}
+      </div>
+
+      <div class="helper-ai">
+        <div class="helper-ai-title">Ask a question</div>
+        <div v-if="activeAgentConfig">
+          <input v-model="question" placeholder="Ask about this page..." />
+          <div v-if="isSuperAdmin" class="helper-ai-row">
+            <label class="helper-ai-chk">
+              <input type="checkbox" v-model="useGoogleSearch" />
+              Use Google Search (superadmin)
+            </label>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="asking || !question.trim()" @click="answerStub">
+            {{ asking ? 'Asking…' : 'Ask' }}
+          </button>
+          <div v-if="askError" class="helper-error">{{ askError }}</div>
+          <div v-if="answer" class="helper-answer">{{ answer }}</div>
+        </div>
+        <div v-else class="helper-msg dim">
+          (No agent configured here yet — enable one in Builder → Helper.)
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="open" class="helper-panel" @click.stop>
+      <div class="helper-head">
+        <div class="helper-title">Helper</div>
+        <button
+          type="button"
+          class="helper-close"
+          @click="open = false; setDismissed(true)"
+          aria-label="Dismiss helper message"
+        >×</button>
+      </div>
+
+      <div v-if="message" class="helper-msg">
         {{ message }}
       </div>
 
@@ -63,8 +108,9 @@ import { useAgencyStore } from '../store/agency';
 import { useOrganizationStore } from '../store/organization';
 import { useOverlaysStore } from '../store/overlays';
 import api from '../services/api';
+import { toUploadsUrl } from '../utils/uploadsUrl';
 
-const AVATAR_SIZE_PX = 420;
+const AVATAR_SIZE_PX = 140;
 const DISMISS_STORAGE_PREFIX = 'helperWidgetDismissed.v1';
 
 const props = defineProps({
@@ -90,6 +136,7 @@ const useGoogleSearch = ref(false); // superadmin-only; backend enforces too
 
 const routeName = computed(() => String(route.name || ''));
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
+const userRole = computed(() => String(authStore.user?.role || '').trim());
 const currentAgencyId = computed(() => {
   const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
   return a?.id || null;
@@ -136,17 +183,63 @@ const firstMatchingPlacement = computed(() => {
 
 const hasPlacementMatch = computed(() => !!firstMatchingPlacement.value);
 
+const platformEnabled = computed(() => overlaysStore.platformHelper?.enabled !== false);
+const visibleToRoles = computed(() => (Array.isArray(helperConfig.value?.visibleToRoles) ? helperConfig.value.visibleToRoles : []));
+const forceEnabled = computed(() => helperConfig.value?.forceEnabled === true);
+const roleAllowed = computed(() => {
+  const list = visibleToRoles.value || [];
+  if (!list.length) return true;
+  return list.includes(userRole.value);
+});
+
+const userHelperEnabled = ref(true);
+
+const loadUserHelperPreference = async () => {
+  if (!authStore.user?.id) return;
+  try {
+    const resp = await api.get(`/users/${authStore.user.id}/preferences`, { skipGlobalLoading: true });
+    const data = resp?.data || {};
+    if ('helper_enabled' in data) {
+      userHelperEnabled.value = data.helper_enabled !== false;
+    }
+  } catch {
+  }
+};
+
+const didPrefetchUserPrefs = ref(false);
+watch(
+  () => [!!helperConfig.value, !!authStore.user?.id],
+  async () => {
+    if (!helperConfig.value || !authStore.user?.id) return;
+    if (didPrefetchUserPrefs.value) return;
+    didPrefetchUserPrefs.value = true;
+    await loadUserHelperPreference();
+  },
+  { immediate: true }
+);
+
+const userPrefAllowed = computed(() => forceEnabled.value || userHelperEnabled.value !== false);
+
 // If placements are defined, only show when a placement matches (ideal for modals / step UIs).
 const enabled = computed(() => {
   if (!props.enabled) return false;
+  if (!platformEnabled.value) return false;
   if (!helperConfig.value) return false;
   if (helperConfig.value.enabled === false) return false;
+  if (!roleAllowed.value) return false;
+  if (!userPrefAllowed.value) return false;
   if (placements.value.length > 0) return hasPlacementMatch.value;
   return true;
 });
 
 // Platform image is the source of truth, but only show it when helper is configured for this page.
 const imageUrl = computed(() => (helperConfig.value ? (overlaysStore.platformHelper?.imageUrl || null) : null));
+const helperImageUrl = computed(() => {
+  const raw = helperConfig.value?.imageUrl;
+  if (!raw) return null;
+  return toUploadsUrl(String(raw));
+});
+const resolvedImageUrl = computed(() => helperImageUrl.value || imageUrl.value || null);
 
 const message = computed(() => {
   if (!helperConfig.value) return '';
@@ -163,6 +256,11 @@ const activeAgentConfig = computed(() => {
   if (fromPage?.enabled === true) return fromPage;
   return null;
 });
+
+const uiVariant = computed(() => String(helperConfig.value?.uiVariant || 'bubble'));
+const isDrawer = computed(() => uiVariant.value === 'drawer');
+const openOnHover = computed(() => helperConfig.value?.openOnHover === true);
+const avatarSizePx = computed(() => (isDrawer.value ? 56 : AVATAR_SIZE_PX));
 
 const positionClass = computed(() =>
   helperConfig.value?.position === 'bottom_left' ? 'bottom-left' : 'bottom-right'
@@ -198,10 +296,15 @@ const setDismissed = (v) => {
 };
 
 watch(
-  () => [route.fullPath, firstMatchingPlacement.value?.selector, message.value, enabled.value],
+  () => [route.fullPath, firstMatchingPlacement.value?.selector, message.value, enabled.value, isDrawer.value, openOnHover.value, forceEnabled.value],
   () => {
     // Auto-open bubble for the current context unless user dismissed it.
-    open.value = !!message.value && enabled.value && !isDismissed();
+    if (isDrawer.value || openOnHover.value) {
+      open.value = false;
+      return;
+    }
+    const dismissed = forceEnabled.value ? false : isDismissed();
+    open.value = !!message.value && enabled.value && !dismissed;
   },
   { immediate: true }
 );
@@ -333,7 +436,30 @@ const askAgent = async () => {
 };
 
 onMounted(() => {});
-onUnmounted(() => {});
+onUnmounted(() => {
+  if (hoverCloseTimer.value) {
+    clearTimeout(hoverCloseTimer.value);
+    hoverCloseTimer.value = null;
+  }
+});
+
+const hoverCloseTimer = ref(null);
+const handleMouseEnter = () => {
+  if (!openOnHover.value) return;
+  if (hoverCloseTimer.value) {
+    clearTimeout(hoverCloseTimer.value);
+    hoverCloseTimer.value = null;
+  }
+  open.value = true;
+  setDismissed(false);
+};
+const handleMouseLeave = () => {
+  if (!openOnHover.value) return;
+  if (hoverCloseTimer.value) clearTimeout(hoverCloseTimer.value);
+  hoverCloseTimer.value = setTimeout(() => {
+    open.value = false;
+  }, 200);
+};
 
 const answerStub = () => askAgent();
 </script>
@@ -347,10 +473,20 @@ const answerStub = () => askAgent();
 }
 .helper-root.bottom-right { right: 18px; }
 .helper-root.bottom-left { left: 18px; }
+.helper-root.drawer {
+  right: 0;
+  bottom: 0;
+  top: 0;
+}
+.helper-root.drawer .helper-avatar {
+  position: fixed;
+  right: 16px;
+  bottom: 18px;
+}
 
 .helper-avatar {
-  width: 420px;
-  height: 420px;
+  width: 140px;
+  height: 140px;
   border-radius: 0;
   border: none;
   background: transparent;
@@ -377,6 +513,22 @@ const answerStub = () => askAgent();
   border-radius: 14px;
   box-shadow: var(--shadow-lg);
   padding: 12px;
+}
+
+.drawer-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(380px, 92vw);
+  margin: 0;
+  border-radius: 0;
+  transform: translateX(100%);
+  transition: transform 180ms ease;
+  box-shadow: var(--shadow-lg);
+}
+.drawer-panel.open {
+  transform: translateX(0);
 }
 
 .helper-head {

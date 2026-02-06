@@ -141,7 +141,8 @@ export class ProviderAvailabilityService {
     weekStartYmd,
     includeGoogleBusy = true,
     externalCalendarIds = [],
-    slotMinutes = 60
+    slotMinutes = 60,
+    intakeOnly = false
   }) {
     const aid = Number(agencyId || 0);
     const pid = Number(providerId || 0);
@@ -162,6 +163,9 @@ export class ProviderAvailabilityService {
     const provider = await User.findById(pid);
     if (!provider) throw new Error('Provider not found');
 
+    const intakeOnlyFlag =
+      intakeOnly === true || intakeOnly === 1 || intakeOnly === '1' || String(intakeOnly || '').toLowerCase() === 'true';
+
     // 1) Virtual base from weekly template
     const virtualRows = await ProviderVirtualWorkingHours.listForProvider({ agencyId: aid, providerId: pid });
     const virtualBase = [];
@@ -169,11 +173,13 @@ export class ProviderAvailabilityService {
       const s = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: tz });
       const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: tz });
       if (s && e && e > s) {
+        const sessionType = String(r.sessionType || 'REGULAR').toUpperCase();
+        if (intakeOnlyFlag && !['INTAKE', 'BOTH'].includes(sessionType)) continue;
         virtualBase.push({
           start: s,
           end: e,
           meta: {
-            sessionType: String(r.sessionType || 'REGULAR').toUpperCase(),
+            sessionType,
             frequency: String(r.frequency || 'WEEKLY').toUpperCase()
           }
         });
@@ -375,7 +381,7 @@ export class ProviderAvailabilityService {
           roomId: base.meta?.roomId ?? null,
           roomLabel: base.meta?.roomLabel ?? null,
           // Future: support intake vs regular per office assignment/plan.
-          sessionType: 'REGULAR',
+          sessionType: intakeOnlyFlag ? 'INTAKE' : 'REGULAR',
           frequency: 'WEEKLY'
         });
       }

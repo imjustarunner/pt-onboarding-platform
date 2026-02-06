@@ -88,6 +88,9 @@ export const getPublicProviderAvailability = async (req, res, next) => {
     const weekStart = isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10);
 
     const includeGoogleBusy = String(req.query.includeGoogleBusy ?? 'true').toLowerCase() !== 'false';
+    const intakeOnly =
+      String(req.query.sessionType || '').trim().toUpperCase() === 'INTAKE' ||
+      String(req.query.intakeOnly ?? 'true').trim().toLowerCase() !== 'false';
 
     const result = await ProviderAvailabilityService.computeWeekAvailability({
       agencyId,
@@ -95,7 +98,8 @@ export const getPublicProviderAvailability = async (req, res, next) => {
       weekStartYmd: weekStart,
       includeGoogleBusy,
       externalCalendarIds: [],
-      slotMinutes: 60
+      slotMinutes: 60,
+      intakeOnly
     });
 
     res.json({
@@ -159,7 +163,8 @@ export const createPublicAppointmentRequest = async (req, res, next) => {
       weekStartYmd: weekStart,
       includeGoogleBusy: true,
       externalCalendarIds: [],
-      slotMinutes: 60
+      slotMinutes: 60,
+      intakeOnly: true
     });
 
     const list = modality === 'VIRTUAL' ? availability.virtualSlots : availability.inPersonSlots;

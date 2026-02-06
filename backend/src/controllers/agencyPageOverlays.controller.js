@@ -104,7 +104,15 @@ export const upsertHelperOverlay = async (req, res, next) => {
       if (!enabled) return { enabled: false, systemPrompt: null, allowedTools: [] };
       const systemPrompt = raw.systemPrompt == null ? null : String(raw.systemPrompt).slice(0, 6000);
       const allowed = Array.isArray(raw.allowedTools) ? raw.allowedTools : [];
-      const allowList = new Set(['createTask', 'createHiringCandidate', 'addHiringNote', 'setHiringStage']);
+      const allowList = new Set([
+        'createTask',
+        'createHiringCandidate',
+        'addHiringNote',
+        'setHiringStage',
+        'searchProviders',
+        'getProviderProfileFields',
+        'getProviderIntakeAvailability'
+      ]);
       const allowedTools = allowed
         .map((t) => String(t || '').trim())
         .filter((t) => allowList.has(t))
@@ -129,8 +137,33 @@ export const upsertHelperOverlay = async (req, res, next) => {
       })
       .filter(Boolean);
 
-    // Platform-level image only (do not store per-org image URLs).
-    const imageUrl = null;
+    const imageUrl = helper.imageUrl == null ? null : String(helper.imageUrl).slice(0, 2000);
+    const uiVariant = String(helper.uiVariant || 'bubble').trim();
+    const uiVariantNorm = ['bubble', 'drawer'].includes(uiVariant) ? uiVariant : 'bubble';
+    const openOnHover =
+      helper.openOnHover === true || helper.openOnHover === 1 || helper.openOnHover === '1';
+    const forceEnabled =
+      helper.forceEnabled === true || helper.forceEnabled === 1 || helper.forceEnabled === '1';
+    const roleAllowList = new Set([
+      'super_admin',
+      'admin',
+      'support',
+      'staff',
+      'clinical_practice_assistant',
+      'supervisor',
+      'schedule_manager',
+      'provider',
+      'school_staff',
+      'facilitator',
+      'intern',
+      'client_guardian'
+    ]);
+    const visibleToRoles = Array.isArray(helper.visibleToRoles)
+      ? helper.visibleToRoles
+          .map((r) => String(r || '').trim())
+          .filter((r) => roleAllowList.has(r))
+          .slice(0, 20)
+      : [];
 
     const saved = await AgencyPageOverlay.upsert({
       agencyId,
@@ -138,7 +171,18 @@ export const upsertHelperOverlay = async (req, res, next) => {
       overlayType: 'helper',
       enabled,
       version: 1,
-      config: { enabled, position, message, agent, placements, imageUrl },
+      config: {
+        enabled,
+        position,
+        message,
+        agent,
+        placements,
+        imageUrl,
+        uiVariant: uiVariantNorm,
+        openOnHover,
+        forceEnabled,
+        visibleToRoles
+      },
       actorUserId
     });
 

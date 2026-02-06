@@ -93,6 +93,26 @@ export const useOverlaysStore = defineStore('overlays', () => {
     }
   };
 
+  const updatePlatformHelperSettings = async ({ enabled, imagePath }) => {
+    const payload = {
+      enabled: enabled !== false,
+      imagePath: imagePath == null ? null : String(imagePath)
+    };
+    const resp = await api.put('/overlays/platform/helper-settings', payload);
+    const data = resp?.data?.settings || resp?.data || null;
+    if (data) {
+      platformHelper.value = {
+        enabled: data.enabled !== false,
+        imageUrl: data.image_path ? toUploadsUrl(String(data.image_path)) : (data.imageUrl ? toUploadsUrl(String(data.imageUrl)) : null),
+        imagePath: data.image_path || data.imagePath || null,
+        fetchedAt: Date.now()
+      };
+    } else {
+      await fetchPlatformHelper();
+    }
+    return platformHelper.value;
+  };
+
   const uploadPlatformHelperImage = async (file) => {
     try {
       const form = new FormData();
@@ -116,6 +136,7 @@ export const useOverlaysStore = defineStore('overlays', () => {
     publishHelper,
     platformHelper,
     fetchPlatformHelper,
+    updatePlatformHelperSettings,
     uploadPlatformHelperImage
   };
 });

@@ -209,6 +209,23 @@
             <span v-else class="dim">None</span>
           </div>
         </div>
+        <div class="status-row">
+          <div class="status-label">Platform helper enabled</div>
+          <div class="status-val">
+            <label class="chk">
+              <input type="checkbox" v-model="platformHelperEnabled" />
+              Enabled
+            </label>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="platformHelperSaving"
+              @click="savePlatformHelperSettings"
+            >
+              {{ platformHelperSaving ? 'Saving…' : 'Save' }}
+            </button>
+          </div>
+        </div>
         <div class="status-row" v-if="platformImageError">
           <div class="status-label">Upload error</div>
           <div class="status-val">
@@ -226,6 +243,23 @@
       <div class="field">
         <label>Fallback message (when no placement matches)</label>
         <textarea v-model="helperDraft.message" rows="3" placeholder="What should the helper say on this page?" />
+      </div>
+
+      <div class="field">
+        <label>Page helper image URL (optional)</label>
+        <input v-model="helperDraft.imageUrl" placeholder="/uploads/helper-xyz.png or https://..." />
+        <div class="help">Leave blank to use the platform helper image.</div>
+      </div>
+
+      <div class="field">
+        <label>Visible to roles (optional)</label>
+        <div class="row-inline" style="flex-wrap: wrap; gap: 10px;">
+          <label v-for="r in helperRoleOptions" :key="r.id" class="chk" style="font-weight:600;">
+            <input type="checkbox" :value="r.id" v-model="helperDraft.visibleToRoles" />
+            {{ r.label }}
+          </label>
+        </div>
+        <div class="help">If none selected, all roles can see the helper.</div>
       </div>
 
       <div class="status">
@@ -260,6 +294,21 @@
             <option value="bottom_left">bottom_left</option>
           </select>
         </div>
+        <div class="field">
+          <label>UI style</label>
+          <select v-model="helperDraft.uiVariant">
+            <option value="bubble">bubble</option>
+            <option value="drawer">drawer</option>
+          </select>
+        </div>
+        <label class="chk" style="align-self:end; padding-bottom: 6px;">
+          <input type="checkbox" v-model="helperDraft.openOnHover" />
+          Open on hover
+        </label>
+        <label class="chk" style="align-self:end; padding-bottom: 6px;">
+          <input type="checkbox" v-model="helperDraft.forceEnabled" />
+          Force enabled
+        </label>
         <label class="chk" style="align-self:end; padding-bottom: 6px;">
           <input type="checkbox" v-model="helperDraft.enabled" />
           Enabled
@@ -394,6 +443,11 @@ const helperDraft = reactive({
   enabled: true,
   message: '',
   position: 'bottom_right',
+  imageUrl: '',
+  uiVariant: 'bubble',
+  openOnHover: false,
+  forceEnabled: false,
+  visibleToRoles: [],
   agentEnabled: false,
   agentSystemPrompt: '',
   agentAllowedTools: []
@@ -412,12 +466,32 @@ const allowedAgentTools = [
   { id: 'createTask', label: 'createTask (admin-only)' },
   { id: 'createHiringCandidate', label: 'createHiringCandidate (canManageHiring)' },
   { id: 'addHiringNote', label: 'addHiringNote (canManageHiring)' },
-  { id: 'setHiringStage', label: 'setHiringStage (canManageHiring)' }
+  { id: 'setHiringStage', label: 'setHiringStage (canManageHiring)' },
+  { id: 'searchProviders', label: 'searchProviders (agency-scoped)' },
+  { id: 'getProviderProfileFields', label: 'getProviderProfileFields (provider info)' },
+  { id: 'getProviderIntakeAvailability', label: 'getProviderIntakeAvailability (intake slots)' }
+];
+
+const helperRoleOptions = [
+  { id: 'super_admin', label: 'Super Admin' },
+  { id: 'admin', label: 'Admin' },
+  { id: 'support', label: 'Support' },
+  { id: 'staff', label: 'Staff' },
+  { id: 'clinical_practice_assistant', label: 'Clinical Practice Assistant' },
+  { id: 'supervisor', label: 'Supervisor' },
+  { id: 'schedule_manager', label: 'Schedule Manager' },
+  { id: 'provider', label: 'Provider' },
+  { id: 'school_staff', label: 'School Staff' },
+  { id: 'facilitator', label: 'Facilitator' },
+  { id: 'intern', label: 'Intern' },
+  { id: 'client_guardian', label: 'Client Guardian' }
 ];
 
 const platformImageInput = ref(null);
 const selectedPlatformImage = ref(null);
 const platformImageError = ref('');
+const platformHelperEnabled = ref(true);
+const platformHelperSaving = ref(false);
 const onPlatformImageSelected = (e) => {
   const f = e?.target?.files?.[0] || null;
   selectedPlatformImage.value = f || null;
@@ -425,6 +499,13 @@ const onPlatformImageSelected = (e) => {
 };
 
 const platformHelperImageUrl = computed(() => overlaysStore.platformHelper?.imageUrl || null);
+watch(
+  () => overlaysStore.platformHelper?.enabled,
+  (v) => {
+    platformHelperEnabled.value = v !== false;
+  },
+  { immediate: true }
+);
 
 const draftTour = computed(() => {
   if (!routeName.value) return null;
@@ -577,6 +658,11 @@ const saveHelperDraft = () => {
     enabled: !!helperDraft.enabled,
     message: helperDraft.message || null,
     position: helperDraft.position || 'bottom_right',
+    imageUrl: String(helperDraft.imageUrl || '').trim() || null,
+    uiVariant: helperDraft.uiVariant || 'bubble',
+    openOnHover: helperDraft.openOnHover === true,
+    forceEnabled: helperDraft.forceEnabled === true,
+    visibleToRoles: Array.isArray(helperDraft.visibleToRoles) ? helperDraft.visibleToRoles : [],
     agent: {
       enabled: helperDraft.agentEnabled === true,
       systemPrompt: String(helperDraft.agentSystemPrompt || '').trim() || null,
@@ -599,6 +685,18 @@ const uploadPlatformImage = async () => {
     }
   } catch (e) {
     platformImageError.value = String(e?.message || e || 'Upload failed');
+  }
+};
+
+const savePlatformHelperSettings = async () => {
+  platformHelperSaving.value = true;
+  platformImageError.value = '';
+  try {
+    await overlaysStore.updatePlatformHelperSettings({ enabled: platformHelperEnabled.value });
+  } catch (e) {
+    platformImageError.value = String(e?.message || e || 'Failed to update platform helper settings');
+  } finally {
+    platformHelperSaving.value = false;
   }
 };
 
@@ -685,6 +783,18 @@ const loadPublishedHelperIntoDraft = async () => {
 const clearHelperDraft = () => {
   if (!routeName.value) return;
   store.clearHelperDraftForRouteName(routeName.value);
+  helperDraft.enabled = true;
+  helperDraft.message = '';
+  helperDraft.position = 'bottom_right';
+  helperDraft.imageUrl = '';
+  helperDraft.uiVariant = 'bubble';
+  helperDraft.openOnHover = false;
+  helperDraft.forceEnabled = false;
+  helperDraft.visibleToRoles = [];
+  helperDraft.agentEnabled = false;
+  helperDraft.agentSystemPrompt = '';
+  helperDraft.agentAllowedTools = [];
+  helperPlacements.value = [];
 };
 
 const syncHelperDraftFormFromStore = () => {
@@ -693,6 +803,11 @@ const syncHelperDraftFormFromStore = () => {
   helperDraft.enabled = d?.enabled !== false;
   helperDraft.message = d?.message || '';
   helperDraft.position = d?.position || 'bottom_right';
+  helperDraft.imageUrl = d?.imageUrl || '';
+  helperDraft.uiVariant = d?.uiVariant || 'bubble';
+  helperDraft.openOnHover = d?.openOnHover === true;
+  helperDraft.forceEnabled = d?.forceEnabled === true;
+  helperDraft.visibleToRoles = Array.isArray(d?.visibleToRoles) ? d.visibleToRoles : [];
   helperDraft.agentEnabled = d?.agent?.enabled === true;
   helperDraft.agentSystemPrompt = d?.agent?.systemPrompt || '';
   helperDraft.agentAllowedTools = Array.isArray(d?.agent?.allowedTools) ? d.agent.allowedTools : [];

@@ -379,6 +379,9 @@ export const getProviderWeekAvailability = async (req, res, next) => {
     const weekStartYmd = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const includeGoogleBusy = String(req.query.includeGoogleBusy || 'true').toLowerCase() === 'true';
     const slotMinutes = parseIntSafe(req.query.slotMinutes) || 60;
+    const intakeOnly =
+      String(req.query.sessionType || '').trim().toUpperCase() === 'INTAKE' ||
+      String(req.query.intakeOnly || '').trim().toLowerCase() === 'true';
     const externalCalendarIds = String(req.query.externalCalendarIds || '')
       .split(',')
       .map((x) => parseIntSafe(x))
@@ -390,7 +393,8 @@ export const getProviderWeekAvailability = async (req, res, next) => {
       weekStartYmd,
       includeGoogleBusy,
       externalCalendarIds,
-      slotMinutes
+      slotMinutes,
+      intakeOnly
     });
 
     res.json({

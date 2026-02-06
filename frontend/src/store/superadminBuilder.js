@@ -116,6 +116,11 @@ export const useSuperadminBuilderStore = defineStore('superadminBuilder', () => 
       enabled: h.enabled !== false,
       message: String(h.message || '').trim() || null,
       position: String(h.position || 'bottom_right'), // bottom_right | bottom_left
+      imageUrl: h.imageUrl == null ? null : String(h.imageUrl),
+      uiVariant: String(h.uiVariant || 'bubble'),
+      openOnHover: h.openOnHover === true,
+      forceEnabled: h.forceEnabled === true,
+      visibleToRoles: Array.isArray(h.visibleToRoles) ? h.visibleToRoles : [],
       agent,
       placements
     };
@@ -129,6 +134,11 @@ export const useSuperadminBuilderStore = defineStore('superadminBuilder', () => 
       enabled: helper?.enabled !== false,
       message: helper?.message || null,
       position: helper?.position || 'bottom_right',
+      imageUrl: helper?.imageUrl || null,
+      uiVariant: helper?.uiVariant || 'bubble',
+      openOnHover: helper?.openOnHover === true,
+      forceEnabled: helper?.forceEnabled === true,
+      visibleToRoles: Array.isArray(helper?.visibleToRoles) ? helper.visibleToRoles : (prev?.helper?.visibleToRoles || []),
       agent: helper?.agent || prev?.helper?.agent || { enabled: false, systemPrompt: null, allowedTools: [] },
       placements: Array.isArray(helper?.placements) ? helper.placements : (prev?.helper?.placements || [])
     };

@@ -85,6 +85,7 @@ const buildDefaultPreferences = (userRole) => {
     high_contrast_mode: false,
     larger_text: false,
     default_landing_page: 'dashboard',
+    helper_enabled: true,
     tutorial_progress: null,
     school_portal_notifications_progress: null,
 
