@@ -23,13 +23,14 @@
             <option value="closed">Closed</option>
           </select>
         </label>
-        <label class="field">
-          View
-          <select v-model="viewMode" class="input">
-            <option value="all">All tickets</option>
-            <option value="mine">My claimed tickets</option>
-          </select>
-        </label>
+        <button
+          class="btn btn-secondary"
+          type="button"
+          @click="toggleViewMode"
+          :title="viewMode === 'mine' ? 'Show all tickets' : 'Show my claimed tickets'"
+        >
+          {{ viewMode === 'mine' ? 'Show all tickets' : 'Show my tickets' }}
+        </button>
         <button class="btn btn-primary" type="button" @click="load" :disabled="loading">
           {{ loading ? 'Loading…' : 'Refresh' }}
         </button>
@@ -75,6 +76,7 @@
               <span v-if="t.answer" class="inline-sep">•</span>
               <span v-if="t.answer" class="inline-meta ellipsis">A: {{ t.answer }}</span>
               <span class="pill status-pill">{{ formatStatus(t.status) }}</span>
+              <span class="ticket-id">#{{ t.id }}</span>
               <button
                 v-if="t.claimed_by_user_id"
                 class="pill claimed claimed-btn"
@@ -198,6 +200,14 @@
             <div class="answer-note">Submit as answered, or close when read.</div>
             <div class="answer-buttons">
               <button
+                class="btn btn-secondary"
+                type="button"
+                @click="generateDraftResponse(t)"
+                :disabled="generatingResponse || submitting"
+              >
+                {{ generatingResponse ? 'Generating…' : 'Generate draft' }}
+              </button>
+              <button
                 class="btn btn-primary"
                 type="button"
                 @click="submitAnswer(t, 'answered')"
@@ -316,6 +326,7 @@ const searchInput = ref('');
 const openAnswerId = ref(null);
 const answerText = ref('');
 const submitting = ref(false);
+const generatingResponse = ref(false);
 const answerError = ref('');
 const claimingId = ref(null);
 const unclaimingId = ref(null);
@@ -414,6 +425,11 @@ const toggleClientLabelMode = () => {
   } catch {
     // ignore
   }
+};
+
+const toggleViewMode = () => {
+  viewMode.value = viewMode.value === 'mine' ? 'all' : 'mine';
+  load();
 };
 
 const formatClientLabel = (t) => {
@@ -748,6 +764,31 @@ const submitAnswer = async (t, mode = 'answered') => {
   }
 };
 
+const generateDraftResponse = async (t) => {
+  try {
+    if (!t?.id) return;
+    answerError.value = '';
+    // Prevent generating if someone else owns it
+    if (t?.claimed_by_user_id && Number(t.claimed_by_user_id) !== Number(myUserId)) {
+      answerError.value = `Ticket is claimed by ${formatClaimedBy(t)}.`;
+      return;
+    }
+    generatingResponse.value = true;
+    const r = await api.post(`/support-tickets/${t.id}/generate-response`);
+    const draft = String(r.data?.suggestedAnswer || '').trim();
+    if (!draft) {
+      answerError.value = 'No draft was generated.';
+      return;
+    }
+    const existing = String(answerText.value || '').trim();
+    answerText.value = existing ? `${existing}\n\n---\n\n${draft}` : draft;
+  } catch (e) {
+    answerError.value = e.response?.data?.error?.message || 'Failed to generate draft response';
+  } finally {
+    generatingResponse.value = false;
+  }
+};
+
 const convertToFaq = async (t) => {
   try {
     if (!t?.id) return;
@@ -965,6 +1006,12 @@ onMounted(async () => {
 }
 .pill.claimed-btn:disabled {
   cursor: default;
+}
+.ticket-id {
+  font-size: 10px;
+  color: var(--text-secondary);
+  align-self: flex-end;
+  line-height: 1;
 }
 .answer-note {
   font-size: 12px;

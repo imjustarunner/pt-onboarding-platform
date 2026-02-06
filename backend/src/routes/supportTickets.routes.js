@@ -10,6 +10,7 @@ import {
   listSupportTicketMessages,
   createSupportTicketMessage,
   deleteSupportTicketMessage,
+  generateSupportTicketResponse,
   answerSupportTicket,
   claimSupportTicket,
   unclaimSupportTicket,
@@ -45,6 +46,9 @@ router.delete('/:id/messages/:messageId', deleteSupportTicketMessage);
 
 // Admin/support: answer ticket
 router.post('/:id/answer', answerSupportTicket);
+
+// Admin/support: generate Gemini draft response
+router.post('/:id/generate-response', generateSupportTicketResponse);
 
 // Admin/support/staff: claim ticket (ownership)
 router.post('/:id/claim', claimSupportTicket);

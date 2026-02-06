@@ -4,6 +4,8 @@ import Agency from '../models/Agency.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import Notification from '../models/Notification.model.js';
+import Client from '../models/Client.model.js';
+import ClientNotes from '../models/ClientNotes.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 
 async function hasSupportTicketMessagesTable() {
@@ -21,6 +23,17 @@ async function hasSupportTicketMessagesSoftDeleteColumns() {
   try {
     const [rows] = await pool.execute(
       "SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_ticket_messages' AND COLUMN_NAME = 'is_deleted'"
+    );
+    return Number(rows?.[0]?.cnt || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function hasSupportTicketsCloseOnReadColumn() {
+  try {
+    const [rows] = await pool.execute(
+      "SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'support_tickets' AND COLUMN_NAME = 'close_on_read'"
     );
     return Number(rows?.[0]?.cnt || 0) > 0;
   } catch {
@@ -157,6 +170,93 @@ function parseBool(v) {
   if (s === 'true' || s === '1' || s === 'yes') return true;
   if (s === 'false' || s === '0' || s === 'no') return false;
   return null;
+}
+
+function truncateText(value, limit = 600) {
+  const cleaned = String(value || '').trim();
+  if (!cleaned) return '';
+  return cleaned.length > limit ? `${cleaned.slice(0, limit)}…` : cleaned;
+}
+
+function formatPromptDate(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return '';
+  return d.toISOString();
+}
+
+function buildSupportTicketResponsePrompt({
+  ticket,
+  client,
+  messages,
+  notes,
+  recentTickets
+}) {
+  const lines = [
+    'You are a support agent writing a reply to a help ticket.',
+    'Use only the information provided below.',
+    'If key details are missing, ask a short clarifying question.',
+    'Do not invent facts. Do not include PHI beyond what is already shown here.',
+    '',
+    'Ticket:',
+    `- Subject: ${truncateText(ticket?.subject || 'Support ticket', 240)}`,
+    `- Question: ${truncateText(ticket?.question, 1800)}`,
+    `- Status: ${String(ticket?.status || '').toLowerCase() || 'open'}`,
+    `- Created by: ${truncateText(ticket?.created_by_name || ticket?.created_by_email || `User #${ticket?.created_by_user_id || '—'}`, 160)}`,
+    `- School: ${truncateText(ticket?.school_name || `Org #${ticket?.school_organization_id || '—'}`, 160)}`,
+    `- Created at: ${formatPromptDate(ticket?.created_at)}`
+  ];
+
+  if (client) {
+    lines.push(
+      '',
+      'Client context:',
+      `- Client: ${truncateText(client.initials || client.identifier_code || '—', 80)} (${truncateText(client.identifier_code || client.initials || '—', 80)})`,
+      `- Client status: ${truncateText(client.client_status_label || client.status || '—', 120)}`,
+      `- Paperwork status: ${truncateText(client.paperwork_status_label || client.document_status || '—', 120)}`,
+      `- Assigned provider: ${truncateText(client.provider_name || '—', 120)}`,
+      `- Organization: ${truncateText(client.organization_name || '—', 160)}`
+    );
+  }
+
+  if (Array.isArray(messages) && messages.length) {
+    lines.push('', 'Recent ticket messages:');
+    for (const msg of messages) {
+      const author =
+        truncateText(msg?.author_name || `${msg?.author_first_name || ''} ${msg?.author_last_name || ''}`, 120) ||
+        `User #${msg?.author_user_id || '—'}`;
+      lines.push(
+        `- ${author} (${formatPromptDate(msg?.created_at)}): ${truncateText(msg?.body, 600)}`
+      );
+    }
+  }
+
+  if (Array.isArray(notes) && notes.length) {
+    lines.push('', 'Recent client notes:');
+    for (const note of notes) {
+      const author = truncateText(note?.author_name || `User #${note?.author_id || '—'}`, 120);
+      const category = truncateText(note?.category || 'general', 40);
+      lines.push(
+        `- [${category}] ${author} (${formatPromptDate(note?.created_at)}): ${truncateText(note?.message, 600)}`
+      );
+    }
+  }
+
+  if (Array.isArray(recentTickets) && recentTickets.length) {
+    lines.push('', 'Recent tickets for this client:');
+    for (const rt of recentTickets) {
+      lines.push(
+        `- #${rt.id}: ${truncateText(rt.subject || 'Support ticket', 180)} (${String(rt.status || '').toLowerCase() || 'open'}, ${formatPromptDate(rt.created_at)})`
+      );
+    }
+  }
+
+  lines.push(
+    '',
+    'Write a helpful, concise response. Keep it professional and actionable.'
+  );
+
+  return lines.join('\n');
 }
 
 export const listMySupportTickets = async (req, res, next) => {
@@ -454,18 +554,20 @@ export const markClientSupportTicketThreadRead = async (req, res, next) => {
     }
 
     // If any answered tickets should close on read, close them now.
-    try {
-      await pool.execute(
-        `UPDATE support_tickets
-         SET status = 'closed', close_on_read = 0
-         WHERE school_organization_id = ?
-           AND client_id = ?
-           AND close_on_read = 1
-           AND LOWER(status) = 'answered'`,
-        [schoolOrganizationId, clientId]
-      );
-    } catch {
-      // best-effort
+    if (await hasSupportTicketsCloseOnReadColumn()) {
+      try {
+        await pool.execute(
+          `UPDATE support_tickets
+           SET status = 'closed', close_on_read = 0
+           WHERE school_organization_id = ?
+             AND client_id = ?
+             AND close_on_read = 1
+             AND LOWER(status) = 'answered'`,
+          [schoolOrganizationId, clientId]
+        );
+      } catch {
+        // best-effort
+      }
     }
 
     res.json({ ok: true });
@@ -707,6 +809,139 @@ export const deleteSupportTicketMessage = async (req, res, next) => {
   }
 };
 
+export const generateSupportTicketResponse = async (req, res, next) => {
+  try {
+    if (!isAgencyAdminUser(req)) {
+      return res.status(403).json({ error: { message: 'Only admin/support can generate ticket responses' } });
+    }
+
+    const ticketId = parseInt(req.params.id, 10);
+    if (!ticketId) return res.status(400).json({ error: { message: 'Invalid ticket id' } });
+
+    const [rows] = await pool.execute(
+      `SELECT t.*,
+              cb.first_name AS created_by_first_name,
+              cb.last_name AS created_by_last_name,
+              cb.email AS created_by_email,
+              s.name AS school_name
+       FROM support_tickets t
+       LEFT JOIN users cb ON cb.id = t.created_by_user_id
+       LEFT JOIN agencies s ON s.id = t.school_organization_id
+       WHERE t.id = ?
+       LIMIT 1`,
+      [ticketId]
+    );
+    const ticket = rows?.[0] || null;
+    if (!ticket) return res.status(404).json({ error: { message: 'Ticket not found' } });
+
+    const access = await ensureOrgAccess(req, ticket.school_organization_id);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    if (ticket.client_id) {
+      const okClient = await ensureClientInOrg({
+        clientId: ticket.client_id,
+        schoolOrganizationId: ticket.school_organization_id
+      });
+      if (!okClient.ok) return res.status(okClient.status).json({ error: { message: okClient.message } });
+    }
+
+    const createdByName = [ticket.created_by_first_name, ticket.created_by_last_name].filter(Boolean).join(' ').trim();
+    const ticketContext = {
+      ...ticket,
+      created_by_name: createdByName
+    };
+
+    let client = null;
+    if (ticket.client_id) {
+      try {
+        client = await Client.findById(ticket.client_id, { includeSensitive: true });
+      } catch {
+        client = null;
+      }
+    }
+
+    let messages = [];
+    if (await hasSupportTicketMessagesTable()) {
+      const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
+      const [mRows] = await pool.execute(
+        `SELECT m.*,
+                u.first_name AS author_first_name,
+                u.last_name AS author_last_name
+         FROM support_ticket_messages m
+         LEFT JOIN users u ON u.id = m.author_user_id
+         WHERE m.ticket_id = ?
+         ORDER BY m.created_at DESC, m.id DESC
+         LIMIT 8`,
+        [ticketId]
+      );
+      const raw = Array.isArray(mRows) ? mRows : [];
+      const filtered = hasSoftDelete
+        ? raw.filter((m) => !(m?.is_deleted === 1 || m?.is_deleted === true))
+        : raw;
+      messages = filtered.reverse().map((m) => ({
+        ...m,
+        author_name: [m.author_first_name, m.author_last_name].filter(Boolean).join(' ').trim()
+      }));
+    }
+
+    let notes = [];
+    if (ticket.client_id) {
+      try {
+        const roleNorm = String(req.user?.role || '').toLowerCase();
+        const canViewInternalNotes = ['super_admin', 'admin', 'support', 'staff'].includes(roleNorm);
+        const list = await ClientNotes.findByClientId(ticket.client_id, {
+          hasAgencyAccess: true,
+          canViewInternalNotes
+        });
+        notes = Array.isArray(list) ? list.slice(0, 5) : [];
+      } catch {
+        notes = [];
+      }
+    }
+
+    let recentTickets = [];
+    if (ticket.client_id) {
+      try {
+        const [tRows] = await pool.execute(
+          `SELECT id, subject, status, created_at
+           FROM support_tickets
+           WHERE client_id = ?
+             AND id <> ?
+           ORDER BY created_at DESC
+           LIMIT 5`,
+          [ticket.client_id, ticketId]
+        );
+        recentTickets = Array.isArray(tRows) ? tRows : [];
+      } catch {
+        recentTickets = [];
+      }
+    }
+
+    const prompt = buildSupportTicketResponsePrompt({
+      ticket: ticketContext,
+      client,
+      messages,
+      notes,
+      recentTickets
+    });
+
+    const { text, modelName, provider, latencyMs } = await callGeminiText({
+      prompt,
+      temperature: 0.2,
+      maxOutputTokens: 800
+    });
+
+    res.json({
+      suggestedAnswer: String(text || '').trim(),
+      modelName,
+      provider,
+      latencyMs
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
 export const answerSupportTicket = async (req, res, next) => {
   try {
     if (!isAgencyAdminUser(req)) {
@@ -760,12 +995,22 @@ export const answerSupportTicket = async (req, res, next) => {
       }
     }
 
-    await pool.execute(
-      `UPDATE support_tickets
-       SET answer = ?, status = ?, answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP, close_on_read = ?
-       WHERE id = ?`,
-      [answer, status, req.user.id, closeOnRead ? 1 : 0, ticketId]
-    );
+    const hasCloseOnRead = await hasSupportTicketsCloseOnReadColumn();
+    if (hasCloseOnRead) {
+      await pool.execute(
+        `UPDATE support_tickets
+         SET answer = ?, status = ?, answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP, close_on_read = ?
+         WHERE id = ?`,
+        [answer, status, req.user.id, closeOnRead ? 1 : 0, ticketId]
+      );
+    } else {
+      await pool.execute(
+        `UPDATE support_tickets
+         SET answer = ?, status = ?, answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [answer, status, req.user.id, ticketId]
+      );
+    }
 
     // Best-effort: store an AI summary when closing.
     if (status === 'closed') {
