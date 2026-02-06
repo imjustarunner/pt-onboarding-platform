@@ -19,6 +19,9 @@
             >
               {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
             </button>
+            <router-link v-if="isAdminLike" class="btn btn-secondary btn-sm" :to="ticketsLink">
+              Tickets
+            </router-link>
           </div>
         </div>
         <p class="hint">These are notifications where you are the target user (including SMS-eligible events).</p>
@@ -206,6 +209,11 @@ const adminNotificationsLink = (agencyId) => {
 
 const teamNotificationsLink = computed(() => {
   return orgSlug.value ? `/${orgSlug.value}/notifications/team` : '/notifications/team';
+});
+
+const ticketsLink = computed(() => {
+  const base = orgSlug.value ? `/${orgSlug.value}` : '';
+  return `${base}/tickets`;
 });
 
 const loadMy = async () => {

@@ -12,6 +12,7 @@
           <button class="tab" :class="{ active: activeTab === 'school' }" @click="setTab('school')">School notifications</button>
         </div>
         <router-link class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Chats</router-link>
+        <router-link class="btn btn-secondary" :to="ticketsLink">Tickets</router-link>
         <button class="btn btn-secondary" @click="refreshActive" :disabled="loading || schoolLoading">Refresh</button>
       </div>
     </div>
@@ -135,6 +136,12 @@ const chatsLink = computed(() => {
   const slug = route.params.organizationSlug;
   if (typeof slug === 'string' && slug) return `/${slug}/admin/communications/chats`;
   return '/admin/communications/chats';
+});
+
+const ticketsLink = computed(() => {
+  const slug = route.params.organizationSlug;
+  if (typeof slug === 'string' && slug) return `/${slug}/tickets`;
+  return '/tickets';
 });
 
 const activeTab = computed(() => {

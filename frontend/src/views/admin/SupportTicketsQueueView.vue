@@ -128,8 +128,13 @@
             >
               Claimed
             </button>
-            <button class="btn btn-secondary btn-sm" type="button" @click="toggleAnswer(t.id)">
-              {{ openAnswerId === t.id ? 'Close' : 'Answer' }}
+            <button
+              v-if="openAnswerId !== t.id"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="toggleAnswer(t.id)"
+            >
+              Answer
             </button>
             <button
               v-if="Number(t.claimed_by_user_id) && Number(t.claimed_by_user_id) !== Number(myUserId)"
@@ -483,11 +488,28 @@ const load = async () => {
   }
 };
 
+const autoClaimedTicketId = ref(null);
+
 const toggleAnswer = async (ticketId) => {
   if (openAnswerId.value === ticketId) {
     openAnswerId.value = null;
     answerText.value = '';
     answerError.value = '';
+    if (Number(autoClaimedTicketId.value) === Number(ticketId)) {
+      const t = (tickets.value || []).find((row) => Number(row?.id) === Number(ticketId));
+      if (t && Number(t.claimed_by_user_id) === Number(myUserId)) {
+        unclaimingId.value = t.id;
+        try {
+          await api.post(`/support-tickets/${t.id}/unclaim`);
+          await load();
+        } catch (e) {
+          error.value = e.response?.data?.error?.message || 'Failed to unclaim ticket';
+        } finally {
+          unclaimingId.value = null;
+        }
+      }
+      autoClaimedTicketId.value = null;
+    }
     return;
   }
   openAnswerId.value = ticketId;
@@ -499,6 +521,7 @@ const toggleAnswer = async (ticketId) => {
     try {
       await api.post(`/support-tickets/${t.id}/claim`);
       await load();
+      autoClaimedTicketId.value = t.id;
     } catch (e) {
       error.value = e.response?.data?.error?.message || 'Failed to claim ticket';
     } finally {
@@ -714,6 +737,7 @@ const submitAnswer = async (t, mode = 'answered') => {
       status: 'answered',
       closeOnRead
     });
+    autoClaimedTicketId.value = null;
     openAnswerId.value = null;
     answerText.value = '';
     await load();
