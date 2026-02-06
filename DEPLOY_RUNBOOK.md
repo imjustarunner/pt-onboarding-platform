@@ -120,7 +120,7 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
 gcloud run services update onboarding-backend \
   --region us-central1 \
   --add-cloudsql-instances PROJECT:REGION:INSTANCE \
-  --set-env-vars "DB_HOST=/cloudsql/PROJECT:REGION:INSTANCE,DB_PORT=3306,DB_NAME=DB_NAME,DB_USER=DB_USER,DB_PASSWORD=DB_PASSWORD,NODE_ENV=production"
+  --set-env-vars "DB_HOST=/cloudsql/PROJECT:REGION:INSTANCE,DB_PORT=3306,DB_NAME=DB_NAME,DB_USER=DB_USER,DB_PASSWORD=DB_PASSWORD,NODE_ENV=production,RECAPTCHA_SECRET_KEY=YOUR_RECAPTCHA_SECRET_KEY,RECAPTCHA_MIN_SCORE=0.5"
 ```
 
 ---
@@ -222,7 +222,7 @@ BACKEND_URL=$(gcloud run services describe onboarding-backend --region us-centra
 ```bash
 gcloud run services update onboarding-frontend \
   --region us-central1 \
-  --set-env-vars "VITE_API_URL=${BACKEND_URL}/api"
+  --set-env-vars "VITE_API_URL=${BACKEND_URL}/api,VITE_PUBLIC_INTAKE_BASE_URL=https://your-public-frontend-url,VITE_RECAPTCHA_SITE_KEY=YOUR_RECAPTCHA_SITE_KEY"
 ```
 
 ### Google Maps API Key (automatic mileage)

@@ -39,3 +39,12 @@ export const agentLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => `agent:${req.user?.id || req.ip}`,
 });
+
+export const publicIntakeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: isDevelopment ? 120 : 30,
+  message: { error: { message: 'Too many intake requests, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `public-intake:${req.ip}`,
+});

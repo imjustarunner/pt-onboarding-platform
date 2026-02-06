@@ -17,6 +17,8 @@ import Agency from '../models/Agency.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import User from '../models/User.model.js';
+import config from '../config/config.js';
+import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 
 const normalizeName = (name) => String(name || '').trim();
 
@@ -195,6 +197,29 @@ export const createPublicConsent = async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const secretConfigured = !!config.recaptcha?.secretKey;
+    if (config.nodeEnv === 'production' && !secretConfigured) {
+      return res.status(500).json({ error: { message: 'Captcha is not configured' } });
+    }
+    if (secretConfigured) {
+      const captchaToken = String(req.body.captchaToken || '').trim();
+      if (!captchaToken) {
+        return res.status(400).json({ error: { message: 'Captcha is required' } });
+      }
+      const verification = await verifyRecaptchaV3({
+        token: captchaToken,
+        remoteip: getClientIpAddress(req),
+        expectedAction: 'public_intake_consent'
+      });
+      if (!verification.ok) {
+        return res.status(400).json({ error: { message: 'Captcha verification failed' } });
+      }
+      const minScore = Number.isFinite(config.recaptcha?.minScore) ? config.recaptcha.minScore : 0.5;
+      if (verification.score !== null && verification.score < minScore) {
+        return res.status(400).json({ error: { message: 'Captcha verification failed' } });
+      }
     }
 
     const publicKey = String(req.params.publicKey || '').trim();

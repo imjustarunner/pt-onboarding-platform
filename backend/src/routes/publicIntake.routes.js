@@ -1,5 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
+import { publicIntakeLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   createPublicConsent,
   finalizePublicIntake,
@@ -13,6 +14,8 @@ import {
 
 const router = express.Router();
 
+router.use(publicIntakeLimiter);
+
 router.get('/school/:organizationId', getSchoolIntakeLink);
 router.get('/:publicKey', getPublicIntakeLink);
 router.get('/:publicKey/status/:submissionId', getPublicIntakeStatus);
@@ -24,7 +27,8 @@ router.post(
     body('signerName').notEmpty().withMessage('signerName is required'),
     body('signerInitials').notEmpty().withMessage('signerInitials is required'),
     body('signerEmail').notEmpty().withMessage('signerEmail is required'),
-    body('signerPhone').optional().isString()
+    body('signerPhone').optional().isString(),
+    body('captchaToken').optional().isString()
   ],
   createPublicConsent
 );

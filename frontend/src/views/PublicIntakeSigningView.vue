@@ -145,6 +145,11 @@
           </div>
         </div>
 
+        <div v-if="recaptchaSiteKey" class="captcha-block">
+          <div class="muted">Protected by reCAPTCHA</div>
+          <div v-if="captchaError" class="error">{{ captchaError }}</div>
+        </div>
+
         <div class="consent-box">
           <strong>ESIGN Act Disclosure</strong>
           <p>
@@ -305,7 +310,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
@@ -322,6 +327,9 @@ const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);
 const introIndex = ref(0);
+const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
+const captchaToken = ref('');
+const captchaError = ref('');
 const intakeSteps = computed(() =>
   Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : []
 );
@@ -498,6 +506,38 @@ const loadLink = async () => {
   }
 };
 
+const loadRecaptchaScript = () => {
+  if (window.grecaptcha) return Promise.resolve(window.grecaptcha);
+  if (document.querySelector('script[data-recaptcha]')) {
+    return new Promise((resolve) => {
+      const existing = document.querySelector('script[data-recaptcha]');
+      existing?.addEventListener?.('load', () => resolve(window.grecaptcha));
+      setTimeout(() => resolve(window.grecaptcha), 2000);
+    });
+  }
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(recaptchaSiteKey)}`;
+    script.async = true;
+    script.defer = true;
+    script.setAttribute('data-recaptcha', 'true');
+    script.onload = () => resolve(window.grecaptcha);
+    script.onerror = () => reject(new Error('Failed to load captcha'));
+    document.head.appendChild(script);
+  });
+};
+
+const getRecaptchaToken = async () => {
+  if (!recaptchaSiteKey) return '';
+  try {
+    const grecaptcha = await loadRecaptchaScript();
+    if (!grecaptcha?.execute) return '';
+    return await grecaptcha.execute(recaptchaSiteKey, { action: 'public_intake_consent' });
+  } catch {
+    return '';
+  }
+};
+
 const submitConsent = async () => {
   if (!guardianFirstName.value || !guardianEmail.value || !signerInitials.value) {
     error.value = 'Guardian name, guardian email, and guardian initials are required.';
@@ -507,6 +547,15 @@ const submitConsent = async () => {
     error.value = 'At least one client full name is required.';
     return;
   }
+  if (recaptchaSiteKey) {
+    const token = await getRecaptchaToken();
+    captchaToken.value = token;
+    if (!token) {
+      error.value = 'Captcha verification failed. Please try again.';
+      captchaError.value = error.value;
+      return;
+    }
+  }
   try {
     consentLoading.value = true;
     error.value = '';
@@ -514,7 +563,8 @@ const submitConsent = async () => {
       signerName: `${guardianFirstName.value} ${guardianLastName.value}`.trim(),
       signerInitials: signerInitials.value,
       signerEmail: guardianEmail.value,
-      signerPhone: guardianPhone.value
+      signerPhone: guardianPhone.value,
+      captchaToken: captchaToken.value || null
     });
     submissionId.value = resp.data?.submission?.id || null;
     if (submissionId.value) {
@@ -523,6 +573,7 @@ const submitConsent = async () => {
     step.value = 2;
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to capture consent';
+    captchaToken.value = '';
   } finally {
     consentLoading.value = false;
   }
@@ -810,6 +861,9 @@ onMounted(async () => {
   }
   initializeFieldValues();
   await loadPdfPreview();
+  if (recaptchaSiteKey) {
+    await nextTick();
+  }
 });
 </script>
 
@@ -862,6 +916,9 @@ onMounted(async () => {
   border: 1px solid var(--border);
   padding: 12px;
   border-radius: 10px;
+  margin: 12px 0;
+}
+.captcha-block {
   margin: 12px 0;
 }
 .bundle-list {

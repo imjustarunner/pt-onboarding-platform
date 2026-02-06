@@ -67,6 +67,10 @@ export default {
   port: process.env.PORT || 3000,
   nodeEnv: process.env.NODE_ENV || 'development',
   frontendUrl: process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 'http://localhost:5173',
+  recaptcha: {
+    secretKey: process.env.RECAPTCHA_SECRET_KEY || null,
+    minScore: process.env.RECAPTCHA_MIN_SCORE ? Number(process.env.RECAPTCHA_MIN_SCORE) : 0.5
+  },
   googleMaps: {
     apiKey: process.env.GOOGLE_MAPS_API_KEY || null
   },
