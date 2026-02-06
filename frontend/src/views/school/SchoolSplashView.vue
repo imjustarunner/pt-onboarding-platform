@@ -53,6 +53,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useOrganizationStore } from '../../store/organization';
 import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
+import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import BrandingLogo from '../../components/BrandingLogo.vue';
 import StaffLoginModal from '../../components/school/StaffLoginModal.vue';
 import PoweredByFooter from '../../components/PoweredByFooter.vue';
@@ -94,7 +95,7 @@ const schoolLogoUrl = computed(() => {
 const intakeLinkUrl = computed(() => {
   const key = intakeLink.value?.public_key || '';
   if (!key) return '';
-  return `${window.location.origin}/intake/${key}`;
+  return buildPublicIntakeUrl(key);
 });
 
 const loadIntakeLink = async () => {

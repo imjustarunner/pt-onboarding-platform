@@ -853,6 +853,7 @@ import OrganizationSettingsModal from '../../components/school/OrganizationSetti
 import { useSchoolPortalRedesignStore } from '../../store/schoolPortalRedesign';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
+import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import QRCode from 'qrcode';
 
@@ -903,7 +904,7 @@ const handleUploadSuccess = () => {
 const intakeLinkUrl = computed(() => {
   const key = intakeLink.value?.public_key || '';
   if (!key) return '';
-  return `${window.location.origin}/intake/${key}`;
+  return buildPublicIntakeUrl(key);
 });
 
 const loadIntakeLink = async () => {

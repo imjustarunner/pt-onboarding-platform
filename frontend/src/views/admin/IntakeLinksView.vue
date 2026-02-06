@@ -187,10 +187,19 @@
 
           <div class="form-group">
             <label>Allowed Document Templates</label>
+            <label class="checkbox">
+              <input v-model="form.allowAllDocuments" type="checkbox" />
+              Allow all document templates
+            </label>
             <div class="template-list">
-              <label v-for="t in templates" :key="t.id" class="template-item">
-                <input type="checkbox" :value="t.id" v-model="form.allowedDocumentTemplateIds" />
-                {{ t.name }}
+              <label v-for="t in selectableTemplates" :key="t.id" class="template-item">
+                <input
+                  type="checkbox"
+                  :value="t.id"
+                  v-model="form.allowedDocumentTemplateIds"
+                  :disabled="form.allowAllDocuments"
+                />
+                {{ t.name || `Template ${t.id}` }}
               </label>
             </div>
           </div>
@@ -247,19 +256,16 @@
                       <button class="btn btn-xs btn-danger" type="button" @click="removeField(step, fIdx)">×</button>
                     </div>
 
-                    <div
-                      v-for="field in getStepFields(step)"
-                      :key="`${field.id || field.key || 'field'}-opts`"
-                      v-if="field?.type === 'select' || field?.type === 'radio'"
-                      class="option-list"
-                    >
-                      <div v-for="(opt, oIdx) in field.options" :key="opt.id" class="option-row">
-                        <input v-model="opt.label" placeholder="Option label" />
-                        <input v-model="opt.value" placeholder="Value" />
-                        <button class="btn btn-xs btn-secondary" type="button" @click="removeOption(field, oIdx)">×</button>
+                    <template v-for="field in getStepFields(step)" :key="`${field.id || field.key || 'field'}-opts`">
+                      <div v-if="field?.type === 'select' || field?.type === 'radio'" class="option-list">
+                        <div v-for="(opt, oIdx) in field.options" :key="opt.id" class="option-row">
+                          <input v-model="opt.label" placeholder="Option label" />
+                          <input v-model="opt.value" placeholder="Value" />
+                          <button class="btn btn-xs btn-secondary" type="button" @click="removeOption(field, oIdx)">×</button>
+                        </div>
+                        <button class="btn btn-xs btn-secondary" type="button" @click="addOption(field)">+ Option</button>
                       </div>
-                      <button class="btn btn-xs btn-secondary" type="button" @click="addOption(field)">+ Option</button>
-                    </div>
+                    </template>
                   </div>
                   <button class="btn btn-xs btn-secondary" type="button" @click="addField(step)">+ Add Question</button>
                 </div>
@@ -282,6 +288,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
 const loading = ref(false);
 const error = ref('');
@@ -303,6 +310,7 @@ const form = reactive({
   isActive: true,
   createClient: true,
   createGuardian: true,
+  allowAllDocuments: false,
   allowedDocumentTemplateIds: [],
   intakeFieldsText: '',
   intakeSteps: []
@@ -348,6 +356,7 @@ const resetForm = () => {
   form.isActive = true;
   form.createClient = true;
   form.createGuardian = true;
+  form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = [];
   form.intakeFieldsText = '';
   form.intakeSteps = [];
@@ -364,7 +373,8 @@ const fetchData = async () => {
       api.get('/agencies')
     ]);
     links.value = linksResp.data || [];
-    templates.value = templatesResp.data?.templates || templatesResp.data || [];
+    const rawTemplates = templatesResp.data?.templates || templatesResp.data || [];
+    templates.value = Array.isArray(rawTemplates) ? rawTemplates : [];
     organizations.value = Array.isArray(orgsResp.data) ? orgsResp.data : [];
     const primaryAgency = agencyList.value[0]?.id || null;
     selectedAgencyId.value = selectedAgencyId.value || primaryAgency;
@@ -413,6 +423,7 @@ const editLink = (link) => {
   form.isActive = !!link.is_active;
   form.createClient = !!link.create_client;
   form.createGuardian = link.scope_type === 'school' ? false : !!link.create_guardian;
+  form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = link.allowed_document_template_ids || [];
   form.intakeFieldsText = link.intake_fields ? JSON.stringify(link.intake_fields, null, 2) : '';
   form.intakeSteps = normalizeIntakeSteps(link);
@@ -459,17 +470,35 @@ const closeForm = () => {
   showForm.value = false;
 };
 
+const formatApiError = (e, fallback) => {
+  const message = e?.response?.data?.error?.message;
+  const errors = e?.response?.data?.error?.errors;
+  if (Array.isArray(errors) && errors.length) {
+    const details = errors
+      .map((err) => err?.msg || (err?.path ? `${err.path}: invalid` : null))
+      .filter(Boolean)
+      .join(', ');
+    if (message && details) return `${message}: ${details}`;
+    if (message) return message;
+    if (details) return details;
+  }
+  if (message) return message;
+  if (e?.message) return e.message;
+  return fallback;
+};
+
 const save = async () => {
   try {
     saving.value = true;
     formError.value = '';
-    const { intakeSteps, intakeFields, allowedDocumentTemplateIds } = buildPayloadFromSteps();
+    const selectedTemplateIds = form.allowAllDocuments
+      ? selectableTemplates.value.map((t) => t.id)
+      : form.allowedDocumentTemplateIds;
+    const { intakeSteps, intakeFields, allowedDocumentTemplateIds } = buildPayloadFromSteps(selectedTemplateIds);
     const payload = {
       title: form.title,
       description: form.description,
       scopeType: form.scopeType,
-      organizationId: form.scopeType === 'agency' ? null : form.organizationId,
-      programId: form.scopeType === 'program' ? form.programId : null,
       isActive: form.isActive,
       createClient: form.createClient,
       createGuardian: form.scopeType === 'school' ? false : form.createGuardian,
@@ -477,6 +506,12 @@ const save = async () => {
       intakeFields,
       intakeSteps
     };
+    if (form.scopeType !== 'agency' && form.organizationId) {
+      payload.organizationId = form.organizationId;
+    }
+    if (form.scopeType === 'program' && form.programId) {
+      payload.programId = form.programId;
+    }
     if (editingId.value) {
       await api.put(`/intake-links/${editingId.value}`, payload);
     } else {
@@ -485,7 +520,7 @@ const save = async () => {
     await fetchData();
     showForm.value = false;
   } catch (e) {
-    formError.value = e.response?.data?.error?.message || 'Failed to save intake link';
+    formError.value = formatApiError(e, 'Failed to save intake link');
   } finally {
     saving.value = false;
   }
@@ -494,7 +529,7 @@ const save = async () => {
 const copyLink = async (link) => {
   const key = link.public_key || '';
   if (!key) return;
-  const url = `${window.location.origin}/intake/${key}`;
+  const url = buildPublicIntakeUrl(key);
   try {
     await navigator.clipboard.writeText(url);
   } catch {
@@ -509,22 +544,30 @@ const createQuickLink = async () => {
       quickError.value = 'Organization is required.';
       return;
     }
-    await api.post('/intake-links', {
+    const payload = {
       title: quickTitle.value || null,
       scopeType: quickScope.value,
-      organizationId: quickScope.value === 'agency' ? null : quickOrganizationId.value,
       createClient: true,
       createGuardian: quickScope.value === 'school' ? false : true,
       isActive: true
-    });
+    };
+    if (quickScope.value !== 'agency' && quickOrganizationId.value) {
+      payload.organizationId = quickOrganizationId.value;
+    }
+    await api.post('/intake-links', payload);
     await fetchData();
     quickTitle.value = '';
   } catch (e) {
-    quickError.value = e.response?.data?.error?.message || 'Failed to create link';
+    quickError.value = formatApiError(e, 'Failed to create link');
   }
 };
 
 const createId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+const selectableTemplates = computed(() => {
+  const list = Array.isArray(templates.value) ? templates.value : [];
+  return list.filter((t) => t && t.id);
+});
 
 const sanitizeSteps = (steps) => {
   const raw = Array.isArray(steps) ? steps : [];
@@ -612,7 +655,7 @@ const removeOption = (field, idx) => {
   field.options.splice(idx, 1);
 };
 
-const buildPayloadFromSteps = () => {
+const buildPayloadFromSteps = (selectedTemplateIds = []) => {
   const intakeSteps = sanitizeSteps(form.intakeSteps).map((step) => ({ ...step }));
   const intakeFields = [];
   const allowedDocumentTemplateIds = [];
@@ -632,6 +675,9 @@ const buildPayloadFromSteps = () => {
       allowedDocumentTemplateIds.push(step.templateId);
     }
   });
+  if (allowedDocumentTemplateIds.length === 0 && Array.isArray(selectedTemplateIds) && selectedTemplateIds.length) {
+    selectedTemplateIds.forEach((id) => allowedDocumentTemplateIds.push(id));
+  }
   return { intakeSteps, intakeFields, allowedDocumentTemplateIds };
 };
 
@@ -701,10 +747,13 @@ onMounted(fetchData);
 .modal {
   width: 720px;
   max-width: 95vw;
+  max-height: 90vh;
   background: white;
   border-radius: 12px;
   border: 1px solid var(--border);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .modal-header {
   padding: 12px 14px;
@@ -714,6 +763,7 @@ onMounted(fetchData);
 }
 .modal-body {
   padding: 14px;
+  overflow: auto;
 }
 .form-grid {
   display: grid;
