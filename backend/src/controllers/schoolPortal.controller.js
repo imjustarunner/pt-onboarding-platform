@@ -522,29 +522,6 @@ export const getSchoolClients = async (req, res, next) => {
       // ignore
     }
 
-    // Total comment counts (per client).
-    const totalNotesByClientId = new Map();
-    try {
-      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
-      if (clientIds.length > 0) {
-        const placeholders = clientIds.map(() => '?').join(',');
-        const [rows] = await pool.execute(
-          `SELECT n.client_id, COUNT(*) AS total_count
-           FROM client_notes n
-           WHERE n.client_id IN (${placeholders})
-             AND n.is_internal_only = FALSE
-             AND (n.category IS NULL OR n.category = 'comment')
-           GROUP BY n.client_id`,
-          clientIds
-        );
-        for (const r of rows || []) {
-          totalNotesByClientId.set(Number(r.client_id), Number(r.total_count || 0));
-        }
-      }
-    } catch {
-      // ignore
-    }
-
     // Unread ticket message counts (per user) - best effort when tables exist.
     const unreadTicketMsgsByClientId = new Map();
     try {
@@ -618,6 +595,29 @@ export const getSchoolClients = async (req, res, next) => {
         );
         for (const r of rows || []) {
           totalTicketMsgsByClientId.set(Number(r.client_id), Number(r.total_count || 0));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Open ticket counts (per client).
+    const openTicketsByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      if (clientIds.length > 0 && orgId) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT t.client_id, COUNT(*) AS open_count
+           FROM support_tickets t
+           WHERE t.school_organization_id = ?
+             AND t.client_id IN (${placeholders})
+             AND (t.status IS NULL OR LOWER(t.status) <> 'closed')
+           GROUP BY t.client_id`,
+          [orgId, ...clientIds]
+        );
+        for (const r of rows || []) {
+          openTicketsByClientId.set(Number(r.client_id), Number(r.open_count || 0));
         }
       }
     } catch {
