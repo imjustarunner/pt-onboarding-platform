@@ -360,6 +360,7 @@ export const getSchoolClients = async (req, res, next) => {
     const userRole = req.user?.role;
     const skillsOnly = String(req.query?.skillsOnly || '').toLowerCase() === 'true';
     const clientIdFilter = req.query?.clientId ? parseInt(req.query.clientId, 10) : null;
+    const orgId = parseInt(organizationId, 10);
 
     // Providers ARE allowed to view the roster, but only for clients assigned to them
     // (restricted fields, no sensitive data).
@@ -526,7 +527,6 @@ export const getSchoolClients = async (req, res, next) => {
     const unreadTicketMsgsByClientId = new Map();
     try {
       const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
-      const orgId = parseInt(organizationId, 10);
       if (clientIds.length > 0 && userId && orgId && (await hasSupportTicketMessagesTable())) {
         const placeholders = clientIds.map(() => '?').join(',');
         const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
@@ -607,7 +607,6 @@ export const getSchoolClients = async (req, res, next) => {
     const unreadUpdatesByClientId = new Map();
     try {
       const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
-      const orgId = parseInt(organizationId, 10);
       if (clientIds.length > 0 && userId && orgId) {
         const counts = await getUnreadClientUpdateCounts({ userId, orgId, clientIds });
         for (const [cid, cnt] of counts.entries()) {
