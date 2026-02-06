@@ -117,22 +117,24 @@
                   Open
                 </span>
                 <button
-                  v-if="Number(client.unread_notes_count || 0) > 0"
+                  v-if="Number(client.notes_count || 0) > 0"
                   class="unread-badge unread-badge-comments"
+                  :class="{ 'unread-badge-muted': Number(client.unread_notes_count || 0) === 0 }"
                   type="button"
-                  :title="`${Number(client.unread_notes_count || 0)} new comment(s) — click to open`"
+                  :title="commentBadgeTitle(client)"
                   @click.stop="openClient(client, 'comments')"
                 >
-                  {{ Number(client.unread_notes_count || 0) }}
+                  {{ commentBadgeCount(client) }}
                 </button>
                 <button
-                  v-if="Number(client.unread_ticket_messages_count || 0) > 0"
+                  v-if="Number(client.ticket_messages_count || 0) > 0"
                   class="unread-badge unread-badge-messages"
+                  :class="{ 'unread-badge-muted': Number(client.unread_ticket_messages_count || 0) === 0 }"
                   type="button"
-                  :title="`${Number(client.unread_ticket_messages_count || 0)} new message(s) — click to open`"
+                  :title="messageBadgeTitle(client)"
                   @click.stop="openClient(client, 'messages')"
                 >
-                  {{ Number(client.unread_ticket_messages_count || 0) }}
+                  {{ messageBadgeCount(client) }}
                 </button>
                 <button
                   v-if="Number(client.unread_updates_count || 0) > 0"
@@ -587,6 +589,32 @@ const pendingComplianceTitle = (client) => {
   return lines.join('\n');
 };
 
+const commentBadgeCount = (client) => {
+  const unread = Number(client?.unread_notes_count || 0);
+  if (unread > 0) return unread;
+  return Number(client?.notes_count || 0);
+};
+
+const messageBadgeCount = (client) => {
+  const unread = Number(client?.unread_ticket_messages_count || 0);
+  if (unread > 0) return unread;
+  return Number(client?.ticket_messages_count || 0);
+};
+
+const commentBadgeTitle = (client) => {
+  const unread = Number(client?.unread_notes_count || 0);
+  const total = Number(client?.notes_count || 0);
+  if (unread > 0) return `${unread} new comment(s) — click to open`;
+  return `${total} comment(s) — click to open`;
+};
+
+const messageBadgeTitle = (client) => {
+  const unread = Number(client?.unread_ticket_messages_count || 0);
+  const total = Number(client?.ticket_messages_count || 0);
+  if (unread > 0) return `${unread} new message(s) — click to open`;
+  return `${total} message(s) — click to open`;
+};
+
 const formatDocSummary = (client) => {
   // Prefer paperwork status (new model) so the portal reflects bulk upload fields:
   // paperwork_status / paperwork_delivery / doc_date.
@@ -780,6 +808,9 @@ onMounted(() => {
 }
 .unread-badge-legend {
   cursor: default;
+}
+.unread-badge-muted {
+  opacity: 0.55;
 }
 .open-ticket-badge {
   display: inline-flex;

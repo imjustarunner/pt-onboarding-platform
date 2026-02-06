@@ -499,6 +499,52 @@ export const getSchoolClients = async (req, res, next) => {
       // table may not exist yet; ignore
     }
 
+    // Total comment counts (per client).
+    const totalNotesByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      if (clientIds.length > 0) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT n.client_id, COUNT(*) AS total_count
+           FROM client_notes n
+           WHERE n.client_id IN (${placeholders})
+             AND n.is_internal_only = FALSE
+             AND (n.category IS NULL OR n.category = 'comment')
+           GROUP BY n.client_id`,
+          clientIds
+        );
+        for (const r of rows || []) {
+          totalNotesByClientId.set(Number(r.client_id), Number(r.total_count || 0));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Total comment counts (per client).
+    const totalNotesByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      if (clientIds.length > 0) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT n.client_id, COUNT(*) AS total_count
+           FROM client_notes n
+           WHERE n.client_id IN (${placeholders})
+             AND n.is_internal_only = FALSE
+             AND (n.category IS NULL OR n.category = 'comment')
+           GROUP BY n.client_id`,
+          clientIds
+        );
+        for (const r of rows || []) {
+          totalNotesByClientId.set(Number(r.client_id), Number(r.total_count || 0));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     // Unread ticket message counts (per user) - best effort when tables exist.
     const unreadTicketMsgsByClientId = new Map();
     try {
@@ -553,6 +599,31 @@ export const getSchoolClients = async (req, res, next) => {
       // ignore (tables may not exist yet)
     }
 
+    // Total ticket message counts (per client).
+    const totalTicketMsgsByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      if (clientIds.length > 0 && orgId && (await hasSupportTicketMessagesTable())) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
+        const [rows] = await pool.execute(
+          `SELECT t.client_id, COUNT(*) AS total_count
+           FROM support_tickets t
+           JOIN support_ticket_messages m ON m.ticket_id = t.id
+           WHERE t.school_organization_id = ?
+             AND t.client_id IN (${placeholders})
+             ${hasSoftDelete ? 'AND (m.is_deleted IS NULL OR m.is_deleted = 0)' : ''}
+           GROUP BY t.client_id`,
+          [orgId, ...clientIds]
+        );
+        for (const r of rows || []) {
+          totalTicketMsgsByClientId.set(Number(r.client_id), Number(r.total_count || 0));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     const unreadUpdatesByClientId = new Map();
     try {
       const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
@@ -597,7 +668,9 @@ export const getSchoolClients = async (req, res, next) => {
         roi_expires_at: client.roi_expires_at || null,
         skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0,
+        notes_count: totalNotesByClientId.get(Number(client.id)) || 0,
         unread_ticket_messages_count: unreadTicketMsgsByClientId.get(Number(client.id)) || 0,
+        ticket_messages_count: totalTicketMsgsByClientId.get(Number(client.id)) || 0,
         unread_updates_count: unreadUpdatesByClientId.get(Number(client.id)) || 0,
         open_ticket_count: openTicketsByClientId.get(Number(client.id)) || 0,
         has_open_ticket: (openTicketsByClientId.get(Number(client.id)) || 0) > 0
@@ -713,9 +786,14 @@ export const getProviderMyRoster = async (req, res, next) => {
            c.paperwork_delivery_method_id,
            pdm.label AS paperwork_delivery_method_label,
            c.doc_date,
+           c.parents_contacted_at,
+           c.parents_contacted_successful,
+           c.intake_at,
+           c.first_service_at,
            c.roi_expires_at,
            c.skills,
-           c.status
+           c.status,
+           MIN(cpa.created_at) AS provider_assigned_at
          FROM clients c
          JOIN client_organization_assignments coa
            ON coa.client_id = c.id
@@ -812,6 +890,31 @@ export const getProviderMyRoster = async (req, res, next) => {
       // ignore (tables may not exist yet)
     }
 
+    // Total ticket message counts (per client).
+    const totalTicketMsgsByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      if (clientIds.length > 0 && orgId && (await hasSupportTicketMessagesTable())) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const hasSoftDelete = await hasSupportTicketMessagesSoftDeleteColumns();
+        const [rows] = await pool.execute(
+          `SELECT t.client_id, COUNT(*) AS total_count
+           FROM support_tickets t
+           JOIN support_ticket_messages m ON m.ticket_id = t.id
+           WHERE t.school_organization_id = ?
+             AND t.client_id IN (${placeholders})
+             ${hasSoftDelete ? 'AND (m.is_deleted IS NULL OR m.is_deleted = 0)' : ''}
+           GROUP BY t.client_id`,
+          [orgId, ...clientIds]
+        );
+        for (const r of rows || []) {
+          totalTicketMsgsByClientId.set(Number(r.client_id), Number(r.total_count || 0));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     const unreadUpdatesByClientId = new Map();
     try {
       const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
@@ -873,7 +976,9 @@ export const getProviderMyRoster = async (req, res, next) => {
         roi_expires_at: client.roi_expires_at || null,
         skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0,
+        notes_count: totalNotesByClientId.get(Number(client.id)) || 0,
         unread_ticket_messages_count: unreadTicketMsgsByClientId.get(Number(client.id)) || 0,
+        ticket_messages_count: totalTicketMsgsByClientId.get(Number(client.id)) || 0,
         unread_updates_count: unreadUpdatesByClientId.get(Number(client.id)) || 0,
         open_ticket_count: openTicketsByClientId.get(Number(client.id)) || 0,
         has_open_ticket: (openTicketsByClientId.get(Number(client.id)) || 0) > 0,
@@ -2079,12 +2184,17 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
              t.created_at,
              t.updated_at,
              c.initials,
-             c.identifier_code,
-             u.first_name AS actor_first_name,
-             u.last_name AS actor_last_name
+           c.identifier_code,
+           t.answer,
+           t.answered_at,
+           u.first_name AS actor_first_name,
+           u.last_name AS actor_last_name,
+           ab.first_name AS answered_by_first_name,
+           ab.last_name AS answered_by_last_name
            FROM support_tickets t
            LEFT JOIN clients c ON c.id = t.client_id
            LEFT JOIN users u ON u.id = t.created_by_user_id
+           LEFT JOIN users ab ON ab.id = t.answered_by_user_id
            WHERE t.school_organization_id = ?
            ORDER BY t.created_at DESC, t.id DESC
            LIMIT 200`,
@@ -2111,16 +2221,45 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
         const closedItems = (ticketRows || [])
           .filter((r) => String(r.status || '').toLowerCase() === 'closed')
           .map((r) => {
-            const actor = [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
+            const actor = [String(r.answered_by_first_name || '').trim(), String(r.answered_by_last_name || '').trim()]
+              .filter(Boolean)
+              .join(' ')
+              .trim() || [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
             const clientLabel = String(r.identifier_code || r.initials || '—');
             const subj = String(r.subject || '').trim() || 'Ticket';
             return {
               id: `ticket_closed:${r.id}`,
               kind: 'ticket',
               category: 'ticket',
-              created_at: r.updated_at || r.created_at,
+              created_at: r.answered_at || r.updated_at || r.created_at,
               title: 'Ticket closed',
               message: r.client_id ? `${clientLabel}: ${subj}` : subj,
+              actor_name: actor || null,
+              client_id: r.client_id ? Number(r.client_id) : null,
+              client_initials: r.initials || null,
+              client_identifier_code: r.identifier_code || null
+            };
+          });
+
+        const answeredItems = (ticketRows || [])
+          .filter((r) => String(r.status || '').toLowerCase() === 'answered')
+          .map((r) => {
+            const actor = [String(r.answered_by_first_name || '').trim(), String(r.answered_by_last_name || '').trim()]
+              .filter(Boolean)
+              .join(' ')
+              .trim() || [String(r.actor_first_name || '').trim(), String(r.actor_last_name || '').trim()].filter(Boolean).join(' ').trim();
+            const clientLabel = String(r.identifier_code || r.initials || '—');
+            const subj = String(r.subject || '').trim() || 'Ticket';
+            const raw = String(r.answer || '').trim();
+            const snippet = raw.length > 160 ? `${raw.slice(0, 160)}…` : raw;
+            const message = snippet ? `${clientLabel}: ${snippet}` : (r.client_id ? `${clientLabel}: ${subj}` : subj);
+            return {
+              id: `ticket_answered:${r.id}`,
+              kind: 'ticket',
+              category: 'ticket',
+              created_at: r.answered_at || r.updated_at || r.created_at,
+              title: 'Ticket answered',
+              message,
               actor_name: actor || null,
               client_id: r.client_id ? Number(r.client_id) : null,
               client_initials: r.initials || null,
@@ -2169,7 +2308,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           };
         });
 
-        ticketActivity = [...createdItems, ...closedItems, ...replyItems];
+        ticketActivity = [...createdItems, ...closedItems, ...answeredItems, ...replyItems];
       }
     } catch {
       ticketActivity = [];
