@@ -553,23 +553,26 @@ export const getSchoolClients = async (req, res, next) => {
       // ignore (tables may not exist yet)
     }
 
-    // Open ticket counts (per client).
+    // Ticket status counts (per client).
     const openTicketsByClientId = new Map();
+    const answeredTicketsByClientId = new Map();
     try {
       const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
       if (clientIds.length > 0 && orgId) {
         const placeholders = clientIds.map(() => '?').join(',');
         const [rows] = await pool.execute(
-          `SELECT t.client_id, COUNT(*) AS open_count
+          `SELECT t.client_id,
+                  SUM(CASE WHEN LOWER(t.status) = 'open' OR t.status IS NULL THEN 1 ELSE 0 END) AS open_count,
+                  SUM(CASE WHEN LOWER(t.status) = 'answered' THEN 1 ELSE 0 END) AS answered_count
            FROM support_tickets t
            WHERE t.school_organization_id = ?
              AND t.client_id IN (${placeholders})
-             AND (t.status IS NULL OR LOWER(t.status) <> 'closed')
            GROUP BY t.client_id`,
           [orgId, ...clientIds]
         );
         for (const r of rows || []) {
           openTicketsByClientId.set(Number(r.client_id), Number(r.open_count || 0));
+          answeredTicketsByClientId.set(Number(r.client_id), Number(r.answered_count || 0));
         }
       }
     } catch {
@@ -601,23 +604,26 @@ export const getSchoolClients = async (req, res, next) => {
       // ignore
     }
 
-    // Open ticket counts (per client).
+    // Ticket status counts (per client).
     const openTicketsByClientId = new Map();
+    const answeredTicketsByClientId = new Map();
     try {
       const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
       if (clientIds.length > 0 && orgId) {
         const placeholders = clientIds.map(() => '?').join(',');
         const [rows] = await pool.execute(
-          `SELECT t.client_id, COUNT(*) AS open_count
+          `SELECT t.client_id,
+                  SUM(CASE WHEN LOWER(t.status) = 'open' OR t.status IS NULL THEN 1 ELSE 0 END) AS open_count,
+                  SUM(CASE WHEN LOWER(t.status) = 'answered' THEN 1 ELSE 0 END) AS answered_count
            FROM support_tickets t
            WHERE t.school_organization_id = ?
              AND t.client_id IN (${placeholders})
-             AND (t.status IS NULL OR LOWER(t.status) <> 'closed')
            GROUP BY t.client_id`,
           [orgId, ...clientIds]
         );
         for (const r of rows || []) {
           openTicketsByClientId.set(Number(r.client_id), Number(r.open_count || 0));
+          answeredTicketsByClientId.set(Number(r.client_id), Number(r.answered_count || 0));
         }
       }
     } catch {
@@ -673,7 +679,9 @@ export const getSchoolClients = async (req, res, next) => {
         ticket_messages_count: totalTicketMsgsByClientId.get(Number(client.id)) || 0,
         unread_updates_count: unreadUpdatesByClientId.get(Number(client.id)) || 0,
         open_ticket_count: openTicketsByClientId.get(Number(client.id)) || 0,
-        has_open_ticket: (openTicketsByClientId.get(Number(client.id)) || 0) > 0
+        answered_ticket_count: answeredTicketsByClientId.get(Number(client.id)) || 0,
+        has_open_ticket: (openTicketsByClientId.get(Number(client.id)) || 0) > 0,
+        has_answered_ticket: (answeredTicketsByClientId.get(Number(client.id)) || 0) > 0
       };
     });
 
@@ -981,7 +989,9 @@ export const getProviderMyRoster = async (req, res, next) => {
         ticket_messages_count: totalTicketMsgsByClientId.get(Number(client.id)) || 0,
         unread_updates_count: unreadUpdatesByClientId.get(Number(client.id)) || 0,
         open_ticket_count: openTicketsByClientId.get(Number(client.id)) || 0,
+        answered_ticket_count: answeredTicketsByClientId.get(Number(client.id)) || 0,
         has_open_ticket: (openTicketsByClientId.get(Number(client.id)) || 0) > 0,
+        has_answered_ticket: (answeredTicketsByClientId.get(Number(client.id)) || 0) > 0,
         compliance_pending: compliancePending,
         compliance_days_since_assigned: daysSinceAssigned,
         compliance_missing: missingChecklist

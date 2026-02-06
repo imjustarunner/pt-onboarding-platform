@@ -32,8 +32,12 @@
             <span class="unread-legend-text">New updates</span>
           </div>
           <div class="unread-legend-item">
-            <span class="open-ticket-badge open-ticket-badge-legend" aria-hidden="true">Open</span>
-            <span class="unread-legend-text">Open ticket</span>
+            <span class="ticket-status-badge ticket-status-open ticket-status-legend" aria-hidden="true">Ticket Open</span>
+            <span class="unread-legend-text">Ticket open</span>
+          </div>
+          <div class="unread-legend-item">
+            <span class="ticket-status-badge ticket-status-answered ticket-status-legend" aria-hidden="true">Ticket Answered</span>
+            <span class="unread-legend-text">Ticket answered</span>
           </div>
           <div class="unread-legend-hint">Click a bubble to open it.</div>
         </div>
@@ -113,8 +117,11 @@
                 >
                   Pending {{ Number(client.compliance_days_since_assigned || 0) }}d
                 </span>
-                <span v-if="client.has_open_ticket" class="open-ticket-badge" title="Open ticket">
-                  Open
+                <span v-if="client.has_open_ticket" class="ticket-status-badge ticket-status-open" title="Ticket open">
+                  Ticket Open
+                </span>
+                <span v-if="client.has_answered_ticket" class="ticket-status-badge ticket-status-answered" title="Ticket answered">
+                  Ticket Answered
                 </span>
                 <button
                   v-if="Number(client.notes_count || 0) > 0"
@@ -812,22 +819,29 @@ onMounted(() => {
 .unread-badge-muted {
   opacity: 0.55;
 }
-.open-ticket-badge {
+.ticket-status-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 18px;
   padding: 0 8px;
   border-radius: 999px;
-  border: 1px solid rgba(234, 88, 12, 0.4);
-  background: rgba(234, 88, 12, 0.14);
-  color: #9a3412;
   font-size: 11px;
   line-height: 1;
   font-weight: 800;
   letter-spacing: 0.02em;
 }
-.open-ticket-badge-legend {
+.ticket-status-open {
+  border: 1px solid rgba(234, 88, 12, 0.4);
+  background: rgba(234, 88, 12, 0.14);
+  color: #9a3412;
+}
+.ticket-status-answered {
+  border: 1px solid rgba(37, 99, 235, 0.4);
+  background: rgba(37, 99, 235, 0.12);
+  color: #1e3a8a;
+}
+.ticket-status-legend {
   cursor: default;
 }
 .pending-compliance-badge {
