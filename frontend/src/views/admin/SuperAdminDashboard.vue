@@ -291,6 +291,7 @@ const quickActions = computed(() => {
     description: 'Clinical Director Agent (audio + text)',
     to: '/admin/note-aid',
     emoji: '🩺',
+    iconKey: 'clinical_note_generator',
     category: 'Clinical',
     roles: ['admin', 'support', 'super_admin', 'staff', 'provider', 'intern', 'clinical_practice_assistant', 'supervisor'],
     capabilities: ['canAccessPlatform']
