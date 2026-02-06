@@ -562,7 +562,7 @@ export const getSchoolClients = async (req, res, next) => {
         const placeholders = clientIds.map(() => '?').join(',');
         const [rows] = await pool.execute(
           `SELECT t.client_id,
-                  SUM(CASE WHEN LOWER(t.status) = 'open' OR t.status IS NULL THEN 1 ELSE 0 END) AS open_count,
+                  SUM(CASE WHEN LOWER(COALESCE(t.status, '')) IN ('answered', 'closed') THEN 0 ELSE 1 END) AS open_count,
                   SUM(CASE WHEN LOWER(t.status) = 'answered' THEN 1 ELSE 0 END) AS answered_count
            FROM support_tickets t
            WHERE t.school_organization_id = ?
@@ -866,6 +866,32 @@ export const getProviderMyRoster = async (req, res, next) => {
         );
         for (const r of rows || []) {
           unreadTicketMsgsByClientId.set(Number(r.client_id), Number(r.unread_count || 0));
+        }
+      }
+    } catch {
+      // ignore (tables may not exist yet)
+    }
+
+    // Ticket status counts (per client).
+    const openTicketsByClientId = new Map();
+    const answeredTicketsByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      if (clientIds.length > 0 && orgId) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT t.client_id,
+                  SUM(CASE WHEN LOWER(COALESCE(t.status, '')) IN ('answered', 'closed') THEN 0 ELSE 1 END) AS open_count,
+                  SUM(CASE WHEN LOWER(t.status) = 'answered' THEN 1 ELSE 0 END) AS answered_count
+           FROM support_tickets t
+           WHERE t.school_organization_id = ?
+             AND t.client_id IN (${placeholders})
+           GROUP BY t.client_id`,
+          [orgId, ...clientIds]
+        );
+        for (const r of rows || []) {
+          openTicketsByClientId.set(Number(r.client_id), Number(r.open_count || 0));
+          answeredTicketsByClientId.set(Number(r.client_id), Number(r.answered_count || 0));
         }
       }
     } catch {

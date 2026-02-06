@@ -132,9 +132,8 @@
                   Ticket Answered {{ Number(client.answered_ticket_count || 0) }}
                 </span>
                 <button
-                  v-if="Number(client.notes_count || 0) > 0"
+                  v-if="Number(client.unread_notes_count || 0) > 0"
                   class="unread-badge unread-badge-comments"
-                  :class="{ 'unread-badge-muted': Number(client.unread_notes_count || 0) === 0 }"
                   type="button"
                   :title="commentBadgeTitle(client)"
                   @click.stop="openClient(client, 'comments')"
@@ -142,9 +141,8 @@
                   {{ commentBadgeCount(client) }}
                 </button>
                 <button
-                  v-if="Number(client.ticket_messages_count || 0) > 0"
+                  v-if="Number(client.unread_ticket_messages_count || 0) > 0"
                   class="unread-badge unread-badge-messages"
-                  :class="{ 'unread-badge-muted': Number(client.unread_ticket_messages_count || 0) === 0 }"
                   type="button"
                   :title="messageBadgeTitle(client)"
                   @click.stop="openClient(client, 'messages')"
