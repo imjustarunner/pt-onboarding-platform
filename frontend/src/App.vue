@@ -863,11 +863,10 @@ const currentAgencyId = computed(() => {
 });
 
 const canSeePayrollManagement = computed(() => {
-  const role = user.value?.role;
-  if (role === 'admin' || role === 'super_admin') return true;
+  if (user.value?.role === 'super_admin') return true;
   const caps = user.value?.capabilities || {};
   if (!caps.canManagePayroll) return false;
-  // Staff: only show when current agency is permitted.
+  // Only show when current agency is permitted.
   const ids = Array.isArray(user.value?.payrollAgencyIds) ? user.value.payrollAgencyIds : [];
   if (!currentAgencyId.value) return false;
   return ids.includes(currentAgencyId.value);

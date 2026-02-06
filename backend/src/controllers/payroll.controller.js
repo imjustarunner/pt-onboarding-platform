@@ -461,9 +461,7 @@ async function isAgencyFeatureEnabled(agencyId, key, defaultValue = true) {
 
 async function canManagePayrollForAgency({ userId, role, agencyId }) {
   if (!agencyId) return false;
-  if (isAdminRole(role)) return true;
-  if (role !== 'staff') return false;
-
+  if (role === 'super_admin') return true;
   const [rows] = await pool.execute(
     'SELECT has_payroll_access FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
     [userId, agencyId]
@@ -2589,6 +2587,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       'Direct Pay Rate',
       'Indirect Hours',
       'Indirect Pay Rate',
+      'PTO Taken (Hours)',
       'Bonus (Taxable)',
       'Mileage (Non-taxable)',
       'Tuition Reimbursement (Non-taxable)',
@@ -2671,6 +2670,11 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       const tuition = safeNum(adjFromBreakdown?.tuitionReimbursementAmount ?? adjFallback?.tuition_reimbursement_amount ?? 0);
       const bonus = safeNum(adjFromBreakdown?.bonusAmount ?? adjFallback?.bonus_amount ?? 0);
       const salary = safeNum(adjFromBreakdown?.salaryAmount ?? adjFallback?.salary_amount ?? 0);
+      const breakdownPtoHours = safeNum(adjFromBreakdown?.ptoHours ?? 0);
+      const fallbackPtoHours = safeNum(adjFallback?.sick_pto_hours ?? 0) + safeNum(adjFallback?.training_pto_hours ?? 0);
+      const ptoTakenHours = breakdownPtoHours > 0
+        ? breakdownPtoHours
+        : (fallbackPtoHours > 0 ? fallbackPtoHours : safeNum(adjFallback?.pto_hours ?? 0));
 
       const nonTaxableTotal = safeNum(adjFromBreakdown?.nonTaxableAmount ?? (mileage + reimbursement + tuition));
       const taxableTotal = safeNum(adjFromBreakdown?.taxableAdjustmentsAmount ?? (safeNum(s.adjustments_amount || 0) - nonTaxableTotal));
@@ -2683,6 +2687,7 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
           fmt2(directRate),
           fmt2(indirectHours),
           fmt2(indirectRate),
+          fmt2(ptoTakenHours),
           fmt2(bonus),
           fmt2(mileage),
           fmt2(tuition),
@@ -2690,8 +2695,8 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
           fmt2(taxableTotal),
           fmt2(nonTaxableTotal),
           fmt2(totalPay),
-          csvEscape(String(period.period_start || '')),
-          csvEscape(String(period.period_end || ''))
+          csvEscape(String(period.period_start || '').slice(0, 10)),
+          csvEscape(String(period.period_end || '').slice(0, 10))
         ].join(',')
       );
     }

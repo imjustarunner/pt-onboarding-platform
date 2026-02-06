@@ -28,6 +28,8 @@ const isAdminOrSuperAdmin = (req) => {
   return r === 'admin' || r === 'super_admin';
 };
 
+const normalizeBoolFlag = (val) => val === 1 || val === true || val === '1';
+
 async function requireSharedAgencyAccessOrSuperAdmin({ actorUserId, targetUserId, actorRole }) {
   const r = String(actorRole || '').toLowerCase();
   if (r === 'super_admin') return true;
@@ -1728,11 +1730,63 @@ export const updateUser = async (req, res, next) => {
 
     // When hasPayrollAccess was provided, set it for all agencies for this user
     if (hasPayrollAccess !== undefined) {
+      let payrollConn;
       try {
-        await User.setPayrollAccessForAllAgencies(parseInt(id), !!hasPayrollAccess);
+        payrollConn = await pool.getConnection();
+        await payrollConn.beginTransaction();
+        const targetUserId = parseInt(id, 10);
+        const actorUserId = Number(req.user?.id || 0);
+        const nextEnabled = !!hasPayrollAccess;
+
+        const [rows] = await payrollConn.execute(
+          'SELECT agency_id, has_payroll_access FROM user_agencies WHERE user_id = ?',
+          [targetUserId]
+        );
+
+        await payrollConn.execute(
+          'UPDATE user_agencies SET has_payroll_access = ? WHERE user_id = ?',
+          [nextEnabled ? 1 : 0, targetUserId]
+        );
+
+        for (const row of (rows || [])) {
+          const agencyId = Number(row?.agency_id || 0);
+          if (!agencyId) continue;
+          const prevEnabled = normalizeBoolFlag(row?.has_payroll_access);
+          if (prevEnabled === nextEnabled) continue;
+          await payrollConn.execute(
+            `INSERT INTO admin_audit_log
+             (action_type, actor_user_id, target_user_id, module_id, track_id, agency_id, metadata)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              nextEnabled ? 'grant_payroll_access' : 'revoke_payroll_access',
+              actorUserId,
+              targetUserId,
+              null,
+              null,
+              agencyId,
+              JSON.stringify({
+                previous: prevEnabled,
+                next: nextEnabled,
+                source: 'user_profile_toggle',
+                scope: 'all_agencies'
+              })
+            ]
+          );
+        }
+
+        await payrollConn.commit();
       } catch (payrollErr) {
+        if (payrollConn) {
+          try {
+            await payrollConn.rollback();
+          } catch {
+            // ignore
+          }
+        }
         console.error('Error setting payroll access for all agencies:', payrollErr);
-        // Don't fail the request; user record was updated
+        return res.status(500).json({ error: { message: 'Failed to update payroll access' } });
+      } finally {
+        if (payrollConn) payrollConn.release();
       }
     }
 
@@ -2850,6 +2904,7 @@ export const removeUserFromAgency = async (req, res, next) => {
 };
 
 export const setUserAgencyPayrollAccess = async (req, res, next) => {
+  let conn;
   try {
     const { id } = req.params;
     const { agencyId, enabled } = req.body || {};
@@ -2867,20 +2922,68 @@ export const setUserAgencyPayrollAccess = async (req, res, next) => {
     if (typeof enabled !== 'boolean') {
       return res.status(400).json({ error: { message: 'enabled must be a boolean' } });
     }
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
 
-    const membership = await User.getAgencyMembership(userId, agencyIdNum);
+    const [membershipRows] = await conn.execute(
+      'SELECT has_payroll_access FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [userId, agencyIdNum]
+    );
+    const membership = membershipRows?.[0] || null;
     if (!membership) {
+      await conn.rollback();
       return res.status(400).json({ error: { message: 'User is not assigned to this agency' } });
     }
 
-    const updated = await User.setAgencyPayrollAccess(userId, agencyIdNum, enabled);
+    const prevEnabled = normalizeBoolFlag(membership.has_payroll_access);
+    const nextEnabled = !!enabled;
+
+    if (prevEnabled !== nextEnabled) {
+      await conn.execute(
+        'UPDATE user_agencies SET has_payroll_access = ? WHERE user_id = ? AND agency_id = ?',
+        [nextEnabled ? 1 : 0, userId, agencyIdNum]
+      );
+      await conn.execute(
+        `INSERT INTO admin_audit_log
+         (action_type, actor_user_id, target_user_id, module_id, track_id, agency_id, metadata)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          nextEnabled ? 'grant_payroll_access' : 'revoke_payroll_access',
+          Number(req.user?.id || 0),
+          userId,
+          null,
+          null,
+          agencyIdNum,
+          JSON.stringify({
+            previous: prevEnabled,
+            next: nextEnabled,
+            source: 'user_agency_toggle'
+          })
+        ]
+      );
+    }
+
+    const [updatedRows] = await conn.execute(
+      'SELECT has_payroll_access FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1',
+      [userId, agencyIdNum]
+    );
+    await conn.commit();
     res.json({
       userId,
       agencyId: agencyIdNum,
-      hasPayrollAccess: !!(updated?.has_payroll_access === 1 || updated?.has_payroll_access === true || updated?.has_payroll_access === '1')
+      hasPayrollAccess: normalizeBoolFlag(updatedRows?.[0]?.has_payroll_access)
     });
   } catch (error) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore
+      }
+    }
     next(error);
+  } finally {
+    if (conn) conn.release();
   }
 };
 

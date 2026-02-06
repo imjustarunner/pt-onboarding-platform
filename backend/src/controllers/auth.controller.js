@@ -13,10 +13,7 @@ import { createSignedState as createGoogleState, verifySignedState as verifyGoog
 async function buildPayrollCaps(user) {
   const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
   const baseCaps = getUserCapabilities(user);
-  const canManagePayroll =
-    user?.role === 'admin' ||
-    user?.role === 'super_admin' ||
-    (user?.role === 'staff' && payrollAgencyIds.length > 0);
+  const canManagePayroll = user?.role === 'super_admin' || payrollAgencyIds.length > 0;
   return {
     payrollAgencyIds,
     capabilities: {
