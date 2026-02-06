@@ -117,11 +117,19 @@
                 >
                   Pending {{ Number(client.compliance_days_since_assigned || 0) }}d
                 </span>
-                <span v-if="client.has_open_ticket" class="ticket-status-badge ticket-status-open" title="Ticket open">
-                  Ticket Open
+                <span
+                  v-if="Number(client.open_ticket_count || 0) > 0"
+                  class="ticket-status-badge ticket-status-open"
+                  :title="`Ticket open (${Number(client.open_ticket_count || 0)})`"
+                >
+                  Ticket Open {{ Number(client.open_ticket_count || 0) }}
                 </span>
-                <span v-if="client.has_answered_ticket" class="ticket-status-badge ticket-status-answered" title="Ticket answered">
-                  Ticket Answered
+                <span
+                  v-if="Number(client.answered_ticket_count || 0) > 0"
+                  class="ticket-status-badge ticket-status-answered"
+                  :title="`Ticket answered (${Number(client.answered_ticket_count || 0)})`"
+                >
+                  Ticket Answered {{ Number(client.answered_ticket_count || 0) }}
                 </span>
                 <button
                   v-if="Number(client.notes_count || 0) > 0"
@@ -832,9 +840,9 @@ onMounted(() => {
   letter-spacing: 0.02em;
 }
 .ticket-status-open {
-  border: 1px solid rgba(234, 88, 12, 0.4);
-  background: rgba(234, 88, 12, 0.14);
-  color: #9a3412;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.16);
+  color: #b91c1c;
 }
 .ticket-status-answered {
   border: 1px solid rgba(37, 99, 235, 0.4);
