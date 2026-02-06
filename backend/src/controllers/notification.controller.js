@@ -71,6 +71,77 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole) {
     });
 }
 
+async function appendNotificationContext(notifications) {
+  const list = Array.isArray(notifications) ? notifications : [];
+  if (list.length === 0) return list;
+
+  const agencyIds = Array.from(
+    new Set(list.map((n) => Number(n?.agency_id || 0)).filter((v) => Number.isFinite(v) && v > 0))
+  );
+  const agencyNameById = new Map();
+  if (agencyIds.length) {
+    const placeholders = agencyIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT id, name
+       FROM agencies
+       WHERE id IN (${placeholders})`,
+      agencyIds
+    );
+    for (const r of rows || []) {
+      agencyNameById.set(Number(r.id), String(r.name || '').trim());
+    }
+  }
+
+  const clientIds = Array.from(
+    new Set(
+      list
+        .filter((n) => String(n?.related_entity_type || '').toLowerCase() === 'client')
+        .map((n) => Number(n?.related_entity_id || 0))
+        .filter((v) => Number.isFinite(v) && v > 0)
+    )
+  );
+  const clientById = new Map();
+  if (clientIds.length) {
+    const placeholders = clientIds.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT c.id,
+              c.initials,
+              c.identifier_code,
+              MIN(a.name) AS organization_name
+       FROM clients c
+       LEFT JOIN client_organization_assignments coa
+         ON coa.client_id = c.id
+        AND coa.is_active = TRUE
+       LEFT JOIN agencies a ON a.id = coa.organization_id
+       WHERE c.id IN (${placeholders})
+       GROUP BY c.id`,
+      clientIds
+    );
+    for (const r of rows || []) {
+      clientById.set(Number(r.id), {
+        initials: String(r.initials || '').trim(),
+        code: String(r.identifier_code || '').trim(),
+        organization_name: String(r.organization_name || '').trim()
+      });
+    }
+  }
+
+  for (const n of list) {
+    const agencyName = agencyNameById.get(Number(n?.agency_id || 0)) || '';
+    if (agencyName) n.agency_name = agencyName;
+    if (String(n?.related_entity_type || '').toLowerCase() === 'client') {
+      const info = clientById.get(Number(n?.related_entity_id || 0));
+      if (info) {
+        n.client_initials = info.initials || '';
+        n.client_identifier_code = info.code || '';
+        if (info.organization_name) n.organization_name = info.organization_name;
+      }
+    }
+  }
+
+  return list;
+}
+
 export const getNotifications = async (req, res, next) => {
   try {
     const { agencyId, type, isRead, isResolved } = req.query;
@@ -133,7 +204,9 @@ export const getNotifications = async (req, res, next) => {
 
       // Sort by created_at descending
       allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      return res.json(filterNotificationsForViewer(allNotifications, userId, userRole));
+      const filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
+      await appendNotificationContext(filtered);
+      return res.json(filtered);
     } else if (userRole === 'clinical_practice_assistant') {
       // CPAs can see all notifications for all users in their agencies
       const userAgencies = await User.getAgencies(userId);
@@ -165,7 +238,9 @@ export const getNotifications = async (req, res, next) => {
 
       // Sort by created_at descending
       allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      return res.json(filterNotificationsForViewer(allNotifications, userId, userRole));
+      const filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
+      await appendNotificationContext(filtered);
+      return res.json(filtered);
     } else {
       // Admin/support can only see their agencies
       const userAgencies = await User.getAgencies(userId);
@@ -199,7 +274,9 @@ export const getNotifications = async (req, res, next) => {
     // Sort by created_at descending
     allNotifications.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-    res.json(filterNotificationsForViewer(allNotifications, userId, userRole));
+    const filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
+    await appendNotificationContext(filtered);
+    res.json(filtered);
   } catch (error) {
     next(error);
   }

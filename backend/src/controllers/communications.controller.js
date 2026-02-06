@@ -12,6 +12,16 @@ const canViewTickets = (role) => {
   return r === 'support' || r === 'admin' || r === 'super_admin' || r === 'clinical_practice_assistant' || r === 'staff';
 };
 
+const isMissingTableError = (err) => {
+  const msg = String(err?.message || '');
+  return (
+    msg.includes("doesn't exist") ||
+    msg.includes('ER_NO_SUCH_TABLE') ||
+    msg.includes('Unknown column') ||
+    msg.includes('ER_BAD_FIELD_ERROR')
+  );
+};
+
 async function getAgencyIdsForUser(userId, role, forcedAgencyId) {
   const reqAgency = forcedAgencyId ? Number(forcedAgencyId) : null;
   if (reqAgency) {
@@ -61,71 +71,83 @@ export const getCommunicationsFeed = async (req, res, next) => {
     const chatValues = organizationId
       ? [userId, userId, userId, userId, userId, ...agencyIds, organizationId]
       : [userId, userId, userId, userId, userId, ...agencyIds];
-    const [chatRows] = await pool.execute(
-      `SELECT t.id AS thread_id,
-              t.agency_id,
-              t.organization_id,
-              org.slug AS organization_slug,
-              org.name AS organization_name,
-              t.updated_at,
-              lm.id AS last_message_id,
-              lm.body AS last_message_body,
-              lm.created_at AS last_message_at,
-              lm.sender_user_id AS last_message_sender_user_id,
-              su.first_name AS last_sender_first_name,
-              su.last_name AS last_sender_last_name,
-              su.role AS last_sender_role,
-              r.last_read_message_id,
-              td.deleted_at AS thread_deleted_at,
-              (
-                SELECT COUNT(*)
-                FROM chat_messages m2
-                WHERE m2.thread_id = t.id
-                  AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
-                  AND m2.sender_user_id <> ?
-                  AND NOT EXISTS (
-                    SELECT 1 FROM chat_message_deletes d2
-                    WHERE d2.user_id = ? AND d2.message_id = m2.id
-                  )
-              ) AS unread_count
-       FROM chat_threads t
-       JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
-       LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
-       LEFT JOIN chat_thread_deletes td ON td.thread_id = t.id AND td.user_id = ?
-       LEFT JOIN chat_messages lm ON lm.id = (
-         SELECT m.id
-         FROM chat_messages m
-         LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
-         WHERE m.thread_id = t.id AND d.message_id IS NULL
-         ORDER BY m.id DESC
-         LIMIT 1
-       )
-       LEFT JOIN users su ON su.id = lm.sender_user_id
-       LEFT JOIN agencies org ON org.id = t.organization_id
-       WHERE t.agency_id IN (${chatPlaceholders})${chatWhereOrg}
-         AND (td.deleted_at IS NULL OR (lm.created_at IS NOT NULL AND lm.created_at > td.deleted_at))
-       ORDER BY t.updated_at DESC
-       LIMIT ${limit}`,
-      chatValues
-    );
+    let chatRows = [];
+    try {
+      const [rows] = await pool.execute(
+        `SELECT t.id AS thread_id,
+                t.agency_id,
+                t.organization_id,
+                org.slug AS organization_slug,
+                org.name AS organization_name,
+                t.updated_at,
+                lm.id AS last_message_id,
+                lm.body AS last_message_body,
+                lm.created_at AS last_message_at,
+                lm.sender_user_id AS last_message_sender_user_id,
+                su.first_name AS last_sender_first_name,
+                su.last_name AS last_sender_last_name,
+                su.role AS last_sender_role,
+                r.last_read_message_id,
+                td.deleted_at AS thread_deleted_at,
+                (
+                  SELECT COUNT(*)
+                  FROM chat_messages m2
+                  WHERE m2.thread_id = t.id
+                    AND (r.last_read_message_id IS NULL OR m2.id > r.last_read_message_id)
+                    AND m2.sender_user_id <> ?
+                    AND NOT EXISTS (
+                      SELECT 1 FROM chat_message_deletes d2
+                      WHERE d2.user_id = ? AND d2.message_id = m2.id
+                    )
+                ) AS unread_count
+         FROM chat_threads t
+         JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
+         LEFT JOIN chat_thread_reads r ON r.thread_id = t.id AND r.user_id = ?
+         LEFT JOIN chat_thread_deletes td ON td.thread_id = t.id AND td.user_id = ?
+         LEFT JOIN chat_messages lm ON lm.id = (
+           SELECT m.id
+           FROM chat_messages m
+           LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
+           WHERE m.thread_id = t.id AND d.message_id IS NULL
+           ORDER BY m.id DESC
+           LIMIT 1
+         )
+         LEFT JOIN users su ON su.id = lm.sender_user_id
+         LEFT JOIN agencies org ON org.id = t.organization_id
+         WHERE t.agency_id IN (${chatPlaceholders})${chatWhereOrg}
+           AND (td.deleted_at IS NULL OR (lm.created_at IS NOT NULL AND lm.created_at > td.deleted_at))
+         ORDER BY t.updated_at DESC
+         LIMIT ${limit}`,
+        chatValues
+      );
+      chatRows = rows || [];
+    } catch (e) {
+      if (!isMissingTableError(e)) throw e;
+      chatRows = [];
+    }
 
     // Enrich chat rows with "other participant" for display.
     const threadIds = (chatRows || []).map((r) => Number(r.thread_id)).filter(Boolean);
     let participantsByThread = {};
     if (threadIds.length) {
-      const p2 = threadIds.map(() => '?').join(',');
-      const [parts] = await pool.execute(
-        `SELECT tp.thread_id, u.id AS user_id, u.first_name, u.last_name, u.role
-         FROM chat_thread_participants tp
-         JOIN users u ON u.id = tp.user_id
-         WHERE tp.thread_id IN (${p2})`,
-        threadIds
-      );
-      participantsByThread = (parts || []).reduce((acc, p) => {
-        acc[p.thread_id] = acc[p.thread_id] || [];
-        acc[p.thread_id].push(p);
-        return acc;
-      }, {});
+      try {
+        const p2 = threadIds.map(() => '?').join(',');
+        const [parts] = await pool.execute(
+          `SELECT tp.thread_id, u.id AS user_id, u.first_name, u.last_name, u.role
+           FROM chat_thread_participants tp
+           JOIN users u ON u.id = tp.user_id
+           WHERE tp.thread_id IN (${p2})`,
+          threadIds
+        );
+        participantsByThread = (parts || []).reduce((acc, p) => {
+          acc[p.thread_id] = acc[p.thread_id] || [];
+          acc[p.thread_id].push(p);
+          return acc;
+        }, {});
+      } catch (e) {
+        if (!isMissingTableError(e)) throw e;
+        participantsByThread = {};
+      }
     }
 
     const chatItems = (chatRows || []).map((r) => {
@@ -157,33 +179,38 @@ export const getCommunicationsFeed = async (req, res, next) => {
     // SMS feed: only for roles that can view SMS safety net.
     let smsItems = [];
     if (canViewSms(role) && !organizationId) {
-      const placeholders = agencyIds.map(() => '?').join(',');
-      const [rows] = await pool.execute(
-        `SELECT ml.*,
-                c.initials AS client_initials,
-                u.first_name AS user_first_name,
-                u.last_name AS user_last_name
-         FROM message_logs ml
-         LEFT JOIN clients c ON ml.client_id = c.id
-         LEFT JOIN users u ON ml.user_id = u.id
-         WHERE ml.agency_id IN (${placeholders})
-         ORDER BY ml.created_at DESC
-         LIMIT ?`,
-        [...agencyIds, limit]
-      );
-      smsItems = (rows || []).map((m) => ({
-        kind: 'sms',
-        id: Number(m.id),
-        agency_id: Number(m.agency_id),
-        user_id: m.user_id ? Number(m.user_id) : null,
-        client_id: m.client_id ? Number(m.client_id) : null,
-        direction: m.direction || null,
-        preview: String(m.body || ''),
-        created_at: m.created_at,
-        client_initials: m.client_initials || null,
-        user_first_name: m.user_first_name || null,
-        user_last_name: m.user_last_name || null
-      }));
+      try {
+        const placeholders = agencyIds.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT ml.*,
+                  c.initials AS client_initials,
+                  u.first_name AS user_first_name,
+                  u.last_name AS user_last_name
+           FROM message_logs ml
+           LEFT JOIN clients c ON ml.client_id = c.id
+           LEFT JOIN users u ON ml.user_id = u.id
+           WHERE ml.agency_id IN (${placeholders})
+           ORDER BY ml.created_at DESC
+           LIMIT ?`,
+          [...agencyIds, limit]
+        );
+        smsItems = (rows || []).map((m) => ({
+          kind: 'sms',
+          id: Number(m.id),
+          agency_id: Number(m.agency_id),
+          user_id: m.user_id ? Number(m.user_id) : null,
+          client_id: m.client_id ? Number(m.client_id) : null,
+          direction: m.direction || null,
+          preview: String(m.body || ''),
+          created_at: m.created_at,
+          client_initials: m.client_initials || null,
+          user_first_name: m.user_first_name || null,
+          user_last_name: m.user_last_name || null
+        }));
+      } catch (e) {
+        if (!isMissingTableError(e)) throw e;
+        smsItems = [];
+      }
     }
 
     // Ticket feed: only for admin-like roles.

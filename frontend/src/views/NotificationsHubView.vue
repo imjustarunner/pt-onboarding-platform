@@ -6,10 +6,20 @@
     </div>
 
     <div class="card-grid" data-tour="notifhub-grid">
-      <div class="card" data-tour="notifhub-card-mine">
+      <div class="card card-mine" data-tour="notifhub-card-mine">
         <div class="card-top">
           <h2>My Notifications</h2>
-          <span class="pill">{{ myUnreadCount }} unread</span>
+          <div class="card-top-actions">
+            <span class="pill">{{ myUnreadCount }} unread</span>
+            <button
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="toggleClientLabelMode"
+              :title="clientLabelMode === 'codes' ? 'Show initials' : 'Show codes'"
+            >
+              {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
+            </button>
+          </div>
         </div>
         <p class="hint">These are notifications where you are the target user (including SMS-eligible events).</p>
 
@@ -27,7 +37,7 @@
               <span :class="['sev', `sev-${n.severity || 'info'}`]">{{ n.severity || 'info' }}</span>
               <div class="title">{{ n.title }}</div>
             </div>
-            <div class="col col-msg">{{ n.message }}</div>
+            <div class="col col-msg">{{ formatNotificationLine(n) }}</div>
             <div class="col col-meta">
               <span>{{ formatDate(n.created_at) }}</span>
               <button class="link" @click.stop="markRead(n)" :disabled="n.is_read">Mark read</button>
@@ -36,7 +46,16 @@
         </div>
       </div>
 
-      <div v-if="showAgencyCards" class="card" data-tour="notifhub-card-agency">
+      <div v-if="showTeamCard" class="card card-compact" data-tour="notifhub-card-team">
+        <div class="card-top">
+          <h2>Team Notifications</h2>
+          <span class="pill">Supervisor/CPA</span>
+        </div>
+        <p class="hint">View supervisee / agency-wide operational items.</p>
+        <router-link class="btn" :to="teamNotificationsLink">Open</router-link>
+      </div>
+
+      <div v-if="showAgencyCards" class="card card-compact" data-tour="notifhub-card-agency">
         <div class="card-top">
           <h2>Agency Notifications</h2>
           <span class="pill">{{ agencies.length }} agencies</span>
@@ -60,16 +79,7 @@
         </div>
       </div>
 
-      <div v-if="showTeamCard" class="card" data-tour="notifhub-card-team">
-        <div class="card-top">
-          <h2>Team Notifications</h2>
-          <span class="pill">Supervisor/CPA</span>
-        </div>
-        <p class="hint">View supervisee / agency-wide operational items.</p>
-        <router-link class="btn" :to="teamNotificationsLink">Open</router-link>
-      </div>
-
-      <div v-if="showPlatformCard" class="card" data-tour="notifhub-card-platform">
+      <div v-if="showPlatformCard" class="card card-compact" data-tour="notifhub-card-platform">
         <div class="card-top">
           <h2>Platform Communications</h2>
           <span class="pill">{{ platformCount }} pending</span>
@@ -134,6 +144,13 @@
       </div>
     </div>
   </div>
+
+  <ClientDetailPanel
+    v-if="adminSelectedClient"
+    :client="adminSelectedClient"
+    @close="closeAdminClientEditor"
+    @updated="handleAdminClientUpdated"
+  />
 </template>
 
 <script setup>
@@ -142,6 +159,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import api from '../services/api';
+import ClientDetailPanel from '../components/admin/ClientDetailPanel.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -160,6 +178,9 @@ const platformStatus = ref('pending');
 const platformAgencyId = ref(null);
 const platformActionId = ref(null);
 const previewById = ref({});
+const clientLabelMode = ref('initials'); // 'initials' | 'codes'
+const adminSelectedClient = ref(null);
+const adminClientLoading = ref(false);
 
 const userId = computed(() => authStore.user?.id);
 const role = computed(() => authStore.user?.role);
@@ -285,16 +306,29 @@ const openNotification = async (notification) => {
   const isAdminLikeRole = isAdminLike.value;
   const base = orgSlug.value ? `/${orgSlug.value}` : '';
 
+  if (entityType === 'client' && isAdminLikeRole) {
+    const clientId = Number(notification.related_entity_id || 0);
+    if (!clientId) return;
+    adminClientLoading.value = true;
+    try {
+      const r = await api.get(`/clients/${clientId}`);
+      adminSelectedClient.value = r.data || null;
+    } catch (e) {
+      console.error('Failed to open client editor:', e);
+      alert(e.response?.data?.error?.message || e.message || 'Failed to open client editor');
+      adminSelectedClient.value = null;
+    } finally {
+      adminClientLoading.value = false;
+    }
+    return;
+  }
+
   if (entityType === 'user' && userIdTarget && isAdminLikeRole) {
     router.push(`${base}/admin/users/${userIdTarget}`);
     return;
   }
   if (entityType === 'task' && userIdTarget && isAdminLikeRole) {
     router.push(`${base}/admin/users/${userIdTarget}`);
-    return;
-  }
-  if (entityType === 'client' && isAdminLikeRole) {
-    router.push(`${base}/admin/clients`);
     return;
   }
   if (notification.type === 'support_ticket_created' && isAdminLikeRole) {
@@ -306,6 +340,16 @@ const openNotification = async (notification) => {
   }
 };
 
+const closeAdminClientEditor = () => {
+  adminSelectedClient.value = null;
+};
+
+const handleAdminClientUpdated = (payload) => {
+  if (payload?.client) {
+    adminSelectedClient.value = payload.client;
+  }
+};
+
 const myUnreadCount = computed(() => myNotifications.value.filter((n) => !n.is_read && !n.is_resolved).length);
 
 const formatDate = (dateString) => {
@@ -313,7 +357,41 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleString();
 };
 
+const toggleClientLabelMode = () => {
+  const next = clientLabelMode.value === 'codes' ? 'initials' : 'codes';
+  clientLabelMode.value = next;
+  try {
+    window.localStorage.setItem('notificationsClientLabelMode', next);
+  } catch {
+    // ignore
+  }
+};
+
+const formatClientLabel = (n) => {
+  const initials = String(n?.client_initials || '').replace(/\s+/g, '').toUpperCase();
+  const code = String(n?.client_identifier_code || '').replace(/\s+/g, '').toUpperCase();
+  if (clientLabelMode.value === 'initials') return initials || code || '';
+  return code || initials || '';
+};
+
+const formatNotificationLine = (n) => {
+  const parts = [];
+  const label = formatClientLabel(n);
+  if (label) parts.push(label);
+  const orgName = String(n?.organization_name || n?.agency_name || '').trim();
+  if (orgName) parts.push(orgName);
+  const msg = String(n?.message || '').trim();
+  if (msg) parts.push(msg);
+  return parts.join(' • ');
+};
+
 onMounted(async () => {
+  try {
+    const saved = window.localStorage.getItem('notificationsClientLabelMode');
+    if (saved === 'codes' || saved === 'initials') clientLabelMode.value = saved;
+  } catch {
+    // ignore
+  }
   if (!agencyStore.userAgencies || agencyStore.userAgencies.length === 0) {
     await agencyStore.fetchUserAgencies().catch(() => {});
   }
@@ -331,6 +409,17 @@ watch([platformAgencyId, platformChannel, platformStatus], async () => {
     await loadPlatform();
   }
 });
+
+watch(
+  () => clientLabelMode.value,
+  () => {
+    try {
+      window.localStorage.setItem('notificationsClientLabelMode', clientLabelMode.value);
+    } catch {
+      // ignore
+    }
+  }
+);
 </script>
 
 <style scoped>
@@ -338,20 +427,32 @@ watch([platformAgencyId, platformChannel, platformStatus], async () => {
 .sub { color: var(--text-secondary); margin: 6px 0 0 0; }
 .card-grid {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  align-items: start;
 }
 .card {
   background: white;
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 16px;
+  padding: 14px;
+}
+.card-mine {
+  grid-column: 1 / -1;
+}
+.card-compact .hint {
+  margin-bottom: 8px;
 }
 .card-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+.card-top-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .pill {
   border: 1px solid var(--border);
@@ -363,6 +464,11 @@ watch([platformAgencyId, platformChannel, platformStatus], async () => {
 .hint { color: var(--text-secondary); font-size: 13px; margin: 8px 0 12px 0; }
 .loading, .empty { color: var(--text-secondary); }
 .list { display: flex; flex-direction: column; gap: 6px; }
+.card-mine .list {
+  max-height: 260px;
+  overflow: auto;
+  padding-right: 4px;
+}
 .notif-row {
   display: grid;
   grid-template-columns: 260px 1fr 220px;

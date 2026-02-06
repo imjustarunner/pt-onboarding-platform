@@ -1116,6 +1116,14 @@ const onNotificationsUpdated = async () => {
   await Promise.all([loadNotificationsPreview(), loadBannerAnnouncements()]);
 };
 
+watch(
+  () => clientLabelMode.value,
+  () => {
+    // Refresh notification preview when label mode changes.
+    loadNotificationsPreview();
+  }
+);
+
 const loadBannerAnnouncements = async () => {
   try {
     const orgId = Number(organizationId.value || 0);

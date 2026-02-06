@@ -33,6 +33,14 @@
         <button class="btn btn-primary" type="button" @click="load" :disabled="loading">
           {{ loading ? 'Loading…' : 'Refresh' }}
         </button>
+        <button
+          class="btn btn-secondary"
+          type="button"
+          @click="toggleClientLabelMode"
+          :title="clientLabelMode === 'codes' ? 'Show initials' : 'Show codes'"
+        >
+          {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
+        </button>
       </div>
     </div>
 
@@ -42,25 +50,48 @@
     <div v-else-if="tickets.length === 0" class="muted">No tickets found.</div>
 
     <div v-else class="list" data-tour="tickets-list">
-      <div v-for="t in tickets" :key="t.id" class="ticket">
+      <div v-for="t in tickets" :key="t.id" class="ticket" :class="ticketClass(t)">
         <div class="ticket-top" data-tour="tickets-row">
           <div class="left">
-            <div class="subject">
-              <strong>{{ t.subject || 'Support ticket' }}</strong>
-              <span class="pill">{{ formatStatus(t.status) }}</span>
+            <div class="ticket-line">
+              <span v-if="t.client_id" class="client-pill" :title="clientLabelTitle(t)">
+                {{ formatClientLabel(t) }}
+              </span>
+              <strong class="ticket-subject">{{ t.subject || 'Support ticket' }}</strong>
+              <span class="inline-sep">•</span>
+              <span class="inline-meta">
+                Submitted by {{ formatCreatedBy(t) }}
+                <span v-if="t.created_by_email">({{ t.created_by_email }})</span>
+              </span>
+              <span class="inline-sep">•</span>
+              <span class="inline-meta">
+                <span v-if="t.school_name">{{ t.school_name }}</span>
+                <span v-else>School ID {{ t.school_organization_id }}</span>
+              </span>
+              <span class="inline-sep">•</span>
+              <span class="inline-meta">{{ formatDateTime(t.created_at) }}</span>
+              <span class="inline-sep">•</span>
+              <span class="inline-meta ellipsis">Q: {{ t.question }}</span>
+              <span v-if="t.answer" class="inline-sep">•</span>
+              <span v-if="t.answer" class="inline-meta ellipsis">A: {{ t.answer }}</span>
+              <span class="pill status-pill">{{ formatStatus(t.status) }}</span>
               <span v-if="t.claimed_by_user_id" class="pill claimed">
                 Claimed: {{ formatClaimedBy(t) }}
               </span>
-            </div>
-          <div class="meta">
-              <span v-if="t.school_name">{{ t.school_name }}</span>
-              <span v-else>School ID {{ t.school_organization_id }}</span>
-              <span>•</span>
-              <span>{{ formatDateTime(t.created_at) }}</span>
               <span v-if="isStale(t)" class="pill stale">STALE</span>
             </div>
           </div>
           <div class="right">
+            <button
+              v-if="t.client_id"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="openAdminClientEditor(t)"
+              :disabled="adminClientLoading"
+              title="Edit this client"
+            >
+              {{ adminClientLoading ? 'Loading…' : 'Edit client' }}
+            </button>
             <button
               v-if="!t.claimed_by_user_id"
               class="btn btn-secondary btn-sm"
@@ -136,17 +167,6 @@
             >
               {{ convertingFaqId === t.id ? 'Creating…' : 'To FAQ' }}
             </button>
-          </div>
-        </div>
-
-        <div class="qa">
-          <div class="q">
-            <div class="label">Question</div>
-            <div class="text">{{ t.question }}</div>
-          </div>
-          <div v-if="t.answer" class="a">
-            <div class="label">Answer</div>
-            <div class="text">{{ t.answer }}</div>
           </div>
         </div>
 
@@ -231,6 +251,13 @@
       </div>
     </div>
   </div>
+
+  <ClientDetailPanel
+    v-if="adminSelectedClient"
+    :client="adminSelectedClient"
+    @close="closeAdminClientEditor"
+    @updated="handleAdminClientUpdated"
+  />
 </template>
 
 <script setup>
@@ -239,6 +266,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -280,6 +308,9 @@ const threadLoading = ref(false);
 const threadError = ref('');
 const threadBody = ref('');
 const threadSending = ref(false);
+const adminSelectedClient = ref(null);
+const adminClientLoading = ref(false);
+const clientLabelMode = ref('codes'); // 'codes' | 'initials'
 
 const confirmWord = computed(() => {
   if (confirmAction.value === 'assign') return 'ASSIGN';
@@ -346,6 +377,37 @@ const loadAssignees = async () => {
 const formatAssignee = (u) => {
   const name = [String(u.first_name || '').trim(), String(u.last_name || '').trim()].filter(Boolean).join(' ').trim();
   return name || `User #${u.id}`;
+};
+
+const toggleClientLabelMode = () => {
+  const next = clientLabelMode.value === 'codes' ? 'initials' : 'codes';
+  clientLabelMode.value = next;
+  try {
+    window.localStorage.setItem('adminTicketsClientLabelMode', next);
+  } catch {
+    // ignore
+  }
+};
+
+const formatClientLabel = (t) => {
+  const initials = String(t?.client_initials || '').replace(/\s+/g, '').toUpperCase();
+  const code = String(t?.client_identifier_code || '').replace(/\s+/g, '').toUpperCase();
+  if (clientLabelMode.value === 'initials') return initials || code || '—';
+  return code || initials || '—';
+};
+
+const clientLabelTitle = (t) => {
+  if (clientLabelMode.value !== 'codes') return '';
+  const initials = String(t?.client_initials || '').replace(/\s+/g, '').toUpperCase();
+  return initials || '';
+};
+
+const formatCreatedBy = (t) => {
+  const fn = String(t?.created_by_first_name || '').trim();
+  const ln = String(t?.created_by_last_name || '').trim();
+  const name = [fn, ln].filter(Boolean).join(' ').trim();
+  if (name) return name;
+  return t?.created_by_email || `User #${t?.created_by_user_id || '—'}`;
 };
 
 const pushQuery = () => {
@@ -419,6 +481,17 @@ const formatClaimedBy = (t) => {
   const name = [fn, ln].filter(Boolean).join(' ').trim();
   if (name) return name;
   return `User #${t.claimed_by_user_id}`;
+};
+
+const ticketClass = (t) => {
+  const claimedId = Number(t?.claimed_by_user_id || 0);
+  const me = Number(myUserId || 0);
+  const status = String(t?.status || '').toLowerCase();
+  if (claimedId && claimedId === me) return 'ticket-assigned-me';
+  if (claimedId && claimedId !== me) return 'ticket-assigned-other';
+  if (status === 'answered') return 'ticket-answered';
+  if (status === 'closed') return 'ticket-closed';
+  return 'ticket-open';
 };
 
 const claimTicket = async (t) => {
@@ -630,7 +703,39 @@ const formatStatus = (s) => {
   return 'Open';
 };
 
+const openAdminClientEditor = async (ticket) => {
+  const clientId = Number(ticket?.client_id || 0);
+  if (!clientId) return;
+  adminClientLoading.value = true;
+  try {
+    const r = await api.get(`/clients/${clientId}`);
+    adminSelectedClient.value = r.data || null;
+  } catch (e) {
+    console.error('Failed to open client editor:', e);
+    alert(e.response?.data?.error?.message || e.message || 'Failed to open client editor');
+    adminSelectedClient.value = null;
+  } finally {
+    adminClientLoading.value = false;
+  }
+};
+
+const closeAdminClientEditor = () => {
+  adminSelectedClient.value = null;
+};
+
+const handleAdminClientUpdated = (payload) => {
+  if (payload?.client) {
+    adminSelectedClient.value = payload.client;
+  }
+};
+
 onMounted(async () => {
+  try {
+    const saved = window.localStorage.getItem('adminTicketsClientLabelMode');
+    if (saved === 'codes' || saved === 'initials') clientLabelMode.value = saved;
+  } catch {
+    // ignore
+  }
   syncFromQuery();
   await loadAssignees();
   await load();
@@ -730,16 +835,54 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  align-items: start;
+  align-items: center;
 }
-.subject {
+.ticket-line {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.ticket-subject {
+  white-space: nowrap;
+}
+.inline-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.inline-sep {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 360px;
+}
+.client-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 .pill {
   font-size: 12px;
   color: var(--text-secondary);
+}
+.status-pill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--bg-alt);
 }
 .pill.claimed {
   border: 1px solid var(--border);
@@ -747,25 +890,25 @@ onMounted(async () => {
   padding: 2px 8px;
   background: var(--bg-alt);
 }
-.meta {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 4px;
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+.ticket-open {
+  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(16, 185, 129, 0.25);
 }
-.qa {
-  margin-top: 10px;
+.ticket-answered {
+  background: rgba(37, 99, 235, 0.06);
+  border-color: rgba(37, 99, 235, 0.25);
 }
-.label {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
+.ticket-closed {
+  background: rgba(148, 163, 184, 0.08);
+  border-color: rgba(148, 163, 184, 0.35);
 }
-.text {
-  white-space: pre-wrap;
+.ticket-assigned-me {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.ticket-assigned-other {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.35);
 }
 .answer-box {
   margin-top: 12px;
@@ -779,6 +922,25 @@ onMounted(async () => {
   align-items: end;
   flex-wrap: wrap;
   margin-top: 10px;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.modal-content {
+  width: min(720px, 92vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: white;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
 }
 </style>
 

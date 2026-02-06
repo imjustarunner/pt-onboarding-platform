@@ -225,16 +225,20 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       SELECT t.*,
              cb.first_name AS created_by_first_name,
              cb.last_name AS created_by_last_name,
+             cb.email AS created_by_email,
              ab.first_name AS answered_by_first_name,
              ab.last_name AS answered_by_last_name,
              cl.first_name AS claimed_by_first_name,
              cl.last_name AS claimed_by_last_name,
-             s.name AS school_name
+             s.name AS school_name,
+             c.initials AS client_initials,
+             c.identifier_code AS client_identifier_code
       FROM support_tickets t
       LEFT JOIN users cb ON cb.id = t.created_by_user_id
       LEFT JOIN users ab ON ab.id = t.answered_by_user_id
       LEFT JOIN users cl ON cl.id = t.claimed_by_user_id
       LEFT JOIN agencies s ON s.id = t.school_organization_id
+      LEFT JOIN clients c ON c.id = t.client_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY
         CASE WHEN LOWER(t.status) = 'open' THEN 0 ELSE 1 END,
