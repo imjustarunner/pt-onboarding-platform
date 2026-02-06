@@ -183,9 +183,16 @@
               <div class="stat-label">Docs / Needs</div>
               <div class="stat-value" :class="{ danger: s.docs_needs_count > 0 }">{{ s.docs_needs_count }}</div>
             </div>
-            <div class="stat">
-              <div class="stat-label">Skills Participants</div>
-              <div class="stat-value">{{ sumSkillsParticipants(s) }}</div>
+            <div
+              class="stat stat-clickable"
+              role="button"
+              tabindex="0"
+              @click.stop="openSkillsUnassigned(s)"
+              @keydown.enter.prevent="openSkillsUnassigned(s)"
+              @keydown.space.prevent="openSkillsUnassigned(s)"
+            >
+              <div class="stat-label">Skills Groups</div>
+              <div class="stat-value">{{ Number(s.skills_clients_unassigned_count || 0) }}</div>
             </div>
           </div>
         </div>
@@ -406,6 +413,12 @@ const cycleStudentStatus = (school) => {
 const sumSkillsParticipants = (school) => {
   const groups = Array.isArray(school?.active_skills_groups) ? school.active_skills_groups : [];
   return groups.reduce((acc, g) => acc + Number(g?.participants_count || 0), 0);
+};
+
+const openSkillsUnassigned = (school) => {
+  const slug = String(school?.school_slug || '').trim();
+  if (!slug) return;
+  router.push(`/${slug}/dashboard?sp=skills&skillsUnassigned=1`);
 };
 
 watch(

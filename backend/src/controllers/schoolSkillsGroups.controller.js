@@ -515,16 +515,22 @@ export const listSkillsEligibleClients = async (req, res, next) => {
     // Providers get read-only access; this is used for admin assignment UI, so keep it restricted.
     if (!canManageSkillsGroups(req)) return res.status(403).json({ error: { message: 'Admin access required' } });
 
+    const unassignedOnly = ['1', 'true', 'yes'].includes(String(req.query?.unassigned || '').toLowerCase());
+
     try {
       const [rows] = await pool.execute(
-        `SELECT c.id, c.identifier_code, c.initials
+        `SELECT DISTINCT c.id, c.identifier_code, c.initials
          FROM clients c
          JOIN client_organization_assignments coa
            ON coa.client_id = c.id AND coa.organization_id = ? AND coa.is_active = TRUE
+         LEFT JOIN skills_group_clients sgc ON sgc.client_id = c.id
+         LEFT JOIN skills_groups sg
+           ON sg.id = sgc.skills_group_id AND sg.organization_id = coa.organization_id
          WHERE c.skills = TRUE
            AND UPPER(c.status) <> 'ARCHIVED'
+           AND (? = 0 OR sg.id IS NULL)
          ORDER BY c.identifier_code ASC, c.initials ASC`,
-        [parseInt(orgId, 10)]
+        [parseInt(orgId, 10), unassignedOnly ? 1 : 0]
       );
       return res.json(rows || []);
     } catch (e) {
@@ -532,13 +538,17 @@ export const listSkillsEligibleClients = async (req, res, next) => {
       const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE');
       if (!missing) throw e;
       const [rows] = await pool.execute(
-        `SELECT id, identifier_code, initials
+        `SELECT DISTINCT c.id, c.identifier_code, c.initials
          FROM clients
+         LEFT JOIN skills_group_clients sgc ON sgc.client_id = c.id
+         LEFT JOIN skills_groups sg
+           ON sg.id = sgc.skills_group_id AND sg.organization_id = c.organization_id
          WHERE organization_id = ?
            AND skills = TRUE
            AND UPPER(status) <> 'ARCHIVED'
+           AND (? = 0 OR sg.id IS NULL)
          ORDER BY identifier_code ASC, initials ASC`,
-        [parseInt(orgId, 10)]
+        [parseInt(orgId, 10), unassignedOnly ? 1 : 0]
       );
       return res.json(rows || []);
     }
@@ -586,6 +596,58 @@ export const listSkillsEligibleProviders = async (req, res, next) => {
     );
     res.json(rows || []);
   } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * GET /api/school-portal/:orgId/skills-group-meetings
+ * Meetings for skills groups a provider is assigned to.
+ */
+export const listProviderSkillsGroupMeetings = async (req, res, next) => {
+  try {
+    const { orgId } = req.params;
+    const access = await ensureSkillsGroupOrgAccess(req, orgId);
+    if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    const providerUserId = req.query?.providerUserId ? parseInt(req.query.providerUserId, 10) : parseInt(req.user?.id, 10);
+    if (!providerUserId) return res.status(400).json({ error: { message: 'providerUserId is required' } });
+    if (roleNorm === 'provider' && parseInt(req.user?.id, 10) !== providerUserId) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    const weekday = String(req.query?.weekday || '').trim();
+    const hasWeekday = allowedWeekdays.includes(weekday);
+    const params = [parseInt(orgId, 10), providerUserId];
+    let weekdayClause = '';
+    if (hasWeekday) {
+      weekdayClause = ' AND sgm.weekday = ?';
+      params.push(weekday);
+    }
+
+    const [rows] = await pool.execute(
+      `SELECT sg.id AS skills_group_id,
+              sg.name AS skills_group_name,
+              sgm.weekday,
+              sgm.start_time,
+              sgm.end_time
+       FROM skills_groups sg
+       JOIN skills_group_providers sgp ON sgp.skills_group_id = sg.id
+       JOIN skills_group_meetings sgm ON sgm.skills_group_id = sg.id
+       WHERE sg.organization_id = ?
+         AND sgp.provider_user_id = ?
+         AND (sg.start_date IS NULL OR sg.start_date <= CURDATE())
+         AND (sg.end_date IS NULL OR sg.end_date >= CURDATE())
+         ${weekdayClause}
+       ORDER BY FIELD(sgm.weekday,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), sgm.start_time ASC`,
+      params
+    );
+    res.json(rows || []);
+  } catch (e) {
+    const msg = String(e?.message || '');
+    const missing = msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE') || msg.includes('ER_BAD_FIELD_ERROR');
+    if (missing) return res.json([]);
     next(e);
   }
 };

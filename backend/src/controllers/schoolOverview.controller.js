@@ -128,6 +128,7 @@ export const getSchoolOverview = async (req, res, next) => {
         docs_needs_count: 0,
         school_staff_count: 0,
         skills_groups_count: 0,
+        skills_clients_unassigned_count: 0,
         active_skills_groups: [],
         skills_group_occurring_now: false
       });
@@ -277,6 +278,54 @@ export const getSchoolOverview = async (req, res, next) => {
       }
     } catch (e) {
       if (!isMissingSchemaError(e)) throw e;
+    }
+
+    // Skills clients (skills=true) not assigned to any skills group under the org.
+    try {
+      const [rows] = await pool.execute(
+        `SELECT
+           coa.organization_id AS school_id,
+           COUNT(DISTINCT c.id) AS skills_clients_unassigned_count
+         FROM client_organization_assignments coa
+         JOIN clients c ON c.id = coa.client_id
+         LEFT JOIN skills_group_clients sgc ON sgc.client_id = c.id
+         LEFT JOIN skills_groups sg
+           ON sg.id = sgc.skills_group_id AND sg.organization_id = coa.organization_id
+         WHERE coa.is_active = TRUE
+           AND coa.organization_id IN (${placeholders})
+           AND c.skills = TRUE
+           AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
+           AND sg.id IS NULL
+         GROUP BY coa.organization_id`,
+        schoolIds
+      );
+      addCountMap(rows, 'school_id', 'skills_clients_unassigned_count', (t, v) => {
+        t.skills_clients_unassigned_count = Number(v || 0);
+      });
+    } catch (e) {
+      if (!isMissingSchemaError(e)) throw e;
+      try {
+        const [rows] = await pool.execute(
+          `SELECT
+             c.organization_id AS school_id,
+             COUNT(DISTINCT c.id) AS skills_clients_unassigned_count
+           FROM clients c
+           LEFT JOIN skills_group_clients sgc ON sgc.client_id = c.id
+           LEFT JOIN skills_groups sg
+             ON sg.id = sgc.skills_group_id AND sg.organization_id = c.organization_id
+           WHERE c.organization_id IN (${placeholders})
+             AND c.skills = TRUE
+             AND UPPER(COALESCE(c.status,'')) <> 'ARCHIVED'
+             AND sg.id IS NULL
+           GROUP BY c.organization_id`,
+          schoolIds
+        );
+        addCountMap(rows, 'school_id', 'skills_clients_unassigned_count', (t, v) => {
+          t.skills_clients_unassigned_count = Number(v || 0);
+        });
+      } catch (inner) {
+        if (!isMissingSchemaError(inner)) throw inner;
+      }
     }
 
     // Client metrics (prefer multi-org assignment tables; fall back to legacy clients.organization_id).

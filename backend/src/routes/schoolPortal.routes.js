@@ -48,7 +48,8 @@ import {
   updateSkillsGroupProvider,
   updateSkillsGroupClient,
   listSkillsEligibleClients,
-  listSkillsEligibleProviders
+  listSkillsEligibleProviders,
+  listProviderSkillsGroupMeetings
 } from '../controllers/schoolSkillsGroups.controller.js';
 import {
   listSchoolPublicDocuments,
@@ -120,5 +121,6 @@ router.post('/:orgId/skills-groups/:groupId/providers', authenticate, updateSkil
 router.post('/:orgId/skills-groups/:groupId/clients', authenticate, updateSkillsGroupClient);
 router.get('/:orgId/skills-eligible-clients', authenticate, listSkillsEligibleClients);
 router.get('/:orgId/skills-eligible-providers', authenticate, listSkillsEligibleProviders);
+router.get('/:orgId/skills-group-meetings', authenticate, listProviderSkillsGroupMeetings);
 
 export default router;

@@ -121,6 +121,17 @@
               @save="saveSoftSlots"
               @move="moveSoftSlot"
             />
+            <div v-if="skillsMeetingsLoading" class="muted" style="margin-top: 10px;">Loading skills group meetings…</div>
+            <div v-else-if="skillsMeetingsError" class="muted" style="margin-top: 10px;">{{ skillsMeetingsError }}</div>
+            <div v-else-if="skillsMeetings.length" class="skills-meetings">
+              <div class="skills-meetings-title">Skills group meetings</div>
+              <div class="skills-meetings-list">
+                <div v-for="m in skillsMeetings" :key="`${m.skills_group_id}-${m.start_time}`" class="skills-meeting-row">
+                  <div class="skills-meeting-time">{{ formatClock(m.start_time) }}–{{ formatClock(m.end_time) }}</div>
+                  <div class="skills-meeting-name">{{ m.skills_group_name || 'Skills Group' }}</div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="panel compact" data-tour="school-provider-caseload-summary">
@@ -282,6 +293,9 @@ const softSlots = ref([]);
 const softLoading = ref(false);
 const softSaving = ref(false);
 const softError = ref('');
+const skillsMeetings = ref([]);
+const skillsMeetingsLoading = ref(false);
+const skillsMeetingsError = ref('');
 
 const chatWorking = ref(false);
 const chatError = ref('');
@@ -539,6 +553,36 @@ const moveSoftSlot = async ({ slotId, direction }) => {
   }
 };
 
+const formatClock = (t) => {
+  const raw = String(t || '').slice(0, 5);
+  if (!raw) return '—';
+  const [hh, mm] = raw.split(':').map((x) => parseInt(x, 10));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return raw;
+  const suffix = hh >= 12 ? 'PM' : 'AM';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${String(mm).padStart(2, '0')} ${suffix}`;
+};
+
+const fetchSkillsMeetings = async () => {
+  if (!selectedWeekday.value) {
+    skillsMeetings.value = [];
+    return;
+  }
+  try {
+    skillsMeetingsLoading.value = true;
+    skillsMeetingsError.value = '';
+    const r = await api.get(`/school-portal/${props.schoolOrganizationId}/skills-group-meetings`, {
+      params: { providerUserId: props.providerUserId, weekday: selectedWeekday.value }
+    });
+    skillsMeetings.value = Array.isArray(r.data) ? r.data : [];
+  } catch (e) {
+    skillsMeetingsError.value = e.response?.data?.error?.message || 'Failed to load skills group meetings';
+    skillsMeetings.value = [];
+  } finally {
+    skillsMeetingsLoading.value = false;
+  }
+};
+
 const formatTime = (d) => {
   try {
     return new Date(d).toLocaleString();
@@ -631,6 +675,7 @@ onMounted(() => {
 watch(selectedWeekday, async () => {
   recomputeSelectedDayClients();
   await fetchSoftSlots();
+  await fetchSkillsMeetings();
 });
 
 // If routed from the Providers directory "Message" button, auto-open chat.
@@ -875,6 +920,36 @@ label {
   font-weight: 900;
   color: var(--text-primary);
   margin-bottom: 10px;
+}
+.skills-meetings {
+  margin-top: 10px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+.skills-meetings-title {
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.skills-meetings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.skills-meeting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: var(--bg);
+  font-size: 13px;
+}
+.skills-meeting-time {
+  font-weight: 700;
+  min-width: 110px;
 }
 .messages-title {
   display: flex;

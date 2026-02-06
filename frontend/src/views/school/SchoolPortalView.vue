@@ -586,6 +586,7 @@
         v-else-if="portalMode === 'skills' && organizationId"
         :organization-id="organizationId"
         :client-label-mode="clientLabelMode"
+        :focus-unassigned="skillsUnassignedOnly"
       />
 
           <div v-else-if="portalMode === 'school_staff'">
@@ -959,6 +960,10 @@ const cardIconOrg = ref(null); // affiliated agency record (for School Portal ca
 
 const requestedPortalMode = computed(() => String(route.query?.sp || '').trim().toLowerCase());
 const notificationsFilter = computed(() => String(route.query?.notif || '').trim().toLowerCase());
+const skillsUnassignedOnly = computed(() => {
+  const raw = route.query?.skillsUnassigned ?? route.query?.skills_unassigned ?? '';
+  return ['1', 'true', 'yes'].includes(String(raw || '').trim().toLowerCase());
+});
 const requestedClientId = computed(() => {
   const raw = route.query?.clientId ?? route.query?.client_id ?? '';
   const n = Number.parseInt(String(raw || ''), 10);

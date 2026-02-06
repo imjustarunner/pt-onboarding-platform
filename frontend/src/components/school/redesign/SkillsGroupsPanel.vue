@@ -19,6 +19,19 @@
     <div v-else-if="error" class="error">{{ error }}</div>
 
     <div v-else class="grid">
+      <div v-if="focusUnassigned" class="card unassigned-card">
+        <div class="unassigned-head">
+          <h3 style="margin:0;">Skills clients without group</h3>
+          <span class="pill">{{ unassignedClients.length }}</span>
+        </div>
+        <div v-if="unassignedLoading" class="muted" style="padding: 10px;">Loading…</div>
+        <div v-else-if="unassignedClients.length === 0" class="muted" style="padding: 10px;">All skills clients are assigned.</div>
+        <div v-else class="unassigned-list">
+          <div v-for="c in unassignedClients" :key="c.id" class="unassigned-row">
+            {{ clientLabel(c) }}
+          </div>
+        </div>
+      </div>
       <div class="list card">
         <div v-if="groups.length === 0" class="muted" style="padding: 10px;">No skills groups yet.</div>
         <button
@@ -218,7 +231,8 @@ import { useAuthStore } from '../../../store/auth';
 
 const props = defineProps({
   organizationId: { type: Number, required: true },
-  clientLabelMode: { type: String, default: 'codes' } // 'codes' | 'initials'
+  clientLabelMode: { type: String, default: 'codes' }, // 'codes' | 'initials'
+  focusUnassigned: { type: Boolean, default: false }
 });
 
 const authStore = useAuthStore();
@@ -241,6 +255,8 @@ const eligibleProviders = ref([]);
 const eligibleClients = ref([]);
 const providerPick = ref('');
 const clientPick = ref('');
+const unassignedClients = ref([]);
+const unassignedLoading = ref(false);
 
 const clientLabel = (c) => {
   // Skills Groups creation/assignment is a back-office workflow; show initials by default (no need for anonymized codes here).
@@ -289,7 +305,15 @@ const isValid = computed(() => {
 });
 
 const formatDate = (d) => (d ? new Date(d).toLocaleDateString() : '—');
-const timeLabel = (t) => String(t || '').slice(0, 5);
+const timeLabel = (t) => {
+  const raw = String(t || '').slice(0, 5);
+  if (!raw) return '—';
+  const [hh, mm] = raw.split(':').map((x) => parseInt(x, 10));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return raw;
+  const suffix = hh >= 12 ? 'PM' : 'AM';
+  const h12 = hh % 12 === 0 ? 12 : hh % 12;
+  return `${h12}:${String(mm).padStart(2, '0')} ${suffix}`;
+};
 
 const meetingSummary = (g) => {
   const ms = g?.meetings || [];
@@ -331,6 +355,21 @@ const loadEligible = async () => {
   } catch {
     eligibleProviders.value = [];
     eligibleClients.value = [];
+  }
+};
+
+const loadUnassigned = async () => {
+  if (!canManage.value || !props.focusUnassigned) return;
+  try {
+    unassignedLoading.value = true;
+    const r = await api.get(`/school-portal/${props.organizationId}/skills-eligible-clients`, {
+      params: { unassigned: 1 }
+    });
+    unassignedClients.value = r.data || [];
+  } catch {
+    unassignedClients.value = [];
+  } finally {
+    unassignedLoading.value = false;
   }
 };
 
@@ -495,6 +534,7 @@ const removeGroup = async (g) => {
 
 onMounted(async () => {
   await reload();
+  await loadUnassigned();
 });
 </script>
 
@@ -524,6 +564,31 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: #fff;
+}
+.unassigned-card {
+  padding: 10px;
+}
+.unassigned-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 6px 10px 6px;
+}
+.unassigned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 0 6px 6px 6px;
+}
+.unassigned-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: var(--bg-alt);
+  font-size: 13px;
 }
 .list {
   padding: 10px;
