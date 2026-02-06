@@ -71,13 +71,20 @@
               <span class="inline-sep">•</span>
               <span class="inline-meta">{{ formatDateTime(t.created_at) }}</span>
               <span class="inline-sep">•</span>
-              <span class="inline-meta ellipsis">Q: {{ t.question }}</span>
+              <span class="inline-meta ellipsis" :title="t.question">Q: {{ t.question }}</span>
               <span v-if="t.answer" class="inline-sep">•</span>
               <span v-if="t.answer" class="inline-meta ellipsis">A: {{ t.answer }}</span>
               <span class="pill status-pill">{{ formatStatus(t.status) }}</span>
-              <span v-if="t.claimed_by_user_id" class="pill claimed">
+              <button
+                v-if="t.claimed_by_user_id"
+                class="pill claimed claimed-btn"
+                type="button"
+                :disabled="!canAssignOthers"
+                @click.stop="toggleAssignPicker(t)"
+                :title="canAssignOthers ? 'Change assignee' : 'Claimed'"
+              >
                 Claimed: {{ formatClaimedBy(t) }}
-              </span>
+              </button>
               <span v-if="isStale(t)" class="pill stale">STALE</span>
             </div>
           </div>
@@ -141,7 +148,7 @@
             >
               Close
             </button>
-            <div v-if="canAssignOthers" class="assign">
+            <div v-if="canAssignOthers && showAssignByTicketId[t.id]" class="assign">
               <select v-model="assigneeByTicket[t.id]" class="input input-sm">
                 <option value="">Assign…</option>
                 <option v-for="u in assignees" :key="u.id" :value="String(u.id)">
@@ -170,26 +177,41 @@
           </div>
         </div>
 
-        <div v-if="openAnswerId === t.id" class="answer-box" data-tour="tickets-answer-box">
+          <div v-if="openAnswerId === t.id" class="answer-box" data-tour="tickets-answer-box">
           <div v-if="t.claimed_by_user_id && Number(t.claimed_by_user_id) !== Number(myUserId)" class="error">
             This ticket is claimed by {{ formatClaimedBy(t) }}. You can still view it, but you can’t answer unless you are the claimant.
           </div>
+            <div class="answer-question" v-if="t.question">
+              <div class="label">Question</div>
+              <div class="text">{{ t.question }}</div>
+            </div>
           <label class="field" style="width: 100%;">
             Answer
             <textarea v-model="answerText" class="textarea" rows="4" placeholder="Type your response…" />
           </label>
           <div class="answer-actions">
-            <label class="field">
-              Set status
-              <select v-model="answerStatus" class="input">
-                <option value="answered">Answered</option>
-                <option value="open">Open</option>
-                <option value="closed">Closed</option>
-              </select>
-            </label>
-            <button class="btn btn-primary" type="button" @click="submitAnswer(t)" :disabled="submitting || !answerText.trim()">
-              {{ submitting ? 'Sending…' : 'Submit' }}
-            </button>
+            <div class="answer-note">Submit as answered, or close when read.</div>
+            <div class="answer-buttons">
+              <button
+                class="btn btn-primary"
+                type="button"
+                @click="submitAnswer(t, 'answered')"
+                :disabled="submitting || !answerText.trim()"
+              >
+                {{ submitting ? 'Sending…' : 'Submit Answer' }}
+              </button>
+              <button
+                class="btn btn-secondary"
+                type="button"
+                @click="submitAnswer(t, 'close_on_read')"
+                :disabled="submitting || !answerText.trim()"
+              >
+                Submit & Close on Read
+              </button>
+              <button class="btn btn-secondary" type="button" @click="toggleAnswer(t.id)" :disabled="submitting">
+                Back
+              </button>
+            </div>
           </div>
           <div v-if="answerError" class="error">{{ answerError }}</div>
         </div>
@@ -288,7 +310,6 @@ const searchInput = ref('');
 
 const openAnswerId = ref(null);
 const answerText = ref('');
-const answerStatus = ref('answered');
 const submitting = ref(false);
 const answerError = ref('');
 const claimingId = ref(null);
@@ -311,6 +332,7 @@ const threadSending = ref(false);
 const adminSelectedClient = ref(null);
 const adminClientLoading = ref(false);
 const clientLabelMode = ref('codes'); // 'codes' | 'initials'
+const showAssignByTicketId = ref({});
 
 const confirmWord = computed(() => {
   if (confirmAction.value === 'assign') return 'ASSIGN';
@@ -461,18 +483,28 @@ const load = async () => {
   }
 };
 
-const toggleAnswer = (ticketId) => {
+const toggleAnswer = async (ticketId) => {
   if (openAnswerId.value === ticketId) {
     openAnswerId.value = null;
     answerText.value = '';
-    answerStatus.value = 'answered';
     answerError.value = '';
     return;
   }
   openAnswerId.value = ticketId;
   answerText.value = '';
-  answerStatus.value = 'answered';
   answerError.value = '';
+  const t = (tickets.value || []).find((row) => Number(row?.id) === Number(ticketId));
+  if (t && !t.claimed_by_user_id) {
+    claimingId.value = t.id;
+    try {
+      await api.post(`/support-tickets/${t.id}/claim`);
+      await load();
+    } catch (e) {
+      error.value = e.response?.data?.error?.message || 'Failed to claim ticket';
+    } finally {
+      claimingId.value = null;
+    }
+  }
 };
 
 const formatClaimedBy = (t) => {
@@ -481,6 +513,15 @@ const formatClaimedBy = (t) => {
   const name = [fn, ln].filter(Boolean).join(' ').trim();
   if (name) return name;
   return `User #${t.claimed_by_user_id}`;
+};
+
+const toggleAssignPicker = (t) => {
+  if (!canAssignOthers.value || !t?.id) return;
+  const key = String(t.id);
+  showAssignByTicketId.value = {
+    ...(showAssignByTicketId.value || {}),
+    [key]: !showAssignByTicketId.value?.[key]
+  };
 };
 
 const ticketClass = (t) => {
@@ -658,7 +699,7 @@ const isStale = (t) => {
   return hours >= 24;
 };
 
-const submitAnswer = async (t) => {
+const submitAnswer = async (t, mode = 'answered') => {
   try {
     submitting.value = true;
     answerError.value = '';
@@ -667,9 +708,11 @@ const submitAnswer = async (t) => {
       answerError.value = `Ticket is claimed by ${formatClaimedBy(t)}.`;
       return;
     }
+    const closeOnRead = mode === 'close_on_read';
     await api.post(`/support-tickets/${t.id}/answer`, {
       answer: answerText.value.trim(),
-      status: answerStatus.value
+      status: 'answered',
+      closeOnRead
     });
     openAnswerId.value = null;
     answerText.value = '';
@@ -846,6 +889,9 @@ onMounted(async () => {
 }
 .ticket-subject {
   white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .inline-meta {
   font-size: 12px;
@@ -860,7 +906,7 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 360px;
+  max-width: 220px;
 }
 .client-pill {
   display: inline-flex;
@@ -890,6 +936,22 @@ onMounted(async () => {
   padding: 2px 8px;
   background: var(--bg-alt);
 }
+.pill.claimed-btn {
+  cursor: pointer;
+}
+.pill.claimed-btn:disabled {
+  cursor: default;
+}
+.answer-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.answer-buttons {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
 .ticket-open {
   background: rgba(16, 185, 129, 0.06);
   border-color: rgba(16, 185, 129, 0.25);
@@ -914,6 +976,20 @@ onMounted(async () => {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
+}
+.answer-question {
+  margin-bottom: 10px;
+}
+.answer-question .label {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.answer-question .text {
+  white-space: pre-wrap;
+  color: var(--text-primary);
+  font-size: 13px;
 }
 .answer-actions {
   display: flex;
@@ -941,6 +1017,17 @@ onMounted(async () => {
   border-radius: 14px;
   border: 1px solid var(--border);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+  padding: 0;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-body {
+  padding: 16px 18px;
 }
 </style>
 

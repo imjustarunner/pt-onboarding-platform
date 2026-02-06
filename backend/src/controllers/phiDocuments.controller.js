@@ -40,6 +40,8 @@ export const uploadClientPhiDocument = [
       if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
       const sanitizedFilename = StorageService.sanitizeFilename(req.file.originalname);
+      const documentTitle = req.body?.documentTitle ? String(req.body.documentTitle).trim().slice(0, 255) : null;
+      const documentType = req.body?.documentType ? String(req.body.documentType).trim().slice(0, 80) : null;
       const timestamp = Date.now();
       const randomId = Math.random().toString(36).substring(7);
       const orgId = client.organization_id || client.school_organization_id || null;
@@ -67,6 +69,8 @@ export const uploadClientPhiDocument = [
           schoolOrganizationId: orgId || client.organization_id,
           storagePath: fileName,
           originalName: req.file.originalname || null,
+          documentTitle,
+          documentType,
           mimeType: req.file.mimetype || null,
           uploadedByUserId: req.user.id
         });
@@ -271,6 +275,8 @@ export const listClientPhiDocumentAudit = async (req, res, next) => {
       return {
         documentId: doc.id,
         originalName: doc.original_name || null,
+        documentTitle: doc.document_title || null,
+        documentType: doc.document_type || null,
         uploadedAt: uploaded?.created_at || doc.uploaded_at || null,
         uploadedBy: uploaded?.actor_label || null,
         downloadedAt: downloaded?.created_at || null,
@@ -307,10 +313,14 @@ export const markPhiDocumentExported = async (req, res, next) => {
     if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const exportedAt = new Date();
+    const removedReason = 'Exported to EHR';
     const updated = await ClientPhiDocument.updateLifecycleById({
       id: doc.id,
       exportedToEhrAt: exportedAt,
-      exportedToEhrByUserId: req.user.id
+      exportedToEhrByUserId: req.user.id,
+      removedAt: exportedAt,
+      removedByUserId: req.user.id,
+      removedReason
     });
 
     try {
@@ -323,8 +333,23 @@ export const markPhiDocumentExported = async (req, res, next) => {
         actorLabel: req.user?.email || req.user?.name || null,
         ipAddress: ip
       });
+      await PhiDocumentAuditLog.create({
+        documentId: doc.id,
+        clientId: doc.client_id,
+        action: 'removed',
+        actorUserId: req.user.id,
+        actorLabel: req.user?.email || req.user?.name || null,
+        ipAddress: ip,
+        metadata: { reason: removedReason }
+      });
     } catch {
       // best-effort logging
+    }
+
+    try {
+      await StorageService.deleteObject(doc.storage_path);
+    } catch {
+      // best-effort delete
     }
 
     res.json({ document: updated });

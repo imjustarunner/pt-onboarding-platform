@@ -5,6 +5,20 @@
       <p class="hint">Opening documentation requires confirmation and will be audited.</p>
 
       <div v-if="canUpload" class="upload-row">
+        <div class="upload-fields">
+          <label class="upload-label">
+            Title
+            <input v-model="uploadTitle" class="upload-input" type="text" placeholder="e.g., Intake packet" />
+          </label>
+          <label class="upload-label">
+            Document type
+            <select v-model="uploadType" class="upload-input">
+              <option value="">Select…</option>
+              <option v-for="t in uploadTypeOptions" :key="t" :value="t">{{ t }}</option>
+              <option value="Other">Other</option>
+            </select>
+          </label>
+        </div>
         <input
           ref="fileInput"
           type="file"
@@ -27,8 +41,9 @@
         <thead>
           <tr>
             <th>Uploaded</th>
-            <th>Filename</th>
+            <th>Title</th>
             <th>Type</th>
+            <th>Filename</th>
             <th>Status</th>
             <th style="width: 220px;"></th>
           </tr>
@@ -36,8 +51,15 @@
         <tbody>
           <tr v-for="d in docs" :key="d.id">
             <td>{{ formatDateTime(d.uploaded_at) }}</td>
-            <td>{{ d.original_name || d.storage_path }}</td>
-            <td>{{ d.mime_type || '-' }}</td>
+            <td>
+              <div class="doc-title">{{ d.document_title || d.original_name || d.storage_path }}</div>
+              <div v-if="exportInfoByDocId[d.id]" class="doc-meta">
+                Exported: {{ exportInfoByDocId[d.id].at }}
+                <span v-if="exportInfoByDocId[d.id].by">by {{ exportInfoByDocId[d.id].by }}</span>
+              </div>
+            </td>
+            <td>{{ d.document_type || d.mime_type || '-' }}</td>
+            <td class="doc-filename">{{ d.original_name || d.storage_path }}</td>
             <td>
               <span v-if="d.removed_at" class="pill pill-removed">Removed</span>
               <span v-else-if="d.scan_status && d.scan_status !== 'clean'" class="pill pill-pending">Scanning</span>
@@ -71,7 +93,10 @@
       <div class="audit-title">Document audit statements</div>
       <div class="audit-list">
         <div v-for="s in auditStatements" :key="s.documentId" class="audit-item">
-          <div class="audit-name">{{ s.originalName || `Document ${s.documentId}` }}</div>
+          <div class="audit-name">
+            {{ s.documentTitle || s.originalName || `Document ${s.documentId}` }}
+          </div>
+          <div v-if="s.documentType" class="audit-line">Type: {{ s.documentType }}</div>
           <div class="audit-line">Uploaded: {{ formatDateTime(s.uploadedAt) }}{{ s.uploadedBy ? ` by ${s.uploadedBy}` : '' }}</div>
           <div class="audit-line">Downloaded: {{ s.downloadedAt ? formatDateTime(s.downloadedAt) : '—' }}{{ s.downloadedBy ? ` by ${s.downloadedBy}` : '' }}</div>
           <div class="audit-line">Exported to EHR: {{ s.exportedToEhrAt ? formatDateTime(s.exportedToEhrAt) : '—' }}{{ s.exportedToEhrBy ? ` by ${s.exportedToEhrBy}` : '' }}</div>
@@ -118,7 +143,23 @@
             </div>
           </div>
           <div v-if="r.error_message" class="error">{{ r.error_message }}</div>
-          <pre v-else-if="r.result_text" class="ocr-text">{{ r.result_text }}</pre>
+          <div v-else-if="r.result_text" class="ocr-text-block">
+            <div class="ocr-text-header">
+              <button class="btn btn-secondary btn-xs" type="button" @click="copyOcrText(r.result_text)">
+                Copy all
+              </button>
+              <button class="btn btn-secondary btn-xs" type="button" @click="toggleOcrLines(r.id)">
+                {{ showOcrLinesById[r.id] ? 'Hide lines' : 'Show lines' }}
+              </button>
+            </div>
+            <pre class="ocr-text">{{ r.result_text }}</pre>
+            <div v-if="showOcrLinesById[r.id]" class="ocr-lines">
+              <div v-for="(line, idx) in ocrLines(r.result_text)" :key="`${r.id}-${idx}`" class="ocr-line">
+                <span>{{ line }}</span>
+                <button class="btn btn-secondary btn-xs" type="button" @click="copyOcrText(line)">Copy</button>
+              </div>
+            </div>
+          </div>
           <div v-else class="muted">Queued…</div>
         </div>
       </div>
@@ -169,6 +210,18 @@ const auditStatements = ref([]);
 const ocrRequests = ref([]);
 const confirmingDoc = ref(null);
 const fileInput = ref(null);
+const uploadTitle = ref('');
+const uploadType = ref('');
+const showOcrLinesById = ref({});
+const uploadTypeOptions = [
+  'Intake packet',
+  'Consent',
+  'ROI',
+  'Assessment',
+  'IEP/504',
+  'Progress note',
+  'Other'
+];
 
 const reloadDocs = async () => {
   try {
@@ -195,6 +248,19 @@ const reloadAudit = async () => {
     auditLoading.value = false;
   }
 };
+
+const exportInfoByDocId = computed(() => {
+  const map = {};
+  for (const s of auditStatements.value || []) {
+    if (!s?.documentId) continue;
+    if (!s.exportedToEhrAt && !s.exportedToEhrBy) continue;
+    map[s.documentId] = {
+      at: s.exportedToEhrAt ? formatDateTime(s.exportedToEhrAt) : '—',
+      by: s.exportedToEhrBy || ''
+    };
+  }
+  return map;
+});
 
 const reloadOcr = async () => {
   try {
@@ -283,6 +349,8 @@ const onFileSelected = async (evt) => {
     error.value = '';
     const form = new FormData();
     form.append('file', file);
+    if (uploadTitle.value) form.append('documentTitle', uploadTitle.value);
+    if (uploadType.value) form.append('documentType', uploadType.value);
     await api.post(`/phi-documents/clients/${props.clientId}/upload`, form, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
@@ -291,6 +359,8 @@ const onFileSelected = async (evt) => {
     error.value = e.response?.data?.error?.message || 'Failed to upload document';
   } finally {
     uploading.value = false;
+    uploadTitle.value = '';
+    uploadType.value = '';
     try {
       if (fileInput.value) fileInput.value.value = '';
     } catch {
@@ -303,12 +373,14 @@ const formatDateTime = (d) => (d ? new Date(d).toLocaleString() : '-');
 
 const canRequestOcr = (doc) => {
   if (!doc) return false;
+  if (doc.removed_at) return false;
   if (doc.scan_status && doc.scan_status !== 'clean') return false;
   return true;
 };
 
 const ocrDisabledReason = (doc) => {
   if (!doc) return 'Document not available';
+  if (doc.removed_at) return 'Document removed';
   if (doc.scan_status && doc.scan_status !== 'clean') return 'Waiting for security scan';
   return 'Request OCR';
 };
@@ -350,6 +422,21 @@ const copyOcrText = async (text) => {
   }
 };
 
+const toggleOcrLines = (id) => {
+  if (!id) return;
+  showOcrLinesById.value = {
+    ...(showOcrLinesById.value || {}),
+    [id]: !showOcrLinesById.value?.[id]
+  };
+};
+
+const ocrLines = (text) => {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+};
+
 const clearOcrRequest = async (request) => {
   if (!request?.id) return;
   if (!window.confirm('Wipe extracted OCR text for this request? This cannot be undone.')) return;
@@ -375,6 +462,32 @@ watch(() => props.clientId, reload);
 }
 .upload-row {
   margin-top: 10px;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.upload-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 10px;
+  flex: 1;
+  min-width: 260px;
+}
+.upload-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.upload-input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: white;
 }
 .header h3 {
   margin: 0;
@@ -395,6 +508,18 @@ watch(() => props.clientId, reload);
   border-bottom: 1px solid var(--border);
   padding: 10px;
   vertical-align: middle;
+}
+.doc-title {
+  font-weight: 600;
+}
+.doc-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.doc-filename {
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 .actions {
   text-align: right;
@@ -527,6 +652,30 @@ watch(() => props.clientId, reload);
   white-space: pre-wrap;
   font-family: inherit;
   font-size: 13px;
+}
+.ocr-text-block {
+  margin-top: 8px;
+}
+.ocr-text-header {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ocr-lines {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+.ocr-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  font-size: 12px;
 }
 
 .modal-overlay {

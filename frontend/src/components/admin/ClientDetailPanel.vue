@@ -1108,7 +1108,7 @@
         </div>
 
         <!-- Documentation Tab -->
-        <div v-if="activeTab === 'phi'" class="detail-section">
+        <div v-if="activeTab === 'phi'" class="detail-section detail-section-docs">
           <div class="form-section-divider" style="margin-top: 0; margin-bottom: 10px;">
             <h3 style="margin:0;">Packet / documentation status (no upload required)</h3>
             <div class="hint">
@@ -3041,6 +3041,10 @@ watch(
   flex: 1;
   overflow-y: auto;
   padding: 24px;
+}
+
+.detail-section-docs {
+  padding-top: 16px;
 }
 
 .table-wrap {

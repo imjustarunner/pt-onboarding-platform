@@ -453,6 +453,21 @@ export const markClientSupportTicketThreadRead = async (req, res, next) => {
       if (!missing) throw e;
     }
 
+    // If any answered tickets should close on read, close them now.
+    try {
+      await pool.execute(
+        `UPDATE support_tickets
+         SET status = 'closed', close_on_read = 0
+         WHERE school_organization_id = ?
+           AND client_id = ?
+           AND close_on_read = 1
+           AND LOWER(status) = 'answered'`,
+        [schoolOrganizationId, clientId]
+      );
+    } catch {
+      // best-effort
+    }
+
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -703,6 +718,7 @@ export const answerSupportTicket = async (req, res, next) => {
 
     const answer = String(req.body?.answer || '').trim();
     const status = req.body?.status ? String(req.body.status).trim().toLowerCase() : 'answered';
+    const closeOnRead = req.body?.closeOnRead === true || req.body?.closeOnRead === 1 || req.body?.closeOnRead === '1';
     if (!answer) return res.status(400).json({ error: { message: 'answer is required' } });
     if (!['answered', 'closed', 'open'].includes(status)) {
       return res.status(400).json({ error: { message: 'status must be open, answered, or closed' } });
@@ -746,9 +762,9 @@ export const answerSupportTicket = async (req, res, next) => {
 
     await pool.execute(
       `UPDATE support_tickets
-       SET answer = ?, status = ?, answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP
+       SET answer = ?, status = ?, answered_by_user_id = ?, answered_at = CURRENT_TIMESTAMP, close_on_read = ?
        WHERE id = ?`,
-      [answer, status, req.user.id, ticketId]
+      [answer, status, req.user.id, closeOnRead ? 1 : 0, ticketId]
     );
 
     // Best-effort: store an AI summary when closing.

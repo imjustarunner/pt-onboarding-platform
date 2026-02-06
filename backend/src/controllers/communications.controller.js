@@ -61,16 +61,24 @@ export const getCommunicationsFeed = async (req, res, next) => {
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 75;
     const agencyIdParam = req.query.agencyId ? parseInt(String(req.query.agencyId), 10) : null;
     const organizationId = req.query.organizationId ? parseInt(String(req.query.organizationId), 10) : null;
+    const isSuperAdmin = String(role || '').toLowerCase() === 'super_admin';
+    const includeAllAgencies = isSuperAdmin && !agencyIdParam;
 
     const agencyIds = await getAgencyIdsForUser(userId, role, agencyIdParam);
-    if (!agencyIds.length) return res.json([]);
+    if (!includeAllAgencies && !agencyIds.length) return res.json([]);
 
     // Chat feed: threads user participates in (scoped optionally to org).
-    const chatPlaceholders = agencyIds.map(() => '?').join(',');
     const chatWhereOrg = organizationId ? ' AND t.organization_id = ?' : '';
-    const chatValues = organizationId
-      ? [userId, userId, userId, userId, userId, ...agencyIds, organizationId]
-      : [userId, userId, userId, userId, userId, ...agencyIds];
+    const chatAgencyWhere = includeAllAgencies ? '1=1' : `t.agency_id IN (${agencyIds.map(() => '?').join(',')})`;
+    const chatValues = [
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      ...(includeAllAgencies ? [] : agencyIds),
+      ...(organizationId ? [organizationId] : [])
+    ];
     let chatRows = [];
     try {
       const [rows] = await pool.execute(
@@ -114,7 +122,7 @@ export const getCommunicationsFeed = async (req, res, next) => {
          )
          LEFT JOIN users su ON su.id = lm.sender_user_id
          LEFT JOIN agencies org ON org.id = t.organization_id
-         WHERE t.agency_id IN (${chatPlaceholders})${chatWhereOrg}
+         WHERE ${chatAgencyWhere}${chatWhereOrg}
            AND (td.deleted_at IS NULL OR (lm.created_at IS NOT NULL AND lm.created_at > td.deleted_at))
          ORDER BY t.updated_at DESC
          LIMIT ${limit}`,
@@ -180,7 +188,7 @@ export const getCommunicationsFeed = async (req, res, next) => {
     let smsItems = [];
     if (canViewSms(role) && !organizationId) {
       try {
-        const placeholders = agencyIds.map(() => '?').join(',');
+        const smsAgencyWhere = includeAllAgencies ? '1=1' : `ml.agency_id IN (${agencyIds.map(() => '?').join(',')})`;
         const [rows] = await pool.execute(
           `SELECT ml.*,
                   c.initials AS client_initials,
@@ -189,10 +197,10 @@ export const getCommunicationsFeed = async (req, res, next) => {
            FROM message_logs ml
            LEFT JOIN clients c ON ml.client_id = c.id
            LEFT JOIN users u ON ml.user_id = u.id
-           WHERE ml.agency_id IN (${placeholders})
+           WHERE ${smsAgencyWhere}
            ORDER BY ml.created_at DESC
            LIMIT ?`,
-          [...agencyIds, limit]
+          [...(includeAllAgencies ? [] : agencyIds), limit]
         );
         smsItems = (rows || []).map((m) => ({
           kind: 'sms',
@@ -217,9 +225,13 @@ export const getCommunicationsFeed = async (req, res, next) => {
     let ticketItems = [];
     if (canViewTickets(role)) {
       try {
-        const placeholders = agencyIds.map(() => '?').join(',');
+        const ticketAgencyWhere = includeAllAgencies ? '1=1' : `t.agency_id IN (${agencyIds.map(() => '?').join(',')})`;
         const whereOrg = organizationId ? ' AND t.school_organization_id = ?' : '';
-        const params = organizationId ? [...agencyIds, organizationId, limit] : [...agencyIds, limit];
+        const params = [
+          ...(includeAllAgencies ? [] : agencyIds),
+          ...(organizationId ? [organizationId] : []),
+          limit
+        ];
         const [rows] = await pool.execute(
           `SELECT t.id,
                   t.agency_id,
@@ -232,7 +244,7 @@ export const getCommunicationsFeed = async (req, res, next) => {
                   s.name AS school_name
            FROM support_tickets t
            LEFT JOIN agencies s ON s.id = t.school_organization_id
-           WHERE t.agency_id IN (${placeholders})${whereOrg}
+           WHERE ${ticketAgencyWhere}${whereOrg}
            ORDER BY t.created_at DESC
            LIMIT ?`,
           params

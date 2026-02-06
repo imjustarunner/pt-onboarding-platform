@@ -8,6 +8,8 @@ class ClientPhiDocument {
       schoolOrganizationId,
       storagePath,
       originalName = null,
+      documentTitle = null,
+      documentType = null,
       mimeType = null,
       uploadedByUserId = null,
       scanStatus = null,
@@ -29,17 +31,19 @@ class ClientPhiDocument {
 
     const [result] = await pool.execute(
       `INSERT INTO client_phi_documents
-       (client_id, agency_id, school_organization_id, storage_path, original_name, mime_type, uploaded_by_user_id,
+       (client_id, agency_id, school_organization_id, storage_path, original_name, document_title, document_type, mime_type, uploaded_by_user_id,
         scan_status, scan_result, scanned_at, quarantine_path,
         is_encrypted, encryption_key_id, encryption_wrapped_key, encryption_iv, encryption_auth_tag, encryption_alg,
         exported_to_ehr_at, exported_to_ehr_by_user_id, removed_at, removed_by_user_id, removed_reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         agencyId,
         schoolOrganizationId,
         storagePath,
         originalName,
+        documentTitle,
+        documentType,
         mimeType,
         uploadedByUserId,
         scanStatus,
