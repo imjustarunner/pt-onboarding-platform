@@ -11,6 +11,7 @@ import UserPreferences from '../models/UserPreferences.model.js';
 import pool from '../config/database.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
+import { callGeminiText } from '../services/geminiText.service.js';
 
 async function resolveActiveAgencyIdForOrg(orgId) {
   return (
@@ -51,6 +52,38 @@ function parseJsonMaybe(v) {
   } catch {
     return null;
   }
+}
+
+function safeJsonFromText(text) {
+  if (!text) return null;
+  const m = String(text).match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try {
+    return JSON.parse(m[0]);
+  } catch {
+    return null;
+  }
+}
+
+async function parseComplianceQuery(query) {
+  const q = String(query || '').trim();
+  if (!q) return { limit: 10 };
+  try {
+    const prompt = [
+      'You are a compliance audit query parser.',
+      'Return JSON ONLY with these keys:',
+      'limit (number), providerName, providerEmail, providerId, clientName, clientId,',
+      'since, until (ISO-8601), actionContains, userRole.',
+      'Use null for unknown values.',
+      `Query: ${q}`
+    ].join('\n');
+    const resp = await callGeminiText({ prompt, temperature: 0.1, maxOutputTokens: 220 });
+    const parsed = safeJsonFromText(resp?.text || '');
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch {
+    // ignore - fallback below
+  }
+  return { limit: 10, actionContains: q };
 }
 
 function normalizeNotificationsProgress(raw) {
@@ -389,9 +422,14 @@ export const getSchoolClients = async (req, res, next) => {
            c.paperwork_delivery_method_id,
            pdm.label AS paperwork_delivery_method_label,
            c.doc_date,
+           c.parents_contacted_at,
+           c.parents_contacted_successful,
+           c.intake_at,
+           c.first_service_at,
            c.roi_expires_at,
            c.skills,
-           c.status
+           c.status,
+           MIN(cpa.created_at) AS provider_assigned_at
          FROM clients c
          JOIN client_organization_assignments coa
            ON coa.client_id = c.id
@@ -492,6 +530,29 @@ export const getSchoolClients = async (req, res, next) => {
       // ignore (tables may not exist yet)
     }
 
+    // Open ticket counts (per client).
+    const openTicketsByClientId = new Map();
+    try {
+      const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
+      if (clientIds.length > 0 && orgId) {
+        const placeholders = clientIds.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT t.client_id, COUNT(*) AS open_count
+           FROM support_tickets t
+           WHERE t.school_organization_id = ?
+             AND t.client_id IN (${placeholders})
+             AND (t.status IS NULL OR LOWER(t.status) <> 'closed')
+           GROUP BY t.client_id`,
+          [orgId, ...clientIds]
+        );
+        for (const r of rows || []) {
+          openTicketsByClientId.set(Number(r.client_id), Number(r.open_count || 0));
+        }
+      }
+    } catch {
+      // ignore (tables may not exist yet)
+    }
+
     const unreadUpdatesByClientId = new Map();
     try {
       const clientIds = (clients || []).map((c) => parseInt(c.id, 10)).filter(Boolean);
@@ -537,7 +598,9 @@ export const getSchoolClients = async (req, res, next) => {
         skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0,
         unread_ticket_messages_count: unreadTicketMsgsByClientId.get(Number(client.id)) || 0,
-        unread_updates_count: unreadUpdatesByClientId.get(Number(client.id)) || 0
+        unread_updates_count: unreadUpdatesByClientId.get(Number(client.id)) || 0,
+        open_ticket_count: openTicketsByClientId.get(Number(client.id)) || 0,
+        has_open_ticket: (openTicketsByClientId.get(Number(client.id)) || 0) > 0
       };
     });
 
@@ -762,7 +825,29 @@ export const getProviderMyRoster = async (req, res, next) => {
       // ignore
     }
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const restrictedClients = clients.map((client) => {
+      const intakeAt = client.intake_at ? new Date(client.intake_at) : null;
+      const firstServiceAt = client.first_service_at ? new Date(client.first_service_at) : null;
+      const intakePassed = intakeAt && intakeAt.getTime() <= today.getTime();
+      const firstServicePassed = firstServiceAt && firstServiceAt.getTime() <= today.getTime();
+      const statusKey = String(client?.client_status_key || '').toLowerCase();
+      const workflow = String(client?.status || '').toUpperCase();
+      const isPendingStatus = statusKey === 'pending' || workflow === 'PENDING_REVIEW';
+      const isCurrentByDates = intakePassed || firstServicePassed;
+      const compliancePending = isPendingStatus && !isCurrentByDates;
+      const assignedAt = client.provider_assigned_at ? new Date(client.provider_assigned_at) : null;
+      const daysSinceAssigned = assignedAt
+        ? Math.max(0, Math.floor((today.getTime() - assignedAt.getTime()) / (24 * 60 * 60 * 1000)))
+        : 0;
+      const missingChecklist = [];
+      const parentsContactedAt = client.parents_contacted_at ? new Date(client.parents_contacted_at) : null;
+      const parentsContactedOk =
+        client.parents_contacted_successful === 1 || client.parents_contacted_successful === true;
+      if (!parentsContactedAt || !parentsContactedOk) missingChecklist.push('Parents contacted');
+      if (!intakePassed) missingChecklist.push('Intake date');
+      if (!firstServicePassed) missingChecklist.push('First session');
       return {
         id: client.id,
         initials: client.initials,
@@ -789,7 +874,12 @@ export const getProviderMyRoster = async (req, res, next) => {
         skills: client.skills === 1 || client.skills === true,
         unread_notes_count: unreadCountsByClientId.get(Number(client.id)) || 0,
         unread_ticket_messages_count: unreadTicketMsgsByClientId.get(Number(client.id)) || 0,
-        unread_updates_count: unreadUpdatesByClientId.get(Number(client.id)) || 0
+        unread_updates_count: unreadUpdatesByClientId.get(Number(client.id)) || 0,
+        open_ticket_count: openTicketsByClientId.get(Number(client.id)) || 0,
+        has_open_ticket: (openTicketsByClientId.get(Number(client.id)) || 0) > 0,
+        compliance_pending: compliancePending,
+        compliance_days_since_assigned: daysSinceAssigned,
+        compliance_missing: missingChecklist
       };
     });
 
@@ -1923,7 +2013,8 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           const params = providerUserId ? [orgId, orgId, ...providerClientIds] : [orgId, orgId];
           const [rows] = await pool.execute(
             `SELECT
-               m.id,
+              m.id,
+              m.ticket_id,
                t.client_id,
                m.body,
                m.created_at,
@@ -1960,6 +2051,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
             title: 'New message',
             message: snippet ? `${clientLabel}: ${snippet}` : `${clientLabel}: new message`,
             actor_name: actor || null,
+            ticket_id: r.ticket_id ? Number(r.ticket_id) : null,
             client_id: Number(r.client_id),
             client_initials: r.initials || null,
             client_identifier_code: r.identifier_code || null
@@ -2337,6 +2429,148 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
     });
 
     res.json(all.slice(0, 500));
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Compliance Corner (admin-only): query client access logs scoped to a school.
+ * POST /api/school-portal/:organizationId/compliance-corner/query
+ * body: { query }
+ */
+export const queryComplianceCorner = async (req, res, next) => {
+  try {
+    const orgId = await resolveOrgIdFromParam(req.params.organizationId);
+    if (!orgId) return res.status(400).json({ error: { message: 'Invalid organizationId' } });
+
+    const userId = req.user?.id;
+    const roleNorm = String(req.user?.role || '').toLowerCase();
+    if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+    if (!['super_admin', 'admin'].includes(roleNorm)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    if (roleNorm !== 'super_admin') {
+      const ok = await userHasOrgOrAffiliatedAgencyAccess({ userId, role: roleNorm, schoolOrganizationId: orgId });
+      if (!ok) return res.status(403).json({ error: { message: 'You do not have access to this school organization' } });
+    }
+
+    const query = String(req.body?.query || '').trim();
+    if (!query) return res.status(400).json({ error: { message: 'Query is required' } });
+
+    const filters = await parseComplianceQuery(query);
+    const limitRaw = Number.parseInt(filters?.limit, 10);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 100)) : 10;
+
+    const providerName = String(filters?.providerName || '').trim();
+    const providerEmail = String(filters?.providerEmail || '').trim();
+    const providerId = Number(filters?.providerId || 0) || null;
+    const clientName = String(filters?.clientName || '').trim();
+    const clientId = Number(filters?.clientId || 0) || null;
+    const actionContains = String(filters?.actionContains || '').trim();
+    const since = filters?.since ? new Date(filters.since) : null;
+    const until = filters?.until ? new Date(filters.until) : null;
+
+    let userRole = String(filters?.userRole || '').trim().toLowerCase();
+    if (!userRole && (providerName || providerEmail || providerId)) userRole = 'provider';
+
+    const clauses = ['coa.organization_id = ?', 'coa.is_active = TRUE'];
+    const params = [orgId];
+
+    if (providerId) {
+      clauses.push('l.user_id = ?');
+      params.push(providerId);
+    }
+
+    if (userRole) {
+      clauses.push('LOWER(l.user_role) = ?');
+      params.push(userRole);
+    }
+
+    if (providerEmail) {
+      clauses.push('LOWER(u.email) LIKE ?');
+      params.push(`%${providerEmail.toLowerCase()}%`);
+    }
+
+    if (providerName) {
+      const like = `%${providerName.toLowerCase()}%`;
+      clauses.push(
+        '(LOWER(u.first_name) LIKE ? OR LOWER(u.last_name) LIKE ? OR LOWER(CONCAT(u.first_name, " ", u.last_name)) LIKE ?)'
+      );
+      params.push(like, like, like);
+    }
+
+    if (clientId) {
+      clauses.push('l.client_id = ?');
+      params.push(clientId);
+    }
+
+    if (clientName) {
+      const like = `%${clientName.toLowerCase()}%`;
+      clauses.push('(LOWER(c.initials) LIKE ? OR LOWER(c.identifier_code) LIKE ?)');
+      params.push(like, like);
+    }
+
+    if (actionContains) {
+      const like = `%${actionContains.toLowerCase()}%`;
+      clauses.push('(LOWER(l.action) LIKE ? OR LOWER(l.route) LIKE ?)');
+      params.push(like, like);
+    }
+
+    if (since && !Number.isNaN(since.getTime())) {
+      clauses.push('l.created_at >= ?');
+      params.push(since);
+    }
+
+    if (until && !Number.isNaN(until.getTime())) {
+      clauses.push('l.created_at <= ?');
+      params.push(until);
+    }
+
+    let rows = [];
+    try {
+      const [out] = await pool.execute(
+        `SELECT l.id,
+                l.client_id,
+                l.user_id,
+                l.user_role,
+                l.action,
+                l.route,
+                l.method,
+                l.ip_address,
+                l.user_agent,
+                l.created_at,
+                u.first_name AS user_first_name,
+                u.last_name AS user_last_name,
+                u.email AS user_email,
+                c.initials AS client_initials,
+                c.identifier_code AS client_identifier_code
+         FROM client_access_logs l
+         JOIN clients c ON c.id = l.client_id
+         JOIN client_organization_assignments coa
+           ON coa.client_id = c.id
+          AND coa.organization_id = ?
+          AND coa.is_active = TRUE
+         LEFT JOIN users u ON u.id = l.user_id
+         WHERE ${clauses.join(' AND ')}
+         ORDER BY l.created_at DESC
+         LIMIT ?`,
+        [...params, limit]
+      );
+      rows = Array.isArray(out) ? out : [];
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const missing =
+        msg.includes("doesn't exist") ||
+        msg.includes('ER_NO_SUCH_TABLE') ||
+        msg.includes('Unknown column') ||
+        msg.includes('ER_BAD_FIELD_ERROR');
+      if (!missing) throw e;
+      rows = [];
+    }
+
+    res.json({ filters: { ...filters, limit }, results: rows });
   } catch (e) {
     next(e);
   }

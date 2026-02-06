@@ -31,6 +31,10 @@
             <span class="unread-badge unread-badge-updates unread-badge-legend" aria-hidden="true">1</span>
             <span class="unread-legend-text">New updates</span>
           </div>
+          <div class="unread-legend-item">
+            <span class="open-ticket-badge open-ticket-badge-legend" aria-hidden="true">Open</span>
+            <span class="unread-legend-text">Open ticket</span>
+          </div>
           <div class="unread-legend-hint">Click a bubble to open it.</div>
         </div>
         <input
@@ -102,6 +106,16 @@
             <td class="initials-cell">
               <div class="client-label">
                 <span class="initials" :title="rosterLabelTitle(client)">{{ formatRosterLabel(client) }}</span>
+                <span
+                  v-if="client.compliance_pending"
+                  class="pending-compliance-badge"
+                  :title="pendingComplianceTitle(client)"
+                >
+                  Pending {{ Number(client.compliance_days_since_assigned || 0) }}d
+                </span>
+                <span v-if="client.has_open_ticket" class="open-ticket-badge" title="Open ticket">
+                  Open
+                </span>
                 <button
                   v-if="Number(client.unread_notes_count || 0) > 0"
                   class="unread-badge unread-badge-comments"
@@ -563,6 +577,16 @@ const rosterLabelTitle = (client) => {
   return initials || '';
 };
 
+const pendingComplianceTitle = (client) => {
+  const days = Number(client?.compliance_days_since_assigned || 0);
+  const missing = Array.isArray(client?.compliance_missing) ? client.compliance_missing : [];
+  const lines = [
+    `Pending ${days} day(s) since assigned`,
+    missing.length ? `Missing: ${missing.join(', ')}` : ''
+  ].filter(Boolean);
+  return lines.join('\n');
+};
+
 const formatDocSummary = (client) => {
   // Prefer paperwork status (new model) so the portal reflects bulk upload fields:
   // paperwork_status / paperwork_delivery / doc_date.
@@ -756,6 +780,39 @@ onMounted(() => {
 }
 .unread-badge-legend {
   cursor: default;
+}
+.open-ticket-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(234, 88, 12, 0.4);
+  background: rgba(234, 88, 12, 0.14);
+  color: #9a3412;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.open-ticket-badge-legend {
+  cursor: default;
+}
+.pending-compliance-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0.02em;
 }
 .unread-badge-comments {
   background: rgba(45, 156, 219, 0.12);

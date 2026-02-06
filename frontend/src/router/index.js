@@ -721,6 +721,12 @@ const routes = [
     component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'provider', 'super_admin'] }
   },
+  {
+    path: '/admin/compliance-corner',
+    name: 'ComplianceCorner',
+    component: () => import('../views/admin/ComplianceCornerView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'super_admin'] }
+  },
   // Backward compatible: old route now redirects to Note Aid.
   {
     path: '/admin/clinical-note-generator',

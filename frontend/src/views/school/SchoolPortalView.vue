@@ -642,6 +642,7 @@
               :initial-filter="notificationsFilter"
               @close="portalMode = 'home'"
               @updated="onNotificationsUpdated"
+              @open-ticket="openTicketFromNotification"
             />
             <div v-else class="empty-state">Organization not loaded.</div>
           </div>
@@ -670,6 +671,32 @@
       :schoolOrganizationId="organizationId"
       @close="showHelpDesk = false"
     />
+
+    <ClientTicketThreadModal
+      v-if="showTicketModal && ticketModalClient && organizationId"
+      :client="ticketModalClient"
+      :school-organization-id="organizationId"
+      :client-label-mode="clientLabelMode"
+      :ticket-id="ticketModalTicketId"
+      :initial-message-id="ticketModalMessageId"
+      @close="closeTicketModal"
+    />
+
+    <ComplianceCornerModal
+      v-if="showComplianceCorner && organizationId"
+      :school-organization-id="organizationId"
+      @close="showComplianceCorner = false"
+    />
+
+    <button
+      v-if="canUseComplianceCorner"
+      class="compliance-corner-btn"
+      type="button"
+      title="Compliance Corner"
+      @click="showComplianceCorner = true"
+    >
+      CC
+    </button>
 
     <ReferralUpload
       v-if="showUploadModal"
@@ -808,6 +835,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useTutorialStore } from '../../store/tutorial';
 import ClientListGrid from '../../components/school/ClientListGrid.vue';
 import SchoolHelpDeskModal from '../../components/school/SchoolHelpDeskModal.vue';
+import ClientTicketThreadModal from '../../components/school/ClientTicketThreadModal.vue';
 import ReferralUpload from '../../components/school/ReferralUpload.vue';
 import SchoolDayBar from '../../components/school/redesign/SchoolDayBar.vue';
 import DayPanel from '../../components/school/redesign/DayPanel.vue';
@@ -817,6 +845,7 @@ import ProvidersDirectoryPanel from '../../components/school/redesign/ProvidersD
 import SchoolStaffPanel from '../../components/school/redesign/SchoolStaffPanel.vue';
 import PublicDocumentsPanel from '../../components/school/redesign/PublicDocumentsPanel.vue';
 import SchoolNotificationsPanel from '../../components/school/redesign/SchoolNotificationsPanel.vue';
+import ComplianceCornerModal from '../../components/school/redesign/ComplianceCornerModal.vue';
 import FaqPanel from '../../components/school/redesign/FaqPanel.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import OrganizationSettingsModal from '../../components/school/OrganizationSettingsModal.vue';
@@ -836,6 +865,11 @@ const agencyStore = useAgencyStore();
 const tutorialStore = useTutorialStore();
 
 const showHelpDesk = ref(false);
+const showTicketModal = ref(false);
+const ticketModalClient = ref(null);
+const ticketModalTicketId = ref(null);
+const ticketModalMessageId = ref(null);
+const showComplianceCorner = ref(false);
 const showUploadModal = ref(false);
 const comingSoonKey = ref(''); // 'parent_qr' | 'parent_sign' | 'packet_upload'
 const showSchoolSettings = ref(false);
@@ -979,6 +1013,7 @@ const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase()
 const isProvider = computed(() => roleNorm.value === 'provider');
 const isSchoolStaff = computed(() => roleNorm.value === 'school_staff');
 const canBackToSchools = computed(() => ['super_admin', 'admin', 'staff'].includes(roleNorm.value));
+const canUseComplianceCorner = computed(() => ['super_admin', 'admin'].includes(roleNorm.value));
 
 const settingsIconUrl = computed(() => {
   return brandingStore.getAdminQuickActionIconUrl('settings', cardIconOrg.value || null);
@@ -1375,6 +1410,37 @@ const openClientFromQuery = async () => {
   }
 };
 
+const loadNotificationClient = async (clientId) => {
+  if (!organizationId.value || !clientId) return null;
+  try {
+    const r = await api.get(`/school-portal/${organizationId.value}/clients`, {
+      params: { clientId }
+    });
+    const list = Array.isArray(r.data) ? r.data : [];
+    return list.find((c) => Number(c?.id) === Number(clientId)) || null;
+  } catch {
+    return null;
+  }
+};
+
+const openTicketFromNotification = async ({ ticketId, clientId, messageId } = {}) => {
+  const cid = Number(clientId || 0);
+  if (!cid) return;
+  const client = await loadNotificationClient(cid);
+  if (!client) return;
+  ticketModalClient.value = client;
+  ticketModalTicketId.value = ticketId ? Number(ticketId) : null;
+  ticketModalMessageId.value = messageId ? Number(messageId) : null;
+  showTicketModal.value = true;
+};
+
+const closeTicketModal = () => {
+  showTicketModal.value = false;
+  ticketModalClient.value = null;
+  ticketModalTicketId.value = null;
+  ticketModalMessageId.value = null;
+};
+
 const openAdminClientEditor = async (client) => {
   if (!client?.id) return;
   adminClientLoading.value = true;
@@ -1495,6 +1561,26 @@ watch(() => store.selectedWeekday, async (weekday) => {
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 14px;
   padding: 18px 20px;
+}
+
+.compliance-corner-btn {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  border: none;
+  background: #0f172a;
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.35);
+  cursor: pointer;
+  z-index: 1150;
+}
+.compliance-corner-btn:hover {
+  background: #111827;
 }
 
 .portal-banner {

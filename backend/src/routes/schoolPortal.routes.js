@@ -14,7 +14,8 @@ import {
   listSchoolPortalNotificationsFeed,
   markSchoolPortalNotificationsRead,
   listSchoolPortalBannerAnnouncements,
-  createSchoolPortalAnnouncement
+  createSchoolPortalAnnouncement,
+  queryComplianceCorner
 } from '../controllers/schoolPortal.controller.js';
 import {
   listSchoolProvidersForScheduling,
@@ -72,6 +73,7 @@ router.get('/:organizationId/notifications/feed', authenticate, listSchoolPortal
 router.post('/:organizationId/notifications/read', authenticate, markSchoolPortalNotificationsRead);
 router.get('/:organizationId/announcements/banner', authenticate, listSchoolPortalBannerAnnouncements);
 router.post('/:organizationId/announcements', authenticate, createSchoolPortalAnnouncement);
+router.post('/:organizationId/compliance-corner/query', authenticate, queryComplianceCorner);
 router.get('/:schoolId/affiliation', authenticate, getSchoolPortalAffiliation);
 router.get('/:organizationId/stats', authenticate, getSchoolPortalStats);
 router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);

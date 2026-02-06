@@ -79,6 +79,7 @@
                 :expanded="expanded"
                 :current-user-id="currentUserId"
                 :current-user-role="currentUserRole"
+                :highlight-id="highlightMessageId"
                 @toggle="toggleExpanded"
                 @reply="setReplyTarget"
                 @delete="deleteMessage"
@@ -124,7 +125,9 @@ import { useAuthStore } from '../../store/auth';
 const props = defineProps({
   client: { type: Object, required: true },
   schoolOrganizationId: { type: Number, required: true },
-  clientLabelMode: { type: String, default: 'codes' } // 'codes' | 'initials'
+  clientLabelMode: { type: String, default: 'codes' }, // 'codes' | 'initials'
+  ticketId: { type: [Number, String], default: null },
+  initialMessageId: { type: [Number, String], default: null }
 });
 
 defineEmits(['close']);
@@ -146,6 +149,7 @@ const showFullThread = ref(false);
 const expanded = ref({}); // messageId -> boolean
 const messagesEl = ref(null);
 const composerEl = ref(null);
+const highlightMessageId = ref(null);
 
 const checklist = ref(null);
 const checklistAudit = ref('');
@@ -226,6 +230,25 @@ const clearReplyTo = () => {
   replyTo.value = null;
 };
 
+const scrollToMessage = async (messageId) => {
+  if (!messageId) return;
+  await nextTick();
+  try {
+    const id = String(messageId);
+    const container = messagesEl.value;
+    const target = container?.querySelector?.(`[data-message-id="${id}"]`);
+    if (target?.scrollIntoView) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      highlightMessageId.value = id;
+      setTimeout(() => {
+        if (String(highlightMessageId.value) === id) highlightMessageId.value = null;
+      }, 3000);
+    }
+  } catch {
+    // ignore
+  }
+};
+
 const load = async () => {
   if (!props.client?.id) return;
   loading.value = true;
@@ -251,21 +274,31 @@ const load = async () => {
       checklistAudit.value = '';
     }
 
-    const r = await api.get('/support-tickets/client-thread', {
-      params: {
-        schoolOrganizationId: Number(props.schoolOrganizationId),
-        clientId: Number(props.client.id)
-      }
-    });
-    ticket.value = r.data?.ticket || null;
-    messages.value = Array.isArray(r.data?.messages) ? r.data.messages : [];
+    if (props.ticketId) {
+      const r = await api.get(`/support-tickets/${props.ticketId}/messages`);
+      ticket.value = r.data?.ticket || null;
+      messages.value = Array.isArray(r.data?.messages) ? r.data.messages : [];
+    } else {
+      const r = await api.get('/support-tickets/client-thread', {
+        params: {
+          schoolOrganizationId: Number(props.schoolOrganizationId),
+          clientId: Number(props.client.id)
+        }
+      });
+      ticket.value = r.data?.ticket || null;
+      messages.value = Array.isArray(r.data?.messages) ? r.data.messages : [];
+    }
     // Default: expand everything for now (nested collapses are opt-in)
     expanded.value = {};
     for (const m of messages.value || []) {
       expanded.value[String(m.id)] = true;
     }
     await nextTick();
-    scrollToBottom();
+    if (props.initialMessageId) {
+      await scrollToMessage(props.initialMessageId);
+    } else {
+      scrollToBottom();
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load messages';
     ticket.value = null;
@@ -335,6 +368,15 @@ watch(
     showFullThread.value = false;
     checklist.value = null;
     checklistAudit.value = '';
+    highlightMessageId.value = null;
+    await load();
+  }
+);
+
+watch(
+  () => [props.ticketId, props.initialMessageId],
+  async () => {
+    highlightMessageId.value = null;
     await load();
   }
 );

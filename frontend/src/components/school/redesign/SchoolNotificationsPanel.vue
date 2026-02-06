@@ -155,18 +155,24 @@
         :key="it.id"
         class="item"
         type="button"
-        :class="{ unread: isUnread(it), clickable: isClickable(it) }"
+        :class="[itemCategoryClass(it), { unread: isUnread(it), clickable: isClickable(it) }]"
         :title="isClickable(it) ? 'Click to display details' : ''"
         @click="handleItemClick(it)"
       >
         <div class="item-top">
-          <div class="item-title">{{ it.title || (it.kind === 'client_event' ? 'Client update' : 'Announcement') }}</div>
+          <div v-if="isTicket(it)" class="item-title-line">
+            <span v-if="ticketNumber(it)" class="item-ticket-number">Ticket {{ ticketNumber(it) }}</span>
+            <span class="item-title-strong">{{ formatTicketTitle(it) }}</span>
+            <span class="item-title-sep">:</span>
+            <span class="item-title-detail">{{ formatTicketDetail(it) }}</span>
+          </div>
+          <div v-else class="item-title">{{ it.title || (it.kind === 'client_event' ? 'Client update' : 'Announcement') }}</div>
           <div class="item-meta">
             <span class="mono">{{ formatWhen(it.created_at) }}</span>
             <span v-if="it.actor_name">• {{ it.actor_name }}</span>
           </div>
         </div>
-        <div class="item-msg">{{ formatMessage(it) }}</div>
+        <div v-if="!isTicket(it)" class="item-msg">{{ formatMessage(it) }}</div>
       </button>
     </div>
   </div>
@@ -330,7 +336,7 @@ const props = defineProps({
   initialFilter: { type: String, default: '' }
 });
 
-const emit = defineEmits(['close', 'updated']);
+const emit = defineEmits(['close', 'updated', 'open-ticket']);
 
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
@@ -386,11 +392,7 @@ const filteredItems = computed(() => {
   const list = sortedItems.value || [];
   if (activeFilter.value !== 'all') {
     if (activeFilter.value === 'ticket') {
-      return list.filter((it) => {
-        const kind = String(it?.kind || '').toLowerCase();
-        const category = String(it?.category || '').toLowerCase();
-        return kind === 'ticket' || category === 'ticket';
-      });
+      return list.filter((it) => String(it?.kind || '').toLowerCase() === 'ticket');
     }
     return list.filter((it) => String(it?.kind || '').toLowerCase() === activeFilter.value);
   }
@@ -654,6 +656,15 @@ const isClickable = (it) => {
   return kind === 'comment' || kind === 'message';
 };
 
+const isTicket = (it) => String(it?.kind || '').toLowerCase() === 'ticket';
+
+const itemCategoryClass = (it) => {
+  const kind = String(it?.kind || '').toLowerCase();
+  const category = String(it?.category || '').toLowerCase();
+  const key = category === 'ticket' ? 'ticket' : kind || 'announcement';
+  return `category-${key}`;
+};
+
 const formatClientLabel = (it) => {
   const code = String(it?.client_identifier_code || '').trim();
   const initials = String(it?.client_initials || '').trim();
@@ -667,6 +678,22 @@ const formatMessage = (it) => {
   if (!['client_event', 'comment', 'message'].includes(kind)) return raw;
   const label = formatClientLabel(it);
   if (!label) return raw;
+  const idx = raw.indexOf(':');
+  const suffix = idx >= 0 ? raw.slice(idx + 1).trim() : raw;
+  return suffix ? `${label}: ${suffix}` : label;
+};
+
+const ticketNumber = (it) => parseNumericId(it?.id);
+
+const formatTicketTitle = (it) => {
+  const base = String(it?.title || 'Ticket').trim();
+  return base ? base.toUpperCase() : 'TICKET';
+};
+
+const formatTicketDetail = (it) => {
+  const raw = String(it?.message || '').trim();
+  const label = formatClientLabel(it);
+  if (!label) return raw || 'Update';
   const idx = raw.indexOf(':');
   const suffix = idx >= 0 ? raw.slice(idx + 1).trim() : raw;
   return suffix ? `${label}: ${suffix}` : label;
@@ -712,6 +739,15 @@ const showDetail = ({ title, meta, text }) => {
   detailOpen.value = true;
 };
 
+const openTicketFromMessage = (it) => {
+  const ticketId = Number(it?.ticket_id || 0) || null;
+  const clientId = Number(it?.client_id || 0) || null;
+  const messageId = parseNumericId(it?.id);
+  if (!ticketId || !clientId) return false;
+  emit('open-ticket', { ticketId, clientId, messageId });
+  return true;
+};
+
 const handleItemClick = async (it) => {
   const kind = String(it?.kind || '').toLowerCase();
   const clientId = Number(it?.client_id || 0);
@@ -721,18 +757,17 @@ const handleItemClick = async (it) => {
   const orgId = Number(props.schoolOrganizationId || 0);
   if (!orgId || !clientId) return;
 
-  detailOpen.value = true;
-  detailLoading.value = true;
-  detailError.value = '';
-  detailText.value = '';
-
   try {
     if (kind === 'comment') {
+      detailOpen.value = true;
+      detailLoading.value = true;
+      detailError.value = '';
+      detailText.value = '';
       const commentId = parseNumericId(it?.id);
       const r = await api.get(`/school-portal/${orgId}/clients/${clientId}/comments`, { timeout: 12000 });
       const list = Array.isArray(r.data) ? r.data : [];
       const found = commentId ? list.find((c) => Number(c?.id) === Number(commentId)) : null;
-      const msg = String(found?.message || it?.message || '').trim();
+      const msg = String(found?.message || it?.message || 'Comment unavailable.').trim();
       const who = String(found?.author_name || it?.actor_name || '').trim();
       const when = formatWhen(found?.created_at || it?.created_at);
       const label = formatClientLabel(it);
@@ -745,6 +780,11 @@ const handleItemClick = async (it) => {
     }
 
     if (kind === 'message') {
+      if (openTicketFromMessage(it)) return;
+      detailOpen.value = true;
+      detailLoading.value = true;
+      detailError.value = '';
+      detailText.value = '';
       const messageId = parseNumericId(it?.id);
       const r = await api.get('/support-tickets/client-thread', {
         params: { schoolOrganizationId: orgId, clientId },
@@ -1033,22 +1073,59 @@ watch(
 .item {
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--bg);
+  --item-tint: 148, 163, 184;
+  background: rgba(var(--item-tint), 0.08);
   padding: 10px 12px;
   text-align: left;
   width: 100%;
   cursor: default;
 }
 .item.unread {
-  border-color: rgba(14, 165, 233, 0.55);
-  background: rgba(14, 165, 233, 0.12);
-  box-shadow: inset 3px 0 0 rgba(14, 165, 233, 0.6);
+  border-color: rgba(var(--item-tint), 0.55);
+  background: rgba(var(--item-tint), 0.18);
+  box-shadow: inset 3px 0 0 rgba(var(--item-tint), 0.7);
 }
 .item.clickable {
   cursor: pointer;
 }
 .item.clickable:hover {
-  border-color: rgba(59, 130, 246, 0.35);
+  border-color: rgba(var(--item-tint), 0.45);
+}
+.item.category-message {
+  --item-tint: 59, 130, 246;
+}
+.item.category-comment {
+  --item-tint: 14, 165, 233;
+}
+.item.category-ticket {
+  --item-tint: 245, 158, 11;
+}
+.item.category-announcement {
+  --item-tint: 16, 185, 129;
+}
+.item.category-checklist {
+  --item-tint: 99, 102, 241;
+}
+.item.category-status {
+  --item-tint: 168, 85, 247;
+}
+.item.category-assignment {
+  --item-tint: 217, 119, 6;
+}
+.item.category-client_event {
+  --item-tint: 34, 197, 94;
+}
+.item.category-client_created {
+  --item-tint: 132, 204, 22;
+}
+.item.category-provider_slots {
+  --item-tint: 236, 72, 153;
+}
+.item.category-provider_day {
+  --item-tint: 244, 63, 94;
+}
+.item.category-doc {
+  --item-tint: 45, 212, 191;
 }
 .detail-body {
   display: grid;
@@ -1067,6 +1144,32 @@ watch(
 }
 .item-title {
   font-weight: 900;
+}
+.item-title-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.item-ticket-number {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.item-title-strong {
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.item-title-sep {
+  color: var(--text-secondary);
+  font-weight: 800;
+}
+.item-title-detail {
+  color: var(--text-primary);
+  font-weight: 700;
 }
 .item-meta {
   font-size: 12px;

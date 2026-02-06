@@ -670,6 +670,18 @@ export const deleteSupportTicketMessage = async (req, res, next) => {
       [req.user.id, messageId, ticketId]
     );
 
+    // Best-effort: remove any related notification history entries.
+    try {
+      await pool.execute(
+        `DELETE FROM notifications
+         WHERE related_entity_type = 'support_ticket_message'
+           AND related_entity_id = ?`,
+        [messageId]
+      );
+    } catch {
+      // ignore notification cleanup failures
+    }
+
     return res.json({ ok: true });
   } catch (e) {
     next(e);

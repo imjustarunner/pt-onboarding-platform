@@ -3007,6 +3007,9 @@ watch(
   gap: 8px;
   padding: 0 24px;
   border-bottom: 2px solid var(--border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
 }
 
 .tab-button {
@@ -3020,6 +3023,7 @@ watch(
   color: var(--text-secondary);
   transition: all 0.2s;
   margin-bottom: -2px;
+  flex: 0 0 auto;
 }
 
 .tab-button:hover {

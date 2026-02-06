@@ -1,5 +1,10 @@
 <template>
-  <div class="msg" :style="{ marginLeft: depth * 16 + 'px' }">
+  <div
+    class="msg"
+    :class="{ 'msg-highlight': isHighlighted }"
+    :data-message-id="String(node?.id || '')"
+    :style="{ marginLeft: depth * 16 + 'px' }"
+  >
     <div class="msg-top">
       <div class="msg-author">
         <strong>{{ author(node) }}</strong>
@@ -22,6 +27,7 @@
         :depth="depth + 1"
         :current-user-id="currentUserId"
         :current-user-role="currentUserRole"
+        :highlight-id="highlightId"
         @reply="$emit('reply', $event)"
         @delete="$emit('delete', $event)"
       />
@@ -37,7 +43,8 @@ const props = defineProps({
   node: { type: Object, required: true },
   depth: { type: Number, default: 0 },
   currentUserId: { type: [Number, String], default: null },
-  currentUserRole: { type: String, default: '' }
+  currentUserRole: { type: String, default: '' },
+  highlightId: { type: [Number, String], default: null }
 });
 
 defineEmits(['reply', 'delete']);
@@ -68,6 +75,8 @@ const canDelete = computed(() => {
   if (isSchoolStaff) return authorRole === 'school_staff' && Number(authorUserId) === Number(props.currentUserId);
   return false;
 });
+
+const isHighlighted = computed(() => Number(props.highlightId) === Number(props.node?.id));
 </script>
 
 <style scoped>
@@ -121,6 +130,10 @@ const canDelete = computed(() => {
 .msg-deleted {
   font-style: italic;
   color: var(--text-secondary);
+}
+.msg-highlight {
+  border-color: rgba(234, 179, 8, 0.7);
+  box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.2);
 }
 </style>
 

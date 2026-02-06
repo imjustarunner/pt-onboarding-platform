@@ -109,6 +109,7 @@ import publicProviderAvailabilityRoutes from './routes/publicProviderAvailabilit
 import publicSchoolsRoutes from './routes/publicSchools.routes.js';
 import agentsRoutes from './routes/agents.routes.js';
 import clinicalNoteGeneratorRoutes from './routes/clinicalNoteGenerator.routes.js';
+import complianceCornerRoutes from './routes/complianceCorner.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -536,6 +537,7 @@ app.use('/api/hiring', hiringRoutes);
 app.use('/api/overlays', agencyPageOverlaysRoutes);
 app.use('/api/agents', agentsRoutes);
 app.use('/api/clinical-notes', clinicalNoteGeneratorRoutes);
+app.use('/api/compliance-corner', complianceCornerRoutes);
 app.use('/api', researchCandidateRoutes);
 app.use('/api/twilio', twilioRoutes);
 app.use('/api/messages', messageRoutes);

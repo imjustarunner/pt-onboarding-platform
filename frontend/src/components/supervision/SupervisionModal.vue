@@ -131,6 +131,31 @@
               <p v-else class="supervision-placeholder">No clients assigned for this agency.</p>
             </section>
             <section class="supervision-detail-section">
+              <h3>Compliance list (not current)</h3>
+              <div v-if="compliancePendingLoading" class="supervision-placeholder">Loading compliance list…</div>
+              <div v-else-if="compliancePendingError" class="supervision-error-inline">{{ compliancePendingError }}</div>
+              <div v-else-if="compliancePendingList.length === 0" class="supervision-placeholder">
+                No pending compliance clients.
+              </div>
+              <div v-else class="compliance-grid">
+                <button
+                  v-for="row in compliancePendingList"
+                  :key="`${row.client_id}-${row.organization_id}`"
+                  type="button"
+                  class="compliance-card"
+                >
+                  <div class="compliance-card-title">
+                    {{ row.client_identifier_code || row.client_initials || 'Client' }}
+                  </div>
+                  <div class="compliance-card-meta">{{ row.organization_name || '—' }}</div>
+                  <div class="compliance-card-meta">Pending {{ Number(row.days_since_assigned || 0) }}d</div>
+                  <div class="compliance-card-missing">
+                    {{ (row.missing_checklist || []).join(', ') || 'Checklist up to date' }}
+                  </div>
+                </button>
+              </div>
+            </section>
+            <section class="supervision-detail-section">
               <h3>Schedules</h3>
               <div v-if="scheduleLoading" class="supervision-placeholder">Loading schedule…</div>
               <div v-else-if="scheduleError" class="supervision-error-inline">{{ scheduleError }}</div>
@@ -324,6 +349,9 @@ const documentsError = ref('');
 const clientsList = ref([]);
 const clientsLoading = ref(false);
 const clientsError = ref('');
+const compliancePendingList = ref([]);
+const compliancePendingLoading = ref(false);
+const compliancePendingError = ref('');
 const affiliatedPortals = ref([]);
 const affiliatedPortalsLoading = ref(false);
 const affiliatedPortalsError = ref('');
@@ -600,6 +628,27 @@ async function fetchClients() {
   }
 }
 
+async function fetchCompliancePending() {
+  const s = selectedSupervisee.value;
+  if (!s?.supervisee_id) {
+    compliancePendingList.value = [];
+    return;
+  }
+  compliancePendingLoading.value = true;
+  compliancePendingError.value = '';
+  compliancePendingList.value = [];
+  try {
+    const response = await api.get('/compliance-corner/pending-clients', {
+      params: { providerUserId: s.supervisee_id }
+    });
+    compliancePendingList.value = Array.isArray(response.data?.results) ? response.data.results : [];
+  } catch (err) {
+    compliancePendingError.value = err?.response?.data?.error?.message || 'Failed to load compliance list.';
+  } finally {
+    compliancePendingLoading.value = false;
+  }
+}
+
 async function fetchAffiliatedPortals() {
   const s = selectedSupervisee.value;
   if (!s?.supervisee_id) {
@@ -658,6 +707,8 @@ watch(selectedSupervisee, (v) => {
   documentsError.value = '';
   clientsList.value = [];
   clientsError.value = '';
+  compliancePendingList.value = [];
+  compliancePendingError.value = '';
   affiliatedPortals.value = [];
   affiliatedPortalsError.value = '';
   showModulePicker.value = false;
@@ -671,6 +722,7 @@ watch(selectedSupervisee, (v) => {
     fetchChecklist();
     fetchDocuments();
     fetchClients();
+    fetchCompliancePending();
     fetchAffiliatedPortals();
   } else {
     summaryLoading.value = false;
@@ -702,6 +754,32 @@ onMounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+.compliance-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.compliance-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: default;
+}
+.compliance-card-title {
+  font-weight: 900;
+}
+.compliance-card-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.compliance-card-missing {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #b91c1c;
+  font-weight: 700;
 }
 .supervision-modal-header {
   display: flex;
