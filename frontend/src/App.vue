@@ -277,6 +277,16 @@
               >
                 {{ notificationsUnreadCount }}
               </router-link>
+              <router-link
+                v-if="showNotificationsCompactBadge"
+                :to="orgTo('/notifications')"
+                class="nav-compact-badge nav-badge-pulse"
+                :title="`${notificationsUnreadCount} unread notification(s)`"
+                aria-label="Notifications"
+                @click="closeAllNavMenus"
+              >
+                {{ notificationsUnreadCount }}
+              </router-link>
               <button @click="handleLogout" class="btn btn-secondary">Logout</button>
               </div>
             </div>
@@ -426,6 +436,41 @@
       <TourManager v-if="isAuthenticated" />
       <PlatformChatDrawer />
       <PoweredByFooter v-if="isAuthenticated" />
+      <div
+        v-if="showLoginNotificationsModal"
+        class="notifications-alert-overlay"
+        @click.self="dismissLoginNotifications"
+      >
+        <div class="notifications-alert-card" role="dialog" aria-modal="true" aria-live="polite" @click.stop>
+          <div class="notifications-alert-title">
+            You have {{ notificationsUnreadCount }} {{ notificationsUnreadLabel }}
+          </div>
+          <div class="notifications-alert-body">
+            Review what needs your attention, or circle back when you are ready.
+          </div>
+          <div class="notifications-alert-actions">
+            <button class="btn btn-primary" type="button" @click="goToNotifications">
+              View notifications
+            </button>
+            <button class="btn btn-secondary" type="button" @click="dismissLoginNotifications">
+              Dismiss for now
+            </button>
+          </div>
+        </div>
+      </div>
+      <button
+        v-if="showNotificationsNudge"
+        class="notifications-nudge"
+        type="button"
+        :title="`Open notifications (${notificationsUnreadCount} unread)`"
+        :aria-label="`Open notifications (${notificationsUnreadCount} unread)`"
+        @click="goToNotifications"
+      >
+        <span class="notifications-nudge-label">Notifications</span>
+        <span :class="['notifications-nudge-count', { 'notifications-nudge-flash': notificationsNudgeFlash }]">
+          {{ notificationsUnreadCount }}
+        </span>
+      </button>
       </div>
     </div>
   </BrandingProvider>
@@ -1017,28 +1062,129 @@ const showNotificationsObnoxiousBadge = computed(() => {
   if (!isAdminLike.value) return false;
   return notificationsUnreadCount.value > 0;
 });
+const showNotificationsCompactBadge = computed(() => {
+  if (!isAuthenticated.value) return false;
+  if (hideGlobalNavForSchoolStaff.value) return false;
+  if (isAdminLike.value) return false;
+  return notificationsUnreadCount.value > 0;
+});
+
+const shouldUseLoginNotificationsModal = computed(() => {
+  if (!isAuthenticated.value) return false;
+  if (hideGlobalNavForSchoolStaff.value) return false;
+  return !isAdminLike.value;
+});
+const isOnNotificationsRoute = computed(() => String(route.path || '').includes('/notifications'));
+const notificationsUnreadLabel = computed(() => (
+  notificationsUnreadCount.value === 1 ? 'notification' : 'notifications'
+));
+const showLoginNotificationsModal = ref(false);
+const notificationsNudgeVisible = ref(false);
+const notificationsNudgeFlash = ref(false);
+const notificationsCountsLoadedOnce = ref(false);
+const showNotificationsNudge = computed(() => {
+  if (!shouldUseLoginNotificationsModal.value) return false;
+  if (isOnNotificationsRoute.value) return false;
+  if (notificationsUnreadCount.value <= 0) return false;
+  return notificationsNudgeVisible.value;
+});
+
+const clearJustLoggedIn = () => {
+  try {
+    window.sessionStorage.removeItem('justLoggedIn');
+  } catch {
+    // ignore
+  }
+};
+
+const triggerNotificationsNudgeFlash = () => {
+  notificationsNudgeFlash.value = true;
+  window.setTimeout(() => {
+    notificationsNudgeFlash.value = false;
+  }, 1800);
+};
+
+const maybeShowLoginNotificationsModal = () => {
+  if (!isAuthenticated.value) return;
+  if (!notificationsCountsLoadedOnce.value) return;
+  let justLoggedIn = false;
+  try {
+    justLoggedIn = window.sessionStorage.getItem('justLoggedIn') === 'true';
+  } catch {
+    justLoggedIn = false;
+  }
+  if (!justLoggedIn) return;
+  if (shouldUseLoginNotificationsModal.value && notificationsUnreadCount.value > 0 && !isOnNotificationsRoute.value) {
+    showLoginNotificationsModal.value = true;
+    notificationsNudgeVisible.value = false;
+  }
+  clearJustLoggedIn();
+};
+
+const dismissLoginNotifications = () => {
+  showLoginNotificationsModal.value = false;
+  if (notificationsUnreadCount.value > 0) {
+    notificationsNudgeVisible.value = true;
+    triggerNotificationsNudgeFlash();
+  }
+};
+
+const goToNotifications = () => {
+  showLoginNotificationsModal.value = false;
+  notificationsNudgeVisible.value = false;
+  closeAllNavMenus();
+  router.push(orgTo('/notifications'));
+};
 
 let notificationsInterval = null;
+const shouldFetchNotificationsCounts = computed(() => {
+  if (!isAuthenticated.value) return false;
+  if (hideGlobalNavForSchoolStaff.value) return false;
+  return true;
+});
 const fetchNotificationsCounts = async () => {
-  if (!isAuthenticated.value) return;
-  if (!isAdminLike.value) return;
+  if (!shouldFetchNotificationsCounts.value) return;
   try {
     await notificationStore.fetchCounts();
+    notificationsCountsLoadedOnce.value = true;
+    maybeShowLoginNotificationsModal();
   } catch {
     // best-effort badge; ignore errors
   }
 };
 
-watch([isAuthenticated, isAdminLike], ([authenticated, adminLike]) => {
-  if (authenticated && adminLike) {
+watch(shouldFetchNotificationsCounts, (enabled) => {
+  if (enabled) {
     fetchNotificationsCounts();
     if (notificationsInterval) clearInterval(notificationsInterval);
     notificationsInterval = setInterval(fetchNotificationsCounts, 2 * 60 * 1000);
   } else {
+    showLoginNotificationsModal.value = false;
+    notificationsNudgeVisible.value = false;
+    notificationsCountsLoadedOnce.value = false;
     if (notificationsInterval) clearInterval(notificationsInterval);
     notificationsInterval = null;
   }
 }, { immediate: true });
+
+watch(isOnNotificationsRoute, (onNotifications) => {
+  if (onNotifications) {
+    showLoginNotificationsModal.value = false;
+    notificationsNudgeVisible.value = false;
+  }
+});
+
+watch(notificationsUnreadCount, (next, prev) => {
+  if (!shouldUseLoginNotificationsModal.value) return;
+  if (next <= 0) {
+    showLoginNotificationsModal.value = false;
+    notificationsNudgeVisible.value = false;
+    return;
+  }
+  if (notificationsNudgeVisible.value && next > prev) {
+    triggerNotificationsNudgeFlash();
+  }
+});
 
 // Watch for route changes to load organization context
 watch(() => route.params.organizationSlug, async (newSlug) => {
@@ -1610,6 +1756,129 @@ onUnmounted(() => {
 @keyframes obnoxiousPulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.08); }
+}
+
+.nav-compact-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: white;
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: -0.02em;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.2);
+  text-decoration: none;
+}
+.nav-compact-badge:hover {
+  transform: translateY(-1px);
+}
+
+.notifications-alert-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1600;
+  padding: 20px;
+}
+
+.notifications-alert-card {
+  background: white;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+  padding: 18px 20px;
+  width: min(460px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notifications-alert-title {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--text-primary);
+}
+
+.notifications-alert-body {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.notifications-alert-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.notifications-nudge {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1500;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text-primary);
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.2);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.notifications-nudge:hover {
+  transform: translateY(-1px);
+}
+
+.notifications-nudge-label {
+  font-size: 14px;
+}
+
+.notifications-nudge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: white;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 8px 16px rgba(239, 68, 68, 0.35);
+}
+
+.notifications-nudge-flash {
+  animation: notificationsNudgeFlash 1.2s ease-in-out 0s 2;
+}
+
+@keyframes notificationsNudgeFlash {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+  }
+  50% {
+    transform: scale(1.14);
+    box-shadow: 0 0 0 12px rgba(239, 68, 68, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
 }
 
 .mobile-nav-link-obnoxious {
