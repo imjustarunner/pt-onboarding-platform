@@ -653,7 +653,7 @@ const unreadCount = computed(() => (filteredItems.value || []).filter(isUnread).
 
 const isClickable = (it) => {
   const kind = String(it?.kind || '').toLowerCase();
-  return kind === 'comment' || kind === 'message';
+  return kind === 'comment' || kind === 'message' || kind === 'ticket';
 };
 
 const isTicket = (it) => String(it?.kind || '').toLowerCase() === 'ticket';
@@ -675,7 +675,7 @@ const formatClientLabel = (it) => {
 const formatMessage = (it) => {
   const raw = String(it?.message || '').trim();
   const kind = String(it?.kind || '').toLowerCase();
-  if (!['client_event', 'comment', 'message'].includes(kind)) return raw;
+  if (kind === 'announcement') return raw;
   const label = formatClientLabel(it);
   if (!label) return raw;
   const idx = raw.indexOf(':');
@@ -748,16 +748,35 @@ const openTicketFromMessage = (it) => {
   return true;
 };
 
+const openTicketFromItem = (it) => {
+  const ticketId = Number(it?.ticket_id || 0) || parseNumericId(it?.id);
+  const clientId = Number(it?.client_id || 0) || null;
+  if (!ticketId || !clientId) return false;
+  emit('open-ticket', { ticketId, clientId });
+  return true;
+};
+
 const handleItemClick = async (it) => {
   const kind = String(it?.kind || '').toLowerCase();
   const clientId = Number(it?.client_id || 0);
   await markRead({ kind, clientId: clientId || null });
+  emit('updated');
 
   if (!isClickable(it)) return;
-  const orgId = Number(props.schoolOrganizationId || 0);
-  if (!orgId || !clientId) return;
 
   try {
+    if (kind === 'ticket') {
+      if (openTicketFromItem(it)) return;
+      const label = formatClientLabel(it);
+      showDetail({
+        title: label ? `${label}: Ticket` : 'Ticket',
+        meta: formatWhen(it?.created_at),
+        text: String(it?.message || '').trim() || 'Ticket update'
+      });
+      return;
+    }
+    const orgId = Number(props.schoolOrganizationId || 0);
+    if (!orgId || !clientId) return;
     if (kind === 'comment') {
       detailOpen.value = true;
       detailLoading.value = true;

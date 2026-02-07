@@ -1090,7 +1090,7 @@ const loadNotificationsPreview = async () => {
     const formatNotificationMessage = (it) => {
       const raw = String(it?.message || '').trim();
       const kind = String(it?.kind || '').toLowerCase();
-      if (!['client_event', 'comment', 'message'].includes(kind)) return raw;
+      if (kind === 'announcement') return raw;
       const label = formatClientLabel(it);
       if (!label) return raw;
       const idx = raw.indexOf(':');
