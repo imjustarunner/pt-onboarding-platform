@@ -181,12 +181,12 @@ const routes = [
   },
   {
     path: '/:organizationSlug/buildings',
-    name: 'OrganizationBuildings',
     component: () => import('../views/OfficeShellView.vue'),
     meta: { requiresAuth: true, organizationSlug: true },
     children: [
       {
         path: '',
+        name: 'OrganizationBuildings',
         redirect: (to) => `/${to.params.organizationSlug}/buildings/schedule`
       },
       {
@@ -591,11 +591,10 @@ const routes = [
   },
   {
     path: '/buildings',
-    name: 'Buildings',
     component: () => import('../views/OfficeShellView.vue'),
     meta: { requiresAuth: true },
     children: [
-      { path: '', redirect: '/buildings/schedule' },
+      { path: '', name: 'Buildings', redirect: '/buildings/schedule' },
       {
         path: 'schedule',
         name: 'BuildingsSchedule',

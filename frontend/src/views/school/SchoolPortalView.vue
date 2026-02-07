@@ -1041,6 +1041,20 @@ const bannerTexts = computed(() => {
     .slice(0, 10);
 });
 
+const clientLabelMode = ref('codes'); // 'codes' | 'initials'
+const showCodesHelp = ref(false);
+const codesPrivacyHelp =
+  'To further protect the anonymity of the students, you can turn codes on and then hover over their codes to display their initials.';
+const toggleClientLabelMode = () => {
+  clientLabelMode.value = clientLabelMode.value === 'codes' ? 'initials' : 'codes';
+  showCodesHelp.value = false;
+  try {
+    window.localStorage.setItem('schoolPortalClientLabelMode', clientLabelMode.value);
+  } catch {
+    // ignore
+  }
+};
+
 const parseJsonMaybe = (v) => {
   if (!v) return null;
   if (typeof v === 'object') return v;
@@ -1289,20 +1303,6 @@ const openSchoolSettings = async () => {
     return;
   }
   showSchoolSettings.value = true;
-};
-
-const clientLabelMode = ref('codes'); // 'codes' | 'initials'
-const showCodesHelp = ref(false);
-const codesPrivacyHelp =
-  'To further protect the anonymity of the students, you can turn codes on and then hover over their codes to display their initials.';
-const toggleClientLabelMode = () => {
-  clientLabelMode.value = clientLabelMode.value === 'codes' ? 'initials' : 'codes';
-  showCodesHelp.value = false;
-  try {
-    window.localStorage.setItem('schoolPortalClientLabelMode', clientLabelMode.value);
-  } catch {
-    // ignore
-  }
 };
 
 const openProvidersPanel = async () => {
