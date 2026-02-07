@@ -15,6 +15,14 @@
           </select>
         </div>
         <button class="btn btn-secondary" @click="refresh" :disabled="loading">Refresh</button>
+        <button
+          class="btn btn-secondary"
+          @click="openJobDescriptions"
+          :disabled="jobsLoading || !effectiveAgencyId"
+          title="Manage job descriptions"
+        >
+          Manage jobs
+        </button>
         <button class="btn btn-primary" @click="openCreate">New applicant</button>
       </div>
     </div>
@@ -469,6 +477,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import api from '../../services/api';
@@ -477,6 +486,7 @@ import { useAuthStore } from '../../store/auth';
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const route = useRoute();
 
 const loading = ref(false);
 const error = ref('');
@@ -989,6 +999,12 @@ const loadJobDescriptions = async () => {
   }
 };
 
+function isTruthyQueryFlag(v) {
+  if (v === true || v === 1) return true;
+  const s = String(v ?? '').trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
 // Create modal
 const showCreate = ref(false);
 const createSaving = ref(false);
@@ -1163,6 +1179,16 @@ watch(effectiveAgencyId, async (next) => {
   detail.value = { user: null, profile: null, jobDescription: null, notes: [], latestResearch: null, latestPreScreen: null };
 });
 
+watch(
+  () => route.query?.openJobs,
+  async (v) => {
+    if (!isTruthyQueryFlag(v)) return;
+    // Ensure jobs are loaded so the modal isn't empty on first open.
+    await loadJobDescriptions();
+    await openJobDescriptions();
+  }
+);
+
 onMounted(async () => {
   // Ensure we have agency lists for the selector.
   try {
@@ -1197,6 +1223,11 @@ onMounted(async () => {
   }
   await loadJobDescriptions();
   await refresh();
+
+  // Allow deep-linking from navigation (People Ops → Job descriptions)
+  if (isTruthyQueryFlag(route.query?.openJobs)) {
+    await openJobDescriptions();
+  }
 });
 </script>
 

@@ -97,6 +97,11 @@
                   </button>
                   <div v-if="peopleOpsMenuOpen" class="nav-dropdown-menu">
                     <router-link v-if="hasCapability('canManageHiring')" :to="orgTo('/admin/hiring')" @click="closeAllNavMenus">Applicants</router-link>
+                    <router-link
+                      v-if="hasCapability('canManageHiring')"
+                      :to="{ path: orgTo('/admin/hiring'), query: { openJobs: '1' } }"
+                      @click="closeAllNavMenus"
+                    >Job descriptions</router-link>
                     <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeAllNavMenus">On-Demand Training</router-link>
                     <router-link
                       :to="orgTo('/admin/modules')"
