@@ -626,7 +626,7 @@ watch(
   gap: 12px;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .dual {

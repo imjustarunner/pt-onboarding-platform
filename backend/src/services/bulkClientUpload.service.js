@@ -964,7 +964,8 @@ export async function processBulkClientUpload({ agencyId, userId, userRole, file
             schoolOrganizationId: schoolId,
             clientId,
             providerUserId: newProviderId,
-            clientNameOrIdentifier: identifierCode
+            clientNameOrIdentifier: identifierCode,
+            serviceDay: newDay || null
           }).catch(() => {});
         }
         if (!oldPaperworkReceived && willMarkPaperworkReceived && clientId) {

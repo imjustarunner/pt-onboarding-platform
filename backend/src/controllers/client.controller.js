@@ -7,7 +7,7 @@ import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js'
 import AgencySchool from '../models/AgencySchool.model.js';
 import pool from '../config/database.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
-import { notifyClientBecameCurrent, notifyPaperworkReceived } from '../services/clientNotifications.service.js';
+import { notifyClientBecameCurrent, notifyClientChecklistUpdated, notifyPaperworkReceived } from '../services/clientNotifications.service.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
 import crypto from 'crypto';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
@@ -1815,6 +1815,31 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       return s;
     };
 
+    const todayStr = (() => {
+      const now = new Date();
+      const yyyy = String(now.getFullYear());
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    })();
+
+    const parentsContactedAtProvided =
+      req.body?.parentsContactedAt !== undefined &&
+      req.body?.parentsContactedAt !== null &&
+      String(req.body.parentsContactedAt).trim() !== '';
+    const intakeAtProvided =
+      req.body?.intakeAt !== undefined &&
+      req.body?.intakeAt !== null &&
+      String(req.body.intakeAt).trim() !== '';
+    const firstServiceAtProvided =
+      req.body?.firstServiceAt !== undefined &&
+      req.body?.firstServiceAt !== null &&
+      String(req.body.firstServiceAt).trim() !== '';
+    const parentsContactedSuccessfulProvided =
+      req.body?.parentsContactedSuccessful !== undefined &&
+      req.body?.parentsContactedSuccessful !== null &&
+      String(req.body.parentsContactedSuccessful).trim() !== '';
+
     const parentsContactedAt = parseDate(req.body?.parentsContactedAt);
     const intakeAt = parseDate(req.body?.intakeAt);
     const firstServiceAt = parseDate(req.body?.firstServiceAt);
@@ -1860,7 +1885,103 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       // ignore
     }
 
+    // If intake or first service date is today/past, auto-promote pending clients to current.
+    let currentStatusId = null;
+    let oldConsumesSlot = false;
+    try {
+      currentStatusId = await getClientStatusIdByKey({ agencyId: currentClient.agency_id, statusKey: 'current' });
+      const oldClientStatusId = currentClient.client_status_id ? parseInt(currentClient.client_status_id, 10) : null;
+      const workflowArchived = String(currentClient.status || '').toUpperCase() === 'ARCHIVED';
+      oldConsumesSlot = !!(currentStatusId && oldClientStatusId === currentStatusId && currentClient.provider_id && currentClient.service_day && !workflowArchived);
+    } catch {
+      currentStatusId = null;
+      oldConsumesSlot = false;
+    }
+
+    const intakePassed = !!(intakeAt && intakeAt <= todayStr);
+    const firstServicePassed = !!(firstServiceAt && firstServiceAt <= todayStr);
+    const shouldPromote = intakePassed || firstServicePassed;
+    let promotedToCurrent = false;
+    if (shouldPromote) {
+      try {
+        let currentStatusKey = '';
+        if (currentClient.client_status_id) {
+          const [rows] = await pool.execute(
+            `SELECT status_key FROM client_statuses WHERE id = ? LIMIT 1`,
+            [currentClient.client_status_id]
+          );
+          currentStatusKey = String(rows?.[0]?.status_key || '').toLowerCase();
+        }
+        const workflowStatus = String(currentClient.status || '').toUpperCase();
+        const isPendingStatus = currentStatusKey === 'pending' || workflowStatus === 'PENDING_REVIEW';
+        if (isPendingStatus) {
+          if (currentStatusId && parseInt(currentClient.client_status_id || 0, 10) !== parseInt(currentStatusId, 10)) {
+            await Client.update(clientId, { client_status_id: currentStatusId }, userId);
+          }
+          if (workflowStatus === 'PENDING_REVIEW') {
+            await Client.updateStatus(clientId, 'ACTIVE', userId, 'Auto-marked current based on compliance dates');
+          }
+          promotedToCurrent = true;
+        }
+      } catch {
+        // best-effort only
+      }
+    }
+
     const updated = await Client.findById(clientId, { includeSensitive: true });
+    // Notifications: client is current and newly slot-consuming (provider/day assigned)
+    try {
+      const updatedStatusId = updated?.client_status_id ? parseInt(updated.client_status_id, 10) : null;
+      const workflowArchived = String(updated?.status || '').toUpperCase() === 'ARCHIVED';
+      const newConsumesSlot = !!(currentStatusId && updatedStatusId === currentStatusId && updated?.provider_id && updated?.service_day && !workflowArchived);
+      if (!oldConsumesSlot && newConsumesSlot && promotedToCurrent) {
+        notifyClientBecameCurrent({
+          agencyId: updated.agency_id,
+          schoolOrganizationId: updated.organization_id,
+          clientId: updated.id,
+          providerUserId: updated.provider_id,
+          clientNameOrIdentifier: updated.identifier_code || updated.full_name || updated.initials,
+          serviceDay: updated.service_day || null,
+          intakeAt: intakeAtProvided ? intakeAt : null,
+          firstServiceAt: firstServiceAtProvided ? firstServiceAt : null,
+          parentsContactedAt: parentsContactedAtProvided ? parentsContactedAt : null,
+          parentsContactedSuccessful: parentsContactedSuccessfulProvided ? parentsContactedSuccessful : null
+        }).catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
+
+    // Notifications: checklist updates for assigned providers (even if already current)
+    try {
+      const updatedStatusId = updated?.client_status_id ? parseInt(updated.client_status_id, 10) : null;
+      const workflowStatus = String(updated?.status || '').toUpperCase();
+      const isCurrentAfter = (currentStatusId && updatedStatusId === currentStatusId) || workflowStatus === 'ACTIVE';
+      const checklistFieldsProvided =
+        parentsContactedAtProvided ||
+        parentsContactedSuccessfulProvided ||
+        intakeAtProvided ||
+        firstServiceAtProvided;
+      const checklistDatesPassed =
+        (intakeAtProvided && intakeAt && intakeAt <= todayStr) ||
+        (firstServiceAtProvided && firstServiceAt && firstServiceAt <= todayStr);
+      if (checklistFieldsProvided && updated?.provider_id && (isCurrentAfter || checklistDatesPassed)) {
+        notifyClientChecklistUpdated({
+          agencyId: updated.agency_id,
+          schoolOrganizationId: updated.organization_id,
+          clientId: updated.id,
+          providerUserId: updated.provider_id,
+          clientNameOrIdentifier: updated.identifier_code || updated.full_name || updated.initials,
+          serviceDay: updated.service_day || null,
+          intakeAt: intakeAtProvided ? intakeAt : null,
+          firstServiceAt: firstServiceAtProvided ? firstServiceAt : null,
+          parentsContactedAt: parentsContactedAtProvided ? parentsContactedAt : null,
+          parentsContactedSuccessful: parentsContactedSuccessfulProvided ? parentsContactedSuccessful : null
+        }).catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
     // Attach audit name for display (best-effort)
     let updatedByName = null;
     if (updated?.checklist_updated_by_user_id) {
@@ -2096,7 +2217,8 @@ export const assignProvider = async (req, res, next) => {
           schoolOrganizationId: updatedClient.organization_id,
           clientId: updatedClient.id,
           providerUserId: finalProviderId,
-          clientNameOrIdentifier: updatedClient.identifier_code || updatedClient.full_name || updatedClient.initials
+          clientNameOrIdentifier: updatedClient.identifier_code || updatedClient.full_name || updatedClient.initials,
+          serviceDay: updatedClient.service_day || null
         }).catch(() => {});
       }
       res.json(updatedClient);
