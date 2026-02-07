@@ -93,18 +93,18 @@
     <div class="builder-preview">
       <div class="pdf-toolbar">
         <div class="toolbar-left">
-          <button class="btn btn-sm btn-secondary" @click="previousPage" :disabled="loading || currentPage <= 1">
+          <button type="button" class="btn btn-sm btn-secondary" @click="previousPage" :disabled="loading || currentPage <= 1">
             Previous
           </button>
-          <button class="btn btn-sm btn-secondary" @click="nextPage" :disabled="loading || currentPage >= totalPages">
+          <button type="button" class="btn btn-sm btn-secondary" @click="nextPage" :disabled="loading || currentPage >= totalPages">
             Next
           </button>
           <span class="page-indicator" v-if="totalPages > 0">Page {{ currentPage }} / {{ totalPages }}</span>
         </div>
         <div class="toolbar-right">
-          <button class="btn btn-sm btn-secondary" @click="zoomOut" :disabled="loading">−</button>
+          <button type="button" class="btn btn-sm btn-secondary" @click="zoomOut" :disabled="loading">−</button>
           <span class="zoom-indicator">{{ Math.round(scale * 100) }}%</span>
-          <button class="btn btn-sm btn-secondary" @click="zoomIn" :disabled="loading">+</button>
+          <button type="button" class="btn btn-sm btn-secondary" @click="zoomIn" :disabled="loading">+</button>
         </div>
       </div>
 
