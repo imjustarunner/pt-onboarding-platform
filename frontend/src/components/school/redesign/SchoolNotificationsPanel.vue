@@ -249,7 +249,7 @@
       </div>
       <div class="modal-body">
         <div class="muted" style="margin-bottom: 12px;">
-          These control which client notifications show in this School Portal notifications feed.
+          These control which notifications show in the School Portal feed. In-app only by default; SMS/email are opt-in.
         </div>
 
         <div class="settings-section">
@@ -258,6 +258,7 @@
             <input type="checkbox" v-model="settings.announcements" :disabled="savingSettings" />
             <span class="toggle-label">School announcements</span>
           </label>
+          <div class="settings-help">School-wide announcements posted by admins.</div>
         </div>
 
         <div class="settings-section">
@@ -266,6 +267,7 @@
             <input type="checkbox" v-model="settings.tickets" :disabled="savingSettings" />
             <span class="toggle-label">Ticket activity</span>
           </label>
+          <div class="settings-help">Updates to support tickets and replies.</div>
         </div>
 
         <div class="settings-section">
@@ -274,6 +276,7 @@
             <input type="checkbox" v-model="settings.clientCreated" :disabled="savingSettings" />
             <span class="toggle-label">New client added</span>
           </label>
+          <div class="settings-help">A client was added to your school roster.</div>
         </div>
 
         <div class="settings-section">
@@ -282,10 +285,12 @@
             <input type="checkbox" v-model="settings.providerSlots" :disabled="savingSettings" />
             <span class="toggle-label">Provider slots added/closed</span>
           </label>
+          <div class="settings-help">Capacity changes for provider schedules.</div>
           <label class="toggle">
             <input type="checkbox" v-model="settings.providerDayAdded" :disabled="savingSettings" />
             <span class="toggle-label">Provider added to day</span>
           </label>
+          <div class="settings-help">A provider is newly available on a day.</div>
         </div>
 
         <div class="settings-section">
@@ -294,6 +299,7 @@
             <input type="checkbox" v-model="settings.docsLinks" :disabled="savingSettings" />
             <span class="toggle-label">New document/link added</span>
           </label>
+          <div class="settings-help">Documents or links shared with your school.</div>
         </div>
 
         <div class="settings-section">
@@ -302,34 +308,42 @@
             <input type="checkbox" v-model="settings.clientUpdates" :disabled="savingSettings" />
             <span class="toggle-label">All client updates</span>
           </label>
+          <div class="settings-help">Changes to client details and assignments.</div>
           <label class="toggle settings-subtoggle">
             <input type="checkbox" v-model="settings.statusUpdates" :disabled="savingSettings || !settings.clientUpdates" />
             <span class="toggle-label">Status changes</span>
           </label>
+          <div class="settings-help settings-subhelp">Client status moved (pending/current/on hold/archived).</div>
           <label class="toggle settings-subtoggle">
             <input type="checkbox" v-model="settings.providerUpdates" :disabled="savingSettings || !settings.clientUpdates" />
             <span class="toggle-label">Provider assignment changes</span>
           </label>
+          <div class="settings-help settings-subhelp">Provider added/removed for the client.</div>
           <label class="toggle settings-subtoggle">
             <input type="checkbox" v-model="settings.serviceDayUpdates" :disabled="savingSettings || !settings.clientUpdates" />
             <span class="toggle-label">Service day changes</span>
           </label>
+          <div class="settings-help settings-subhelp">Service day changes (e.g., Monday to Tuesday).</div>
           <label class="toggle settings-subtoggle">
             <input type="checkbox" v-model="settings.submissionDateUpdates" :disabled="savingSettings || !settings.clientUpdates" />
             <span class="toggle-label">Submission date changes</span>
           </label>
+          <div class="settings-help settings-subhelp">Referral/submission date updated.</div>
           <label class="toggle settings-subtoggle">
             <input type="checkbox" v-model="settings.documentDateUpdates" :disabled="savingSettings || !settings.clientUpdates" />
             <span class="toggle-label">Document date changes</span>
           </label>
+          <div class="settings-help settings-subhelp">Document status date updated.</div>
           <label class="toggle settings-subtoggle">
             <input type="checkbox" v-model="settings.orgSwaps" :disabled="savingSettings || !settings.clientUpdates" />
             <span class="toggle-label">Organization changes</span>
           </label>
+          <div class="settings-help settings-subhelp">Client moved to a different organization.</div>
           <label class="toggle settings-subtoggle">
             <input type="checkbox" v-model="settings.otherUpdates" :disabled="savingSettings || !settings.clientUpdates" />
             <span class="toggle-label">Other client updates</span>
           </label>
+          <div class="settings-help settings-subhelp">Other changes not covered above.</div>
         </div>
 
         <div class="settings-section">
@@ -338,6 +352,7 @@
             <input type="checkbox" v-model="settings.checklistUpdates" :disabled="savingSettings" />
             <span class="toggle-label">Checklist updates</span>
           </label>
+          <div class="settings-help">Intake/first service/parents contacted updates.</div>
         </div>
 
         <div class="settings-section">
@@ -346,6 +361,7 @@
             <input type="checkbox" v-model="settings.assignments" :disabled="savingSettings" />
             <span class="toggle-label">Client assigned to provider</span>
           </label>
+          <div class="settings-help">Client assigned to a provider or provider removed.</div>
         </div>
 
         <div class="settings-section">
@@ -354,10 +370,12 @@
             <input type="checkbox" v-model="settings.clientComments" :disabled="savingSettings" />
             <span class="toggle-label">Client comments</span>
           </label>
+          <div class="settings-help">Notes added in the client comments panel.</div>
           <label class="toggle">
             <input type="checkbox" v-model="settings.clientMessages" :disabled="savingSettings" />
             <span class="toggle-label">Client messages</span>
           </label>
+          <div class="settings-help">Ticketed messages about the client.</div>
         </div>
 
         <div style="display:flex; gap: 10px; margin-top: 14px; align-items:center;">
@@ -1155,6 +1173,14 @@ watch(
 }
 .settings-subtoggle {
   padding-left: 18px;
+}
+.settings-help {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 4px 0 6px;
+}
+.settings-subhelp {
+  margin-left: 18px;
 }
 
 .modal-overlay {
