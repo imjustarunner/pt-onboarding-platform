@@ -191,8 +191,21 @@
               <input v-model="form.allowAllDocuments" type="checkbox" />
               Allow all document templates
             </label>
-            <div class="template-list">
-              <label v-for="t in selectableTemplates" :key="t.id" class="template-item">
+            <div class="template-list" v-if="selectableTemplates.length">
+              <div v-if="templateGroups.organizationTemplates.length" class="template-group-title">
+                Organization templates
+              </div>
+              <label v-for="t in templateGroups.organizationTemplates" :key="`org_${t.id}`" class="template-item">
+                <input
+                  type="checkbox"
+                  :value="t.id"
+                  v-model="form.allowedDocumentTemplateIds"
+                  :disabled="form.allowAllDocuments"
+                />
+                {{ t.name || `Template ${t.id}` }}
+              </label>
+              <div class="template-group-title">Agency templates</div>
+              <label v-for="t in templateGroups.agencyTemplates" :key="`agency_${t.id}`" class="template-item">
                 <input
                   type="checkbox"
                   :value="t.id"
@@ -202,6 +215,7 @@
                 {{ t.name || `Template ${t.id}` }}
               </label>
             </div>
+            <div v-else class="muted">No document templates found yet.</div>
           </div>
 
           <div class="form-group">
@@ -229,34 +243,73 @@
                     <label>Document Template</label>
                     <select v-model.number="step.templateId">
                       <option :value="null">Select document</option>
-                      <option v-for="t in templates" :key="t.id" :value="t.id">
-                        {{ t.name }} ({{ t.document_action_type }})
-                      </option>
+                      <optgroup v-if="templateGroups.organizationTemplates.length" label="Organization templates">
+                        <option v-for="t in templateGroups.organizationTemplates" :key="`org_${t.id}`" :value="t.id">
+                          {{ t.name }} ({{ t.document_action_type }})
+                        </option>
+                      </optgroup>
+                      <optgroup label="Agency templates">
+                        <option v-for="t in templateGroups.agencyTemplates" :key="`agency_${t.id}`" :value="t.id">
+                          {{ t.name }} ({{ t.document_action_type }})
+                        </option>
+                      </optgroup>
                     </select>
+                    <div v-if="!templates.length" class="muted">
+                      No document templates available. Create one in Documents Library.
+                    </div>
                   </div>
                 </div>
 
                 <div v-else class="question-builder">
                   <div class="question-list">
-                    <div v-for="(field, fIdx) in getStepFields(step)" :key="field.id || fIdx" class="question-row">
-                      <input v-model="field.label" placeholder="Question label" />
-                      <input v-model="field.key" placeholder="Key (e.g., grade)" />
-                      <select v-model="field.type">
-                        <option value="text">Short answer</option>
-                        <option value="textarea">Long answer</option>
-                        <option value="checkbox">Checkbox</option>
-                        <option value="select">Select</option>
-                        <option value="radio">Radio</option>
-                        <option value="date">Date</option>
-                      </select>
-                      <label class="checkbox">
-                        <input v-model="field.required" type="checkbox" />
-                        Required
-                      </label>
-                      <button class="btn btn-xs btn-danger" type="button" @click="removeField(step, fIdx)">×</button>
-                    </div>
-
-                    <template v-for="field in getStepFields(step)" :key="`${field.id || field.key || 'field'}-opts`">
+                    <div v-for="(field, fIdx) in getStepFields(step)" :key="field.id || fIdx" class="question-block">
+                      <div class="question-row">
+                        <div class="question-index">#{{ fIdx + 1 }}</div>
+                        <input v-model="field.label" placeholder="Question label" />
+                        <input v-model="field.key" placeholder="Key (e.g., grade)" />
+                        <select v-model="field.type">
+                          <option value="text">Short answer</option>
+                          <option value="textarea">Long answer</option>
+                          <option value="checkbox">Checkbox</option>
+                          <option value="select">Select</option>
+                          <option value="radio">Radio</option>
+                          <option value="date">Date</option>
+                          <option value="info">Info / Disclaimer</option>
+                        </select>
+                        <label class="checkbox">
+                          <input v-model="field.required" type="checkbox" :disabled="field.type === 'info'" />
+                          Required
+                        </label>
+                        <div class="question-controls">
+                          <button class="btn btn-xs btn-secondary" type="button" @click="moveField(step, fIdx, -1)" :disabled="fIdx === 0">↑</button>
+                          <button class="btn btn-xs btn-secondary" type="button" @click="moveField(step, fIdx, 1)" :disabled="fIdx === getStepFields(step).length - 1">↓</button>
+                          <button class="btn btn-xs btn-danger" type="button" @click="removeField(step, fIdx)">×</button>
+                        </div>
+                      </div>
+                      <div class="question-meta">
+                        <input v-model="field.helperText" placeholder="Helper text / disclaimer (optional)" />
+                    <input
+                      v-model="field.documentKey"
+                      placeholder="Document field key for autofill (optional)"
+                    />
+                        <div class="condition-row">
+                          <select v-model="field.showIf.fieldKey">
+                            <option value="">Show if (optional)</option>
+                            <option
+                              v-for="target in getConditionalTargets(step, fIdx)"
+                              :key="target.key"
+                              :value="target.key"
+                            >
+                              {{ target.label || target.key }}
+                            </option>
+                          </select>
+                          <input
+                            v-model="field.showIf.equals"
+                            :disabled="!field.showIf.fieldKey"
+                            placeholder="Equals value (e.g., yes)"
+                          />
+                        </div>
+                      </div>
                       <div v-if="field?.type === 'select' || field?.type === 'radio'" class="option-list">
                         <div v-for="(opt, oIdx) in field.options" :key="opt.id" class="option-row">
                           <input v-model="opt.label" placeholder="Option label" />
@@ -265,7 +318,7 @@
                         </div>
                         <button class="btn btn-xs btn-secondary" type="button" @click="addOption(field)">+ Option</button>
                       </div>
-                    </template>
+                    </div>
                   </div>
                   <button class="btn btn-xs btn-secondary" type="button" @click="addField(step)">+ Add Question</button>
                 </div>
@@ -286,7 +339,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 
@@ -300,6 +353,8 @@ const showForm = ref(false);
 const saving = ref(false);
 const formError = ref('');
 const editingId = ref(null);
+const autosaveTimer = ref(null);
+const lastAutosaveAt = ref(null);
 
 const form = reactive({
   title: '',
@@ -364,6 +419,80 @@ const resetForm = () => {
   editingId.value = null;
 };
 
+const draftStorageKey = computed(() =>
+  editingId.value ? `intake-link-draft:${editingId.value}` : 'intake-link-draft:new'
+);
+
+const serializeDraft = () => ({
+  savedAt: Date.now(),
+  form: {
+    title: form.title,
+    description: form.description,
+    scopeType: form.scopeType,
+    organizationId: form.organizationId,
+    programId: form.programId,
+    isActive: form.isActive,
+    createClient: form.createClient,
+    createGuardian: form.createGuardian,
+    allowAllDocuments: form.allowAllDocuments,
+    allowedDocumentTemplateIds: Array.isArray(form.allowedDocumentTemplateIds)
+      ? [...form.allowedDocumentTemplateIds]
+      : [],
+    intakeFieldsText: form.intakeFieldsText,
+    intakeSteps: Array.isArray(form.intakeSteps) ? JSON.parse(JSON.stringify(form.intakeSteps)) : []
+  }
+});
+
+const saveDraft = () => {
+  if (!showForm.value) return;
+  try {
+    const payload = serializeDraft();
+    localStorage.setItem(draftStorageKey.value, JSON.stringify(payload));
+    lastAutosaveAt.value = payload.savedAt;
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const applyDraft = (draft) => {
+  const data = draft?.form;
+  if (!data) return;
+  form.title = data.title ?? '';
+  form.description = data.description ?? '';
+  form.scopeType = data.scopeType || 'school';
+  form.organizationId = data.organizationId ?? null;
+  form.programId = data.programId ?? null;
+  form.isActive = data.isActive ?? true;
+  form.createClient = data.createClient ?? true;
+  form.createGuardian = data.createGuardian ?? true;
+  form.allowAllDocuments = data.allowAllDocuments ?? false;
+  form.allowedDocumentTemplateIds = Array.isArray(data.allowedDocumentTemplateIds)
+    ? data.allowedDocumentTemplateIds
+    : [];
+  form.intakeFieldsText = data.intakeFieldsText || '';
+  form.intakeSteps = sanitizeSteps(Array.isArray(data.intakeSteps) ? data.intakeSteps : []);
+};
+
+const loadDraft = () => {
+  try {
+    const raw = localStorage.getItem(draftStorageKey.value);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.form) return;
+    applyDraft(parsed);
+  } catch {
+    // ignore bad drafts
+  }
+};
+
+const clearDraft = () => {
+  try {
+    localStorage.removeItem(draftStorageKey.value);
+  } catch {
+    // ignore
+  }
+};
+
 const fetchData = async () => {
   try {
     loading.value = true;
@@ -395,6 +524,33 @@ watch(selectedAgencyId, async (next) => {
   fieldTemplates.value = r.data || [];
 });
 
+watch(showForm, (open) => {
+  if (open) {
+    loadDraft();
+    if (autosaveTimer.value) clearInterval(autosaveTimer.value);
+    autosaveTimer.value = setInterval(saveDraft, 20000);
+  } else if (autosaveTimer.value) {
+    clearInterval(autosaveTimer.value);
+    autosaveTimer.value = null;
+  }
+});
+
+const handleBeforeUnload = () => {
+  if (showForm.value) saveDraft();
+};
+
+onMounted(() => {
+  window.addEventListener('beforeunload', handleBeforeUnload);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload);
+  if (autosaveTimer.value) {
+    clearInterval(autosaveTimer.value);
+    autosaveTimer.value = null;
+  }
+});
+
 const openCreate = () => {
   resetForm();
   showForm.value = true;
@@ -422,7 +578,7 @@ const editLink = (link) => {
   form.programId = link.program_id || null;
   form.isActive = !!link.is_active;
   form.createClient = !!link.create_client;
-  form.createGuardian = link.scope_type === 'school' ? false : !!link.create_guardian;
+  form.createGuardian = !!link.create_guardian;
   form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = link.allowed_document_template_ids || [];
   form.intakeFieldsText = link.intake_fields ? JSON.stringify(link.intake_fields, null, 2) : '';
@@ -501,7 +657,7 @@ const save = async () => {
       scopeType: form.scopeType,
       isActive: form.isActive,
       createClient: form.createClient,
-      createGuardian: form.scopeType === 'school' ? false : form.createGuardian,
+      createGuardian: form.createGuardian,
       allowedDocumentTemplateIds,
       intakeFields,
       intakeSteps
@@ -518,6 +674,7 @@ const save = async () => {
       await api.post('/intake-links', payload);
     }
     await fetchData();
+    clearDraft();
     showForm.value = false;
   } catch (e) {
     formError.value = formatApiError(e, 'Failed to save intake link');
@@ -548,7 +705,7 @@ const createQuickLink = async () => {
       title: quickTitle.value || null,
       scopeType: quickScope.value,
       createClient: true,
-      createGuardian: quickScope.value === 'school' ? false : true,
+      createGuardian: true,
       isActive: true
     };
     if (quickScope.value !== 'agency' && quickOrganizationId.value) {
@@ -564,10 +721,34 @@ const createQuickLink = async () => {
 
 const createId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
-const selectableTemplates = computed(() => {
+const templateGroups = computed(() => {
   const list = Array.isArray(templates.value) ? templates.value : [];
-  return list.filter((t) => t && t.id);
+  const scope = form.scopeType || 'school';
+  const orgId = scope === 'agency' ? null : form.organizationId;
+  const agencyTemplates = [];
+  const organizationTemplates = [];
+  list
+    .filter((t) => t && t.id)
+    .forEach((t) => {
+      const tOrgId = t.organization_id ?? null;
+      if (scope === 'agency') {
+        if (!tOrgId) agencyTemplates.push(t);
+      } else if (!tOrgId) {
+        agencyTemplates.push(t);
+      } else if (orgId && Number(tOrgId) === Number(orgId)) {
+        organizationTemplates.push(t);
+      }
+    });
+  const byName = (a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' });
+  agencyTemplates.sort(byName);
+  organizationTemplates.sort(byName);
+  return { agencyTemplates, organizationTemplates };
 });
+
+const selectableTemplates = computed(() => [
+  ...templateGroups.value.organizationTemplates,
+  ...templateGroups.value.agencyTemplates
+]);
 
 const sanitizeSteps = (steps) => {
   const raw = Array.isArray(steps) ? steps : [];
@@ -582,6 +763,24 @@ const sanitizeSteps = (steps) => {
     }
     if (s.type === 'document' && s.templateId === undefined) {
       s.templateId = null;
+    }
+    if (s.type === 'questions' && Array.isArray(s.fields)) {
+      s.fields = s.fields
+        .filter((f) => f && typeof f === 'object')
+        .map((f) => ({
+          id: f.id || createId('field'),
+          key: f.key || '',
+          label: f.label || '',
+          type: f.type || 'text',
+          required: !!f.required,
+          helperText: f.helperText || '',
+          documentKey: f.documentKey || '',
+          showIf: {
+            fieldKey: f.showIf?.fieldKey || '',
+            equals: f.showIf?.equals || ''
+          },
+          options: Array.isArray(f.options) ? f.options.filter((o) => o && typeof o === 'object') : []
+        }));
     }
   });
   return out;
@@ -638,12 +837,31 @@ const addField = (step) => {
     label: '',
     type: 'text',
     required: false,
+    helperText: '',
+    showIf: { fieldKey: '', equals: '' },
     options: []
   });
 };
 
 const removeField = (step, idx) => {
   step.fields.splice(idx, 1);
+};
+
+const getConditionalTargets = (step, idx) => {
+  if (!step || !Array.isArray(step.fields)) return [];
+  return step.fields
+    .filter((f, fIdx) => f && typeof f === 'object' && fIdx !== idx && f.key)
+    .map((f) => ({ key: f.key, label: f.label }));
+};
+
+const moveField = (step, idx, dir) => {
+  if (!step || !Array.isArray(step.fields)) return;
+  const next = idx + dir;
+  if (next < 0 || next >= step.fields.length) return;
+  const copy = [...step.fields];
+  const [moved] = copy.splice(idx, 1);
+  copy.splice(next, 0, moved);
+  step.fields = copy;
 };
 
 const addOption = (field) => {
@@ -662,12 +880,15 @@ const buildPayloadFromSteps = (selectedTemplateIds = []) => {
   intakeSteps.forEach((step) => {
     if (step.type === 'questions') {
       (step.fields || []).forEach((f) => {
+        if (f.type === 'info') return;
         intakeFields.push({
           key: f.key || f.id,
           label: f.label || f.key,
           type: f.type,
           required: !!f.required,
           options: f.options || [],
+          helperText: f.helperText || '',
+          showIf: f.showIf || null,
           scope: 'submission'
         });
       });
@@ -745,9 +966,9 @@ onMounted(fetchData);
   z-index: 1200;
 }
 .modal {
-  width: 720px;
+  width: 860px;
   max-width: 95vw;
-  max-height: 90vh;
+  max-height: 92vh;
   background: white;
   border-radius: 12px;
   border: 1px solid var(--border);
@@ -819,6 +1040,27 @@ onMounted(fetchData);
   margin-bottom: 6px;
 }
 
+.question-block {
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: #fff;
+}
+
+.question-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.question-index {
+  flex: 0 0 32px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .question-row input,
 .option-row input,
 .question-row select {
@@ -832,6 +1074,13 @@ onMounted(fetchData);
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 6px;
+}
+.template-group-title {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 6px;
 }
 .template-item {
   display: flex;

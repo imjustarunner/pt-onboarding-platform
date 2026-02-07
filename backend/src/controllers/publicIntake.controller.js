@@ -19,6 +19,7 @@ import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js'
 import User from '../models/User.model.js';
 import config from '../config/config.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
+import ActivityLogService from '../services/activityLog.service.js';
 
 const normalizeName = (name) => String(name || '').trim();
 
@@ -70,6 +71,37 @@ const buildAuditTrail = ({ link, submission }) => ({
   ipAddress: submission.ip_address,
   userAgent: submission.user_agent
 });
+
+export const approvePublicIntake = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const link = await IntakeLink.findByPublicKey(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+
+    ActivityLogService.logActivity(
+      {
+        actionType: 'intake_approval',
+        metadata: {
+          intakeLinkId: link.id,
+          scopeType: link.scope_type || null,
+          organizationId: link.organization_id || null,
+          programId: link.program_id || null,
+          portalOrganizationId: req.body?.organizationId || null,
+          approvalMode: req.body?.mode || 'staff_assisted',
+          staffLastName: req.body?.staffLastName || null,
+          clientFirstName: req.body?.clientFirstName || null
+        }
+      },
+      req
+    );
+
+    return res.json({ success: true });
+  } catch (error) {
+    return next(error);
+  }
+};
 
 const toOrgPayload = (org) => {
   if (!org) return null;

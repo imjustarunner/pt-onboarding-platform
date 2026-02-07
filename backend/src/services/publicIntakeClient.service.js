@@ -12,9 +12,16 @@ import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 const deriveInitials = (fullName) => {
   const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return 'TBD';
-  const first = parts[0][0] || '';
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
-  return `${first}${last}`.toUpperCase() || 'TBD';
+  const formatTri = (value) => {
+    const cleaned = String(value || '').replace(/[^a-zA-Z]/g, '').slice(0, 3);
+    if (!cleaned) return '';
+    const lower = cleaned.toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  };
+  const first = formatTri(parts[0] || '');
+  const last = formatTri(parts.length > 1 ? parts[parts.length - 1] : '');
+  const combined = `${first}${last}`;
+  return combined || 'TBD';
 };
 
 const resolveAgencyId = async (organizationId) => {
@@ -107,7 +114,7 @@ class PublicIntakeClientService {
     }
 
     let guardianUser = null;
-    const createGuardian = scopeType === 'school' ? false : !!link.create_guardian;
+    const createGuardian = !!link.create_guardian;
     if (createGuardian) {
       const guardianPayload = payload?.guardian || {};
       const email = String(guardianPayload.email || '').trim();
@@ -144,7 +151,7 @@ class PublicIntakeClientService {
           clientId: client.id,
           guardianUserId: guardianUser.id,
           relationshipTitle: guardianPayload.relationship || 'Guardian',
-          accessEnabled: true,
+          accessEnabled: false,
           permissionsJson: { intakeLink: link.id },
           createdByUserId: null
         });

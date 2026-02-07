@@ -442,13 +442,13 @@ const routes = [
     path: '/:organizationSlug/admin/documents',
     name: 'OrganizationDocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canSignDocuments', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments', organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/letterheads',
     name: 'OrganizationLetterheadsLibrary',
     component: () => import('../views/admin/LetterheadsLibraryView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canSignDocuments', organizationSlug: true }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments', organizationSlug: true }
   },
   {
     path: '/:organizationSlug/admin/agency-progress',
@@ -833,13 +833,13 @@ const routes = [
     path: '/admin/documents',
     name: 'DocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canSignDocuments' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments' }
   },
   {
     path: '/admin/letterheads',
     name: 'LetterheadsLibrary',
     component: () => import('../views/admin/LetterheadsLibraryView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support'], requiresCapability: 'canSignDocuments' }
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments' }
   },
   {
     path: '/admin/agency-progress',

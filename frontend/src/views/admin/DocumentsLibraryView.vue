@@ -29,6 +29,22 @@
           {{ agency.name }}
         </option>
       </select>
+      <select
+        v-if="filterAgencyId !== 'all' && filterAgencyId !== 'null'"
+        v-model="filterOrganizationId"
+        class="filter-select"
+      >
+        <option value="all">All Organizations</option>
+        <option v-for="org in affiliatedOrganizationOptions" :key="org.id" :value="org.id">
+          {{ org.name }}{{ org.organization_type ? ` (${org.organization_type})` : '' }}
+        </option>
+      </select>
+      <input
+        v-model="filterQuery"
+        class="filter-select"
+        type="text"
+        placeholder="Search agencies, orgs, titles…"
+      />
       <select v-model="filterDocumentType" @change="applyFilters" class="filter-select">
         <option value="all">All Document Types</option>
         <option value="acknowledgment">Acknowledgment</option>
@@ -286,15 +302,21 @@
                 </option>
               </select>
 
-              <label class="sub-label" style="margin-top: 12px;">Associated Organization (Optional)</label>
-              <select v-model="htmlForm.organizationId" @change="handleHtmlOrganizationChange" :disabled="loadingHtmlAffiliatedOrgs || htmlAffiliatedOrganizations.length === 0">
-                <option value="">None</option>
-                <option v-for="org in htmlAffiliatedOrganizations" :key="org.id" :value="org.id">
-                  {{ org.name }}{{ org.organization_type ? ` (${org.organization_type})` : '' }}
-                </option>
-              </select>
-              <small v-if="loadingHtmlAffiliatedOrgs">Loading affiliated organizations…</small>
-              <small v-else-if="htmlAffiliatedOrganizations.length === 0">No affiliated organizations found for this agency.</small>
+              <label class="checkbox" style="margin-top: 12px;">
+                <input v-model="htmlForm.assignToOrganization" type="checkbox" />
+                Assign to specific organization
+              </label>
+              <div v-if="htmlForm.assignToOrganization">
+                <label class="sub-label">Associated Organization</label>
+                <select v-model="htmlForm.organizationId" @change="handleHtmlOrganizationChange" :disabled="loadingHtmlAffiliatedOrgs || htmlAffiliatedOrganizations.length === 0">
+                  <option value="">Select</option>
+                  <option v-for="org in htmlAffiliatedOrganizations" :key="org.id" :value="org.id">
+                    {{ org.name }}{{ org.organization_type ? ` (${org.organization_type})` : '' }}
+                  </option>
+                </select>
+                <small v-if="loadingHtmlAffiliatedOrgs">Loading affiliated organizations…</small>
+                <small v-else-if="htmlAffiliatedOrganizations.length === 0">No affiliated organizations found for this agency.</small>
+              </div>
             </div>
           </div>
 
@@ -591,6 +613,8 @@ const templates = computed(() => documentsStore.templates);
 const pagination = computed(() => documentsStore.pagination);
 
 const filterAgencyId = ref('all');
+const filterOrganizationId = ref('all');
+const filterQuery = ref('');
 const filterDocumentType = ref('all');
 const filterTemplateType = ref('all');
 const statusFilter = ref('active');
@@ -616,6 +640,10 @@ const loadingHtmlAffiliatedOrgs = ref(false);
 const htmlLetterheads = ref([]);
 const loadingHtmlLetterheads = ref(false);
 
+const affiliatedOrganizationOptions = ref([]);
+const organizationLookup = ref(new Map());
+const organizationsByAgency = ref({});
+
 const htmlForm = ref({
   name: '',
   description: '',
@@ -629,16 +657,57 @@ const htmlForm = ref({
   iconId: null,
   scope: authStore.user?.role === 'super_admin' ? 'platform' : 'org',
   agencyId: null,
+  assignToOrganization: false,
   organizationId: null
 });
 
 const canUsePlatformScope = computed(() => authStore.user?.role === 'super_admin');
+
+const filtersStorageKey = 'documents-library-filters';
+const loadFiltersFromStorage = () => {
+  try {
+    const raw = localStorage.getItem(filtersStorageKey);
+    if (!raw) return;
+    const stored = JSON.parse(raw);
+    if (stored?.filterAgencyId) filterAgencyId.value = stored.filterAgencyId;
+    if (stored?.filterOrganizationId) filterOrganizationId.value = stored.filterOrganizationId;
+    if (stored?.filterQuery !== undefined) filterQuery.value = stored.filterQuery;
+    if (stored?.filterDocumentType) filterDocumentType.value = stored.filterDocumentType;
+    if (stored?.filterTemplateType) filterTemplateType.value = stored.filterTemplateType;
+    if (stored?.statusFilter) statusFilter.value = stored.statusFilter;
+    if (stored?.sortBy) sortBy.value = stored.sortBy;
+    if (stored?.viewMode) viewMode.value = stored.viewMode;
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const persistFilters = () => {
+  try {
+    localStorage.setItem(
+      filtersStorageKey,
+      JSON.stringify({
+        filterAgencyId: filterAgencyId.value,
+        filterOrganizationId: filterOrganizationId.value,
+        filterQuery: filterQuery.value,
+        filterDocumentType: filterDocumentType.value,
+        filterTemplateType: filterTemplateType.value,
+        statusFilter: statusFilter.value,
+        sortBy: sortBy.value,
+        viewMode: viewMode.value
+      })
+    );
+  } catch {
+    // ignore storage errors
+  }
+};
 
 const setHtmlScope = (scope) => {
   if (scope === 'platform' && !canUsePlatformScope.value) return;
   htmlForm.value.scope = scope;
   if (scope === 'platform') {
     htmlForm.value.agencyId = null;
+    htmlForm.value.assignToOrganization = false;
     htmlForm.value.organizationId = null;
     htmlAffiliatedOrganizations.value = [];
   } else if (!htmlForm.value.agencyId) {
@@ -685,6 +754,31 @@ const handleHtmlOrganizationChange = async () => {
   await fetchHtmlLetterheads();
 };
 
+watch(
+  () => htmlForm.value.assignToOrganization,
+  (next) => {
+    if (!next) {
+      htmlForm.value.organizationId = null;
+    }
+  }
+);
+
+watch(
+  [filterAgencyId, filterDocumentType, filterTemplateType, statusFilter, sortBy, viewMode],
+  () => {
+    persistFilters();
+  }
+);
+
+watch(filterAgencyId, async (next) => {
+  filterOrganizationId.value = 'all';
+  affiliatedOrganizationOptions.value = [];
+  const id = Number(next);
+  if (!id) return;
+  const orgs = await fetchAffiliatedOrganizationsForAgency(id);
+  affiliatedOrganizationOptions.value = orgs;
+});
+
 async function fetchHtmlLetterheads() {
   try {
     const currentSelection = htmlForm.value.letterheadTemplateId;
@@ -695,7 +789,7 @@ async function fetchHtmlLetterheads() {
 
     const agencyId = htmlForm.value.scope === 'platform' ? null : (htmlForm.value.agencyId || null);
     const organizationId =
-      htmlForm.value.scope === 'platform'
+      htmlForm.value.scope === 'platform' || !htmlForm.value.assignToOrganization
         ? null
         : (htmlForm.value.organizationId && String(htmlForm.value.organizationId) !== String(htmlForm.value.agencyId)
             ? htmlForm.value.organizationId
@@ -785,6 +879,10 @@ const loadTemplates = async () => {
   }
 
   await documentsStore.fetchTemplates(filters);
+  const agencyIds = (documentsStore.templates || [])
+    .map((t) => t?.agency_id)
+    .filter((id) => id !== null && id !== undefined);
+  await refreshOrganizationLookup(agencyIds);
 };
 
 const getFilteredTemplates = () => {
@@ -793,6 +891,31 @@ const getFilteredTemplates = () => {
   // Filter by template type (client-side since backend doesn't support it yet)
   if (filterTemplateType.value !== 'all') {
     filtered = filtered.filter(t => t.template_type === filterTemplateType.value);
+  }
+
+  if (filterOrganizationId.value !== 'all') {
+    const target = Number(filterOrganizationId.value);
+    filtered = filtered.filter((t) => Number(t.organization_id) === target);
+  }
+
+  const query = String(filterQuery.value || '').trim().toLowerCase();
+  if (query) {
+    filtered = filtered.filter((t) => {
+      const agencyName = t?.agency_id !== null && t?.agency_id !== undefined ? getAgencyName(t.agency_id) : 'platform';
+      const orgName = t?.organization_id ? getOrganizationName(t.organization_id) : '';
+      const haystack = [
+        t?.name,
+        t?.description,
+        t?.document_type,
+        t?.template_type,
+        agencyName,
+        orgName
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
   }
 
   // Status filter is handled by backend, so we don't need to filter client-side
@@ -1250,6 +1373,37 @@ const fetchAgencies = async () => {
   }
 };
 
+const fetchAffiliatedOrganizationsForAgency = async (agencyId) => {
+  const id = Number(agencyId);
+  if (!id) return [];
+  if (organizationsByAgency.value[id]) return organizationsByAgency.value[id];
+  try {
+    const res = await api.get(`/agencies/${id}/affiliated-organizations`);
+    const list = Array.isArray(res.data) ? res.data : [];
+    organizationsByAgency.value = { ...organizationsByAgency.value, [id]: list };
+    return list;
+  } catch (err) {
+    console.error('Failed to fetch affiliated organizations for filter:', err);
+    return [];
+  }
+};
+
+const refreshOrganizationLookup = async (agencyIds) => {
+  const ids = Array.from(new Set((agencyIds || []).map((v) => Number(v)).filter(Boolean)));
+  if (!ids.length) return;
+  const results = await Promise.all(ids.map((id) => fetchAffiliatedOrganizationsForAgency(id)));
+  const nextMap = new Map(organizationLookup.value);
+  results.flat().forEach((org) => {
+    if (org?.id) nextMap.set(Number(org.id), org);
+  });
+  organizationLookup.value = nextMap;
+};
+
+const getOrganizationName = (orgId) => {
+  const org = organizationLookup.value.get(Number(orgId));
+  return org?.name || null;
+};
+
 const handleAssigned = () => {
   showAssignModal.value = false;
   templateToAssign.value = null;
@@ -1542,7 +1696,7 @@ const saveHTMLTemplate = async () => {
       letterFooterHtml: htmlForm.value.layoutType === 'letter' ? (htmlForm.value.letterFooterHtml || null) : null,
       agencyId: htmlForm.value.scope === 'platform' ? null : (htmlForm.value.agencyId || null),
       organizationId:
-        htmlForm.value.scope === 'platform'
+        htmlForm.value.scope === 'platform' || !htmlForm.value.assignToOrganization
           ? null
           : (htmlForm.value.organizationId && String(htmlForm.value.organizationId) !== String(htmlForm.value.agencyId)
               ? htmlForm.value.organizationId
@@ -1562,6 +1716,7 @@ const saveHTMLTemplate = async () => {
       iconId: null,
       scope: canUsePlatformScope.value ? 'platform' : 'org',
       agencyId: canUsePlatformScope.value ? null : (selectedAgencyId.value || null),
+      assignToOrganization: false,
       organizationId: null
     };
     htmlAffiliatedOrganizations.value = [];
@@ -1583,6 +1738,7 @@ onMounted(async () => {
   // Fetch platform branding to ensure master brand icon is available
   await brandingStore.fetchPlatformBranding();
   await fetchAgencies();
+  loadFiltersFromStorage();
   await loadTemplates();
 
   // Default HTML scope + load affiliated orgs for the default agency (best-effort)

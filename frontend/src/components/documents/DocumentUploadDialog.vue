@@ -121,15 +121,21 @@
               Loading organizations...
             </small>
 
-            <label class="sub-label" style="margin-top: 12px;">Associated Organization (Optional)</label>
-            <select v-model="formData.organizationId" :disabled="loadingAffiliatedOrganizations || affiliatedOrganizations.length === 0">
-              <option value="">None</option>
-              <option v-for="org in affiliatedOrganizations" :key="org.id" :value="org.id">
-                {{ org.name }}{{ org.organization_type ? ` (${org.organization_type})` : '' }}
-              </option>
-            </select>
-            <small v-if="loadingAffiliatedOrganizations">Loading affiliated organizations…</small>
-            <small v-else-if="affiliatedOrganizations.length === 0">No affiliated organizations found for this agency.</small>
+            <label class="checkbox" style="margin-top: 12px;">
+              <input v-model="formData.assignToOrganization" type="checkbox" />
+              Assign to specific organization
+            </label>
+            <div v-if="formData.assignToOrganization">
+              <label class="sub-label">Associated Organization</label>
+              <select v-model="formData.organizationId" :disabled="loadingAffiliatedOrganizations || affiliatedOrganizations.length === 0">
+                <option value="">Select</option>
+                <option v-for="org in affiliatedOrganizations" :key="org.id" :value="org.id">
+                  {{ org.name }}{{ org.organization_type ? ` (${org.organization_type})` : '' }}
+                </option>
+              </select>
+              <small v-if="loadingAffiliatedOrganizations">Loading affiliated organizations…</small>
+              <small v-else-if="affiliatedOrganizations.length === 0">No affiliated organizations found for this agency.</small>
+            </div>
           </div>
 
           <small v-if="!canUsePlatformScope">
@@ -151,7 +157,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useDocumentsStore } from '../../store/documents';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -181,6 +187,7 @@ const formData = ref({
   documentActionType: props.existingTemplate?.document_action_type || 'signature',
   scope: props.existingTemplate?.agency_id === null ? 'platform' : 'org',
   agencyId: props.existingTemplate?.agency_id ?? '',
+  assignToOrganization: !!props.existingTemplate?.organization_id,
   organizationId: props.existingTemplate?.organization_id ?? '',
   iconId: props.existingTemplate?.icon_id || null
 });
@@ -219,6 +226,7 @@ const setScope = (scope) => {
   formData.value.scope = scope;
   if (scope === 'platform') {
     formData.value.agencyId = '';
+    formData.value.assignToOrganization = false;
     formData.value.organizationId = '';
     affiliatedOrganizations.value = [];
   } else if (!formData.value.agencyId) {
@@ -261,6 +269,15 @@ const handleAgencyScopeChange = async () => {
   formData.value.organizationId = '';
   await fetchAffiliatedOrganizations();
 };
+
+watch(
+  () => formData.value.assignToOrganization,
+  (next) => {
+    if (!next) {
+      formData.value.organizationId = '';
+    }
+  }
+);
 
 const fetchAgencies = async () => {
   try {
@@ -377,9 +394,13 @@ const handleUpload = async () => {
     // IMPORTANT: Never send the literal string "null" (backend treats missing/empty as null).
     if (formData.value.scope === 'org') {
       formDataToSend.append('agencyId', String(formData.value.agencyId));
-      if (formData.value.organizationId && String(formData.value.organizationId) !== String(formData.value.agencyId)) {
-        formDataToSend.append('organizationId', String(formData.value.organizationId));
-      }
+    if (
+      formData.value.assignToOrganization &&
+      formData.value.organizationId &&
+      String(formData.value.organizationId) !== String(formData.value.agencyId)
+    ) {
+      formDataToSend.append('organizationId', String(formData.value.organizationId));
+    }
     }
 
     // Add signature coordinates if signature is selected and coordinates are set
@@ -406,6 +427,7 @@ const handleUpload = async () => {
       documentActionType: 'signature',
       scope: canUsePlatformScope.value ? 'platform' : 'org',
       agencyId: '',
+      assignToOrganization: false,
       organizationId: '',
       iconId: null
     };

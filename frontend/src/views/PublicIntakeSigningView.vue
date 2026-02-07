@@ -81,8 +81,9 @@
             </div>
 
             <div v-if="clientFields.length" class="form-grid">
-              <div v-for="field in clientFields" :key="`${idx}-${field.key}`" class="form-group">
+              <div v-for="field in visibleClientFields(idx)" :key="`${idx}-${field.key}`" class="form-group">
                 <label>{{ field.label }}</label>
+                <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
                 <input
                   v-if="field.type !== 'textarea'"
                   :type="field.type || 'text'"
@@ -101,11 +102,12 @@
           </div>
         </div>
 
-        <div v-if="guardianFields.length" class="custom-fields">
+        <div v-if="visibleGuardianFields.length" class="custom-fields">
           <h4>Guardian Questions</h4>
           <div class="form-grid">
-            <div v-for="field in guardianFields" :key="field.key" class="form-group">
+            <div v-for="field in visibleGuardianFields" :key="field.key" class="form-group">
               <label>{{ field.label }}</label>
+              <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
               <input
                 v-if="field.type !== 'textarea'"
                 :type="field.type || 'text'"
@@ -123,11 +125,12 @@
           </div>
         </div>
 
-        <div v-if="submissionFields.length" class="custom-fields">
+        <div v-if="visibleSubmissionFields.length" class="custom-fields">
           <h4>Additional Intake Questions</h4>
           <div class="form-grid">
-            <div v-for="field in submissionFields" :key="field.key" class="form-group">
+            <div v-for="field in visibleSubmissionFields" :key="field.key" class="form-group">
               <label>{{ field.label }}</label>
+              <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
               <input
                 v-if="field.type !== 'textarea'"
                 :type="field.type || 'text'"
@@ -247,32 +250,39 @@
 
         <div v-if="currentFlowStep?.type === 'questions'" class="field-inputs">
           <h4>Questions</h4>
-          <div v-for="field in currentQuestionFields" :key="field.id" class="form-group">
-            <label>{{ field.label || field.key }}</label>
-            <input
-              v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
-              v-model="questionValues[field.key]"
-              type="text"
-              :data-field-id="field.id"
-            />
-            <textarea v-else-if="field.type === 'textarea'" v-model="questionValues[field.key]" rows="4"></textarea>
-            <label v-else-if="field.type === 'checkbox'" class="checkbox-row" :data-field-id="field.id">
-              <input v-model="questionValues[field.key]" type="checkbox" />
-              <span>{{ field.label || field.key }}</span>
-            </label>
-            <select v-else-if="field.type === 'select'" v-model="questionValues[field.key]">
-              <option value="">Select an option</option>
-              <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
-                {{ opt.label || opt.value }}
-              </option>
-            </select>
-            <div v-else-if="field.type === 'radio'" class="radio-group">
-              <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
-                <input type="radio" :name="`q_${field.key}`" :value="opt.value || opt.label" v-model="questionValues[field.key]" />
-                <span>{{ opt.label || opt.value }}</span>
-              </label>
+          <div v-for="field in visibleQuestionFields" :key="field.id" class="form-group">
+            <div v-if="field.type === 'info'" class="info-block">
+              <div class="info-title">{{ field.label || 'Notice' }}</div>
+              <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
             </div>
-            <input v-else v-model="questionValues[field.key]" type="date" />
+            <template v-else>
+              <label>{{ field.label || field.key }}</label>
+              <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
+              <input
+                v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
+                v-model="questionValues[field.key]"
+                type="text"
+                :data-field-id="field.id"
+              />
+              <textarea v-else-if="field.type === 'textarea'" v-model="questionValues[field.key]" rows="4"></textarea>
+              <label v-else-if="field.type === 'checkbox'" class="checkbox-row" :data-field-id="field.id">
+                <input v-model="questionValues[field.key]" type="checkbox" />
+                <span>{{ field.label || field.key }}</span>
+              </label>
+              <select v-else-if="field.type === 'select'" v-model="questionValues[field.key]">
+                <option value="">Select an option</option>
+                <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
+                  {{ opt.label || opt.value }}
+                </option>
+              </select>
+              <div v-else-if="field.type === 'radio'" class="radio-group">
+                <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
+                  <input type="radio" :name="`q_${field.key}`" :value="opt.value || opt.label" v-model="questionValues[field.key]" />
+                  <span>{{ opt.label || opt.value }}</span>
+                </label>
+              </div>
+              <input v-else v-model="questionValues[field.key]" type="date" />
+            </template>
           </div>
         </div>
 
@@ -467,6 +477,31 @@ const guardianFields = computed(() => intakeFields.value.filter((f) => (f.scope 
 const submissionFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'submission'));
 const clientFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'client'));
 
+const isIntakeFieldVisible = (field, values = {}) => {
+  const showIf = field?.showIf;
+  if (!showIf || !showIf.fieldKey) return true;
+  const actual = values[showIf.fieldKey];
+  const expected = showIf.equals;
+  if (Array.isArray(expected)) {
+    return expected.map(String).includes(String(actual));
+  }
+  if (expected === '' || expected === null || expected === undefined) {
+    return Boolean(actual);
+  }
+  return String(actual ?? '') === String(expected ?? '');
+};
+
+const visibleGuardianFields = computed(() =>
+  guardianFields.value.filter((f) => isIntakeFieldVisible(f, intakeResponses.guardian))
+);
+
+const visibleSubmissionFields = computed(() =>
+  submissionFields.value.filter((f) => isIntakeFieldVisible(f, intakeResponses.submission))
+);
+
+const visibleClientFields = (idx) =>
+  clientFields.value.filter((f) => isIntakeFieldVisible(f, intakeResponses.clients[idx] || {}));
+
 const loadPdfPreview = async () => {
   if (!currentDoc.value || currentDoc.value.template_type !== 'pdf') {
     pdfUrl.value = null;
@@ -644,11 +679,13 @@ const completeCurrentDocument = async () => {
 };
 
 const completeQuestionStep = async () => {
-  const missing = currentQuestionFields.value.filter((f) => f.required).filter((f) => {
-    const val = questionValues.value[f.key];
-    if (f.type === 'checkbox') return val !== true;
-    return val === null || val === undefined || String(val).trim() === '';
-  });
+  const missing = visibleQuestionFields.value
+    .filter((f) => f.required && f.type !== 'info')
+    .filter((f) => {
+      const val = questionValues.value[f.key];
+      if (f.type === 'checkbox') return val !== true;
+      return val === null || val === undefined || String(val).trim() === '';
+    });
   if (missing.length) {
     error.value = 'Please complete all required fields before continuing.';
     return;
@@ -803,7 +840,23 @@ const removeClient = (idx) => {
 const initializeFieldValues = () => {
   if (!currentDoc.value) return;
   const values = currentFieldValues.value;
+  const prefill = getPrefillMap();
   currentFieldDefinitions.value.forEach((field) => {
+    const prefillKey = resolvePrefillKey(field);
+    const prefillValue = prefillKey ? prefill[prefillKey] : undefined;
+    if (!(field.id in values) && prefillValue !== undefined && prefillValue !== null && prefillValue !== '') {
+      if (field.type === 'checkbox') {
+        values[field.id] = prefillValue === true || prefillValue === 'true' || prefillValue === 1;
+      } else if (field.type === 'select' || field.type === 'radio') {
+        const options = Array.isArray(field.options) ? field.options : [];
+        const optionValues = options.map((opt) => String(opt.value ?? opt.label ?? '')).filter(Boolean);
+        const stringVal = String(prefillValue);
+        values[field.id] = optionValues.length === 0 || optionValues.includes(stringVal) ? stringVal : '';
+      } else {
+        values[field.id] = String(prefillValue);
+      }
+      return;
+    }
     if (field.type === 'date' && field.autoToday) {
       values[field.id] = new Date().toISOString().slice(0, 10);
     } else if (field.type === 'checkbox') {
@@ -822,6 +875,68 @@ const currentQuestionFields = computed(() => {
 });
 
 const questionValues = computed(() => intakeResponses.submission);
+
+const isQuestionVisible = (field, values = {}) => {
+  const showIf = field?.showIf;
+  if (!showIf || !showIf.fieldKey) return true;
+  const actual = values[showIf.fieldKey];
+  const expected = showIf.equals;
+  if (Array.isArray(expected)) {
+    return expected.map(String).includes(String(actual));
+  }
+  if (expected === '' || expected === null || expected === undefined) {
+    return Boolean(actual);
+  }
+  return String(actual ?? '') === String(expected ?? '');
+};
+
+const visibleQuestionFields = computed(() =>
+  currentQuestionFields.value.filter((f) => isQuestionVisible(f, questionValues.value))
+);
+
+const buildQuestionPrefillMap = () => {
+  const map = {};
+  intakeSteps.value.forEach((step) => {
+    if (step?.type !== 'questions' || !Array.isArray(step.fields)) return;
+    step.fields.forEach((field) => {
+      const documentKey = String(field?.documentKey || '').trim();
+      const questionKey = field?.key;
+      if (!documentKey || !questionKey) return;
+      const value = questionValues.value?.[questionKey];
+      if (value !== undefined && value !== null && value !== '') {
+        map[documentKey] = value;
+      }
+    });
+  });
+  return map;
+};
+
+const getPrefillMap = () => {
+  const map = {};
+  const submission = intakeResponses.submission || {};
+  Object.keys(submission).forEach((key) => {
+    if (submission[key] !== undefined && submission[key] !== null && submission[key] !== '') {
+      map[key] = submission[key];
+    }
+  });
+  if (guardianFirstName.value) map.guardian_first = guardianFirstName.value;
+  if (guardianLastName.value) map.guardian_last = guardianLastName.value;
+  if (guardianRelationship.value) map.relationship = guardianRelationship.value;
+  if (clients.value?.[0]?.fullName) {
+    const parts = String(clients.value[0].fullName || '').trim().split(/\s+/);
+    if (parts.length) map.client_first = parts[0];
+    if (parts.length > 1) map.client_last = parts.slice(1).join(' ');
+  }
+  const questionMap = buildQuestionPrefillMap();
+  Object.keys(questionMap).forEach((key) => {
+    if (questionMap[key] !== undefined && questionMap[key] !== null && questionMap[key] !== '') {
+      map[key] = questionMap[key];
+    }
+  });
+  return map;
+};
+
+const resolvePrefillKey = (field) => field?.prefillKey || field?.prefill_key || field?.id || '';
 
 const advanceIntro = () => {
   if (introIndex.value < introScreens.value.length - 1) {
@@ -983,6 +1098,29 @@ onMounted(async () => {
   background: #f8f9fa;
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.helper-text {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.info-block {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+}
+
+.info-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.info-text {
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .field-inputs select {

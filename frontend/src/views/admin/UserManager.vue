@@ -136,6 +136,11 @@
               </select>
             </div>
           </div>
+          <div class="filter-section">
+            <button class="btn btn-secondary btn-sm" type="button" @click="resetUserFilters">
+              Reset filters
+            </button>
+          </div>
         </aside>
 
         <div class="users-main" data-tour="users-main">
@@ -1426,6 +1431,53 @@ const organizationSearch = ref('');
 const tableSortKey = ref('name');
 const tableSortDir = ref('asc'); // 'asc' | 'desc'
 const userTableExpanded = ref(false);
+
+const userFiltersStorageKey = 'user-manager-filters';
+const loadUserFilters = () => {
+  try {
+    const raw = localStorage.getItem(userFiltersStorageKey);
+    if (!raw) return;
+    const stored = JSON.parse(raw);
+    if (stored?.userSearch !== undefined) userSearch.value = stored.userSearch;
+    if (stored?.agencySort !== undefined) agencySort.value = stored.agencySort;
+    if (stored?.organizationSort !== undefined) organizationSort.value = stored.organizationSort;
+    if (stored?.roleSort !== undefined) roleSort.value = stored.roleSort;
+    if (stored?.statusSort !== undefined) statusSort.value = stored.statusSort;
+    if (stored?.userTypeFilter !== undefined) userTypeFilter.value = stored.userTypeFilter;
+    if (stored?.organizationSearch !== undefined) organizationSearch.value = stored.organizationSearch;
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const persistUserFilters = () => {
+  try {
+    localStorage.setItem(
+      userFiltersStorageKey,
+      JSON.stringify({
+        userSearch: userSearch.value,
+        agencySort: agencySort.value,
+        organizationSort: organizationSort.value,
+        roleSort: roleSort.value,
+        statusSort: statusSort.value,
+        userTypeFilter: userTypeFilter.value,
+        organizationSearch: organizationSearch.value
+      })
+    );
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const resetUserFilters = () => {
+  userSearch.value = '';
+  agencySort.value = '';
+  organizationSort.value = '';
+  roleSort.value = '';
+  statusSort.value = 'ACTIVE_EMPLOYEE';
+  userTypeFilter.value = '';
+  organizationSearch.value = '';
+};
 
 const agencyOptions = computed(() => {
   const list = Array.isArray(agencies.value) ? agencies.value : [];
@@ -2903,6 +2955,13 @@ watch(showSupervisorsModal, (isOpen) => {
   }
 });
 
+watch(
+  [userSearch, agencySort, organizationSort, roleSort, statusSort, userTypeFilter, organizationSearch],
+  () => {
+    persistUserFilters();
+  }
+);
+
 const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString();
 };
@@ -3296,6 +3355,7 @@ const cancelCreation = () => {
 };
 
 onMounted(async () => {
+  loadUserFilters();
   // Ensure the current brand/agency selection is hydrated (used for default filters).
   try {
     const role = String(authStore.user?.role || '').toLowerCase();

@@ -2,6 +2,7 @@ import express from 'express';
 import { body } from 'express-validator';
 import { publicIntakeLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
+  approvePublicIntake,
   createPublicConsent,
   finalizePublicIntake,
   getPublicIntakeLink,
@@ -11,6 +12,7 @@ import {
   signPublicIntakeDocument,
   submitPublicIntake
 } from '../controllers/publicIntake.controller.js';
+import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
@@ -20,6 +22,7 @@ router.get('/school/:organizationId', getSchoolIntakeLink);
 router.get('/:publicKey', getPublicIntakeLink);
 router.get('/:publicKey/status/:submissionId', getPublicIntakeStatus);
 router.get('/:publicKey/document/:templateId/preview', previewPublicTemplate);
+router.post('/:publicKey/approve', authenticate, approvePublicIntake);
 
 router.post(
   '/:publicKey/consent',

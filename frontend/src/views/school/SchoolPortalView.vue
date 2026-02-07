@@ -797,7 +797,7 @@
             <div class="intake-link-row">
               <input class="intake-link-input" :value="intakeLinkUrl" readonly />
               <button class="btn btn-secondary btn-sm" type="button" @click="copyIntakeLink">Copy</button>
-              <a class="btn btn-primary btn-sm" :href="intakeLinkUrl" target="_blank" rel="noopener">Launch</a>
+              <button class="btn btn-primary btn-sm" type="button" @click="openIntakeApproval">Approve & Launch</button>
             </div>
             <div v-if="intakeModalMode === 'qr'" class="intake-qr">
               <img v-if="intakeQrDataUrl" :src="intakeQrDataUrl" alt="Intake QR code" />
@@ -819,6 +819,49 @@
         </div>
         <div class="settings-drawer-body">
           <OrganizationSettingsModal v-if="organizationId" :organization-id="organizationId" />
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showIntakeApprovalModal" class="modal-overlay" @click.self="closeIntakeApproval">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <strong>Confirm staff approval</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeIntakeApproval">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="muted" style="margin-bottom: 10px;">
+            You are approving this intake link on behalf of the parent/guardian.
+          </div>
+          <div class="muted" style="margin-bottom: 10px;">
+            Staff: {{ staffDisplayName }}
+          </div>
+          <div class="form-group">
+            <label>Staff last name</label>
+            <input v-model="intakeApprovalStaffLastName" type="text" placeholder="Enter your last name" />
+          </div>
+          <div class="form-group">
+            <label>Client first name</label>
+            <input v-model="intakeApprovalClientFirstName" type="text" placeholder="Enter client first name" />
+          </div>
+          <label class="checkbox" style="margin-bottom: 12px;">
+            <input v-model="intakeApprovalChecked" type="checkbox" />
+            I confirm I am approving this intake.
+          </label>
+          <div v-if="intakeApprovalError" class="error" style="margin-bottom: 10px;">
+            {{ intakeApprovalError }}
+          </div>
+          <div class="actions">
+            <button class="btn btn-secondary btn-sm" type="button" @click="closeIntakeApproval">Cancel</button>
+            <button
+              class="btn btn-primary btn-sm"
+              type="button"
+              :disabled="!intakeApprovalChecked || intakeApprovalSubmitting"
+              @click="approveAndLaunchIntake"
+            >
+              {{ intakeApprovalSubmitting ? 'Approving…' : 'Approve & Launch' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -882,6 +925,12 @@ const intakeLinkLoading = ref(false);
 const intakeLinkError = ref('');
 const intakeLink = ref(null);
 const intakeQrDataUrl = ref('');
+const showIntakeApprovalModal = ref(false);
+const intakeApprovalChecked = ref(false);
+const intakeApprovalSubmitting = ref(false);
+const intakeApprovalError = ref('');
+const intakeApprovalStaffLastName = ref('');
+const intakeApprovalClientFirstName = ref('');
 
 // Provider availability request modal (creates a support ticket)
 const showAvailabilityRequest = ref(false);
@@ -905,6 +954,14 @@ const intakeLinkUrl = computed(() => {
   const key = intakeLink.value?.public_key || '';
   if (!key) return '';
   return buildPublicIntakeUrl(key);
+});
+
+const staffDisplayName = computed(() => {
+  const user = authStore.user || {};
+  const first = user.first_name || user.firstName || '';
+  const last = user.last_name || user.lastName || '';
+  const full = `${first} ${last}`.trim();
+  return full || user.email || 'Staff member';
 });
 
 const loadIntakeLink = async () => {
@@ -934,6 +991,42 @@ const openIntakeModal = async (mode) => {
 
 const closeIntakeModal = () => {
   showIntakeModal.value = false;
+};
+
+const openIntakeApproval = () => {
+  intakeApprovalChecked.value = false;
+  intakeApprovalError.value = '';
+  intakeApprovalStaffLastName.value = '';
+  intakeApprovalClientFirstName.value = '';
+  showIntakeApprovalModal.value = true;
+};
+
+const closeIntakeApproval = () => {
+  showIntakeApprovalModal.value = false;
+};
+
+const approveAndLaunchIntake = async () => {
+  if (!intakeLink.value?.public_key || !intakeLinkUrl.value) return;
+  try {
+    intakeApprovalSubmitting.value = true;
+    intakeApprovalError.value = '';
+    if (!intakeApprovalStaffLastName.value.trim() || !intakeApprovalClientFirstName.value.trim()) {
+      intakeApprovalError.value = 'Staff last name and client first name are required.';
+      return;
+    }
+    await api.post(`/public-intake/${intakeLink.value.public_key}/approve`, {
+      organizationId: organizationId.value,
+      mode: 'staff_assisted',
+      staffLastName: intakeApprovalStaffLastName.value.trim(),
+      clientFirstName: intakeApprovalClientFirstName.value.trim()
+    });
+    closeIntakeApproval();
+    window.open(intakeLinkUrl.value, '_blank', 'noopener');
+  } catch (e) {
+    intakeApprovalError.value = e.response?.data?.error?.message || 'Failed to approve intake link';
+  } finally {
+    intakeApprovalSubmitting.value = false;
+  }
 };
 
 const copyIntakeLink = async () => {

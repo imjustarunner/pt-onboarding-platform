@@ -81,6 +81,7 @@ class ActivityLogService {
       'module_end',
       'module_complete',
       'password_change',
+      'intake_approval',
 
       // AI / helper tools (do NOT log sensitive content in metadata)
       'note_aid_execute',
