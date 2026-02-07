@@ -59,6 +59,22 @@
       <button class="btn btn-secondary btn-sm" type="button" @click="markAllRead" :disabled="loading || prefsLoading">
         Mark all read
       </button>
+      <button
+        class="btn btn-secondary btn-sm"
+        type="button"
+        @click="markVisibleRead"
+        :disabled="loading || prefsLoading || visibleUnreadCount === 0"
+      >
+        Mark visible read
+      </button>
+      <button
+        class="btn btn-secondary btn-sm"
+        type="button"
+        @click="markSelectedRead"
+        :disabled="loading || prefsLoading || selectedCount === 0"
+      >
+        Mark selected read
+      </button>
       <div class="toolbar-divider" />
       <div class="filter-group" role="group" aria-label="Notification filters">
         <button class="filter-btn" type="button" :class="{ active: activeFilter === 'all' }" @click="setFilter('all')">
@@ -140,6 +156,9 @@
         </label>
       </div>
       <div class="spacer" />
+      <div class="muted-small" v-if="selectedCount > 0">
+        {{ selectedCount }} selected
+      </div>
       <div class="muted-small" v-if="unreadCount > 0">
         {{ unreadCount }} unread
       </div>
@@ -150,30 +169,58 @@
 
     <div v-else class="feed">
       <div v-if="filteredItems.length === 0" class="empty">{{ emptyText }}</div>
-      <button
+      <div
         v-for="it in filteredItems"
         :key="it.id"
         class="item"
-        type="button"
+        role="button"
+        tabindex="0"
         :class="[itemCategoryClass(it), { unread: isUnread(it), clickable: isClickable(it) }]"
         :title="isClickable(it) ? 'Click to display details' : ''"
         @click="handleItemClick(it)"
+        @keydown.enter.prevent="handleItemClick(it)"
+        @keydown.space.prevent="handleItemClick(it)"
       >
-        <div class="item-top">
-          <div v-if="isTicket(it)" class="item-title-line">
-            <span v-if="ticketNumber(it)" class="item-ticket-number">Ticket {{ ticketNumber(it) }}</span>
-            <span class="item-title-strong">{{ formatTicketTitle(it) }}</span>
-            <span class="item-title-sep">:</span>
-            <span class="item-title-detail">{{ formatTicketDetail(it) }}</span>
+        <label class="item-select" @click.stop>
+          <input
+            type="checkbox"
+            :checked="isSelected(it)"
+            @change.stop="toggleSelected(it, $event.target.checked)"
+            :aria-label="`Select notification ${it.id}`"
+          />
+        </label>
+        <div class="item-body">
+          <div class="item-top">
+            <div v-if="isTicket(it)" class="item-title-line">
+              <span v-if="ticketNumber(it)" class="item-ticket-number">Ticket {{ ticketNumber(it) }}</span>
+              <span class="item-title-strong">{{ formatTicketTitle(it) }}</span>
+              <span class="item-title-sep">:</span>
+              <span class="item-title-detail">{{ formatTicketDetail(it) }}</span>
+            </div>
+            <div v-else class="item-title">{{ it.title || (it.kind === 'client_event' ? 'Client update' : 'Announcement') }}</div>
+            <div class="item-meta">
+              <span class="mono">{{ formatWhen(it.created_at) }}</span>
+              <span v-if="it.actor_name">• {{ it.actor_name }}</span>
+            </div>
           </div>
-          <div v-else class="item-title">{{ it.title || (it.kind === 'client_event' ? 'Client update' : 'Announcement') }}</div>
-          <div class="item-meta">
-            <span class="mono">{{ formatWhen(it.created_at) }}</span>
-            <span v-if="it.actor_name">• {{ it.actor_name }}</span>
+          <div class="item-info">
+            <span v-if="formatClientLabel(it)" class="item-chip">Client {{ formatClientLabel(it) }}</span>
+            <span class="item-chip">{{ formatKindLabel(it) }}</span>
+            <span class="item-chip" :class="{ 'chip-unread': isUnread(it) }">{{ isUnread(it) ? 'Unread' : 'Read' }}</span>
           </div>
+          <div v-if="!isTicket(it)" class="item-msg">{{ formatMessage(it) }}</div>
         </div>
-        <div v-if="!isTicket(it)" class="item-msg">{{ formatMessage(it) }}</div>
-      </button>
+        <div class="item-actions">
+          <button
+            v-if="isUnread(it)"
+            class="btn btn-secondary btn-sm item-action-btn"
+            type="button"
+            @click.stop="markItemRead(it)"
+          >
+            Mark read
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -600,6 +647,42 @@ const markAllRead = async () => {
   emit('updated');
 };
 
+const markItemRead = async (it) => {
+  const kind = String(it?.kind || '').toLowerCase();
+  const clientId = Number(it?.client_id || 0) || null;
+  await markRead({ kind, clientId });
+  emit('updated');
+  const id = String(it?.id ?? '');
+  if (id) selectedIds.value = selectedIds.value.filter((x) => x !== id);
+};
+
+const markSelectedRead = async () => {
+  if (selectedItems.value.length === 0) return;
+  await Promise.all(
+    selectedItems.value.map((it) => {
+      const kind = String(it?.kind || '').toLowerCase();
+      const clientId = Number(it?.client_id || 0) || null;
+      return markRead({ kind, clientId });
+    })
+  );
+  emit('updated');
+  selectedIds.value = [];
+};
+
+const markVisibleRead = async () => {
+  const unreadVisible = (filteredItems.value || []).filter(isUnread);
+  if (unreadVisible.length === 0) return;
+  await Promise.all(
+    unreadVisible.map((it) => {
+      const kind = String(it?.kind || '').toLowerCase();
+      const clientId = Number(it?.client_id || 0) || null;
+      return markRead({ kind, clientId });
+    })
+  );
+  emit('updated');
+  selectedIds.value = [];
+};
+
 const fetchFeed = async () => {
   if (!props.schoolOrganizationId) return;
   loading.value = true;
@@ -607,6 +690,8 @@ const fetchFeed = async () => {
   try {
     const r = await api.get(`/school-portal/${props.schoolOrganizationId}/notifications/feed`);
     items.value = Array.isArray(r.data) ? r.data : [];
+    const ids = new Set(items.value.map((it) => String(it?.id ?? '')));
+    selectedIds.value = selectedIds.value.filter((id) => ids.has(id));
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load notifications';
     items.value = [];
@@ -650,6 +735,28 @@ const isUnread = (it) => {
 };
 
 const unreadCount = computed(() => (filteredItems.value || []).filter(isUnread).length);
+const visibleUnreadCount = computed(() => (filteredItems.value || []).filter(isUnread).length);
+
+const selectedIds = ref([]);
+const selectedCount = computed(() => selectedIds.value.length);
+const selectedItems = computed(() => {
+  const byId = new Map((filteredItems.value || []).map((it) => [String(it?.id ?? ''), it]));
+  return selectedIds.value.map((id) => byId.get(id)).filter(Boolean);
+});
+
+const isSelected = (it) => {
+  const id = String(it?.id ?? '');
+  return !!id && selectedIds.value.includes(id);
+};
+
+const toggleSelected = (it, checked) => {
+  const id = String(it?.id ?? '');
+  if (!id) return;
+  const next = new Set(selectedIds.value);
+  if (checked) next.add(id);
+  else next.delete(id);
+  selectedIds.value = Array.from(next);
+};
 
 const isClickable = (it) => {
   const kind = String(it?.kind || '').toLowerCase();
@@ -681,6 +788,25 @@ const formatMessage = (it) => {
   const idx = raw.indexOf(':');
   const suffix = idx >= 0 ? raw.slice(idx + 1).trim() : raw;
   return suffix ? `${label}: ${suffix}` : label;
+};
+
+const formatKindLabel = (it) => {
+  const kind = String(it?.kind || '').toLowerCase();
+  const category = String(it?.category || '').toLowerCase();
+  if (kind === 'ticket') return 'Ticket';
+  if (kind === 'comment') return 'Comment';
+  if (kind === 'message') return 'Message';
+  if (kind === 'announcement') return 'Announcement';
+  if (kind === 'checklist') return 'Checklist';
+  if (kind === 'status') return 'Status update';
+  if (kind === 'assignment') return 'Assignment';
+  if (kind === 'client_created') return 'New client';
+  if (kind === 'provider_slots') return 'Provider slots';
+  if (kind === 'provider_day') return 'Provider day added';
+  if (kind === 'doc') return 'Docs/links';
+  if (kind === 'client_event' && category === 'ticket') return 'Ticket update';
+  if (kind === 'client_event') return 'Client update';
+  return kind ? kind.replace(/_/g, ' ') : 'Notification';
 };
 
 const ticketNumber = (it) => parseNumericId(it?.id);
@@ -1098,6 +1224,9 @@ watch(
   text-align: left;
   width: 100%;
   cursor: default;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
 }
 .item.unread {
   border-color: rgba(var(--item-tint), 0.55);
@@ -1161,6 +1290,26 @@ watch(
   justify-content: space-between;
   gap: 12px;
 }
+.item-body {
+  flex: 1;
+  min-width: 0;
+}
+.item-select {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 2px;
+}
+.item-select input {
+  width: 16px;
+  height: 16px;
+}
+.item-actions {
+  display: inline-flex;
+  align-items: flex-start;
+}
+.item-action-btn {
+  white-space: nowrap;
+}
 .item-title {
   font-weight: 900;
 }
@@ -1194,6 +1343,24 @@ watch(
   font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
+}
+.item-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.item-chip {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(var(--item-tint), 0.14);
+  color: var(--text-secondary);
+}
+.item-chip.chip-unread {
+  background: rgba(var(--item-tint), 0.28);
+  color: var(--text-primary);
 }
 .item-msg {
   margin-top: 6px;
