@@ -51,6 +51,32 @@
         </div>
       </form>
     </div>
+
+    <div class="settings-section">
+      <h3>Intake Data Retention</h3>
+      <p class="section-description">
+        Default retention policy for public intake submissions and intake documents. Agencies can override this, and intake links can override per-link.
+      </p>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Default retention</label>
+          <select v-model="retentionSettings.mode">
+            <option value="days">Delete after N days</option>
+            <option value="never">Never delete automatically</option>
+          </select>
+        </div>
+        <div class="form-group" v-if="retentionSettings.mode === 'days'">
+          <label>Days to retain</label>
+          <input v-model.number="retentionSettings.days" type="number" min="1" max="3650" />
+          <small>Recommended default: 14</small>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" @click="saveRetentionSettings" :disabled="savingRetentionSettings">
+          {{ savingRetentionSettings ? 'Saving...' : 'Save Retention Policy' }}
+        </button>
+      </div>
+    </div>
     
     <div class="settings-section">
       <h3>Shared Module Library</h3>
@@ -235,8 +261,13 @@ const saving = ref(false);
 // (settings navigation icons are configured in Branding Configuration)
 const savingMyDashboardIcons = ref(false);
 const savingSchoolPortalIcons = ref(false);
+const savingRetentionSettings = ref(false);
 const superAdminCount = ref(0);
 const totalAgencies = ref(0);
+const retentionSettings = ref({
+  mode: 'days',
+  days: 14
+});
 
 // settings navigation icons are configured in BrandingConfig
 
@@ -313,6 +344,20 @@ const fetchSettings = async () => {
     }
   } catch (err) {
     console.error('Failed to load settings:', err);
+  }
+};
+
+const fetchRetentionSettings = async () => {
+  try {
+    const res = await api.get('/platform-retention-settings');
+    const mode = String(res.data?.default_intake_retention_mode || 'days').toLowerCase();
+    const days = Number(res.data?.default_intake_retention_days || 14);
+    retentionSettings.value = {
+      mode: mode === 'never' ? 'never' : 'days',
+      days: Number.isFinite(days) ? days : 14
+    };
+  } catch (err) {
+    console.error('Failed to load retention settings:', err);
   }
 };
 
@@ -397,8 +442,25 @@ const saveSettings = async () => {
   }
 };
 
+const saveRetentionSettings = async () => {
+  try {
+    savingRetentionSettings.value = true;
+    await api.put('/platform-retention-settings', {
+      defaultIntakeRetentionMode: retentionSettings.value.mode,
+      defaultIntakeRetentionDays: retentionSettings.value.days
+    });
+    alert('Retention policy saved successfully!');
+  } catch (err) {
+    const msg = err?.response?.data?.error?.message || err?.response?.data?.message || err?.message || 'Failed to save retention policy';
+    alert(msg);
+  } finally {
+    savingRetentionSettings.value = false;
+  }
+};
+
 onMounted(async () => {
   await fetchSettings();
+  await fetchRetentionSettings();
   await fetchStats();
 });
 </script>

@@ -15,14 +15,15 @@ class IntakeLink {
       allowedDocumentTemplateIds = null,
       intakeFields = null,
       intakeSteps = null,
+      retentionPolicy = null,
       createdByUserId = null
     } = data;
 
     const [result] = await pool.execute(
       `INSERT INTO intake_links
        (public_key, title, description, scope_type, organization_id, program_id, is_active,
-        create_client, create_guardian, allowed_document_template_ids, intake_fields, intake_steps, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        create_client, create_guardian, allowed_document_template_ids, intake_fields, intake_steps, retention_policy_json, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         publicKey,
         title,
@@ -36,6 +37,7 @@ class IntakeLink {
         allowedDocumentTemplateIds ? JSON.stringify(allowedDocumentTemplateIds) : null,
         intakeFields ? JSON.stringify(intakeFields) : null,
         intakeSteps ? JSON.stringify(intakeSteps) : null,
+        retentionPolicy ? JSON.stringify(retentionPolicy) : null,
         createdByUserId
       ]
     );
@@ -102,7 +104,23 @@ class IntakeLink {
         intakeSteps = null;
       }
     }
-    return { ...row, allowed_document_template_ids: allowed, intake_fields: intakeFields, intake_steps: intakeSteps };
+    let retentionPolicy = null;
+    if (row.retention_policy_json) {
+      try {
+        retentionPolicy = typeof row.retention_policy_json === 'string'
+          ? JSON.parse(row.retention_policy_json)
+          : row.retention_policy_json;
+      } catch {
+        retentionPolicy = null;
+      }
+    }
+    return {
+      ...row,
+      allowed_document_template_ids: allowed,
+      intake_fields: intakeFields,
+      intake_steps: intakeSteps,
+      retention_policy_json: retentionPolicy
+    };
   }
 }
 

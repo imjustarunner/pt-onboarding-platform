@@ -6,6 +6,7 @@ class ClientPhiDocument {
       clientId,
       agencyId,
       schoolOrganizationId,
+      intakeSubmissionId = null,
       storagePath,
       originalName = null,
       documentTitle = null,
@@ -26,20 +27,22 @@ class ClientPhiDocument {
       exportedToEhrByUserId = null,
       removedAt = null,
       removedByUserId = null,
-      removedReason = null
+      removedReason = null,
+      expiresAt = null
     } = data;
 
     const [result] = await pool.execute(
       `INSERT INTO client_phi_documents
-       (client_id, agency_id, school_organization_id, storage_path, original_name, document_title, document_type, mime_type, uploaded_by_user_id,
+       (client_id, agency_id, school_organization_id, intake_submission_id, storage_path, original_name, document_title, document_type, mime_type, uploaded_by_user_id,
         scan_status, scan_result, scanned_at, quarantine_path,
         is_encrypted, encryption_key_id, encryption_wrapped_key, encryption_iv, encryption_auth_tag, encryption_alg,
-        exported_to_ehr_at, exported_to_ehr_by_user_id, removed_at, removed_by_user_id, removed_reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        exported_to_ehr_at, exported_to_ehr_by_user_id, removed_at, removed_by_user_id, removed_reason, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         agencyId,
         schoolOrganizationId,
+        intakeSubmissionId,
         storagePath,
         originalName,
         documentTitle,
@@ -60,7 +63,8 @@ class ClientPhiDocument {
         exportedToEhrByUserId,
         removedAt,
         removedByUserId,
-        removedReason
+        removedReason,
+        expiresAt
       ]
     );
     return this.findById(result.insertId);
@@ -79,6 +83,27 @@ class ClientPhiDocument {
       [clientId]
     );
     return rows;
+  }
+
+  static async listByIntakeSubmissionId(intakeSubmissionId) {
+    const [rows] = await pool.execute(
+      `SELECT * FROM client_phi_documents
+       WHERE intake_submission_id = ?
+       ORDER BY id ASC`,
+      [intakeSubmissionId]
+    );
+    return rows;
+  }
+
+  static async deleteByIds(ids = []) {
+    const list = Array.isArray(ids) ? ids.filter((id) => Number(id)) : [];
+    if (!list.length) return 0;
+    const placeholders = list.map(() => '?').join(', ');
+    const [result] = await pool.execute(
+      `DELETE FROM client_phi_documents WHERE id IN (${placeholders})`,
+      list
+    );
+    return Number(result?.affectedRows || 0);
   }
 
   static async findByStoragePath(storagePath) {
@@ -115,7 +140,7 @@ class ClientPhiDocument {
     return this.findById(id);
   }
 
-  static async updateLifecycleById({ id, exportedToEhrAt, exportedToEhrByUserId, removedAt, removedByUserId, removedReason }) {
+  static async updateLifecycleById({ id, exportedToEhrAt, exportedToEhrByUserId, removedAt, removedByUserId, removedReason, expiresAt }) {
     if (!id) return null;
     const updates = [];
     const values = [];
@@ -138,6 +163,10 @@ class ClientPhiDocument {
     if (removedReason !== undefined) {
       updates.push('removed_reason = ?');
       values.push(removedReason);
+    }
+    if (expiresAt !== undefined) {
+      updates.push('expires_at = ?');
+      values.push(expiresAt);
     }
     if (!updates.length) return this.findById(id);
     values.push(id);

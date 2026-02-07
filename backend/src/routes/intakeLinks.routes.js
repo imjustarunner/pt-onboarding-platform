@@ -19,7 +19,8 @@ router.post(
     body('programId').optional().isInt(),
     body('isActive').optional().isBoolean(),
     body('createClient').optional().isBoolean(),
-    body('createGuardian').optional().isBoolean()
+    body('createGuardian').optional().isBoolean(),
+    body('retentionPolicy').optional().custom((val) => typeof val === 'object' || typeof val === 'string')
   ],
   createIntakeLink
 );
@@ -34,7 +35,8 @@ router.put(
     body('programId').optional().isInt(),
     body('isActive').optional().isBoolean(),
     body('createClient').optional().isBoolean(),
-    body('createGuardian').optional().isBoolean()
+    body('createGuardian').optional().isBoolean(),
+    body('retentionPolicy').optional().custom((val) => typeof val === 'object' || typeof val === 'string')
   ],
   updateIntakeLink
 );

@@ -172,6 +172,20 @@ const validateCreateAgency = [
     }
     return false;
   }).withMessage('Feature flags must be a valid JSON object')
+  ,
+  body('intakeRetentionPolicy').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    if (typeof value === 'object') return true;
+    if (typeof value === 'string') {
+      try {
+        JSON.parse(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }).withMessage('Intake retention policy must be a valid JSON object')
 ];
 
 // Validation for updating agencies (name and slug optional, can update just branding)
@@ -321,6 +335,20 @@ const validateUpdateAgency = [
     }
     return false;
   }).withMessage('Feature flags must be a valid JSON object')
+  ,
+  body('intakeRetentionPolicy').optional().custom((value) => {
+    if (value === null || value === undefined || value === '') return true;
+    if (typeof value === 'object') return true;
+    if (typeof value === 'string') {
+      try {
+        JSON.parse(value);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }).withMessage('Intake retention policy must be a valid JSON object')
   ,
   body('publicAvailabilityEnabled')
     .optional()

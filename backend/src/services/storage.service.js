@@ -856,6 +856,24 @@ class StorageService {
     return { path: key, key, filename: sanitizedFilename, relativePath: key };
   }
 
+  static async saveIntakeTextDocument({ submissionId, clientId, fileBuffer, filename }) {
+    const sanitizedFilename = this.sanitizeFilename(filename || `intake-text-${clientId || 'unknown'}-${Date.now()}.txt`);
+    const key = `intake_signed/${submissionId || 'unknown'}/intake_text/${sanitizedFilename}`;
+    const bucket = await this.getGCSBucket();
+    const file = bucket.file(key);
+
+    await file.save(fileBuffer, {
+      contentType: 'text/plain; charset=utf-8',
+      metadata: {
+        submissionId: String(submissionId || ''),
+        clientId: String(clientId || ''),
+        uploadedAt: new Date().toISOString()
+      }
+    });
+
+    return { path: key, key, filename: sanitizedFilename, relativePath: key };
+  }
+
   /**
    * Read a signed intake document by storage path.
    * @param {string} storagePath - e.g. intake_signed/<submission>/<template>/<file>.pdf

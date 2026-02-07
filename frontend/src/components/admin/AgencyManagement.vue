@@ -392,6 +392,27 @@
               <input v-model="agencyForm.slug" type="text" required pattern="[a-z0-9\\-]+" />
               <small>Lowercase letters, numbers, and hyphens only</small>
             </div>
+
+            <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
+              <h4 style="margin: 0; font-size: 16px;">Intake Data Retention</h4>
+              <p class="section-description" style="margin-top: 6px;">
+                Overrides the platform default for this agency. Intake links can override this per link.
+              </p>
+            </div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Retention policy</label>
+                <select v-model="agencyForm.intakeRetentionPolicy.mode">
+                  <option value="inherit">Use platform default</option>
+                  <option value="days">Delete after N days</option>
+                  <option value="never">Never delete automatically</option>
+                </select>
+              </div>
+              <div class="form-group" v-if="agencyForm.intakeRetentionPolicy.mode === 'days'">
+                <label>Days to retain</label>
+                <input v-model.number="agencyForm.intakeRetentionPolicy.days" type="number" min="1" max="3650" />
+              </div>
+            </div>
           </template>
 
           <template v-else>
@@ -4503,6 +4524,10 @@ const defaultAgencyForm = () => ({
     onboardingTerm: '',
     ongoingDevTerm: ''
   },
+  intakeRetentionPolicy: {
+    mode: 'inherit',
+    days: 14
+  },
   featureFlags: {
     // Controls dashboard module set + certain provider-only surfaces
     portalVariant: 'healthcare_provider',
@@ -5528,6 +5553,14 @@ const editAgency = async (agency) => {
   
   // Parse theme_settings if it exists
   const themeSettings = safeJsonObject(agency.theme_settings, {});
+
+  const retentionPolicyRaw = safeJsonObject(agency.intake_retention_policy_json, {});
+  const retentionMode = ['inherit', 'days', 'never'].includes(String(retentionPolicyRaw.mode || '').toLowerCase())
+    ? String(retentionPolicyRaw.mode || 'inherit').toLowerCase()
+    : 'inherit';
+  const retentionDays = Number.isFinite(Number(retentionPolicyRaw.days))
+    ? Number(retentionPolicyRaw.days)
+    : 14;
   
   // Parse custom parameters if they exist
   const customParams = safeJsonObject(agency.custom_parameters, {});
@@ -5668,6 +5701,10 @@ const editAgency = async (agency) => {
       trainingFocusTerm: terminology.trainingFocusTerm || '',
       onboardingTerm: terminology.onboardingTerm || '',
       ongoingDevTerm: terminology.ongoingDevTerm || ''
+    },
+    intakeRetentionPolicy: {
+      mode: retentionMode,
+      days: retentionDays
     },
     featureFlags: {
       portalVariant: String(featureFlags.portalVariant || 'healthcare_provider'),
@@ -6196,6 +6233,17 @@ const saveAgency = async () => {
     if (agencyForm.value.themeSettings?.loginBackground) {
       themeSettings.loginBackground = agencyForm.value.themeSettings.loginBackground;
     }
+
+    const retentionPolicyRaw = agencyForm.value.intakeRetentionPolicy || null;
+    const retentionPolicy =
+      retentionPolicyRaw && typeof retentionPolicyRaw === 'object'
+        ? {
+            mode: ['inherit', 'days', 'never'].includes(String(retentionPolicyRaw.mode || '').toLowerCase())
+              ? String(retentionPolicyRaw.mode || 'inherit').toLowerCase()
+              : 'inherit',
+            days: Number.isFinite(Number(retentionPolicyRaw.days)) ? Number(retentionPolicyRaw.days) : 14
+          }
+        : null;
     
     // Build custom parameters object
     const customParams = {};
@@ -6252,6 +6300,7 @@ const saveAgency = async () => {
       logoPath: logoPathToSend,
       colorPalette: colorPalette,
       terminologySettings: Object.keys(terminologySettings).length > 0 ? terminologySettings : null,
+      intakeRetentionPolicy: retentionPolicy,
       iconId: agencyForm.value.iconId ?? null,
       chatIconId: agencyForm.value.chatIconId ?? null,
       isActive: agencyForm.value.isActive !== undefined ? agencyForm.value.isActive : true,

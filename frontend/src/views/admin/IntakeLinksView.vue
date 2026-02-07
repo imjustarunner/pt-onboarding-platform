@@ -183,6 +183,18 @@
                 <option :value="false">No</option>
               </select>
             </div>
+            <div class="form-group">
+              <label>Intake retention</label>
+              <select v-model="form.retentionPolicy.mode">
+                <option value="inherit">Use agency default</option>
+                <option value="days">Delete after N days</option>
+                <option value="never">Never delete automatically</option>
+              </select>
+            </div>
+            <div class="form-group" v-if="form.retentionPolicy.mode === 'days'">
+              <label>Days to retain</label>
+              <input v-model.number="form.retentionPolicy.days" type="number" min="1" max="3650" />
+            </div>
           </div>
 
           <div class="form-group">
@@ -191,7 +203,13 @@
               <input v-model="form.allowAllDocuments" type="checkbox" />
               Allow all document templates
             </label>
-            <div class="template-list" v-if="selectableTemplates.length">
+            <div v-if="hasDocumentSteps && !showTemplateChecklist" class="muted" style="margin-top: 6px;">
+              Templates are ordered via your Document steps.
+              <button class="btn btn-secondary btn-xs" type="button" @click="showTemplateChecklist = true">
+                Show checklist
+              </button>
+            </div>
+            <div class="template-list" v-else-if="selectableTemplates.length">
               <div v-if="templateGroups.organizationTemplates.length" class="template-group-title">
                 Organization templates
               </div>
@@ -214,6 +232,11 @@
                 />
                 {{ t.name || `Template ${t.id}` }}
               </label>
+              <div v-if="hasDocumentSteps" class="template-group-title">
+                <button class="btn btn-secondary btn-xs" type="button" @click="showTemplateChecklist = false">
+                  Hide checklist
+                </button>
+              </div>
             </div>
             <div v-else class="muted">No document templates found yet.</div>
           </div>
@@ -243,16 +266,13 @@
                     <label>Document Template</label>
                     <select v-model.number="step.templateId">
                       <option :value="null">Select document</option>
-                      <optgroup v-if="templateGroups.organizationTemplates.length" label="Organization templates">
-                        <option v-for="t in templateGroups.organizationTemplates" :key="`org_${t.id}`" :value="t.id">
-                          {{ t.name }} ({{ t.document_action_type }})
-                        </option>
-                      </optgroup>
-                      <optgroup label="Agency templates">
-                        <option v-for="t in templateGroups.agencyTemplates" :key="`agency_${t.id}`" :value="t.id">
-                          {{ t.name }} ({{ t.document_action_type }})
-                        </option>
-                      </optgroup>
+                      <option
+                        v-for="t in (orderedAllowedTemplates.length ? orderedAllowedTemplates : selectableTemplates)"
+                        :key="t.id"
+                        :value="t.id"
+                      >
+                        {{ t.name }} ({{ t.document_action_type }})
+                      </option>
                     </select>
                     <div v-if="!templates.length" class="muted">
                       No document templates available. Create one in Documents Library.
@@ -276,6 +296,11 @@
                           <option value="date">Date</option>
                           <option value="info">Info / Disclaimer</option>
                         </select>
+                        <select v-model="field.scope">
+                          <option value="client">Client (repeats per child)</option>
+                          <option value="guardian">Guardian (one-time)</option>
+                          <option value="submission">One-time (global)</option>
+                        </select>
                         <label class="checkbox">
                           <input v-model="field.required" type="checkbox" :disabled="field.type === 'info'" />
                           Required
@@ -283,6 +308,7 @@
                         <div class="question-controls">
                           <button class="btn btn-xs btn-secondary" type="button" @click="moveField(step, fIdx, -1)" :disabled="fIdx === 0">↑</button>
                           <button class="btn btn-xs btn-secondary" type="button" @click="moveField(step, fIdx, 1)" :disabled="fIdx === getStepFields(step).length - 1">↓</button>
+                          <button class="btn btn-xs btn-secondary" type="button" @click="addFieldAfter(step, fIdx)">＋</button>
                           <button class="btn btn-xs btn-danger" type="button" @click="removeField(step, fIdx)">×</button>
                         </div>
                       </div>
@@ -355,6 +381,7 @@ const formError = ref('');
 const editingId = ref(null);
 const autosaveTimer = ref(null);
 const lastAutosaveAt = ref(null);
+const showTemplateChecklist = ref(false);
 
 const form = reactive({
   title: '',
@@ -365,6 +392,10 @@ const form = reactive({
   isActive: true,
   createClient: true,
   createGuardian: true,
+  retentionPolicy: {
+    mode: 'inherit',
+    days: 14
+  },
   allowAllDocuments: false,
   allowedDocumentTemplateIds: [],
   intakeFieldsText: '',
@@ -411,6 +442,7 @@ const resetForm = () => {
   form.isActive = true;
   form.createClient = true;
   form.createGuardian = true;
+  form.retentionPolicy = { mode: 'inherit', days: 14 };
   form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = [];
   form.intakeFieldsText = '';
@@ -434,6 +466,7 @@ const serializeDraft = () => ({
     isActive: form.isActive,
     createClient: form.createClient,
     createGuardian: form.createGuardian,
+    retentionPolicy: form.retentionPolicy ? { ...form.retentionPolicy } : null,
     allowAllDocuments: form.allowAllDocuments,
     allowedDocumentTemplateIds: Array.isArray(form.allowedDocumentTemplateIds)
       ? [...form.allowedDocumentTemplateIds]
@@ -465,6 +498,9 @@ const applyDraft = (draft) => {
   form.isActive = data.isActive ?? true;
   form.createClient = data.createClient ?? true;
   form.createGuardian = data.createGuardian ?? true;
+  form.retentionPolicy = data.retentionPolicy
+    ? { mode: data.retentionPolicy.mode || 'inherit', days: data.retentionPolicy.days ?? 14 }
+    : { mode: 'inherit', days: 14 };
   form.allowAllDocuments = data.allowAllDocuments ?? false;
   form.allowedDocumentTemplateIds = Array.isArray(data.allowedDocumentTemplateIds)
     ? data.allowedDocumentTemplateIds
@@ -502,7 +538,11 @@ const fetchData = async () => {
       api.get('/agencies')
     ]);
     links.value = linksResp.data || [];
-    const rawTemplates = templatesResp.data?.templates || templatesResp.data || [];
+    const rawTemplates =
+      templatesResp.data?.data
+      || templatesResp.data?.templates
+      || templatesResp.data
+      || [];
     templates.value = Array.isArray(rawTemplates) ? rawTemplates : [];
     organizations.value = Array.isArray(orgsResp.data) ? orgsResp.data : [];
     const primaryAgency = agencyList.value[0]?.id || null;
@@ -579,6 +619,15 @@ const editLink = (link) => {
   form.isActive = !!link.is_active;
   form.createClient = !!link.create_client;
   form.createGuardian = !!link.create_guardian;
+  form.retentionPolicy = (() => {
+    const raw = link.retention_policy_json || null;
+    if (!raw || typeof raw !== 'object') return { mode: 'inherit', days: 14 };
+    const mode = ['inherit', 'days', 'never'].includes(String(raw.mode || '').toLowerCase())
+      ? String(raw.mode || 'inherit').toLowerCase()
+      : 'inherit';
+    const days = Number.isFinite(Number(raw.days)) ? Number(raw.days) : 14;
+    return { mode, days };
+  })();
   form.allowAllDocuments = false;
   form.allowedDocumentTemplateIds = link.allowed_document_template_ids || [];
   form.intakeFieldsText = link.intake_fields ? JSON.stringify(link.intake_fields, null, 2) : '';
@@ -658,6 +707,7 @@ const save = async () => {
       isActive: form.isActive,
       createClient: form.createClient,
       createGuardian: form.createGuardian,
+      retentionPolicy: form.retentionPolicy ? { ...form.retentionPolicy } : null,
       allowedDocumentTemplateIds,
       intakeFields,
       intakeSteps
@@ -750,43 +800,52 @@ const selectableTemplates = computed(() => [
   ...templateGroups.value.agencyTemplates
 ]);
 
+const orderedAllowedTemplates = computed(() => {
+  const ids = Array.isArray(form.allowedDocumentTemplateIds) ? form.allowedDocumentTemplateIds : [];
+  if (!ids.length) return [];
+  const list = Array.isArray(templates.value) ? templates.value : [];
+  const byId = new Map(list.filter((t) => t && t.id).map((t) => [Number(t.id), t]));
+  return ids
+    .map((id) => byId.get(Number(id)))
+    .filter(Boolean);
+});
+
 const sanitizeSteps = (steps) => {
   const raw = Array.isArray(steps) ? steps : [];
-  const out = raw.filter((s) => s && typeof s === 'object');
-  out.forEach((s) => {
-    if (!s.id) s.id = createId('step');
-    if (!s.type) {
-      s.type = s.templateId ? 'document' : 'questions';
-    }
-    if (s.type === 'questions' && !Array.isArray(s.fields)) {
-      s.fields = [];
-    }
-    if (s.type === 'document' && s.templateId === undefined) {
-      s.templateId = null;
-    }
-    if (s.type === 'questions' && Array.isArray(s.fields)) {
-      s.fields = s.fields
-        .filter((f) => f && typeof f === 'object')
-        .map((f) => ({
-          id: f.id || createId('field'),
-          key: f.key || '',
-          label: f.label || '',
-          type: f.type || 'text',
-          required: !!f.required,
-          helperText: f.helperText || '',
-          documentKey: f.documentKey || '',
-          showIf: {
-            fieldKey: f.showIf?.fieldKey || '',
-            equals: f.showIf?.equals || ''
-          },
-          options: Array.isArray(f.options) ? f.options.filter((o) => o && typeof o === 'object') : []
-        }));
-    }
-  });
-  return out;
+  return raw
+    .filter((s) => s && typeof s === 'object')
+    .map((s) => {
+      const next = { ...s };
+      if (!next.id) next.id = createId('step');
+      if (!next.type) next.type = next.templateId ? 'document' : 'questions';
+      if (next.type === 'questions') {
+        const fields = Array.isArray(next.fields) ? next.fields : [];
+        next.fields = fields
+          .filter((f) => f && typeof f === 'object')
+          .map((f) => ({
+            id: f.id || createId('field'),
+            key: f.key || '',
+            label: f.label || '',
+            type: f.type || 'text',
+            required: !!f.required,
+            helperText: f.helperText || '',
+            scope: f.scope || 'submission',
+            documentKey: f.documentKey || '',
+            showIf: {
+              fieldKey: f.showIf?.fieldKey || '',
+              equals: f.showIf?.equals || ''
+            },
+            options: Array.isArray(f.options) ? f.options.filter((o) => o && typeof o === 'object') : []
+          }));
+      } else if (next.type === 'document' && next.templateId === undefined) {
+        next.templateId = null;
+      }
+      return next;
+    });
 };
 
-const safeSteps = computed(() => sanitizeSteps(form.intakeSteps));
+const safeSteps = computed(() => (Array.isArray(form.intakeSteps) ? form.intakeSteps : []));
+const hasDocumentSteps = computed(() => safeSteps.value.some((s) => s?.type === 'document'));
 
 const getStepFields = (step) => {
   if (!step || !Array.isArray(step.fields)) return [];
@@ -838,9 +897,27 @@ const addField = (step) => {
     type: 'text',
     required: false,
     helperText: '',
+    scope: 'submission',
     showIf: { fieldKey: '', equals: '' },
     options: []
   });
+};
+
+const addFieldAfter = (step, idx) => {
+  if (!step || !Array.isArray(step.fields)) return;
+  const next = idx + 1;
+  const field = {
+    id: createId('field'),
+    key: '',
+    label: '',
+    type: 'text',
+    required: false,
+    helperText: '',
+    scope: 'submission',
+    showIf: { fieldKey: '', equals: '' },
+    options: []
+  };
+  step.fields.splice(next, 0, field);
 };
 
 const removeField = (step, idx) => {
@@ -889,7 +966,7 @@ const buildPayloadFromSteps = (selectedTemplateIds = []) => {
           options: f.options || [],
           helperText: f.helperText || '',
           showIf: f.showIf || null,
-          scope: 'submission'
+          scope: f.scope || 'submission'
         });
       });
     } else if (step.type === 'document' && step.templateId) {

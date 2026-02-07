@@ -28,7 +28,7 @@ router.post(
   '/:publicKey/consent',
   [
     body('signerName').notEmpty().withMessage('signerName is required'),
-    body('signerInitials').notEmpty().withMessage('signerInitials is required'),
+    body('signerInitials').optional().isString(),
     body('signerEmail').notEmpty().withMessage('signerEmail is required'),
     body('signerPhone').optional().isString(),
     body('captchaToken').optional().isString()

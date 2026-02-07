@@ -69,7 +69,9 @@ class PublicIntakeClientService {
 
     const createdClients = [];
     for (const clientPayload of rawClients) {
-      const fullName = String(clientPayload?.fullName || '').trim();
+      const firstName = String(clientPayload?.firstName || '').trim();
+      const lastName = String(clientPayload?.lastName || '').trim();
+      const fullName = String(clientPayload?.fullName || `${firstName} ${lastName}` || '').trim();
       const initials = String(clientPayload?.initials || deriveInitials(fullName)).trim() || 'TBD';
       const contactPhone = String(clientPayload?.contactPhone || '').trim() || null;
 

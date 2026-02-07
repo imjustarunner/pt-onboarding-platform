@@ -41,6 +41,7 @@ import iconRoutes from './routes/icon.routes.js';
 import logoRoutes from './routes/logo.routes.js';
 import iconTemplateRoutes from './routes/iconTemplate.routes.js';
 import platformBrandingRoutes from './routes/platformBranding.routes.js';
+import platformRetentionSettingsRoutes from './routes/platformRetentionSettings.routes.js';
 import onboardingPackageRoutes from './routes/onboardingPackage.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import emailTemplateRoutes from './routes/emailTemplate.routes.js';
@@ -504,6 +505,7 @@ app.use('/api/icons', iconRoutes);
 app.use('/api/logos', logoRoutes);
 app.use('/api/icon-templates', iconTemplateRoutes);
 app.use('/api/platform-branding', platformBrandingRoutes);
+app.use('/api/platform-retention-settings', platformRetentionSettingsRoutes);
 app.use('/api/onboarding-packages', onboardingPackageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/email-templates', emailTemplateRoutes);
@@ -727,6 +729,34 @@ app.listen(PORT, HOST, () => {
     scheduleClinicalNoteDraftCleanup();
     setInterval(scheduleClinicalNoteDraftCleanup, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight() + (2 * 60 * 60 * 1000));
+
+  // Public intake retention cleanup (hard delete expired submissions)
+  // Run daily at 2:30 AM (best-effort; safe if tables don't exist yet).
+  const scheduleIntakeRetentionCleanup = async () => {
+    try {
+      const IntakeRetentionCleanupService = (await import('./services/intakeRetentionCleanup.service.js')).default;
+      const result = await IntakeRetentionCleanupService.run({ limit: 300 });
+      const n = Number(result?.deletedSubmissions || 0);
+      if (n > 0) {
+        console.log(`[intake_retention] purged ${n} submissions, ${result?.deletedPhiDocs || 0} phi docs`);
+      }
+    } catch (error) {
+      if (error.code === 'ER_NO_SUCH_TABLE') {
+        console.warn('Intake retention tables not found. Run migration 362_intake_retention_policies.sql');
+      } else {
+        console.error('Error in intake retention cleanup:', error);
+      }
+    }
+  };
+
+  // Run immediately on startup (best-effort)
+  scheduleIntakeRetentionCleanup();
+
+  // Schedule daily at 2:30 AM using the midnight helper
+  setTimeout(() => {
+    scheduleIntakeRetentionCleanup();
+    setInterval(scheduleIntakeRetentionCleanup, 24 * 60 * 60 * 1000);
+  }, getMsUntilMidnight() + (2.5 * 60 * 60 * 1000));
 
   // Set up periodic processing of pending user auto-completion
   // Run every hour to check for pending users who should be auto-completed

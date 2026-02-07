@@ -56,6 +56,7 @@ export const createIntakeLink = async (req, res, next) => {
       allowedDocumentTemplateIds: parseJsonField(req.body.allowedDocumentTemplateIds),
       intakeFields: parseJsonField(req.body.intakeFields),
       intakeSteps: parseJsonField(req.body.intakeSteps),
+      retentionPolicy: parseJsonField(req.body.retentionPolicy),
       createdByUserId: req.user?.id || null
     });
 
@@ -87,7 +88,12 @@ export const updateIntakeLink = async (req, res, next) => {
       create_guardian: req.body.createGuardian !== undefined ? (req.body.createGuardian ? 1 : 0) : undefined,
       allowed_document_template_ids: req.body.allowedDocumentTemplateIds ? JSON.stringify(parseJsonField(req.body.allowedDocumentTemplateIds)) : null,
       intake_fields: req.body.intakeFields ? JSON.stringify(parseJsonField(req.body.intakeFields)) : null,
-      intake_steps: req.body.intakeSteps ? JSON.stringify(parseJsonField(req.body.intakeSteps)) : null
+      intake_steps: req.body.intakeSteps ? JSON.stringify(parseJsonField(req.body.intakeSteps)) : null,
+      retention_policy_json: (() => {
+        if (req.body.retentionPolicy === undefined) return undefined;
+        const parsed = parseJsonField(req.body.retentionPolicy);
+        return parsed ? JSON.stringify(parsed) : null;
+      })()
     };
 
     if (scopeType === 'school') {
@@ -138,6 +144,7 @@ export const duplicateIntakeLink = async (req, res, next) => {
       allowedDocumentTemplateIds: existing.allowed_document_template_ids || [],
       intakeFields: existing.intake_fields || null,
       intakeSteps: existing.intake_steps || null,
+      retentionPolicy: existing.retention_policy_json || null,
       createdByUserId: req.user?.id || null
     });
 

@@ -4,6 +4,14 @@
     <div v-else-if="error" class="error">{{ error }}</div>
 
     <div v-else class="intake-card">
+      <button
+        v-if="isSuperAdmin"
+        class="btn btn-secondary btn-sm dev-fill-button"
+        type="button"
+        @click="fillExample"
+      >
+        Dev Fill
+      </button>
       <h2>{{ link?.title || 'Digital Intake' }}</h2>
       <p v-if="link?.description" class="muted">{{ link.description }}</p>
 
@@ -23,27 +31,48 @@
       </div>
 
       <div v-else-if="step === 1" class="step">
-        <h3>Guardian + Client Information</h3>
+        <h3>{{ intakeForSelf ? 'Your Information' : 'Guardian + Client Information' }}</h3>
+        <div class="form-group">
+          <label>Who is this intake for?</label>
+          <div class="radio-group">
+            <label class="radio-row">
+              <input type="radio" name="intakeForSelf" :value="true" v-model="intakeForSelf" />
+              <span>Myself</span>
+            </label>
+            <label class="radio-row">
+              <input type="radio" name="intakeForSelf" :value="false" v-model="intakeForSelf" />
+              <span>My dependent(s)</span>
+            </label>
+          </div>
+        </div>
         <div class="form-grid">
           <div class="form-group">
-            <label>Guardian first name</label>
-            <input v-model="guardianFirstName" type="text" />
+            <label>{{ intakeForSelf ? 'Your first name' : 'Guardian first name' }}</label>
+            <input
+              id="guardianFirstName"
+              v-model="guardianFirstName"
+              type="text"
+              :class="{ 'input-error': !!consentErrors.guardianFirstName }"
+            />
+            <div v-if="consentErrors.guardianFirstName" class="error-text">{{ consentErrors.guardianFirstName }}</div>
           </div>
           <div class="form-group">
-            <label>Guardian last name</label>
+            <label>{{ intakeForSelf ? 'Your last name' : 'Guardian last name' }}</label>
             <input v-model="guardianLastName" type="text" />
           </div>
           <div class="form-group">
-            <label>Guardian email</label>
-            <input v-model="guardianEmail" type="email" />
+            <label>{{ intakeForSelf ? 'Your email' : 'Guardian email' }}</label>
+            <input
+              id="guardianEmail"
+              v-model="guardianEmail"
+              type="email"
+              :class="{ 'input-error': !!consentErrors.guardianEmail }"
+            />
+            <div v-if="consentErrors.guardianEmail" class="error-text">{{ consentErrors.guardianEmail }}</div>
           </div>
           <div class="form-group">
-            <label>Guardian phone (optional)</label>
+            <label>{{ intakeForSelf ? 'Your phone (optional)' : 'Guardian phone (optional)' }}</label>
             <input v-model="guardianPhone" type="tel" />
-          </div>
-          <div class="form-group">
-            <label>Guardian initials</label>
-            <input v-model="signerInitials" type="text" maxlength="6" />
           </div>
           <div class="form-group">
             <label>Relationship</label>
@@ -53,8 +82,8 @@
 
         <div class="clients-block">
           <div class="clients-header">
-            <h4>Clients</h4>
-            <button class="btn btn-secondary btn-sm" type="button" @click="addClient">Add another child</button>
+            <h4>{{ intakeForSelf ? 'Client' : 'Clients' }}</h4>
+            <button v-if="!intakeForSelf" class="btn btn-secondary btn-sm" type="button" @click="addClient">Add another child</button>
           </div>
           <div v-for="(c, idx) in clients" :key="idx" class="client-card">
             <div class="client-card-header">
@@ -62,41 +91,85 @@
               <button v-if="clients.length > 1" class="btn btn-secondary btn-sm" type="button" @click="removeClient(idx)">Remove</button>
             </div>
             <div class="form-grid">
-              <div class="form-group">
-                <label>Client full name</label>
-                <input v-model="c.fullName" type="text" />
-              </div>
-              <div class="form-group">
-                <label>Client initials</label>
-                <input v-model="c.initials" type="text" maxlength="6" />
-              </div>
-              <div class="form-group">
-                <label>Client contact phone (optional)</label>
-                <input v-model="c.contactPhone" type="tel" />
-              </div>
+                <div v-if="!intakeForSelf" class="form-group">
+                  <label>Client first name</label>
+                  <input
+                    :id="`clientFirstName_${idx}`"
+                    v-model="c.firstName"
+                    type="text"
+                    :class="{ 'input-error': idx === 0 && !!consentErrors.clientFirstName }"
+                  />
+                  <div v-if="idx === 0 && consentErrors.clientFirstName" class="error-text">{{ consentErrors.clientFirstName }}</div>
+                </div>
+                <div v-if="!intakeForSelf" class="form-group">
+                  <label>Client last name</label>
+                  <input
+                    :id="`clientLastName_${idx}`"
+                    v-model="c.lastName"
+                    type="text"
+                    :class="{ 'input-error': idx === 0 && !!consentErrors.clientLastName }"
+                  />
+                  <div v-if="idx === 0 && consentErrors.clientLastName" class="error-text">{{ consentErrors.clientLastName }}</div>
+                </div>
+                <div v-else class="form-group">
+                  <div class="muted">Client name will use your first and last name.</div>
+                </div>
               <div v-if="requiresOrganizationId" class="form-group">
                 <label>Organization ID</label>
                 <input v-model="organizationId" type="number" />
               </div>
             </div>
 
-            <div v-if="clientFields.length" class="form-grid">
+            <div v-if="clientFields.length" class="custom-fields">
+              <h4>Client Questions</h4>
+              <div class="muted" style="margin-bottom: 10px;">
+                These questions repeat for each client.
+              </div>
+              <div class="form-grid">
               <div v-for="field in visibleClientFields(idx)" :key="`${idx}-${field.key}`" class="form-group">
-                <label>{{ field.label }}</label>
+                <div v-if="field.type === 'info'" class="info-block">
+                  <div class="info-title">{{ field.label || 'Notice' }}</div>
+                  <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
+                </div>
+                <template v-else>
+                <label>
+                  {{ field.label }}
+                  <span v-if="field.required" class="required-indicator">*</span>
+                </label>
                 <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
                 <input
-                  v-if="field.type !== 'textarea'"
+                  v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                   :type="field.type || 'text'"
                   v-model="intakeResponses.clients[idx][field.key]"
                   :required="!!field.required"
                   :placeholder="field.placeholder || ''"
+                  @blur="maybeAutofillLocation(idx, field)"
                 />
                 <textarea
-                  v-else
+                  v-else-if="field.type === 'textarea'"
                   v-model="intakeResponses.clients[idx][field.key]"
                   :placeholder="field.placeholder || ''"
                   rows="3"
                 />
+                <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
+                  <input v-model="intakeResponses.clients[idx][field.key]" type="checkbox" />
+                  <span>{{ field.label }}</span>
+                </label>
+                <select v-else-if="field.type === 'select'" v-model="intakeResponses.clients[idx][field.key]">
+                  <option value="">Select an option</option>
+                  <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
+                    {{ opt.label || opt.value }}
+                  </option>
+                </select>
+                <div v-else-if="field.type === 'radio'" class="radio-group">
+                  <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
+                    <input type="radio" :name="`client_${idx}_${field.key}`" :value="opt.value || opt.label" v-model="intakeResponses.clients[idx][field.key]" />
+                    <span>{{ opt.label || opt.value }}</span>
+                  </label>
+                </div>
+                <input v-else v-model="intakeResponses.clients[idx][field.key]" type="date" />
+                </template>
+              </div>
               </div>
             </div>
           </div>
@@ -106,44 +179,100 @@
           <h4>Guardian Questions</h4>
           <div class="form-grid">
             <div v-for="field in visibleGuardianFields" :key="field.key" class="form-group">
-              <label>{{ field.label }}</label>
+              <div v-if="field.type === 'info'" class="info-block">
+                <div class="info-title">{{ field.label || 'Notice' }}</div>
+                <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
+              </div>
+              <template v-else>
+              <label>
+                {{ field.label }}
+                <span v-if="field.required" class="required-indicator">*</span>
+              </label>
               <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
               <input
-                v-if="field.type !== 'textarea'"
+                v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                 :type="field.type || 'text'"
                 v-model="intakeResponses.guardian[field.key]"
                 :required="!!field.required"
                 :placeholder="field.placeholder || ''"
+                @blur="maybeAutofillGuardianLocation(field)"
               />
               <textarea
-                v-else
+                v-else-if="field.type === 'textarea'"
                 v-model="intakeResponses.guardian[field.key]"
                 :placeholder="field.placeholder || ''"
                 rows="3"
               />
+              <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
+                <input v-model="intakeResponses.guardian[field.key]" type="checkbox" />
+                <span>{{ field.label }}</span>
+              </label>
+              <select v-else-if="field.type === 'select'" v-model="intakeResponses.guardian[field.key]" @blur="maybeAutofillGuardianLocation(field)">
+                <option value="">Select an option</option>
+                <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
+                  {{ opt.label || opt.value }}
+                </option>
+              </select>
+              <div v-else-if="field.type === 'radio'" class="radio-group">
+                <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
+                  <input type="radio" :name="`guardian_${field.key}`" :value="opt.value || opt.label" v-model="intakeResponses.guardian[field.key]" />
+                  <span>{{ opt.label || opt.value }}</span>
+                </label>
+              </div>
+              <input v-else v-model="intakeResponses.guardian[field.key]" type="date" @blur="maybeAutofillGuardianLocation(field)" />
+              </template>
             </div>
           </div>
         </div>
 
         <div v-if="visibleSubmissionFields.length" class="custom-fields">
-          <h4>Additional Intake Questions</h4>
+          <h4>One-time Questions</h4>
+          <div class="muted" style="margin-bottom: 10px;">
+            These questions are asked once for the whole intake.
+          </div>
           <div class="form-grid">
             <div v-for="field in visibleSubmissionFields" :key="field.key" class="form-group">
-              <label>{{ field.label }}</label>
+              <div v-if="field.type === 'info'" class="info-block">
+                <div class="info-title">{{ field.label || 'Notice' }}</div>
+                <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
+              </div>
+              <template v-else>
+              <label>
+                {{ field.label }}
+                <span v-if="field.required" class="required-indicator">*</span>
+              </label>
               <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
               <input
-                v-if="field.type !== 'textarea'"
+                v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
                 :type="field.type || 'text'"
                 v-model="intakeResponses.submission[field.key]"
                 :required="!!field.required"
                 :placeholder="field.placeholder || ''"
               />
               <textarea
-                v-else
+                v-else-if="field.type === 'textarea'"
                 v-model="intakeResponses.submission[field.key]"
                 :placeholder="field.placeholder || ''"
                 rows="3"
               />
+              <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
+                <input v-model="intakeResponses.submission[field.key]" type="checkbox" />
+                <span>{{ field.label }}</span>
+              </label>
+              <select v-else-if="field.type === 'select'" v-model="intakeResponses.submission[field.key]">
+                <option value="">Select an option</option>
+                <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
+                  {{ opt.label || opt.value }}
+                </option>
+              </select>
+              <div v-else-if="field.type === 'radio'" class="radio-group">
+                <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
+                  <input type="radio" :name="`submission_${field.key}`" :value="opt.value || opt.label" v-model="intakeResponses.submission[field.key]" />
+                  <span>{{ opt.label || opt.value }}</span>
+                </label>
+              </div>
+              <input v-else v-model="intakeResponses.submission[field.key]" type="date" />
+              </template>
             </div>
           </div>
         </div>
@@ -165,12 +294,85 @@
           <button class="btn btn-primary" type="button" :disabled="consentLoading" @click="submitConsent">
             {{ consentLoading ? 'Saving...' : 'I Consent and Continue' }}
           </button>
+          <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="consentLoading || submitLoading">
+            Cancel & delete
+          </button>
+          <button class="btn btn-outline" type="button" @click="restartIntake" :disabled="consentLoading || submitLoading">
+            Restart
+          </button>
         </div>
       </div>
 
-      <div v-else-if="step === 2" class="step">
+      <div v-else-if="step === 2 && currentFlowStep?.type === 'questions'" class="step">
+        <h3>Questions</h3>
+        <div class="actions" style="margin-bottom: 12px;">
+          <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="submitLoading">
+            Cancel & delete
+          </button>
+          <button class="btn btn-outline" type="button" @click="restartIntake" :disabled="submitLoading">
+            Restart
+          </button>
+          <button class="btn btn-secondary" type="button" @click="returnToIntakeInfo" :disabled="submitLoading">
+            Back to intake info
+          </button>
+        </div>
+        <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
+        <div class="field-inputs">
+          <div v-for="field in visibleQuestionFields" :key="field.id" class="form-group">
+            <div v-if="field.type === 'info'" class="info-block">
+              <div class="info-title">{{ field.label || 'Notice' }}</div>
+              <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
+            </div>
+            <template v-else>
+              <label>
+                {{ field.label || field.key }}
+                <span v-if="field.required" class="required-indicator">*</span>
+              </label>
+              <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
+              <input
+                v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
+                v-model="questionValues[field.key]"
+                type="text"
+              />
+              <textarea v-else-if="field.type === 'textarea'" v-model="questionValues[field.key]" rows="4"></textarea>
+              <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
+                <input v-model="questionValues[field.key]" type="checkbox" />
+                <span>{{ field.label || field.key }}</span>
+              </label>
+              <select v-else-if="field.type === 'select'" v-model="questionValues[field.key]">
+                <option value="">Select an option</option>
+                <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
+                  {{ opt.label || opt.value }}
+                </option>
+              </select>
+              <div v-else-if="field.type === 'radio'" class="radio-group">
+                <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
+                  <input type="radio" :name="`q_${field.key}`" :value="opt.value || opt.label" v-model="questionValues[field.key]" />
+                  <span>{{ opt.label || opt.value }}</span>
+                </label>
+              </div>
+              <input v-else v-model="questionValues[field.key]" type="date" />
+            </template>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" type="button" @click="completeQuestionStep" :disabled="submitLoading">
+            Continue
+          </button>
+        </div>
+        <div class="consent-box" style="margin-top: 16px;">
+          <strong>ESIGN Act Disclosure</strong>
+          <p>
+            By continuing, you consent to electronically sign these documents and receive electronic records.
+            You may request paper copies from the organization.
+          </p>
+        </div>
+      </div>
+
+        <div v-else-if="step === 2 && currentFlowStep?.type !== 'questions'" class="step">
         <h3 v-if="currentFlowStep?.type === 'document'">Document</h3>
         <h3 v-else-if="currentFlowStep?.type === 'questions'">Questions</h3>
+        <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
         <div class="doc-nav" v-if="currentFlowStep?.type === 'document'">
           <button class="btn btn-secondary btn-sm" type="button" :disabled="currentDocIndex === 0" @click="goToPrevious">
             Previous
@@ -186,6 +388,14 @@
             @click="goToNext"
           >
             Next
+          </button>
+        </div>
+        <div class="actions" style="margin-top: 10px;">
+          <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="submitLoading">
+            Cancel & delete
+          </button>
+          <button class="btn btn-outline" type="button" @click="restartIntake" :disabled="submitLoading">
+            Restart
           </button>
         </div>
 
@@ -314,6 +524,60 @@
             <a class="btn btn-secondary btn-sm" :href="bundle.downloadUrl" target="_blank" rel="noopener">Download</a>
           </div>
         </div>
+        <div v-if="clients.length" class="bundle-list">
+          <div class="bundle-title">Intake answers and clinical summary</div>
+          <div v-for="(clientEntry, idx) in clients" :key="`intake-copy-${idx}`" class="bundle-item">
+            <div class="bundle-name">
+              {{ buildClientDisplayName(clientEntry, idx) }}
+            </div>
+            <button class="btn btn-secondary btn-sm" type="button" @click="openAnswerModal(idx)">
+              Intake answers
+            </button>
+            <button class="btn btn-secondary btn-sm" type="button" @click="openSummaryModal(idx)">
+              Clinical summary
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="answerModalIndex !== null" class="modal-overlay" @click.self="closeAnswerModal">
+    <div class="modal">
+      <div class="modal-header">
+        <strong>Intake answers</strong>
+        <button class="btn btn-secondary btn-sm" type="button" @click="closeAnswerModal">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-actions">
+          <button class="btn btn-secondary btn-sm" type="button" @click="copyAllAnswers">Copy all</button>
+        </div>
+        <div v-for="section in answerSections" :key="section.title" class="answer-section">
+          <div class="answer-title">{{ section.title }}</div>
+          <div v-for="line in section.lines" :key="line.key" class="answer-row">
+            <div class="answer-label">{{ line.label }}</div>
+            <div class="answer-value">{{ line.value }}</div>
+            <button class="btn btn-secondary btn-xs" type="button" @click="copyText(`${line.label}: ${line.value}`)">
+              Copy
+            </button>
+          </div>
+          <div v-if="!section.lines.length" class="muted">No answers captured.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="summaryModalIndex !== null" class="modal-overlay" @click.self="closeSummaryModal">
+    <div class="modal">
+      <div class="modal-header">
+        <strong>Clinical summary</strong>
+        <button class="btn btn-secondary btn-sm" type="button" @click="closeSummaryModal">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-actions">
+          <button class="btn btn-secondary btn-sm" type="button" @click="copyClinicalSummary">Copy summary</button>
+        </div>
+        <pre class="summary-text">{{ activeClinicalSummary }}</pre>
       </div>
     </div>
   </div>
@@ -326,12 +590,17 @@ import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
 import { toUploadsUrl } from '../utils/uploadsUrl';
+import { useAuthStore } from '../store/auth';
 
 const route = useRoute();
 const publicKey = route.params.publicKey;
+const authStore = useAuthStore();
+
+const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
 const loading = ref(true);
 const error = ref('');
+const stepError = ref('');
 const link = ref(null);
 const templates = ref([]);
 const agencyInfo = ref(null);
@@ -375,7 +644,7 @@ const submissionStorageKey = `public_intake_submission_${publicKey}`;
 
 const signerInitials = ref('');
 const clients = ref([
-  { fullName: '', initials: '', contactPhone: '' }
+  { firstName: '', lastName: '' }
 ]);
 const organizationId = ref('');
 
@@ -391,6 +660,13 @@ const intakeResponses = reactive({
 });
 const downloadUrl = ref('');
 const clientBundleLinks = ref([]);
+const consentErrors = reactive({
+  guardianFirstName: '',
+  guardianEmail: '',
+  clientFirstName: '',
+  clientLastName: ''
+});
+const intakeForSelf = ref(false);
 
 const resolveLogoUrl = (org) => {
   if (!org) return null;
@@ -477,18 +753,345 @@ const guardianFields = computed(() => intakeFields.value.filter((f) => (f.scope 
 const submissionFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'submission'));
 const clientFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'client'));
 
+const normalizeKey = (val) => String(val || '').trim().toLowerCase();
+const normalizeTokens = (val) =>
+  String(val || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ');
+
+const matchesToken = (field, pattern) => {
+  const key = normalizeTokens(field?.key);
+  const label = normalizeTokens(field?.label);
+  return pattern.test(key) || pattern.test(label);
+};
+
+const hasValue = (val) => val !== null && val !== undefined && (typeof val !== 'string' || val.trim() !== '');
+const formatAnswerValue = (val) => {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+  if (Array.isArray(val)) {
+    return val.map((entry) => formatAnswerValue(entry)).filter(Boolean).join(', ');
+  }
+  if (typeof val === 'object') {
+    try {
+      return JSON.stringify(val);
+    } catch {
+      return String(val);
+    }
+  }
+  return String(val);
+};
+
+const buildAnswerLinesForScope = (fields, responses) =>
+  (fields || [])
+    .filter((field) => field?.key && field?.type !== 'info')
+    .filter((field) => isIntakeFieldVisible(field, responses))
+    .map((field) => {
+      const value = responses?.[field.key];
+      if (!hasValue(value)) return null;
+      return {
+        key: field.key,
+        label: String(field?.label || field?.key || '').trim() || String(field?.key || '').trim(),
+        value: formatAnswerValue(value)
+      };
+    })
+    .filter(Boolean);
+
+const buildClientDisplayName = (clientEntry, idx) => {
+  const name = `${String(clientEntry?.firstName || '').trim()} ${String(clientEntry?.lastName || '').trim()}`.trim();
+  if (name) return name;
+  return `Client ${idx + 1}`;
+};
+
+const answerModalIndex = ref(null);
+const summaryModalIndex = ref(null);
+
+const buildIntakeAnswerSections = (clientIndex) => {
+  const sections = [];
+  const guardianInfo = [
+    { key: 'guardian_first', label: 'Guardian first name', value: guardianFirstName.value },
+    { key: 'guardian_last', label: 'Guardian last name', value: guardianLastName.value },
+    { key: 'guardian_email', label: 'Guardian email', value: guardianEmail.value },
+    { key: 'guardian_phone', label: 'Guardian phone', value: guardianPhone.value },
+    { key: 'relationship', label: 'Relationship', value: guardianRelationship.value }
+  ].filter((line) => hasValue(line.value))
+    .map((line) => ({ ...line, value: formatAnswerValue(line.value) }));
+
+  sections.push({ title: 'Guardian Information', lines: guardianInfo });
+
+  const guardianLines = buildAnswerLinesForScope(guardianFields.value, intakeResponses.guardian || {});
+  sections.push({ title: 'Guardian Questions', lines: guardianLines });
+
+  const submissionLines = buildAnswerLinesForScope(submissionFields.value, intakeResponses.submission || {});
+  sections.push({ title: 'One-Time Questions', lines: submissionLines });
+
+  const clientLines = buildAnswerLinesForScope(
+    clientFields.value,
+    intakeResponses.clients?.[clientIndex] || {}
+  );
+  sections.push({ title: `Client ${clientIndex + 1} Questions`, lines: clientLines });
+  return sections;
+};
+
+const parsePscScore = (value) => {
+  if (!hasValue(value)) return null;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.min(2, Math.round(value)));
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric)) {
+    return Math.max(0, Math.min(2, Math.round(numeric)));
+  }
+  const normalized = raw.toLowerCase();
+  if (normalized.includes('never') || normalized.includes('not at all')) return 0;
+  if (normalized.includes('sometimes') || normalized.includes('somewhat')) return 1;
+  if (normalized.includes('often') || normalized.includes('very')) return 2;
+  return null;
+};
+
+const summaryExcludePattern = /insurance|member id|policy|subscriber|payer|medicaid|medicare|coverage|group|plan|billing|ssn|social security|address|street|city|state|zip|postal|phone|email|contact|relationship|guardian first|guardian last|client first|client last|full name|middle name|date of birth|birthdate|dob|grade|school/i;
+
+const buildClinicalSummaryText = (clientIndex) => {
+  const sections = [];
+  const clientName = buildClientDisplayName(clients.value?.[clientIndex], clientIndex);
+  sections.push('Clinical Intake Summary');
+  sections.push('=======================');
+  sections.push(`Client: ${clientName}`);
+  sections.push('');
+
+  const clientResponses = intakeResponses.clients?.[clientIndex] || {};
+  const pscItems = [];
+  for (let i = 1; i <= 17; i += 1) {
+    const key = `psc_${i}`;
+    const raw = clientResponses?.[key];
+    if (!hasValue(raw)) continue;
+    const score = parsePscScore(raw);
+    const field = intakeFields.value.find((f) => f?.key === key);
+    const label = String(field?.label || key).trim() || key;
+    pscItems.push({ index: i, label, value: formatAnswerValue(raw), score });
+  }
+
+  if (pscItems.length) {
+    const attentionKeys = [1, 3, 7, 13, 17];
+    const internalKeys = [2, 6, 9, 11, 15];
+    const externalKeys = [4, 5, 8, 10, 12, 14, 16];
+    const sumScores = (keys) =>
+      keys.reduce((acc, idx) => {
+        const item = pscItems.find((entry) => entry.index === idx);
+        return acc + (item?.score ?? 0);
+      }, 0);
+    const totalScore = pscItems.reduce((acc, entry) => acc + (entry?.score ?? 0), 0);
+    const answered = pscItems.filter((entry) => entry.score !== null).length;
+    sections.push('PSC-17 Results');
+    sections.push('--------------');
+    sections.push(`Total score: ${totalScore} (${answered} of 17 answered)`);
+    sections.push(`Attention: ${sumScores(attentionKeys)}`);
+    sections.push(`Internalizing: ${sumScores(internalKeys)}`);
+    sections.push(`Externalizing: ${sumScores(externalKeys)}`);
+    sections.push('');
+    sections.push('PSC-17 Item Responses');
+    sections.push('---------------------');
+    pscItems
+      .sort((a, b) => a.index - b.index)
+      .forEach((entry) => {
+        const scoreLabel = entry.score === null ? 'n/a' : entry.score;
+        sections.push(`${entry.index}. ${entry.label}: ${entry.value} (score ${scoreLabel})`);
+      });
+    sections.push('');
+  }
+
+  const clinicalLines = [
+    ...buildAnswerLinesForScope(guardianFields.value, intakeResponses.guardian || {}),
+    ...buildAnswerLinesForScope(submissionFields.value, intakeResponses.submission || {}),
+    ...buildAnswerLinesForScope(clientFields.value, clientResponses)
+  ].filter((line) => !/^psc_\d+$/i.test(line.key || ''));
+
+  if (clinicalLines.length) {
+    sections.push('Clinical Responses');
+    sections.push('------------------');
+    clinicalLines.forEach((line) => {
+      if (summaryExcludePattern.test(line.label)) return;
+      sections.push(`${line.label}: ${line.value}`);
+    });
+  } else if (!pscItems.length) {
+    sections.push('No clinical responses captured.');
+  }
+
+  return sections.join('\n').trim();
+};
+
+const answerSections = computed(() => {
+  if (answerModalIndex.value === null) return [];
+  return buildIntakeAnswerSections(answerModalIndex.value);
+});
+
+const activeClinicalSummary = computed(() => {
+  if (summaryModalIndex.value === null) return '';
+  return buildClinicalSummaryText(summaryModalIndex.value);
+});
+
+const copyText = async (text) => {
+  const value = String(text || '').trim();
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+  }
+};
+
+const copyAllAnswers = () => {
+  const sections = answerSections.value || [];
+  const lines = [];
+  sections.forEach((section) => {
+    lines.push(section.title);
+    lines.push('-'.repeat(section.title.length));
+    if (section.lines.length) {
+      section.lines.forEach((line) => lines.push(`${line.label}: ${line.value}`));
+    } else {
+      lines.push('No answers captured.');
+    }
+    lines.push('');
+  });
+  copyText(lines.join('\n').trim());
+};
+
+const copyClinicalSummary = () => {
+  copyText(activeClinicalSummary.value);
+};
+
+const openAnswerModal = (idx) => {
+  answerModalIndex.value = idx;
+};
+
+const closeAnswerModal = () => {
+  answerModalIndex.value = null;
+};
+
+const openSummaryModal = (idx) => {
+  summaryModalIndex.value = idx;
+};
+
+const closeSummaryModal = () => {
+  summaryModalIndex.value = null;
+};
+
+const guardianLocationKeys = computed(() => {
+  const fields = guardianFields.value || [];
+  const matches = (pattern) =>
+    fields
+      .filter((f) => matchesToken(f, pattern))
+      .map((f) => f.key)
+      .filter(Boolean);
+  return {
+    city: matches(/\bcity\b/),
+    state: matches(/\bstate\b|\bprovince\b/),
+    zip: matches(/\bzip\b|\bpostal\b/)
+  };
+});
+
+const clientLocationKeys = computed(() => {
+  const fields = clientFields.value || [];
+  const matches = (pattern) =>
+    fields
+      .filter((f) => matchesToken(f, pattern))
+      .map((f) => f.key)
+      .filter(Boolean);
+  return {
+    city: matches(/\bcity\b/),
+    state: matches(/\bstate\b|\bprovince\b/),
+    zip: matches(/\bzip\b|\bpostal\b/)
+  };
+});
+
+const zipLookupCache = reactive({});
+
+const maybeAutofillGuardianLocation = async (field) => {
+  const zipKeys = guardianLocationKeys.value.zip || [];
+  if (!field?.key || (!zipKeys.includes(field.key) && !/zip|postal/.test(normalizeKey(field.key)))) return;
+  const raw = intakeResponses.guardian?.[field.key];
+  const zip = String(raw || '').replace(/\D/g, '').slice(0, 5);
+  if (zip.length !== 5) return;
+  if (zipLookupCache.guardian === zip) return;
+  zipLookupCache.guardian = zip;
+
+  try {
+    const resp = await fetch(`https://api.zippopotam.us/us/${zip}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const place = Array.isArray(data?.places) ? data.places[0] : null;
+    if (!place) return;
+    const city = place['place name'] || '';
+    const state = place['state abbreviation'] || place['state'] || '';
+    const setIfEmpty = (key, value) => {
+      if (!key || !value) return;
+      const current = intakeResponses.guardian?.[key];
+      if (!String(current || '').trim()) {
+        intakeResponses.guardian[key] = value;
+      }
+    };
+    (guardianLocationKeys.value.city || []).forEach((key) => setIfEmpty(key, city));
+    (guardianLocationKeys.value.state || []).forEach((key) => setIfEmpty(key, state));
+  } catch {
+    // ignore lookup errors
+  }
+};
+
+const maybeAutofillLocation = async (idx, field) => {
+  const zipKeys = clientLocationKeys.value.zip || [];
+  if (!field?.key || (!zipKeys.includes(field.key) && !/zip|postal/.test(normalizeKey(field.key)))) return;
+  const raw = intakeResponses.clients?.[idx]?.[field.key];
+  const zip = String(raw || '').replace(/\D/g, '').slice(0, 5);
+  if (zip.length !== 5) return;
+  if (zipLookupCache[`${idx}`] === zip) return;
+  zipLookupCache[`${idx}`] = zip;
+
+  try {
+    const resp = await fetch(`https://api.zippopotam.us/us/${zip}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const place = Array.isArray(data?.places) ? data.places[0] : null;
+    if (!place) return;
+    const city = place['place name'] || '';
+    const state = place['state abbreviation'] || place['state'] || '';
+    const setIfEmpty = (key, value) => {
+      if (!key || !value) return;
+      const current = intakeResponses.clients?.[idx]?.[key];
+      if (!String(current || '').trim()) {
+        intakeResponses.clients[idx][key] = value;
+      }
+    };
+    (clientLocationKeys.value.city || []).forEach((key) => setIfEmpty(key, city));
+    (clientLocationKeys.value.state || []).forEach((key) => setIfEmpty(key, state));
+  } catch {
+    // ignore lookup errors
+  }
+};
+
 const isIntakeFieldVisible = (field, values = {}) => {
   const showIf = field?.showIf;
   if (!showIf || !showIf.fieldKey) return true;
   const actual = values[showIf.fieldKey];
   const expected = showIf.equals;
   if (Array.isArray(expected)) {
-    return expected.map(String).includes(String(actual));
+    return expected.map((v) => String(v).trim().toLowerCase()).includes(String(actual).trim().toLowerCase());
   }
   if (expected === '' || expected === null || expected === undefined) {
     return Boolean(actual);
   }
-  return String(actual ?? '') === String(expected ?? '');
+  return String(actual ?? '').trim().toLowerCase() === String(expected ?? '').trim().toLowerCase();
 };
 
 const visibleGuardianFields = computed(() =>
@@ -499,9 +1102,72 @@ const visibleSubmissionFields = computed(() =>
   submissionFields.value.filter((f) => isIntakeFieldVisible(f, intakeResponses.submission))
 );
 
+const reservedClientKeys = new Set(['client_first', 'client_last', 'client_full_name', 'client_name']);
 const visibleClientFields = (idx) =>
-  clientFields.value.filter((f) => isIntakeFieldVisible(f, intakeResponses.clients[idx] || {}));
+  clientFields.value
+    .filter((f) => !reservedClientKeys.has(normalizeKey(f?.key)))
+    .filter((f) => isIntakeFieldVisible(f, intakeResponses.clients[idx] || {}));
 
+const pickOption = (field) => {
+  const options = Array.isArray(field?.options) ? field.options : [];
+  if (!options.length) return '';
+  return options[0].value ?? options[0].label ?? '';
+};
+
+const fillValueByField = (field) => {
+  const key = normalizeKey(field?.key);
+  const label = normalizeKey(field?.label);
+  const token = `${key} ${label}`;
+  if (field?.type === 'checkbox') return true;
+  if (field?.type === 'select' || field?.type === 'radio') return pickOption(field);
+  if (field?.type === 'date') return '2012-01-01';
+  if (token.includes('zip') || token.includes('postal')) return '80202';
+  if (token.includes('city')) return 'Denver';
+  if (token.includes('state')) return 'CO';
+  if (token.includes('email')) return 'test.parent@example.com';
+  if (token.includes('phone')) return '3035550123';
+  if (token.includes('dob') || token.includes('birth')) return '2012-01-01';
+  return 'Example';
+};
+
+const fillFields = (fields, target) => {
+  (fields || []).forEach((field) => {
+    if (!field || field.type === 'info') return;
+    if (target[field.key]) return;
+    target[field.key] = fillValueByField(field);
+  });
+};
+
+const fillExample = () => {
+  if (step.value === 1) {
+    guardianFirstName.value = guardianFirstName.value || 'Alex';
+    guardianLastName.value = guardianLastName.value || 'Jordan';
+    guardianEmail.value = guardianEmail.value || 'alex.jordan@example.com';
+    guardianPhone.value = guardianPhone.value || '3035550123';
+    guardianRelationship.value = guardianRelationship.value || 'Parent';
+    if (!clients.value.length) {
+      clients.value = [{ firstName: '', lastName: '' }];
+      intakeResponses.clients = [{}];
+    }
+    if (!intakeForSelf.value) {
+      clients.value.forEach((c, idx) => {
+        c.firstName = c.firstName || `Client${idx + 1}`;
+        c.lastName = c.lastName || 'Example';
+      });
+    }
+    fillFields(visibleGuardianFields.value, intakeResponses.guardian);
+    fillFields(visibleSubmissionFields.value, intakeResponses.submission);
+    clients.value.forEach((_, idx) => {
+      fillFields(visibleClientFields(idx), intakeResponses.clients[idx]);
+    });
+  } else if (step.value === 2) {
+    if (currentFlowStep.value?.type === 'questions') {
+      fillFields(visibleQuestionFields.value, questionValues.value);
+    } else if (currentFlowStep.value?.type === 'document') {
+      fillFields(visibleFieldDefinitions.value, currentFieldValues.value);
+    }
+  }
+};
 const loadPdfPreview = async () => {
   if (!currentDoc.value || currentDoc.value.template_type !== 'pdf') {
     pdfUrl.value = null;
@@ -573,13 +1239,62 @@ const getRecaptchaToken = async () => {
   }
 };
 
+const deriveClientInitials = (firstName, lastName) => {
+  const formatTri = (value) => {
+    const cleaned = String(value || '').replace(/[^a-zA-Z]/g, '').slice(0, 3);
+    if (!cleaned) return '';
+    const lower = cleaned.toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  };
+  return `${formatTri(firstName)}${formatTri(lastName)}`.trim();
+};
+
+const buildClientPayloads = () =>
+  clients.value.map((c) => {
+    const rawFirst = String(c?.firstName || '').trim();
+    const rawLast = String(c?.lastName || '').trim();
+    const firstName = intakeForSelf.value ? String(guardianFirstName.value || '').trim() : rawFirst;
+    const lastName = intakeForSelf.value ? String(guardianLastName.value || '').trim() : rawLast;
+    const fullName = `${firstName} ${lastName}`.trim();
+    return {
+      firstName,
+      lastName,
+      fullName,
+      initials: deriveClientInitials(firstName, lastName)
+    };
+  });
+
 const submitConsent = async () => {
-  if (!guardianFirstName.value || !guardianEmail.value || !signerInitials.value) {
-    error.value = 'Guardian name, guardian email, and guardian initials are required.';
-    return;
-  }
-  if (!clients.value.length || !clients.value[0].fullName) {
-    error.value = 'At least one client full name is required.';
+  consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : 'Required';
+  consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : 'Required';
+  const clientFirst = intakeForSelf.value ? guardianFirstName.value : clients.value?.[0]?.firstName;
+  const clientLast = intakeForSelf.value ? guardianLastName.value : clients.value?.[0]?.lastName;
+  consentErrors.clientFirstName = String(clientFirst || '').trim() ? '' : 'Required';
+  consentErrors.clientLastName = String(clientLast || '').trim() ? '' : 'Required';
+
+  if (
+    consentErrors.guardianFirstName
+    || consentErrors.guardianEmail
+    || consentErrors.clientFirstName
+    || consentErrors.clientLastName
+  ) {
+    error.value = 'Guardian name and guardian email are required.';
+    stepError.value = '';
+    await nextTick();
+    const firstMissingId = consentErrors.guardianFirstName
+      ? 'guardianFirstName'
+      : consentErrors.guardianEmail
+        ? 'guardianEmail'
+        : consentErrors.clientFirstName
+          ? (intakeForSelf.value ? 'guardianFirstName' : 'clientFirstName_0')
+          : consentErrors.clientLastName
+            ? (intakeForSelf.value ? 'guardianLastName' : 'clientLastName_0')
+            : null;
+    if (firstMissingId) {
+      const el = document.getElementById(firstMissingId);
+      if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (el?.focus) el.focus();
+    }
     return;
   }
   if (recaptchaSiteKey) {
@@ -594,13 +1309,18 @@ const submitConsent = async () => {
   try {
     consentLoading.value = true;
     error.value = '';
-    const resp = await api.post(`/public-intake/${publicKey}/consent`, {
+    stepError.value = '';
+    const clientPayloads = buildClientPayloads();
+    const payload = {
       signerName: `${guardianFirstName.value} ${guardianLastName.value}`.trim(),
-      signerInitials: signerInitials.value,
+      signerInitials: clientPayloads?.[0]?.initials || null,
       signerEmail: guardianEmail.value,
-      signerPhone: guardianPhone.value,
-      captchaToken: captchaToken.value || null
-    });
+      signerPhone: guardianPhone.value
+    };
+    if (recaptchaSiteKey) {
+      payload.captchaToken = captchaToken.value || '';
+    }
+    const resp = await api.post(`/public-intake/${publicKey}/consent`, payload);
     submissionId.value = resp.data?.submission?.id || null;
     if (submissionId.value) {
       localStorage.setItem(submissionStorageKey, String(submissionId.value));
@@ -622,8 +1342,9 @@ const completeCurrentDocument = async () => {
   try {
     submitLoading.value = true;
     error.value = '';
+    stepError.value = '';
     if (!currentDoc.value) {
-      error.value = 'No document selected.';
+      stepError.value = 'No document selected.';
       return;
     }
     if (currentDoc.value.template_type === 'pdf' && !canProceed.value) {
@@ -635,7 +1356,7 @@ const completeCurrentDocument = async () => {
       return;
     }
     if (currentDoc.value.document_action_type === 'signature' && !signatureData.value) {
-      error.value = 'Signature is required.';
+      stepError.value = 'Signature is required.';
       return;
     }
 
@@ -687,9 +1408,10 @@ const completeQuestionStep = async () => {
       return val === null || val === undefined || String(val).trim() === '';
     });
   if (missing.length) {
-    error.value = 'Please complete all required fields before continuing.';
+    stepError.value = 'Please complete all required fields before continuing.';
     return;
   }
+  stepError.value = '';
   await nextFlowStep();
 };
 
@@ -697,10 +1419,11 @@ const finalizePacket = async () => {
   try {
     submitLoading.value = true;
     error.value = '';
+    stepError.value = '';
     const resp = await api.post(`/public-intake/${publicKey}/${submissionId.value}/finalize`, {
       submissionId: submissionId.value,
       organizationId: organizationId.value,
-      clients: clients.value,
+      clients: buildClientPayloads(),
       guardian: {
         firstName: guardianFirstName.value,
         lastName: guardianLastName.value,
@@ -710,7 +1433,7 @@ const finalizePacket = async () => {
       },
       intakeData: {
         responses: intakeResponses || {},
-        clients: clients.value,
+        clients: buildClientPayloads(),
         guardian: {
           firstName: guardianFirstName.value,
           lastName: guardianLastName.value,
@@ -729,6 +1452,50 @@ const finalizePacket = async () => {
   } finally {
     submitLoading.value = false;
   }
+};
+
+const resetIntakeState = () => {
+  guardianFirstName.value = '';
+  guardianLastName.value = '';
+  guardianEmail.value = '';
+  guardianPhone.value = '';
+  guardianRelationship.value = '';
+  signerInitials.value = '';
+  clients.value = [{ firstName: '', lastName: '' }];
+  intakeResponses.guardian = {};
+  intakeResponses.submission = {};
+  intakeResponses.clients = [{}];
+  signatureData.value = '';
+  submissionId.value = null;
+  docStatus && Object.keys(docStatus).forEach((k) => delete docStatus[k]);
+  error.value = '';
+  captchaError.value = '';
+  captchaToken.value = '';
+  currentDocIndex.value = 0;
+  currentFlowIndex.value = 0;
+  step.value = 1;
+  Object.keys(fieldValuesByTemplate || {}).forEach((k) => delete fieldValuesByTemplate[k]);
+};
+
+const cancelIntake = () => {
+  const ok = window.confirm(
+    'Cancel and delete all entered information? This data will not be saved due to the sensitive nature of the intake.'
+  );
+  if (!ok) return;
+  localStorage.removeItem(submissionStorageKey);
+  resetIntakeState();
+};
+
+const restartIntake = () => {
+  const ok = window.confirm('Restart this intake and clear all fields?');
+  if (!ok) return;
+  localStorage.removeItem(submissionStorageKey);
+  resetIntakeState();
+};
+
+const returnToIntakeInfo = () => {
+  stepError.value = '';
+  step.value = 1;
 };
 
 const focusNextField = () => {
@@ -828,7 +1595,7 @@ const handlePageChange = ({ currentPage, totalPages }) => {
 };
 
 const addClient = () => {
-  clients.value.push({ fullName: '', initials: '', contactPhone: '' });
+  clients.value.push({ firstName: '', lastName: '' });
   intakeResponses.clients.push({});
 };
 
@@ -844,7 +1611,9 @@ const initializeFieldValues = () => {
   currentFieldDefinitions.value.forEach((field) => {
     const prefillKey = resolvePrefillKey(field);
     const prefillValue = prefillKey ? prefill[prefillKey] : undefined;
-    if (!(field.id in values) && prefillValue !== undefined && prefillValue !== null && prefillValue !== '') {
+    const existing = values[field.id];
+    const isEmpty = existing === undefined || existing === null || existing === '';
+    if (isEmpty && prefillValue !== undefined && prefillValue !== null && prefillValue !== '') {
       if (field.type === 'checkbox') {
         values[field.id] = prefillValue === true || prefillValue === 'true' || prefillValue === 1;
       } else if (field.type === 'select' || field.type === 'radio') {
@@ -882,17 +1651,46 @@ const isQuestionVisible = (field, values = {}) => {
   const actual = values[showIf.fieldKey];
   const expected = showIf.equals;
   if (Array.isArray(expected)) {
-    return expected.map(String).includes(String(actual));
+    return expected.map((v) => String(v).trim().toLowerCase()).includes(String(actual).trim().toLowerCase());
   }
   if (expected === '' || expected === null || expected === undefined) {
     return Boolean(actual);
   }
-  return String(actual ?? '') === String(expected ?? '');
+  return String(actual ?? '').trim().toLowerCase() === String(expected ?? '').trim().toLowerCase();
 };
 
 const visibleQuestionFields = computed(() =>
   currentQuestionFields.value.filter((f) => isQuestionVisible(f, questionValues.value))
 );
+
+watch(guardianFirstName, (val) => {
+  if (String(val || '').trim()) consentErrors.guardianFirstName = '';
+});
+watch(guardianEmail, (val) => {
+  if (String(val || '').trim()) consentErrors.guardianEmail = '';
+});
+watch(
+  () => clients.value?.[0]?.firstName,
+  (val) => {
+    if (intakeForSelf.value) return;
+    if (String(val || '').trim()) consentErrors.clientFirstName = '';
+  }
+);
+watch(
+  () => clients.value?.[0]?.lastName,
+  (val) => {
+    if (intakeForSelf.value) return;
+    if (String(val || '').trim()) consentErrors.clientLastName = '';
+  }
+);
+
+watch(intakeForSelf, (val) => {
+  if (!val) return;
+  clients.value = [{ firstName: '', lastName: '' }];
+  intakeResponses.clients = [{}];
+  consentErrors.clientFirstName = '';
+  consentErrors.clientLastName = '';
+});
 
 const buildQuestionPrefillMap = () => {
   const map = {};
@@ -902,9 +1700,26 @@ const buildQuestionPrefillMap = () => {
       const documentKey = String(field?.documentKey || '').trim();
       const questionKey = field?.key;
       if (!documentKey || !questionKey) return;
-      const value = questionValues.value?.[questionKey];
+      const scope = String(field?.scope || 'submission').toLowerCase();
+      const clientValues = intakeResponses.clients?.[0] || {};
+      const guardianValues = intakeResponses.guardian || {};
+      const submissionValues = intakeResponses.submission || {};
+      const value =
+        scope === 'client'
+          ? clientValues?.[questionKey]
+          : scope === 'guardian'
+            ? guardianValues?.[questionKey]
+            : submissionValues?.[questionKey];
       if (value !== undefined && value !== null && value !== '') {
         map[documentKey] = value;
+      }
+      if (scope === 'client' && intakeForSelf.value && !map[documentKey]) {
+        if (questionKey === 'client_first' && guardianFirstName.value) {
+          map[documentKey] = guardianFirstName.value;
+        }
+        if (questionKey === 'client_last' && guardianLastName.value) {
+          map[documentKey] = guardianLastName.value;
+        }
       }
     });
   });
@@ -914,6 +1729,9 @@ const buildQuestionPrefillMap = () => {
 const getPrefillMap = () => {
   const map = {};
   const submission = intakeResponses.submission || {};
+  const guardianResponses = intakeResponses.guardian || {};
+  const clientResponses = intakeResponses.clients?.[0] || {};
+  const clientPayload = buildClientPayloads()?.[0] || {};
   Object.keys(submission).forEach((key) => {
     if (submission[key] !== undefined && submission[key] !== null && submission[key] !== '') {
       map[key] = submission[key];
@@ -922,11 +1740,24 @@ const getPrefillMap = () => {
   if (guardianFirstName.value) map.guardian_first = guardianFirstName.value;
   if (guardianLastName.value) map.guardian_last = guardianLastName.value;
   if (guardianRelationship.value) map.relationship = guardianRelationship.value;
-  if (clients.value?.[0]?.fullName) {
-    const parts = String(clients.value[0].fullName || '').trim().split(/\s+/);
-    if (parts.length) map.client_first = parts[0];
-    if (parts.length > 1) map.client_last = parts.slice(1).join(' ');
+  if (!map.relationship && guardianResponses.relationship) map.relationship = guardianResponses.relationship;
+  if (!map.relationship) {
+    const relKey = Object.keys(guardianResponses).find((k) => normalizeKey(k).includes('relationship'));
+    if (relKey && guardianResponses[relKey]) map.relationship = guardianResponses[relKey];
   }
+  if (guardianResponses.guardian_first && !map.guardian_first) map.guardian_first = guardianResponses.guardian_first;
+  if (guardianResponses.guardian_last && !map.guardian_last) map.guardian_last = guardianResponses.guardian_last;
+  if (guardianResponses.guardian_email) map.guardian_email = guardianResponses.guardian_email;
+  if (guardianResponses.guardian_phone) map.guardian_phone = guardianResponses.guardian_phone;
+  const firstClient = clients.value?.[0] || {};
+  const clientFirst = String(firstClient.firstName || '').trim();
+  const clientLast = String(firstClient.lastName || '').trim();
+  if (clientFirst) map.client_first = clientFirst;
+  if (clientLast) map.client_last = clientLast;
+  if (!map.client_first && clientPayload.firstName) map.client_first = clientPayload.firstName;
+  if (!map.client_last && clientPayload.lastName) map.client_last = clientPayload.lastName;
+  if (clientResponses.client_first && !map.client_first) map.client_first = clientResponses.client_first;
+  if (clientResponses.client_last && !map.client_last) map.client_last = clientResponses.client_last;
   const questionMap = buildQuestionPrefillMap();
   Object.keys(questionMap).forEach((key) => {
     if (questionMap[key] !== undefined && questionMap[key] !== null && questionMap[key] !== '') {
@@ -1105,6 +1936,33 @@ onMounted(async () => {
   font-size: 12px;
   margin-bottom: 6px;
 }
+.input-error {
+  border-color: #dc3545;
+  box-shadow: 0 0 0 1px #dc3545;
+}
+.error-text {
+  color: #dc3545;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.required-indicator {
+  color: #dc3545;
+  margin-left: 4px;
+  font-weight: 600;
+}
+.intake-card {
+  position: relative;
+}
+.dev-fill-button {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 5;
+}
+.btn.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border);
+}
 
 .info-block {
   padding: 10px 12px;
@@ -1131,8 +1989,10 @@ onMounted(async () => {
 }
 
 .radio-group {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .radio-row {
@@ -1194,6 +2054,89 @@ onMounted(async () => {
 
 .cover-subtitle {
   color: var(--text-secondary);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 3000;
+}
+
+.modal {
+  background: #fff;
+  width: min(780px, 95vw);
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-body {
+  padding: 12px 16px 16px;
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.answer-section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  background: var(--bg-alt);
+}
+
+.answer-title {
+  font-weight: 600;
+}
+
+.answer-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 2fr) auto;
+  gap: 8px;
+  align-items: start;
+  font-size: 14px;
+}
+
+.answer-label {
+  font-weight: 600;
+}
+
+.answer-value {
+  white-space: pre-wrap;
+}
+
+.summary-text {
+  white-space: pre-wrap;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 13px;
 }
 
 @media (max-width: 720px) {

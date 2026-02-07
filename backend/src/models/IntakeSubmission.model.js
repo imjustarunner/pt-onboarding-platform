@@ -10,6 +10,7 @@ class IntakeSubmission {
       signerEmail = null,
       signerPhone = null,
       intakeData = null,
+      intakeDataHash = null,
       consentGivenAt = null,
       submittedAt = null,
       ipAddress = null,
@@ -17,15 +18,16 @@ class IntakeSubmission {
       clientId = null,
       guardianUserId = null,
       combinedPdfPath = null,
-      combinedPdfHash = null
+      combinedPdfHash = null,
+      retentionExpiresAt = null
     } = data;
 
     const [result] = await pool.execute(
       `INSERT INTO intake_submissions
        (intake_link_id, status, signer_name, signer_initials, signer_email, signer_phone, intake_data,
-        consent_given_at, submitted_at, ip_address, user_agent, client_id, guardian_user_id,
-        combined_pdf_path, combined_pdf_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        intake_data_hash, consent_given_at, submitted_at, ip_address, user_agent, client_id, guardian_user_id,
+        combined_pdf_path, combined_pdf_hash, retention_expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         intakeLinkId,
         status,
@@ -34,6 +36,7 @@ class IntakeSubmission {
         signerEmail,
         signerPhone,
         intakeData ? JSON.stringify(intakeData) : null,
+        intakeDataHash,
         consentGivenAt,
         submittedAt,
         ipAddress,
@@ -41,7 +44,8 @@ class IntakeSubmission {
         clientId,
         guardianUserId,
         combinedPdfPath,
-        combinedPdfHash
+        combinedPdfHash,
+        retentionExpiresAt
       ]
     );
     return this.findById(result.insertId);
@@ -77,6 +81,28 @@ class IntakeSubmission {
       [intakeLinkId]
     );
     return rows;
+  }
+
+  static async listExpired({ limit = 200 } = {}) {
+    const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 200));
+    const [rows] = await pool.execute(
+      `SELECT * FROM intake_submissions
+       WHERE retention_expires_at IS NOT NULL
+         AND retention_expires_at <= NOW()
+       ORDER BY retention_expires_at ASC, id ASC
+       LIMIT ?`,
+      [safeLimit]
+    );
+    return rows;
+  }
+
+  static async deleteById(id) {
+    if (!id) return 0;
+    const [result] = await pool.execute(
+      'DELETE FROM intake_submissions WHERE id = ?',
+      [id]
+    );
+    return Number(result?.affectedRows || 0);
   }
 }
 
