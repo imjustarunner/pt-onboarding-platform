@@ -67,17 +67,18 @@ jobs:
         run: |
           # Build env var list safely. Use update-env-vars so we don't accidentally wipe
           # existing Cloud Run configuration that isn't specified here.
-          ENV_VARS="NODE_ENV=production"
-          # Escape commas in CORS_ORIGIN so gcloud parses it as a single value
-          ENV_VARS="${ENV_VARS},CORS_ORIGIN=https://plottwisthq.com\\,https://www.plottwisthq.com\\,https://onboarding-frontend-378990906760.us-west3.run.app"
-          ENV_VARS="${ENV_VARS},FRONTEND_URL=https://plottwisthq.com"
-          ENV_VARS="${ENV_VARS},DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }}"
-          ENV_VARS="${ENV_VARS},DB_PORT=3306"
-          ENV_VARS="${ENV_VARS},DB_NAME=onboarding_stage"
-          ENV_VARS="${ENV_VARS},STORAGE_TYPE=gcs"
-          ENV_VARS="${ENV_VARS},GCS_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}"
-          ENV_VARS="${ENV_VARS},GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}"
-          ENV_VARS="${ENV_VARS},PTONBOARDFILES=${{ secrets.GCS_BUCKET_NAME }}"
+          # Use a custom delimiter to avoid comma-escaping in values.
+          # This lets CORS_ORIGIN contain commas safely.
+          ENV_VARS="^|^NODE_ENV=production"
+          ENV_VARS="${ENV_VARS}|CORS_ORIGIN=https://plottwisthq.com,https://www.plottwisthq.com,https://onboarding-frontend-378990906760.us-west3.run.app"
+          ENV_VARS="${ENV_VARS}|FRONTEND_URL=https://plottwisthq.com"
+          ENV_VARS="${ENV_VARS}|DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }}"
+          ENV_VARS="${ENV_VARS}|DB_PORT=3306"
+          ENV_VARS="${ENV_VARS}|DB_NAME=onboarding_stage"
+          ENV_VARS="${ENV_VARS}|STORAGE_TYPE=gcs"
+          ENV_VARS="${ENV_VARS}|GCS_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}"
+          ENV_VARS="${ENV_VARS}|GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}"
+          ENV_VARS="${ENV_VARS}|PTONBOARDFILES=${{ secrets.GCS_BUCKET_NAME }}"
 
           # Ensure chat encryption key is present for decryption of existing messages.
           # IMPORTANT: Only set if the GitHub secret exists, to avoid overriding a working
