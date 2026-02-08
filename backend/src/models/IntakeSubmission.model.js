@@ -85,13 +85,12 @@ class IntakeSubmission {
 
   static async listExpired({ limit = 200 } = {}) {
     const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 200));
-    const [rows] = await pool.execute(
+    const [rows] = await pool.query(
       `SELECT * FROM intake_submissions
        WHERE retention_expires_at IS NOT NULL
          AND retention_expires_at <= NOW()
        ORDER BY retention_expires_at ASC, id ASC
-       LIMIT ?`,
-      [safeLimit]
+       LIMIT ${safeLimit}`
     );
     return rows;
   }

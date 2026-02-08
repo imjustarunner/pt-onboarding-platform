@@ -51,7 +51,13 @@ export const requestLoggingMiddleware = (req, res, next) => {
 
   // In development, optionally log sanitized request body
   // In production, this should be disabled or use a proper logger
-  if (config.nodeEnv === 'development' && req.body && Object.keys(req.body).length > 0) {
+  const skipLogPaths = new Set(['/api/presence/heartbeat', '/presence/heartbeat']);
+  if (
+    config.nodeEnv === 'development' &&
+    req.body &&
+    Object.keys(req.body).length > 0 &&
+    !skipLogPaths.has(req.path)
+  ) {
     console.log(`[Request] ${req.method} ${req.path}`, {
       body: req.sanitizedBody,
       query: req.query,

@@ -12,8 +12,13 @@ import { useAuthStore } from '../store/auth';
 import api from '../services/api';
 import { useAgencyStore } from '../store/agency';
 
-const INACTIVITY_TIMEOUT = 8 * 60 * 1000; // 8 minutes in milliseconds
-const HEARTBEAT_INTERVAL = 30 * 1000; // 30s
+const DEFAULT_INACTIVITY_TIMEOUT_MINUTES = 8;
+const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30;
+const MIN_INACTIVITY_TIMEOUT_MINUTES = 1;
+const MAX_INACTIVITY_TIMEOUT_MINUTES = 240;
+const MIN_HEARTBEAT_INTERVAL_SECONDS = 10;
+const MAX_HEARTBEAT_INTERVAL_SECONDS = 300;
+const LAST_ACTIVITY_KEY = 'presence:lastActivityAt';
 let activityTimer = null;
 let heartbeatTimer = null;
 let lastActivityTime = Date.now();
@@ -23,8 +28,6 @@ let isTracking = false;
 const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
 
 function resetTimer() {
-  lastActivityTime = Date.now();
-
   if (activityTimer) {
     clearTimeout(activityTimer);
     activityTimer = null;
@@ -35,7 +38,7 @@ function resetTimer() {
   if (isTracking && document.visibilityState === 'visible') {
     activityTimer = setTimeout(() => {
       handleTimeout();
-    }, INACTIVITY_TIMEOUT);
+    }, getInactivityTimeoutMs());
   }
 }
 
@@ -63,12 +66,13 @@ async function handleTimeout() {
       
       // Log timeout activity (already logged in logout, but log separately too)
       try {
+        const timeoutMinutes = Math.round(getInactivityTimeoutMs() / 60000);
         await api.post('/auth/activity-log', {
           actionType: 'timeout',
           sessionId,
           metadata: {
             reason: 'inactivity_timeout',
-            timeoutMinutes: 8
+            timeoutMinutes
           }
         });
       } catch (err) {
@@ -89,7 +93,23 @@ async function handleTimeout() {
 }
 
 function onActivity() {
+  lastActivityTime = Date.now();
+  try {
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(lastActivityTime));
+  } catch {
+    // ignore storage issues
+  }
   resetTimer();
+}
+
+function onStorageActivity(event) {
+  if (event?.key !== LAST_ACTIVITY_KEY) return;
+  const nextTime = Number(event.newValue);
+  if (!Number.isFinite(nextTime) || nextTime <= lastActivityTime) return;
+  lastActivityTime = nextTime;
+  if (isTracking && document.visibilityState === 'visible') {
+    resetTimer();
+  }
 }
 
 function onVisibilityChange() {
@@ -113,6 +133,7 @@ async function sendPresenceHeartbeat() {
   const authStore = useAuthStore();
   const agencyStore = useAgencyStore();
   if (!authStore.isAuthenticated) return;
+  if (document.visibilityState !== 'visible') return;
 
   const agencyId = agencyStore.currentAgency?.id || null;
   try {
@@ -120,23 +141,22 @@ async function sendPresenceHeartbeat() {
       agencyId,
       lastActivityAt: new Date(lastActivityTime).toISOString()
     }, { skipGlobalLoading: true });
-    // Success: treat heartbeat as activity so users with tab open stay logged in.
-    // This fixes "logged out despite doing things" when tab is open but no DOM events (e.g. reading, background tab).
-    if (isTracking) {
-      resetTimer();
-    }
   } catch {
     // ignore - presence is best-effort
   }
 }
 
-export function startActivityTracking() {
-  if (isTracking) {
+export function startActivityTracking({ force = false } = {}) {
+  if (isTracking && !force) {
     return; // Already tracking
+  }
+  if (isTracking) {
+    stopActivityTracking();
   }
   
   isTracking = true;
-  lastActivityTime = Date.now();
+  const storedActivity = Number(localStorage.getItem(LAST_ACTIVITY_KEY));
+  lastActivityTime = Number.isFinite(storedActivity) ? storedActivity : Date.now();
   
   // Add event listeners for all activity events
   activityEvents.forEach(event => {
@@ -145,13 +165,14 @@ export function startActivityTracking() {
 
   // When user returns to tab, reset inactivity timer (avoids logout after background tab)
   document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('storage', onStorageActivity);
 
   // Start the timer
   resetTimer();
 
-  // Presence heartbeat (best-effort) – also resets inactivity timer on success
+  // Presence heartbeat (best-effort)
   sendPresenceHeartbeat();
-  heartbeatTimer = setInterval(sendPresenceHeartbeat, HEARTBEAT_INTERVAL);
+  heartbeatTimer = setInterval(sendPresenceHeartbeat, getHeartbeatIntervalMs());
 }
 
 export function stopActivityTracking() {
@@ -166,6 +187,7 @@ export function stopActivityTracking() {
     document.removeEventListener(event, onActivity, true);
   });
   document.removeEventListener('visibilitychange', onVisibilityChange);
+  window.removeEventListener('storage', onStorageActivity);
 
   // Clear the timer
   if (activityTimer) {
@@ -181,5 +203,51 @@ export function stopActivityTracking() {
 
 export function getLastActivityTime() {
   return lastActivityTime;
+}
+
+function getSessionSettings() {
+  const agencyStore = useAgencyStore();
+  const raw =
+    agencyStore.currentAgency?.session_settings_json ??
+    agencyStore.currentAgency?.sessionSettings ??
+    null;
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw || {};
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) || {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function clampNumber(raw, min, max, fallback) {
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, num));
+}
+
+function getInactivityTimeoutMs() {
+  const settings = getSessionSettings();
+  const minutes = clampNumber(
+    settings.inactivityTimeoutMinutes,
+    MIN_INACTIVITY_TIMEOUT_MINUTES,
+    MAX_INACTIVITY_TIMEOUT_MINUTES,
+    DEFAULT_INACTIVITY_TIMEOUT_MINUTES
+  );
+  return minutes * 60 * 1000;
+}
+
+function getHeartbeatIntervalMs() {
+  const settings = getSessionSettings();
+  const seconds = clampNumber(
+    settings.heartbeatIntervalSeconds,
+    MIN_HEARTBEAT_INTERVAL_SECONDS,
+    MAX_HEARTBEAT_INTERVAL_SECONDS,
+    DEFAULT_HEARTBEAT_INTERVAL_SECONDS
+  );
+  return seconds * 1000;
 }
 

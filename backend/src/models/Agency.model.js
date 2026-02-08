@@ -953,6 +953,28 @@ class Agency {
     } catch {
       hasIntakeRetentionPolicy = false;
     }
+
+    // Check if session_settings_json column exists (optional)
+    let hasSessionSettings = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'session_settings_json'"
+      );
+      hasSessionSettings = (cols || []).length > 0;
+    } catch {
+      hasSessionSettings = false;
+    }
+
+    // Check if session_settings_json column exists (optional)
+    let hasSessionSettings = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'session_settings_json'"
+      );
+      hasSessionSettings = (cols || []).length > 0;
+    } catch {
+      hasSessionSettings = false;
+    }
     
     const insertFields = ['name', 'slug', 'logo_url', 'color_palette', 'terminology_settings', 'is_active'];
     const insertValues = [name, slug, logoUrl || null, colorPalette ? JSON.stringify(colorPalette) : null, terminologySettings ? JSON.stringify(terminologySettings) : null, isActive !== undefined ? isActive : true];
@@ -965,6 +987,11 @@ class Agency {
     if (hasIntakeRetentionPolicy) {
       insertFields.push('intake_retention_policy_json');
       insertValues.push(agencyData.intakeRetentionPolicy ? JSON.stringify(agencyData.intakeRetentionPolicy) : null);
+    }
+
+    if (hasSessionSettings) {
+      insertFields.push('session_settings_json');
+      insertValues.push(agencyData.sessionSettings ? JSON.stringify(agencyData.sessionSettings) : null);
     }
     
     if (hasLogoPath) {
@@ -1422,6 +1449,10 @@ class Agency {
     if (hasIntakeRetentionPolicy && intakeRetentionPolicy !== undefined) {
       updates.push('intake_retention_policy_json = ?');
       values.push(intakeRetentionPolicy ? JSON.stringify(intakeRetentionPolicy) : null);
+    }
+    if (hasSessionSettings && agencyData.sessionSettings !== undefined) {
+      updates.push('session_settings_json = ?');
+      values.push(agencyData.sessionSettings ? JSON.stringify(agencyData.sessionSettings) : null);
     }
     if (hasTierSystemEnabled && tierSystemEnabled !== undefined) {
       updates.push('tier_system_enabled = ?');

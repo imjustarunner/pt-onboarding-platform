@@ -413,6 +413,23 @@
                 <input v-model.number="agencyForm.intakeRetentionPolicy.days" type="number" min="1" max="3650" />
               </div>
             </div>
+
+            <div class="form-section-divider" style="margin-top: 18px; margin-bottom: 12px; padding-top: 18px; border-top: 1px solid var(--border);">
+              <h4 style="margin: 0; font-size: 16px;">Session Timeout</h4>
+              <p class="section-description" style="margin-top: 6px;">
+                Controls inactivity logout and presence heartbeat for this agency.
+              </p>
+            </div>
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Inactivity timeout (minutes)</label>
+                <input v-model.number="agencyForm.sessionSettings.inactivityTimeoutMinutes" type="number" min="1" max="240" />
+              </div>
+              <div class="form-group">
+                <label>Heartbeat interval (seconds)</label>
+                <input v-model.number="agencyForm.sessionSettings.heartbeatIntervalSeconds" type="number" min="10" max="300" />
+              </div>
+            </div>
           </template>
 
           <template v-else>
@@ -4528,6 +4545,10 @@ const defaultAgencyForm = () => ({
     mode: 'inherit',
     days: 14
   },
+  sessionSettings: {
+    inactivityTimeoutMinutes: 8,
+    heartbeatIntervalSeconds: 30
+  },
   featureFlags: {
     // Controls dashboard module set + certain provider-only surfaces
     portalVariant: 'healthcare_provider',
@@ -5561,6 +5582,14 @@ const editAgency = async (agency) => {
   const retentionDays = Number.isFinite(Number(retentionPolicyRaw.days))
     ? Number(retentionPolicyRaw.days)
     : 14;
+
+  const sessionSettingsRaw = safeJsonObject(agency.session_settings_json, {});
+  const sessionInactivityMinutes = Number.isFinite(Number(sessionSettingsRaw.inactivityTimeoutMinutes))
+    ? Number(sessionSettingsRaw.inactivityTimeoutMinutes)
+    : 8;
+  const sessionHeartbeatSeconds = Number.isFinite(Number(sessionSettingsRaw.heartbeatIntervalSeconds))
+    ? Number(sessionSettingsRaw.heartbeatIntervalSeconds)
+    : 30;
   
   // Parse custom parameters if they exist
   const customParams = safeJsonObject(agency.custom_parameters, {});
@@ -5705,6 +5734,10 @@ const editAgency = async (agency) => {
     intakeRetentionPolicy: {
       mode: retentionMode,
       days: retentionDays
+    },
+    sessionSettings: {
+      inactivityTimeoutMinutes: sessionInactivityMinutes,
+      heartbeatIntervalSeconds: sessionHeartbeatSeconds
     },
     featureFlags: {
       portalVariant: String(featureFlags.portalVariant || 'healthcare_provider'),
@@ -6201,6 +6234,12 @@ const saveAgency = async () => {
       return /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex.toUpperCase() : '#000000';
     };
     
+    const clampNumber = (raw, min, max, fallback) => {
+      const num = Number(raw);
+      if (!Number.isFinite(num)) return fallback;
+      return Math.min(max, Math.max(min, num));
+    };
+
     const colorPalette = {
       primary: validateColor(agencyForm.value.primaryColor),
       secondary: validateColor(agencyForm.value.secondaryColor),
@@ -6242,6 +6281,25 @@ const saveAgency = async () => {
               ? String(retentionPolicyRaw.mode || 'inherit').toLowerCase()
               : 'inherit',
             days: Number.isFinite(Number(retentionPolicyRaw.days)) ? Number(retentionPolicyRaw.days) : 14
+          }
+        : null;
+
+    const sessionSettingsRaw = agencyForm.value.sessionSettings || null;
+    const sessionSettings =
+      sessionSettingsRaw && typeof sessionSettingsRaw === 'object'
+        ? {
+            inactivityTimeoutMinutes: clampNumber(
+              sessionSettingsRaw.inactivityTimeoutMinutes,
+              1,
+              240,
+              8
+            ),
+            heartbeatIntervalSeconds: clampNumber(
+              sessionSettingsRaw.heartbeatIntervalSeconds,
+              10,
+              300,
+              30
+            )
           }
         : null;
     
@@ -6301,6 +6359,7 @@ const saveAgency = async () => {
       colorPalette: colorPalette,
       terminologySettings: Object.keys(terminologySettings).length > 0 ? terminologySettings : null,
       intakeRetentionPolicy: retentionPolicy,
+      sessionSettings,
       iconId: agencyForm.value.iconId ?? null,
       chatIconId: agencyForm.value.chatIconId ?? null,
       isActive: agencyForm.value.isActive !== undefined ? agencyForm.value.isActive : true,

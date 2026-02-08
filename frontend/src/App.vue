@@ -781,6 +781,19 @@ const navTitleText = computed(() => {
 });
 
 const isAuthenticated = computed(() => authStore.isAuthenticated);
+const sessionSettingsKey = computed(() => {
+  const raw =
+    agencyStore.currentAgency?.session_settings_json ??
+    agencyStore.currentAgency?.sessionSettings ??
+    null;
+  if (!raw) return '';
+  if (typeof raw === 'string') return raw;
+  try {
+    return JSON.stringify(raw);
+  } catch {
+    return '';
+  }
+});
 const user = computed(() => authStore.user);
 
 const hideGlobalNavForSchoolStaff = computed(() => {
@@ -1043,7 +1056,7 @@ const fetchBuildingsPendingCounts = async () => {
 // Start/stop activity tracking based on authentication status
 watch(isAuthenticated, (authenticated) => {
   if (authenticated) {
-    startActivityTracking();
+    startActivityTracking({ force: true });
     fetchBuildingsPendingCounts();
     if (buildingsPendingInterval) clearInterval(buildingsPendingInterval);
     buildingsPendingInterval = setInterval(fetchBuildingsPendingCounts, 2 * 60 * 1000);
@@ -1054,6 +1067,12 @@ watch(isAuthenticated, (authenticated) => {
     buildingsPendingInterval = null;
   }
 }, { immediate: true });
+
+watch(sessionSettingsKey, () => {
+  if (isAuthenticated.value) {
+    startActivityTracking({ force: true });
+  }
+});
 
 // ---- Obnoxious notifications badge (admin/support) ----
 const notificationsUnreadCount = computed(() => Number(notificationStore.unreadCount || 0));
