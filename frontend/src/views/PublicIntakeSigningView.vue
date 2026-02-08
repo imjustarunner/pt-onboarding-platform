@@ -589,8 +589,10 @@ const templates = ref([]);
 const agencyInfo = ref(null);
 const organizationInfo = ref(null);
 const introIndex = ref(0);
-const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
-const useEnterpriseRecaptcha = String(import.meta.env.VITE_RECAPTCHA_USE_ENTERPRISE || '').toLowerCase() === 'true';
+const recaptchaSiteKey = ref(import.meta.env.VITE_RECAPTCHA_SITE_KEY || '');
+const useEnterpriseRecaptcha = ref(
+  String(import.meta.env.VITE_RECAPTCHA_USE_ENTERPRISE || '').toLowerCase() === 'true'
+);
 const captchaToken = ref('');
 const captchaError = ref('');
 const intakeSteps = computed(() =>
@@ -1225,6 +1227,13 @@ const loadLink = async () => {
     templates.value = resp.data?.templates || [];
     agencyInfo.value = resp.data?.agency || null;
     organizationInfo.value = resp.data?.organization || null;
+    const recaptchaConfig = resp.data?.recaptcha || {};
+    if (recaptchaConfig.siteKey) {
+      recaptchaSiteKey.value = recaptchaConfig.siteKey;
+    }
+    if (typeof recaptchaConfig.useEnterprise === 'boolean') {
+      useEnterpriseRecaptcha.value = recaptchaConfig.useEnterprise;
+    }
     if (!templates.value.length) {
       error.value = 'No documents configured for this intake link.';
     }
@@ -1236,6 +1245,7 @@ const loadLink = async () => {
 };
 
 const loadRecaptchaScript = () => {
+  if (!recaptchaSiteKey.value) return Promise.resolve(null);
   if (window.grecaptcha) return Promise.resolve(window.grecaptcha);
   if (document.querySelector('script[data-recaptcha]')) {
     return new Promise((resolve) => {
@@ -1246,9 +1256,9 @@ const loadRecaptchaScript = () => {
   }
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = useEnterpriseRecaptcha
-      ? `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(recaptchaSiteKey)}`
-      : `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(recaptchaSiteKey)}`;
+    script.src = useEnterpriseRecaptcha.value
+      ? `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(recaptchaSiteKey.value)}`
+      : `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(recaptchaSiteKey.value)}`;
     script.async = true;
     script.defer = true;
     script.setAttribute('data-recaptcha', 'true');
@@ -1259,21 +1269,21 @@ const loadRecaptchaScript = () => {
 };
 
 const getRecaptchaToken = async () => {
-  if (!recaptchaSiteKey) return '';
+  if (!recaptchaSiteKey.value) return '';
   try {
     const grecaptcha = await loadRecaptchaScript();
     if (!grecaptcha) return '';
-    if (useEnterpriseRecaptcha && grecaptcha.enterprise?.execute) {
+    if (useEnterpriseRecaptcha.value && grecaptcha.enterprise?.execute) {
       if (grecaptcha.enterprise?.ready) {
         await new Promise((resolve) => grecaptcha.enterprise.ready(resolve));
       }
-      return await grecaptcha.enterprise.execute(recaptchaSiteKey, { action: 'public_intake_consent' });
+      return await grecaptcha.enterprise.execute(recaptchaSiteKey.value, { action: 'public_intake_consent' });
     }
     if (!grecaptcha?.execute) return '';
     if (grecaptcha?.ready) {
       await new Promise((resolve) => grecaptcha.ready(resolve));
     }
-    return await grecaptcha.execute(recaptchaSiteKey, { action: 'public_intake_consent' });
+    return await grecaptcha.execute(recaptchaSiteKey.value, { action: 'public_intake_consent' });
   } catch {
     return '';
   }
@@ -1371,7 +1381,7 @@ const submitConsent = async () => {
     }
     return;
   }
-  if (recaptchaSiteKey) {
+  if (recaptchaSiteKey.value) {
     const token = await getRecaptchaToken();
     captchaToken.value = token;
     if (!token) {
@@ -1403,7 +1413,7 @@ const submitConsent = async () => {
         }
       }
     };
-    if (recaptchaSiteKey) {
+    if (recaptchaSiteKey.value) {
       payload.captchaToken = captchaToken.value || '';
     }
     const resp = await api.post(`/public-intake/${publicKey}/consent`, payload);
@@ -1903,7 +1913,7 @@ onMounted(async () => {
   }
   initializeFieldValues();
   await loadPdfPreview();
-  if (recaptchaSiteKey) {
+  if (recaptchaSiteKey.value) {
     await nextTick();
   }
 });

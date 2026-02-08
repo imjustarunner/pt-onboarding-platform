@@ -1049,6 +1049,10 @@ export const getPublicIntakeLink = async (req, res, next) => {
         intake_fields: link.intake_fields,
         intake_steps: link.intake_steps
       },
+      recaptcha: {
+        siteKey: config.recaptcha?.siteKey || null,
+        useEnterprise: !!config.recaptcha?.enterpriseApiKey
+      },
       organization: toOrgPayload(organization),
       agency: toOrgPayload(agency),
       templates: templates.map(t => ({
