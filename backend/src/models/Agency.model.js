@@ -965,17 +965,6 @@ class Agency {
       hasSessionSettings = false;
     }
 
-    // Check if session_settings_json column exists (optional)
-    let hasSessionSettings = false;
-    try {
-      const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'session_settings_json'"
-      );
-      hasSessionSettings = (cols || []).length > 0;
-    } catch {
-      hasSessionSettings = false;
-    }
-    
     const insertFields = ['name', 'slug', 'logo_url', 'color_palette', 'terminology_settings', 'is_active'];
     const insertValues = [name, slug, logoUrl || null, colorPalette ? JSON.stringify(colorPalette) : null, terminologySettings ? JSON.stringify(terminologySettings) : null, isActive !== undefined ? isActive : true];
 
