@@ -50,7 +50,8 @@ class PublicIntakeClientService {
     let organizationId = link.organization_id;
 
     if (scopeType === 'agency') {
-      organizationId = payload?.organizationId ? Number(payload.organizationId) : null;
+      const payloadOrg = payload?.organizationId ? Number(payload.organizationId) : null;
+      organizationId = payloadOrg || organizationId || null;
     }
 
     if (!organizationId) {

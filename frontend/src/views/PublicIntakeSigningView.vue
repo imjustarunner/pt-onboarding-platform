@@ -22,6 +22,9 @@
           </div>
           <div class="cover-title">{{ currentIntro?.displayName || 'Welcome' }}</div>
           <div v-if="currentIntro?.subtitle" class="cover-subtitle">{{ currentIntro.subtitle }}</div>
+          <div class="cover-subtitle">
+            This form must be completed within 30 minutes. Each new page adds 5 minutes. The session is unique and cannot be saved or resumed.
+          </div>
           <div class="actions">
             <button class="btn btn-primary" type="button" @click="advanceIntro">
               Next
@@ -31,7 +34,8 @@
       </div>
 
       <div v-else-if="step === 1" class="step">
-        <h3>{{ intakeForSelf ? 'Your Information' : 'Guardian + Client Information' }}</h3>
+        <h3>Questions</h3>
+        <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
         <div class="form-group">
           <label>Who is this intake for?</label>
           <div class="radio-group">
@@ -77,101 +81,6 @@
           <div class="form-group">
             <label>Relationship</label>
             <input v-model="guardianRelationship" type="text" placeholder="e.g., Parent" />
-          </div>
-        </div>
-
-        <div class="clients-block">
-          <div class="clients-header">
-            <h4>{{ intakeForSelf ? 'Client' : 'Clients' }}</h4>
-            <button v-if="!intakeForSelf" class="btn btn-secondary btn-sm" type="button" @click="addClient">Add another child</button>
-          </div>
-          <div v-for="(c, idx) in clients" :key="idx" class="client-card">
-            <div class="client-card-header">
-              <strong>Client {{ idx + 1 }}</strong>
-              <button v-if="clients.length > 1" class="btn btn-secondary btn-sm" type="button" @click="removeClient(idx)">Remove</button>
-            </div>
-            <div class="form-grid">
-                <div v-if="!intakeForSelf" class="form-group">
-                  <label>Client first name</label>
-                  <input
-                    :id="`clientFirstName_${idx}`"
-                    v-model="c.firstName"
-                    type="text"
-                    :class="{ 'input-error': idx === 0 && !!consentErrors.clientFirstName }"
-                  />
-                  <div v-if="idx === 0 && consentErrors.clientFirstName" class="error-text">{{ consentErrors.clientFirstName }}</div>
-                </div>
-                <div v-if="!intakeForSelf" class="form-group">
-                  <label>Client last name</label>
-                  <input
-                    :id="`clientLastName_${idx}`"
-                    v-model="c.lastName"
-                    type="text"
-                    :class="{ 'input-error': idx === 0 && !!consentErrors.clientLastName }"
-                  />
-                  <div v-if="idx === 0 && consentErrors.clientLastName" class="error-text">{{ consentErrors.clientLastName }}</div>
-                </div>
-                <div v-else class="form-group">
-                  <div class="muted">Client name will use your first and last name.</div>
-                </div>
-              <div v-if="requiresOrganizationId" class="form-group">
-                <label>Organization ID</label>
-                <input v-model="organizationId" type="number" />
-              </div>
-            </div>
-
-            <div v-if="clientFields.length" class="custom-fields">
-              <h4>Client Questions</h4>
-              <div class="muted" style="margin-bottom: 10px;">
-                These questions repeat for each client.
-              </div>
-              <div class="form-grid">
-              <div v-for="field in visibleClientFields(idx)" :key="`${idx}-${field.key}`" class="form-group">
-                <div v-if="field.type === 'info'" class="info-block">
-                  <div class="info-title">{{ field.label || 'Notice' }}</div>
-                  <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
-                </div>
-                <template v-else>
-                <label>
-                  {{ field.label }}
-                  <span v-if="field.required" class="required-indicator">*</span>
-                </label>
-                <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
-                <input
-                  v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
-                  :type="field.type || 'text'"
-                  v-model="intakeResponses.clients[idx][field.key]"
-                  :required="!!field.required"
-                  :placeholder="field.placeholder || ''"
-                  @blur="maybeAutofillLocation(idx, field)"
-                />
-                <textarea
-                  v-else-if="field.type === 'textarea'"
-                  v-model="intakeResponses.clients[idx][field.key]"
-                  :placeholder="field.placeholder || ''"
-                  rows="3"
-                />
-                <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
-                  <input v-model="intakeResponses.clients[idx][field.key]" type="checkbox" />
-                  <span>{{ field.label }}</span>
-                </label>
-                <select v-else-if="field.type === 'select'" v-model="intakeResponses.clients[idx][field.key]">
-                  <option value="">Select an option</option>
-                  <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
-                    {{ opt.label || opt.value }}
-                  </option>
-                </select>
-                <div v-else-if="field.type === 'radio'" class="radio-group">
-                  <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
-                    <input type="radio" :name="`client_${idx}_${field.key}`" :value="opt.value || opt.label" v-model="intakeResponses.clients[idx][field.key]" />
-                    <span>{{ opt.label || opt.value }}</span>
-                  </label>
-                </div>
-                <input v-else v-model="intakeResponses.clients[idx][field.key]" type="date" />
-                </template>
-              </div>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -277,47 +186,108 @@
           </div>
         </div>
 
-        <div v-if="recaptchaSiteKey" class="captcha-block">
-          <div class="muted">Protected by reCAPTCHA</div>
-          <div v-if="captchaError" class="error">{{ captchaError }}</div>
+        <div class="clients-block">
+          <div class="clients-header">
+            <h4>{{ intakeForSelf ? 'Client' : 'Clients' }}</h4>
+          </div>
+          <div v-for="(c, idx) in clients" :key="idx" class="client-card" :class="{ 'client-card-alt': idx % 2 === 1 }">
+            <div class="client-card-header">
+              <strong>Client {{ idx + 1 }}</strong>
+              <button v-if="clients.length > 1" class="btn btn-secondary btn-sm" type="button" @click="removeClient(idx)">Remove</button>
+            </div>
+            <div class="form-grid">
+                <div v-if="!intakeForSelf" class="form-group">
+                  <label>Client first name</label>
+                  <input
+                    :id="`clientFirstName_${idx}`"
+                    v-model="c.firstName"
+                    type="text"
+                    :class="{ 'input-error': idx === 0 && !!consentErrors.clientFirstName }"
+                  />
+                  <div v-if="idx === 0 && consentErrors.clientFirstName" class="error-text">{{ consentErrors.clientFirstName }}</div>
+                </div>
+                <div v-if="!intakeForSelf" class="form-group">
+                  <label>Client last name</label>
+                  <input
+                    :id="`clientLastName_${idx}`"
+                    v-model="c.lastName"
+                    type="text"
+                    :class="{ 'input-error': idx === 0 && !!consentErrors.clientLastName }"
+                  />
+                  <div v-if="idx === 0 && consentErrors.clientLastName" class="error-text">{{ consentErrors.clientLastName }}</div>
+                </div>
+                <div v-else class="form-group">
+                  <div class="muted">Client name will use your first and last name.</div>
+                </div>
+              <div v-if="requiresOrganizationId" class="form-group">
+                <label>Organization ID</label>
+              <input id="organizationId" v-model="organizationId" type="number" :class="{ 'input-error': !!consentErrors.organizationId }" />
+              <div v-if="consentErrors.organizationId" class="error-text">{{ consentErrors.organizationId }}</div>
+              </div>
+            </div>
+
+            <div v-if="clientFields.length" class="custom-fields">
+              <h4>Client Questions</h4>
+              <div class="muted" style="margin-bottom: 10px;">
+                These questions repeat for each client.
+              </div>
+              <div class="form-grid">
+              <div v-for="field in visibleClientFields(idx)" :key="`${idx}-${field.key}`" class="form-group">
+                <div v-if="field.type === 'info'" class="info-block">
+                  <div class="info-title">{{ field.label || 'Notice' }}</div>
+                  <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
+                </div>
+                <template v-else>
+                <label>
+                  {{ field.label }}
+                  <span v-if="field.required" class="required-indicator">*</span>
+                </label>
+                <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
+                <input
+                  v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
+                  :type="field.type || 'text'"
+                  v-model="intakeResponses.clients[idx][field.key]"
+                  :required="!!field.required"
+                  :placeholder="field.placeholder || ''"
+                  @blur="maybeAutofillLocation(idx, field)"
+                />
+                <textarea
+                  v-else-if="field.type === 'textarea'"
+                  v-model="intakeResponses.clients[idx][field.key]"
+                  :placeholder="field.placeholder || ''"
+                  rows="3"
+                />
+                <label v-else-if="field.type === 'checkbox'" class="checkbox-row">
+                  <input v-model="intakeResponses.clients[idx][field.key]" type="checkbox" />
+                  <span>{{ field.label }}</span>
+                </label>
+                <select v-else-if="field.type === 'select'" v-model="intakeResponses.clients[idx][field.key]">
+                  <option value="">Select an option</option>
+                  <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
+                    {{ opt.label || opt.value }}
+                  </option>
+                </select>
+                <div v-else-if="field.type === 'radio'" class="radio-group">
+                  <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
+                    <input type="radio" :name="`client_${idx}_${field.key}`" :value="opt.value || opt.label" v-model="intakeResponses.clients[idx][field.key]" />
+                    <span>{{ opt.label || opt.value }}</span>
+                  </label>
+                </div>
+                <input v-else v-model="intakeResponses.clients[idx][field.key]" type="date" />
+                </template>
+              </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="!intakeForSelf" class="clients-footer">
+            <button class="btn btn-secondary btn-sm" type="button" @click="addClient">Add another child</button>
+            <div class="muted">Add another client or continue below.</div>
+          </div>
         </div>
 
-        <div class="consent-box">
-          <strong>ESIGN Act Disclosure</strong>
-          <p>
-            By continuing, you consent to electronically sign these documents and receive electronic records.
-            You may request paper copies from the organization.
-          </p>
-        </div>
-
-        <div class="actions">
-          <button class="btn btn-primary" type="button" :disabled="consentLoading" @click="submitConsent">
-            {{ consentLoading ? 'Saving...' : 'I Consent and Continue' }}
-          </button>
-          <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="consentLoading || submitLoading">
-            Cancel & delete
-          </button>
-          <button class="btn btn-outline" type="button" @click="restartIntake" :disabled="consentLoading || submitLoading">
-            Restart
-          </button>
-        </div>
-      </div>
-
-      <div v-else-if="step === 2 && currentFlowStep?.type === 'questions'" class="step">
-        <h3>Questions</h3>
-        <div class="actions" style="margin-bottom: 12px;">
-          <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="submitLoading">
-            Cancel & delete
-          </button>
-          <button class="btn btn-outline" type="button" @click="restartIntake" :disabled="submitLoading">
-            Restart
-          </button>
-          <button class="btn btn-secondary" type="button" @click="returnToIntakeInfo" :disabled="submitLoading">
-            Back to intake info
-          </button>
-        </div>
-        <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
-        <div class="field-inputs">
+        <div v-if="visibleQuestionFields.length" class="field-inputs">
+          <h4>Additional Questions</h4>
           <div v-for="field in visibleQuestionFields" :key="field.id" class="form-group">
             <div v-if="field.type === 'info'" class="info-block">
               <div class="info-title">{{ field.label || 'Notice' }}</div>
@@ -355,17 +325,30 @@
             </template>
           </div>
         </div>
-        <div class="actions">
-          <button class="btn btn-secondary" type="button" @click="completeQuestionStep" :disabled="submitLoading">
-            Continue
-          </button>
+
+        <div v-if="recaptchaSiteKey" class="captcha-block">
+          <div class="muted">Protected by reCAPTCHA</div>
+          <div v-if="captchaError" class="error">{{ captchaError }}</div>
         </div>
-        <div class="consent-box" style="margin-top: 16px;">
+
+        <div class="consent-box">
           <strong>ESIGN Act Disclosure</strong>
           <p>
             By continuing, you consent to electronically sign these documents and receive electronic records.
             You may request paper copies from the organization.
           </p>
+        </div>
+
+        <div class="actions">
+          <button class="btn btn-primary" type="button" :disabled="consentLoading" @click="submitConsent">
+            {{ consentLoading ? 'Saving...' : 'I Consent and Continue' }}
+          </button>
+          <button class="btn btn-outline" type="button" @click="cancelIntake" :disabled="consentLoading || submitLoading">
+            Cancel & delete
+          </button>
+          <button class="btn btn-outline" type="button" @click="restartIntake" :disabled="consentLoading || submitLoading">
+            Restart
+          </button>
         </div>
       </div>
 
@@ -403,6 +386,7 @@
           <div v-if="currentDoc?.template_type === 'html'" v-html="currentDoc.html_content" class="html-preview"></div>
           <div v-else-if="pdfUrl" class="pdf-preview-container">
             <PDFPreview
+              ref="pdfPreviewRef"
               :pdf-url="pdfUrl"
               @loaded="handlePdfLoaded"
               @page-change="handlePageChange"
@@ -413,9 +397,9 @@
           <div v-else class="muted">Document preview not available.</div>
         </div>
 
-        <div v-if="currentFlowStep?.type === 'document' && visibleFieldDefinitions.length" class="field-inputs">
+        <div v-if="currentFlowStep?.type === 'document' && displayedFieldDefinitions.length" class="field-inputs">
           <h4>Required Fields</h4>
-          <div v-for="field in visibleFieldDefinitions" :key="field.id" class="form-group">
+          <div v-for="field in displayedFieldDefinitions" :key="field.id" class="form-group">
             <label>{{ field.label || field.type }}</label>
             <input
               v-if="field.type !== 'date' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio'"
@@ -455,49 +439,47 @@
         </div>
 
         <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-block">
-          <SignaturePad @signed="onSigned" />
-        </div>
-
-        <div v-if="currentFlowStep?.type === 'questions'" class="field-inputs">
-          <h4>Questions</h4>
-          <div v-for="field in visibleQuestionFields" :key="field.id" class="form-group">
-            <div v-if="field.type === 'info'" class="info-block">
-              <div class="info-title">{{ field.label || 'Notice' }}</div>
-              <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
+          <div class="signature-summary">
+            <div v-if="guardianDisplayName" class="summary-row">
+              <strong>Guardian:</strong>
+              <span>{{ guardianDisplayName }}</span>
             </div>
-            <template v-else>
-              <label>{{ field.label || field.key }}</label>
-              <div v-if="field.helperText" class="helper-text">{{ field.helperText }}</div>
-              <input
-                v-if="field.type !== 'textarea' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio' && field.type !== 'date'"
-                v-model="questionValues[field.key]"
-                type="text"
-                :data-field-id="field.id"
-              />
-              <textarea v-else-if="field.type === 'textarea'" v-model="questionValues[field.key]" rows="4"></textarea>
-              <label v-else-if="field.type === 'checkbox'" class="checkbox-row" :data-field-id="field.id">
-                <input v-model="questionValues[field.key]" type="checkbox" />
-                <span>{{ field.label || field.key }}</span>
-              </label>
-              <select v-else-if="field.type === 'select'" v-model="questionValues[field.key]">
-                <option value="">Select an option</option>
-                <option v-for="opt in field.options || []" :key="opt.value || opt.label" :value="opt.value || opt.label">
-                  {{ opt.label || opt.value }}
-                </option>
-              </select>
-              <div v-else-if="field.type === 'radio'" class="radio-group">
-                <label v-for="opt in field.options || []" :key="opt.value || opt.label" class="radio-row">
-                  <input type="radio" :name="`q_${field.key}`" :value="opt.value || opt.label" v-model="questionValues[field.key]" />
-                  <span>{{ opt.label || opt.value }}</span>
-                </label>
-              </div>
-              <input v-else v-model="questionValues[field.key]" type="date" />
-            </template>
+            <div v-if="guardianEmail" class="summary-row">
+              <strong>Email:</strong>
+              <span>{{ guardianEmail }}</span>
+            </div>
+            <div v-if="guardianRelationship" class="summary-row">
+              <strong>Relationship:</strong>
+              <span>{{ guardianRelationship }}</span>
+            </div>
+            <div v-if="clientDisplayNames.length" class="summary-row">
+              <strong>Client{{ clientDisplayNames.length > 1 ? 's' : '' }}:</strong>
+              <span>{{ clientDisplayNames.join(', ') }}</span>
+            </div>
+          </div>
+          <SignaturePad @signed="onSigned" />
+          <div class="signature-actions">
+            <button
+              v-if="lastSignatureData && !signatureData"
+              class="btn btn-secondary btn-sm"
+              type="button"
+              @click="signatureData = lastSignatureData"
+            >
+              Use saved signature
+            </button>
+            <button
+              class="btn btn-outline btn-sm"
+              type="button"
+              @click="signatureData = ''"
+            >
+              Sign again
+            </button>
+            <div v-if="signatureData" class="muted">Signature ready for this document.</div>
           </div>
         </div>
 
         <div class="actions">
-          <button v-if="currentFlowStep?.type === 'document' && visibleFieldDefinitions.length" class="btn btn-secondary" type="button" @click="focusNextField">
+          <button v-if="currentFlowStep?.type === 'document' && displayedFieldDefinitions.length" class="btn btn-secondary" type="button" @click="focusNextField">
             Next Field
           </button>
           <button
@@ -509,6 +491,7 @@
             {{ submitLoading ? 'Submitting...' : (currentFlowStep?.type === 'document' ? (currentDoc?.document_action_type === 'signature' ? 'Sign & Continue' : 'Mark Reviewed & Continue') : 'Continue') }}
           </button>
         </div>
+
       </div>
 
       <div v-else-if="step === 3" class="step">
@@ -614,13 +597,12 @@ const intakeSteps = computed(() =>
 );
 const flowSteps = computed(() => {
   if (intakeSteps.value.length) {
-    return intakeSteps.value.map((s) => {
-      if (s.type === 'document') {
+    return intakeSteps.value
+      .filter((s) => s?.type === 'document')
+      .map((s) => {
         const template = templates.value.find((t) => Number(t.id) === Number(s.templateId));
         return { ...s, template };
-      }
-      return s;
-    });
+      });
   }
   return templates.value.map((t) => ({ id: `doc_${t.id}`, type: 'document', template: t }));
 });
@@ -632,7 +614,9 @@ const consentLoading = ref(false);
 const submitLoading = ref(false);
 const currentDocIndex = ref(0);
 const signatureData = ref('');
+const lastSignatureData = ref('');
 const pdfUrl = ref(null);
+const pdfPreviewRef = ref(null);
 const reviewPage = ref(1);
 const reviewTotalPages = ref(0);
 const canProceed = ref(true);
@@ -664,9 +648,34 @@ const consentErrors = reactive({
   guardianFirstName: '',
   guardianEmail: '',
   clientFirstName: '',
-  clientLastName: ''
+  clientLastName: '',
+  organizationId: ''
 });
 const intakeForSelf = ref(false);
+const guardianDisplayName = computed(() =>
+  `${guardianFirstName.value || ''} ${guardianLastName.value || ''}`.trim()
+);
+const clientDisplayNames = computed(() =>
+  (clients.value || [])
+    .map((c) => `${String(c?.firstName || '').trim()} ${String(c?.lastName || '').trim()}`.trim())
+    .filter(Boolean)
+);
+const getDocumentFieldFallbackValue = (field) => {
+  const normalize = (val) =>
+    String(val || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, ' ');
+  const label = normalize(field?.label || field?.id || '');
+  if (!label) return '';
+  if (label.includes('printed client name') || label.includes('client name')) {
+    return clientDisplayNames.value[0] || '';
+  }
+  if (label.includes('relationship')) {
+    return guardianRelationship.value || '';
+  }
+  return '';
+};
 
 const resolveLogoUrl = (org) => {
   if (!org) return null;
@@ -738,6 +747,24 @@ const isFieldVisible = (def, values) => {
 };
 const visibleFieldDefinitions = computed(() =>
   currentFieldDefinitions.value.filter((def) => isFieldVisible(def, currentFieldValues.value))
+);
+const shouldHideDocumentField = (field) => {
+  const normalize = (val) =>
+    String(val || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, '_');
+  const key = normalize(resolvePrefillKey(field));
+  const label = normalize(field?.label);
+  const id = normalize(field?.id);
+  const hiddenKeys = new Set(['client_first', 'client_last', 'relationship']);
+  if (hiddenKeys.has(key)) return true;
+  if (hiddenKeys.has(label)) return true;
+  if (hiddenKeys.has(id)) return true;
+  return false;
+};
+const displayedFieldDefinitions = computed(() =>
+  visibleFieldDefinitions.value.filter((def) => !shouldHideDocumentField(def))
 );
 const currentFieldValues = computed(() => {
   const id = currentDoc.value?.id;
@@ -1264,6 +1291,31 @@ const buildClientPayloads = () =>
     };
   });
 
+const syncClientNamesToResponses = () => {
+  if (!Array.isArray(intakeResponses.clients)) {
+    intakeResponses.clients = [];
+  }
+  while (intakeResponses.clients.length < clients.value.length) {
+    intakeResponses.clients.push({});
+  }
+  clients.value.forEach((client, idx) => {
+    const response = intakeResponses.clients[idx] || {};
+    const firstName = intakeForSelf.value
+      ? String(guardianFirstName.value || '').trim()
+      : String(client?.firstName || '').trim();
+    const lastName = intakeForSelf.value
+      ? String(guardianLastName.value || '').trim()
+      : String(client?.lastName || '').trim();
+    if (firstName && (!response.client_first || !String(response.client_first).trim())) {
+      response.client_first = firstName;
+    }
+    if (lastName && (!response.client_last || !String(response.client_last).trim())) {
+      response.client_last = lastName;
+    }
+    intakeResponses.clients[idx] = response;
+  });
+};
+
 const submitConsent = async () => {
   consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : 'Required';
   consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : 'Required';
@@ -1271,14 +1323,21 @@ const submitConsent = async () => {
   const clientLast = intakeForSelf.value ? guardianLastName.value : clients.value?.[0]?.lastName;
   consentErrors.clientFirstName = String(clientFirst || '').trim() ? '' : 'Required';
   consentErrors.clientLastName = String(clientLast || '').trim() ? '' : 'Required';
+  consentErrors.organizationId =
+    requiresOrganizationId.value && !String(organizationId.value || '').trim()
+      ? 'Required'
+      : '';
 
   if (
     consentErrors.guardianFirstName
     || consentErrors.guardianEmail
     || consentErrors.clientFirstName
     || consentErrors.clientLastName
+    || consentErrors.organizationId
   ) {
-    error.value = 'Guardian name and guardian email are required.';
+    error.value = consentErrors.organizationId
+      ? 'Organization is required.'
+      : 'Guardian name and guardian email are required.';
     stepError.value = '';
     await nextTick();
     const firstMissingId = consentErrors.guardianFirstName
@@ -1289,7 +1348,9 @@ const submitConsent = async () => {
           ? (intakeForSelf.value ? 'guardianFirstName' : 'clientFirstName_0')
           : consentErrors.clientLastName
             ? (intakeForSelf.value ? 'guardianLastName' : 'clientLastName_0')
-            : null;
+            : consentErrors.organizationId
+              ? 'organizationId'
+              : null;
     if (firstMissingId) {
       const el = document.getElementById(firstMissingId);
       if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1310,21 +1371,31 @@ const submitConsent = async () => {
     consentLoading.value = true;
     error.value = '';
     stepError.value = '';
+    syncClientNamesToResponses();
     const clientPayloads = buildClientPayloads();
     const payload = {
       signerName: `${guardianFirstName.value} ${guardianLastName.value}`.trim(),
       signerInitials: clientPayloads?.[0]?.initials || null,
       signerEmail: guardianEmail.value,
-      signerPhone: guardianPhone.value
+      signerPhone: guardianPhone.value,
+      intakeData: {
+        responses: intakeResponses || {},
+        clients: clientPayloads || [],
+        guardian: {
+          firstName: guardianFirstName.value,
+          lastName: guardianLastName.value,
+          email: guardianEmail.value,
+          phone: guardianPhone.value,
+          relationship: guardianRelationship.value
+        }
+      }
     };
     if (recaptchaSiteKey) {
       payload.captchaToken = captchaToken.value || '';
     }
     const resp = await api.post(`/public-intake/${publicKey}/consent`, payload);
     submissionId.value = resp.data?.submission?.id || null;
-    if (submissionId.value) {
-      localStorage.setItem(submissionStorageKey, String(submissionId.value));
-    }
+    currentFlowIndex.value = 0;
     step.value = 2;
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to capture consent';
@@ -1336,6 +1407,7 @@ const submitConsent = async () => {
 
 const onSigned = (dataUrl) => {
   signatureData.value = dataUrl;
+  lastSignatureData.value = dataUrl;
 };
 
 const completeCurrentDocument = async () => {
@@ -1360,7 +1432,7 @@ const completeCurrentDocument = async () => {
       return;
     }
 
-    const missingFields = visibleFieldDefinitions.value.filter((f) => {
+    const missingFields = displayedFieldDefinitions.value.filter((f) => {
       if (!f.required) return false;
       if (f.type === 'date' && f.autoToday) return false;
       if (f.type === 'checkbox') {
@@ -1377,6 +1449,8 @@ const completeCurrentDocument = async () => {
     });
     if (missingFields.length > 0) {
       error.value = 'Please complete all required fields before continuing.';
+      await nextTick();
+      focusNextField();
       return;
     }
 
@@ -1499,7 +1573,7 @@ const returnToIntakeInfo = () => {
 };
 
 const focusNextField = () => {
-  const fields = visibleFieldDefinitions.value;
+  const fields = displayedFieldDefinitions.value;
   if (!fields.length) return;
   let targetId = null;
   for (const field of fields) {
@@ -1539,46 +1613,33 @@ const focusNextField = () => {
   }
 };
 
-const loadResumeStatus = async () => {
-  if (!submissionId.value) return;
-  try {
-    const resp = await api.get(`/public-intake/${publicKey}/status/${submissionId.value}`);
-    const signedIds = new Set(resp.data?.signedTemplateIds || []);
-    templates.value.forEach((t) => {
-      docStatus[t.id] = signedIds.has(t.id);
-    });
-    const nextIndex = templates.value.findIndex((t) => !signedIds.has(t.id));
-    currentDocIndex.value = nextIndex === -1 ? templates.value.length - 1 : nextIndex;
-
-    if (flowSteps.value.length) {
-      const firstIncomplete = flowSteps.value.findIndex((step) => {
-        if (step.type === 'document') {
-          return !signedIds.has(step.template?.id);
-        }
-        if (step.type === 'questions') {
-          return (step.fields || []).some((f) => f.required && !questionValues.value[f.key]);
-        }
-        return false;
-      });
-      currentFlowIndex.value = firstIncomplete === -1 ? flowSteps.value.length - 1 : firstIncomplete;
-    }
-
-    if (resp.data?.downloadUrl) {
-      downloadUrl.value = resp.data.downloadUrl;
-      step.value = 3;
-      return;
-    }
-    step.value = 2;
-  } catch (e) {
-    // ignore resume errors
-  }
+const syncDocIndexFromFlow = () => {
+  if (!flowSteps.value.length) return;
+  const templateId = currentFlowStep.value?.template?.id;
+  if (!templateId) return;
+  const idx = templates.value.findIndex((t) => Number(t.id) === Number(templateId));
+  if (idx >= 0) currentDocIndex.value = idx;
 };
 
 const goToPrevious = () => {
+  if (flowSteps.value.length) {
+    if (currentFlowIndex.value > 0) {
+      currentFlowIndex.value -= 1;
+      syncDocIndexFromFlow();
+    }
+    return;
+  }
   if (currentDocIndex.value > 0) currentDocIndex.value -= 1;
 };
 
 const goToNext = () => {
+  if (flowSteps.value.length) {
+    if (currentFlowIndex.value < flowSteps.value.length - 1) {
+      currentFlowIndex.value += 1;
+      syncDocIndexFromFlow();
+    }
+    return;
+  }
   if (currentDocIndex.value < templates.value.length - 1) currentDocIndex.value += 1;
 };
 
@@ -1613,6 +1674,7 @@ const initializeFieldValues = () => {
     const prefillValue = prefillKey ? prefill[prefillKey] : undefined;
     const existing = values[field.id];
     const isEmpty = existing === undefined || existing === null || existing === '';
+    const fallbackValue = getDocumentFieldFallbackValue(field);
     if (isEmpty && prefillValue !== undefined && prefillValue !== null && prefillValue !== '') {
       if (field.type === 'checkbox') {
         values[field.id] = prefillValue === true || prefillValue === 'true' || prefillValue === 1;
@@ -1626,10 +1688,15 @@ const initializeFieldValues = () => {
       }
       return;
     }
-    if (field.type === 'date' && field.autoToday) {
+    if (isEmpty && fallbackValue) {
+      values[field.id] = String(fallbackValue);
+      return;
+    }
+    const keyNorm = String(prefillKey || '').trim().toLowerCase();
+    if (field.type === 'date' && (field.autoToday || keyNorm === 'date')) {
       values[field.id] = new Date().toISOString().slice(0, 10);
     } else if (field.type === 'checkbox') {
-      if (!(field.id in values)) values[field.id] = false;
+      if (!(field.id in values)) values[field.id] = field.defaultChecked === true;
     } else if (field.type === 'select' || field.type === 'radio') {
       if (!(field.id in values)) values[field.id] = '';
     } else if (!(field.id in values)) {
@@ -1638,9 +1705,24 @@ const initializeFieldValues = () => {
   });
 };
 
-const currentQuestionFields = computed(() => {
-  if (currentFlowStep.value?.type !== 'questions') return [];
-  return Array.isArray(currentFlowStep.value.fields) ? currentFlowStep.value.fields : [];
+const stepQuestionFields = computed(() => {
+  if (!intakeSteps.value.length) return [];
+  const fields = [];
+  intakeSteps.value.forEach((step) => {
+    if (step?.type !== 'questions' || !Array.isArray(step.fields)) return;
+    fields.push(...step.fields);
+  });
+  if (!fields.length) return [];
+  const intakeKeys = new Set(
+    (intakeFields.value || [])
+      .map((f) => String(f?.key || '').trim())
+      .filter(Boolean)
+  );
+  return fields.filter((f) => {
+    const key = String(f?.key || '').trim();
+    if (!key) return false;
+    return !intakeKeys.has(key);
+  });
 });
 
 const questionValues = computed(() => intakeResponses.submission);
@@ -1660,7 +1742,7 @@ const isQuestionVisible = (field, values = {}) => {
 };
 
 const visibleQuestionFields = computed(() =>
-  currentQuestionFields.value.filter((f) => isQuestionVisible(f, questionValues.value))
+  stepQuestionFields.value.filter((f) => isQuestionVisible(f, questionValues.value))
 );
 
 watch(guardianFirstName, (val) => {
@@ -1731,7 +1813,12 @@ const getPrefillMap = () => {
   const submission = intakeResponses.submission || {};
   const guardianResponses = intakeResponses.guardian || {};
   const clientResponses = intakeResponses.clients?.[0] || {};
-  const clientPayload = buildClientPayloads()?.[0] || {};
+  const intakeKeys = new Set(
+    (intakeFields.value || [])
+      .map((f) => String(f?.key || '').trim())
+      .filter(Boolean)
+  );
+  const shouldSetRelationship = intakeKeys.has('relationship');
   Object.keys(submission).forEach((key) => {
     if (submission[key] !== undefined && submission[key] !== null && submission[key] !== '') {
       map[key] = submission[key];
@@ -1741,7 +1828,7 @@ const getPrefillMap = () => {
   if (guardianLastName.value) map.guardian_last = guardianLastName.value;
   if (guardianRelationship.value) map.relationship = guardianRelationship.value;
   if (!map.relationship && guardianResponses.relationship) map.relationship = guardianResponses.relationship;
-  if (!map.relationship) {
+  if (!map.relationship && shouldSetRelationship) {
     const relKey = Object.keys(guardianResponses).find((k) => normalizeKey(k).includes('relationship'));
     if (relKey && guardianResponses[relKey]) map.relationship = guardianResponses[relKey];
   }
@@ -1752,10 +1839,8 @@ const getPrefillMap = () => {
   const firstClient = clients.value?.[0] || {};
   const clientFirst = String(firstClient.firstName || '').trim();
   const clientLast = String(firstClient.lastName || '').trim();
-  if (clientFirst) map.client_first = clientFirst;
-  if (clientLast) map.client_last = clientLast;
-  if (!map.client_first && clientPayload.firstName) map.client_first = clientPayload.firstName;
-  if (!map.client_last && clientPayload.lastName) map.client_last = clientPayload.lastName;
+  if (clientFirst && !map.client_first) map.client_first = clientFirst;
+  if (clientLast && !map.client_last) map.client_last = clientLast;
   if (clientResponses.client_first && !map.client_first) map.client_first = clientResponses.client_first;
   if (clientResponses.client_last && !map.client_last) map.client_last = clientResponses.client_last;
   const questionMap = buildQuestionPrefillMap();
@@ -1791,17 +1876,15 @@ watch(currentDoc, async () => {
   canProceed.value = currentDoc.value?.template_type !== 'pdf';
   signatureData.value = '';
   pageNotice.value = '';
+  syncClientNamesToResponses();
   initializeFieldValues();
   await loadPdfPreview();
 });
 
 onMounted(async () => {
   await loadLink();
-  const stored = localStorage.getItem(submissionStorageKey);
-  if (stored) {
-    submissionId.value = parseInt(stored, 10) || null;
-    await loadResumeStatus();
-  } else if (introScreens.value.length) {
+  localStorage.removeItem(submissionStorageKey);
+  if (introScreens.value.length) {
     step.value = 0;
     introIndex.value = 0;
   }
@@ -1843,6 +1926,11 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 10px;
 }
+.clients-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .client-card {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1850,6 +1938,9 @@ onMounted(async () => {
   background: var(--bg-alt);
   display: grid;
   gap: 10px;
+}
+.client-card-alt {
+  background: #f3f6fb;
 }
 .client-card-header {
   display: flex;
@@ -1896,6 +1987,9 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 10px;
   margin: 12px 0;
+}
+.doc-nav-bottom {
+  margin-top: 18px;
 }
 .doc-preview {
   border: 1px solid var(--border);
@@ -1993,6 +2087,7 @@ onMounted(async () => {
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
+  margin-top: 6px;
 }
 
 .radio-row {
@@ -2000,6 +2095,7 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   font-size: 14px;
+  padding-left: 2px;
 }
 .checkbox-row {
   display: flex;
@@ -2009,6 +2105,25 @@ onMounted(async () => {
 }
 .signature-block {
   margin-top: 16px;
+}
+.signature-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.signature-summary {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-alt);
+  margin-bottom: 10px;
+}
+.signature-summary .summary-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 14px;
 }
 .html-preview {
   max-height: 480px;

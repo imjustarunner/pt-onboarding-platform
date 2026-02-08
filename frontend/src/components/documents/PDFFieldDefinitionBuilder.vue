@@ -37,6 +37,12 @@
             Auto-fill today
           </label>
         </div>
+        <div v-if="field.type === 'checkbox'" class="field-row">
+          <label class="checkbox">
+            <input v-model="field.defaultChecked" type="checkbox" />
+            Default checked
+          </label>
+        </div>
         <div class="field-row field-coords" v-if="field.type !== 'radio'">
           <input v-model.number="field.page" type="number" min="1" :max="totalPages || undefined" placeholder="Page" />
           <input v-model.number="field.width" type="number" min="20" placeholder="W" />
@@ -183,6 +189,7 @@ const normalizeField = (field) => ({
   type: field.type || 'text',
   required: Boolean(field.required),
   autoToday: Boolean(field.autoToday),
+  defaultChecked: Boolean(field.defaultChecked),
   options: Array.isArray(field.options) ? field.options.map(normalizeOption) : [],
   showIf: {
     fieldId: field.showIf?.fieldId || '',

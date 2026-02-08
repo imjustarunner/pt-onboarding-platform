@@ -37,7 +37,7 @@ class ClientPhiDocument {
         scan_status, scan_result, scanned_at, quarantine_path,
         is_encrypted, encryption_key_id, encryption_wrapped_key, encryption_iv, encryption_auth_tag, encryption_alg,
         exported_to_ehr_at, exported_to_ehr_by_user_id, removed_at, removed_by_user_id, removed_reason, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         agencyId,

@@ -173,6 +173,15 @@ export const viewPhiDocument = async (req, res, next) => {
       // ignore
     }
 
+    const isPlainText = String(doc.mime_type || '').toLowerCase().includes('text/plain');
+    const escapeHtml = (value) =>
+      String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
     if (doc.is_encrypted) {
       const encryptedBuffer = await StorageService.readObject(doc.storage_path);
       const decryptedBuffer = await DocumentEncryptionService.decryptBuffer({
@@ -206,6 +215,124 @@ export const viewPhiDocument = async (req, res, next) => {
         // best-effort logging
       }
       return res.send(decryptedBuffer);
+    }
+
+    if (isPlainText) {
+      const buffer = await StorageService.readObject(doc.storage_path);
+      const text = buffer?.toString('utf8') || '';
+      const safeName = StorageService.sanitizeFilename(doc.original_name || `document-${doc.id}`);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', `inline; filename="${safeName}.html"`);
+      res.setHeader('Cache-Control', 'no-store');
+      try {
+        const ip = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.ip || null;
+        await PhiDocumentAuditLog.create({
+          documentId: doc.id,
+          clientId: doc.client_id,
+          action: 'downloaded',
+          actorUserId: req.user.id,
+          actorLabel: req.user?.email || req.user?.name || null,
+          ipAddress: ip
+        });
+      } catch {
+        // best-effort logging
+      }
+      const isClinicalSummary = String(doc.document_type || doc.document_title || '').toLowerCase().includes('clinical');
+      const lines = text.split('\n');
+      const body = lines
+        .map((line) => {
+          const trimmed = line.trim();
+          if (!trimmed) return '<div class="spacer"></div>';
+          if (/^-{2,}$/.test(trimmed)) return '';
+          if (!trimmed.includes(':')) {
+            return `<h2>${escapeHtml(trimmed)}</h2>`;
+          }
+          const idx = trimmed.indexOf(':');
+          const label = trimmed.slice(0, idx).trim();
+          const value = trimmed.slice(idx + 1).trim();
+          const copyButton = isClinicalSummary
+            ? ''
+            : `<button class="copy-btn" type="button" data-copy="${escapeHtml(value)}">Copy</button>`;
+          return `
+            <div class="row">
+              ${copyButton}
+              <div class="label">${escapeHtml(label)}</div>
+              <div class="value">${escapeHtml(value)}</div>
+            </div>
+          `;
+        })
+        .join('');
+      const copyAllButton = isClinicalSummary
+        ? '<button class="copy-all" type="button" data-copy-all>Copy All</button>'
+        : '';
+      const html = `
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>${escapeHtml(doc.document_title || doc.original_name || 'Document')}</title>
+            <style>
+              body { background: #fff; color: #111; font-family: Arial, sans-serif; margin: 24px; }
+              h1 { margin-bottom: 16px; color: #1f3a60; }
+              h2 { margin: 14px 0 6px; font-size: 14px; color: #1f3a60; }
+              .row { display: flex; gap: 10px; margin-bottom: 6px; align-items: flex-start; }
+              .label { font-weight: 700; min-width: 220px; }
+              .value { flex: 1; }
+              .copy-btn {
+                background: #eef2f6;
+                border: 1px solid #c9d2dc;
+                border-radius: 6px;
+                padding: 2px 8px;
+                font-size: 12px;
+                cursor: pointer;
+              }
+              .copy-btn:active { transform: translateY(1px); }
+              .copy-all {
+                background: #1f3a60;
+                color: #fff;
+                border: 1px solid #1f3a60;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-size: 12px;
+                cursor: pointer;
+                margin-bottom: 12px;
+              }
+              .spacer { height: 8px; }
+            </style>
+          </head>
+          <body>
+            <h1>${escapeHtml(doc.document_title || doc.original_name || 'Document')}</h1>
+            ${copyAllButton}
+            ${body}
+            <script>
+              const copyText = async (text) => {
+                if (!text) return;
+                try {
+                  await navigator.clipboard.writeText(text);
+                } catch {
+                  const textarea = document.createElement('textarea');
+                  textarea.value = text;
+                  textarea.style.position = 'fixed';
+                  textarea.style.opacity = '0';
+                  document.body.appendChild(textarea);
+                  textarea.focus();
+                  textarea.select();
+                  document.execCommand('copy');
+                  document.body.removeChild(textarea);
+                }
+              };
+              document.querySelectorAll('[data-copy]').forEach((btn) => {
+                btn.addEventListener('click', () => copyText(btn.getAttribute('data-copy')));
+              });
+              const copyAllBtn = document.querySelector('[data-copy-all]');
+              if (copyAllBtn) {
+                const rawText = ${JSON.stringify(text)};
+                copyAllBtn.addEventListener('click', () => copyText(rawText.trim()));
+              }
+            </script>
+          </body>
+        </html>
+      `;
+      return res.send(html);
     }
 
     // Return a signed URL for the underlying object (do not expose via /uploads without auth)

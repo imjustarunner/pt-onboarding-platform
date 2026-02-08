@@ -1,5 +1,6 @@
 import { validationResult } from 'express-validator';
 import crypto from 'crypto';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import IntakeLink from '../models/IntakeLink.model.js';
 import IntakeSubmission from '../models/IntakeSubmission.model.js';
 import IntakeSubmissionDocument from '../models/IntakeSubmissionDocument.model.js';
@@ -24,6 +25,193 @@ import ActivityLogService from '../services/activityLog.service.js';
 import PlatformRetentionSettings from '../models/PlatformRetentionSettings.model.js';
 
 const normalizeName = (name) => String(name || '').trim();
+const BASE_CONSENT_TTL_MS = 30 * 60 * 1000;
+const PER_PAGE_TTL_MS = 5 * 60 * 1000;
+
+const isSubmissionExpired = (submission, { templatesCount = 0 } = {}) => {
+  if (!submission) return false;
+  if (String(submission.status || '').toLowerCase() === 'submitted') return false;
+  const base = submission.consent_given_at || submission.created_at;
+  if (!base) return false;
+  const startedAt = new Date(base).getTime();
+  if (Number.isNaN(startedAt)) return false;
+  const extra = Math.max(0, Number(templatesCount) || 0) * PER_PAGE_TTL_MS;
+  const ttl = BASE_CONSENT_TTL_MS + extra;
+  return Date.now() - startedAt > ttl;
+};
+
+const deleteSubmissionData = async (submissionId) => {
+  if (!submissionId) return;
+  const docs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
+  const clients = await IntakeSubmissionClient.listBySubmissionId(submissionId);
+  const phiDocs = await ClientPhiDocument.listByIntakeSubmissionId(submissionId);
+  const paths = new Set([
+    ...(Array.isArray(docs) ? docs.map((d) => String(d?.signed_pdf_path || '').trim()) : []),
+    ...(Array.isArray(clients) ? clients.map((c) => String(c?.bundle_pdf_path || '').trim()) : [])
+  ].filter(Boolean));
+  for (const doc of phiDocs || []) {
+    const p = String(doc?.storage_path || '').trim();
+    if (p) paths.add(p);
+  }
+  for (const path of paths) {
+    try {
+      await StorageService.deleteObject(path);
+    } catch {
+      // best-effort
+    }
+  }
+  if (phiDocs?.length) {
+    try {
+      const ids = phiDocs.map((d) => d.id).filter(Boolean);
+      await ClientPhiDocument.deleteByIds(ids);
+    } catch {
+      // ignore
+    }
+  }
+  try {
+    await IntakeSubmission.deleteById(submissionId);
+  } catch {
+    // ignore
+  }
+};
+
+const isOptionalPublicField = (def) => {
+  const normalize = (val) =>
+    String(val || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, '_');
+  const key = normalize(def?.prefillKey || def?.prefill_key || def?.id);
+  const label = normalize(def?.label);
+  const name = normalize(def?.name);
+  const hiddenKeys = new Set(['client_first', 'client_last', 'relationship']);
+  return hiddenKeys.has(key) || hiddenKeys.has(label) || hiddenKeys.has(name);
+};
+
+const isPublicDateField = (def) => {
+  const key = String(def?.prefillKey || def?.prefill_key || def?.id || '').trim().toLowerCase();
+  return key === 'date';
+};
+
+const decodeHtmlEntities = (value) =>
+  String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'");
+
+const escapeHtml = (value) =>
+  String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const buildAnswersPdfBuffer = async ({ link, intakeData }) => {
+  if (!intakeData) return null;
+  const clients = Array.isArray(intakeData?.clients) ? intakeData.clients : [];
+  const totalClients = clients.length || 1;
+  const sections = [];
+  for (let i = 0; i < totalClients; i += 1) {
+    const rawText = buildIntakeAnswersText({ link, intakeData, clientIndex: i });
+    if (!rawText) continue;
+    const client = clients[i];
+    const clientName =
+      String(client?.fullName || '').trim()
+      || `${String(client?.firstName || '').trim()} ${String(client?.lastName || '').trim()}`.trim();
+    const heading = clientName ? `Intake Responses - ${clientName}` : `Intake Responses - Client ${i + 1}`;
+    const lines = decodeHtmlEntities(rawText).split('\n');
+    sections.push({ heading, lines });
+  }
+  if (!sections.length) return null;
+
+  const pdfDoc = await PDFDocument.create();
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const pageSize = [612, 792];
+  const margin = 48;
+  const maxWidth = pageSize[0] - margin * 2;
+  const lineGap = 4;
+
+  const wrapText = (text, activeFont, size, width) => {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    if (!words.length) return [''];
+    const lines = [];
+    let current = '';
+    words.forEach((word) => {
+      const next = current ? `${current} ${word}` : word;
+      const nextWidth = activeFont.widthOfTextAtSize(next, size);
+      if (nextWidth <= width) {
+        current = next;
+      } else {
+        if (current) lines.push(current);
+        current = word;
+      }
+    });
+    if (current) lines.push(current);
+    return lines;
+  };
+
+  let page = pdfDoc.addPage(pageSize);
+  let y = pageSize[1] - margin;
+  const newLine = (size) => {
+    y -= size + lineGap;
+    if (y < margin + 40) {
+      page = pdfDoc.addPage(pageSize);
+      y = pageSize[1] - margin;
+    }
+  };
+
+  const headerLines = wrapText('Intake Responses', fontBold, 18, maxWidth);
+  headerLines.forEach((line) => {
+    page.drawText(line, { x: margin, y, size: 18, font: fontBold, color: rgb(0, 0, 0) });
+    newLine(18);
+  });
+  newLine(10);
+
+  for (const section of sections) {
+    const headingLines = wrapText(section.heading, fontBold, 14, maxWidth);
+    headingLines.forEach((line) => {
+      page.drawText(line, { x: margin, y, size: 14, font: fontBold, color: rgb(0, 0, 0) });
+      newLine(14);
+    });
+
+    section.lines.forEach((rawLine) => {
+      const trimmed = String(rawLine || '').trim();
+      if (!trimmed) {
+        newLine(10);
+        return;
+      }
+      if (/^-{2,}$/.test(trimmed)) return;
+      if (!trimmed.includes(':')) {
+        page.drawText(trimmed, { x: margin, y, size: 12, font: fontBold, color: rgb(0, 0, 0) });
+        newLine(12);
+        return;
+      }
+      const idx = trimmed.indexOf(':');
+      const label = trimmed.slice(0, idx).trim();
+      const value = trimmed.slice(idx + 1).trim();
+      const labelText = `${label}:`;
+      const labelLines = wrapText(labelText, fontBold, 11, maxWidth * 0.4);
+      labelLines.forEach((line) => {
+        page.drawText(line, { x: margin, y, size: 11, font: fontBold, color: rgb(0, 0, 0) });
+        newLine(11);
+      });
+      const valueLines = wrapText(value, font, 11, maxWidth);
+      valueLines.forEach((line) => {
+        page.drawText(line, { x: margin, y, size: 11, font, color: rgb(0, 0, 0) });
+        newLine(11);
+      });
+    });
+
+    newLine(12);
+  }
+
+  return await pdfDoc.save();
+};
 
 const isFieldVisible = (def, values = {}) => {
   const showIf = def?.showIf;
@@ -112,7 +300,8 @@ const buildDocumentFieldValuesForClient = ({ link, intakeData, clientIndex = 0, 
     merged[key] = value;
   };
 
-  const fullName = String(clientPayload?.fullName || '').trim() || `${String(clientPayload?.firstName || '').trim()} ${String(clientPayload?.lastName || '').trim()}`.trim();
+  const fullName = String(clientPayload?.fullName || '').trim()
+    || `${String(clientPayload?.firstName || '').trim()} ${String(clientPayload?.lastName || '').trim()}`.trim();
   if (fullName) {
     const parts = fullName.split(/\s+/);
     setValue('client_full_name', fullName);
@@ -126,6 +315,31 @@ const buildDocumentFieldValuesForClient = ({ link, intakeData, clientIndex = 0, 
   setValue('guardian_email', guardianPayload?.email || '');
   setValue('guardian_phone', guardianPayload?.phone || '');
   setValue('relationship', guardianPayload?.relationship || '');
+
+  if (!hasValue(merged.client_first)) {
+    const fallbackFirst =
+      clientResponses?.client_first ||
+      clientResponses?.clientFirst ||
+      submissionResponses?.client_first ||
+      submissionResponses?.clientFirst;
+    setValue('client_first', fallbackFirst);
+  }
+  if (!hasValue(merged.client_last)) {
+    const fallbackLast =
+      clientResponses?.client_last ||
+      clientResponses?.clientLast ||
+      submissionResponses?.client_last ||
+      submissionResponses?.clientLast;
+    setValue('client_last', fallbackLast);
+  }
+  if (!hasValue(merged.relationship)) {
+    const relKey = Object.keys(guardianResponses || {}).find((k) => String(k || '').toLowerCase().includes('relationship'));
+    if (relKey && guardianResponses?.[relKey]) {
+      setValue('relationship', guardianResponses[relKey]);
+    } else {
+      setValue('relationship', guardianResponses?.relationship || submissionResponses?.relationship || '');
+    }
+  }
 
   const steps = Array.isArray(link?.intake_steps) ? link.intake_steps : [];
   steps.forEach((step) => {
@@ -249,9 +463,23 @@ const buildIntakeAnswersText = ({ link, intakeData, clientIndex = 0 }) => {
     submissionLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
   }
 
+  const clientFirst =
+    clientPayload?.firstName ||
+    clientResponses?.client_first ||
+    clientResponses?.clientFirst ||
+    submissionResponses?.client_first ||
+    submissionResponses?.clientFirst;
+  const clientLast =
+    clientPayload?.lastName ||
+    clientResponses?.client_last ||
+    clientResponses?.clientLast ||
+    submissionResponses?.client_last ||
+    submissionResponses?.clientLast;
   const clientName =
     String(clientPayload?.fullName || '').trim() ||
-    `${String(clientPayload?.firstName || '').trim()} ${String(clientPayload?.lastName || '').trim()}`.trim();
+    `${String(clientFirst || '').trim()} ${String(clientLast || '').trim()}`.trim();
+  pushLine('Client first name', clientFirst);
+  pushLine('Client last name', clientLast);
   pushHeader(`Client ${clientIndex + 1}${clientName ? ` - ${clientName}` : ''} Questions`);
   const clientLines = buildAnswerLinesForScope({
     fields: getOrderedFieldsByScope(fields, 'client'),
@@ -284,7 +512,8 @@ const parsePscScore = (value) => {
   return null;
 };
 
-const summaryExcludePattern = /insurance|member id|policy|subscriber|payer|medicaid|medicare|coverage|group|plan|billing|ssn|social security|address|street|city|state|zip|postal|phone|email|contact|relationship|guardian first|guardian last|client first|client last|full name|middle name|date of birth|birthdate|dob|grade|school/i;
+const summaryExcludePattern = /insurance|member id|policy|subscriber|payer|medicaid|medicare|coverage|group|plan|billing|ssn|social security|address|street|city|state|zip|postal|phone|email|contact|relationship|guardian first|guardian last|client first|client last|full name|middle name|date of birth|birthdate|dob|grade|school|legal right|custodian|sms|text message|communication preference|apartment|apt/i;
+const summaryExcludeKeyPattern = /legal|custodian|sms|text|communication|apartment|address|phone|email|relationship|client_first|client_last|guardian_first|guardian_last|dob|birth|grade|school/i;
 
 const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) => {
   if (!intakeData) return '';
@@ -300,6 +529,16 @@ const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) => {
     `${String(clientPayload?.firstName || '').trim()} ${String(clientPayload?.lastName || '').trim()}`.trim();
 
   const output = [];
+  const isExampleValue = (val) => {
+    if (!hasValue(val)) return false;
+    const normalized = String(val).trim().toLowerCase();
+    return normalized === 'example' || normalized === 'yes_full';
+  };
+  const isYes = (val) => {
+    if (!hasValue(val)) return false;
+    const normalized = String(val).trim().toLowerCase();
+    return normalized === 'yes' || normalized === 'true' || normalized === '1';
+  };
   output.push('Clinical Intake Summary');
   output.push('=======================');
   if (clientName) {
@@ -318,6 +557,31 @@ const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) => {
     pscItems.push({ index: i, key, label, value: normalizeAnswerValue(raw), score });
   }
 
+  const formatElevated = (score, cutoff) => (score >= cutoff ? 'Elevated' : 'Not Elevated');
+  const buildH0002Narrative = ({ attentionScore, internalScore, externalScore, totalScore, traumaIndicators, goals }) => {
+    const attentionStatus = formatElevated(attentionScore, 7);
+    const internalStatus = formatElevated(internalScore, 5);
+    const externalStatus = formatElevated(externalScore, 7);
+    const totalStatus = totalScore >= 15 ? 'clinically significant' : 'below clinical cutoff';
+    const traumaText = traumaIndicators.length
+      ? `Trauma indicators were endorsed (${traumaIndicators.join('; ')}).`
+      : 'No trauma indicators were endorsed.';
+    const goalsText = goals.length
+      ? `Client goals include: ${goals.map((g) => g.value).join('; ')}.`
+      : 'Client goals were not reported.';
+    return (
+      `PSC-17 was completed to assess fit and functioning and establish a baseline for services. ` +
+      `Scores indicate Attention is ${attentionStatus}, Internalizing is ${internalStatus}, and Externalizing is ${externalStatus}; total score is ${totalStatus}. ` +
+      `${traumaText} ${goalsText} ` +
+      `Findings support the need for structured support and ongoing monitoring of emotional and behavioral functioning.`
+    ).trim();
+  };
+
+  let attentionScore = 0;
+  let internalScore = 0;
+  let externalScore = 0;
+  let totalScore = 0;
+  let answered = 0;
   if (pscItems.length) {
     const attentionKeys = [1, 3, 7, 13, 17];
     const internalKeys = [2, 6, 9, 11, 15];
@@ -327,31 +591,57 @@ const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) => {
         const item = pscItems.find((entry) => entry.index === idx);
         return acc + (item?.score ?? 0);
       }, 0);
-    const totalScore = pscItems.reduce((acc, entry) => acc + (entry?.score ?? 0), 0);
-    const answered = pscItems.filter((entry) => entry.score !== null).length;
-    output.push('PSC-17 Results');
+    totalScore = pscItems.reduce((acc, entry) => acc + (entry?.score ?? 0), 0);
+    answered = pscItems.filter((entry) => entry.score !== null).length;
+    attentionScore = sumScores(attentionKeys);
+    internalScore = sumScores(internalKeys);
+    externalScore = sumScores(externalKeys);
+    output.push('PSC-17 Summary');
     output.push('--------------');
     output.push(`Total score: ${totalScore} (${answered} of 17 answered)`);
-    output.push(`Attention: ${sumScores(attentionKeys)}`);
-    output.push(`Internalizing: ${sumScores(internalKeys)}`);
-    output.push(`Externalizing: ${sumScores(externalKeys)}`);
+    output.push(`Attention: ${attentionScore}`);
+    output.push(`Internalizing: ${internalScore}`);
+    output.push(`Externalizing: ${externalScore}`);
     output.push('');
-    output.push('PSC-17 Item Responses');
-    output.push('---------------------');
-    pscItems
-      .sort((a, b) => a.index - b.index)
-      .forEach((entry) => {
-        const scoreLabel = entry.score === null ? 'n/a' : entry.score;
-        output.push(`${entry.index}. ${entry.label}: ${entry.value} (score ${scoreLabel})`);
-      });
+    output.push('Interpretation');
+    output.push('-------------');
+    output.push(
+      attentionScore >= 7
+        ? 'Attention scores indicate clinically significant concerns with focus and attention.'
+        : 'Functioning within normal limits; attention does not appear to be a primary barrier.'
+    );
+    output.push(
+      internalScore >= 5
+        ? 'Scores indicate the presence of emotional distress, meeting the threshold for clinical risk.'
+        : 'Internalizing scores do not indicate clinically significant distress.'
+    );
+    output.push(
+      externalScore >= 7
+        ? 'Scores indicate behavioral dysregulation and interpersonal conflict, meeting the threshold for clinical risk.'
+        : 'Externalizing scores do not indicate clinically significant behavioral dysregulation.'
+    );
+    output.push(
+      totalScore >= 15
+        ? 'Total PSC-17 score meets the overall clinical cutoff for risk.'
+        : 'Total PSC-17 score is below the overall clinical cutoff.'
+    );
     output.push('');
   }
 
+  const shouldExcludeSummaryLine = (line) => {
+    if (!line?.label || !hasValue(line?.value)) return true;
+    if (isExampleValue(line?.value)) return true;
+    const label = String(line.label);
+    if (summaryExcludePattern.test(label)) return true;
+    const key = String(line.key || '').toLowerCase();
+    if (key && summaryExcludeKeyPattern.test(key)) return true;
+    return false;
+  };
+
   const pushClinicalLines = (lines) => {
     lines.forEach((line) => {
-      if (!line?.label || !hasValue(line?.value)) return;
+      if (shouldExcludeSummaryLine(line)) return;
       const label = String(line.label);
-      if (summaryExcludePattern.test(label)) return;
       output.push(`${label}: ${line.value}`);
     });
   };
@@ -369,14 +659,63 @@ const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) => {
     responses: clientResponses
   }).filter((line) => !/^psc_\d+$/i.test(line.key || ''));
 
-  if (orderedGuardian.length || orderedSubmission.length || orderedClient.length) {
-    output.push('Clinical Responses');
-    output.push('------------------');
-    pushClinicalLines(orderedGuardian);
-    pushClinicalLines(orderedSubmission);
-    pushClinicalLines(orderedClient);
+  const findYesLabels = (lines, patterns) =>
+    lines
+      .filter((line) => {
+        if (shouldExcludeSummaryLine(line)) return false;
+        const label = String(line.label || '').toLowerCase();
+        return patterns.some((p) => p.test(label)) && isYes(line.value);
+      })
+      .map((line) => String(line.label).trim());
+
+  const traumaLabels = [
+    ...findYesLabels(orderedClient, [/physical harm|abuse/i]),
+    ...findYesLabels(orderedClient, [/neglect|lack of appropriate care/i]),
+    ...findYesLabels(orderedClient, [/emotional harm|mistreatment|intimidation/i])
+  ];
+
+  const goalLines = [...orderedClient, ...orderedSubmission].filter((line) => {
+    if (shouldExcludeSummaryLine(line)) return false;
+    const label = String(line.label || '').toLowerCase();
+    return label.includes('hope') && label.includes('gain');
+  });
+
+  if (traumaLabels.length) {
+    output.push('Clinical History');
+    output.push('----------------');
+    output.push(
+      `Trauma indicators endorsed: ${traumaLabels.join('; ')}.`
+    );
+    output.push('');
+  }
+  if (goalLines.length) {
+    output.push('Client Goals');
+    output.push('------------');
+    goalLines.forEach((line) => output.push(`${line.label}: ${line.value}`));
+    output.push('');
   } else if (!pscItems.length) {
     output.push('No clinical responses captured.');
+  }
+
+  if (pscItems.length) {
+    const h0002Narrative = buildH0002Narrative({
+      attentionScore,
+      internalScore,
+      externalScore,
+      totalScore,
+      traumaIndicators: traumaLabels,
+      goals: goalLines
+    });
+    output.push('H0002 Narrative');
+    output.push('--------------');
+    output.push(h0002Narrative);
+    output.push('');
+    output.push(
+      `Objective Output: Client scored in the ${formatElevated(attentionScore, 7)} range for Attention (${attentionScore}; Cutoff >= 7), ` +
+      `the ${formatElevated(internalScore, 5)} range for Internalizing (${internalScore}; Cutoff >= 5), and the ${formatElevated(externalScore, 7)} range for Externalizing (${externalScore}; Cutoff >= 7). ` +
+      `Total Score was ${totalScore} (Cutoff >= 15).`
+    );
+    output.push('Diagnosis: Deferred (R69 – Illness, unspecified) or Z03.89 – Encounter for observation for other suspected diseases and conditions ruled out.');
   }
 
   return output.join('\n').trim();
@@ -390,11 +729,17 @@ const createIntakeTextDocuments = async ({
   intakeData,
   clientIndex,
   ipAddress,
-  expiresAt
+  expiresAt,
+  organizationId = null
 }) => {
   if (!clientId || !intakeData) return;
-  const agencyId = clientRow?.agency_id || null;
-  const orgId = clientRow?.organization_id || null;
+  const agencyId = clientRow?.agency_id || link?.organization_id || null;
+  const orgId =
+    clientRow?.organization_id ||
+    clientRow?.school_organization_id ||
+    organizationId ||
+    link?.organization_id ||
+    null;
   const answersText = buildIntakeAnswersText({ link, intakeData, clientIndex });
   const summaryText = buildClinicalSummaryText({ link, intakeData, clientIndex });
   const docsToCreate = [
@@ -423,10 +768,16 @@ const createIntakeTextDocuments = async ({
         fileBuffer: Buffer.from(doc.text, 'utf8'),
         filename: doc.filename
       });
+      const resolvedOrgId =
+        clientRow?.organization_id ||
+        clientRow?.school_organization_id ||
+        organizationId ||
+        agencyId ||
+        null;
       const phiDoc = await ClientPhiDocument.create({
         clientId,
         agencyId,
-        schoolOrganizationId: orgId,
+        schoolOrganizationId: resolvedOrgId || agencyId,
         intakeSubmissionId: submissionId,
         storagePath: storageResult.relativePath,
         originalName: doc.filename,
@@ -446,9 +797,72 @@ const createIntakeTextDocuments = async ({
         ipAddress: ipAddress || null,
         metadata: { submissionId, kind: doc.auditKind }
       });
-    } catch {
+    } catch (err) {
       // best-effort; do not block public intake
+      console.error('createIntakeTextDocuments failed', {
+        clientId,
+        submissionId,
+        filename: doc.filename,
+        error: err?.message || err,
+        code: err?.code,
+        sqlState: err?.sqlState
+      });
     }
+  }
+};
+
+const createIntakePacketDocument = async ({
+  clientId,
+  clientRow,
+  submissionId,
+  storagePath,
+  ipAddress,
+  expiresAt,
+  link,
+  organizationId = null
+}) => {
+  if (!clientId || !storagePath) return;
+  const agencyId = clientRow?.agency_id || link?.organization_id || null;
+  const orgId =
+    clientRow?.organization_id ||
+    clientRow?.school_organization_id ||
+    organizationId ||
+    link?.organization_id ||
+    null;
+  try {
+    const phiDoc = await ClientPhiDocument.create({
+      clientId,
+      agencyId,
+      schoolOrganizationId: orgId || agencyId,
+      intakeSubmissionId: submissionId,
+      storagePath,
+      originalName: 'Intake Packet (Signed)',
+      documentTitle: 'Intake Packet',
+      documentType: 'Intake Packet',
+      mimeType: 'application/pdf',
+      uploadedByUserId: null,
+      scanStatus: 'clean',
+      expiresAt: expiresAt || null
+    });
+    await PhiDocumentAuditLog.create({
+      documentId: phiDoc.id,
+      clientId,
+      action: 'uploaded',
+      actorUserId: null,
+      actorLabel: 'public_intake',
+      ipAddress: ipAddress || null,
+      metadata: { submissionId, kind: 'intake_packet' }
+    });
+  } catch (err) {
+    // best-effort; do not block public intake
+    console.error('createIntakePacketDocument failed', {
+      clientId,
+      submissionId,
+      storagePath,
+      error: err?.message || err,
+      code: err?.code,
+      sqlState: err?.sqlState
+    });
   }
 };
 
@@ -707,6 +1121,8 @@ export const createPublicConsent = async (req, res, next) => {
     const retentionPolicy = await resolveRetentionPolicy(link);
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
 
+    const intakeData = req.body?.intakeData || null;
+    const intakeDataHash = hashIntakeData(intakeData);
     const submission = await IntakeSubmission.create({
       intakeLinkId: link.id,
       status: 'consented',
@@ -714,6 +1130,8 @@ export const createPublicConsent = async (req, res, next) => {
       signerInitials: normalizeName(req.body.signerInitials),
       signerEmail: normalizeName(req.body.signerEmail) || null,
       signerPhone: normalizeName(req.body.signerPhone) || null,
+      intakeData,
+      intakeDataHash,
       consentGivenAt: now,
       ipAddress,
       userAgent,
@@ -741,14 +1159,28 @@ export const getPublicIntakeStatus = async (req, res, next) => {
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
-
     const templates = await loadAllowedTemplates(link);
     const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
     const signedTemplateIds = new Set(signedDocs.map((d) => d.document_template_id));
+    if (isSubmissionExpired(submission, { templatesCount: templates.length })) {
+      await deleteSubmissionData(submissionId);
+      return res.status(410).json({ error: { message: 'This intake session has expired. Please restart the intake.' } });
+    }
 
     let downloadUrl = null;
     if (submission.combined_pdf_path) {
       downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 3);
+    }
+
+    let intakeData = null;
+    if (submission.intake_data) {
+      try {
+        intakeData = typeof submission.intake_data === 'string'
+          ? JSON.parse(submission.intake_data)
+          : submission.intake_data;
+      } catch {
+        intakeData = null;
+      }
     }
 
     res.json({
@@ -757,7 +1189,8 @@ export const getPublicIntakeStatus = async (req, res, next) => {
       totalDocuments: templates.length,
       signedTemplateIds: Array.from(signedTemplateIds),
       signedDocuments: signedDocs,
-      downloadUrl
+      downloadUrl,
+      intakeData
     });
   } catch (error) {
     next(error);
@@ -860,12 +1293,59 @@ export const signPublicIntakeDocument = async (req, res, next) => {
     }
     const fieldDefinitions = Array.isArray(parsedFieldDefs) ? parsedFieldDefs : [];
     const fieldValues = req.body?.fieldValues && typeof req.body.fieldValues === 'object' ? req.body.fieldValues : {};
+    let intakeData = null;
+    if (submission?.intake_data) {
+      try {
+        intakeData = typeof submission.intake_data === 'string'
+          ? JSON.parse(submission.intake_data)
+          : submission.intake_data;
+      } catch {
+        intakeData = null;
+      }
+    }
+    if (intakeData) {
+      const baseValues = buildDocumentFieldValuesForClient({
+        link,
+        intakeData,
+        clientIndex: 0,
+        baseFieldValues: {}
+      });
+      const normalize = (val) =>
+        String(val || '')
+          .trim()
+          .toLowerCase()
+          .replace(/[\s_-]+/g, ' ');
+      const normalizedBase = {};
+      Object.keys(baseValues || {}).forEach((key) => {
+        normalizedBase[normalize(key)] = baseValues[key];
+      });
+      const resolveFieldKey = (def) => def?.prefillKey || def?.prefill_key || def?.id || '';
+      const getFallbackValue = (def) => {
+        const key = normalize(resolveFieldKey(def));
+        if (key && hasValue(normalizedBase[key])) return normalizedBase[key];
+        const label = normalize(def?.label || def?.name || def?.id || '');
+        if (label.includes('printed client name') || label.includes('client name')) {
+          return baseValues.client_full_name
+            || `${baseValues.client_first || ''} ${baseValues.client_last || ''}`.trim();
+        }
+        if (label.includes('relationship')) return baseValues.relationship || '';
+        return '';
+      };
+      fieldDefinitions.forEach((def) => {
+        if (!def?.id) return;
+        const existing = fieldValues[def.id];
+        if (hasValue(existing)) return;
+        const fallback = getFallbackValue(def);
+        if (hasValue(fallback)) fieldValues[def.id] = fallback;
+      });
+    }
 
     const missingFields = [];
     for (const def of fieldDefinitions) {
       if (!def || !def.required) continue;
       if (!isFieldVisible(def, fieldValues)) continue;
-      if (def.type === 'date' && def.autoToday) continue;
+      if (def.type === 'date' && (def.autoToday || isPublicDateField(def))) continue;
+      if (isOptionalPublicField(def)) continue;
       const val = fieldValues[def.id];
       if (def.type === 'checkbox') {
         if (val !== true) missingFields.push(def.label || def.id || 'field');
@@ -950,6 +1430,11 @@ export const finalizePublicIntake = async (req, res, next) => {
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
+    const templates = await loadAllowedTemplates(link);
+    if (isSubmissionExpired(submission, { templatesCount: templates.length })) {
+      await deleteSubmissionData(submissionId);
+      return res.status(410).json({ error: { message: 'This intake session has expired. Please restart the intake.' } });
+    }
 
     if (link.create_client) {
       const rawClients = Array.isArray(req.body?.clients) && req.body.clients.length
@@ -993,11 +1478,6 @@ export const finalizePublicIntake = async (req, res, next) => {
       });
     }
 
-    const templates = await loadAllowedTemplates(link);
-    if (!templates.length) {
-      return res.status(400).json({ error: { message: 'No documents are configured for this intake link.' } });
-    }
-
     const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
     const signedByTemplate = new Map(signedDocs.map((d) => [d.document_template_id, d]));
     for (const t of templates) {
@@ -1015,6 +1495,10 @@ export const finalizePublicIntake = async (req, res, next) => {
     for (const entry of signedDocsOrdered) {
       const buffer = await StorageService.readIntakeSignedDocument(entry.signed_pdf_path);
       pdfBuffers.push(buffer);
+    }
+    const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
+    if (answersPdf) {
+      pdfBuffers.unshift(answersPdf);
     }
 
     const rawClients = createdClients.length
@@ -1136,11 +1620,11 @@ export const finalizePublicIntake = async (req, res, next) => {
             try {
               const clientRow = await Client.findById(clientId, { includeSensitive: true });
               const agencyId = clientRow?.agency_id || null;
-              const orgId = clientRow?.organization_id || null;
+              const orgId = clientRow?.organization_id || clientRow?.school_organization_id || null;
               const phiDoc = await ClientPhiDocument.create({
                 clientId,
                 agencyId,
-                schoolOrganizationId: orgId,
+                schoolOrganizationId: orgId || agencyId,
                 intakeSubmissionId: submissionId,
                 storagePath,
                 originalName: `${template.name || 'Document'} (Signed)`,
@@ -1169,12 +1653,17 @@ export const finalizePublicIntake = async (req, res, next) => {
           if (!docRow) continue;
           try {
             const clientRow = await Client.findById(clientId, { includeSensitive: true });
-            const agencyId = clientRow?.agency_id || null;
-            const orgId = clientRow?.organization_id || null;
+            const agencyId = clientRow?.agency_id || link?.organization_id || null;
+            const orgId =
+              clientRow?.organization_id ||
+              clientRow?.school_organization_id ||
+              (req.body?.organizationId ? Number(req.body.organizationId) : null) ||
+              link?.organization_id ||
+              null;
             const phiDoc = await ClientPhiDocument.create({
               clientId,
               agencyId,
-              schoolOrganizationId: orgId,
+              schoolOrganizationId: orgId || agencyId,
               intakeSubmissionId: submissionId,
               storagePath: docRow.signed_pdf_path,
               originalName: `${template.name || 'Document'} (Signed)`,
@@ -1239,7 +1728,8 @@ export const finalizePublicIntake = async (req, res, next) => {
           intakeData,
           clientIndex: i,
           ipAddress: updatedSubmission.ip_address || null,
-          expiresAt: retentionExpiresAt
+          expiresAt: retentionExpiresAt,
+          organizationId: req.body?.organizationId || null
         });
       }
     }
@@ -1258,6 +1748,27 @@ export const finalizePublicIntake = async (req, res, next) => {
         combined_pdf_hash: bundleHash
       });
       downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 3);
+
+      for (const clientPayload of rawClients) {
+        const clientId = clientPayload?.id || null;
+        if (!clientId) continue;
+        let clientRow = null;
+        try {
+          clientRow = await Client.findById(clientId, { includeSensitive: true });
+        } catch {
+          clientRow = null;
+        }
+        await createIntakePacketDocument({
+          clientId,
+          clientRow,
+          submissionId,
+          storagePath: bundleResult.relativePath,
+          ipAddress: updatedSubmission.ip_address || null,
+          expiresAt: retentionExpiresAt,
+          link,
+          organizationId: req.body?.organizationId || null
+        });
+      }
 
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
         const clientCount = rawClients.length || 1;
@@ -1460,12 +1971,17 @@ export const submitPublicIntake = async (req, res, next) => {
         if (clientId) {
           try {
             const clientRow = await Client.findById(clientId, { includeSensitive: true });
-            const agencyId = clientRow?.agency_id || null;
-            const orgId = clientRow?.organization_id || null;
+            const agencyId = clientRow?.agency_id || link?.organization_id || null;
+            const orgId =
+              clientRow?.organization_id ||
+              clientRow?.school_organization_id ||
+              (req.body?.organizationId ? Number(req.body.organizationId) : null) ||
+              link?.organization_id ||
+              null;
             const phiDoc = await ClientPhiDocument.create({
               clientId,
               agencyId,
-              schoolOrganizationId: orgId,
+              schoolOrganizationId: orgId || agencyId,
               intakeSubmissionId: submissionId,
               storagePath: result.storagePath,
               originalName: `${template.name || 'Document'} (Signed)`,
@@ -1533,9 +2049,15 @@ export const submitPublicIntake = async (req, res, next) => {
           intakeData,
           clientIndex,
           ipAddress: updatedSubmission.ip_address || null,
-          expiresAt: retentionExpiresAt
+          expiresAt: retentionExpiresAt,
+          organizationId: req.body?.organizationId || null
         });
       }
+    }
+
+    const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
+    if (answersPdf) {
+      pdfBuffers.unshift(answersPdf);
     }
 
     let downloadUrl = null;
@@ -1552,6 +2074,27 @@ export const submitPublicIntake = async (req, res, next) => {
         combined_pdf_hash: bundleHash
       });
       downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 3);
+
+      for (const clientPayload of rawClients) {
+        const clientId = clientPayload?.id || null;
+        if (!clientId) continue;
+        let clientRow = null;
+        try {
+          clientRow = await Client.findById(clientId, { includeSensitive: true });
+        } catch {
+          clientRow = null;
+        }
+        await createIntakePacketDocument({
+          clientId,
+          clientRow,
+          submissionId,
+          storagePath: bundleResult.relativePath,
+          ipAddress: updatedSubmission.ip_address || null,
+          expiresAt: retentionExpiresAt,
+          link,
+          organizationId: req.body?.organizationId || null
+        });
+      }
 
       if (updatedSubmission.signer_email && EmailService.isConfigured()) {
         const clientCount = rawClients.length || 1;

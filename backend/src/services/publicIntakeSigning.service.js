@@ -44,7 +44,7 @@ class PublicIntakeSigningService {
       {
         referenceNumber,
         documentName,
-        signatureOnAuditPage: true,
+        signatureOnAuditPage: false,
         fieldDefinitions,
         fieldValues
       }
