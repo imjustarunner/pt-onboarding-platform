@@ -52,7 +52,7 @@ jobs:
           # Build the Docker image
           # Note: We build from root context (.) because backend Dockerfile needs access to frontend folder
           docker build -f backend/Dockerfile \
-            --build-arg VITE_API_URL="https://plottwisthq.com/api" \
+            --build-arg VITE_API_URL="/api" \
             -t $IMAGE_NAME:$GITHUB_SHA \
             -t $IMAGE_NAME:latest .
 

@@ -41,10 +41,11 @@ jobs:
       - name: Build and push Docker image
         run: |
           cd frontend
-          # We hardcode the correct Backend URL here to avoid permission errors
-          # Note: We appended '/api' because the frontend expects it
+          # IMPORTANT: Use a relative API base so multi-tenant custom domains work.
+          # This makes requests go to the same host (app.<client-domain>) and lets the backend
+          # resolve the portal slug by Host header.
           docker build \
-            --build-arg VITE_API_URL="https://plottwisthq.com/api" \
+            --build-arg VITE_API_URL="/api" \
             -t $IMAGE_NAME:$GITHUB_SHA \
             -t $IMAGE_NAME:latest .
           docker push $IMAGE_NAME:$GITHUB_SHA
