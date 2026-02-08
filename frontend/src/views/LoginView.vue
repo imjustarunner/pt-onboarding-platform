@@ -111,14 +111,14 @@ const displayLogoUrl = computed(() => {
 const displayTitle = computed(() => {
   if (isOrgLogin.value && loginTheme.value?.agency?.name) {
     const term = brandingStore.peopleOpsTerm || 'People Operations';
-    return `${loginTheme.value.agency.name} ${term} Platform`;
+    return `${loginTheme.value.agency.name} ${term}`;
   }
   const agencyName = brandingStore.portalAgency?.name || brandingStore.platformBranding?.organization_name || '';
   const term = brandingStore.peopleOpsTerm || 'People Operations';
   if (!agencyName) {
-    return `${term} Platform`;
+    return `${term}`;
   }
-  return `${agencyName} ${term} Platform`;
+  return `${agencyName} ${term}`;
 });
 
 const loginBackground = computed(() => {
