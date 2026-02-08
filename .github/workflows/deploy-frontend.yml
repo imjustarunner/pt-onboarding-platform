@@ -44,6 +44,7 @@ jobs:
           # IMPORTANT: Use a relative API base so multi-tenant custom domains work.
           # This makes requests go to the same host (app.<client-domain>) and lets the backend
           # resolve the portal slug by Host header.
+          # reCAPTCHA Enterprise keys are injected via build args below.
           docker build \
             --build-arg VITE_API_URL="/api" \
             --build-arg VITE_RECAPTCHA_SITE_KEY="${{ secrets.RECAPTCHA_SITE_KEY }}" \
