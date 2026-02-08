@@ -1,4 +1,4 @@
-import { createApp } from 'vue';
+import { createApp, watchEffect } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';
 import router from './router';
@@ -64,6 +64,76 @@ async function bootstrap() {
   // Always fetch platform branding early so /login renders correctly immediately.
   // On /login we force refresh to pick up latest logo/colors.
   await brandingStore.fetchPlatformBranding(isPlatformLogin);
+
+  // Keep the browser tab title aligned with the active portal/client.
+  // - For custom domains (app.<client-domain>) we resolve portalHostPortalUrl and fetch portal theme.
+  // - For slug routes (/:organizationSlug/...) we can also infer the slug from the route.
+  const setTitle = () => {
+    try {
+      const portalName = String(brandingStore.portalAgency?.name || '').trim();
+      const platformName = String(brandingStore.platformBranding?.organization_name || '').trim();
+      const slug =
+        typeof router.currentRoute.value?.params?.organizationSlug === 'string'
+          ? String(router.currentRoute.value.params.organizationSlug).trim()
+          : '';
+
+      const base =
+        portalName ||
+        platformName ||
+        (slug ? slug.toUpperCase() : '') ||
+        'Portal';
+
+      // Avoid "X Portal Portal" if an org name already contains "Portal".
+      const next = base.toLowerCase().includes('portal') ? base : `${base} Portal`;
+      document.title = next;
+    } catch {
+      // ignore
+    }
+  };
+
+  const setFavicon = (url) => {
+    try {
+      const href = String(url || '').trim();
+      if (!href) return;
+
+      const iconEl = document.querySelector('#app-favicon');
+      const appleEl = document.querySelector('#app-apple-touch-icon');
+
+      // Replace/seed standard favicon
+      if (iconEl) {
+        iconEl.setAttribute('href', href);
+      } else {
+        const link = document.createElement('link');
+        link.id = 'app-favicon';
+        link.rel = 'icon';
+        link.href = href;
+        document.head.appendChild(link);
+      }
+
+      // Best-effort: also set apple touch icon so iOS home-screen/bookmarks match.
+      if (appleEl) {
+        appleEl.setAttribute('href', href);
+      } else {
+        const link = document.createElement('link');
+        link.id = 'app-apple-touch-icon';
+        link.rel = 'apple-touch-icon';
+        link.href = href;
+        document.head.appendChild(link);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const setBrandingChrome = () => {
+    setTitle();
+    // Use the same logo the UI uses (already cache-busted by store).
+    const logo = brandingStore.displayLogoUrl;
+    if (logo) setFavicon(logo);
+  };
+
+  watchEffect(setBrandingChrome);
+  router.afterEach(() => setTitle());
 
   await router.isReady();
   // Clear reload guard after a successful boot.
