@@ -1216,7 +1216,16 @@ router.beforeEach(async (to, from, next) => {
   }
   
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    // Redirect to appropriate login page based on user's agency
+    // If this is an organization-slug route, always keep the slug in the login redirect
+    // so users land on "/:organizationSlug/login" (branded) instead of platform "/login".
+    const slug =
+      (to.meta.organizationSlug && typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) ||
+      null;
+    if (slug) {
+      next(`/${slug}/login`);
+      return;
+    }
+    // Otherwise, redirect based on stored agencies/user role.
     const loginUrl = getLoginUrl(authStore.user);
     next(loginUrl);
   } else if (to.meta.requiresGuest && authStore.isAuthenticated && !allowWhenAuthenticated.has(String(to.name || ''))) {

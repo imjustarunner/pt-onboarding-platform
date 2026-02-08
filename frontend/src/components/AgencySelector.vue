@@ -51,15 +51,25 @@ const handleAgencyChange = () => {
     const slug = agency.slug || agency.portal_url;
     if (!slug) return;
 
-    // If we are already on a slug-prefixed route, preserve current sub-route and swap slug.
+    // UX rule:
+    // - Switching into a SCHOOL/PROGRAM/LEARNING portal should always land on that portal's dashboard
+    //   (avoids staying on the prior route like "/notifications" with a different slug).
+    // - For non-admin surfaces, default to dashboard as well.
+    const nextDashboard = `/${slug}/dashboard`;
+    const onAdminSurface = String(route.path || '').includes('/admin/');
+    if (isPortalOrg(agency) || !onAdminSurface) {
+      router.push(nextDashboard);
+      return;
+    }
+
+    // Admin surfaces: preserve current sub-route and swap slug.
     if (route.params.organizationSlug) {
       const nextParams = { ...route.params, organizationSlug: slug };
       router.push({ name: route.name, params: nextParams, query: route.query });
       return;
     }
 
-    // Otherwise, go to the branded dashboard for this agency.
-    router.push(`/${slug}/dashboard`);
+    router.push(nextDashboard);
   }
 };
 

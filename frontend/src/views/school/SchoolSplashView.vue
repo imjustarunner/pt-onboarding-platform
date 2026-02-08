@@ -135,7 +135,9 @@ onMounted(async () => {
     
     if (!org) {
       // Organization not found, redirect to platform login
-      router.push('/login');
+      // Keep the slug if we have one so the login page stays branded
+      // (and avoids dropping to the platform login on transient API/CORS failures).
+      router.push(organizationSlug.value ? `/${organizationSlug.value}/login` : '/login');
       return;
     }
 

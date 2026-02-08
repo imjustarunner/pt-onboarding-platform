@@ -403,4 +403,3 @@ export const getNoteAidKnowledgeBaseStatus = async (req, res, next) => {
     next(e);
   }
 };
-

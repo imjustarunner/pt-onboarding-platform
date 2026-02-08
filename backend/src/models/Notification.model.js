@@ -314,6 +314,33 @@ class Notification {
     return counts;
   }
 
+  /**
+   * Fetch unread + unresolved + unmuted notifications for a user,
+   * scoped to a set of agencies.
+   *
+   * Used for navbar/count badges so providers don't get agency-wide counts.
+   */
+  static async findUnreadUnmutedByUserAcrossAgencies(userId, agencyIds) {
+    const uid = Number(userId);
+    if (!uid) return [];
+    if (!agencyIds || agencyIds.length === 0) return [];
+
+    const placeholders = agencyIds.map(() => '?').join(',');
+    const params = [uid, ...agencyIds];
+    const [rows] = await pool.execute(
+      `SELECT *
+       FROM notifications
+       WHERE user_id = ?
+         AND agency_id IN (${placeholders})
+         AND is_read = FALSE
+         AND is_resolved = FALSE
+         AND (muted_until IS NULL OR muted_until <= NOW())
+       ORDER BY created_at DESC`,
+      params
+    );
+    return rows || [];
+  }
+
   static async deleteOldResolved(daysOld = 30) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysOld);

@@ -71,6 +71,16 @@ function filterNotificationsForViewer(notifications, viewerUserId, viewerRole) {
     });
 }
 
+function isUnmuted(notification) {
+  const raw = notification?.muted_until;
+  if (!raw) return true;
+  const t = new Date(raw).getTime();
+  if (!Number.isFinite(t)) return true; // best-effort: don't hide if unparsable
+  return t <= Date.now();
+}
+
+const PERSONAL_ONLY_ROLES = new Set(['provider', 'staff', 'intern', 'facilitator']);
+
 async function appendNotificationContext(notifications) {
   const list = Array.isArray(notifications) ? notifications : [];
   if (list.length === 0) return list;
@@ -241,8 +251,29 @@ export const getNotifications = async (req, res, next) => {
       const filtered = filterNotificationsForViewer(allNotifications, userId, userRole);
       await appendNotificationContext(filtered);
       return res.json(filtered);
+    } else if (PERSONAL_ONLY_ROLES.has(String(userRole || '').toLowerCase())) {
+      // Providers/staff/intern/facilitator: personal notifications only (target user_id).
+      // They can optionally scope by agencyId but must have membership.
+      const userAgencies = await User.getAgencies(userId);
+      accessibleAgencyIds = (userAgencies || []).map((a) => a.id);
+      if (agencyId) {
+        const requestedAgencyId = parseInt(agencyId);
+        if (!accessibleAgencyIds.includes(requestedAgencyId)) {
+          return res.status(403).json({ error: { message: 'Access denied to this agency' } });
+        }
+      }
+
+      const personal = await Notification.findByUser(userId, {
+        type: type || undefined,
+        isRead: isRead !== undefined ? isRead === 'true' : undefined,
+        isResolved: isResolved !== undefined ? isResolved === 'true' : undefined
+      });
+      const scoped = agencyId ? (personal || []).filter((n) => Number(n.agency_id) === Number(agencyId)) : (personal || []);
+      const filtered = filterNotificationsForViewer(scoped, userId, userRole);
+      await appendNotificationContext(filtered);
+      return res.json(filtered);
     } else {
-      // Admin/support can only see their agencies
+      // Admin/support (and other privileged/legacy roles): agency-scoped feed
       const userAgencies = await User.getAgencies(userId);
       accessibleAgencyIds = userAgencies.map(a => a.id);
       
@@ -360,6 +391,23 @@ export const getNotificationCounts = async (req, res, next) => {
       // CPAs can see all notification counts for all users in their agencies
       const userAgencies = await User.getAgencies(userId);
       agencyIds = userAgencies.map(a => a.id);
+    } else if (PERSONAL_ONLY_ROLES.has(String(userRole || '').toLowerCase())) {
+      // Providers/staff/intern/facilitator: counts should be for *their* unread notifications only.
+      const userAgencies = await User.getAgencies(userId);
+      agencyIds = (userAgencies || []).map((a) => a.id);
+
+      if (agencyIds.length === 0) return res.json({});
+
+      const unread = await Notification.findUnreadUnmutedByUserAcrossAgencies(userId, agencyIds);
+      const filtered = filterNotificationsForViewer(unread, userId, userRole);
+      const counts = {};
+      for (const aid of agencyIds) counts[aid] = 0;
+      for (const n of filtered || []) {
+        const aid = Number(n?.agency_id || 0);
+        if (!aid) continue;
+        counts[aid] = (counts[aid] || 0) + 1;
+      }
+      return res.json(counts);
     } else {
       // Admin/support can only see their agencies
       const userAgencies = await User.getAgencies(userId);
@@ -374,7 +422,8 @@ export const getNotificationCounts = async (req, res, next) => {
     const counts = {};
     for (const aid of agencyIds) {
       const notifications = await Notification.findByAgency(aid, { isRead: false, isResolved: false });
-      counts[aid] = filterNotificationsForViewer(notifications, userId, userRole).length;
+      const visible = filterNotificationsForViewer(notifications, userId, userRole).filter(isUnmuted);
+      counts[aid] = visible.length;
     }
     res.json(counts);
   } catch (error) {
