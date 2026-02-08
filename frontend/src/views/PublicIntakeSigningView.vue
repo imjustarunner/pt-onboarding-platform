@@ -590,6 +590,7 @@ const agencyInfo = ref(null);
 const organizationInfo = ref(null);
 const introIndex = ref(0);
 const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY || '';
+const useEnterpriseRecaptcha = String(import.meta.env.VITE_RECAPTCHA_USE_ENTERPRISE || '').toLowerCase() === 'true';
 const captchaToken = ref('');
 const captchaError = ref('');
 const intakeSteps = computed(() =>
@@ -1245,7 +1246,9 @@ const loadRecaptchaScript = () => {
   }
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(recaptchaSiteKey)}`;
+    script.src = useEnterpriseRecaptcha
+      ? `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(recaptchaSiteKey)}`
+      : `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(recaptchaSiteKey)}`;
     script.async = true;
     script.defer = true;
     script.setAttribute('data-recaptcha', 'true');
@@ -1259,7 +1262,17 @@ const getRecaptchaToken = async () => {
   if (!recaptchaSiteKey) return '';
   try {
     const grecaptcha = await loadRecaptchaScript();
+    if (!grecaptcha) return '';
+    if (useEnterpriseRecaptcha && grecaptcha.enterprise?.execute) {
+      if (grecaptcha.enterprise?.ready) {
+        await new Promise((resolve) => grecaptcha.enterprise.ready(resolve));
+      }
+      return await grecaptcha.enterprise.execute(recaptchaSiteKey, { action: 'public_intake_consent' });
+    }
     if (!grecaptcha?.execute) return '';
+    if (grecaptcha?.ready) {
+      await new Promise((resolve) => grecaptcha.ready(resolve));
+    }
     return await grecaptcha.execute(recaptchaSiteKey, { action: 'public_intake_consent' });
   } catch {
     return '';

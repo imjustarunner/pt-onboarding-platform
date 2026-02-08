@@ -1078,11 +1078,11 @@ export const createPublicConsent = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
-    const secretConfigured = !!config.recaptcha?.secretKey;
-    if (config.nodeEnv === 'production' && !secretConfigured) {
+    const captchaConfigured = !!config.recaptcha?.secretKey || !!config.recaptcha?.enterpriseApiKey;
+    if (config.nodeEnv === 'production' && !captchaConfigured) {
       return res.status(500).json({ error: { message: 'Captcha is not configured' } });
     }
-    if (secretConfigured) {
+    if (captchaConfigured) {
       const captchaToken = String(req.body.captchaToken || '').trim();
       if (!captchaToken) {
         if (config.nodeEnv === 'production') {

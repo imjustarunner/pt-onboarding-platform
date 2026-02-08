@@ -69,6 +69,13 @@ export default {
   frontendUrl: process.env.FRONTEND_URL || process.env.CORS_ORIGIN || 'http://localhost:5173',
   recaptcha: {
     secretKey: process.env.RECAPTCHA_SECRET_KEY || null,
+    siteKey: process.env.RECAPTCHA_SITE_KEY || process.env.VITE_RECAPTCHA_SITE_KEY || null,
+    enterpriseApiKey: process.env.RECAPTCHA_ENTERPRISE_API_KEY || null,
+    enterpriseProjectId:
+      process.env.RECAPTCHA_ENTERPRISE_PROJECT_ID
+      || process.env.PROJECT_ID
+      || process.env.GOOGLE_CLOUD_PROJECT
+      || null,
     minScore: process.env.RECAPTCHA_MIN_SCORE ? Number(process.env.RECAPTCHA_MIN_SCORE) : 0.5
   },
   googleMaps: {

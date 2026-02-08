@@ -46,6 +46,8 @@ jobs:
           # resolve the portal slug by Host header.
           docker build \
             --build-arg VITE_API_URL="/api" \
+            --build-arg VITE_RECAPTCHA_SITE_KEY="${{ secrets.RECAPTCHA_SITE_KEY }}" \
+            --build-arg VITE_RECAPTCHA_USE_ENTERPRISE="true" \
             -t $IMAGE_NAME:$GITHUB_SHA \
             -t $IMAGE_NAME:latest .
           docker push $IMAGE_NAME:$GITHUB_SHA
