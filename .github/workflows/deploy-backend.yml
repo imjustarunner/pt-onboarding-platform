@@ -84,24 +84,24 @@ jobs:
           # IMPORTANT: Only set if the GitHub secret exists, to avoid overriding a working
           # Cloud Run env var with an empty string.
           if [ -n "$CLIENT_CHAT_ENCRYPTION_KEY_ID" ]; then
-            ENV_VARS="${ENV_VARS},CLIENT_CHAT_ENCRYPTION_KEY_ID=${CLIENT_CHAT_ENCRYPTION_KEY_ID}"
+            ENV_VARS="${ENV_VARS}|CLIENT_CHAT_ENCRYPTION_KEY_ID=${CLIENT_CHAT_ENCRYPTION_KEY_ID}"
           fi
           if [ -n "$CLIENT_CHAT_ENCRYPTION_KEY_BASE64" ]; then
-            ENV_VARS="${ENV_VARS},CLIENT_CHAT_ENCRYPTION_KEY_BASE64=${CLIENT_CHAT_ENCRYPTION_KEY_BASE64}"
+            ENV_VARS="${ENV_VARS}|CLIENT_CHAT_ENCRYPTION_KEY_BASE64=${CLIENT_CHAT_ENCRYPTION_KEY_BASE64}"
           fi
 
           # Google Workspace (Calendar/Gmail) service account JSON (base64).
           # NOTE: use GitHub secret directly here (empty => do not override Cloud Run).
           if [ -n "${{ secrets.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 }}" ]; then
-            ENV_VARS="${ENV_VARS},GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64=${{ secrets.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 }}"
+            ENV_VARS="${ENV_VARS}|GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64=${{ secrets.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 }}"
           fi
 
           # Clinical Director Agent (ADK) integration (optional; set secrets to enable).
           if [ -n "${{ secrets.CLINICAL_DIRECTOR_AGENT_URL }}" ]; then
-            ENV_VARS="${ENV_VARS},CLINICAL_DIRECTOR_AGENT_URL=${{ secrets.CLINICAL_DIRECTOR_AGENT_URL }}"
+            ENV_VARS="${ENV_VARS}|CLINICAL_DIRECTOR_AGENT_URL=${{ secrets.CLINICAL_DIRECTOR_AGENT_URL }}"
           fi
           if [ -n "${{ secrets.CLINICAL_DIRECTOR_ADK_APP_NAME }}" ]; then
-            ENV_VARS="${ENV_VARS},CLINICAL_DIRECTOR_ADK_APP_NAME=${{ secrets.CLINICAL_DIRECTOR_ADK_APP_NAME }}"
+            ENV_VARS="${ENV_VARS}|CLINICAL_DIRECTOR_ADK_APP_NAME=${{ secrets.CLINICAL_DIRECTOR_ADK_APP_NAME }}"
           fi
 
           gcloud run deploy $SERVICE_NAME \
