@@ -39,7 +39,7 @@
             <label for="orgChoice">Choose your organization</label>
             <select id="orgChoice" v-model="selectedOrgSlug" :disabled="verifying || loading" required>
               <option disabled value="">Select an organization</option>
-              <option v-for="o in orgOptions" :key="o.slug || o.portal_url || o.id" :value="(o.slug || o.portal_url || '').toLowerCase()">
+              <option v-for="o in orgOptions" :key="o.portal_url || o.slug || o.id" :value="(o.portal_url || o.slug || '').toLowerCase()">
                 {{ o.name }}{{ o.organization_type ? ` (${o.organization_type})` : '' }}
               </option>
             </select>
@@ -420,7 +420,8 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     }
 
     const ro = data?.resolvedOrg || null;
-    const resolvedSlug = String(ro?.slug || ro?.portal_url || ro?.portalUrl || '').trim().toLowerCase();
+    // IMPORTANT: prefer portal_url as the branded portal path segment.
+    const resolvedSlug = String(ro?.portal_url || ro?.portalUrl || ro?.slug || '').trim().toLowerCase();
 
     // If this verification indicates we should be on a different branded login, route there.
     if (resolvedSlug) {

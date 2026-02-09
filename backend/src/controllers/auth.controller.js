@@ -602,7 +602,9 @@ export const identifyLogin = async (req, res, next) => {
       return raw && typeof raw === 'object' ? raw : {};
     };
 
-    const pickSlug = (org) => String(org?.slug || org?.portal_url || org?.portalUrl || '').trim().toLowerCase() || null;
+    // IMPORTANT: prefer portal_url (public portal identifier) over slug (internal identifier).
+    // Many child orgs (school/program/learning) use portal_url as the actual path segment.
+    const pickSlug = (org) => String(org?.portal_url || org?.portalUrl || org?.slug || '').trim().toLowerCase() || null;
     const pickType = (org) => String(org?.organization_type || org?.organizationType || 'agency').trim().toLowerCase();
 
     let orgs = [];
