@@ -41,6 +41,23 @@
         </button>
       </div>
     </div>
+
+    <div class="toolbar toolbar-bottom">
+      <div class="toolbar-left">
+        <button class="btn btn-sm btn-secondary" @click="previousPage" :disabled="loading || currentPage <= 1">
+          Previous
+        </button>
+        <button class="btn btn-sm btn-secondary" @click="nextPage" :disabled="loading || currentPage >= totalPages">
+          Next
+        </button>
+        <span class="page-indicator" v-if="totalPages > 0">Page {{ currentPage }} / {{ totalPages }}</span>
+      </div>
+      <div class="toolbar-right">
+        <button class="btn btn-sm btn-secondary" @click="zoomOut" :disabled="loading">−</button>
+        <span class="zoom-indicator">{{ Math.round(scale * 100) }}%</span>
+        <button class="btn btn-sm btn-secondary" @click="zoomIn" :disabled="loading">+</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -320,14 +337,18 @@ onMounted(() => {
 }
 
 .pdf-marker.checkbox {
-  border: 2px solid #1f4e79;
-  background: rgba(31, 78, 121, 0.1);
+  border: 3px solid #1f4e79;
+  background: rgba(31, 78, 121, 0.18);
+  box-shadow: 0 0 0 2px rgba(31, 78, 121, 0.2);
+  min-width: 22px;
+  min-height: 22px;
   align-items: center;
   justify-content: center;
 }
 
 .pdf-marker.checkbox .marker-checkbox {
-  font-size: 12px;
+  font-size: 16px;
+  line-height: 1;
   font-weight: 700;
   color: #1f4e79;
   opacity: 0;

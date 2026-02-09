@@ -472,14 +472,6 @@
           <SignaturePad @signed="onSigned" />
           <div v-if="allowSignatureReuseActions" class="signature-actions">
             <button
-              v-if="lastSignatureData && !signatureData"
-              class="btn btn-secondary btn-sm"
-              type="button"
-              @click="signatureData = lastSignatureData"
-            >
-              Use saved signature
-            </button>
-            <button
               v-if="signatureData"
               class="btn btn-outline btn-sm"
               type="button"
@@ -487,6 +479,17 @@
             >
               Sign again
             </button>
+          </div>
+          <div v-if="showSignatureReusePrompt && lastSignatureData && !signatureData" class="signature-reuse-prompt">
+            <div class="signature-reuse-text">Use saved signature for this document?</div>
+            <div class="signature-reuse-actions">
+              <button class="btn btn-secondary btn-sm" type="button" @click="useSavedSignatureAndContinue">
+                Use saved signature &amp; continue
+              </button>
+              <button class="btn btn-outline btn-sm" type="button" @click="dismissSignatureReusePrompt">
+                Sign now
+              </button>
+            </div>
           </div>
           <div v-if="signatureData" class="muted" style="margin-top: 6px;">Signature ready for this document.</div>
         </div>
@@ -510,6 +513,7 @@
       <div v-else-if="step === 3" class="step">
         <h3>All Set</h3>
         <p>Your documents were completed successfully. A copy will be emailed to the guardian.</p>
+        <p class="muted">Download links expire in 14 days. After that, the files are deleted once uploaded to the EHR.</p>
         <div v-if="downloadUrl" class="actions">
           <a class="btn btn-primary" :href="downloadUrl" target="_blank" rel="noopener">Download Packet PDF</a>
         </div>
@@ -533,6 +537,11 @@
               Clinical summary
             </button>
           </div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" type="button" @click="endSession">
+            End session
+          </button>
         </div>
       </div>
     </div>
@@ -634,6 +643,7 @@ const submitLoading = ref(false);
 const currentDocIndex = ref(0);
 const signatureData = ref('');
 const lastSignatureData = ref('');
+const showSignatureReusePrompt = ref(false);
 const signatureDocFlowIndexes = computed(() =>
   flowSteps.value
     .map((s, idx) => ({ s, idx }))
@@ -1585,6 +1595,20 @@ const submitConsent = async () => {
 const onSigned = (dataUrl) => {
   signatureData.value = dataUrl;
   lastSignatureData.value = dataUrl;
+  showSignatureReusePrompt.value = false;
+};
+
+const dismissSignatureReusePrompt = () => {
+  showSignatureReusePrompt.value = false;
+  stepError.value = 'Please sign below to continue.';
+};
+
+const useSavedSignatureAndContinue = async () => {
+  if (!lastSignatureData.value) return;
+  signatureData.value = lastSignatureData.value;
+  showSignatureReusePrompt.value = false;
+  await nextTick();
+  await completeCurrentDocument();
 };
 
 const completeCurrentDocument = async () => {
@@ -1605,6 +1629,10 @@ const completeCurrentDocument = async () => {
       return;
     }
     if (currentDoc.value.document_action_type === 'signature' && !signatureData.value) {
+      if (allowSignatureReuseActions.value && lastSignatureData.value) {
+        showSignatureReusePrompt.value = true;
+        return;
+      }
       stepError.value = 'Signature is required.';
       return;
     }
@@ -1717,6 +1745,7 @@ const resetIntakeState = () => {
   intakeResponses.submission = {};
   intakeResponses.clients = [{}];
   signatureData.value = '';
+  showSignatureReusePrompt.value = false;
   submissionId.value = null;
   docStatus && Object.keys(docStatus).forEach((k) => delete docStatus[k]);
   error.value = '';
@@ -1742,6 +1771,14 @@ const restartIntake = () => {
   if (!ok) return;
   localStorage.removeItem(submissionStorageKey);
   resetIntakeState();
+};
+
+const endSession = () => {
+  const ok = window.confirm('End this session and clear this intake from this browser?');
+  if (!ok) return;
+  localStorage.removeItem(submissionStorageKey);
+  resetIntakeState();
+  window.location.reload();
 };
 
 const returnToIntakeInfo = () => {
@@ -2052,6 +2089,7 @@ watch(currentDoc, async () => {
   reviewTotalPages.value = 0;
   canProceed.value = currentDoc.value?.template_type !== 'pdf';
   signatureData.value = '';
+  showSignatureReusePrompt.value = false;
   pageNotice.value = '';
   syncClientNamesToResponses();
   initializeFieldValues();
@@ -2288,6 +2326,23 @@ onMounted(async () => {
   align-items: center;
   gap: 10px;
   margin-top: 10px;
+}
+.signature-reuse-prompt {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--bg-alt);
+}
+.signature-reuse-text {
+  font-weight: 600;
+  color: var(--text-primary, #1f2933);
+}
+.signature-reuse-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
 }
 .signature-summary {
   border: 1px solid var(--border);

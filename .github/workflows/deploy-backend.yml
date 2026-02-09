@@ -70,6 +70,7 @@ jobs:
           # Use a custom delimiter to avoid comma-escaping in values.
           # This lets CORS_ORIGIN contain commas safely.
           ENV_VARS="^|^NODE_ENV=production"
+          ENV_VARS="${ENV_VARS}|NODE_OPTIONS=--max-old-space-size=1536"
           ENV_VARS="${ENV_VARS}|CORS_ORIGIN=https://plottwisthq.com,https://www.plottwisthq.com,https://onboarding-frontend-378990906760.us-west3.run.app,https://app.itsco.health,https://app.nextleveluplcc.com,https://app.mh4kidz.com,https://app.plottwistco.com,https://app.mentalrange.org,https://app.rockymountainmentors.org,https://app.risereviveco.com,https://app.rmmentors.com,https://app.theinnerstrengthinstitute.com"
           ENV_VARS="${ENV_VARS}|FRONTEND_URL=https://plottwisthq.com"
           ENV_VARS="${ENV_VARS}|DB_HOST=/cloudsql/${{ secrets.CLOUD_SQL_CONNECTION_NAME }}"
@@ -123,7 +124,7 @@ jobs:
             --service-account ${{ secrets.CLOUD_RUN_SA_EMAIL }} \
             --add-cloudsql-instances=${{ secrets.CLOUD_SQL_CONNECTION_NAME }} \
             --update-env-vars="${ENV_VARS}" \
-            --memory=512Mi \
+            --memory=2Gi \
             --cpu=1 \
             --timeout=300 \
             --max-instances=10 \

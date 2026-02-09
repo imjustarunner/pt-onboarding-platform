@@ -1173,7 +1173,7 @@ export const getPublicIntakeStatus = async (req, res, next) => {
 
     let downloadUrl = null;
     if (submission.combined_pdf_path) {
-      downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 3);
+      downloadUrl = await StorageService.getSignedUrl(submission.combined_pdf_path, 60 * 24 * 14);
     }
 
     let intakeData = null;
@@ -1492,18 +1492,16 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const signer = buildSignerFromSubmission(updatedSubmission);
     const signedDocsOrdered = templates.map((t) => signedByTemplate.get(t.id)).filter(Boolean);
-    const pdfBuffers = [];
+    const pdfPaths = [];
     const clientBundles = [];
     const workflowData = buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } });
 
     for (const entry of signedDocsOrdered) {
-      const buffer = await StorageService.readIntakeSignedDocument(entry.signed_pdf_path);
-      pdfBuffers.push(buffer);
+      if (entry?.signed_pdf_path) {
+        pdfPaths.push(entry.signed_pdf_path);
+      }
     }
     const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
-    if (answersPdf) {
-      pdfBuffers.unshift(answersPdf);
-    }
 
     const rawClients = createdClients.length
       ? createdClients.map((c) => ({ id: c.id, fullName: c.full_name || c.initials || '', initials: c.initials, contactPhone: c.contact_phone }))
@@ -1540,7 +1538,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         })
       );
 
-      const clientBuffers = [];
+      const clientPaths = [];
 
       if (isMultiClient) {
         for (const template of templates) {
@@ -1561,13 +1559,11 @@ export const finalizePublicIntake = async (req, res, next) => {
 
           let storagePath = null;
           let pdfHash = null;
-          let pdfBytes = null;
           let referenceNumber = null;
 
           if (template.document_action_type === 'signature' && !signatureData) {
             const sharedDoc = signedByTemplate.get(template.id);
             if (sharedDoc?.signed_pdf_path) {
-              pdfBytes = await StorageService.readIntakeSignedDocument(sharedDoc.signed_pdf_path);
               storagePath = sharedDoc.signed_pdf_path;
               pdfHash = sharedDoc.pdf_hash || null;
               if (clientId) {
@@ -1600,7 +1596,6 @@ export const finalizePublicIntake = async (req, res, next) => {
             });
             storagePath = result.storagePath;
             pdfHash = result.pdfHash;
-            pdfBytes = result.pdfBytes;
             referenceNumber = result.referenceNumber || null;
             await IntakeSubmissionDocument.create({
               intakeSubmissionId: submissionId,
@@ -1619,7 +1614,7 @@ export const finalizePublicIntake = async (req, res, next) => {
             });
           }
 
-          if (pdfBytes) clientBuffers.push(pdfBytes);
+          if (storagePath) clientPaths.push(storagePath);
           if (clientId && storagePath) {
             try {
               const clientRow = await Client.findById(clientId, { includeSensitive: true });
@@ -1691,9 +1686,10 @@ export const finalizePublicIntake = async (req, res, next) => {
         }
       }
 
-      const mergeBuffers = clientBuffers.length ? clientBuffers : pdfBuffers;
-      if (mergeBuffers.length) {
-        const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfs(mergeBuffers);
+      const mergePaths = clientPaths.length ? clientPaths : pdfPaths;
+      if (mergePaths.length) {
+        const prefixBuffers = !clientPaths.length && answersPdf ? [answersPdf] : [];
+        const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(mergePaths, prefixBuffers);
         const clientBundleResult = await StorageService.saveIntakeClientBundle({
           submissionId,
           clientId: clientPayload?.id || 'unknown',
@@ -1711,9 +1707,8 @@ export const finalizePublicIntake = async (req, res, next) => {
         clientBundles.push({
           clientId: clientPayload?.id || null,
           clientName: clientPayload?.fullName || null,
-          buffer: mergedClientPdf,
           filename: `intake-client-${clientPayload?.id || 'unknown'}.pdf`,
-          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 3)
+          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 14)
         });
       }
 
@@ -1739,8 +1734,11 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
 
     let downloadUrl = null;
-    if (pdfBuffers.length > 0) {
-      const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfs(pdfBuffers);
+    if (pdfPaths.length > 0) {
+      const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
+        pdfPaths,
+        answersPdf ? [answersPdf] : []
+      );
       const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
       const bundleResult = await StorageService.saveIntakeBundle({
         submissionId,
@@ -1751,7 +1749,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         combined_pdf_path: bundleResult.relativePath,
         combined_pdf_hash: bundleHash
       });
-      downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 3);
+      downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 14);
 
       for (const clientPayload of rawClients) {
         const clientId = clientPayload?.id || null;
@@ -1778,25 +1776,15 @@ export const finalizePublicIntake = async (req, res, next) => {
         const clientCount = rawClients.length || 1;
         const subject = 'Your signed intake packet';
         const summaryLine = clientCount > 1 ? `Clients: ${clientCount}\n\n` : (primaryClientName ? `Client: ${primaryClientName}\n\n` : '');
-        const text = `${summaryLine}Your intake packet is ready. Download here:\n\n${downloadUrl}\n\nThis link expires in 3 days.`;
+        const text = `${summaryLine}Your intake packet is ready. Download here:\n\n${downloadUrl}\n\nThis link expires in 14 days.`;
         const html = `
           <div style="font-family: Arial, sans-serif; line-height: 1.5;">
             ${clientCount > 1 ? `<p><strong>Clients:</strong> ${clientCount}</p>` : (primaryClientName ? `<p><strong>Client:</strong> ${primaryClientName}</p>` : '')}
             <p>Your intake packet is ready.</p>
             <p><a href="${downloadUrl}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download Signed Packet</a></p>
-            <p style="color:#777;">This link expires in 3 days.</p>
+            <p style="color:#777;">This link expires in 14 days.</p>
           </div>
         `.trim();
-        const attachments = [];
-        for (const entry of clientBundles) {
-          if (entry?.buffer) {
-            attachments.push({
-              filename: entry.filename,
-              contentType: 'application/pdf',
-              contentBase64: entry.buffer.toString('base64')
-            });
-          }
-        }
         try {
           await EmailService.sendEmail({
             to: updatedSubmission.signer_email,
@@ -1806,7 +1794,7 @@ export const finalizePublicIntake = async (req, res, next) => {
             fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
             fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
             replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-            attachments: attachments.length ? attachments : null,
+            attachments: null,
             source: 'auto',
             agencyId: link?.organization_id || null
           });
@@ -1905,7 +1893,7 @@ export const submitPublicIntake = async (req, res, next) => {
 
     const signer = buildSignerFromSubmission(updatedSubmission);
     const signedDocs = [];
-    const pdfBuffers = [];
+    const pdfPaths = [];
     const clientBundles = [];
     const workflowData = buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } });
     const rawClients = createdClients.length
@@ -1933,7 +1921,7 @@ export const submitPublicIntake = async (req, res, next) => {
       );
 
       const clientIndex = intakeClientRows.length - 1;
-      const clientBuffers = [];
+      const clientPaths = [];
       for (const template of templates) {
         const fieldDefinitions = parseFieldDefinitions(template.field_definitions);
         const fieldValues = buildDocumentFieldValuesForClient({
@@ -1969,8 +1957,10 @@ export const submitPublicIntake = async (req, res, next) => {
           }
         });
 
-        pdfBuffers.push(result.pdfBytes);
-        clientBuffers.push(result.pdfBytes);
+        if (result.storagePath) {
+          pdfPaths.push(result.storagePath);
+          clientPaths.push(result.storagePath);
+        }
 
         if (clientId) {
           try {
@@ -2011,8 +2001,8 @@ export const submitPublicIntake = async (req, res, next) => {
         signedDocs.push(doc);
       }
 
-      if (clientBuffers.length) {
-        const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfs(clientBuffers);
+      if (clientPaths.length) {
+        const mergedClientPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(clientPaths);
         const clientBundleResult = await StorageService.saveIntakeClientBundle({
           submissionId,
           clientId: clientId || 'unknown',
@@ -2032,9 +2022,8 @@ export const submitPublicIntake = async (req, res, next) => {
         clientBundles.push({
           clientId,
           clientName,
-          buffer: mergedClientPdf,
           filename: `intake-client-${clientId || 'unknown'}.pdf`,
-          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 3)
+          downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 14)
         });
       }
 
@@ -2060,13 +2049,13 @@ export const submitPublicIntake = async (req, res, next) => {
     }
 
     const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
-    if (answersPdf) {
-      pdfBuffers.unshift(answersPdf);
-    }
 
     let downloadUrl = null;
-    if (pdfBuffers.length > 0) {
-      const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfs(pdfBuffers);
+    if (pdfPaths.length > 0) {
+      const mergedPdf = await PublicIntakeSigningService.mergeSignedPdfsFromPaths(
+        pdfPaths,
+        answersPdf ? [answersPdf] : []
+      );
       const bundleHash = DocumentSigningService.calculatePDFHash(mergedPdf);
       const bundleResult = await StorageService.saveIntakeBundle({
         submissionId,
@@ -2077,7 +2066,7 @@ export const submitPublicIntake = async (req, res, next) => {
         combined_pdf_path: bundleResult.relativePath,
         combined_pdf_hash: bundleHash
       });
-      downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 3);
+      downloadUrl = await StorageService.getSignedUrl(bundleResult.relativePath, 60 * 24 * 14);
 
       for (const clientPayload of rawClients) {
         const clientId = clientPayload?.id || null;
@@ -2104,25 +2093,15 @@ export const submitPublicIntake = async (req, res, next) => {
         const clientCount = rawClients.length || 1;
         const subject = 'Your signed intake packet';
         const summaryLine = clientCount > 1 ? `Clients: ${clientCount}\n\n` : (primaryClientName ? `Client: ${primaryClientName}\n\n` : '');
-        const text = `${summaryLine}Your intake packet is ready. Download here:\n\n${downloadUrl}\n\nThis link expires in 3 days.`;
+        const text = `${summaryLine}Your intake packet is ready. Download here:\n\n${downloadUrl}\n\nThis link expires in 14 days.`;
         const html = `
           <div style="font-family: Arial, sans-serif; line-height: 1.5;">
             ${clientCount > 1 ? `<p><strong>Clients:</strong> ${clientCount}</p>` : (primaryClientName ? `<p><strong>Client:</strong> ${primaryClientName}</p>` : '')}
             <p>Your intake packet is ready.</p>
             <p><a href="${downloadUrl}" style="display:inline-block;padding:10px 14px;background:#2c3e50;color:#fff;text-decoration:none;border-radius:6px;">Download Signed Packet</a></p>
-            <p style="color:#777;">This link expires in 3 days.</p>
+            <p style="color:#777;">This link expires in 14 days.</p>
           </div>
         `.trim();
-        const attachments = [];
-        for (const entry of clientBundles) {
-          if (entry?.buffer) {
-            attachments.push({
-              filename: entry.filename,
-              contentType: 'application/pdf',
-              contentBase64: entry.buffer.toString('base64')
-            });
-          }
-        }
         try {
           await EmailService.sendEmail({
             to: updatedSubmission.signer_email,
@@ -2132,7 +2111,7 @@ export const submitPublicIntake = async (req, res, next) => {
             fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
             fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
             replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-            attachments: attachments.length ? attachments : null
+            attachments: null
           });
         } catch {
           // best-effort email

@@ -76,6 +76,26 @@ class PublicIntakeSigningService {
     }
     return await merged.save();
   }
+
+  static async mergeSignedPdfsFromPaths(storagePaths, prefixBuffers = []) {
+    const merged = await PDFDocument.create();
+    const appendBuffer = async (buf) => {
+      if (!buf) return;
+      const doc = await PDFDocument.load(buf);
+      const pages = await merged.copyPages(doc, doc.getPageIndices());
+      pages.forEach((p) => merged.addPage(p));
+    };
+
+    for (const buf of prefixBuffers) {
+      await appendBuffer(buf);
+    }
+    for (const storagePath of storagePaths || []) {
+      if (!storagePath) continue;
+      const buf = await StorageService.readIntakeSignedDocument(storagePath);
+      await appendBuffer(buf);
+    }
+    return await merged.save();
+  }
 }
 
 export default PublicIntakeSigningService;
