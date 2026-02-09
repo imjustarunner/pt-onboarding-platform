@@ -349,6 +349,11 @@
                   <button class="btn btn-xs btn-secondary" type="button" @click="addField(step)">+ Add Question</button>
                 </div>
               </div>
+
+              <div v-if="safeSteps.length" class="step-actions step-actions-bottom">
+                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
+              </div>
             </div>
           </div>
 
@@ -361,10 +366,6 @@
         </div>
       </div>
 
-              <div v-if="safeSteps.length" class="step-actions step-actions-bottom">
-                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
-                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
-              </div>
     </div>
   </div>
 </template>
