@@ -14,6 +14,7 @@ import EmailTemplateService from '../services/emailTemplate.service.js';
 import CommunicationLoggingService from '../services/communicationLogging.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import pool from '../config/database.js';
 
 async function buildPayrollCaps(user) {
   const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
@@ -614,6 +615,70 @@ export const identifyLogin = async (req, res, next) => {
       orgs = [];
     }
 
+    // Best-effort: tag orgs with affiliated agency id so we can identify portal orgs
+    // even when organization_type is NULL/empty in older data.
+    // This avoids forcing school_staff users to pick an org, and prevents snapping to the parent agency branding.
+    const attachAffiliationMeta = async (list) => {
+      const out = Array.isArray(list) ? list : [];
+      if (!out.length) return out;
+      const ids = Array.from(
+        new Set(out.map((o) => parseInt(o?.id, 10)).filter((n) => Number.isFinite(n) && n > 0))
+      );
+      if (!ids.length) return out;
+      const byOrg = new Map();
+
+      // organization_affiliations (newer)
+      try {
+        const placeholders = ids.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT organization_id, agency_id
+           FROM organization_affiliations
+           WHERE is_active = TRUE
+             AND organization_id IN (${placeholders})
+           ORDER BY updated_at DESC, id DESC`,
+          ids
+        );
+        for (const r of rows || []) {
+          const orgId = Number(r?.organization_id || 0);
+          if (!orgId || byOrg.has(orgId)) continue;
+          byOrg.set(orgId, Number(r?.agency_id || 0) || null);
+        }
+      } catch {
+        // ignore; table may not exist in older DBs
+      }
+
+      // agency_schools (legacy)
+      try {
+        const placeholders = ids.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT school_organization_id AS organization_id, agency_id
+           FROM agency_schools
+           WHERE is_active = TRUE
+             AND school_organization_id IN (${placeholders})
+           ORDER BY updated_at DESC, id DESC`,
+          ids
+        );
+        for (const r of rows || []) {
+          const orgId = Number(r?.organization_id || 0);
+          if (!orgId || byOrg.has(orgId)) continue;
+          byOrg.set(orgId, Number(r?.agency_id || 0) || null);
+        }
+      } catch {
+        // ignore; table may not exist
+      }
+
+      for (const o of out) {
+        const id = parseInt(o?.id, 10);
+        if (!id) continue;
+        if (o.affiliated_agency_id === undefined || o.affiliated_agency_id === null) {
+          o.affiliated_agency_id = byOrg.get(id) || null;
+        }
+      }
+      return out;
+    };
+
+    await attachAffiliationMeta(orgs);
+
     const orgOptions = (orgs || []).map((o) => ({
       id: o?.id ?? null,
       name: o?.name ?? null,
@@ -636,16 +701,50 @@ export const identifyLogin = async (req, res, next) => {
     };
 
     if (requested && hasMembership(requested)) {
-      resolved = (orgs || []).find((o) => pickSlug(o) === requested) || null;
+      const candidate = (orgs || []).find((o) => pickSlug(o) === requested) || null;
+      // For school_staff, ignore requested agency slugs when a portal org exists.
+      // This prevents remembered/previous org slugs (often the parent agency) from blocking the
+      // intended behavior: snap to the affiliated school/program/learning portal.
+      if (candidate && userRole === 'school_staff') {
+        const candidateType = pickType(candidate);
+        const isPortalCandidate = ['school', 'program', 'learning'].includes(candidateType) || !!candidate?.affiliated_agency_id;
+        if (isPortalCandidate) {
+          resolved = candidate;
+        }
+      } else {
+        resolved = candidate;
+      }
     }
 
     // Special-case school_staff: prefer exactly-one school (or portal org) even if multiple org memberships exist.
     if (!resolved && userRole === 'school_staff') {
-      const schools = (orgs || []).filter((o) => pickType(o) === 'school');
-      if (schools.length === 1) resolved = schools[0];
-      if (!resolved) {
-        const portals = (orgs || []).filter((o) => ['school', 'program', 'learning'].includes(pickType(o)));
-        if (portals.length === 1) resolved = portals[0];
+      const isPortalOrg = (o) => {
+        const t = pickType(o);
+        if (['school', 'program', 'learning'].includes(t)) return true;
+        // If org is affiliated under an agency, treat it as a portal org even if organization_type is blank/null.
+        return !!(o?.affiliated_agency_id);
+      };
+
+      const portalOrgs = (orgs || []).filter(isPortalOrg);
+      if (portalOrgs.length === 1) {
+        resolved = portalOrgs[0];
+      } else if (portalOrgs.length > 1) {
+        // Restrict choices to portal orgs for school staff (they should not sign into the parent agency surface).
+        const portalOptions = portalOrgs.map((o) => ({
+          id: o?.id ?? null,
+          name: o?.name ?? null,
+          slug: o?.slug ?? null,
+          portal_url: o?.portal_url ?? o?.portalUrl ?? null,
+          organization_type: o?.organization_type ?? o?.organizationType ?? null
+        }));
+        return res.json({
+          matched: true,
+          normalizedUsername,
+          needsOrgChoice: true,
+          orgOptions: portalOptions,
+          resolvedOrg: null,
+          login: { method: 'password' }
+        });
       }
     }
 

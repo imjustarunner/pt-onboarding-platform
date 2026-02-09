@@ -384,11 +384,21 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     needsOrgChoice.value = false;
     orgOptions.value = [];
 
+    // Only apply remembered orgSlug when it matches this username.
+    // Otherwise, one user's remembered org can incorrectly bias a different user's verification.
+    const remembered = getRememberedLogin();
+    const rememberedU = String(remembered?.username || '').trim().toLowerCase();
+    const normalizedU = String(u || '').trim().toLowerCase();
+    const rememberedSlug =
+      rememberedU && normalizedU && rememberedU === normalizedU
+        ? String(remembered?.orgSlug || '').trim().toLowerCase() || null
+        : null;
+
     const slug =
       orgSlugOverride ||
       (isOrgLogin.value && loginSlug.value ? String(loginSlug.value).trim().toLowerCase() : null) ||
       (selectedOrgSlug.value ? String(selectedOrgSlug.value).trim().toLowerCase() : null) ||
-      (getRememberedLogin()?.orgSlug || null);
+      rememberedSlug;
 
     const resp = await api.post(
       '/auth/identify',
