@@ -81,15 +81,18 @@ export const create = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'agencyId is required' } });
     }
 
+    const rawLabel = req.body.label;
+    const label = (typeof rawLabel === 'string' && rawLabel.trim()) ? rawLabel.trim() : 'Feed';
+
     const link = await SocialFeedLink.create({
       agencyId,
       organizationId: req.body.organizationId ? safeInt(req.body.organizationId) : null,
       programId: req.body.programId ? safeInt(req.body.programId) : null,
       type: req.body.type || 'link',
-      label: req.body.label ?? '',
+      label,
       url: req.body.url || null,
       externalUrl: req.body.externalUrl || null,
-      sortOrder: req.body.sortOrder != null ? Number(req.body.sortOrder) : 0,
+      sortOrder: req.body.sortOrder != null && req.body.sortOrder !== '' ? Number(req.body.sortOrder) : 0,
       isActive: req.body.isActive !== false
     });
 

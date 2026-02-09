@@ -18,12 +18,12 @@ router.post(
   requireAgencyAdmin,
   [
     body('type').optional().isIn(['instagram', 'facebook', 'rss', 'link']),
-    body('label').isString().trim().notEmpty().withMessage('label is required'),
+    body('label').optional({ values: 'falsy' }).isString().trim(),
     body('url').optional().isString(),
     body('externalUrl').optional().isString(),
     body('organizationId').optional().isInt(),
     body('programId').optional().isInt(),
-    body('sortOrder').optional().isInt(),
+    body('sortOrder').optional().custom((v) => v == null || v === '' || Number.isFinite(Number(v))),
     body('isActive').optional().isBoolean()
   ],
   create
@@ -40,7 +40,7 @@ router.put(
     body('externalUrl').optional().isString(),
     body('organizationId').optional().isInt(),
     body('programId').optional().isInt(),
-    body('sortOrder').optional().isInt(),
+    body('sortOrder').optional().custom((v) => v == null || v === '' || Number.isFinite(Number(v))),
     body('isActive').optional().isBoolean()
   ],
   update

@@ -188,7 +188,9 @@ async function saveFeed() {
     await load();
     resetForm();
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to save';
+    const err = e.response?.data?.error;
+    const firstMsg = Array.isArray(err?.errors) && err.errors[0]?.msg ? err.errors[0].msg : null;
+    error.value = firstMsg || err?.message || 'Failed to save';
   } finally {
     saving.value = false;
     savingId.value = null;
