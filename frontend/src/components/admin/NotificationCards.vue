@@ -150,6 +150,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import NotificationCategoryModal from './NotificationCategoryModal.vue';
+import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
 import api from '../../services/api';
 
 const notificationStore = useNotificationStore();
@@ -283,21 +284,7 @@ const visibleAgencies = computed(() => {
 });
 
 const allAgenciesNotificationsIconUrl = computed(() => {
-  if (!brandingStore.platformBranding?.all_agencies_notifications_icon_path) {
-    return null;
-  }
-  
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  
-  let iconPath = brandingStore.platformBranding.all_agencies_notifications_icon_path;
-  if (iconPath.startsWith('/uploads/')) {
-    iconPath = iconPath.substring('/uploads/'.length);
-  } else if (iconPath.startsWith('/')) {
-    iconPath = iconPath.substring(1);
-  }
-  
-  return `${apiBase}/uploads/${iconPath}`;
+  return toUploadsUrl(brandingStore.platformBranding?.all_agencies_notifications_icon_path);
 });
 
 const getNotificationCount = (agencyId) => {
@@ -310,17 +297,7 @@ const getNotificationCount = (agencyId) => {
 const getAgencyIconUrl = (agency) => {
   // Priority 1: Use agency icon_file_path (master icon)
   if (agency.icon_file_path) {
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-    
-    let iconPath = agency.icon_file_path;
-    if (iconPath.startsWith('/uploads/')) {
-      iconPath = iconPath.substring('/uploads/'.length);
-    } else if (iconPath.startsWith('/')) {
-      iconPath = iconPath.substring(1);
-    }
-    
-    return `${apiBase}/uploads/${iconPath}`;
+    return toUploadsUrl(agency.icon_file_path);
   }
   
   // Priority 2: Use logo_url
@@ -328,8 +305,7 @@ const getAgencyIconUrl = (agency) => {
     if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
       return agency.logo_url;
     }
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+    const apiBase = getBackendBaseUrl();
     return `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
   }
   

@@ -221,6 +221,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import TrackCopyDialog from './TrackCopyDialog.vue';
@@ -342,15 +343,7 @@ const getTrackIconUrl = (track) => {
     return null;
   }
   
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  let cleanPath = iconPath;
-  if (cleanPath.startsWith('/uploads/')) {
-    cleanPath = cleanPath.substring('/uploads/'.length);
-  } else if (cleanPath.startsWith('/')) {
-    cleanPath = cleanPath.substring(1);
-  }
-  const fullUrl = `${apiBase}/uploads/${cleanPath}`;
+  const fullUrl = toUploadsUrl(iconPath);
   console.log('Track icon URL:', fullUrl, 'from path:', iconPath);
   return fullUrl;
 };

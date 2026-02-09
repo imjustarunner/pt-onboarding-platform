@@ -70,6 +70,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import { getBackendBaseUrl } from '../../utils/uploadsUrl';
 
 const props = defineProps({
   providers: { type: Array, default: () => [] },
@@ -79,11 +80,6 @@ const props = defineProps({
 defineEmits(['close']);
 
 const selectedProviderId = ref(null);
-
-const uploadsBase = computed(() => {
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-  return baseURL.replace('/api', '') || 'http://localhost:3000';
-});
 
 watch(
   () => props.preselectProviderUserId,
@@ -137,7 +133,8 @@ const initialsFor = (p) => {
 const providerPhotoUrl = (p) => {
   const rel = p?.profile_photo_url || null;
   if (!rel) return null;
-  return `${uploadsBase.value}${String(rel).startsWith('/') ? rel : `/${rel}`}`;
+  const base = getBackendBaseUrl();
+  return `${base}${String(rel).startsWith('/') ? rel : `/${rel}`}`;
 };
 
 const totalSlotsFor = (p) => {

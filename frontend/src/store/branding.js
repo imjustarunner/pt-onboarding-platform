@@ -5,7 +5,7 @@ import { useAuthStore } from './auth';
 import { getPortalUrl } from '../utils/subdomain';
 import api from '../services/api';
 import { loadFont } from '../utils/fontLoader';
-import { toUploadsUrl } from '../utils/uploadsUrl';
+import { getBackendBaseUrl, toUploadsUrl } from '../utils/uploadsUrl';
 import { trackPromise } from '../utils/pageLoader';
 import { preloadImages } from '../utils/preloadImages';
 
@@ -446,19 +446,10 @@ export const useBrandingStore = defineStore('branding', () => {
       }
       // Priority 2: Platform organization_logo_path (from icon library)
       if (platformBranding.value?.organization_logo_path) {
-        const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-        const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-        let iconPath = platformBranding.value.organization_logo_path;
-        if (iconPath.startsWith('/uploads/')) {
-          iconPath = iconPath.substring('/uploads/'.length);
-        } else if (iconPath.startsWith('/')) {
-          iconPath = iconPath.substring(1);
-        }
-        const logoUrl = `${apiBase}/uploads/${iconPath}`;
+        const logoUrl = toUploadsUrl(platformBranding.value.organization_logo_path);
         if (import.meta.env.DEV) {
           console.log('[Branding] Constructed logoUrl from path:', {
             originalPath: platformBranding.value.organization_logo_path,
-            cleanedPath: iconPath,
             finalUrl: logoUrl
           });
         }
@@ -486,20 +477,20 @@ export const useBrandingStore = defineStore('branding', () => {
     // Check for logo_path first (uploaded), then logo_url (URL)
     const agency = agencyStore.currentAgency;
     if (agency?.logo_path) {
-      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-      return `${apiBase}/${agency.logo_path}`;
+      return toUploadsUrl(agency.logo_path);
     }
     // Fallback to master icon (icon_id -> icon_file_path) when agency has no logo fields.
     if (agency?.icon_file_path) {
-      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-      let iconPath = String(agency.icon_file_path);
-      if (iconPath.startsWith('/uploads/')) iconPath = iconPath.substring('/uploads/'.length);
-      else if (iconPath.startsWith('/')) iconPath = iconPath.substring(1);
-      return `${apiBase}/uploads/${iconPath}`;
+      return toUploadsUrl(agency.icon_file_path);
     }
-    return agency?.logo_url || null;
+    if (agency?.logo_url) {
+      if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
+        return agency.logo_url;
+      }
+      const apiBase = getBackendBaseUrl();
+      return `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
+    }
+    return null;
   });
   
   // Helper function to add cache-busting parameter to URL
@@ -541,19 +532,10 @@ export const useBrandingStore = defineStore('branding', () => {
       }
       // Priority 2: Platform organization_logo_path (from icon library)
       if (platformBranding.value?.organization_logo_path) {
-        const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-        const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-        let iconPath = platformBranding.value.organization_logo_path;
-        if (iconPath.startsWith('/uploads/')) {
-          iconPath = iconPath.substring('/uploads/'.length);
-        } else if (iconPath.startsWith('/')) {
-          iconPath = iconPath.substring(1);
-        }
-        const logoUrl = `${apiBase}/uploads/${iconPath}`;
+        const logoUrl = toUploadsUrl(platformBranding.value.organization_logo_path);
         if (import.meta.env.DEV) {
           console.log('[Branding] Constructed displayLogoUrl from path:', {
             originalPath: platformBranding.value.organization_logo_path,
-            cleanedPath: iconPath,
             finalUrl: logoUrl
           });
         }
@@ -581,29 +563,21 @@ export const useBrandingStore = defineStore('branding', () => {
     // Check for logo_path first (uploaded), then logo_url (URL)
     const agency = agencyStore.currentAgency;
     if (agency?.logo_path) {
-      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-      let iconPath = agency.logo_path;
-      if (iconPath.startsWith('/uploads/')) {
-        iconPath = iconPath.substring('/uploads/'.length);
-      } else if (iconPath.startsWith('/')) {
-        iconPath = iconPath.substring(1);
-      }
-      const logoUrl = `${apiBase}/uploads/${iconPath}`;
+      const logoUrl = toUploadsUrl(agency.logo_path);
       return addCacheBuster(logoUrl);
     }
     // Fallback to master icon (icon_id -> icon_file_path) when agency has no logo fields.
     if (agency?.icon_file_path) {
-      const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-      let iconPath = String(agency.icon_file_path);
-      if (iconPath.startsWith('/uploads/')) iconPath = iconPath.substring('/uploads/'.length);
-      else if (iconPath.startsWith('/')) iconPath = iconPath.substring(1);
-      const logoUrl = `${apiBase}/uploads/${iconPath}`;
+      const logoUrl = toUploadsUrl(agency.icon_file_path);
       return addCacheBuster(logoUrl);
     }
     if (agency?.logo_url) {
-      return addCacheBuster(agency.logo_url);
+      if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
+        return addCacheBuster(agency.logo_url);
+      }
+      const apiBase = getBackendBaseUrl();
+      const fullUrl = `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
+      return addCacheBuster(fullUrl);
     }
     return null;
   });

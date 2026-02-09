@@ -2974,6 +2974,7 @@
 import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import IconSelector from './IconSelector.vue';
@@ -5970,8 +5971,6 @@ const handleLogoFileSelect = async (event) => {
 
 const getLogoUrlFromPath = (logoPath) => {
   if (!logoPath) return null;
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
   // Accept any of:
   // - "uploads/logos/..."
   // - "/uploads/logos/..."
@@ -5980,7 +5979,7 @@ const getLogoUrlFromPath = (logoPath) => {
   let p = String(logoPath || '').trim();
   if (p.startsWith('/')) p = p.substring(1);
   if (p.startsWith('uploads/')) p = p.substring('uploads/'.length);
-  return `${apiBase}/uploads/${p}`;
+  return toUploadsUrl(p);
 };
 
 const getAgencyLogoUrl = (agency) => {
@@ -6023,10 +6022,7 @@ const getAbsoluteUploadsUrl = (maybeRelativeUrl) => {
   const u = String(maybeRelativeUrl || '').trim();
   if (!u) return '';
   if (u.startsWith('http://') || u.startsWith('https://')) return u;
-
-  // uploads are served from root (not under /api)
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+  const apiBase = getBackendBaseUrl();
   const cleanUrl = u.startsWith('/') ? u : `/${u}`;
   return `${apiBase}${cleanUrl}`;
 };
@@ -6038,7 +6034,7 @@ const getIconUrlFromIcon = (icon) => {
     let fp = String(icon.file_path || '').trim();
     if (fp.startsWith('/')) fp = fp.slice(1);
     if (fp.startsWith('uploads/')) fp = fp.substring('uploads/'.length);
-    iconUrl = `/uploads/${fp}`;
+    iconUrl = toUploadsUrl(fp);
   }
   return getAbsoluteUploadsUrl(iconUrl);
 };

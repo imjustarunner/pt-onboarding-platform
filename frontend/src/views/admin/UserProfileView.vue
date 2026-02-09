@@ -1758,6 +1758,7 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { isSupervisor } from '../../utils/helpers.js';
+import { getBackendBaseUrl } from '../../utils/uploadsUrl';
 import UserTrainingTab from '../../components/admin/UserTrainingTab.vue';
 import UserDocumentsTab from '../../components/admin/UserDocumentsTab.vue';
 import UserInformationTab from '../../components/admin/UserInformationTab.vue';
@@ -1788,15 +1789,11 @@ const profilePhotoInput = ref(null);
 const photoUploading = ref(false);
 const photoError = ref('');
 
-const uploadsBase = computed(() => {
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-  return baseURL.replace('/api', '') || 'http://localhost:3000';
-});
-
 const headerPhotoUrl = computed(() => {
   const rel = user.value?.profile_photo_url || null;
   if (!rel) return null;
-  return `${uploadsBase.value}${String(rel).startsWith('/') ? rel : `/${rel}`}`;
+  const base = getBackendBaseUrl();
+  return `${base}${String(rel).startsWith('/') ? rel : `/${rel}`}`;
 });
 
 const headerInitials = computed(() => {

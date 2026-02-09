@@ -101,7 +101,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
-import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
 
 const props = defineProps({
   modelValue: {
@@ -164,11 +164,7 @@ const getIconUrl = (icon) => {
   if (iconUrl.startsWith('http://') || iconUrl.startsWith('https://')) {
     return iconUrl;
   }
-  // Otherwise, prepend API base URL (uploads are served from root, not /api)
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-  // Remove /api from baseURL if present since /uploads is not under /api
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  // Ensure no double slashes
+  const apiBase = getBackendBaseUrl();
   const cleanUrl = iconUrl.startsWith('/') ? iconUrl : `/${iconUrl}`;
   return `${apiBase}${cleanUrl}`;
 };

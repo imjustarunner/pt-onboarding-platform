@@ -420,6 +420,7 @@ import { ref, computed, onMounted } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -514,20 +515,11 @@ const getIconUrl = (icon) => {
   // Use the URL from the icon if available
   let iconUrl = icon.url;
   if (!iconUrl && icon.file_path) {
-    // file_path is stored as "uploads/icons/filename.png" (from StorageService.saveIcon)
-    // Don't prepend /uploads/ if it's already there
+    // Normalize file_path to an uploads URL.
     let filePath = icon.file_path;
-    if (filePath.startsWith('uploads/')) {
-      iconUrl = `/${filePath}`;
-    } else if (filePath.startsWith('/uploads/')) {
-      iconUrl = filePath;
-    } else if (filePath.startsWith('icons/')) {
-      // Old format - convert to new format
-      iconUrl = `/uploads/${filePath}`;
-    } else {
-      // Assume it's just a filename, prepend uploads/icons/
-      iconUrl = `/uploads/icons/${filePath}`;
-    }
+    if (filePath.startsWith('/')) filePath = filePath.slice(1);
+    if (filePath.startsWith('uploads/')) filePath = filePath.substring('uploads/'.length);
+    iconUrl = toUploadsUrl(filePath);
   }
   if (!iconUrl) return '';
   
@@ -535,11 +527,7 @@ const getIconUrl = (icon) => {
   if (iconUrl.startsWith('http://') || iconUrl.startsWith('https://')) {
     return iconUrl;
   }
-  // Otherwise, prepend API base URL (uploads are served from root, not /api)
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
-  // Remove /api from baseURL if present since /uploads is not under /api
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  // Ensure no double slashes
+  const apiBase = getBackendBaseUrl();
   const cleanUrl = iconUrl.startsWith('/') ? iconUrl : `/${iconUrl}`;
   return `${apiBase}${cleanUrl}`;
 };

@@ -925,6 +925,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import ContentEditor from '../../components/admin/ContentEditor.vue';
@@ -2154,19 +2155,7 @@ const getTrainingFocusIconUrl = (focus) => {
     return null;
   }
   
-  // Construct full URL
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  
-  // Ensure iconPath doesn't start with /uploads
-  let cleanPath = iconPath;
-  if (cleanPath.startsWith('/uploads/')) {
-    cleanPath = cleanPath.substring('/uploads/'.length);
-  } else if (cleanPath.startsWith('/')) {
-    cleanPath = cleanPath.substring(1);
-  }
-  
-  return `${apiBase}/uploads/${cleanPath}`;
+  return toUploadsUrl(iconPath);
 };
 
 const getIconUrl = (module) => {
@@ -2190,20 +2179,7 @@ const getIconUrl = (module) => {
     return null;
   }
   
-  // Construct full URL
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  
-  // Ensure iconPath doesn't start with /uploads
-  let cleanPath = iconPath;
-  if (cleanPath.startsWith('/uploads/')) {
-    cleanPath = cleanPath.substring('/uploads/'.length);
-  } else if (cleanPath.startsWith('/')) {
-    cleanPath = cleanPath.substring(1);
-  }
-  
-  const fullUrl = `${apiBase}/uploads/${cleanPath}`;
-  return fullUrl;
+  return toUploadsUrl(iconPath);
 };
 
 const closeModal = () => {

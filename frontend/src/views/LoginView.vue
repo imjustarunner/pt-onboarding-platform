@@ -77,6 +77,7 @@ import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import api from '../services/api';
+import { getBackendBaseUrl } from '../utils/uploadsUrl';
 import { getDashboardRoute } from '../utils/router';
 
 // Removed hardcoded credentials for security
@@ -212,7 +213,7 @@ const showGoogleButton = computed(() => {
 
 const continueWithGoogle = () => {
   if (!loginSlug.value) return;
-  const base = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+  const base = getBackendBaseUrl();
   window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(String(loginSlug.value).trim().toLowerCase())}`;
 };
 

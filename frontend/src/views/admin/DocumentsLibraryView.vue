@@ -599,6 +599,7 @@ import IconSelector from '../../components/admin/IconSelector.vue';
 import TemplateVariablesList from '../../components/documents/TemplateVariablesList.vue';
 import HtmlDocumentBuilder from '../../components/documents/HtmlDocumentBuilder.vue';
 import api from '../../services/api';
+import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
 
 const router = useRouter();
 
@@ -1524,15 +1525,7 @@ const getDocumentIconUrl = (template) => {
     return null;
   }
   
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  let cleanPath = iconPath;
-  if (cleanPath.startsWith('/uploads/')) {
-    cleanPath = cleanPath.substring('/uploads/'.length);
-  } else if (cleanPath.startsWith('/')) {
-    cleanPath = cleanPath.substring(1);
-  }
-  const fullUrl = `${apiBase}/uploads/${cleanPath}`;
+  const fullUrl = toUploadsUrl(iconPath);
   console.log('✅ Constructed document icon URL:', fullUrl, 'from path:', iconPath);
   return fullUrl;
 };
@@ -1559,18 +1552,7 @@ const getMasterBrandIconUrl = () => {
     return null;
   }
   
-  // Construct icon URL similar to document icons
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-  
-  let iconPath = platformBranding.master_brand_icon_path;
-  if (iconPath.startsWith('/uploads/')) {
-    iconPath = iconPath.substring('/uploads/'.length);
-  } else if (iconPath.startsWith('/')) {
-    iconPath = iconPath.substring(1);
-  }
-  
-  return `${apiBase}/uploads/${iconPath}`;
+  return toUploadsUrl(platformBranding.master_brand_icon_path);
 };
 
 // Get agency master icon URL (used when viewing "All Agencies" for agency documents)
@@ -1583,18 +1565,7 @@ const getAgencyMasterIconUrl = (template) => {
   
   // Priority 1: Use agency master icon (icon_id) - this is the unified master icon
   if (agency.icon_id && agency.icon_file_path) {
-    // Construct icon URL from the icon's file_path
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
-    
-    let iconPath = agency.icon_file_path;
-    if (iconPath.startsWith('/uploads/')) {
-      iconPath = iconPath.substring('/uploads/'.length);
-    } else if (iconPath.startsWith('/')) {
-      iconPath = iconPath.substring(1);
-    }
-    
-    return `${apiBase}/uploads/${iconPath}`;
+    return toUploadsUrl(agency.icon_file_path);
   }
   
   // Priority 2: Fall back to logo_url if master icon is not available
@@ -1604,8 +1575,7 @@ const getAgencyMasterIconUrl = (template) => {
       return agency.logo_url;
     }
     // If it's a relative path, construct the full URL
-    const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
+    const apiBase = getBackendBaseUrl();
     return `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
   }
   

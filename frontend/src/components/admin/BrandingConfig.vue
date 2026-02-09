@@ -2013,6 +2013,7 @@
 <script setup>
 import { ref, computed, onMounted, watch, onActivated } from 'vue';
 import api from '../../services/api';
+import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
@@ -2655,14 +2656,12 @@ const handlePlatformLogoFileSelect = async (event) => {
 
 const getLogoUrlFromPath = (logoPath) => {
   if (!logoPath) return null;
-  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const apiBase = baseURL.replace('/api', '') || 'http://localhost:3000';
   // Accept "uploads/logos/..." or "/uploads/logos/..." or "logos/..."
   // Normalize to "/uploads/logos/..."
   let p = String(logoPath || '').trim();
   if (p.startsWith('/')) p = p.substring(1);
   if (p.startsWith('uploads/')) p = p.substring('uploads/'.length);
-  return `${apiBase}/uploads/${p}`;
+  return toUploadsUrl(p);
 };
 
 watch(() => brandingForm.value.logoUrl, () => {
