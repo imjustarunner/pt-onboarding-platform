@@ -1234,6 +1234,10 @@ const loadLink = async () => {
     if (typeof recaptchaConfig.useEnterprise === 'boolean') {
       useEnterpriseRecaptcha.value = recaptchaConfig.useEnterprise;
     }
+    console.info('[recaptcha] config', {
+      hasSiteKey: !!recaptchaSiteKey.value,
+      useEnterprise: useEnterpriseRecaptcha.value
+    });
     if (!templates.value.length) {
       error.value = 'No documents configured for this intake link.';
     }
@@ -1384,6 +1388,10 @@ const submitConsent = async () => {
   if (recaptchaSiteKey.value) {
     const token = await getRecaptchaToken();
     captchaToken.value = token;
+    console.info('[recaptcha] token', {
+      hasToken: !!token,
+      length: token ? String(token).length : 0
+    });
     if (!token) {
       error.value = 'Captcha verification failed. Please try again.';
       captchaError.value = error.value;
