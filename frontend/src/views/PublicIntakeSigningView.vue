@@ -1247,6 +1247,7 @@ const loadLink = async () => {
       hasSiteKey: !!recaptchaSiteKey.value,
       useEnterprise: useEnterpriseRecaptcha.value
     });
+    await updateRecaptchaMode();
     if (!templates.value.length) {
       error.value = 'No documents configured for this intake link.';
     }
@@ -1307,6 +1308,30 @@ const ensureRecaptchaWidget = async () => {
   }
 };
 
+const updateRecaptchaMode = async () => {
+  if (!recaptchaSiteKey.value) return;
+  try {
+    const grecaptcha = await loadRecaptchaScript();
+    if (!grecaptcha) return;
+    const hasExecute = !!(grecaptcha.enterprise?.execute || grecaptcha.execute);
+    const hasRender = !!grecaptcha.enterprise?.render;
+    // Enterprise challenge/checkbox keys don't expose execute(); they require a rendered widget.
+    if (useEnterpriseRecaptcha.value && !hasExecute && hasRender) {
+      showRecaptchaWidget.value = true;
+      await nextTick();
+      await ensureRecaptchaWidget();
+    }
+  } catch (err) {
+    console.warn('[recaptcha] mode init failed', err);
+  }
+};
+
+watch(step, async (val) => {
+  if (val !== 1) return;
+  await nextTick();
+  await updateRecaptchaMode();
+});
+
 const getRecaptchaToken = async () => {
   if (!recaptchaSiteKey.value) return '';
   try {
@@ -1315,6 +1340,7 @@ const getRecaptchaToken = async () => {
     console.info('[recaptcha] availability', {
       hasEnterprise: !!grecaptcha.enterprise,
       hasEnterpriseExecute: !!grecaptcha.enterprise?.execute,
+      hasEnterpriseRender: !!grecaptcha.enterprise?.render,
       hasStandardExecute: !!grecaptcha.execute
     });
     if (useEnterpriseRecaptcha.value && grecaptcha.enterprise?.execute) {
@@ -1442,16 +1468,27 @@ const submitConsent = async () => {
     return;
   }
   if (recaptchaSiteKey.value) {
-    const token = await getRecaptchaToken();
-    captchaToken.value = token;
-    console.info('[recaptcha] token', {
-      hasToken: !!token,
-      length: token ? String(token).length : 0
-    });
-    if (!token) {
-      error.value = 'Captcha verification failed. Please try again.';
-      captchaError.value = error.value;
-      return;
+    // If we're in widget-mode, the token only exists after user interaction.
+    if (showRecaptchaWidget.value) {
+      const token = String(captchaToken.value || '').trim();
+      console.info('[recaptcha] token', { hasToken: !!token, length: token.length });
+      if (!token) {
+        error.value = 'Please complete the captcha verification above.';
+        captchaError.value = error.value;
+        return;
+      }
+    } else {
+      const token = await getRecaptchaToken();
+      captchaToken.value = token;
+      console.info('[recaptcha] token', {
+        hasToken: !!token,
+        length: token ? String(token).length : 0
+      });
+      if (!token) {
+        error.value = 'Captcha verification failed. Please try again.';
+        captchaError.value = error.value;
+        return;
+      }
     }
   }
   try {
