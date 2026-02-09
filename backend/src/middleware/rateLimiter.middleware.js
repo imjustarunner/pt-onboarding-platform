@@ -48,3 +48,13 @@ export const publicIntakeLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => `public-intake:${req.ip}`,
 });
+
+// Password/username recovery endpoints (public-facing, anti-abuse).
+export const recoveryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: isDevelopment ? 60 : 10,
+  message: { error: { message: 'Too many recovery attempts, please try again later' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `recovery:${req.ip}`,
+});

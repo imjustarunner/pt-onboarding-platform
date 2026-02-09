@@ -54,14 +54,71 @@
           <a href="#" @click.prevent="showForgotUsername" class="help-link">Forgot Username?</a>
         </div>
         
-        <div v-if="showForgotPasswordMessage" class="help-message">
-          <p>Please contact an administrator to reset your password.</p>
-          <button @click="showForgotPasswordMessage = false" class="btn-close-help">Close</button>
+        <!-- Forgot Password Modal -->
+        <div v-if="showForgotPasswordMessage" class="modal-overlay" @click.self="closeRecoveryModals">
+          <div class="modal">
+            <h3>Reset your password</h3>
+            <p class="modal-subtitle">Enter the email you use to sign in. We'll email you a reset link.</p>
+            <form @submit.prevent="submitForgotPassword" class="modal-form">
+              <div class="form-group">
+                <label for="forgotEmail">Email</label>
+                <input id="forgotEmail" v-model="forgotPasswordEmail" type="email" required placeholder="name@company.com" />
+              </div>
+              <div v-if="recoveryError" class="error">{{ recoveryError }}</div>
+              <div v-if="recoverySuccess" class="success">{{ recoverySuccess }}</div>
+              <div v-if="recoveryDebug?.resetLink" class="debug">
+                <p><strong>Dev test link:</strong></p>
+                <a :href="recoveryDebug.resetLink" target="_blank" rel="noopener noreferrer">{{ recoveryDebug.resetLink }}</a>
+                <p class="debug-note">This only appears outside production, when email sending is skipped or misconfigured.</p>
+              </div>
+              <button type="submit" class="btn btn-primary" :disabled="recoveryLoading">
+                {{ recoveryLoading ? 'Sending…' : 'Send reset link' }}
+              </button>
+              <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">Cancel</button>
+            </form>
+          </div>
         </div>
-        
-        <div v-if="showForgotUsernameMessage" class="help-message">
-          <p>Use your company work email to log in. If you don't have one, please contact your administrator.</p>
-          <button @click="showForgotUsernameMessage = false" class="btn-close-help">Close</button>
+
+        <!-- Forgot Username Modal -->
+        <div v-if="showForgotUsernameMessage" class="modal-overlay" @click.self="closeRecoveryModals">
+          <div class="modal">
+            <h3>Recover your username</h3>
+            <p class="modal-subtitle">Enter your name and role. If we find a match, we'll email your username.</p>
+            <form @submit.prevent="submitForgotUsername" class="modal-form">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="firstName">First name</label>
+                  <input id="firstName" v-model="recoverFirstName" type="text" required placeholder="First name" />
+                </div>
+                <div class="form-group">
+                  <label for="lastName">Last name</label>
+                  <input id="lastName" v-model="recoverLastName" type="text" required placeholder="Last name" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="role">Role</label>
+                <select id="role" v-model="recoverRole" required>
+                  <option disabled value="">Select your role</option>
+                  <option value="provider">Provider</option>
+                  <option value="intern">Intern</option>
+                  <option value="staff">Staff</option>
+                  <option value="supervisor">Supervisor</option>
+                  <option value="admin">Admin</option>
+                  <option value="support">Support</option>
+                  <option value="clinical_practice_assistant">Clinical Practice Assistant</option>
+                  <option value="school_staff">School Staff</option>
+                  <option value="client_guardian">Guardian</option>
+                  <option value="facilitator">Facilitator</option>
+                </select>
+              </div>
+              <div v-if="recoveryError" class="error">{{ recoveryError }}</div>
+              <div v-if="recoverySuccess" class="success">{{ recoverySuccess }}</div>
+              <button type="submit" class="btn btn-primary" :disabled="recoveryLoading">
+                {{ recoveryLoading ? 'Sending…' : 'Email my username' }}
+              </button>
+              <button type="button" class="btn btn-secondary" @click="closeRecoveryModals" :disabled="recoveryLoading">Cancel</button>
+            </form>
+          </div>
         </div>
       </div>
     </div>
@@ -206,6 +263,16 @@ const lastErrorCode = ref(null);
 const loadingOrgPolicy = ref(false);
 const orgPolicy = ref({ googleSsoEnabled: false });
 
+// Recovery state (forgot password/username)
+const recoveryLoading = ref(false);
+const recoveryError = ref('');
+const recoverySuccess = ref('');
+const recoveryDebug = ref(null);
+const forgotPasswordEmail = ref('');
+const recoverFirstName = ref('');
+const recoverLastName = ref('');
+const recoverRole = ref('');
+
 const showGoogleButton = computed(() => {
   if (!isOrgLogin.value) return false;
   return orgPolicy.value?.googleSsoEnabled === true || lastErrorCode.value === 'SSO_REQUIRED';
@@ -275,12 +342,76 @@ const handleLogin = async () => {
 const showForgotPassword = () => {
   showForgotPasswordMessage.value = true;
   showForgotUsernameMessage.value = false;
+  recoveryError.value = '';
+  recoverySuccess.value = '';
+  recoveryDebug.value = null;
+  forgotPasswordEmail.value = (email.value || '').trim();
 };
 
 const showForgotUsername = () => {
     // Agencies are now stored in localStorage by fetchUserAgencies for future login redirects
   showForgotUsernameMessage.value = true;
   showForgotPasswordMessage.value = false;
+  recoveryError.value = '';
+  recoverySuccess.value = '';
+  recoveryDebug.value = null;
+  recoverFirstName.value = '';
+  recoverLastName.value = '';
+  recoverRole.value = '';
+};
+
+const closeRecoveryModals = () => {
+  showForgotPasswordMessage.value = false;
+  showForgotUsernameMessage.value = false;
+  recoveryLoading.value = false;
+  recoveryError.value = '';
+  recoverySuccess.value = '';
+  recoveryDebug.value = null;
+};
+
+const submitForgotPassword = async () => {
+  recoveryLoading.value = true;
+  recoveryError.value = '';
+  recoverySuccess.value = '';
+  recoveryDebug.value = null;
+  try {
+    const resp = await api.post('/auth/request-password-reset', {
+      email: String(forgotPasswordEmail.value || '').trim(),
+      organizationSlug: loginSlug.value || undefined
+    }, { skipGlobalLoading: true, skipAuthRedirect: true });
+
+    recoverySuccess.value = resp?.data?.message || 'If the email matches an account, you will receive a reset link shortly.';
+    recoveryDebug.value = resp?.data?.debug || null;
+  } catch (e) {
+    // Keep UX generic to avoid account enumeration
+    recoverySuccess.value = 'If the email matches an account, you will receive a reset link shortly.';
+    recoveryDebug.value = e?.response?.data?.debug || null;
+  } finally {
+    recoveryLoading.value = false;
+  }
+};
+
+const submitForgotUsername = async () => {
+  recoveryLoading.value = true;
+  recoveryError.value = '';
+  recoverySuccess.value = '';
+  recoveryDebug.value = null;
+  try {
+    const resp = await api.post('/auth/recover-username', {
+      firstName: String(recoverFirstName.value || '').trim(),
+      lastName: String(recoverLastName.value || '').trim(),
+      role: String(recoverRole.value || '').trim(),
+      organizationSlug: loginSlug.value || undefined
+    }, { skipGlobalLoading: true, skipAuthRedirect: true });
+
+    recoverySuccess.value = resp?.data?.message || 'If the information matches an account, you will receive an email shortly.';
+    recoveryDebug.value = resp?.data?.debug || null;
+  } catch (e) {
+    recoverySuccess.value = 'If the information matches an account, you will receive an email shortly.';
+    recoveryDebug.value = e?.response?.data?.debug || null;
+  } finally {
+    recoveryLoading.value = false;
+  }
 };
 
 const formatError = (errorText) => {
@@ -455,6 +586,78 @@ const handleLogoError = (event) => {
 
 .btn-close-help:hover {
   color: var(--accent-color, var(--accent, #3A4C6B));
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 999;
+}
+
+.modal {
+  width: 100%;
+  max-width: 520px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+}
+
+.modal h3 {
+  margin: 0 0 8px 0;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.modal-subtitle {
+  margin: 0 0 16px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.modal-form .btn {
+  margin-top: 12px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 520px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.success {
+  color: #065f46;
+  background: #d1fae5;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+.debug {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f3f4f6;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.debug-note {
+  margin: 8px 0 0 0;
+  color: #6b7280;
 }
 </style>
 

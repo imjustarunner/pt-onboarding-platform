@@ -1,9 +1,27 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { login, register, approvedEmployeeLogin, logout, logActivity, passwordlessTokenLogin, passwordlessTokenLoginFromBody, verifyPendingIdentity, validateSetupToken, initialSetup, validateResetToken, resetPasswordWithToken, googleOAuthStart, googleOAuthCallback } from '../controllers/auth.controller.js';
+import {
+  login,
+  register,
+  approvedEmployeeLogin,
+  logout,
+  logActivity,
+  passwordlessTokenLogin,
+  passwordlessTokenLoginFromBody,
+  verifyPendingIdentity,
+  validateSetupToken,
+  initialSetup,
+  validateResetToken,
+  resetPasswordWithToken,
+  googleOAuthStart,
+  googleOAuthCallback,
+  requestPasswordReset,
+  recoverUsername,
+  getRecoveryStatus
+} from '../controllers/auth.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware.js';
 import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middleware.js';
-import { authLimiter } from '../middleware/rateLimiter.middleware.js';
+import { authLimiter, recoveryLimiter } from '../middleware/rateLimiter.middleware.js';
 
 const router = express.Router();
 
@@ -119,6 +137,20 @@ router.post('/approved-employee-login', [
 router.post('/logout', authenticate, logout);
 router.post('/activity-log', authenticate, logActivity);
 router.post('/register', requireAdminOrFirstUser, validateRegister, register);
+
+// Public recovery endpoints (do not require authentication)
+router.get('/recovery-status', recoveryLimiter, getRecoveryStatus);
+router.post('/request-password-reset', recoveryLimiter, [
+  body('email').isEmail().normalizeEmail(),
+  body('organizationSlug').optional().isString().trim()
+], requestPasswordReset);
+router.post('/recover-username', recoveryLimiter, [
+  body('firstName').isString().trim().notEmpty(),
+  body('lastName').isString().trim().notEmpty(),
+  body('role').isString().trim().notEmpty(),
+  body('organizationSlug').optional().isString().trim()
+], recoverUsername);
+
 // Old route: token in URL (kept for backward compatibility)
 router.post('/passwordless-login/:token', passwordlessTokenLogin);
 

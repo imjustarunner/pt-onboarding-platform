@@ -9,6 +9,9 @@ import config from '../config/config.js';
 import { getUserCapabilities } from '../utils/capabilities.js';
 import Agency from '../models/Agency.model.js';
 import { createSignedState as createGoogleState, verifySignedState as verifyGoogleState, exchangeCodeForTokens, getGoogleAuthorizeUrl, getGoogleOAuthClient } from '../services/googleOAuth.service.js';
+import EmailService from '../services/email.service.js';
+import EmailTemplateService from '../services/emailTemplate.service.js';
+import CommunicationLoggingService from '../services/communicationLogging.service.js';
 
 async function buildPayrollCaps(user) {
   const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
@@ -1266,6 +1269,325 @@ export const validateResetToken = async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+};
+
+const normalizeOrgSlug = (value) => {
+  const v = String(value || '').trim().toLowerCase();
+  return v || null;
+};
+
+const safeGenericRecoveryResponse = (res, extra = {}) => {
+  // Always return success-like response to prevent account enumeration.
+  return res.json({
+    ok: true,
+    message: 'If the account information matches our records, you will receive an email shortly.',
+    ...extra
+  });
+};
+
+const pickRecoveryRecipientEmail = (user, requestedEmail = null) => {
+  const requested = String(requestedEmail || '').trim().toLowerCase();
+  const candidates = [
+    requested || null,
+    user?.email || null,
+    user?.username || null,
+    user?.work_email || null,
+    user?.personal_email || null
+  ]
+    .map((v) => (v ? String(v).trim().toLowerCase() : null))
+    .filter(Boolean);
+
+  // First candidate that looks like an email.
+  const emailish = candidates.find((v) => v.includes('@'));
+  return emailish || null;
+};
+
+const resolveAgencyFromOrgSlug = async (orgSlug) => {
+  const slug = normalizeOrgSlug(orgSlug);
+  if (!slug) return null;
+  return (await Agency.findByPortalUrl(slug)) || (await Agency.findBySlug(slug)) || null;
+};
+
+const resolvePrimaryAgencyForUser = async (userId, orgSlug = null) => {
+  // Prefer the org login page context when provided.
+  const fromSlug = await resolveAgencyFromOrgSlug(orgSlug);
+  if (fromSlug) return fromSlug;
+
+  // Otherwise, best-effort: use first agency membership.
+  try {
+    const agencies = await User.getAgencies(userId);
+    return agencies?.[0] || null;
+  } catch {
+    return null;
+  }
+};
+
+const getOrgAdminEmail = (agency) => {
+  // Configurable override (useful for platform-level portals).
+  const override = String(process.env.LOGIN_ASSISTANCE_ADMIN_EMAIL || '').trim();
+  if (override) return override;
+
+  const candidates = [
+    agency?.onboarding_team_email,
+    agency?.people_ops_email
+  ]
+    .map((v) => (v ? String(v).trim() : ''))
+    .filter(Boolean);
+
+  return candidates[0] || null;
+};
+
+export const getRecoveryStatus = async (req, res, next) => {
+  try {
+    const sendingMode = await EmailService.getSendingMode().catch(() => 'unknown');
+    res.json({
+      ok: true,
+      emailConfigured: EmailService.isConfigured(),
+      sendingMode
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Public endpoint: request a password reset email.
+ * Always returns a generic success response to avoid revealing whether an email exists.
+ */
+export const requestPasswordReset = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      // Keep response generic; do not leak validation details to attackers.
+      return safeGenericRecoveryResponse(res);
+    }
+
+    const emailRaw = req.body?.email;
+    const orgSlug = normalizeOrgSlug(req.body?.organizationSlug || req.body?.orgSlug);
+    const requestedEmail = String(emailRaw || '').trim().toLowerCase();
+    if (!requestedEmail) return safeGenericRecoveryResponse(res);
+
+    const user = await User.findByEmail(requestedEmail).catch(() => null);
+    if (!user?.id) return safeGenericRecoveryResponse(res);
+
+    // Generate token (single-use) with purpose 'reset'
+    const expiresInHours = 48;
+    const tokenResult = await User.generatePasswordlessToken(user.id, expiresInHours, 'reset');
+
+    const agency = await resolvePrimaryAgencyForUser(user.id, orgSlug);
+    const frontendBase = String(config.frontendUrl || '').replace(/\/$/, '');
+    const portalSlug = agency?.portal_url || agency?.slug || orgSlug || null;
+    const resetLink = portalSlug
+      ? `${frontendBase}/${portalSlug}/reset-password/${tokenResult.token}`
+      : `${frontendBase}/reset-password/${tokenResult.token}`;
+
+    // Best-effort template support (falls back to simple text)
+    let subject = 'Reset your password';
+    let body = `We received a request to reset your password.\n\nReset your password using this link (expires in ${expiresInHours} hours):\n${resetLink}\n\nIf you did not request this, you can ignore this email.`;
+    try {
+      const template = await EmailTemplateService.getTemplateForAgency(agency?.id || null, 'password_reset');
+      if (template?.body) {
+        const params = await EmailTemplateService.collectParameters(user, agency, {
+          passwordlessToken: tokenResult.token,
+          senderName: 'System'
+        });
+        const rendered = EmailTemplateService.renderTemplate(template, params);
+        subject = rendered.subject || subject;
+        body = rendered.body || body;
+      }
+    } catch {
+      // ignore
+    }
+
+    const to = pickRecoveryRecipientEmail(user, requestedEmail);
+    if (!to) return safeGenericRecoveryResponse(res);
+
+    // Log + send email (best-effort logging; public endpoint may not have generated_by_user_id)
+    let comm = null;
+    try {
+      comm = await CommunicationLoggingService.logGeneratedCommunication({
+        userId: user.id,
+        agencyId: agency?.id || null,
+        templateType: 'password_reset',
+        templateId: null,
+        subject,
+        body,
+        generatedByUserId: null,
+        channel: 'email',
+        recipientAddress: to
+      });
+    } catch {
+      comm = null;
+    }
+
+    let sendResult = null;
+    try {
+      sendResult = await EmailService.sendEmail({
+        to,
+        subject,
+        text: body,
+        html: null,
+        fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+        fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+        replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+        source: 'auto',
+        agencyId: agency?.id || null
+      });
+    } catch (e) {
+      // In production: still keep response generic.
+      if (process.env.NODE_ENV !== 'production') {
+        return safeGenericRecoveryResponse(res, {
+          debug: {
+            emailConfigured: EmailService.isConfigured(),
+            resetLink,
+            error: String(e?.message || e)
+          }
+        });
+      }
+      return safeGenericRecoveryResponse(res);
+    }
+
+    if (comm?.id && sendResult?.id) {
+      await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
+        fromEmail: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null
+      }).catch(() => {});
+    }
+
+    if (process.env.NODE_ENV !== 'production' && (sendResult?.skipped || sendResult?.reason)) {
+      return safeGenericRecoveryResponse(res, {
+        debug: {
+          resetLink,
+          sendResult
+        }
+      });
+    }
+
+    return safeGenericRecoveryResponse(res);
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * Public endpoint: recover username by first/last/role.
+ * - If exactly one match, send username to the user’s associated email.
+ * - Otherwise notify the org admin (based on the login page org slug).
+ * Always returns a generic success response to avoid revealing whether a user exists.
+ */
+export const recoverUsername = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return safeGenericRecoveryResponse(res);
+    }
+
+    const firstName = String(req.body?.firstName || '').trim();
+    const lastName = String(req.body?.lastName || '').trim();
+    const role = String(req.body?.role || '').trim().toLowerCase();
+    const orgSlug = normalizeOrgSlug(req.body?.organizationSlug || req.body?.orgSlug);
+
+    if (!firstName || !lastName || !role) return safeGenericRecoveryResponse(res);
+
+    const matches = await User.findByName(firstName, lastName).catch(() => []);
+    const filtered = (matches || []).filter((u) => String(u?.role || '').trim().toLowerCase() === role);
+
+    if (filtered.length === 1) {
+      const u = filtered[0];
+      const full = await User.findById(u.id).catch(() => null);
+      const username = full?.username || full?.email || full?.work_email || full?.personal_email || u?.email || null;
+      const to = pickRecoveryRecipientEmail(full || u, full?.email || u?.email);
+      const agency = await resolvePrimaryAgencyForUser(u.id, orgSlug);
+
+      if (to && username) {
+        const subject = 'Your username';
+        const body = `Hello ${full?.first_name || firstName},\n\nYour username is:\n${username}\n\nYou can sign in here:\n${EmailTemplateService.buildPortalLoginLink(agency)}\n\nIf you did not request this email, you can ignore it.`;
+
+        try {
+          const comm = await CommunicationLoggingService.logGeneratedCommunication({
+            userId: u.id,
+            agencyId: agency?.id || null,
+            templateType: 'username_recovery',
+            templateId: null,
+            subject,
+            body,
+            generatedByUserId: null,
+            channel: 'email',
+            recipientAddress: to
+          }).catch(() => null);
+
+          const sendResult = await EmailService.sendEmail({
+            to,
+            subject,
+            text: body,
+            html: null,
+            fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+            fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+            replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+            source: 'auto',
+            agencyId: agency?.id || null
+          });
+
+          if (comm?.id && sendResult?.id) {
+            await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
+              fromEmail: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null
+            }).catch(() => {});
+          }
+        } catch (e) {
+          if (process.env.NODE_ENV !== 'production') {
+            return safeGenericRecoveryResponse(res, {
+              debug: { error: String(e?.message || e), to, username }
+            });
+          }
+        }
+      }
+
+      return safeGenericRecoveryResponse(res);
+    }
+
+    // None or multiple: notify org admin for this login page (best-effort)
+    const org = await resolveAgencyFromOrgSlug(orgSlug);
+    const adminEmail = getOrgAdminEmail(org);
+    if (adminEmail) {
+      const subject = `Login help needed: username not found (${org?.name || orgSlug || 'unknown org'})`;
+      const body = [
+        'A user attempted to recover their username, but no unique account match was found.',
+        '',
+        `First name: ${firstName}`,
+        `Last name: ${lastName}`,
+        `Role: ${role}`,
+        `Org slug: ${orgSlug || '(none provided)'}`,
+        `IP: ${req.ip || '(unknown)'}`,
+        '',
+        'Please assist the user with their login credentials.'
+      ].join('\n');
+
+      try {
+        await EmailService.sendEmail({
+          to: adminEmail,
+          subject,
+          text: body,
+          html: null,
+          fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+          fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+          replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+          source: 'auto',
+          agencyId: org?.id || null
+        });
+      } catch (e) {
+        if (process.env.NODE_ENV !== 'production') {
+          return safeGenericRecoveryResponse(res, { debug: { adminEmail, error: String(e?.message || e) } });
+        }
+      }
+    } else if (process.env.NODE_ENV !== 'production') {
+      return safeGenericRecoveryResponse(res, {
+        debug: { error: 'No admin email configured for this organization (onboarding_team_email/people_ops_email/LOGIN_ASSISTANCE_ADMIN_EMAIL).' }
+      });
+    }
+
+    return safeGenericRecoveryResponse(res);
+  } catch (e) {
+    next(e);
   }
 };
 
