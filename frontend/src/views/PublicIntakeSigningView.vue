@@ -394,8 +394,11 @@
             <PDFPreview
               ref="pdfPreviewRef"
               :pdf-url="pdfUrl"
+              :markers="checkboxMarkers"
+              :active-marker-id="activeMarkerId"
               @loaded="handlePdfLoaded"
               @page-change="handlePageChange"
+              @marker-click="handleMarkerClick"
             />
             <p v-if="pageNotice" class="page-notice">{{ pageNotice }}</p>
             <p class="note">Please review the document above. You must reach the last page before continuing.</p>
@@ -405,6 +408,9 @@
 
         <div v-if="currentFlowStep?.type === 'document' && displayedFieldDefinitions.length" class="field-inputs">
           <h4>Required Fields</h4>
+          <p v-if="checkboxMarkers.length && checkboxDisclaimer" class="muted" style="margin-top: -6px;">
+            {{ checkboxDisclaimer }}
+          </p>
           <div v-for="field in displayedFieldDefinitions" :key="field.id" class="form-group">
             <label>{{ field.label || field.type }}</label>
             <input
@@ -801,6 +807,33 @@ const currentFieldValues = computed(() => {
   }
   return fieldValuesByTemplate[id];
 });
+const checkboxDisclaimer = computed(() =>
+  String(currentFlowStep.value?.checkboxDisclaimer || '').trim()
+);
+const activeMarkerId = ref(null);
+const checkboxMarkers = computed(() =>
+  displayedFieldDefinitions.value
+    .filter((field) => field?.type === 'checkbox' && field?.x !== undefined && field?.y !== undefined)
+    .map((field) => ({
+      id: field.id,
+      label: field.label || 'I agree',
+      type: 'checkbox',
+      checked: currentFieldValues.value?.[field.id] === true,
+      page: Number(field.page || 1),
+      x: Number(field.x),
+      y: Number(field.y),
+      width: Number(field.width || 18),
+      height: Number(field.height || 18)
+    }))
+);
+
+const handleMarkerClick = (marker) => {
+  if (!marker || marker.type !== 'checkbox') return;
+  const id = marker.id;
+  if (!id) return;
+  currentFieldValues.value[id] = currentFieldValues.value[id] !== true;
+  activeMarkerId.value = id;
+};
 const requiresOrganizationId = computed(() => String(link.value?.scope_type || '') === 'agency');
 const intakeFields = computed(() => Array.isArray(link.value?.intake_fields) ? link.value.intake_fields : []);
 const guardianFields = computed(() => intakeFields.value.filter((f) => (f.scope || 'client') === 'guardian'));

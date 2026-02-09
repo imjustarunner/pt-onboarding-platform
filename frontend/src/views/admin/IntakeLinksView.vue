@@ -278,6 +278,14 @@
                       No document templates available. Create one in Documents Library.
                     </div>
                   </div>
+                  <div class="form-group">
+                    <label>Checkbox instructions (optional)</label>
+                    <textarea
+                      v-model="step.checkboxDisclaimer"
+                      rows="2"
+                      placeholder="e.g., Check each box if you agree with the statement on that line. You may uncheck any you do not agree with."
+                    ></textarea>
+                  </div>
                 </div>
 
                 <div v-else class="question-builder">
@@ -855,8 +863,9 @@ const sanitizeSteps = (steps) => {
             },
             options: Array.isArray(f.options) ? f.options.filter((o) => o && typeof o === 'object') : []
           }));
-      } else if (next.type === 'document' && next.templateId === undefined) {
-        next.templateId = null;
+      } else if (next.type === 'document') {
+        if (next.templateId === undefined) next.templateId = null;
+        if (next.checkboxDisclaimer === undefined) next.checkboxDisclaimer = '';
       }
       return next;
     });
@@ -879,7 +888,9 @@ const normalizeIntakeSteps = (link) => {
     steps.push({ id: createId('step'), type: 'questions', fields: link.intake_fields });
   }
   const docIds = Array.isArray(link?.allowed_document_template_ids) ? link.allowed_document_template_ids : [];
-  docIds.forEach((id) => steps.push({ id: createId('step'), type: 'document', templateId: id }));
+  docIds.forEach((id) =>
+    steps.push({ id: createId('step'), type: 'document', templateId: id, checkboxDisclaimer: '' })
+  );
   return steps;
 };
 
@@ -889,6 +900,7 @@ const addStep = (type) => {
     step.fields = [];
   } else {
     step.templateId = null;
+    step.checkboxDisclaimer = '';
   }
   form.intakeSteps.push(step);
 };

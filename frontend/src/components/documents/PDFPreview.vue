@@ -26,13 +26,18 @@
           v-for="marker in markers"
           :key="marker.id"
           class="pdf-marker"
-          :class="{ active: marker.id === activeMarkerId }"
+          :class="{
+            active: marker.id === activeMarkerId,
+            checkbox: marker.type === 'checkbox',
+            checked: marker.type === 'checkbox' && marker.checked
+          }"
           :style="markerStyles[marker.id] || { display: 'none' }"
           type="button"
           @click.stop="emit('marker-click', marker)"
           :aria-label="marker.label || 'Custom field'"
         >
-          <span class="marker-label">{{ marker.label || marker.type || 'Field' }}</span>
+          <span v-if="marker.type === 'checkbox'" class="marker-checkbox" aria-hidden="true">✓</span>
+          <span v-else class="marker-label">{{ marker.label || marker.type || 'Field' }}</span>
         </button>
       </div>
     </div>
@@ -306,6 +311,24 @@ onMounted(() => {
   border-color: #1f4e79;
   background: rgba(31, 78, 121, 0.14);
   color: #1f4e79;
+}
+
+.pdf-marker.checkbox {
+  border: 2px solid #1f4e79;
+  background: rgba(31, 78, 121, 0.1);
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-marker.checkbox .marker-checkbox {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1f4e79;
+  opacity: 0;
+}
+
+.pdf-marker.checkbox.checked .marker-checkbox {
+  opacity: 1;
 }
 
 .marker-label {
