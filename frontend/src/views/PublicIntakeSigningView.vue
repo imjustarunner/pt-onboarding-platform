@@ -329,6 +329,12 @@
         <div v-if="recaptchaSiteKey" class="captcha-block">
           <div class="muted">Protected by reCAPTCHA</div>
           <div v-if="captchaError" class="error">{{ captchaError }}</div>
+          <div v-if="showRecaptchaWidget" class="recaptcha-widget">
+            <div ref="recaptchaWidgetEl" />
+            <div v-if="!captchaToken" class="muted" style="margin-top: 6px;">
+              Please complete the verification above to continue.
+            </div>
+          </div>
         </div>
 
         <div class="consent-box">
@@ -595,6 +601,9 @@ const useEnterpriseRecaptcha = ref(
 );
 const captchaToken = ref('');
 const captchaError = ref('');
+const showRecaptchaWidget = ref(false);
+const recaptchaWidgetEl = ref(null);
+const recaptchaWidgetId = ref(null);
 const intakeSteps = computed(() =>
   Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : []
 );
@@ -1272,6 +1281,32 @@ const loadRecaptchaScript = () => {
   });
 };
 
+const ensureRecaptchaWidget = async () => {
+  try {
+    const grecaptcha = await loadRecaptchaScript();
+    if (!grecaptcha?.enterprise?.render) return false;
+    if (!recaptchaWidgetEl.value) return false;
+    if (recaptchaWidgetId.value !== null) return true;
+    recaptchaWidgetId.value = grecaptcha.enterprise.render(recaptchaWidgetEl.value, {
+      sitekey: recaptchaSiteKey.value,
+      callback: (token) => {
+        captchaToken.value = String(token || '').trim();
+        console.info('[recaptcha] widget token', { hasToken: !!captchaToken.value, length: captchaToken.value.length });
+      },
+      'expired-callback': () => {
+        captchaToken.value = '';
+      },
+      'error-callback': () => {
+        captchaToken.value = '';
+      }
+    });
+    return true;
+  } catch (err) {
+    console.warn('[recaptcha] widget init failed', err);
+    return false;
+  }
+};
+
 const getRecaptchaToken = async () => {
   if (!recaptchaSiteKey.value) return '';
   try {
@@ -1295,6 +1330,13 @@ const getRecaptchaToken = async () => {
       } catch (err) {
         console.warn('[recaptcha] enterprise execute failed', err);
       }
+    }
+    // Enterprise widget mode (challenge/checkbox keys): no execute() available.
+    if (useEnterpriseRecaptcha.value && grecaptcha.enterprise?.render) {
+      showRecaptchaWidget.value = true;
+      await nextTick();
+      await ensureRecaptchaWidget();
+      return String(captchaToken.value || '').trim();
     }
     if (!grecaptcha?.execute) return '';
     if (grecaptcha?.ready) {
