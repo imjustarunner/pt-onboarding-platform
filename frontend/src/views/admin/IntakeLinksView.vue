@@ -267,7 +267,7 @@
                     <select v-model.number="step.templateId">
                       <option :value="null">Select document</option>
                       <option
-                        v-for="t in (orderedAllowedTemplates.length ? orderedAllowedTemplates : selectableTemplates)"
+                        v-for="t in documentStepTemplates"
                         :key="t.id"
                         :value="t.id"
                       >
@@ -777,8 +777,13 @@ const createQuickLink = async () => {
 
 const createId = (prefix) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
-const templateGroups = computed(() => {
+const agencyOnlyTemplates = computed(() => {
   const list = Array.isArray(templates.value) ? templates.value : [];
+  return list.filter((t) => t && t.agency_id !== null && t.agency_id !== undefined);
+});
+
+const templateGroups = computed(() => {
+  const list = agencyOnlyTemplates.value;
   const scope = form.scopeType || 'school';
   const orgId = scope === 'agency' ? null : form.organizationId;
   const agencyTemplates = [];
@@ -805,6 +810,13 @@ const selectableTemplates = computed(() => [
   ...templateGroups.value.organizationTemplates,
   ...templateGroups.value.agencyTemplates
 ]);
+
+const documentStepTemplates = computed(() => {
+  const list = agencyOnlyTemplates.value;
+  const sorted = list.filter((t) => t && t.id);
+  sorted.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), undefined, { sensitivity: 'base' }));
+  return sorted;
+});
 
 const orderedAllowedTemplates = computed(() => {
   const ids = Array.isArray(form.allowedDocumentTemplateIds) ? form.allowedDocumentTemplateIds : [];
