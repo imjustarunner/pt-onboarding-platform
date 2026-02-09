@@ -473,16 +473,6 @@
             </div>
           </div>
           <SignaturePad @signed="onSigned" />
-          <div v-if="allowSignatureReuseActions" class="signature-actions">
-            <button
-              v-if="signatureData"
-              class="btn btn-outline btn-sm"
-              type="button"
-              @click="signatureData = ''"
-            >
-              Sign again
-            </button>
-          </div>
           <div v-if="showSignatureReusePrompt && lastSignatureData && !signatureData" class="signature-reuse-prompt">
             <div class="signature-reuse-text">Use saved signature for this document?</div>
             <div class="signature-reuse-actions">
