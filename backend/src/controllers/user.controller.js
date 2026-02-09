@@ -3257,46 +3257,192 @@ export const resendSetupLink = async (req, res, next) => {
 export const sendResetPasswordLink = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { expiresInHours } = req.body;
+    const { expiresInHours, forceNew, sendEmail } = req.body || {};
     const userId = parseInt(id);
-    
+
     // Verify user exists
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
     }
-    
+
     // Check permissions: Only admins/super_admins/support can send reset links
     if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
-    
-    // Calculate expiration (default 48 hours)
-    const finalExpiresInHours = expiresInHours ? parseInt(expiresInHours) : 48;
-    
-    // Ensure minimum 1 hour expiration
-    if (finalExpiresInHours < 1) {
-      return res.status(400).json({ error: { message: 'Expiration must be at least 1 hour' } });
+
+    // Do not overwrite setup/invite links: pending users use the setup link flow, not reset
+    const statusLower = String(user.status || '').toLowerCase();
+    if (statusLower === 'pending' || statusLower === 'pending_setup') {
+      return res.status(400).json({
+        error: {
+          message: 'Use the Direct Login Link (setup link) for pending users. Password reset links are for users who already have an account.'
+        }
+      });
     }
-    
-    // Generate password reset token (single-use, forces password change)
-    const tokenResult = await User.generatePasswordlessToken(userId, finalExpiresInHours, 'reset');
-    
-    // Get frontend URL for the link
+
     const config = (await import('../config/config.js')).default;
     const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
     const userAgencies = await User.getAgencies(userId);
     const portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
-    const resetLink = portalSlug
-      ? `${frontendBase}/${portalSlug}/reset-password/${tokenResult.token}`
-      : `${frontendBase}/reset-password/${tokenResult.token}`;
-    
+    const buildResetLink = (token) =>
+      portalSlug
+        ? `${frontendBase}/${portalSlug}/reset-password/${token}`
+        : `${frontendBase}/reset-password/${token}`;
+
+    // Smart reuse: if user already has a valid reset token and forceNew is not true, return existing link
+    const purpose = String(user.passwordless_token_purpose || '').toLowerCase();
+    const expiresAt = user.passwordless_token_expires_at ? new Date(user.passwordless_token_expires_at) : null;
+    const now = new Date();
+    const hasValidExistingReset =
+      user.passwordless_token &&
+      purpose === 'reset' &&
+      expiresAt &&
+      expiresAt.getTime() > now.getTime() &&
+      !forceNew;
+
+    let tokenResult;
+    let reused = false;
+    if (hasValidExistingReset) {
+      tokenResult = {
+        token: user.passwordless_token,
+        expiresAt: user.passwordless_token_expires_at
+      };
+      const hoursUntil = expiresAt ? Math.round((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60)) : 48;
+      tokenResult.expiresInHours = hoursUntil;
+      reused = true;
+    } else {
+      const finalExpiresInHours = expiresInHours ? parseInt(expiresInHours, 10) : 48;
+      const finalHours = finalExpiresInHours < 1 ? 48 : finalExpiresInHours;
+      tokenResult = await User.generatePasswordlessToken(userId, finalHours, 'reset');
+      tokenResult.expiresInHours = finalHours;
+    }
+
+    const resetLink = buildResetLink(tokenResult.token);
+
+    // Log that an admin sent (or re-sent) the reset link
+    ActivityLogService.logActivity(
+      {
+        actionType: 'password_reset_link_sent',
+        userId,
+        metadata: {
+          performedByUserId: req.user.id,
+          performedByEmail: req.user.email || req.user.username,
+          expiresAt: tokenResult.expiresAt,
+          expiresInHours: tokenResult.expiresInHours
+        }
+      },
+      req
+    );
+
+    let emailSent = false;
+    if (sendEmail) {
+      const Agency = (await import('../models/Agency.model.js')).default;
+      const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
+      const CommunicationLoggingService = (await import('../services/communicationLogging.service.js')).default;
+      const EmailSenderIdentity = (await import('../models/EmailSenderIdentity.model.js')).default;
+      const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
+      const EmailService = (await import('../services/email.service.js')).default;
+
+      const agencyId = userAgencies?.[0]?.id || null;
+      const agency = agencyId ? await Agency.findById(agencyId) : null;
+      const to = [user.email, user.username, user.work_email, user.personal_email]
+        .filter(Boolean)
+        .map((e) => String(e).trim().toLowerCase())
+        .find((e) => e.includes('@'));
+      if (to) {
+        let subject = 'Reset your password';
+        let body = `Reset your password using this link (expires in ${tokenResult.expiresInHours} hours):\n${resetLink}\n\nIf you did not request this, you can ignore this email.`;
+        try {
+          const template =
+            (await EmailTemplateService.getTemplateForAgency(agencyId, 'admin_initiated_password_reset')) ||
+            (await EmailTemplateService.getTemplateForAgency(agencyId, 'password_reset'));
+          if (template?.body) {
+            const params = await EmailTemplateService.collectParameters(user, agency, {
+              passwordlessToken: tokenResult.token,
+              senderName: req.user.first_name || req.user.email || 'Admin'
+            });
+            const rendered = EmailTemplateService.renderTemplate(template, params);
+            subject = rendered.subject || subject;
+            body = rendered.body || body;
+          }
+        } catch {
+          // keep default subject/body
+        }
+        let comm = null;
+        try {
+          comm = await CommunicationLoggingService.logGeneratedCommunication({
+            userId: user.id,
+            agencyId,
+            templateType: 'admin_initiated_password_reset',
+            templateId: null,
+            subject,
+            body,
+            generatedByUserId: req.user.id,
+            channel: 'email',
+            recipientAddress: to
+          });
+        } catch {
+          comm = null;
+        }
+        try {
+          const list = await EmailSenderIdentity.list({
+            agencyId,
+            includePlatformDefaults: true,
+            onlyActive: true
+          });
+          const preferredKeys = ['login_recovery', 'system', 'default', 'notifications'];
+          let identity = null;
+          for (const key of preferredKeys) {
+            const hit = (list || []).find((i) => String(i?.identity_key || '').trim().toLowerCase() === key);
+            if (hit) {
+              identity = hit;
+              break;
+            }
+          }
+          identity = identity || (list || [])[0];
+          const sendResult = identity?.id
+            ? await sendEmailFromIdentity({
+                senderIdentityId: identity.id,
+                to,
+                subject,
+                text: body,
+                html: null,
+                source: 'auto'
+              })
+            : await EmailService.sendEmail({
+                to,
+                subject,
+                text: body,
+                html: null,
+                fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+                fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+                replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+                source: 'auto',
+                agencyId: agencyId || null
+              });
+          if (comm?.id && sendResult?.id) {
+            await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
+              fromEmail: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || null
+            }).catch(() => {});
+          }
+          emailSent = true;
+        } catch (err) {
+          console.error('[sendResetPasswordLink] Failed to send email:', err);
+        }
+      }
+    }
+
     res.json({
       token: tokenResult.token,
       tokenLink: resetLink,
       expiresAt: tokenResult.expiresAt,
-      expiresInHours: finalExpiresInHours,
-      message: 'Reset password link generated successfully'
+      expiresInHours: tokenResult.expiresInHours,
+      reused,
+      emailSent,
+      message: reused
+        ? 'Existing reset password link returned (still valid).'
+        : 'Reset password link generated successfully'
     });
   } catch (error) {
     next(error);
@@ -3501,13 +3647,77 @@ export const getAccountInfo = async (req, res, next) => {
       }
     })();
 
-    const [accounts, totalProgress, personalEmail, onboardingTime, supervisors] = await Promise.all([
+    // When user has a token, get purpose (findById may not include passwordless_token_purpose)
+    const tokenPurposePromise = (async () => {
+      if (!user.passwordless_token) return null;
+      try {
+        const [rows] = await pool.execute(
+          "SELECT passwordless_token_purpose FROM users WHERE id = ?",
+          [userIdInt]
+        );
+        return rows?.[0]?.passwordless_token_purpose ?? null;
+      } catch {
+        return null;
+      }
+    })();
+
+    // Last "reset link sent" and "reset link used" from activity log (for admin reset-link UI)
+    const resetLinkSentPromise = (async () => {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT created_at, metadata FROM user_activity_log
+           WHERE user_id = ? AND action_type = 'password_reset_link_sent'
+           ORDER BY created_at DESC LIMIT 1`,
+          [userIdInt]
+        );
+        const row = rows?.[0];
+        if (!row) return null;
+        let meta = null;
+        try {
+          meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
+        } catch {
+          meta = {};
+        }
+        return {
+          resetLinkSentAt: row.created_at,
+          resetLinkSentByUserId: meta?.performedByUserId ?? null,
+          resetLinkSentByEmail: meta?.performedByEmail ?? null
+        };
+      } catch {
+        return null;
+      }
+    })();
+
+    const resetLinkUsedPromise = (async () => {
+      try {
+        const [rows] = await pool.execute(
+          `SELECT created_at FROM user_activity_log
+           WHERE user_id = ? AND action_type = 'login'
+           AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.loginType')) = 'reset_password'
+           ORDER BY created_at DESC LIMIT 1`,
+          [userIdInt]
+        );
+        const row = rows?.[0];
+        return row ? { resetLinkUsedAt: row.created_at } : null;
+      } catch {
+        return null;
+      }
+    })();
+
+    const [accounts, totalProgress, personalEmail, onboardingTime, supervisors, tokenPurpose, resetLinkSent, resetLinkUsed] = await Promise.all([
       accountsPromise,
       totalProgressPromise,
       personalEmailPromise,
       onboardingTimePromise,
-      supervisorsPromise
+      supervisorsPromise,
+      tokenPurposePromise,
+      resetLinkSentPromise,
+      resetLinkUsedPromise
     ]);
+
+    if (tokenPurpose && user.passwordless_token) {
+      user.passwordless_token_purpose = tokenPurpose;
+    }
 
     // Has the user ever logged in?
     // Used to gate first-login credential options (temp password + reset link).
@@ -3593,10 +3803,16 @@ export const getAccountInfo = async (req, res, next) => {
       isHourlyWorker: !!(user.is_hourly_worker === 1 || user.is_hourly_worker === true || user.is_hourly_worker === '1'),
       hasHiringAccess: !!(user.has_hiring_access === 1 || user.has_hiring_access === true || user.has_hiring_access === '1'),
       companyCardEnabled: !!(user.company_card_enabled === 1 || user.company_card_enabled === true || user.company_card_enabled === '1'),
-      skillBuilderEligible: !!(user.skill_builder_eligible === 1 || user.skill_builder_eligible === true || user.skill_builder_eligible === '1')
+      skillBuilderEligible: !!(user.skill_builder_eligible === 1 || user.skill_builder_eligible === true || user.skill_builder_eligible === '1'),
+      ...(resetLinkSent && {
+        resetLinkSentAt: resetLinkSent.resetLinkSentAt,
+        resetLinkSentByUserId: resetLinkSent.resetLinkSentByUserId,
+        resetLinkSentByEmail: resetLinkSent.resetLinkSentByEmail
+      }),
+      ...(resetLinkUsed && { resetLinkUsedAt: resetLinkUsed.resetLinkUsedAt })
     };
     
-    // For pending users, include passwordless login link
+    // For pending users, include passwordless login link (setup)
     if (user.status === 'pending' && user.passwordless_token) {
       const config = (await import('../config/config.js')).default;
       const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
@@ -3615,6 +3831,33 @@ export const getAccountInfo = async (req, res, next) => {
       accountInfo.requiresLastNameVerification = !user.pending_identity_verified;
       
       // Calculate time until expiration
+      if (user.passwordless_token_expires_at) {
+        const expiresAt = new Date(user.passwordless_token_expires_at);
+        const now = new Date();
+        const hoursUntilExpiry = Math.round((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60));
+        accountInfo.passwordlessTokenExpiresInHours = hoursUntilExpiry;
+        accountInfo.passwordlessTokenIsExpired = hoursUntilExpiry <= 0;
+      }
+    }
+
+    // For users with a reset token (admin-initiated or self-service), include reset link and expiration
+    const purpose = user.passwordless_token_purpose || tokenPurpose;
+    if (user.passwordless_token && purpose === 'reset') {
+      const config = (await import('../config/config.js')).default;
+      const frontendBase = (config.frontendUrl || '').replace(/\/$/, '');
+      let portalSlug = null;
+      try {
+        const userAgencies = await User.getAgencies(user.id);
+        portalSlug = userAgencies?.[0]?.portal_url || userAgencies?.[0]?.slug || null;
+      } catch (e) {
+        portalSlug = null;
+      }
+      accountInfo.passwordlessLoginLink = portalSlug
+        ? `${frontendBase}/${portalSlug}/reset-password/${user.passwordless_token}`
+        : `${frontendBase}/reset-password/${user.passwordless_token}`;
+      accountInfo.passwordlessToken = user.passwordless_token;
+      accountInfo.passwordlessTokenExpiresAt = user.passwordless_token_expires_at;
+      accountInfo.passwordlessTokenPurpose = 'reset';
       if (user.passwordless_token_expires_at) {
         const expiresAt = new Date(user.passwordless_token_expires_at);
         const now = new Date();

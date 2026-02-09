@@ -82,6 +82,7 @@ class ActivityLogService {
       'module_complete',
       'password_change',
       'intake_approval',
+      'password_reset_link_sent',
 
       // AI / helper tools (do NOT log sensitive content in metadata)
       'note_aid_execute',

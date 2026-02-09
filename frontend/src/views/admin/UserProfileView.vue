@@ -1001,18 +1001,69 @@
               </div>
 
               <template v-else>
-                <!-- Reset Password Link (expires) -->
-                <div class="reset-password-section">
+                <!-- Reset Password Link (expires) - only for non-pending users; pending users use Direct Login Link in Account Info -->
+                <div v-if="!isPendingForReset" class="reset-password-section">
                   <h4>Password Reset Link</h4>
                   <p>Generate a reset link (expires). The user will set a new password and continue.</p>
-                  <button
-                    @click="generateResetPasswordLink"
-                    type="button"
-                    class="btn btn-primary btn-sm"
-                    :disabled="generatingResetLink"
-                  >
-                    {{ generatingResetLink ? 'Generating...' : 'Send Reset Password Link' }}
-                  </button>
+                  <!-- Current reset link state (when we have a reset token from getAccountInfo) -->
+                  <div v-if="accountInfo.passwordlessTokenPurpose === 'reset' && accountInfo.passwordlessLoginLink" class="passwordless-link-section" style="margin-top: 12px; padding: 16px; background: #f0f7ff; border-radius: 8px; border: 1px solid #b8d4ee;">
+                    <div v-if="accountInfo.passwordlessTokenExpiresAt" style="margin-bottom: 12px; padding: 10px; background: white; border-radius: 6px; border: 1px solid #ddd;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                          <strong>Link Status:</strong>
+                          <span :style="{ color: accountInfo.passwordlessTokenIsExpired ? '#dc3545' : '#28a745', marginLeft: '8px' }">
+                            {{ accountInfo.passwordlessTokenIsExpired ? 'Expired' : 'Valid' }}
+                          </span>
+                        </div>
+                        <div style="text-align: right;">
+                          <div><strong>Expires:</strong> {{ formatTokenExpiration(accountInfo.passwordlessTokenExpiresAt) }}</div>
+                          <div v-if="!accountInfo.passwordlessTokenIsExpired && accountInfo.passwordlessTokenExpiresInHours != null" style="font-size: 12px; color: #666;">
+                            ({{ formatTimeUntilExpiry(accountInfo.passwordlessTokenExpiresInHours) }})
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div v-if="accountInfo.resetLinkSentAt || accountInfo.resetLinkSentByEmail" style="font-size: 13px; color: #555; margin-bottom: 8px;">
+                      <span v-if="accountInfo.resetLinkSentByEmail">Sent by {{ accountInfo.resetLinkSentByEmail }}</span>
+                      <span v-if="accountInfo.resetLinkSentAt"> on {{ formatTokenExpiration(accountInfo.resetLinkSentAt) }}</span>
+                    </div>
+                    <div v-if="accountInfo.resetLinkUsedAt" style="font-size: 13px; color: #555; margin-bottom: 8px;">
+                      Used on {{ formatTokenExpiration(accountInfo.resetLinkUsedAt) }}
+                    </div>
+                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                      <input
+                        type="text"
+                        :value="accountInfo.passwordlessLoginLink"
+                        readonly
+                        style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: monospace; background: white; cursor: text;"
+                        @click="$event.target.select()"
+                      />
+                      <button type="button" class="btn btn-primary btn-sm" @click="copyCurrentResetLink">Copy Link</button>
+                      <button type="button" class="btn btn-secondary btn-sm" @click="openResetLinkModalFromAccountInfo">Open in modal</button>
+                    </div>
+                    <p v-if="!accountInfo.passwordlessTokenIsExpired" style="font-size: 12px; color: #666; margin-bottom: 10px;">
+                      A valid link is active until {{ formatTokenExpiration(accountInfo.passwordlessTokenExpiresAt) }}. Send a new link to invalidate this one.
+                    </p>
+                  </div>
+                  <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <button
+                      @click="generateResetPasswordLink(false)"
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      :disabled="generatingResetLink"
+                    >
+                      {{ generatingResetLink ? 'Generating...' : 'Send Reset Password Link' }}
+                    </button>
+                    <button
+                      v-if="accountInfo.passwordlessTokenPurpose === 'reset' && accountInfo.passwordlessLoginLink && !accountInfo.passwordlessTokenIsExpired"
+                      @click="generateResetPasswordLink(true)"
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      :disabled="generatingResetLink"
+                    >
+                      {{ generatingResetLink ? 'Generating...' : 'Send new link (invalidate current)' }}
+                    </button>
+                  </div>
                 </div>
 
                 <!-- Temporary Password (first-login only) -->
@@ -1615,6 +1666,9 @@
       <div class="modal-content credentials-modal" @click.stop>
         <h2>Reset Password Link</h2>
         <p class="credentials-description">Copy this link to send to the user. It expires automatically.</p>
+        <p v-if="resetLinkReused" class="text-muted" style="font-size: 13px; margin-bottom: 12px;">
+          This link was already sent; it expires at {{ resetLinkExpiresAt ? formatTokenExpiration(resetLinkExpiresAt) : '—' }}.
+        </p>
 
         <div class="credentials-section">
           <div class="credential-item">
@@ -1629,7 +1683,9 @@
               />
               <button @click="copyResetLink" class="btn-copy">Copy</button>
             </div>
-            <small>This link expires (default: 48 hours).</small>
+            <small v-if="resetLinkExpiresAt">Expires: {{ formatTokenExpiration(resetLinkExpiresAt) }}</small>
+            <small v-else-if="resetLinkExpiresInHours != null">Expires in {{ resetLinkExpiresInHours }} hours.</small>
+            <small v-else>This link expires (default: 48 hours).</small>
           </div>
         </div>
 
@@ -1640,6 +1696,14 @@
             :disabled="!resetPasswordLink"
           >
             Copy Link
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="!resetPasswordLink || sendingResetEmail"
+            @click="sendResetLinkEmail"
+          >
+            {{ sendingResetEmail ? 'Sending...' : 'Send email to user' }}
           </button>
           <button @click="closeResetPasswordLinkModal" class="btn btn-secondary">Close</button>
         </div>
@@ -2877,6 +2941,10 @@ const accountInfo = ref({
   passwordlessTokenExpiresAt: null,
   passwordlessTokenExpiresInHours: null,
   passwordlessTokenIsExpired: false,
+  passwordlessTokenPurpose: null,
+  resetLinkSentAt: null,
+  resetLinkSentByEmail: null,
+  resetLinkUsedAt: null,
   hasLoggedIn: false,
   neverLoggedIn: true,
   ssoEnabled: false,
@@ -3649,20 +3717,73 @@ const closeTempPasswordModal = () => {
 // Reset password link (token-based) — shown for non-SSO users; expires (48h)
 const showResetPasswordLinkModal = ref(false);
 const generatingResetLink = ref(false);
+const sendingResetEmail = ref(false);
 const resetPasswordLink = ref('');
 const resetLinkInput = ref(null);
+const resetLinkExpiresAt = ref(null);
+const resetLinkExpiresInHours = ref(null);
+const resetLinkReused = ref(false);
 
-const generateResetPasswordLink = async () => {
+const generateResetPasswordLink = async (forceNew = false) => {
   try {
     generatingResetLink.value = true;
-    const response = await api.post(`/users/${userId.value}/send-reset-password-link`);
+    const response = await api.post(`/users/${userId.value}/send-reset-password-link`, {
+      forceNew: !!forceNew
+    });
     resetPasswordLink.value = response.data.tokenLink || '';
+    resetLinkExpiresAt.value = response.data.expiresAt || null;
+    resetLinkExpiresInHours.value = response.data.expiresInHours ?? null;
+    resetLinkReused.value = !!response.data.reused;
     showResetPasswordLinkModal.value = true;
+    await fetchAccountInfo();
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to generate reset password link';
     alert(error.value);
   } finally {
     generatingResetLink.value = false;
+  }
+};
+
+const copyCurrentResetLink = () => {
+  const link = accountInfo.value?.passwordlessLoginLink;
+  if (!link) return;
+  navigator.clipboard.writeText(link).then(() => {
+    alert('Link copied to clipboard.');
+  }).catch((err) => {
+    console.error('Failed to copy:', err);
+  });
+};
+
+const openResetLinkModalFromAccountInfo = () => {
+  resetPasswordLink.value = accountInfo.value?.passwordlessLoginLink || '';
+  resetLinkExpiresAt.value = accountInfo.value?.passwordlessTokenExpiresAt || null;
+  resetLinkExpiresInHours.value = accountInfo.value?.passwordlessTokenExpiresInHours ?? null;
+  resetLinkReused.value = false;
+  showResetPasswordLinkModal.value = true;
+};
+
+const sendResetLinkEmail = async () => {
+  try {
+    sendingResetEmail.value = true;
+    const response = await api.post(`/users/${userId.value}/send-reset-password-link`, {
+      sendEmail: true,
+      forceNew: false
+    });
+    resetPasswordLink.value = response.data.tokenLink || resetPasswordLink.value;
+    resetLinkExpiresAt.value = response.data.expiresAt || resetLinkExpiresAt.value;
+    resetLinkExpiresInHours.value = response.data.expiresInHours ?? resetLinkExpiresInHours.value;
+    resetLinkReused.value = !!response.data.reused;
+    if (response.data.emailSent) {
+      alert('Email sent to user.');
+    } else {
+      alert('Could not send email (no email address on file or send failed).');
+    }
+    await fetchAccountInfo();
+  } catch (err) {
+    error.value = err.response?.data?.error?.message || 'Failed to send email';
+    alert(error.value);
+  } finally {
+    sendingResetEmail.value = false;
   }
 };
 
@@ -3680,6 +3801,9 @@ const copyResetLink = async () => {
 const closeResetPasswordLinkModal = () => {
   showResetPasswordLinkModal.value = false;
   resetPasswordLink.value = '';
+  resetLinkExpiresAt.value = null;
+  resetLinkExpiresInHours.value = null;
+  resetLinkReused.value = false;
 };
 
 const isTargetActive = computed(() => {
@@ -3699,6 +3823,10 @@ const targetHasLoggedIn = computed(() => accountInfo.value?.hasLoggedIn === true
 // - If Google SSO is required for this user => turn this area off
 const canUsePasswordResetActions = computed(() => !ssoRequiredForTarget.value);
 const canUseTempPassword = computed(() => isTargetActive.value && !targetHasLoggedIn.value && !ssoRequiredForTarget.value);
+const isPendingForReset = computed(() => {
+  const s = String(user.value?.status || '').toLowerCase();
+  return s === 'pending' || s === 'pending_setup';
+});
 
 const formatDate = (dateString) => {
   if (!dateString) return '';
