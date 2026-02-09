@@ -6,6 +6,7 @@ const ALL_NOTIFICATION_CATEGORY_KEYS = [
   'messaging_support_safety_net_alerts',
   'messaging_replies_to_my_messages',
   'messaging_client_notes',
+  'client_assignments',
   'school_portal_client_updates',
   'school_portal_client_update_org_swaps',
   'school_portal_client_comments',
@@ -50,7 +51,7 @@ const buildDefaultPreferences = (userRole) => {
 
   const smsDefault = employeeLikeRoles.has(userRole);
 
-  return {
+  const base = {
     email_enabled: true,
     sms_enabled: smsDefault,
     sms_forwarding_enabled: true,
@@ -63,6 +64,8 @@ const buildDefaultPreferences = (userRole) => {
     auto_reply_message: null,
     emergency_override: false,
     notification_categories: buildDefaultCategories(),
+    daily_digest_enabled: false,
+    daily_digest_time: '07:00',
     work_modality: null,
     scheduling_preferences: null,
     schedule_color_overrides: {
@@ -92,6 +95,10 @@ const buildDefaultPreferences = (userRole) => {
     // Dashboard preferences
     dashboard_notification_org_types: ['agency']
   };
+  if (String(userRole || '').toLowerCase() === 'provider') {
+    base.notification_categories.client_assignments = true;
+  }
+  return base;
 };
 
 /**
@@ -195,6 +202,22 @@ export const updateUserPreferences = async (req, res, next) => {
       return res.status(404).json({
         error: { message: 'User not found' }
       });
+    }
+
+    if ('daily_digest_time' in updates) {
+      const raw = updates.daily_digest_time;
+      if (raw === null || raw === '' || raw === undefined) {
+        updates.daily_digest_time = null;
+      } else {
+        const v = String(raw || '').trim();
+        if (!/^\d{2}:\d{2}$/.test(v)) {
+          return res.status(400).json({ error: { message: 'daily_digest_time must be HH:MM' } });
+        }
+        updates.daily_digest_time = v;
+      }
+    }
+    if ('daily_digest_enabled' in updates) {
+      updates.daily_digest_enabled = updates.daily_digest_enabled === true || updates.daily_digest_enabled === 1 || updates.daily_digest_enabled === '1';
     }
 
     // For non-admin users editing their own preferences, enforce boundaries

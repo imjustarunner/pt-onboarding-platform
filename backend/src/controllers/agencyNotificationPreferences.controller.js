@@ -19,6 +19,7 @@ export const getAgencyNotificationPreferences = async (req, res, next) => {
       messaging_support_safety_net_alerts: false,
       messaging_replies_to_my_messages: false,
       messaging_client_notes: false,
+      client_assignments: true,
       school_portal_client_updates: false,
       school_portal_client_update_org_swaps: false,
       school_portal_client_comments: false,

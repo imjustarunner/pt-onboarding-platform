@@ -14,7 +14,8 @@ const SMS_CATEGORY_BY_TYPE = {
   survey_completed: 'surveys_survey_completed',
   credential_expiring: 'compliance_credential_expiration_reminders',
   credential_expired_blocking: 'compliance_access_restriction_warnings',
-  program_reminder: 'program_reminders'
+  program_reminder: 'program_reminders',
+  client_assigned: 'client_assignments'
 };
 
 function parseJsonMaybe(v) {
@@ -37,6 +38,7 @@ async function resolveNotificationCategories({ userId, agencyId }) {
       messaging_support_safety_net_alerts: false,
       messaging_replies_to_my_messages: false,
       messaging_client_notes: false,
+      client_assignments: true,
       school_portal_client_updates: false,
       school_portal_client_update_org_swaps: false,
       school_portal_client_comments: false,

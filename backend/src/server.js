@@ -869,6 +869,28 @@ app.listen(PORT, HOST, () => {
   scheduleProgramReminders();
   setInterval(scheduleProgramReminders, 5 * 60 * 1000);
 
+  // Daily digest emails (runs every 15 minutes; respects per-user time + opt-in)
+  const scheduleDailyDigest = async () => {
+    try {
+      const DailyDigestService = (await import('./services/dailyDigest.service.js')).default;
+      await DailyDigestService.runDailyDigestTick();
+    } catch (error) {
+      const msg = String(error?.message || '');
+      const missing =
+        error?.code === 'ER_NO_SUCH_TABLE'
+        || msg.includes('daily_digest')
+        || msg.includes('user_preferences');
+      if (missing) {
+        console.warn('Daily digest preferences not found. Run migration 368_add_daily_digest_preferences.sql');
+      } else {
+        console.error('Error in daily digest scheduler:', error);
+      }
+    }
+  };
+
+  scheduleDailyDigest();
+  setInterval(scheduleDailyDigest, 15 * 60 * 1000);
+
   // Schedule daily at midnight
   setTimeout(() => {
     scheduleOfficeScheduleWatchdog();

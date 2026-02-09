@@ -48,6 +48,26 @@
           </div>
 
           <div class="card">
+            <h3 class="card-title">Daily Digest</h3>
+            <div class="field checkbox">
+              <label>
+                <input v-model="prefs.daily_digest_enabled" type="checkbox" :disabled="viewOnly" />
+                Send me a daily email digest
+              </label>
+              <div class="field-help">Summarizes new activity in your account.</div>
+            </div>
+            <div class="field">
+              <label>Send time</label>
+              <input
+                v-model="prefs.daily_digest_time"
+                type="time"
+                :disabled="viewOnly || !prefs.daily_digest_enabled"
+              />
+              <div class="field-help">Uses server local time.</div>
+            </div>
+          </div>
+
+          <div class="card">
             <h3 class="card-title">Quiet Hours</h3>
             <div class="field checkbox">
               <label>
@@ -142,6 +162,14 @@
               <label class="field checkbox">
                 <input v-model="prefs.notification_categories.messaging_replies_to_my_messages" type="checkbox" :disabled="notificationDisabled" />
                 Replies to my messages
+              </label>
+            </div>
+
+            <div class="category-group">
+              <div class="category-title">Clients</div>
+              <label class="field checkbox">
+                <input v-model="prefs.notification_categories.client_assignments" type="checkbox" :disabled="notificationDisabled" />
+                New client assignments
               </label>
             </div>
 
@@ -515,6 +543,7 @@ const defaultCategories = () => ({
   messaging_support_safety_net_alerts: false,
   messaging_replies_to_my_messages: false,
   messaging_client_notes: false,
+  client_assignments: true,
   // School Portal feed toggles (default OFF)
   school_portal_client_updates: false,
   school_portal_client_update_org_swaps: false,
@@ -545,6 +574,8 @@ const prefs = ref({
   auto_reply_enabled: false,
   auto_reply_message: '',
   emergency_override: false,
+  daily_digest_enabled: false,
+  daily_digest_time: '07:00',
   notification_categories: defaultCategories(),
 
   // Sections 2–5 fields (from user_preferences)
@@ -614,6 +645,15 @@ watch(
     if (!enabled) {
       prefs.value.auto_reply_enabled = false;
       prefs.value.auto_reply_message = '';
+    }
+  }
+);
+
+watch(
+  () => prefs.value.daily_digest_enabled,
+  (enabled) => {
+    if (enabled && !prefs.value.daily_digest_time) {
+      prefs.value.daily_digest_time = '07:00';
     }
   }
 );
@@ -734,6 +774,10 @@ const save = async () => {
       email_enabled: !!prefs.value.email_enabled,
       sms_enabled: !!prefs.value.sms_enabled,
       sms_forwarding_enabled: !!prefs.value.sms_forwarding_enabled,
+      daily_digest_enabled: !!prefs.value.daily_digest_enabled,
+      daily_digest_time: prefs.value.daily_digest_enabled
+        ? (prefs.value.daily_digest_time || '07:00')
+        : null,
       quiet_hours_enabled: !!prefs.value.quiet_hours_enabled,
       quiet_hours_allowed_days: prefs.value.quiet_hours_enabled ? (prefs.value.quiet_hours_allowed_days || []) : [],
       quiet_hours_start_time: prefs.value.quiet_hours_enabled && quietStart.value ? quietStart.value : null,

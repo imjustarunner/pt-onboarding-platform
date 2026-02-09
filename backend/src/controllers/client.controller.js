@@ -9,6 +9,11 @@ import pool from '../config/database.js';
 import { adjustProviderSlots } from '../services/providerSlots.service.js';
 import { notifyClientBecameCurrent, notifyClientChecklistUpdated, notifyPaperworkReceived } from '../services/clientNotifications.service.js';
 import { logClientAccess } from '../services/clientAccessLog.service.js';
+import Notification from '../models/Notification.model.js';
+import NotificationDispatcherService from '../services/notificationDispatcher.service.js';
+import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
+import { isCategoryEnabledForUser } from '../services/notificationDispatcher.service.js';
 import crypto from 'crypto';
 import { getClientStatusIdByKey } from '../utils/clientStatusCatalog.js';
 
@@ -3581,6 +3586,7 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
       const wasActive = existing ? (existing.is_active === 1 || existing.is_active === true) : false;
       const oldConsumesSlot = wasActive && oldDay; // oldDay is NULL or weekday enum
       const newConsumesSlot = !!serviceDay;
+      const shouldNotifyAssignment = !existing || !wasActive;
 
       // Refund old slot if active and day changed
       if (oldConsumesSlot && oldDay !== serviceDay) {
@@ -3641,6 +3647,66 @@ export const upsertClientProviderAssignment = async (req, res, next) => {
       }
 
       await connection.commit();
+
+      // Best-effort: notify assigned provider (SMS/email) on new assignment.
+      if (shouldNotifyAssignment && providerUserId) {
+        try {
+          const org = await Agency.findById(orgId);
+          const clientName = [client?.first_name, client?.last_name].filter(Boolean).join(' ').trim()
+            || client?.full_name
+            || `Client #${clientId}`;
+          const orgName = org?.name || `Org #${orgId}`;
+          const dayLabel = serviceDay ? ` (${serviceDay})` : '';
+          const title = 'New client assigned';
+          const message = `${clientName} was assigned to you at ${orgName}${dayLabel}.`;
+
+          const notification = await Notification.create({
+            type: 'client_assigned',
+            severity: 'info',
+            title,
+            message,
+            userId: providerUserId,
+            agencyId: client?.agency_id || null,
+            relatedEntityType: 'client',
+            relatedEntityId: clientId
+          });
+
+          await NotificationDispatcherService.dispatchForNotification(notification, { context: { severity: 'info' } }).catch(() => {});
+
+          const categoryOk = await isCategoryEnabledForUser({
+            userId: providerUserId,
+            agencyId: client?.agency_id || null,
+            categoryKey: 'client_assignments'
+          });
+          if (categoryOk) {
+            const decision = await NotificationGatekeeperService.decideChannels({
+              userId: providerUserId,
+              context: { severity: 'info' }
+            });
+            if (decision?.email) {
+              const provider = await User.findById(providerUserId);
+              const to = provider?.email || provider?.work_email || null;
+              if (to) {
+                await sendNotificationEmail({
+                  agencyId: client?.agency_id || null,
+                  triggerKey: 'client_assigned',
+                  to,
+                  subject: title,
+                  text: message,
+                  html: null,
+                  source: 'auto',
+                  userId: providerUserId,
+                  templateType: 'client_assigned',
+                  templateId: null
+                });
+              }
+            }
+          }
+        } catch {
+          // best effort; do not block assignment
+        }
+      }
+
       res.status(201).json({ ok: true });
     } catch (e) {
       try { await connection.rollback(); } catch { /* ignore */ }
