@@ -288,7 +288,7 @@
 
         <div v-if="visibleQuestionFields.length" class="field-inputs">
           <h4>Additional Questions</h4>
-          <div v-for="field in visibleQuestionFields" :key="field.id" class="form-group">
+          <div v-for="field in visibleQuestionFields" :key="field.id" class="form-group" :data-question-key="field.key">
             <div v-if="field.type === 'info'" class="info-block">
               <div class="info-title">{{ field.label || 'Notice' }}</div>
               <div v-if="field.helperText" class="info-text">{{ field.helperText }}</div>
@@ -343,6 +343,9 @@
             By continuing, you consent to electronically sign these documents and receive electronic records.
             You may request paper copies from the organization.
           </p>
+        </div>
+        <div class="muted" style="margin-top: 8px;">
+          This session expires after approximately {{ sessionExpiryMinutes }} minutes of inactivity. Unsaved data is deleted.
         </div>
 
         <div class="actions">
@@ -620,6 +623,7 @@ const captchaError = ref('');
 const showRecaptchaWidget = ref(false);
 const recaptchaWidgetEl = ref(null);
 const recaptchaWidgetId = ref(null);
+const sessionExpiryMinutes = computed(() => 30 + Math.max(0, Number(templates.value.length || 0)) * 5);
 const approvalContext = computed(() => {
   const mode = String(route.query?.mode || '').trim();
   const staffLastName = String(route.query?.staff_last_name || '').trim();
@@ -1702,6 +1706,14 @@ const completeQuestionStep = async () => {
     });
   if (missing.length) {
     stepError.value = 'Please complete all required fields before continuing.';
+    await nextTick();
+    const firstKey = missing[0]?.key;
+    if (firstKey) {
+      const container = document.querySelector(`[data-question-key="${CSS.escape(firstKey)}"]`);
+      if (container?.scrollIntoView) container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const focusTarget = container?.querySelector('input, textarea, select, [tabindex]');
+      if (focusTarget?.focus) focusTarget.focus();
+    }
     return;
   }
   stepError.value = '';
