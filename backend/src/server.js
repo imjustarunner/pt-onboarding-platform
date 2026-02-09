@@ -45,6 +45,7 @@ import platformRetentionSettingsRoutes from './routes/platformRetentionSettings.
 import onboardingPackageRoutes from './routes/onboardingPackage.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import emailTemplateRoutes from './routes/emailTemplate.routes.js';
+import emailSettingsRoutes from './routes/emailSettings.routes.js';
 import emailSenderIdentityRoutes from './routes/emailSenderIdentity.routes.js';
 import notificationTriggerAdminRoutes from './routes/notificationTriggerAdmin.routes.js';
 import userCommunicationRoutes from './routes/userCommunication.routes.js';
@@ -509,6 +510,7 @@ app.use('/api/platform-retention-settings', platformRetentionSettingsRoutes);
 app.use('/api/onboarding-packages', onboardingPackageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/email-templates', emailTemplateRoutes);
+app.use('/api/email-settings', emailSettingsRoutes);
 app.use('/api/email-senders', emailSenderIdentityRoutes);
 app.use('/api/notification-triggers', notificationTriggerAdminRoutes);
 app.use('/api', userCommunicationRoutes);

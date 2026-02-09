@@ -12,6 +12,8 @@ import { createSignedState as createGoogleState, verifySignedState as verifyGoog
 import EmailService from '../services/email.service.js';
 import EmailTemplateService from '../services/emailTemplate.service.js';
 import CommunicationLoggingService from '../services/communicationLogging.service.js';
+import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
+import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 
 async function buildPayrollCaps(user) {
   const payrollAgencyIds = user?.id ? await User.listPayrollAgencyIds(user.id) : [];
@@ -1338,6 +1340,53 @@ const getOrgAdminEmail = (agency) => {
   return candidates[0] || null;
 };
 
+const resolveRecoverySenderIdentity = async (agencyId) => {
+  const a = agencyId ? Number(agencyId) : null;
+  const list = await EmailSenderIdentity.list({
+    agencyId: a,
+    includePlatformDefaults: true,
+    onlyActive: true
+  });
+  const preferredKeys = ['login_recovery', 'system', 'default', 'notifications'];
+  for (const key of preferredKeys) {
+    const hit = (list || []).find((i) => String(i?.identity_key || '').trim().toLowerCase() === key);
+    if (hit) return hit;
+  }
+  return (list || [])[0] || null;
+};
+
+const sendRecoveryEmail = async ({
+  agencyId,
+  to,
+  subject,
+  text,
+  html = null,
+  source = 'auto'
+}) => {
+  const identity = await resolveRecoverySenderIdentity(agencyId);
+  if (identity?.id) {
+    return await sendEmailFromIdentity({
+      senderIdentityId: identity.id,
+      to,
+      subject,
+      text,
+      html,
+      source
+    });
+  }
+  return await EmailService.sendEmail({
+    to,
+    subject,
+    text,
+    html,
+    fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
+    fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+    replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+    source,
+    agencyId: agencyId || null
+  });
+};
+
 export const getRecoveryStatus = async (req, res, next) => {
   try {
     const sendingMode = await EmailService.getSendingMode().catch(() => 'unknown');
@@ -1423,16 +1472,13 @@ export const requestPasswordReset = async (req, res, next) => {
 
     let sendResult = null;
     try {
-      sendResult = await EmailService.sendEmail({
+      sendResult = await sendRecoveryEmail({
+        agencyId: agency?.id || null,
         to,
         subject,
         text: body,
         html: null,
-        fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
-        fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-        replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-        source: 'auto',
-        agencyId: agency?.id || null
+        source: 'auto'
       });
     } catch (e) {
       // In production: still keep response generic.
@@ -1516,16 +1562,13 @@ export const recoverUsername = async (req, res, next) => {
             recipientAddress: to
           }).catch(() => null);
 
-          const sendResult = await EmailService.sendEmail({
+          const sendResult = await sendRecoveryEmail({
+            agencyId: agency?.id || null,
             to,
             subject,
             text: body,
             html: null,
-            fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
-            fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-            replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-            source: 'auto',
-            agencyId: agency?.id || null
+            source: 'auto'
           });
 
           if (comm?.id && sendResult?.id) {

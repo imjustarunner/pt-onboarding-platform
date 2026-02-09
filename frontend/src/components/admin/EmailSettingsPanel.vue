@@ -62,6 +62,122 @@
       </div>
 
       <div class="settings-card">
+        <h3 class="settings-title">Sender Identities</h3>
+        <p class="hint">
+          Configure per-agency “From” addresses (aliases) for system/AI emails. Use identity keys like
+          <strong>login_recovery</strong> or <strong>system</strong> for automated messages.
+        </p>
+
+        <div class="settings-row">
+          <div class="settings-label">Agency</div>
+          <div class="settings-value">
+            <select v-model="senderAgencyId" class="form-select" :disabled="senderLoading">
+              <option v-if="canEditPlatform" value="">Platform (default)</option>
+              <option v-for="agency in agencyRows" :key="agency.agencyId" :value="String(agency.agencyId)">
+                {{ agency.name }}
+              </option>
+            </select>
+            <small v-if="!canEditPlatform" class="hint">Sender identities are scoped to your agency.</small>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-label">Include Platform Defaults</div>
+          <div class="settings-value">
+            <label class="toggle">
+              <input type="checkbox" v-model="includePlatformDefaults" :disabled="senderLoading" />
+              <span>Show platform identities</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-label">Test Recipient</div>
+          <div class="settings-value">
+            <input v-model="testRecipient" type="email" placeholder="test@yourdomain.com" />
+            <small class="hint">Used for the “Send Test” button. Defaults to your login email.</small>
+          </div>
+        </div>
+
+        <div v-if="senderError" class="error">{{ senderError }}</div>
+        <div v-if="senderLoading" class="loading">Loading sender identities…</div>
+
+        <div v-else>
+          <div v-if="!senderIdentities.length" class="empty-state">No sender identities yet.</div>
+          <div v-else class="identity-list">
+            <div v-for="identity in senderIdentities" :key="identity.id" class="identity-row">
+              <div class="identity-grid">
+                <div class="form-group">
+                  <label>Identity Key</label>
+                  <input v-model="identity.identity_key" type="text" />
+                </div>
+                <div class="form-group">
+                  <label>From Email</label>
+                  <input v-model="identity.from_email" type="email" />
+                </div>
+                <div class="form-group">
+                  <label>Display Name</label>
+                  <input v-model="identity.display_name" type="text" />
+                </div>
+                <div class="form-group">
+                  <label>Reply-To</label>
+                  <input v-model="identity.reply_to" type="email" />
+                </div>
+                <div class="form-group">
+                  <label>Inbound Addresses (comma or new line)</label>
+                  <textarea v-model="identity.inboundAddressesText" rows="2" />
+                </div>
+                <div class="form-group">
+                  <label>Active</label>
+                  <label class="toggle">
+                    <input type="checkbox" v-model="identity.is_active" />
+                    <span>Enabled</span>
+                  </label>
+                </div>
+              </div>
+              <div class="identity-actions">
+                <button class="btn btn-secondary" :disabled="senderSavingId === identity.id" @click="saveIdentity(identity)">
+                  {{ senderSavingId === identity.id ? 'Saving…' : 'Save' }}
+                </button>
+                <button class="btn btn-secondary" :disabled="senderSavingId === identity.id" @click="sendTest(identity)">
+                  Send Test
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="identity-add">
+            <h4>Add Sender Identity</h4>
+            <div class="identity-grid">
+              <div class="form-group">
+                <label>Identity Key</label>
+                <input v-model="newIdentity.identityKey" type="text" placeholder="system or login_recovery" />
+              </div>
+              <div class="form-group">
+                <label>From Email</label>
+                <input v-model="newIdentity.fromEmail" type="email" placeholder="alias@yourdomain.com" />
+              </div>
+              <div class="form-group">
+                <label>Display Name</label>
+                <input v-model="newIdentity.displayName" type="text" placeholder="People Ops" />
+              </div>
+              <div class="form-group">
+                <label>Reply-To</label>
+                <input v-model="newIdentity.replyTo" type="email" placeholder="support@yourdomain.com" />
+              </div>
+              <div class="form-group">
+                <label>Inbound Addresses</label>
+                <textarea v-model="newIdentity.inboundAddressesText" rows="2" placeholder="support@… , hr@…" />
+              </div>
+            </div>
+            <button class="btn btn-primary" :disabled="senderSavingId === 'new'" @click="createIdentity">
+              {{ senderSavingId === 'new' ? 'Creating…' : 'Create' }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-card">
         <h3 class="settings-title">Agency Notification Toggles</h3>
         <div v-if="!agencyRows.length" class="empty-state">No agencies available.</div>
         <div v-else class="agency-list">
@@ -94,7 +210,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 
@@ -124,6 +240,20 @@ const form = ref({
 });
 
 const agencyRows = ref([]);
+const senderAgencyId = ref('');
+const senderIdentities = ref([]);
+const senderLoading = ref(false);
+const senderError = ref('');
+const senderSavingId = ref(null);
+const includePlatformDefaults = ref(false);
+const testRecipient = ref('');
+const newIdentity = ref({
+  identityKey: '',
+  fromEmail: '',
+  displayName: '',
+  replyTo: '',
+  inboundAddressesText: ''
+});
 
 const canEditPlatform = computed(() => authStore.user?.role === 'super_admin');
 const canEditAgencies = computed(() => ['super_admin', 'admin'].includes(authStore.user?.role));
@@ -142,10 +272,107 @@ const loadSettings = async () => {
       name: a.name,
       notificationsEnabled: a.notificationsEnabled !== false
     }));
+    if (!senderAgencyId.value) {
+      if (canEditPlatform.value) {
+        senderAgencyId.value = '';
+      } else if (agencyRows.value.length === 1) {
+        senderAgencyId.value = String(agencyRows.value[0].agencyId);
+      }
+    }
+    await loadSenderIdentities();
   } catch (err) {
     error.value = err?.response?.data?.error?.message || 'Failed to load email settings.';
   } finally {
     loading.value = false;
+  }
+};
+
+const parseInboundAddresses = (raw) => {
+  if (!raw) return [];
+  return String(raw)
+    .split(/[\n,;]+/)
+    .map((v) => v.trim())
+    .filter(Boolean);
+};
+
+const loadSenderIdentities = async () => {
+  senderLoading.value = true;
+  senderError.value = '';
+  try {
+    const params = {
+      agencyId: senderAgencyId.value !== '' ? senderAgencyId.value : null,
+      includePlatformDefaults: includePlatformDefaults.value
+    };
+    const resp = await api.get('/email-senders', { params });
+    senderIdentities.value = (resp.data || []).map((i) => ({
+      ...i,
+      inboundAddressesText: (i.inbound_addresses || []).join(', ')
+    }));
+  } catch (err) {
+    senderError.value = err?.response?.data?.error?.message || 'Failed to load sender identities.';
+  } finally {
+    senderLoading.value = false;
+  }
+};
+
+const createIdentity = async () => {
+  senderSavingId.value = 'new';
+  senderError.value = '';
+  try {
+    const payload = {
+      agencyId: senderAgencyId.value !== '' ? Number(senderAgencyId.value) : null,
+      identityKey: newIdentity.value.identityKey,
+      fromEmail: newIdentity.value.fromEmail,
+      displayName: newIdentity.value.displayName || null,
+      replyTo: newIdentity.value.replyTo || null,
+      inboundAddresses: parseInboundAddresses(newIdentity.value.inboundAddressesText),
+      isActive: true
+    };
+    await api.post('/email-senders', payload);
+    newIdentity.value = { identityKey: '', fromEmail: '', displayName: '', replyTo: '', inboundAddressesText: '' };
+    await loadSenderIdentities();
+  } catch (err) {
+    senderError.value = err?.response?.data?.error?.message || 'Failed to create sender identity.';
+  } finally {
+    senderSavingId.value = null;
+  }
+};
+
+const saveIdentity = async (identity) => {
+  senderSavingId.value = identity.id;
+  senderError.value = '';
+  try {
+    const payload = {
+      identityKey: identity.identity_key,
+      fromEmail: identity.from_email,
+      displayName: identity.display_name || null,
+      replyTo: identity.reply_to || null,
+      inboundAddresses: parseInboundAddresses(identity.inboundAddressesText),
+      isActive: identity.is_active === true || identity.is_active === 1
+    };
+    await api.put(`/email-senders/${identity.id}`, payload);
+    await loadSenderIdentities();
+  } catch (err) {
+    senderError.value = err?.response?.data?.error?.message || 'Failed to save sender identity.';
+  } finally {
+    senderSavingId.value = null;
+  }
+};
+
+const sendTest = async (identity) => {
+  senderSavingId.value = identity.id;
+  senderError.value = '';
+  try {
+    const payload = {
+      toEmail: testRecipient.value || authStore.user?.email || null,
+      subject: 'Sender identity test',
+      text: 'This is a test email to validate your sender identity configuration.'
+    };
+    await api.post(`/email-senders/${identity.id}/test`, payload);
+  } catch (err) {
+    senderError.value = err?.response?.data?.error?.message || 'Failed to send test email.';
+  } finally {
+    senderSavingId.value = null;
   }
 };
 
@@ -175,6 +402,10 @@ const save = async () => {
 };
 
 onMounted(loadSettings);
+
+watch([senderAgencyId, includePlatformDefaults], () => {
+  loadSenderIdentities();
+});
 </script>
 
 <style scoped>
@@ -201,6 +432,51 @@ onMounted(loadSettings);
   padding: 20px;
   border: 1px solid var(--border);
   margin-bottom: 16px;
+}
+
+.identity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.identity-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fafafa;
+}
+
+.identity-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.identity-grid .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.identity-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.identity-add {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+@media (max-width: 900px) {
+  .identity-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-row {

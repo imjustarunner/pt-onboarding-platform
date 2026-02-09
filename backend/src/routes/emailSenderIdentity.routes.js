@@ -1,20 +1,21 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { authenticate, requireBackofficeAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import {
   listEmailSenderIdentities,
   createEmailSenderIdentity,
-  updateEmailSenderIdentity
+  updateEmailSenderIdentity,
+  sendTestEmailFromIdentity
 } from '../controllers/emailSenderIdentity.controller.js';
 
 const router = express.Router();
 
-router.get('/', authenticate, requireSuperAdmin, listEmailSenderIdentities);
+router.get('/', authenticate, requireBackofficeAdmin, listEmailSenderIdentities);
 
 router.post(
   '/',
   authenticate,
-  requireSuperAdmin,
+  requireBackofficeAdmin,
   [
     body('agencyId').optional().custom((v) => v === null || v === '' || (Number.isFinite(Number(v)) && Number(v) >= 1)).withMessage('agencyId must be null or a positive integer'),
     body('identityKey').trim().notEmpty().withMessage('identityKey is required'),
@@ -30,7 +31,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
-  requireSuperAdmin,
+  requireBackofficeAdmin,
   [
     body('identityKey').optional(),
     body('fromEmail').optional().custom((v) => v === null || v === '' || /^\S+@\S+\.\S+$/.test(String(v))).withMessage('fromEmail must be a valid email'),
@@ -40,6 +41,18 @@ router.put(
     body('isActive').optional().isBoolean().withMessage('isActive must be a boolean')
   ],
   updateEmailSenderIdentity
+);
+
+router.post(
+  '/:id/test',
+  authenticate,
+  requireBackofficeAdmin,
+  [
+    body('toEmail').optional().custom((v) => v === null || v === '' || /^\S+@\S+\.\S+$/.test(String(v))).withMessage('toEmail must be a valid email'),
+    body('subject').optional(),
+    body('text').optional()
+  ],
+  sendTestEmailFromIdentity
 );
 
 export default router;
