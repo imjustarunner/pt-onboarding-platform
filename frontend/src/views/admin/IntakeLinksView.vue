@@ -1212,6 +1212,24 @@ onMounted(fetchData);
   flex: 1;
 }
 
+.option-row input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: white;
+  color: var(--text-primary);
+  font-size: 13px;
+  min-width: 0;
+}
+
+.option-row .btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1;
+  height: 28px;
+  min-width: 28px;
+}
+
 .option-list {
   margin: 8px 0 12px 0;
 }
