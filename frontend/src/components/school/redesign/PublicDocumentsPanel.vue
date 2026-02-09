@@ -15,6 +15,52 @@
 
     <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
 
+    <div class="card" style="margin-top: 12px;">
+      <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
+        <h3 style="margin:0;">Affiliated intake links</h3>
+        <div class="muted" style="font-size: 12px;">{{ intakeLinks.length }} item(s)</div>
+      </div>
+
+      <div v-if="intakeLinksError" class="error" style="margin-top: 10px;">{{ intakeLinksError }}</div>
+      <div v-else-if="loading" class="loading" style="margin-top: 10px;">Loading intake links…</div>
+      <div v-else-if="!intakeLinks.length" class="empty-state" style="margin-top: 10px;">
+        No intake links assigned to this school/program yet.
+      </div>
+      <div v-else class="table-wrap" style="margin-top: 10px;">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Updated</th>
+              <th class="right"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="l in intakeLinks" :key="l.id">
+              <td>
+                <strong>{{ l.title || `Intake link #${l.id}` }}</strong>
+                <div class="muted" style="font-size: 12px; margin-top: 2px;">
+                  <span>{{ intakeLinkUrlFor(l) || '—' }}</span>
+                </div>
+              </td>
+              <td class="muted">{{ formatDate(l.updated_at) }}</td>
+              <td class="right">
+                <button class="btn btn-secondary btn-sm" type="button" @click="openIntakeLink(l)" :disabled="!intakeLinkUrlFor(l)">
+                  Open
+                </button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="copyIntakeLink(l)" :disabled="!intakeLinkUrlFor(l)">
+                  Copy
+                </button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="openIntakeQr(l)" :disabled="!intakeLinkUrlFor(l)">
+                  QR
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="add-panels">
       <div class="card">
         <div class="card-header" style="display:flex; align-items:center; justify-content: space-between; gap: 10px;">
@@ -157,9 +203,17 @@
                 >
                   View
                 </a>
-                <button class="btn btn-secondary btn-sm" type="button" @click="printItem(d)">
+                <button v-if="canPrintItem(d)" class="btn btn-secondary btn-sm" type="button" @click="printItem(d)">
                   Print
                 </button>
+                <span
+                  v-else-if="isGoogleDocsOrDriveLink(d)"
+                  class="muted"
+                  style="font-size: 11px; margin-left: 6px; display: inline-block; vertical-align: middle;"
+                  title="Google Docs/Drive links should be printed from Google after opening."
+                >
+                  Open to print
+                </span>
                 <a
                   v-if="String(d.kind || '').toLowerCase() !== 'link' && d.file_path"
                   class="btn btn-secondary btn-sm"
@@ -222,6 +276,30 @@
         </table>
       </div>
     </div>
+
+    <div v-if="qrModalOpen" class="modal-overlay" @click.self="closeQrModal">
+      <div class="modal" @click.stop>
+        <div class="modal-header">
+          <strong>{{ qrModalTitle || 'Intake link QR' }}</strong>
+          <button class="btn btn-secondary btn-sm" type="button" @click="closeQrModal">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="muted" style="margin-bottom: 10px;">
+            Scan or share the link below.
+          </div>
+          <div class="intake-link-row" style="margin-bottom: 10px;">
+            <input class="intake-link-input" :value="qrModalUrl" readonly />
+            <button class="btn btn-secondary btn-sm" type="button" @click="copyRawText(qrModalUrl)">
+              Copy
+            </button>
+          </div>
+          <div class="intake-qr">
+            <img v-if="qrModalDataUrl" :src="qrModalDataUrl" alt="Intake QR code" />
+            <div v-else class="muted">Generating QR…</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -229,6 +307,8 @@
 import { ref, onMounted } from 'vue';
 import api from '../../../services/api';
 import { toUploadsUrl } from '../../../utils/uploadsUrl';
+import { buildPublicIntakeUrl } from '../../../utils/publicIntakeUrl';
+import QRCode from 'qrcode';
 
 const props = defineProps({
   schoolOrganizationId: { type: [Number, String], required: true }
@@ -237,6 +317,14 @@ const props = defineProps({
 const docs = ref([]);
 const loading = ref(false);
 const error = ref('');
+
+const intakeLinks = ref([]);
+const intakeLinksError = ref('');
+
+const qrModalOpen = ref(false);
+const qrModalTitle = ref('');
+const qrModalUrl = ref('');
+const qrModalDataUrl = ref('');
 
 const newDoc = ref({ title: '', categoryKey: '' });
 const newFileInput = ref(null);
@@ -362,20 +450,27 @@ function getGoogleDocsPreviewUrl(rawUrl) {
   return null;
 }
 
+const isGoogleDocsOrDriveLink = (d) => {
+  const kind = String(d?.kind || '').toLowerCase();
+  if (kind !== 'link') return false;
+  const url = String(d?.link_url || '').trim();
+  if (!url) return false;
+  return !!getGoogleDocsPreviewUrl(url);
+};
+
+const canPrintItem = (d) => {
+  // Printing Google Docs/Drive share links is unreliable (formatting/scale).
+  // For these, we only allow Open and let the user print from Google.
+  if (isGoogleDocsOrDriveLink(d)) return false;
+  return true;
+};
+
 const printItem = (d) => {
   const kind = String(d?.kind || '').toLowerCase();
   const title = d?.title || d?.original_filename || `Document #${d?.id || ''}`;
   const url = kind === 'link' ? d?.link_url : toUploadsUrl(d?.file_path);
 
-  // Google Docs often blocks embedding (blank iframe). For these, open a Google
-  // preview page so the user can print from the browser (File → Print).
-  if (kind === 'link') {
-    const preview = getGoogleDocsPreviewUrl(url);
-    if (preview) {
-      window.open(preview, '_blank', 'noopener,noreferrer');
-      return;
-    }
-  }
+  if (!canPrintItem(d)) return;
 
   openPrintWindow({ url, title });
 };
@@ -384,14 +479,85 @@ const load = async () => {
   try {
     loading.value = true;
     error.value = '';
-    const r = await api.get(`/school-portal/${props.schoolOrganizationId}/public-documents`, { params: { _ts: Date.now() } });
-    docs.value = Array.isArray(r.data?.documents) ? r.data.documents : [];
+    intakeLinksError.value = '';
+
+    const docsReq = api.get(`/school-portal/${props.schoolOrganizationId}/public-documents`, { params: { _ts: Date.now() } });
+    const intakeReq = api.get(`/school-portal/${props.schoolOrganizationId}/intake-links`, { params: { _ts: Date.now() } });
+
+    const [docsRes, intakeRes] = await Promise.allSettled([docsReq, intakeReq]);
+
+    if (docsRes.status === 'fulfilled') {
+      docs.value = Array.isArray(docsRes.value.data?.documents) ? docsRes.value.data.documents : [];
+    } else {
+      docs.value = [];
+      const e = docsRes.reason;
+      error.value = e?.response?.data?.error?.message || 'Failed to load documents';
+    }
+
+    if (intakeRes.status === 'fulfilled') {
+      intakeLinks.value = Array.isArray(intakeRes.value.data?.links) ? intakeRes.value.data.links : [];
+    } else {
+      intakeLinks.value = [];
+      const e = intakeRes.reason;
+      intakeLinksError.value = e?.response?.data?.error?.message || 'Failed to load intake links';
+    }
   } catch (e) {
     docs.value = [];
-    error.value = e.response?.data?.error?.message || 'Failed to load documents';
+    intakeLinks.value = [];
+    error.value = e?.response?.data?.error?.message || 'Failed to load documents';
+    intakeLinksError.value = e?.response?.data?.error?.message || 'Failed to load intake links';
   } finally {
     loading.value = false;
   }
+};
+
+const intakeLinkUrlFor = (link) => {
+  const key = String(link?.public_key || '').trim();
+  if (!key) return '';
+  return buildPublicIntakeUrl(key);
+};
+
+const copyRawText = async (text) => {
+  const v = String(text || '').trim();
+  if (!v) return;
+  try {
+    await navigator.clipboard.writeText(v);
+  } catch {
+    // ignore
+  }
+};
+
+const openIntakeLink = (link) => {
+  const url = intakeLinkUrlFor(link);
+  if (!url) return;
+  window.open(url, '_blank', 'noopener,noreferrer');
+};
+
+const copyIntakeLink = async (link) => {
+  const url = intakeLinkUrlFor(link);
+  if (!url) return;
+  await copyRawText(url);
+};
+
+const openIntakeQr = async (link) => {
+  const url = intakeLinkUrlFor(link);
+  if (!url) return;
+  qrModalTitle.value = String(link?.title || '').trim() || `Intake link #${link?.id || ''}`;
+  qrModalUrl.value = url;
+  qrModalDataUrl.value = '';
+  qrModalOpen.value = true;
+  try {
+    qrModalDataUrl.value = await QRCode.toDataURL(url, { width: 240, margin: 1 });
+  } catch {
+    qrModalDataUrl.value = '';
+  }
+};
+
+const closeQrModal = () => {
+  qrModalOpen.value = false;
+  qrModalTitle.value = '';
+  qrModalUrl.value = '';
+  qrModalDataUrl.value = '';
 };
 
 const onPickNewFile = (evt) => {
@@ -556,6 +722,58 @@ onMounted(load);
 }
 .muted {
   color: var(--text-secondary);
+}
+
+/* Modal (for intake link QR) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+}
+.modal {
+  width: 560px;
+  max-width: 95vw;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-body {
+  padding: 14px 16px;
+}
+.intake-link-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.intake-link-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  font-size: 13px;
+}
+.intake-qr {
+  display: flex;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-alt);
 }
 
 /* Make this panel compact (forms + table) without affecting the rest of the app */

@@ -58,6 +58,7 @@ import {
   replaceSchoolPublicDocumentFile,
   deleteSchoolPublicDocument
 } from '../controllers/schoolPublicDocuments.controller.js';
+import { listSchoolPortalIntakeLinks } from '../controllers/schoolPortalIntakeLinks.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
@@ -82,6 +83,7 @@ router.delete('/:organizationId/school-staff/:userId', authenticate, removeSchoo
 router.get('/:organizationId/faq', authenticate, listSchoolPortalFaq);
 
 // School portal: shared public documents library (non-PHI)
+router.get('/:organizationId/intake-links', authenticate, listSchoolPortalIntakeLinks);
 router.get('/:organizationId/public-documents', authenticate, listSchoolPublicDocuments);
 router.post('/:organizationId/public-documents', authenticate, createSchoolPublicDocument);
 router.put('/:organizationId/public-documents/:documentId', authenticate, updateSchoolPublicDocumentMeta);
