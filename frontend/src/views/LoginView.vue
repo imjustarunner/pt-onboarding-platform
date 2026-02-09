@@ -58,10 +58,10 @@
             />
           </div>
 
-          <div v-if="!isOrgLogin && !needsOrgChoice" class="form-group" style="margin-top: -6px;">
-            <label style="display:flex;gap:10px;align-items:center;font-weight:500;">
+          <div v-if="!isOrgLogin && !needsOrgChoice" class="remember-row">
+            <label class="remember-me">
               <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" />
-              Remember my username and brand on this device
+              Remember me
             </label>
           </div>
           
@@ -700,6 +700,25 @@ const handleLogoError = (event) => {
 
 .login-form {
   margin-bottom: 20px;
+}
+
+.remember-row {
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+
+.remember-me {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.remember-me input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
 }
 
 .error {
