@@ -42,11 +42,13 @@ export const createIntakeLink = async (req, res, next) => {
 
     const publicKey = crypto.randomBytes(24).toString('hex');
     const scopeType = req.body.scopeType || 'agency';
+    const languageCode = String(req.body.languageCode || 'en').trim().toLowerCase();
     const createGuardianDefault = scopeType === 'school' ? false : req.body.createGuardian !== false;
     const link = await IntakeLink.create({
       publicKey,
       title: req.body.title || null,
       description: req.body.description || null,
+      languageCode,
       scopeType,
       organizationId: req.body.organizationId ? parseInt(req.body.organizationId, 10) : null,
       programId: req.body.programId ? parseInt(req.body.programId, 10) : null,
@@ -77,9 +79,12 @@ export const updateIntakeLink = async (req, res, next) => {
     if (!id) return res.status(400).json({ error: { message: 'id is required' } });
 
     const scopeType = req.body.scopeType ?? undefined;
+    const languageCode =
+      req.body.languageCode !== undefined ? String(req.body.languageCode || '').trim().toLowerCase() : undefined;
     const updates = {
       title: req.body.title ?? null,
       description: req.body.description ?? null,
+      language_code: languageCode === undefined ? undefined : (languageCode || null),
       scope_type: scopeType,
       organization_id: req.body.organizationId ? parseInt(req.body.organizationId, 10) : null,
       program_id: req.body.programId ? parseInt(req.body.programId, 10) : null,
@@ -135,6 +140,7 @@ export const duplicateIntakeLink = async (req, res, next) => {
       publicKey,
       title,
       description: existing.description || null,
+      languageCode: existing.language_code || 'en',
       scopeType: existing.scope_type || 'agency',
       organizationId: existing.organization_id || null,
       programId: existing.program_id || null,

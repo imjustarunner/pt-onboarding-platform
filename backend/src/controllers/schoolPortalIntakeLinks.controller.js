@@ -124,7 +124,7 @@ export const listSchoolPortalIntakeLinks = async (req, res, next) => {
 
     try {
       const [rows] = await pool.execute(
-        `SELECT id, public_key, title, description, scope_type, organization_id, program_id, is_active, created_at, updated_at
+        `SELECT id, public_key, title, description, language_code, scope_type, organization_id, program_id, is_active, created_at, updated_at
          FROM intake_links
          WHERE is_active = 1
            AND scope_type = ?

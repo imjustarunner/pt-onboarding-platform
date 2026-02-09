@@ -14,6 +14,7 @@ router.post(
   [
     body('title').optional().isString(),
     body('description').optional().isString(),
+    body('languageCode').optional().isString(),
     body('scopeType').isIn(['agency', 'school', 'program']).withMessage('scopeType must be agency, school, or program'),
     body('organizationId').optional().isInt(),
     body('programId').optional().isInt(),
@@ -30,6 +31,7 @@ router.put(
   [
     body('title').optional().isString(),
     body('description').optional().isString(),
+    body('languageCode').optional().isString(),
     body('scopeType').optional().isIn(['agency', 'school', 'program']),
     body('organizationId').optional().isInt(),
     body('programId').optional().isInt(),

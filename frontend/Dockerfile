@@ -11,7 +11,11 @@ COPY package*.json ./
 
 # Install all dependencies including devDependencies (needed for Vite build)
 # Ensure NODE_ENV is not set to production so devDependencies are installed
-RUN npm ci
+RUN npm config set registry https://registry.npmjs.org/ && \
+    npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm ci --no-audit --no-fund
 
 # Copy application code
 COPY . .

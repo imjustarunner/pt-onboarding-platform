@@ -794,17 +794,22 @@
           <div v-else-if="intakeLinkError" class="error">{{ intakeLinkError }}</div>
           <div v-else-if="!intakeLinkUrl" class="muted">No intake link configured for this school yet.</div>
           <div v-else class="intake-link-body">
-            <div class="intake-link-row">
-              <input class="intake-link-input" :value="intakeLinkUrl" readonly />
-              <button class="btn btn-secondary btn-sm" type="button" @click="copyIntakeLink">Copy</button>
-              <button class="btn btn-primary btn-sm" type="button" @click="openIntakeApproval">Approve & Launch</button>
-            </div>
-            <div v-if="intakeModalMode === 'qr'" class="intake-qr">
-              <img v-if="intakeQrDataUrl" :src="intakeQrDataUrl" alt="Intake QR code" />
-              <div v-else class="muted">Generating QR…</div>
-            </div>
-            <div v-else class="muted">
-              Share the link above or open it with the parent to complete the intake packet.
+            <div v-for="link in intakeLinks" :key="link.id" class="intake-link-block">
+              <div class="intake-link-meta">
+                <span class="badge badge-outline">{{ getIntakeLanguageLabel(link.language_code) }}</span>
+              </div>
+              <div class="intake-link-row">
+                <input class="intake-link-input" :value="getIntakeLinkUrl(link)" readonly />
+                <button class="btn btn-secondary btn-sm" type="button" @click="copyIntakeLink(link)">Copy</button>
+                <button class="btn btn-primary btn-sm" type="button" @click="openIntakeApproval(link)">Approve & Launch</button>
+              </div>
+              <div v-if="intakeModalMode === 'qr'" class="intake-qr">
+                <img v-if="intakeQrByKey[link.public_key]" :src="intakeQrByKey[link.public_key]" alt="Intake QR code" />
+                <div v-else class="muted">Generating QR…</div>
+              </div>
+              <div v-else class="muted">
+                Share the link above or open it with the parent to complete the intake packet.
+              </div>
             </div>
           </div>
         </div>
@@ -928,7 +933,10 @@ const intakeModalMode = ref('qr'); // 'qr' | 'sign'
 const intakeLinkLoading = ref(false);
 const intakeLinkError = ref('');
 const intakeLink = ref(null);
+const intakeLinks = ref([]);
 const intakeQrDataUrl = ref('');
+const intakeQrByKey = ref({});
+const selectedIntakeLink = ref(null);
 const showIntakeApprovalModal = ref(false);
 const intakeApprovalChecked = ref(false);
 const intakeApprovalSubmitting = ref(false);
@@ -960,6 +968,19 @@ const intakeLinkUrl = computed(() => {
   return buildPublicIntakeUrl(key);
 });
 
+const getIntakeLinkUrl = (link) => {
+  const key = link?.public_key || '';
+  if (!key) return '';
+  return buildPublicIntakeUrl(key);
+};
+
+const getIntakeLanguageLabel = (code) => {
+  const lang = String(code || '').toLowerCase();
+  if (lang === 'es' || lang.startsWith('es')) return 'Spanish';
+  if (lang === 'en' || lang.startsWith('en')) return 'English';
+  return lang ? lang.toUpperCase() : 'English';
+};
+
 const staffDisplayName = computed(() => {
   const user = authStore.user || {};
   const first = user.first_name || user.firstName || '';
@@ -974,12 +995,26 @@ const loadIntakeLink = async () => {
     intakeLinkLoading.value = true;
     intakeLinkError.value = '';
     const resp = await api.get(`/public-intake/school/${organizationId.value}`);
-    intakeLink.value = resp.data?.link || null;
-    if (intakeLinkUrl.value) {
-      intakeQrDataUrl.value = await QRCode.toDataURL(intakeLinkUrl.value, { width: 240, margin: 1 });
+    const links = Array.isArray(resp.data?.links) && resp.data.links.length
+      ? resp.data.links
+      : (resp.data?.link ? [resp.data.link] : []);
+    intakeLinks.value = links;
+    intakeLink.value = links[0] || null;
+    intakeQrByKey.value = {};
+    if (links.length) {
+      for (const link of links) {
+        const url = getIntakeLinkUrl(link);
+        if (!url) continue;
+        intakeQrByKey.value[link.public_key] = await QRCode.toDataURL(url, { width: 240, margin: 1 });
+      }
+      intakeQrDataUrl.value = links[0] ? intakeQrByKey.value[links[0].public_key] || '' : '';
+    } else {
+      intakeQrDataUrl.value = '';
     }
   } catch (e) {
     intakeLink.value = null;
+    intakeLinks.value = [];
+    intakeQrByKey.value = {};
     intakeQrDataUrl.value = '';
     intakeLinkError.value = e.response?.data?.error?.message || 'Failed to load intake link';
   } finally {
@@ -997,7 +1032,8 @@ const closeIntakeModal = () => {
   showIntakeModal.value = false;
 };
 
-const openIntakeApproval = () => {
+const openIntakeApproval = (link) => {
+  selectedIntakeLink.value = link || null;
   intakeApprovalChecked.value = false;
   intakeApprovalError.value = '';
   intakeApprovalStaffLastName.value = '';
@@ -1010,7 +1046,10 @@ const closeIntakeApproval = () => {
 };
 
 const approveAndLaunchIntake = async () => {
-  if (!intakeLink.value?.public_key || !intakeLinkUrl.value) return;
+  const activeLink = selectedIntakeLink.value || intakeLink.value;
+  if (!activeLink?.public_key) return;
+  const activeUrl = getIntakeLinkUrl(activeLink);
+  if (!activeUrl) return;
   try {
     intakeApprovalSubmitting.value = true;
     intakeApprovalError.value = '';
@@ -1018,14 +1057,14 @@ const approveAndLaunchIntake = async () => {
       intakeApprovalError.value = 'Staff last name and client first name are required.';
       return;
     }
-    await api.post(`/public-intake/${intakeLink.value.public_key}/approve`, {
+    await api.post(`/public-intake/${activeLink.public_key}/approve`, {
       organizationId: organizationId.value,
       mode: 'staff_assisted',
       staffLastName: intakeApprovalStaffLastName.value.trim(),
       clientFirstName: intakeApprovalClientFirstName.value.trim()
     });
     closeIntakeApproval();
-    const launchUrl = new URL(intakeLinkUrl.value);
+    const launchUrl = new URL(activeUrl);
     launchUrl.searchParams.set('mode', 'staff_assisted');
     launchUrl.searchParams.set('staff_last_name', intakeApprovalStaffLastName.value.trim());
     launchUrl.searchParams.set('client_first_name', intakeApprovalClientFirstName.value.trim());
@@ -1038,10 +1077,11 @@ const approveAndLaunchIntake = async () => {
   }
 };
 
-const copyIntakeLink = async () => {
-  if (!intakeLinkUrl.value) return;
+const copyIntakeLink = async (link) => {
+  const url = getIntakeLinkUrl(link || intakeLink.value);
+  if (!url) return;
   try {
-    await navigator.clipboard.writeText(intakeLinkUrl.value);
+    await navigator.clipboard.writeText(url);
   } catch {
     // ignore
   }
@@ -2188,6 +2228,15 @@ watch(() => store.selectedWeekday, async (weekday) => {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.intake-link-block {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-alt);
 }
 
 .intake-link-input {

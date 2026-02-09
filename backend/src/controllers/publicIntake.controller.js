@@ -2210,9 +2210,10 @@ export const getSchoolIntakeLink = async (req, res, next) => {
     const orgId = parseInt(req.params.organizationId, 10);
     if (!orgId) return res.status(400).json({ error: { message: 'organizationId is required' } });
     const links = await IntakeLink.findByScope({ scopeType: 'school', organizationId: orgId, programId: null });
-    const link = links[0] || null;
-    if (!link) return res.status(404).json({ error: { message: 'No intake link configured for school' } });
-    res.json({ link });
+    const activeLinks = (links || []).filter((l) => !!l?.is_active);
+    const link = activeLinks[0] || null;
+    if (!activeLinks.length) return res.status(404).json({ error: { message: 'No intake link configured for school' } });
+    res.json({ link, links: activeLinks });
   } catch (error) {
     next(error);
   }

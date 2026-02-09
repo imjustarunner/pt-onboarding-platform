@@ -32,6 +32,13 @@
           <label>Title</label>
           <input v-model="quickTitle" type="text" placeholder="e.g., School Intake Link" />
         </div>
+        <div class="form-group">
+          <label>Language</label>
+          <select v-model="quickLanguageCode">
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+          </select>
+        </div>
       </div>
       <button class="btn btn-secondary btn-sm" type="button" @click="createQuickLink">Create Link</button>
       <div v-if="quickError" class="error">{{ quickError }}</div>
@@ -60,6 +67,7 @@
           <tr>
             <th>Title</th>
             <th>Scope</th>
+            <th>Language</th>
             <th>Active</th>
             <th>Guardian</th>
             <th>Documents</th>
@@ -78,6 +86,7 @@
                 }}
               </span>
             </td>
+            <td>{{ getLanguageLabel(link.language_code) }}</td>
             <td>{{ link.is_active ? 'Yes' : 'No' }}</td>
             <td>{{ link.create_guardian ? 'Yes' : 'No' }}</td>
             <td>{{ (link.allowed_document_template_ids || []).length }}</td>
@@ -136,6 +145,13 @@
             <div class="form-group">
               <label>Title</label>
               <input v-model="form.title" type="text" />
+            </div>
+            <div class="form-group">
+              <label>Language</label>
+              <select v-model="form.languageCode">
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+              </select>
             </div>
             <div class="form-group">
               <label>Description</label>
@@ -400,6 +416,7 @@ const showTemplateChecklist = ref(false);
 const form = reactive({
   title: '',
   description: '',
+  languageCode: 'en',
   scopeType: 'school',
   organizationId: null,
   programId: null,
@@ -419,6 +436,7 @@ const form = reactive({
 const quickScope = ref('school');
 const quickOrganizationId = ref(null);
 const quickTitle = ref('');
+const quickLanguageCode = ref('en');
 const quickError = ref('');
 
 const selectedAgencyId = ref(null);
@@ -447,9 +465,17 @@ const organizationLookup = computed(() => {
   return map;
 });
 
+const getLanguageLabel = (code) => {
+  const lang = String(code || '').toLowerCase();
+  if (lang === 'es' || lang.startsWith('es')) return 'Spanish';
+  if (lang === 'en' || lang.startsWith('en')) return 'English';
+  return lang ? lang.toUpperCase() : 'English';
+};
+
 const resetForm = () => {
   form.title = '';
   form.description = '';
+  form.languageCode = 'en';
   form.scopeType = 'school';
   form.organizationId = null;
   form.programId = null;
@@ -474,6 +500,7 @@ const serializeDraft = () => ({
   form: {
     title: form.title,
     description: form.description,
+    languageCode: form.languageCode,
     scopeType: form.scopeType,
     organizationId: form.organizationId,
     programId: form.programId,
@@ -506,6 +533,7 @@ const applyDraft = (draft) => {
   if (!data) return;
   form.title = data.title ?? '';
   form.description = data.description ?? '';
+  form.languageCode = data.languageCode || 'en';
   form.scopeType = data.scopeType || 'school';
   form.organizationId = data.organizationId ?? null;
   form.programId = data.programId ?? null;
@@ -627,6 +655,7 @@ const editLink = (link) => {
   editingId.value = link.id;
   form.title = link.title || '';
   form.description = link.description || '';
+  form.languageCode = link.language_code || 'en';
   form.scopeType = link.scope_type || 'school';
   form.organizationId = link.organization_id || null;
   form.programId = link.program_id || null;
@@ -717,6 +746,7 @@ const save = async () => {
     const payload = {
       title: form.title,
       description: form.description,
+      languageCode: form.languageCode,
       scopeType: form.scopeType,
       isActive: form.isActive,
       createClient: form.createClient,
@@ -767,6 +797,7 @@ const createQuickLink = async () => {
     }
     const payload = {
       title: quickTitle.value || null,
+      languageCode: quickLanguageCode.value,
       scopeType: quickScope.value,
       createClient: true,
       createGuardian: true,

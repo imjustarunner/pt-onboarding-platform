@@ -6,6 +6,7 @@ class IntakeLink {
       publicKey,
       title = null,
       description = null,
+      languageCode = 'en',
       scopeType = 'agency',
       organizationId = null,
       programId = null,
@@ -21,13 +22,14 @@ class IntakeLink {
 
     const [result] = await pool.execute(
       `INSERT INTO intake_links
-       (public_key, title, description, scope_type, organization_id, program_id, is_active,
+       (public_key, title, description, language_code, scope_type, organization_id, program_id, is_active,
         create_client, create_guardian, allowed_document_template_ids, intake_fields, intake_steps, retention_policy_json, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         publicKey,
         title,
         description,
+        languageCode,
         scopeType,
         organizationId,
         programId,
@@ -116,6 +118,7 @@ class IntakeLink {
     }
     return {
       ...row,
+      language_code: row.language_code || 'en',
       allowed_document_template_ids: allowed,
       intake_fields: intakeFields,
       intake_steps: intakeSteps,

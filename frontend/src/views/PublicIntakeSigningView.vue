@@ -404,6 +404,14 @@
               @marker-click="handleMarkerClick"
             />
             <p v-if="pageNotice" class="page-notice">{{ pageNotice }}</p>
+            <div v-if="showSkipToSignature" class="page-notice-actions">
+              <button class="btn btn-secondary btn-sm" type="button" @click="skipToSignaturePage">
+                Skip to signature page
+              </button>
+              <button class="btn btn-outline btn-sm" type="button" @click="dismissSkipNotice">
+                Continue reviewing pages
+              </button>
+            </div>
             <p class="note">Please review the document above. You must reach the last page before continuing.</p>
             <p v-if="checkboxMarkers.length && checkboxDisclaimer" class="note">
               {{ checkboxDisclaimer }}
@@ -671,6 +679,7 @@ const reviewPage = ref(1);
 const reviewTotalPages = ref(0);
 const canProceed = ref(true);
 const pageNotice = ref('');
+const showSkipToSignature = ref(false);
 let pageNoticeTimer = null;
 const docStatus = reactive({});
 const fieldValuesByTemplate = reactive({});
@@ -848,6 +857,14 @@ const requiredFieldsForList = computed(() =>
     !(field?.type === 'checkbox' && field?.x !== undefined && field?.y !== undefined)
   )
 );
+
+const signaturePageNumber = computed(() => {
+  const raw = Number(currentDoc.value?.signature_page || currentDoc.value?.signaturePage || 0);
+  if (!raw || !Number.isFinite(raw)) return null;
+  const maxPage = Number(reviewTotalPages.value || 0);
+  if (maxPage > 0) return Math.min(Math.max(raw, 1), maxPage);
+  return Math.max(raw, 1);
+});
 
 const handleMarkerClick = (marker) => {
   if (!marker || marker.type !== 'checkbox') return;
@@ -1620,6 +1637,19 @@ const startNewSignature = async () => {
   }
 };
 
+const dismissSkipNotice = () => {
+  showSkipToSignature.value = false;
+};
+
+const skipToSignaturePage = () => {
+  const page = signaturePageNumber.value;
+  if (!page) return;
+  if (pdfPreviewRef.value?.goToPage) {
+    pdfPreviewRef.value.goToPage(page);
+  }
+  showSkipToSignature.value = false;
+};
+
 const completeCurrentDocument = async () => {
   try {
     submitLoading.value = true;
@@ -1630,7 +1660,10 @@ const completeCurrentDocument = async () => {
       return;
     }
     if (currentDoc.value.template_type === 'pdf' && !canProceed.value) {
-      pageNotice.value = 'Please review all pages before continuing.';
+      pageNotice.value = signaturePageNumber.value
+        ? 'Please review all pages before continuing. You can skip to the signature page if needed.'
+        : 'Please review all pages before continuing.';
+      showSkipToSignature.value = !!signaturePageNumber.value;
       if (pageNoticeTimer) clearTimeout(pageNoticeTimer);
       pageNoticeTimer = setTimeout(() => {
         pageNotice.value = '';
@@ -1878,12 +1911,16 @@ const handlePdfLoaded = ({ totalPages }) => {
   reviewTotalPages.value = totalPages || 0;
   reviewPage.value = 1;
   canProceed.value = reviewTotalPages.value <= 1;
+  showSkipToSignature.value = false;
 };
 
 const handlePageChange = ({ currentPage, totalPages }) => {
   reviewPage.value = currentPage || 1;
   reviewTotalPages.value = totalPages || reviewTotalPages.value;
   canProceed.value = reviewTotalPages.value > 0 && reviewPage.value >= reviewTotalPages.value;
+  if (canProceed.value) {
+    showSkipToSignature.value = false;
+  }
 };
 
 const addClient = () => {
@@ -2242,6 +2279,12 @@ onMounted(async () => {
   border: 1px solid #f5c27a;
   color: #7a4b00;
   font-size: 13px;
+}
+.page-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 .note {
   color: var(--text-secondary);
