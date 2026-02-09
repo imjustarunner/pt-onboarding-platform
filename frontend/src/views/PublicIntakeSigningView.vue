@@ -402,16 +402,16 @@
             />
             <p v-if="pageNotice" class="page-notice">{{ pageNotice }}</p>
             <p class="note">Please review the document above. You must reach the last page before continuing.</p>
+            <p v-if="checkboxMarkers.length && checkboxDisclaimer" class="note">
+              {{ checkboxDisclaimer }}
+            </p>
           </div>
           <div v-else class="muted">Document preview not available.</div>
         </div>
 
-        <div v-if="currentFlowStep?.type === 'document' && displayedFieldDefinitions.length" class="field-inputs">
+        <div v-if="currentFlowStep?.type === 'document' && requiredFieldsForList.length" class="field-inputs">
           <h4>Required Fields</h4>
-          <p v-if="checkboxMarkers.length && checkboxDisclaimer" class="muted" style="margin-top: -6px;">
-            {{ checkboxDisclaimer }}
-          </p>
-          <div v-for="field in displayedFieldDefinitions" :key="field.id" class="form-group">
+          <div v-for="field in requiredFieldsForList" :key="field.id" class="form-group">
             <label>{{ field.label || field.type }}</label>
             <input
               v-if="field.type !== 'date' && field.type !== 'checkbox' && field.type !== 'select' && field.type !== 'radio'"
@@ -825,6 +825,11 @@ const checkboxMarkers = computed(() =>
       width: Number(field.width || 18),
       height: Number(field.height || 18)
     }))
+);
+const requiredFieldsForList = computed(() =>
+  displayedFieldDefinitions.value.filter((field) =>
+    !(field?.type === 'checkbox' && field?.x !== undefined && field?.y !== undefined)
+  )
 );
 
 const handleMarkerClick = (marker) => {

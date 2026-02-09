@@ -74,6 +74,7 @@ let rendering = false;
 let didInitialFit = false;
 let userZoomed = false;
 let lastViewport = null;
+let lastViewportBase = null;
 
 const fitToWidth = async (page) => {
   if (!containerRef.value) return;
@@ -98,7 +99,9 @@ const renderPage = async (pageNum) => {
       await fitToWidth(page);
       didInitialFit = true;
     }
+    const viewportBase = page.getViewport({ scale: 1.0 });
     const viewport = page.getViewport({ scale: scale.value });
+    lastViewportBase = viewportBase;
     lastViewport = viewport;
 
     const ctx = canvas.getContext('2d');
@@ -121,16 +124,19 @@ const updateMarkerStyles = () => {
   const canvas = canvasRef.value;
   const canvasWidth = canvas.width || lastViewport.width;
   const canvasHeight = canvas.height || lastViewport.height;
+  const baseViewport = lastViewportBase || lastViewport;
+  const baseWidth = baseViewport.width || lastViewport.width;
+  const baseHeight = baseViewport.height || lastViewport.height;
   const styles = {};
   const pageMarkers = (props.markers || []).filter((m) => (m.page || 1) === currentPage.value);
 
   pageMarkers.forEach((marker) => {
     if (marker.x === null || marker.y === null) return;
-    const pdfYFromTop = lastViewport.height - marker.y;
-    const canvasX = (marker.x / lastViewport.width) * canvasWidth;
-    const canvasY = (pdfYFromTop / lastViewport.height) * canvasHeight;
-    const canvasWidthPdf = (marker.width / lastViewport.width) * canvasWidth;
-    const canvasHeightPdf = (marker.height / lastViewport.height) * canvasHeight;
+    const pdfYFromTop = baseHeight - marker.y;
+    const canvasX = (marker.x / baseWidth) * canvasWidth;
+    const canvasY = (pdfYFromTop / baseHeight) * canvasHeight;
+    const canvasWidthPdf = (marker.width / baseWidth) * canvasWidth;
+    const canvasHeightPdf = (marker.height / baseHeight) * canvasHeight;
     const previewTop = canvasY - canvasHeightPdf;
     styles[marker.id] = {
       left: `${canvasX}px`,
