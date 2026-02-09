@@ -113,6 +113,32 @@
       <ProviderTopSummaryCard v-if="!topCardCollapsed" @open-last-paycheck="openLastPaycheckModal" />
     </div>
 
+    <!-- Social & feeds (collapsible block) -->
+    <div
+      v-if="!previewMode && isOnboardingComplete && !isSchoolStaff && dashboardSocialFeeds.length > 0"
+      class="top-snapshot-wrap"
+      data-tour="dash-social-feeds"
+    >
+      <div class="top-snapshot-head">
+        <div class="top-snapshot-title">Social &amp; feeds</div>
+        <button type="button" class="btn btn-secondary btn-sm top-snapshot-toggle" @click="toggleSocialFeedsCollapsed">
+          {{ socialFeedsCollapsed ? 'Expand' : 'Collapse' }}
+        </button>
+      </div>
+      <div v-if="!socialFeedsCollapsed" class="social-feeds-block-grid">
+        <button
+          v-for="f in dashboardSocialFeeds"
+          :key="f.id"
+          type="button"
+          class="social-feed-block-card"
+          @click="openSocialFeedInDetail(f)"
+        >
+          <span class="social-feed-block-icon" :aria-label="f.type">{{ platformIconLabel(f.type) }}</span>
+          <span class="social-feed-block-label">{{ f.label }}</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Dashboard Shell: left rail + right detail -->
     <div class="dashboard-shell" :class="{ 'schedule-focus': activeTab === 'my_schedule' }">
       <div data-tour="dash-rail" class="dashboard-rail" :class="{ disabled: previewMode }" role="navigation" aria-label="Dashboard sections">
@@ -435,6 +461,14 @@
             <OnDemandTrainingLibraryView />
           </div>
 
+          <!-- Social feeds (right panel) -->
+          <div v-if="!previewMode && isOnboardingComplete" v-show="activeTab === 'social_feeds'" class="my-panel">
+            <SocialFeedsPanel
+              :agency-id="currentAgencyId"
+              :selected-feed-id-from-parent="selectedSocialFeedId"
+            />
+          </div>
+
           <!-- My Account (nested inside dashboard) -->
           <div
             v-if="!previewMode && isOnboardingComplete"
@@ -513,6 +547,7 @@
             <p v-if="activeTab === 'my'" class="preview-text">My account content preview</p>
             <p v-if="activeTab === 'submit'" class="preview-text">Submit content preview</p>
             <p v-if="activeTab === 'on_demand_training'" class="preview-text">On-demand training content preview</p>
+            <p v-if="activeTab === 'social_feeds'" class="preview-text">Social feeds content preview</p>
           </div>
         </div>
       </div>
@@ -567,6 +602,7 @@ import SupervisionModal from '../components/supervision/SupervisionModal.vue';
 import SkillBuilderAvailabilityModal from '../components/availability/SkillBuilderAvailabilityModal.vue';
 import SkillBuildersAvailabilityModal from '../components/availability/SkillBuildersAvailabilityModal.vue';
 import LastPaycheckModal from '../components/dashboard/LastPaycheckModal.vue';
+import SocialFeedsPanel from '../components/dashboard/SocialFeedsPanel.vue';
 import { isSupervisor } from '../utils/helpers.js';
 
 const props = defineProps({
@@ -938,6 +974,14 @@ const dashboardCards = computed(() => {
       iconUrl: brandingStore.getDashboardCardIconUrl('on_demand_training', cardIconOrgOverride),
       description: 'Always available after onboarding is complete.'
     });
+    cards.push({
+      id: 'social_feeds',
+      label: 'Social feeds',
+      kind: 'content',
+      badgeCount: 0,
+      iconUrl: brandingStore.getDashboardCardIconUrl('social_feeds', cardIconOrgOverride),
+      description: 'Social and school feeds from your organization.'
+    });
 
     // Communications surfaces (separate pages)
     if (!isLimitedAccessNonProvider) {
@@ -1024,10 +1068,11 @@ const railCards = computed(() => {
         submit: 8,
         payroll: 9,
         on_demand_training: 10,
-        communications: 11,
-        chats: 12,
-        notifications: 13,
-        supervision: 14
+        social_feeds: 11,
+        communications: 12,
+        chats: 13,
+        notifications: 14,
+        supervision: 15
       })[k] ?? 999;
     }
     return ({
@@ -1037,15 +1082,16 @@ const railCards = computed(() => {
       my_schedule: 3,
       skill_builders_availability: 4,
       clients: 5,
-        tools_aids: 6,
+      tools_aids: 6,
       submit: 7,
       payroll: 8,
       my: 9,
       on_demand_training: 10,
-      communications: 11,
-      chats: 12,
-      notifications: 13,
-      supervision: 14
+      social_feeds: 11,
+      communications: 12,
+      chats: 13,
+      notifications: 14,
+      supervision: 15
     })[k] ?? 999;
   };
 
@@ -1059,6 +1105,11 @@ const railCards = computed(() => {
 
 const TOP_CARD_COLLAPSE_KEY = 'dashboard.topCardCollapsed.v1';
 const topCardCollapsed = ref(false);
+
+const SOCIAL_FEEDS_COLLAPSE_KEY = 'dashboard.socialFeedsCollapsed.v1';
+const socialFeedsCollapsed = ref(false);
+const dashboardSocialFeeds = ref([]);
+const selectedSocialFeedId = ref(null);
 const loadTopCardCollapsed = () => {
   try {
     const v = window?.localStorage?.getItem?.(TOP_CARD_COLLAPSE_KEY);
@@ -1075,6 +1126,50 @@ const toggleTopCardCollapsed = () => {
     // ignore
   }
 };
+
+const loadSocialFeedsCollapsed = () => {
+  try {
+    const v = window?.localStorage?.getItem?.(SOCIAL_FEEDS_COLLAPSE_KEY);
+    socialFeedsCollapsed.value = v === '1';
+  } catch {
+    socialFeedsCollapsed.value = false;
+  }
+};
+const toggleSocialFeedsCollapsed = () => {
+  socialFeedsCollapsed.value = !socialFeedsCollapsed.value;
+  try {
+    window?.localStorage?.setItem?.(SOCIAL_FEEDS_COLLAPSE_KEY, socialFeedsCollapsed.value ? '1' : '0');
+  } catch {
+    // ignore
+  }
+};
+
+async function loadDashboardSocialFeeds() {
+  if (!currentAgencyId.value || !isOnboardingComplete.value) {
+    dashboardSocialFeeds.value = [];
+    return;
+  }
+  try {
+    const res = await api.get('/dashboard/social-feeds', { params: { agencyId: currentAgencyId.value } });
+    dashboardSocialFeeds.value = Array.isArray(res.data?.feeds) ? res.data.feeds : [];
+  } catch {
+    dashboardSocialFeeds.value = [];
+  }
+}
+
+function platformIconLabel(type) {
+  const t = String(type || '').toLowerCase();
+  if (t === 'instagram') return 'IG';
+  if (t === 'facebook') return 'FB';
+  if (t === 'rss') return 'RSS';
+  return 'Link';
+}
+
+function openSocialFeedInDetail(feed) {
+  selectedSocialFeedId.value = feed.id;
+  activeTab.value = 'social_feeds';
+  router.replace({ query: { ...route.query, tab: 'social_feeds' } });
+}
 
 const handleCardClick = (card) => {
   if (props.previewMode) return;
@@ -1407,6 +1502,7 @@ const loadAgencyDashboardBanner = async () => {
 
 onMounted(async () => {
   loadTopCardCollapsed();
+  loadSocialFeedsCollapsed();
   await fetchOnboardingStatus();
   syncFromQuery();
   // Default to My Account → Account Info once onboarding is complete,
@@ -1417,6 +1513,7 @@ onMounted(async () => {
   }
   await loadCurrentTier();
   await loadAgencyDashboardBanner();
+  await loadDashboardSocialFeeds();
 });
 
 // If available cards change (role/status), keep activeTab on a valid content card.
@@ -1433,6 +1530,7 @@ watch([currentAgencyId, isOnboardingComplete], async () => {
   await loadCurrentTier();
   await loadMyAssignedSchools();
   await loadAgencyDashboardBanner();
+  await loadDashboardSocialFeeds();
 });
 
 // Supervisor: load supervisees for schedule sorting/selection.
@@ -1552,6 +1650,42 @@ h1 {
   flex: 0 0 auto;
   white-space: nowrap;
   padding: 4px 10px;
+}
+
+.social-feeds-block-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.social-feed-block-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 8px;
+  background: var(--bg-card, #fff);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+.social-feed-block-card:hover {
+  border-color: var(--primary, #3498db);
+  background: var(--bg-hover, #f8f9fa);
+}
+.social-feed-block-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--bg-muted, #eee);
+  font-size: 11px;
+  font-weight: 600;
+}
+.social-feed-block-label {
+  font-weight: 500;
 }
 
 /* Split view: rail + detail */

@@ -63,6 +63,7 @@ import publicIntakeRoutes from './routes/publicIntake.routes.js';
 import intakeLinksRoutes from './routes/intakeLinks.routes.js';
 import intakeFieldTemplatesRoutes from './routes/intakeFieldTemplates.routes.js';
 import schoolPortalRoutes from './routes/schoolPortal.routes.js';
+import socialFeedLinksRoutes from './routes/socialFeedLinks.routes.js';
 import referralRoutes from './routes/referral.routes.js';
 import bulkImportRoutes from './routes/bulkImport.routes.js';
 import userPreferencesRoutes from './routes/userPreferences.routes.js';
@@ -478,6 +479,7 @@ app.use('/api/signatures', signatureRoutes);
 app.use('/api/agencies', agencyRoutes);
 app.use('/api/agencies', agencyDashboardRoutes);
 app.use('/api/agencies', agencySchoolsRoutes);
+app.use('/api/agencies', socialFeedLinksRoutes);
 app.use('/api/tracks', trackRoutes);
 app.use('/api/training-focuses', trackRoutes); // Alias for new terminology
 app.use('/api/acknowledgments', acknowledgmentRoutes);

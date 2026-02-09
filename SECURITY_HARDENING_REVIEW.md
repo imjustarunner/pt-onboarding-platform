@@ -89,7 +89,12 @@ add_header X-XSS-Protection "1; mode=block" always;
 - GCS signed URLs for PDFs/images
 - **Required for CSP:** `frame-src 'self' https://storage.googleapis.com; img-src 'self' data: https://storage.googleapis.com;`
 
-**6. Inline Styles/Scripts** (Vue.js)
+**6. Social Feed Embeds** (`frontend/src/components/dashboard/SocialFeedEmbed.vue`)
+- Instagram post embeds (`www.instagram.com`)
+- Facebook Page plugin (`www.facebook.com`)
+- **Required for CSP:** `frame-src` must include `https://www.instagram.com` and `https://www.facebook.com` (in addition to existing frame-src entries).
+
+**7. Inline Styles/Scripts** (Vue.js)
 - Vue.js uses inline styles and scripts
 - **Required for CSP:** `style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';` (or use nonces)
 
@@ -214,7 +219,7 @@ server {
     
     # Content Security Policy
     # Allow: Google Fonts, PDF.js CDN, YouTube/Vimeo, GCS, inline styles/scripts (Vue.js requirement)
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https://storage.googleapis.com; frame-src 'self' https://www.youtube.com https://player.vimeo.com https://*.google.com https://*.googleusercontent.com https://storage.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests;" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https://storage.googleapis.com; frame-src 'self' https://www.youtube.com https://player.vimeo.com https://*.google.com https://*.googleusercontent.com https://storage.googleapis.com https://www.instagram.com https://www.facebook.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests;" always;
     
     # Strict Transport Security (HSTS) - Only if using HTTPS
     # Uncomment in production with HTTPS:
@@ -314,7 +319,9 @@ const cspDirectives = {
     'https://player.vimeo.com',
     'https://*.google.com',           // Google Workspace embeds
     'https://*.googleusercontent.com', // Google Drive previews
-    'https://storage.googleapis.com'  // GCS PDF previews
+    'https://storage.googleapis.com', // GCS PDF previews
+    'https://www.instagram.com',      // Social feed embeds (My Dashboard)
+    'https://www.facebook.com'         // Social feed embeds (My Dashboard)
   ],
   
   // Media - Self and GCS
@@ -373,7 +380,7 @@ style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
 font-src 'self' https://fonts.gstatic.com; 
 img-src 'self' data: https: blob:; 
 connect-src 'self' https://storage.googleapis.com; 
-frame-src 'self' https://www.youtube.com https://player.vimeo.com https://*.google.com https://*.googleusercontent.com https://storage.googleapis.com; 
+frame-src 'self' https://www.youtube.com https://player.vimeo.com https://*.google.com https://*.googleusercontent.com https://storage.googleapis.com https://www.instagram.com https://www.facebook.com; 
 object-src 'none'; 
 base-uri 'self'; 
 form-action 'self'; 
@@ -681,7 +688,7 @@ server {
     add_header X-XSS-Protection "1; mode=block" always;
     
     # Content Security Policy
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https://storage.googleapis.com; frame-src 'self' https://www.youtube.com https://player.vimeo.com https://*.google.com https://*.googleusercontent.com https://storage.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests;" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https://storage.googleapis.com; frame-src 'self' https://www.youtube.com https://player.vimeo.com https://*.google.com https://*.googleusercontent.com https://storage.googleapis.com https://www.instagram.com https://www.facebook.com; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests;" always;
     
     # Strict Transport Security (HSTS) - Only enable in production with HTTPS
     # Uncomment when deploying with HTTPS:

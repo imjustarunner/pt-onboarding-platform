@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate, requireAgencyAccess, requireBackofficeAdmin } from '../middleware/auth.middleware.js';
 import { getAgencySpecs, getOrgOverviewSummary } from '../controllers/dashboard.controller.js';
 import { getSchoolOverview } from '../controllers/schoolOverview.controller.js';
+import { listForDashboard } from '../controllers/socialFeedLinks.controller.js';
 
 const router = express.Router();
 
@@ -13,6 +14,9 @@ router.get('/org-overview-summary', authenticate, requireAgencyAccess, getOrgOve
 
 // School overview (admin/staff dashboards)
 router.get('/school-overview', authenticate, requireAgencyAccess, getSchoolOverview);
+
+// Social feeds for My Dashboard (agency + optional org/program scope)
+router.get('/social-feeds', authenticate, listForDashboard);
 
 export default router;
 

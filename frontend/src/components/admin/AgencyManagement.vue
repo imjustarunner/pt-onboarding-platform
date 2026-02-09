@@ -282,6 +282,14 @@
           >
             Announcements
           </button>
+          <button
+            v-if="editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            type="button"
+            :class="['tab-button', { active: activeTab === 'social_feeds' }]"
+            @click="activeTab = 'social_feeds'"
+          >
+            Social feeds
+          </button>
           <button type="button" :class="['tab-button', { active: activeTab === 'theme' }]" @click="activeTab = 'theme'">Theme</button>
           <button type="button" :class="['tab-button', { active: activeTab === 'terminology' }]" @click="activeTab = 'terminology'">Terminology</button>
           <button type="button" :class="['tab-button', { active: activeTab === 'icons' }]" @click="activeTab = 'icons'">Icons</button>
@@ -1331,6 +1339,13 @@
                 <div v-else class="muted" style="padding: 8px 4px;">No scheduled announcements yet.</div>
               </div>
             </div>
+          </div>
+
+          <div
+            v-if="activeTab === 'social_feeds' && editingAgency && String(editingAgency.organization_type || 'agency').toLowerCase() === 'agency'"
+            class="tab-section"
+          >
+            <SocialFeedsAdmin :agency-id="editingAgency.id" />
           </div>
 
           <div
@@ -3042,6 +3057,7 @@ import DashboardPreviewModal from './DashboardPreviewModal.vue';
 import IconTemplateModal from './IconTemplateModal.vue';
 import SplashPagePreviewModal from './SplashPagePreviewModal.vue';
 import ToggleSwitch from '../ui/ToggleSwitch.vue';
+import SocialFeedsAdmin from './SocialFeedsAdmin.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
