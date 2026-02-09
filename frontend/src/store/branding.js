@@ -261,7 +261,10 @@ export const useBrandingStore = defineStore('branding', () => {
       const familyName = extractFamily(themeSettings.fontFamily);
       if (familyName) {
         api
-          .get('/fonts/public', { params: { agencyId: brandingAgencyId || undefined, familyName } })
+          .get('/fonts/public', {
+            params: { agencyId: brandingAgencyId || undefined, familyName },
+            skipAuthRedirect: true
+          })
           .then((res) => {
             const fonts = res.data || [];
             if (Array.isArray(fonts) && fonts.length > 0) {

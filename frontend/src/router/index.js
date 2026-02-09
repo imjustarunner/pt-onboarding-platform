@@ -1019,7 +1019,12 @@ const routes = [
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
+  routes,
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) return savedPosition;
+    if (to.hash) return { el: to.hash };
+    return { left: 0, top: 0 };
+  }
 });
 
 const getStoredUserAgencies = () => {
@@ -1060,6 +1065,18 @@ const userHasSlugAccess = (slug, agencyStore, authStore) => {
   const superviseeSlugs = agencyStore.superviseePortalSlugs?.value ?? agencyStore.superviseePortalSlugs ?? [];
   if (Array.isArray(superviseeSlugs) && superviseeSlugs.includes(slug)) return true;
   return false;
+};
+
+const getSlugAwarePath = (targetPath, to, authStore) => {
+  if (!targetPath) return targetPath;
+  const path = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
+  if (!authStore.isAuthenticated || authStore.user?.role === 'super_admin') return path;
+  const slug =
+    (to.meta.organizationSlug && typeof to.params.organizationSlug === 'string' && to.params.organizationSlug) ||
+    getDefaultOrganizationSlug();
+  if (!slug) return path;
+  if (path.startsWith(`/${slug}/`)) return path;
+  return `/${slug}${path}`;
 };
 
 router.beforeEach(async (to, from, next) => {
@@ -1192,13 +1209,13 @@ router.beforeEach(async (to, from, next) => {
   
   // Block pending users from accessing training modules and certain routes
   if (to.meta.blockPendingUsers && isPending) {
-    next('/dashboard');
+    next(getSlugAwarePath('/dashboard', to, authStore));
     return;
   }
   
   // Block ready_for_review users from accessing most routes (access is locked)
   if (isReadyForReview && to.path !== '/pending-completion' && to.path !== '/dashboard') {
-    next('/pending-completion');
+    next(getSlugAwarePath('/pending-completion', to, authStore));
     return;
   }
 
@@ -1210,7 +1227,7 @@ router.beforeEach(async (to, from, next) => {
       String(to.path || '').includes('/change-password');
     const isLogout = String(to.path || '').includes('/logout');
     if (!isChangePassword && !isLogout) {
-      next('/change-password');
+      next(getSlugAwarePath('/change-password', to, authStore));
       return;
     }
   }

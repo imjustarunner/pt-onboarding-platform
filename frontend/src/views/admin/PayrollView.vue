@@ -10026,8 +10026,7 @@ watch(selectedOrgId, async (id) => {
       try {
         await router.push(`/${slug}/admin/payroll`);
       } catch {
-        // As a fallback, do a hard navigation (ensures full re-init).
-        try { window.location.assign(`/${slug}/admin/payroll`); } catch { /* ignore */ }
+        // ignore - router will remain on current route
       }
     }
   }

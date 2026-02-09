@@ -56,25 +56,32 @@ async function handleTimeout() {
     // Log timeout event to backend
     if (sessionId || authStore.token) {
       try {
-        await api.post('/auth/logout', {
-          sessionId,
-          reason: 'timeout'
-        });
+        await api.post(
+          '/auth/logout',
+          { sessionId, reason: 'timeout' },
+          { skipAuthRedirect: true }
+        );
       } catch (err) {
-        console.error('Failed to log timeout event:', err);
+        if (err?.response?.status !== 401) {
+          console.error('Failed to log timeout event:', err);
+        }
       }
       
       // Log timeout activity (already logged in logout, but log separately too)
       try {
         const timeoutMinutes = Math.round(getInactivityTimeoutMs() / 60000);
-        await api.post('/auth/activity-log', {
-          actionType: 'timeout',
-          sessionId,
-          metadata: {
-            reason: 'inactivity_timeout',
-            timeoutMinutes
-          }
-        });
+        await api.post(
+          '/auth/activity-log',
+          {
+            actionType: 'timeout',
+            sessionId,
+            metadata: {
+              reason: 'inactivity_timeout',
+              timeoutMinutes
+            }
+          },
+          { skipAuthRedirect: true }
+        );
       } catch (err) {
         // Ignore errors - logout already logged it
       }
@@ -83,12 +90,7 @@ async function handleTimeout() {
     console.error('Error during timeout handling:', err);
   } finally {
     // Always logout on timeout
-    await authStore.logout('timeout');
-    
-    // Redirect to login
-    if (window.location.pathname !== '/login') {
-      window.location.href = '/login?timeout=true';
-    }
+    await authStore.logout('timeout', { redirectTo: '/login?timeout=true' });
   }
 }
 

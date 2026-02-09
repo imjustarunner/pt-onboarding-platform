@@ -89,7 +89,7 @@ app.use(express.static(distPath, {
     }
     
     // Cache static assets (JS, CSS) for 1 year, but not index.html
-    if (path.endsWith('.js') || path.endsWith('.css') || path.endsWith('.png') || path.endsWith('.jpg') || path.endsWith('.jpeg') || path.endsWith('.svg')) {
+    if (path.endsWith('.js') || path.endsWith('.mjs') || path.endsWith('.css') || path.endsWith('.png') || path.endsWith('.jpg') || path.endsWith('.jpeg') || path.endsWith('.svg')) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
   }

@@ -2963,9 +2963,9 @@ const applySelectedTemplate = async (event) => {
           platformLogoInputMethod.value = 'url';
         }
       }
-      // Force a page reload to ensure all components see the updated branding
+      // Refresh platform branding so dependent components update without a full reload.
       setTimeout(() => {
-        window.location.reload();
+        brandingStore.fetchPlatformBranding(true);
       }, 500);
     } else {
       // For agency templates, refresh agency data

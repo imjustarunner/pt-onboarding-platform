@@ -21,6 +21,14 @@ const isChunkLoadError = (err) => {
   );
 };
 
+const attemptChunkReload = (err) => {
+  if (!isChunkLoadError(err)) return;
+  const alreadyReloaded = sessionStorage.getItem(CHUNK_RELOAD_KEY) === '1';
+  if (alreadyReloaded) return;
+  sessionStorage.setItem(CHUNK_RELOAD_KEY, '1');
+  window.location.reload();
+};
+
 async function bootstrap() {
   const app = createApp(App);
   const pinia = createPinia();
@@ -31,11 +39,15 @@ async function bootstrap() {
   // If a deploy happens while someone is using the app, lazy-loaded route chunks can 404.
   // This reloads once to pick up the new index/assets, avoiding a broken editor experience.
   router.onError((err) => {
-    if (!isChunkLoadError(err)) return;
-    const alreadyReloaded = sessionStorage.getItem(CHUNK_RELOAD_KEY) === '1';
-    if (alreadyReloaded) return;
-    sessionStorage.setItem(CHUNK_RELOAD_KEY, '1');
-    window.location.reload();
+    attemptChunkReload(err);
+  });
+
+  // Also catch chunk load failures that bubble outside the router.
+  window.addEventListener('error', (event) => {
+    attemptChunkReload(event?.error || event);
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    attemptChunkReload(event?.reason || event);
   });
 
   // Preload branding before first paint to prevent “wrong theme/logo flash”

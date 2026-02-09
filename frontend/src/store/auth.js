@@ -178,7 +178,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
   };
 
-  const logout = async (reason = 'user_logout') => {
+  const logout = async (reason = 'user_logout', options = {}) => {
     try {
       // Get session ID from localStorage if available
       const sessionId = localStorage.getItem('sessionId');
@@ -188,16 +188,17 @@ export const useAuthStore = defineStore('auth', () => {
       
       // Log logout event to backend (don't wait for response)
       if (sessionId || token.value) {
-        api.post('/auth/logout', {
-          sessionId,
-          reason
-        }).catch(err => {
-          console.error('Failed to log logout event:', err);
-        });
+        api
+          .post('/auth/logout', { sessionId, reason }, { skipAuthRedirect: true })
+          .catch((err) => {
+            if (err?.response?.status !== 401) {
+              console.error('Failed to log logout event:', err);
+            }
+          });
       }
 
       // Mark presence offline (best-effort) so chat can move to notifications when away.
-      api.post('/presence/offline', {}).catch(() => {});
+      api.post('/presence/offline', {}, { skipAuthRedirect: true }).catch(() => {});
       
       // Always clear auth even if logging fails
       localStorage.removeItem('sessionId');
@@ -206,11 +207,20 @@ export const useAuthStore = defineStore('auth', () => {
       // Redirect to appropriate login page based on user's agency
       // Get agencies from localStorage before clearing (they're cleared in clearStoredAgencies)
       const { getLoginUrl, clearStoredAgencies } = await import('../utils/loginRedirect');
-      const loginUrl = getLoginUrl(currentUser);
+      const loginUrl = options.redirectTo || getLoginUrl(currentUser);
       clearStoredAgencies(); // Clear stored agencies on logout
       
-      // Use window.location for logout to ensure clean state
-      window.location.href = loginUrl;
+      // Prefer SPA navigation; fallback to hard redirect if router is unavailable.
+      try {
+        if (options.useRouter === false) {
+          window.location.href = loginUrl;
+          return;
+        }
+        const { default: router } = await import('../router');
+        await router.replace(loginUrl);
+      } catch {
+        window.location.href = loginUrl;
+      }
     } catch (err) {
       console.error('Error during logout:', err);
       // Fallback to default login
