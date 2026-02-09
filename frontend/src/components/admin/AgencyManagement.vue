@@ -1580,7 +1580,7 @@
             style="margin-top: 18px; margin-bottom: 16px; padding-top: 18px; border-top: 2px solid var(--border);"
           >
             <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 18px; font-weight: 600;">Program Reminders</h4>
-            <small class="hint">Schedule recurring program reminders (in-app + optional SMS).</small>
+            <small class="hint">Schedule recurring program reminders (in-app + optional SMS/email).</small>
           </div>
 
           <div
@@ -1620,7 +1620,17 @@
                       <div class="hint">{{ formatProgramSchedule(r) }}</div>
                     </td>
                     <td class="hint">{{ formatProgramNextRun(r) }}</td>
-                    <td class="hint">{{ r.channels?.sms ? 'In-app + SMS' : 'In-app only' }}</td>
+                    <td class="hint">
+                      {{
+                        r.channels?.sms && r.channels?.email
+                          ? 'In-app + SMS + Email'
+                          : r.channels?.sms
+                            ? 'In-app + SMS'
+                            : r.channels?.email
+                              ? 'In-app + Email'
+                              : 'In-app only'
+                      }}
+                    </td>
                     <td class="right">
                       <button type="button" class="btn btn-secondary btn-sm" @click="deleteProgramReminder(r)">Delete</button>
                     </td>
@@ -1645,6 +1655,13 @@
                 <div class="filters-group">
                   <label class="filters-label">SMS</label>
                   <select v-model="programReminderDraft.smsEnabled" class="filters-input">
+                    <option :value="true">Enabled</option>
+                    <option :value="false">In-app only</option>
+                  </select>
+                </div>
+                <div class="filters-group">
+                  <label class="filters-label">Email</label>
+                  <select v-model="programReminderDraft.emailEnabled" class="filters-input">
                     <option :value="true">Enabled</option>
                     <option :value="false">In-app only</option>
                   </select>
@@ -1706,6 +1723,9 @@
             <div v-if="notificationTriggersError" class="error-modal">
               <strong>Error:</strong> {{ notificationTriggersError }}
             </div>
+            <div v-if="senderIdentityOptionsError" class="error-modal">
+              <strong>Error:</strong> {{ senderIdentityOptionsError }}
+            </div>
             <div class="filters-row" style="align-items: flex-end; margin-bottom: 10px;">
               <div class="filters-group">
                 <button type="button" class="btn btn-secondary btn-sm" @click="loadNotificationTriggers" :disabled="notificationTriggersLoading || !editingAgency?.id">
@@ -1723,6 +1743,7 @@
                     <th>Enabled</th>
                     <th>Recipients</th>
                     <th>Channels</th>
+                    <th>Email Sender</th>
                     <th class="right"></th>
                   </tr>
                 </thead>
@@ -1747,6 +1768,15 @@
                       <div class="hint"><ToggleSwitch v-model="getTriggerEdit(t.triggerKey).channels.sms" label="Text (SMS)" compact /></div>
                       <div class="hint"><ToggleSwitch :model-value="false" disabled label="Email (coming soon)" compact /></div>
                     </td>
+                    <td>
+                      <select v-model="getTriggerEdit(t.triggerKey).senderIdentityId" :disabled="senderIdentityOptionsLoading">
+                        <option value="">Default (trigger/platform)</option>
+                        <option v-for="identity in senderIdentityOptions" :key="identity.id" :value="String(identity.id)">
+                          {{ formatSenderIdentityOption(identity) }}
+                        </option>
+                      </select>
+                      <div v-if="senderIdentityOptionsLoading" class="hint">Loading senders…</div>
+                    </td>
                     <td class="right">
                       <button
                         type="button"
@@ -1759,7 +1789,7 @@
                     </td>
                   </tr>
                   <tr v-if="!notificationTriggers.length">
-                    <td colspan="5" class="empty-state-inline">No triggers found.</td>
+                    <td colspan="6" class="empty-state-inline">No triggers found.</td>
                   </tr>
                 </tbody>
               </table>
@@ -3126,6 +3156,9 @@ const activeTab = ref('general'); // Tab navigation: general|branding|features|c
 const senderIdentitiesByKey = ref({});
 const senderIdentitiesLoading = ref(false);
 const senderIdentitiesError = ref('');
+const senderIdentityOptions = ref([]);
+const senderIdentityOptionsLoading = ref(false);
+const senderIdentityOptionsError = ref('');
 
 // Office creation is handled via Organization Type = Office in the General tab.
 
@@ -3574,6 +3607,7 @@ const programReminderDraft = ref({
   timeOfDay: '09:00',
   daysOfWeek: [1, 3, 5],
   smsEnabled: true,
+  emailEnabled: false,
   timezone: 'UTC'
 });
 const programReminderDays = [
@@ -3588,12 +3622,20 @@ const programReminderDays = [
 
 const getTriggerEdit = (triggerKey) => {
   const key = String(triggerKey || '').trim();
-  if (!key) return { enabled: true, recipients: { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true }, channels: { inApp: true, sms: true, email: false } };
+  if (!key) {
+    return {
+      enabled: true,
+      recipients: { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true },
+      channels: { inApp: true, sms: true, email: false },
+      senderIdentityId: ''
+    };
+  }
   if (!notificationTriggerEdits.value[key]) {
     notificationTriggerEdits.value[key] = {
       enabled: true,
       recipients: { provider: true, supervisor: true, clinicalPracticeAssistant: true, admin: true },
-      channels: { inApp: true, sms: true, email: false }
+      channels: { inApp: true, sms: true, email: false },
+      senderIdentityId: ''
     };
   }
   return notificationTriggerEdits.value[key];
@@ -3613,6 +3655,10 @@ const loadNotificationTriggers = async () => {
       const k = String(t?.triggerKey || '').trim();
       if (!k) continue;
       const resolved = t?.resolved || {};
+      const overrideSenderId =
+        t?.agencyOverride?.senderIdentityId !== null && t?.agencyOverride?.senderIdentityId !== undefined
+          ? String(t.agencyOverride.senderIdentityId)
+          : '';
       edits[k] = {
         enabled: !!resolved.enabled,
         recipients: {
@@ -3625,7 +3671,8 @@ const loadNotificationTriggers = async () => {
           inApp: true,
           sms: !!resolved?.channels?.sms,
           email: !!resolved?.channels?.email
-        }
+        },
+        senderIdentityId: overrideSenderId
       };
     }
     notificationTriggerEdits.value = edits;
@@ -3716,7 +3763,8 @@ const saveNotificationTrigger = async (triggerRow) => {
         inApp: true,
         sms: !!edit.channels?.sms,
         email: !!edit.channels?.email
-      }
+      },
+      senderIdentityId: edit.senderIdentityId ? Number(edit.senderIdentityId) : null
     });
     await loadNotificationTriggers();
   } catch (e) {
@@ -3767,7 +3815,7 @@ const createProgramReminder = async () => {
       scheduleType,
       scheduleJson,
       timezone: programReminderDraft.value.timezone || 'UTC',
-      channels: { sms: programReminderDraft.value.smsEnabled }
+      channels: { sms: programReminderDraft.value.smsEnabled, email: programReminderDraft.value.emailEnabled }
     });
     programReminderDraft.value.message = '';
     await loadProgramReminders();
@@ -5574,6 +5622,13 @@ const applySenderIdentitiesToForm = (map) => {
   agencyForm.value.schoolIntakeSenderEmail = map?.school_intake?.from_email || '';
 };
 
+const formatSenderIdentityOption = (identity) => {
+  const key = String(identity?.identity_key || identity?.identityKey || '').trim();
+  const email = String(identity?.from_email || identity?.fromEmail || '').trim();
+  const label = [key, email].filter(Boolean).join(' — ') || email || key || 'Sender';
+  return identity?.agency_id ? label : `${label} (platform)`;
+};
+
 const loadSenderIdentitiesForAgency = async (agencyId) => {
   if (!agencyId) {
     senderIdentitiesByKey.value = {};
@@ -5599,6 +5654,26 @@ const loadSenderIdentitiesForAgency = async (agencyId) => {
     senderIdentitiesError.value = e.response?.data?.error?.message || e.message || 'Failed to load sender identities';
   } finally {
     senderIdentitiesLoading.value = false;
+  }
+};
+
+const loadSenderIdentityOptionsForAgency = async (agencyId) => {
+  if (!agencyId) {
+    senderIdentityOptions.value = [];
+    return;
+  }
+  try {
+    senderIdentityOptionsLoading.value = true;
+    senderIdentityOptionsError.value = '';
+    const resp = await api.get('/email-senders', {
+      params: { agencyId, includePlatformDefaults: true, _ts: Date.now() }
+    });
+    senderIdentityOptions.value = Array.isArray(resp.data) ? resp.data : [];
+  } catch (e) {
+    senderIdentityOptions.value = [];
+    senderIdentityOptionsError.value = e.response?.data?.error?.message || e.message || 'Failed to load sender identities';
+  } finally {
+    senderIdentityOptionsLoading.value = false;
   }
 };
 
@@ -5859,6 +5934,7 @@ const editAgency = async (agency) => {
   };
 
   await loadSenderIdentitiesForAgency(agency?.id || null);
+  await loadSenderIdentityOptionsForAgency(agency?.id || null);
 
   // Load available uploaded font families for this org (includes platform + org fonts)
   fetchFontFamiliesForOrg(agency?.id || null);
@@ -6835,6 +6911,9 @@ const closeModal = () => {
   notificationTriggersError.value = '';
   notificationTriggersLoading.value = false;
   savingNotificationTriggerKey.value = null;
+  senderIdentityOptions.value = [];
+  senderIdentityOptionsLoading.value = false;
+  senderIdentityOptionsError.value = '';
   customParamKeys.value = [];
   customParameters.value = {};
   parentAgenciesOverride.value = null;

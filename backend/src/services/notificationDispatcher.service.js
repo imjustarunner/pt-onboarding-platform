@@ -4,6 +4,7 @@ import UserPreferences from '../models/UserPreferences.model.js';
 import NotificationGatekeeperService from './notificationGatekeeper.service.js';
 import TwilioService from './twilio.service.js';
 import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
+import AgencyNotificationPreferences from '../models/AgencyNotificationPreferences.model.js';
 
 const SMS_CATEGORY_BY_TYPE = {
   inbound_client_message: 'messaging_new_inbound_client_text',
@@ -25,6 +26,44 @@ function parseJsonMaybe(v) {
   } catch {
     return null;
   }
+}
+
+async function resolveNotificationCategories({ userId, agencyId }) {
+  const prefs = await UserPreferences.findByUserId(userId);
+  let categories = parseJsonMaybe(prefs?.notification_categories) || {};
+  try {
+    const fallbackDefaults = {
+      messaging_new_inbound_client_text: false,
+      messaging_support_safety_net_alerts: false,
+      messaging_replies_to_my_messages: false,
+      messaging_client_notes: false,
+      school_portal_client_updates: false,
+      school_portal_client_update_org_swaps: false,
+      school_portal_client_comments: false,
+      school_portal_client_messages: false,
+      scheduling_room_booking_approved_denied: false,
+      scheduling_schedule_changes: false,
+      scheduling_room_release_requests: false,
+      compliance_credential_expiration_reminders: false,
+      compliance_access_restriction_warnings: false,
+      compliance_payroll_document_availability: false,
+      surveys_client_checked_in: false,
+      surveys_survey_completed: false,
+      system_emergency_broadcasts: true,
+      system_org_announcements: false,
+      program_reminders: false
+    };
+    const agencyPrefs = agencyId ? await AgencyNotificationPreferences.getByAgencyId(agencyId) : null;
+    const defaults = agencyPrefs?.defaults || fallbackDefaults;
+    const enforce = agencyPrefs ? agencyPrefs.enforceDefaults === true : true;
+    const hasAnyCategories = Object.keys(categories || {}).length > 0;
+    if (defaults && (enforce || !hasAnyCategories)) {
+      categories = { ...defaults };
+    }
+  } catch {
+    // best effort
+  }
+  return categories;
 }
 
 function pickUserSmsNumber(user) {
@@ -90,41 +129,7 @@ class NotificationDispatcherService {
     if (!eligibleRoles.has(user.role)) return { dispatched: false, reason: 'role_not_eligible' };
 
     // Category toggle check (defaults to ON if missing).
-    const prefs = await UserPreferences.findByUserId(userId);
-    let categories = parseJsonMaybe(prefs?.notification_categories) || {};
-    try {
-      const fallbackDefaults = {
-        messaging_new_inbound_client_text: false,
-        messaging_support_safety_net_alerts: false,
-        messaging_replies_to_my_messages: false,
-        messaging_client_notes: false,
-        school_portal_client_updates: false,
-        school_portal_client_update_org_swaps: false,
-        school_portal_client_comments: false,
-        school_portal_client_messages: false,
-        scheduling_room_booking_approved_denied: false,
-        scheduling_schedule_changes: false,
-        scheduling_room_release_requests: false,
-        compliance_credential_expiration_reminders: false,
-        compliance_access_restriction_warnings: false,
-        compliance_payroll_document_availability: false,
-        surveys_client_checked_in: false,
-        surveys_survey_completed: false,
-        system_emergency_broadcasts: true,
-        system_org_announcements: false,
-        program_reminders: false
-      };
-      const AgencyNotificationPreferences = (await import('../models/AgencyNotificationPreferences.model.js')).default;
-      const agencyPrefs = await AgencyNotificationPreferences.getByAgencyId(agencyId);
-      const defaults = agencyPrefs?.defaults || fallbackDefaults;
-      const enforce = agencyPrefs ? agencyPrefs.enforceDefaults === true : true;
-      const hasAnyCategories = Object.keys(categories || {}).length > 0;
-      if (defaults && (enforce || !hasAnyCategories)) {
-        categories = { ...defaults };
-      }
-    } catch {
-      // best effort
-    }
+    const categories = await resolveNotificationCategories({ userId, agencyId });
     const categoryEnabled = categories[categoryKey];
     if (categoryEnabled === false) return { dispatched: false, reason: 'category_disabled' };
 
@@ -198,6 +203,13 @@ class NotificationDispatcherService {
 export const createNotificationAndDispatch = NotificationDispatcherService.createNotificationAndDispatch.bind(
   NotificationDispatcherService
 );
+
+export const isCategoryEnabledForUser = async ({ userId, agencyId, categoryKey }) => {
+  const key = String(categoryKey || '').trim();
+  if (!userId || !key) return true;
+  const categories = await resolveNotificationCategories({ userId, agencyId });
+  return categories[key] !== false;
+};
 
 export default NotificationDispatcherService;
 

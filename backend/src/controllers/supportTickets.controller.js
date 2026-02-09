@@ -7,6 +7,9 @@ import Notification from '../models/Notification.model.js';
 import Client from '../models/Client.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import { callGeminiText } from '../services/geminiText.service.js';
+import { sendNotificationEmail } from '../services/unifiedEmail/unifiedEmailSender.service.js';
+import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
+import { isCategoryEnabledForUser } from '../services/notificationDispatcher.service.js';
 
 async function hasSupportTicketMessagesTable() {
   try {
@@ -154,6 +157,38 @@ async function ensureClientInOrg({ clientId, schoolOrganizationId }) {
     if (parseInt(c.organization_id, 10) === sid) return { ok: true, clientId: cid };
     return { ok: false, status: 403, message: 'Client is not assigned to this organization' };
   }
+}
+
+async function listSchoolStaffRecipients({ schoolOrganizationId }) {
+  const sid = parseInt(schoolOrganizationId, 10);
+  if (!sid) return [];
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.email, u.work_email, u.first_name, u.last_name, u.role
+     FROM users u
+     JOIN user_agencies ua ON ua.user_id = u.id
+     WHERE ua.agency_id = ?
+       AND LOWER(COALESCE(u.role, '')) = 'school_staff'
+       AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+       AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`,
+    [sid]
+  );
+  return rows || [];
+}
+
+async function listAgencySupportRecipients({ agencyId }) {
+  const aid = parseInt(agencyId, 10);
+  if (!aid) return [];
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.email, u.work_email, u.first_name, u.last_name, u.role
+     FROM users u
+     JOIN user_agencies ua ON ua.user_id = u.id
+     WHERE ua.agency_id = ?
+       AND LOWER(COALESCE(u.role, '')) IN ('admin','support','staff','super_admin')
+       AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+       AND UPPER(COALESCE(u.status, '')) <> 'ARCHIVED'`,
+    [aid]
+  );
+  return rows || [];
 }
 
 const isAgencyAdminUser = (req) => {
@@ -730,6 +765,69 @@ export const createSupportTicketMessage = async (req, res, next) => {
       } catch {
         // ignore
       }
+    }
+
+    // Best-effort: email other side of the thread (school staff <-> agency team).
+    try {
+      const agencyId = ticket.agency_id ? Number(ticket.agency_id) : null;
+      const orgName = access?.org?.name || `Org #${ticket.school_organization_id}`;
+      let clientLabel = '';
+      if (ticket.client_id) {
+        try {
+          const client = await Client.findById(ticket.client_id);
+          const name = [client?.first_name, client?.last_name].filter(Boolean).join(' ').trim();
+          clientLabel = name || client?.full_name || '';
+        } catch {
+          clientLabel = '';
+        }
+      }
+      const subjectParts = ['School portal message', ticket.subject || 'Support ticket'];
+      if (clientLabel) subjectParts.push(clientLabel);
+      const subject = subjectParts.filter(Boolean).join(' — ');
+      const text = [
+        orgName,
+        clientLabel ? `Client: ${clientLabel}` : null,
+        '',
+        body,
+        '',
+        'Reply in the school portal.'
+      ].filter(Boolean).join('\n');
+
+      const categoryKey = 'school_portal_client_messages';
+      const recipients = role === 'school_staff'
+        ? await listAgencySupportRecipients({ agencyId })
+        : await listSchoolStaffRecipients({ schoolOrganizationId: ticket.school_organization_id });
+
+      for (const r of recipients) {
+        if (Number(r.id) === Number(req.user?.id)) continue;
+        const to = r.email || r.work_email || null;
+        if (!to) continue;
+        const categoryOk = await isCategoryEnabledForUser({
+          userId: r.id,
+          agencyId: agencyId || null,
+          categoryKey
+        });
+        if (!categoryOk) continue;
+        const decision = await NotificationGatekeeperService.decideChannels({
+          userId: r.id,
+          context: { severity: 'info' }
+        });
+        if (!decision?.email) continue;
+        await sendNotificationEmail({
+          agencyId: agencyId || null,
+          triggerKey: categoryKey,
+          to,
+          subject,
+          text,
+          html: null,
+          source: 'auto',
+          userId: r.id,
+          templateType: 'school_portal_message',
+          templateId: null
+        });
+      }
+    } catch {
+      // ignore email failures
     }
 
     // Return updated thread

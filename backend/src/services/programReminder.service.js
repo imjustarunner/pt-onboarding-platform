@@ -3,6 +3,10 @@ import Notification from '../models/Notification.model.js';
 import NotificationTrigger from '../models/NotificationTrigger.model.js';
 import AgencyNotificationTriggerSetting from '../models/AgencyNotificationTriggerSetting.model.js';
 import NotificationDispatcherService from './notificationDispatcher.service.js';
+import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
+import NotificationGatekeeperService from './notificationGatekeeper.service.js';
+import User from '../models/User.model.js';
+import { isCategoryEnabledForUser } from './notificationDispatcher.service.js';
 
 function resolveTriggerSetting(trigger, setting) {
   const enabled =
@@ -94,6 +98,47 @@ class ProgramReminderService {
       });
       if (channels.sms) {
         await NotificationDispatcherService.dispatchForNotification(notification, { context: { severity: 'info' } }).catch(() => {});
+      }
+      if (channels.email) {
+        try {
+          const categoryOk = await isCategoryEnabledForUser({
+            userId,
+            agencyId,
+            categoryKey: 'program_reminders'
+          });
+          if (!categoryOk) {
+            created.push(notification);
+            continue;
+          }
+          const decision = await NotificationGatekeeperService.decideChannels({
+            userId,
+            context: { severity: 'info' }
+          });
+          if (!decision?.email) {
+            created.push(notification);
+            continue;
+          }
+          const user = await User.findById(userId);
+          const to = user?.email || user?.work_email || null;
+          if (!to) {
+            created.push(notification);
+            continue;
+          }
+          await sendNotificationEmail({
+            agencyId,
+            triggerKey: 'program_reminder',
+            to,
+            subject: title || 'Program reminder',
+            text: message || '',
+            html: null,
+            source: 'auto',
+            userId,
+            templateType: 'program_reminder',
+            templateId: null
+          });
+        } catch {
+          // best effort
+        }
       }
       created.push(notification);
     }
