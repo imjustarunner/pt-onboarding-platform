@@ -11,6 +11,9 @@ export const authenticate = (req, res, next) => {
     if (requestPath.startsWith('/api/public/')) {
       return next();
     }
+    if (requestPath.startsWith('/api/public-intake') && !requestPath.includes('/approve')) {
+      return next();
+    }
 
     // Try cookie first (new method), then fall back to Authorization header (for backward compatibility)
     const token = req.cookies?.authToken || (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.substring(7) : null);

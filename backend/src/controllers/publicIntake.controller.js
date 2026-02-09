@@ -165,6 +165,31 @@ const buildAnswersPdfBuffer = async ({ link, intakeData }) => {
     }
   };
 
+  const approval = intakeData?.approval || null;
+  if (approval && (approval.staffLastName || approval.clientFirstName || approval.mode)) {
+    const approvalTitle = wrapText('Staff-Assisted Verification', fontBold, 18, maxWidth);
+    approvalTitle.forEach((line) => {
+      page.drawText(line, { x: margin, y, size: 18, font: fontBold, color: rgb(0, 0, 0) });
+      newLine(18);
+    });
+    newLine(8);
+    const approvalLines = [
+      `Mode: ${approval.mode || 'staff_assisted'}`,
+      `Staff last name: ${approval.staffLastName || '—'}`,
+      `Client first name: ${approval.clientFirstName || '—'}`,
+      `Approved at: ${approval.approvedAt || '—'}`
+    ];
+    approvalLines.forEach((line) => {
+      const wrapped = wrapText(line, font, 12, maxWidth);
+      wrapped.forEach((w) => {
+        page.drawText(w, { x: margin, y, size: 12, font, color: rgb(0, 0, 0) });
+        newLine(12);
+      });
+    });
+    page = pdfDoc.addPage(pageSize);
+    y = pageSize[1] - margin;
+  }
+
   const headerLines = wrapText('Intake Responses', fontBold, 18, maxWidth);
   headerLines.forEach((line) => {
     page.drawText(line, { x: margin, y, size: 18, font: fontBold, color: rgb(0, 0, 0) });

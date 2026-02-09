@@ -620,6 +620,19 @@ const captchaError = ref('');
 const showRecaptchaWidget = ref(false);
 const recaptchaWidgetEl = ref(null);
 const recaptchaWidgetId = ref(null);
+const approvalContext = computed(() => {
+  const mode = String(route.query?.mode || '').trim();
+  const staffLastName = String(route.query?.staff_last_name || '').trim();
+  const clientFirstName = String(route.query?.client_first_name || '').trim();
+  const approvedAt = String(route.query?.approved_at || '').trim();
+  if (!mode && !staffLastName && !clientFirstName) return null;
+  return {
+    mode: mode || 'staff_assisted',
+    staffLastName: staffLastName || null,
+    clientFirstName: clientFirstName || null,
+    approvedAt: approvedAt || null
+  };
+});
 const intakeSteps = computed(() =>
   Array.isArray(link.value?.intake_steps) ? link.value.intake_steps : []
 );
@@ -1574,7 +1587,8 @@ const submitConsent = async () => {
           email: guardianEmail.value,
           phone: guardianPhone.value,
           relationship: guardianRelationship.value
-        }
+        },
+        approval: approvalContext.value || null
       }
     };
     if (recaptchaSiteKey.value) {
@@ -1719,7 +1733,8 @@ const finalizePacket = async () => {
           email: guardianEmail.value,
           phone: guardianPhone.value,
           relationship: guardianRelationship.value
-        }
+        },
+        approval: approvalContext.value || null
       }
     });
     downloadUrl.value = resp.data?.downloadUrl || '';

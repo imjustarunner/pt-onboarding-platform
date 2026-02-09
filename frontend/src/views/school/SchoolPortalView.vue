@@ -831,7 +831,11 @@
         </div>
         <div class="modal-body">
           <div class="muted" style="margin-bottom: 10px;">
-            You are approving this intake link on behalf of the parent/guardian.
+            Approve &amp; Launch is for staff-assisted sessions where the parent/guardian completes the intake with you.
+          </div>
+          <div class="muted" style="margin-bottom: 10px;">
+            We collect your last name to document who authorized the session and the client’s first name to note who the intake is for.
+            This is recorded on a verification page in the final packet for auditing.
           </div>
           <div class="muted" style="margin-bottom: 10px;">
             Staff: {{ staffDisplayName }}
@@ -1021,7 +1025,12 @@ const approveAndLaunchIntake = async () => {
       clientFirstName: intakeApprovalClientFirstName.value.trim()
     });
     closeIntakeApproval();
-    window.open(intakeLinkUrl.value, '_blank', 'noopener');
+    const launchUrl = new URL(intakeLinkUrl.value);
+    launchUrl.searchParams.set('mode', 'staff_assisted');
+    launchUrl.searchParams.set('staff_last_name', intakeApprovalStaffLastName.value.trim());
+    launchUrl.searchParams.set('client_first_name', intakeApprovalClientFirstName.value.trim());
+    launchUrl.searchParams.set('approved_at', new Date().toISOString());
+    window.open(launchUrl.toString(), '_blank', 'noopener');
   } catch (e) {
     intakeApprovalError.value = e.response?.data?.error?.message || 'Failed to approve intake link';
   } finally {
