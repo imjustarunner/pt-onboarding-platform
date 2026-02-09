@@ -23,6 +23,8 @@ import config from '../config/config.js';
 import { verifyRecaptchaV3 } from '../services/captcha.service.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import PlatformRetentionSettings from '../models/PlatformRetentionSettings.model.js';
+import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
+import { sendEmailFromIdentity } from '../services/unifiedEmail/unifiedEmailSender.service.js';
 
 const normalizeName = (name) => String(name || '').trim();
 const BASE_CONSENT_TTL_MS = 30 * 60 * 1000;
@@ -109,6 +111,21 @@ const escapeHtml = (value) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+
+const resolveIntakeSenderIdentity = async ({ organizationId, scopeType }) => {
+  const agencyId = Number(organizationId);
+  if (!agencyId) return null;
+  const scope = String(scopeType || '').trim().toLowerCase();
+  const keys = scope === 'school'
+    ? ['school_intake', 'intake', 'notifications', 'system']
+    : ['intake', 'notifications', 'system'];
+  const list = await EmailSenderIdentity.list({ agencyId, includePlatformDefaults: true, onlyActive: true });
+  for (const key of keys) {
+    const match = (list || []).find((i) => String(i?.identity_key || '').trim() === key);
+    if (match) return match;
+  }
+  return null;
+};
 
 const buildAnswersPdfBuffer = async ({ link, intakeData }) => {
   if (!intakeData) return null;
@@ -1811,18 +1828,33 @@ export const finalizePublicIntake = async (req, res, next) => {
           </div>
         `.trim();
         try {
-          await EmailService.sendEmail({
-            to: updatedSubmission.signer_email,
-            subject,
-            text,
-            html,
-            fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
-            fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-            replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-            attachments: null,
-            source: 'auto',
-            agencyId: link?.organization_id || null
+          const identity = await resolveIntakeSenderIdentity({
+            organizationId: link?.organization_id || null,
+            scopeType: link?.scope_type || null
           });
+          if (identity?.id) {
+            await sendEmailFromIdentity({
+              senderIdentityId: identity.id,
+              to: updatedSubmission.signer_email,
+              subject,
+              text,
+              html,
+              source: 'auto'
+            });
+          } else {
+            await EmailService.sendEmail({
+              to: updatedSubmission.signer_email,
+              subject,
+              text,
+              html,
+              fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
+              fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+              replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+              attachments: null,
+              source: 'auto',
+              agencyId: link?.organization_id || null
+            });
+          }
         } catch {
           // best-effort email
         }
@@ -2128,16 +2160,33 @@ export const submitPublicIntake = async (req, res, next) => {
           </div>
         `.trim();
         try {
-          await EmailService.sendEmail({
-            to: updatedSubmission.signer_email,
-            subject,
-            text,
-            html,
-            fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
-            fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-            replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-            attachments: null
+          const identity = await resolveIntakeSenderIdentity({
+            organizationId: link?.organization_id || null,
+            scopeType: link?.scope_type || null
           });
+          if (identity?.id) {
+            await sendEmailFromIdentity({
+              senderIdentityId: identity.id,
+              to: updatedSubmission.signer_email,
+              subject,
+              text,
+              html,
+              source: 'auto'
+            });
+          } else {
+            await EmailService.sendEmail({
+              to: updatedSubmission.signer_email,
+              subject,
+              text,
+              html,
+              fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || 'People Operations',
+              fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
+              replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
+              attachments: null,
+              source: 'auto',
+              agencyId: link?.organization_id || null
+            });
+          }
         } catch {
           // best-effort email
         }

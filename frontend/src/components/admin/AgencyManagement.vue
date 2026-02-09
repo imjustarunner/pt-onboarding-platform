@@ -860,6 +860,36 @@
             />
             <small>Email address for the onboarding team</small>
           </div>
+
+          <div class="form-group">
+            <label>Default Notifications Sender</label>
+            <input
+              v-model="agencyForm.notificationsSenderEmail"
+              type="email"
+              placeholder="notifications@agency.com"
+            />
+            <small>Default “from” address for system/AI emails (identity key: <code>notifications</code>).</small>
+          </div>
+
+          <div class="form-group">
+            <label>Intake Link Sender</label>
+            <input
+              v-model="agencyForm.intakeSenderEmail"
+              type="email"
+              placeholder="intake@agency.com"
+            />
+            <small>Sender for agency intake link emails (identity key: <code>intake</code>).</small>
+          </div>
+
+          <div v-if="String(agencyForm.organizationType || '').toLowerCase() === 'school'" class="form-group">
+            <label>School Intake Sender</label>
+            <input
+              v-model="agencyForm.schoolIntakeSenderEmail"
+              type="email"
+              placeholder="school-intake@school.org"
+            />
+            <small>Sender for school intake link emails (identity key: <code>school_intake</code>).</small>
+          </div>
           
           <div class="form-group">
             <label>Phone Number</label>
@@ -3093,6 +3123,10 @@ const customParamKeys = ref([]);
   const copiedUrl = ref(null); // Track which URL was copied
 const activeTab = ref('general'); // Tab navigation: general|branding|features|contact|address|sites|notifications|theme|terminology|icons|payroll
 
+const senderIdentitiesByKey = ref({});
+const senderIdentitiesLoading = ref(false);
+const senderIdentitiesError = ref('');
+
 // Office creation is handled via Organization Type = Office in the General tab.
 
 // Payroll service code rules editor (agency-only)
@@ -4505,6 +4539,9 @@ const defaultAgencyForm = () => ({
   schoolPortalPublicDocumentsIconId: null,
   schoolPortalAnnouncementsIconId: null,
   onboardingTeamEmail: '',
+  notificationsSenderEmail: '',
+  intakeSenderEmail: '',
+  schoolIntakeSenderEmail: '',
   phoneNumber: '',
   phoneExtension: '',
   // School-only directory enrichment fields (stored in school_profiles)
@@ -5531,6 +5568,40 @@ const isAbsoluteHttpUrl = (value) => {
   return s.startsWith('http://') || s.startsWith('https://');
 };
 
+const applySenderIdentitiesToForm = (map) => {
+  agencyForm.value.notificationsSenderEmail = map?.notifications?.from_email || '';
+  agencyForm.value.intakeSenderEmail = map?.intake?.from_email || '';
+  agencyForm.value.schoolIntakeSenderEmail = map?.school_intake?.from_email || '';
+};
+
+const loadSenderIdentitiesForAgency = async (agencyId) => {
+  if (!agencyId) {
+    senderIdentitiesByKey.value = {};
+    applySenderIdentitiesToForm({});
+    return;
+  }
+  try {
+    senderIdentitiesLoading.value = true;
+    senderIdentitiesError.value = '';
+    const resp = await api.get('/email-senders', {
+      params: { agencyId, includePlatformDefaults: false, _ts: Date.now() }
+    });
+    const map = {};
+    (resp.data || []).forEach((identity) => {
+      const key = String(identity?.identity_key || '').trim();
+      if (key) map[key] = identity;
+    });
+    senderIdentitiesByKey.value = map;
+    applySenderIdentitiesToForm(map);
+  } catch (e) {
+    senderIdentitiesByKey.value = {};
+    applySenderIdentitiesToForm({});
+    senderIdentitiesError.value = e.response?.data?.error?.message || e.message || 'Failed to load sender identities';
+  } finally {
+    senderIdentitiesLoading.value = false;
+  }
+};
+
 const editAgency = async (agency) => {
   // Buildings (office_locations) are managed in the Buildings module, not in this agency editor.
   const orgTypeEarly = String(agency?.organization_type || agency?.organizationType || '').toLowerCase();
@@ -5700,6 +5771,9 @@ const editAgency = async (agency) => {
     schoolPortalPublicDocumentsIconId: agency.school_portal_public_documents_icon_id ?? null,
     schoolPortalAnnouncementsIconId: agency.school_portal_announcements_icon_id ?? null,
     onboardingTeamEmail: agency.onboarding_team_email || '',
+    notificationsSenderEmail: '',
+    intakeSenderEmail: '',
+    schoolIntakeSenderEmail: '',
     phoneNumber: agency.phone_number || '',
     phoneExtension: agency.phone_extension || '',
     schoolProfile: {
@@ -5783,6 +5857,8 @@ const editAgency = async (agency) => {
       return ['school', 'program', 'learning'];
     })()
   };
+
+  await loadSenderIdentitiesForAgency(agency?.id || null);
 
   // Load available uploaded font families for this org (includes platform + org fonts)
   fetchFontFamiliesForOrg(agency?.id || null);
@@ -6114,6 +6190,53 @@ const duplicateOrganization = async () => {
   } finally {
     duplicating.value = false;
   }
+};
+
+const saveSenderIdentitiesForAgency = async (agencyId) => {
+  if (!agencyId) return;
+  const entries = [
+    {
+      key: 'notifications',
+      email: agencyForm.value.notificationsSenderEmail,
+      displayName: `${agencyForm.value.name || 'Notifications'}`
+    },
+    {
+      key: 'intake',
+      email: agencyForm.value.intakeSenderEmail,
+      displayName: `${agencyForm.value.name || 'Intake'} Intake`
+    },
+    {
+      key: 'school_intake',
+      email: agencyForm.value.schoolIntakeSenderEmail,
+      displayName: `${agencyForm.value.name || 'School'} School Intake`
+    }
+  ];
+
+  for (const entry of entries) {
+    const trimmed = String(entry.email || '').trim();
+    const existing = senderIdentitiesByKey.value?.[entry.key] || null;
+    if (!trimmed && !existing) continue;
+    const payload = {
+      identityKey: entry.key,
+      fromEmail: trimmed || existing?.from_email || null,
+      displayName: entry.displayName || existing?.display_name || null,
+      replyTo: existing?.reply_to || null,
+      inboundAddresses: Array.isArray(existing?.inbound_addresses) ? existing.inbound_addresses : [],
+      isActive: !!trimmed
+    };
+    try {
+      if (existing?.id) {
+        await api.put(`/email-senders/${existing.id}`, payload);
+      } else {
+        await api.post('/email-senders', { ...payload, agencyId });
+      }
+    } catch (e) {
+      // Do not block the agency save if identity sync fails
+      console.warn(`Failed to save sender identity ${entry.key}`, e);
+    }
+  }
+
+  await loadSenderIdentitiesForAgency(agencyId);
 };
 
 const saveAgency = async () => {
@@ -6497,6 +6620,10 @@ const saveAgency = async () => {
     } else {
       const response = await api.post('/agencies', data);
       updatedAgency = response.data;
+    }
+
+    if (updatedAgency?.id) {
+      await saveSenderIdentitiesForAgency(updatedAgency.id);
     }
 
     // IMPORTANT: In embedded single-org contexts (School Portal settings / embedded org editor),
