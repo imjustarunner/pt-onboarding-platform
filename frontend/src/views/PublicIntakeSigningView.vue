@@ -1281,14 +1281,20 @@ const getRecaptchaToken = async () => {
       if (grecaptcha.enterprise?.ready) {
         await new Promise((resolve) => grecaptcha.enterprise.ready(resolve));
       }
-      return await grecaptcha.enterprise.execute(recaptchaSiteKey.value, { action: 'public_intake_consent' });
+      try {
+        const token = await grecaptcha.enterprise.execute(recaptchaSiteKey.value, { action: 'public_intake_consent' });
+        if (token) return token;
+      } catch (err) {
+        console.warn('[recaptcha] enterprise execute failed', err);
+      }
     }
     if (!grecaptcha?.execute) return '';
     if (grecaptcha?.ready) {
       await new Promise((resolve) => grecaptcha.ready(resolve));
     }
     return await grecaptcha.execute(recaptchaSiteKey.value, { action: 'public_intake_consent' });
-  } catch {
+  } catch (err) {
+    console.warn('[recaptcha] token error', err);
     return '';
   }
 };
