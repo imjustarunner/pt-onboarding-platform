@@ -445,6 +445,18 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments', organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/documents/new',
+    name: 'OrganizationDocumentTemplateCreate',
+    component: () => import('../views/admin/DocumentTemplateEditorView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments', organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/admin/documents/:templateId/edit',
+    name: 'OrganizationDocumentTemplateEdit',
+    component: () => import('../views/admin/DocumentTemplateEditorView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/letterheads',
     name: 'OrganizationLetterheadsLibrary',
     component: () => import('../views/admin/LetterheadsLibraryView.vue'),
@@ -833,6 +845,18 @@ const routes = [
     path: '/admin/documents',
     name: 'DocumentsLibrary',
     component: () => import('../views/admin/DocumentsLibraryView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments' }
+  },
+  {
+    path: '/admin/documents/new',
+    name: 'DocumentTemplateCreate',
+    component: () => import('../views/admin/DocumentTemplateEditorView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments' }
+  },
+  {
+    path: '/admin/documents/:templateId/edit',
+    name: 'DocumentTemplateEdit',
+    component: () => import('../views/admin/DocumentTemplateEditorView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'super_admin'], requiresCapability: 'canSignDocuments' }
   },
   {

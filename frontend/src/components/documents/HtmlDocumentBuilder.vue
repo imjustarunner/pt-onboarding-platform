@@ -5,6 +5,11 @@
       <button type="button" class="tool-btn" @click="exec('italic')" title="Italic"><em>I</em></button>
       <button type="button" class="tool-btn" @click="exec('underline')" title="Underline"><u>U</u></button>
       <span class="tool-sep" />
+      <button type="button" class="tool-btn" @click="exec('justifyLeft')" title="Align left">Left</button>
+      <button type="button" class="tool-btn" @click="exec('justifyCenter')" title="Align center">Center</button>
+      <button type="button" class="tool-btn" @click="exec('justifyRight')" title="Align right">Right</button>
+      <button type="button" class="tool-btn" @click="exec('justifyFull')" title="Justify">Justify</button>
+      <span class="tool-sep" />
       <button type="button" class="tool-btn" @click="exec('insertUnorderedList')" title="Bullets">• List</button>
       <button type="button" class="tool-btn" @click="exec('insertOrderedList')" title="Numbered">1. List</button>
       <span class="tool-sep" />
@@ -14,6 +19,10 @@
       <span class="tool-sep" />
       <button type="button" class="tool-btn" @click="promptLink" title="Insert link">Link</button>
       <button type="button" class="tool-btn" @click="removeLink" title="Remove link">Unlink</button>
+      <span class="tool-sep" />
+      <button type="button" class="tool-btn" @click="insertDivider" title="Insert divider">Divider</button>
+      <button type="button" class="tool-btn" @click="insertPageBreak" title="Insert page break">Page Break</button>
+      <button type="button" class="tool-btn" @click="setWatermark" title="Set watermark">Watermark</button>
       <span class="tool-sep" />
       <button type="button" class="tool-btn" @click="exec('removeFormat')" title="Clear formatting">Clear</button>
     </div>
@@ -87,6 +96,81 @@ const exec = (command) => {
   } catch (e) {
     console.error('HtmlDocumentBuilder: execCommand failed:', command, e);
   }
+};
+
+const insertHtmlAtCursor = (html) => {
+  if (!editorRef.value) return;
+  editorRef.value.focus();
+  try {
+    document.execCommand('insertHTML', false, html);
+  } catch (e) {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    const fragment = document.createDocumentFragment();
+    while (temp.firstChild) {
+      fragment.appendChild(temp.firstChild);
+    }
+    range.insertNode(fragment);
+  }
+  emitHtml();
+};
+
+const insertDivider = () => {
+  insertHtmlAtCursor('<hr class="document-divider" />');
+};
+
+const insertPageBreak = () => {
+  insertHtmlAtCursor('<div class="page-break"></div>');
+};
+
+const buildWatermarkNode = (text) => {
+  const node = document.createElement('div');
+  node.className = 'document-watermark';
+  node.setAttribute('data-watermark', text);
+  node.setAttribute('contenteditable', 'false');
+  node.style.cssText = [
+    'position: fixed',
+    'top: 50%',
+    'left: 50%',
+    'transform: translate(-50%, -50%) rotate(-30deg)',
+    'opacity: 0.12',
+    'font-size: 72px',
+    'width: 100%',
+    'text-align: center',
+    'pointer-events: none',
+    'z-index: 0',
+    'color: #000'
+  ].join(';');
+  node.textContent = text;
+  return node;
+};
+
+const setWatermark = () => {
+  if (!editorRef.value) return;
+  const text = window.prompt('Watermark text (leave blank to remove)');
+  if (text === null) return;
+  const existing = editorRef.value.querySelector('.document-watermark');
+  const trimmed = text.trim();
+  if (!trimmed) {
+    if (existing) {
+      existing.remove();
+      emitHtml();
+    }
+    return;
+  }
+  if (existing) {
+    existing.textContent = trimmed;
+    existing.setAttribute('data-watermark', trimmed);
+    emitHtml();
+    return;
+  }
+  const watermark = buildWatermarkNode(trimmed);
+  editorRef.value.prepend(watermark);
+  emitHtml();
 };
 
 const setBlock = (tag) => {
@@ -167,6 +251,7 @@ watch(
   outline: none;
   font-size: 14px;
   line-height: 1.6;
+  position: relative;
 }
 
 .editor:empty:before {
@@ -195,6 +280,22 @@ watch(
   padding: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 12px;
+}
+
+.editor :deep(.page-break) {
+  border-top: 2px dashed #d0d0d0;
+  margin: 16px 0;
+  height: 0;
+}
+
+.editor :deep(.document-divider) {
+  border: none;
+  border-top: 1px solid #cfcfcf;
+  margin: 12px 0;
+}
+
+.editor :deep(.document-watermark) {
+  color: #000;
 }
 
 .footer {

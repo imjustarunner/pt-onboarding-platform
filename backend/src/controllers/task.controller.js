@@ -243,12 +243,42 @@ export const renderTaskDocumentHtml = async (req, res, next) => {
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
         font-size: 12pt;
         line-height: 1.5;
+        position: relative;
+        z-index: 1;
       }
 
       /* Print safety helpers */
       p, li, blockquote, table, pre { break-inside: avoid; }
       h1, h2, h3 { break-after: avoid; }
       img { max-width: 100%; }
+
+      header, footer {
+        z-index: 2;
+      }
+
+      .page-break {
+        break-before: page;
+        page-break-before: always;
+      }
+
+      .document-divider {
+        border: none;
+        border-top: 1px solid #cfcfcf;
+        margin: 12px 0;
+      }
+
+      .document-watermark {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(-30deg);
+        opacity: 0.12;
+        font-size: 72pt;
+        width: 100%;
+        text-align: center;
+        pointer-events: none;
+        z-index: 0;
+      }
 
       .letterhead-asset img {
         width: 100%;

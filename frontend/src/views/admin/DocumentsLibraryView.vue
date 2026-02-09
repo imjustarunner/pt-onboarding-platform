@@ -15,7 +15,7 @@
         <button @click="showUploadModal = true" class="btn btn-primary">
           Upload PDF
         </button>
-        <button @click="showCreateModal = true" class="btn btn-primary">
+        <button @click="openCreateEditor" class="btn btn-primary">
           Create HTML Template
         </button>
       </div>
@@ -223,160 +223,6 @@
       @uploaded="handleUploaded"
     />
 
-    <!-- Create HTML Template Modal -->
-    <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
-      <div class="modal-content" @click.stop>
-        <h2>Create HTML Template</h2>
-        <form @submit.prevent="saveHTMLTemplate">
-          <div class="form-group">
-            <label>Document Type *</label>
-            <select v-model="htmlForm.documentType" required>
-              <option value="">Select document type</option>
-              <option value="acknowledgment">Acknowledgment</option>
-              <option value="authorization">Authorization</option>
-              <option value="agreement">Agreement</option>
-              <option value="compliance">Compliance</option>
-              <option value="disclosure">Disclosure</option>
-              <option value="consent">Consent</option>
-              <option value="administrative">Administrative</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <label>Document Action Type *</label>
-            <div class="action-type-buttons">
-              <button
-                type="button"
-                @click="htmlForm.documentActionType = 'signature'"
-                :class="['action-btn', { active: htmlForm.documentActionType === 'signature' }]"
-              >
-                Require Electronic Signature
-              </button>
-              <button
-                type="button"
-                @click="htmlForm.documentActionType = 'review'"
-                :class="['action-btn', { active: htmlForm.documentActionType === 'review' }]"
-              >
-                Review/Acknowledgment Only
-              </button>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label>Template Name *</label>
-            <input v-model="htmlForm.name" type="text" required />
-          </div>
-          <div class="form-group">
-            <label>Description</label>
-            <textarea v-model="htmlForm.description" rows="3"></textarea>
-          </div>
-
-          <div class="form-group">
-            <label>Scope *</label>
-            <div class="scope-toggle">
-              <button
-                type="button"
-                class="scope-btn"
-                :class="{ active: htmlForm.scope === 'org' }"
-                @click="setHtmlScope('org')"
-              >
-                Agency
-              </button>
-              <button
-                type="button"
-                class="scope-btn"
-                :class="{ active: htmlForm.scope === 'platform', disabled: !canUsePlatformScope }"
-                :disabled="!canUsePlatformScope"
-                @click="setHtmlScope('platform')"
-              >
-                Platform
-              </button>
-            </div>
-
-            <div v-if="htmlForm.scope === 'org'" class="scope-org-select">
-              <label class="sub-label">Agency *</label>
-              <select v-model="htmlForm.agencyId" @change="handleHtmlAgencyChange" required>
-                <option value="">Select an agency</option>
-                <option v-for="agency in availableAgencies" :key="agency.id" :value="agency.id">
-                  {{ agency.name }}
-                </option>
-              </select>
-
-              <label class="checkbox" style="margin-top: 12px;">
-                <input v-model="htmlForm.assignToOrganization" type="checkbox" />
-                Assign to specific organization
-              </label>
-              <div v-if="htmlForm.assignToOrganization">
-                <label class="sub-label">Associated Organization</label>
-                <select v-model="htmlForm.organizationId" @change="handleHtmlOrganizationChange" :disabled="loadingHtmlAffiliatedOrgs || htmlAffiliatedOrganizations.length === 0">
-                  <option value="">Select</option>
-                  <option v-for="org in htmlAffiliatedOrganizations" :key="org.id" :value="org.id">
-                    {{ org.name }}{{ org.organization_type ? ` (${org.organization_type})` : '' }}
-                  </option>
-                </select>
-                <small v-if="loadingHtmlAffiliatedOrgs">Loading affiliated organizations…</small>
-                <small v-else-if="htmlAffiliatedOrganizations.length === 0">No affiliated organizations found for this agency.</small>
-              </div>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label>Layout *</label>
-            <select v-model="htmlForm.layoutType" @change="fetchHtmlLetterheads" required>
-              <option value="standard">Standard</option>
-              <option value="letter">Letter (Letterhead + Print)</option>
-            </select>
-            <small>
-              Letter layout renders as a single print-safe HTML document with fixed header/footer and on-demand printing (no generated PDFs stored).
-            </small>
-          </div>
-
-          <div v-if="htmlForm.layoutType === 'letter'" class="form-group">
-            <label>Letterhead *</label>
-            <div style="display: flex; gap: 10px; align-items: center;">
-              <select v-model="htmlForm.letterheadTemplateId" required style="flex: 1;">
-                <option :value="null">Select a letterhead</option>
-                <option v-for="lh in htmlLetterheads" :key="lh.id" :value="lh.id">
-                  {{ lh.name }} {{ lh.agency_id ? '' : '(Platform)' }}
-                </option>
-              </select>
-              <router-link class="btn btn-secondary" to="/admin/letterheads">Manage</router-link>
-            </div>
-            <small v-if="loadingHtmlLetterheads">Loading letterheads…</small>
-            <small v-else-if="htmlLetterheads.length === 0">No letterheads available for this scope.</small>
-          </div>
-
-          <div v-if="htmlForm.layoutType === 'letter'" class="form-group">
-            <label>Header Slot (optional)</label>
-            <HtmlDocumentBuilder v-model="htmlForm.letterHeaderHtml" />
-            <small>This content is appended into the letter header (after the letterhead header).</small>
-          </div>
-
-          <div v-if="htmlForm.layoutType === 'letter'" class="form-group">
-            <label>Footer Slot (optional)</label>
-            <HtmlDocumentBuilder v-model="htmlForm.letterFooterHtml" />
-            <small>This content is appended into the letter footer (after the letterhead footer).</small>
-          </div>
-
-          <div class="form-group">
-            <label>HTML Content *</label>
-            <HtmlDocumentBuilder v-model="htmlForm.htmlContent" />
-            <small>Enter HTML content for the document template. You can use template variables like {{AGENCY_NAME}}, {{USER_FULL_NAME}}, etc.</small>
-            <TemplateVariablesList />
-          </div>
-          <div class="form-group">
-            <label>Icon</label>
-            <IconSelector v-model="htmlForm.iconId" label="Select Document Icon" />
-          </div>
-          <div class="form-actions">
-            <button type="button" @click="showCreateModal = false" class="btn btn-secondary">Cancel</button>
-            <button type="submit" class="btn btn-primary" :disabled="saving">
-              {{ saving ? 'Creating...' : 'Create Template' }}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
 
     <!-- Assignment Dialog -->
     <DocumentAssignmentDialog
@@ -409,48 +255,7 @@
             <label>Description</label>
             <textarea v-model="editForm.description" rows="3"></textarea>
           </div>
-          <div v-if="editingTemplate.template_type === 'html'">
-            <div class="form-group">
-              <label>Layout *</label>
-              <select v-model="editForm.layoutType" @change="fetchEditLetterheads" required>
-                <option value="standard">Standard</option>
-                <option value="letter">Letter (Letterhead + Print)</option>
-              </select>
-            </div>
-
-            <div v-if="editForm.layoutType === 'letter'" class="form-group">
-              <label>Letterhead *</label>
-              <div style="display: flex; gap: 10px; align-items: center;">
-                <select v-model="editForm.letterheadTemplateId" required style="flex: 1;">
-                  <option :value="null">Select a letterhead</option>
-                  <option v-for="lh in editLetterheads" :key="lh.id" :value="lh.id">
-                    {{ lh.name }} {{ lh.agency_id ? '' : '(Platform)' }}
-                  </option>
-                </select>
-                <router-link class="btn btn-secondary" to="/admin/letterheads">Manage</router-link>
-              </div>
-              <small v-if="loadingEditLetterheads">Loading letterheads…</small>
-              <small v-else-if="editLetterheads.length === 0">No letterheads available for this scope.</small>
-            </div>
-
-            <div v-if="editForm.layoutType === 'letter'" class="form-group">
-              <label>Header Slot (optional)</label>
-              <HtmlDocumentBuilder v-model="editForm.letterHeaderHtml" />
-            </div>
-
-            <div v-if="editForm.layoutType === 'letter'" class="form-group">
-              <label>Footer Slot (optional)</label>
-              <HtmlDocumentBuilder v-model="editForm.letterFooterHtml" />
-            </div>
-
-            <div class="form-group">
-              <label>HTML Content *</label>
-              <HtmlDocumentBuilder v-model="editForm.htmlContent" />
-              <small>Edit the HTML content for this document template. You can use template variables like {{AGENCY_NAME}}, {{USER_FULL_NAME}}, etc.</small>
-              <TemplateVariablesList />
-            </div>
-          </div>
-          <div v-else class="form-group">
+          <div class="form-group">
             <label>PDF Document</label>
             <p v-if="editingTemplate.document_action_type !== 'review'" class="info-text">
               To upload a new version of this PDF, use the "Upload New Version" button.
@@ -583,7 +388,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, onBeforeUnmount } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { useDocumentsStore } from '../../store/documents';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -596,12 +401,11 @@ import PDFSignatureCoordinatePicker from '../../components/documents/PDFSignatur
 import PDFFieldDefinitionBuilder from '../../components/documents/PDFFieldDefinitionBuilder.vue';
 import PDFPreview from '../../components/documents/PDFPreview.vue';
 import IconSelector from '../../components/admin/IconSelector.vue';
-import TemplateVariablesList from '../../components/documents/TemplateVariablesList.vue';
-import HtmlDocumentBuilder from '../../components/documents/HtmlDocumentBuilder.vue';
 import api from '../../services/api';
 import { getBackendBaseUrl, toUploadsUrl } from '../../utils/uploadsUrl';
 
 const router = useRouter();
+const route = useRoute();
 
 const documentsStore = useDocumentsStore();
 const authStore = useAuthStore();
@@ -623,7 +427,6 @@ const sortBy = ref('name');
 const currentPage = ref(1);
 const viewMode = ref('grid'); // 'grid' or 'table'
 const showUploadModal = ref(false);
-const showCreateModal = ref(false);
 const showAssignModal = ref(false);
 const showVersionModal = ref(false);
 const showPreviewModal = ref(false);
@@ -636,33 +439,9 @@ const saving = ref(false);
 const selectedAgencyId = ref(null);
 const availableAgencies = ref([]);
 
-const htmlAffiliatedOrganizations = ref([]);
-const loadingHtmlAffiliatedOrgs = ref(false);
-const htmlLetterheads = ref([]);
-const loadingHtmlLetterheads = ref(false);
-
 const affiliatedOrganizationOptions = ref([]);
 const organizationLookup = ref(new Map());
 const organizationsByAgency = ref({});
-
-const htmlForm = ref({
-  name: '',
-  description: '',
-  htmlContent: '',
-  documentType: 'administrative',
-  documentActionType: 'signature',
-  layoutType: 'standard',
-  letterheadTemplateId: null,
-  letterHeaderHtml: '',
-  letterFooterHtml: '',
-  iconId: null,
-  scope: authStore.user?.role === 'super_admin' ? 'platform' : 'org',
-  agencyId: null,
-  assignToOrganization: false,
-  organizationId: null
-});
-
-const canUsePlatformScope = computed(() => authStore.user?.role === 'super_admin');
 
 const filtersStorageKey = 'documents-library-filters';
 const loadFiltersFromStorage = () => {
@@ -703,67 +482,6 @@ const persistFilters = () => {
   }
 };
 
-const setHtmlScope = (scope) => {
-  if (scope === 'platform' && !canUsePlatformScope.value) return;
-  htmlForm.value.scope = scope;
-  if (scope === 'platform') {
-    htmlForm.value.agencyId = null;
-    htmlForm.value.assignToOrganization = false;
-    htmlForm.value.organizationId = null;
-    htmlAffiliatedOrganizations.value = [];
-  } else if (!htmlForm.value.agencyId) {
-    const fallbackAgencyId = selectedAgencyId.value || availableAgencies.value?.[0]?.id || null;
-    htmlForm.value.agencyId = fallbackAgencyId;
-  }
-  // Refresh letterhead options based on scope
-  fetchHtmlLetterheads();
-};
-
-const fetchHtmlAffiliatedOrganizations = async () => {
-  const agencyId = htmlForm.value.agencyId;
-  if (!agencyId) {
-    htmlAffiliatedOrganizations.value = [];
-    htmlForm.value.organizationId = null;
-    return;
-  }
-  try {
-    loadingHtmlAffiliatedOrgs.value = true;
-    const res = await api.get(`/agencies/${agencyId}/affiliated-organizations`);
-    htmlAffiliatedOrganizations.value = Array.isArray(res.data) ? res.data : [];
-    if (
-      htmlForm.value.organizationId &&
-      !htmlAffiliatedOrganizations.value.some((o) => String(o.id) === String(htmlForm.value.organizationId))
-    ) {
-      htmlForm.value.organizationId = null;
-    }
-  } catch (err) {
-    console.error('Failed to load affiliated organizations for HTML template:', err);
-    htmlAffiliatedOrganizations.value = [];
-    htmlForm.value.organizationId = null;
-  } finally {
-    loadingHtmlAffiliatedOrgs.value = false;
-  }
-};
-
-const handleHtmlAgencyChange = async () => {
-  htmlForm.value.organizationId = null;
-  await fetchHtmlAffiliatedOrganizations();
-  await fetchHtmlLetterheads();
-};
-
-const handleHtmlOrganizationChange = async () => {
-  await fetchHtmlLetterheads();
-};
-
-watch(
-  () => htmlForm.value.assignToOrganization,
-  (next) => {
-    if (!next) {
-      htmlForm.value.organizationId = null;
-    }
-  }
-);
-
 watch(
   [filterAgencyId, filterDocumentType, filterTemplateType, statusFilter, sortBy, viewMode],
   () => {
@@ -779,45 +497,6 @@ watch(filterAgencyId, async (next) => {
   const orgs = await fetchAffiliatedOrganizationsForAgency(id);
   affiliatedOrganizationOptions.value = orgs;
 });
-
-async function fetchHtmlLetterheads() {
-  try {
-    const currentSelection = htmlForm.value.letterheadTemplateId;
-    htmlLetterheads.value = [];
-
-    // Only needed for letter layout
-    if (String(htmlForm.value.layoutType || 'standard') !== 'letter') return;
-
-    const agencyId = htmlForm.value.scope === 'platform' ? null : (htmlForm.value.agencyId || null);
-    const organizationId =
-      htmlForm.value.scope === 'platform' || !htmlForm.value.assignToOrganization
-        ? null
-        : (htmlForm.value.organizationId && String(htmlForm.value.organizationId) !== String(htmlForm.value.agencyId)
-            ? htmlForm.value.organizationId
-            : null);
-
-    loadingHtmlLetterheads.value = true;
-    const res = await api.get('/letterhead-templates', {
-      params: { agencyId, organizationId, includePlatform: true }
-    });
-    htmlLetterheads.value = Array.isArray(res.data) ? res.data : [];
-    const stillValid =
-      currentSelection && htmlLetterheads.value.some((lh) => String(lh.id) === String(currentSelection));
-    if (stillValid) {
-      htmlForm.value.letterheadTemplateId = currentSelection;
-    } else if (htmlLetterheads.value?.[0]?.id) {
-      htmlForm.value.letterheadTemplateId = htmlLetterheads.value[0].id;
-    } else {
-      htmlForm.value.letterheadTemplateId = null;
-    }
-  } catch (e) {
-    console.error('Failed to load letterheads:', e);
-    htmlLetterheads.value = [];
-    htmlForm.value.letterheadTemplateId = null;
-  } finally {
-    loadingHtmlLetterheads.value = false;
-  }
-}
 
 const applyFilters = async () => {
   currentPage.value = 1; // Reset to first page when filters change
@@ -992,7 +671,31 @@ async function fetchEditLetterheads() {
   }
 }
 
+const openTemplateEditor = (templateId) => {
+  const isOrgContext = Boolean(route.params.organizationSlug);
+  const href = router.resolve({
+    name: isOrgContext ? 'OrganizationDocumentTemplateEdit' : 'DocumentTemplateEdit',
+    params: isOrgContext
+      ? { organizationSlug: route.params.organizationSlug, templateId }
+      : { templateId }
+  }).href;
+  window.open(href, '_blank', 'noopener');
+};
+
+const openCreateEditor = () => {
+  const isOrgContext = Boolean(route.params.organizationSlug);
+  const href = router.resolve({
+    name: isOrgContext ? 'OrganizationDocumentTemplateCreate' : 'DocumentTemplateCreate',
+    params: isOrgContext ? { organizationSlug: route.params.organizationSlug } : {}
+  }).href;
+  window.open(href, '_blank', 'noopener');
+};
+
 const handleEdit = (template) => {
+  if (String(template.template_type) === 'html') {
+    openTemplateEditor(template.id);
+    return;
+  }
   console.log('Opening edit for template:', template.name, 'icon_id:', template.icon_id, 'icon_file_path:', template.icon_file_path);
   const parsedFieldDefinitions = (() => {
     const raw = template.field_definitions;
@@ -1039,41 +742,45 @@ const handleDuplicate = async (template) => {
     const response = await api.post(`/document-templates/${template.id}/duplicate`);
     const newTemplate = response.data;
     
-    // Open edit modal with the new template
-    editingTemplate.value = newTemplate;
-    editForm.value = {
-      name: newTemplate.name,
-      description: newTemplate.description || '',
-      htmlContent: newTemplate.html_content || '',
-      layoutType: newTemplate.layout_type || 'standard',
-      letterheadTemplateId: newTemplate.letterhead_template_id ?? null,
-      letterHeaderHtml: newTemplate.letter_header_html || '',
-      letterFooterHtml: newTemplate.letter_footer_html || '',
-      isActive: newTemplate.is_active !== false && newTemplate.is_active !== 0,
-      iconId: newTemplate.icon_id !== undefined && newTemplate.icon_id !== null ? newTemplate.icon_id : null,
-      agencyId: newTemplate.agency_id !== undefined && newTemplate.agency_id !== null ? newTemplate.agency_id : null,
-      organizationId: newTemplate.organization_id !== undefined && newTemplate.organization_id !== null ? newTemplate.organization_id : null,
-      saveAsNewVersion: false,
-    fieldDefinitions: (() => {
-      const raw = newTemplate.field_definitions;
-      if (!raw) return [];
-      try {
-        return typeof raw === 'string' ? JSON.parse(raw) : raw;
-      } catch {
-        return [];
-      }
-    })(),
-      signatureCoordinates: {
-        x: newTemplate.signature_x !== undefined && newTemplate.signature_x !== null ? newTemplate.signature_x : null,
-        y: newTemplate.signature_y !== undefined && newTemplate.signature_y !== null ? newTemplate.signature_y : null,
-        width: newTemplate.signature_width !== undefined && newTemplate.signature_width !== null ? newTemplate.signature_width : 200,
-        height: newTemplate.signature_height !== undefined && newTemplate.signature_height !== null ? newTemplate.signature_height : 60,
-        page: newTemplate.signature_page !== undefined && newTemplate.signature_page !== null ? newTemplate.signature_page : null
-      }
-    };
-    showEditModal.value = true;
-    fetchEditLetterheads();
-    loadEditPdfPreview(newTemplate);
+    if (String(newTemplate.template_type) === 'html') {
+      openTemplateEditor(newTemplate.id);
+    } else {
+      // Open edit modal with the new template
+      editingTemplate.value = newTemplate;
+      editForm.value = {
+        name: newTemplate.name,
+        description: newTemplate.description || '',
+        htmlContent: newTemplate.html_content || '',
+        layoutType: newTemplate.layout_type || 'standard',
+        letterheadTemplateId: newTemplate.letterhead_template_id ?? null,
+        letterHeaderHtml: newTemplate.letter_header_html || '',
+        letterFooterHtml: newTemplate.letter_footer_html || '',
+        isActive: newTemplate.is_active !== false && newTemplate.is_active !== 0,
+        iconId: newTemplate.icon_id !== undefined && newTemplate.icon_id !== null ? newTemplate.icon_id : null,
+        agencyId: newTemplate.agency_id !== undefined && newTemplate.agency_id !== null ? newTemplate.agency_id : null,
+        organizationId: newTemplate.organization_id !== undefined && newTemplate.organization_id !== null ? newTemplate.organization_id : null,
+        saveAsNewVersion: false,
+        fieldDefinitions: (() => {
+        const raw = newTemplate.field_definitions;
+        if (!raw) return [];
+        try {
+          return typeof raw === 'string' ? JSON.parse(raw) : raw;
+        } catch {
+          return [];
+        }
+      })(),
+        signatureCoordinates: {
+          x: newTemplate.signature_x !== undefined && newTemplate.signature_x !== null ? newTemplate.signature_x : null,
+          y: newTemplate.signature_y !== undefined && newTemplate.signature_y !== null ? newTemplate.signature_y : null,
+          width: newTemplate.signature_width !== undefined && newTemplate.signature_width !== null ? newTemplate.signature_width : 200,
+          height: newTemplate.signature_height !== undefined && newTemplate.signature_height !== null ? newTemplate.signature_height : 60,
+          page: newTemplate.signature_page !== undefined && newTemplate.signature_page !== null ? newTemplate.signature_page : null
+        }
+      };
+      showEditModal.value = true;
+      fetchEditLetterheads();
+      loadEditPdfPreview(newTemplate);
+    }
     
     // Reload templates to include the new one
     await loadTemplates();
@@ -1646,58 +1353,6 @@ const canDelete = (template) => {
   return false;
 };
 
-const saveHTMLTemplate = async () => {
-  try {
-    saving.value = true;
-    if (String(htmlForm.value.layoutType || 'standard') === 'letter' && !htmlForm.value.letterheadTemplateId) {
-      alert('Please select a letterhead for letter layout templates.');
-      return;
-    }
-    await documentsStore.createTemplate({
-      name: htmlForm.value.name,
-      description: htmlForm.value.description,
-      htmlContent: htmlForm.value.htmlContent,
-      iconId: htmlForm.value.iconId || null,
-      documentType: htmlForm.value.documentType,
-      documentActionType: htmlForm.value.documentActionType,
-      layoutType: htmlForm.value.layoutType,
-      letterheadTemplateId: htmlForm.value.layoutType === 'letter' ? htmlForm.value.letterheadTemplateId : null,
-      letterHeaderHtml: htmlForm.value.layoutType === 'letter' ? (htmlForm.value.letterHeaderHtml || null) : null,
-      letterFooterHtml: htmlForm.value.layoutType === 'letter' ? (htmlForm.value.letterFooterHtml || null) : null,
-      agencyId: htmlForm.value.scope === 'platform' ? null : (htmlForm.value.agencyId || null),
-      organizationId:
-        htmlForm.value.scope === 'platform' || !htmlForm.value.assignToOrganization
-          ? null
-          : (htmlForm.value.organizationId && String(htmlForm.value.organizationId) !== String(htmlForm.value.agencyId)
-              ? htmlForm.value.organizationId
-              : null)
-    });
-    showCreateModal.value = false;
-    htmlForm.value = {
-      name: '',
-      description: '',
-      htmlContent: '',
-      documentType: 'administrative',
-      documentActionType: 'signature',
-      layoutType: 'standard',
-      letterheadTemplateId: null,
-      letterHeaderHtml: '',
-      letterFooterHtml: '',
-      iconId: null,
-      scope: canUsePlatformScope.value ? 'platform' : 'org',
-      agencyId: canUsePlatformScope.value ? null : (selectedAgencyId.value || null),
-      assignToOrganization: false,
-      organizationId: null
-    };
-    htmlAffiliatedOrganizations.value = [];
-    htmlLetterheads.value = [];
-  } catch (err) {
-    alert(err.response?.data?.error?.message || 'Failed to create template');
-  } finally {
-    saving.value = false;
-  }
-};
-
 onMounted(async () => {
   if (authStore.user?.role === 'admin') {
     await agencyStore.fetchUserAgencies();
@@ -1710,14 +1365,6 @@ onMounted(async () => {
   await fetchAgencies();
   loadFiltersFromStorage();
   await loadTemplates();
-
-  // Default HTML scope + load affiliated orgs for the default agency (best-effort)
-  if (!canUsePlatformScope.value) {
-    setHtmlScope('org');
-  }
-  if (htmlForm.value.scope === 'org' && htmlForm.value.agencyId) {
-    await fetchHtmlAffiliatedOrganizations();
-  }
 });
 </script>
 
