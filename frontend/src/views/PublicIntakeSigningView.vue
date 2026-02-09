@@ -1277,6 +1277,11 @@ const getRecaptchaToken = async () => {
   try {
     const grecaptcha = await loadRecaptchaScript();
     if (!grecaptcha) return '';
+    console.info('[recaptcha] availability', {
+      hasEnterprise: !!grecaptcha.enterprise,
+      hasEnterpriseExecute: !!grecaptcha.enterprise?.execute,
+      hasStandardExecute: !!grecaptcha.execute
+    });
     if (useEnterpriseRecaptcha.value && grecaptcha.enterprise?.execute) {
       if (grecaptcha.enterprise?.ready) {
         await new Promise((resolve) => grecaptcha.enterprise.ready(resolve));
@@ -1284,6 +1289,9 @@ const getRecaptchaToken = async () => {
       try {
         const token = await grecaptcha.enterprise.execute(recaptchaSiteKey.value, { action: 'public_intake_consent' });
         if (token) return token;
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        const retryToken = await grecaptcha.enterprise.execute(recaptchaSiteKey.value, { action: 'public_intake_consent' });
+        if (retryToken) return retryToken;
       } catch (err) {
         console.warn('[recaptcha] enterprise execute failed', err);
       }
