@@ -25,7 +25,7 @@
       <div class="dashboard-grid">
         <component 
           :is="previewMode ? 'div' : 'router-link'"
-          v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
+          v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user))"
           :to="previewMode ? null : '/admin/settings?tab=agencies'"
           class="stat-card"
           :class="{ 'preview-disabled': previewMode }"
@@ -36,7 +36,7 @@
         
         <component 
           :is="previewMode ? 'div' : 'router-link'"
-          v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
+          v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user))"
           :to="previewMode ? null : '/admin/modules?filter=templates'"
           class="stat-card"
           :class="{ 'preview-disabled': previewMode }"
@@ -47,7 +47,7 @@
         
         <component 
           :is="previewMode ? 'div' : 'router-link'"
-          v-if="user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
+          v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user))"
           :to="previewMode ? null : '/admin/modules?view=table'"
           class="stat-card"
           :class="{ 'preview-disabled': previewMode }"
@@ -102,7 +102,7 @@
       />
       
       <AgencySpecsPanel
-        v-if="!previewMode && myAgencies.length > 0 && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)"
+        v-if="!previewMode && myAgencies.length > 0 && ((user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support') || (user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)))"
         title="Agency Specs"
         v-model:organizationId="selectedOrgId"
         :organizations="myAgencies"

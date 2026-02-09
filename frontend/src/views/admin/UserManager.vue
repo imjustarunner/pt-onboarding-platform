@@ -3,8 +3,8 @@
     <div class="page-header" data-tour="users-header">
       <h1 data-tour="users-title">User Management</h1>
       <div class="header-actions" data-tour="users-header-actions">
-        <button v-if="!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'" @click="showBulkAssignModal = true" class="btn btn-primary">Assign Documents</button>
-        <button v-if="!isSupervisor(user) && user?.role !== 'clinical_practice_assistant'" @click="showCreateModal = true" class="btn btn-primary">Create New User</button>
+        <button v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant')" @click="showBulkAssignModal = true" class="btn btn-primary">Assign Documents</button>
+        <button v-if="(user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support' || user?.role === 'staff') || (!isSupervisor(user) && user?.role !== 'clinical_practice_assistant')" @click="showCreateModal = true" class="btn btn-primary">Create New User</button>
         <button v-if="user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'support'" @click="showSupervisorsModal = true" class="btn btn-secondary">Supervisors</button>
       </div>
     </div>
@@ -374,21 +374,21 @@
               <div class="action-buttons">
                 <router-link :to="`/admin/users/${user.id}`" class="btn btn-primary btn-sm">View Profile</router-link>
                 <button 
-                  v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'pending') && !user.pending_access_locked && !isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'" 
+                  v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'pending') && !user.pending_access_locked && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))" 
                   @click="showPendingCompleteModal(user)" 
                   class="btn btn-success btn-sm"
                 >
                   Mark Hiring Process Complete
                 </button>
                 <button 
-                  v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)" 
+                  v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'" 
                   @click="moveToActive(user)" 
                   class="btn btn-primary btn-sm"
                 >
                   Mark as Reviewed and Activate
                 </button>
                 <button 
-                  v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'ready_for_review') && (canArchiveDelete || user.role === 'admin' || user.role === 'super_admin') && !isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'" 
+                  v-if="(user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'ready_for_review') && (canArchiveDelete || user.role === 'admin' || user.role === 'super_admin') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))" 
                   @click="downloadAndWipeUserData(user)" 
                   class="btn btn-sm btn-danger"
                   title="Download completion summary and wipe training/document data"
@@ -396,7 +396,7 @@
                   Download & Wipe Training/Docs
                 </button>
                 <button 
-                  v-if="canArchiveDelete && !isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'" 
+                  v-if="canArchiveDelete && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))" 
                   @click="archiveUser(user)" 
                   class="btn btn-warning btn-sm"
                 >
@@ -550,7 +550,7 @@
     </div>
 
     <!-- Create/Edit Modal -->
-    <div v-if="(showCreateModal || editingUser) && !isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'" class="modal-overlay" @click="closeModal">
+    <div v-if="(showCreateModal || editingUser) && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant'))" class="modal-overlay" @click="closeModal">
       <div class="modal-content large" @click.stop>
         <h2>{{ editingUser ? 'Edit User' : 'Create New User' }}</h2>
         

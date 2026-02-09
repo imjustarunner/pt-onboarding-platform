@@ -1049,7 +1049,7 @@
                 <div class="status-actions">
                   <!-- For PREHIRE_REVIEW users: Show "Promote to Onboarding" button -->
                   <button 
-                    v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    v-if="(user.status === 'PREHIRE_REVIEW' || user.status === 'ready_for_review') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
                     @click="promoteToOnboarding" 
                     class="btn btn-primary btn-sm"
                     :disabled="updatingStatus"
@@ -1059,7 +1059,7 @@
                   
                   <!-- Legacy: For ready_for_review users: Show "Mark as Reviewed and Activate" button -->
                   <button 
-                    v-if="user.status === 'ready_for_review' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    v-if="user.status === 'ready_for_review' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
                     @click="handleMarkAsReviewedAndActivate" 
                     class="btn btn-primary btn-sm"
                     :disabled="updatingStatus"
@@ -1069,7 +1069,7 @@
                   
                   <!-- Admins can mark ONBOARDING users as ACTIVE_EMPLOYEE -->
                   <button 
-                    v-if="(user.status === 'PENDING_SETUP' || user.status === 'ONBOARDING' || user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'active') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    v-if="(user.status === 'PENDING_SETUP' || user.status === 'ONBOARDING' || user.status === 'PREHIRE_OPEN' || user.status === 'PREHIRE_REVIEW' || user.status === 'pending' || user.status === 'active') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support') && authStore.user?.role !== 'clinical_practice_assistant'"
                     @click="markComplete" 
                     class="btn btn-success btn-sm"
                     :disabled="updatingStatus"
@@ -1079,7 +1079,7 @@
                   
                   <!-- Mark Terminated: Only for ACTIVE_EMPLOYEE users -->
                   <button 
-                    v-if="(user.status === 'ACTIVE_EMPLOYEE' || user.status === 'active') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    v-if="(user.status === 'ACTIVE_EMPLOYEE' || user.status === 'active') && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)))"
                     @click="markTerminated" 
                     class="btn btn-danger btn-sm"
                     :disabled="updatingStatus"
@@ -1089,7 +1089,7 @@
                   
                   <!-- Archive: Available for most statuses except ARCHIVED -->
                   <button 
-                    v-if="user.status !== 'ARCHIVED' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin') && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    v-if="user.status !== 'ARCHIVED' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin') && authStore.user?.role !== 'clinical_practice_assistant'"
                     @click="archiveUser" 
                     class="btn btn-warning btn-sm"
                     :disabled="updatingStatus"
@@ -1099,7 +1099,7 @@
                   
                   <!-- Show "Reactivate" for ARCHIVED users -->
                   <button 
-                    v-if="user.status === 'ARCHIVED' && authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)"
+                    v-if="user.status === 'ARCHIVED' && (authStore.user?.role === 'admin' || authStore.user?.role === 'super_admin' || authStore.user?.role === 'support' || authStore.user?.role === 'staff' || (authStore.user?.role !== 'clinical_practice_assistant' && !isSupervisor(authStore.user)))"
                     @click="markActive" 
                     class="btn btn-secondary btn-sm"
                     :disabled="updatingStatus"
@@ -2903,7 +2903,9 @@ const userCredentials = ref({
 const canEditUser = computed(() => {
   const user = authStore.user;
   if (!user) return false;
-  // CPAs and supervisors have view-only access
+  // Admin/support/staff keep full edit access even with supervisor privileges (supervisor is always additive).
+  if (user.role === 'admin' || user.role === 'super_admin' || user.role === 'support' || user.role === 'staff') return true;
+  // CPAs and supervisor-only users have view-only access
   return !isSupervisor(user) && user.role !== 'clinical_practice_assistant';
 });
 

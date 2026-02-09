@@ -53,7 +53,7 @@
             </div>
             <div class="nav-links-wrapper" :class="{ 'nav-menus-open': navDropdownOpen }">
               <div class="nav-links">
-              <router-link :to="myDashboardTo" @click="closeMobileMenu">
+              <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }">
                 {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
               </router-link>
               <!-- Minimal top-nav for non-admin users with limited access -->
@@ -105,12 +105,12 @@
                     <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeAllNavMenus">On-Demand Training</router-link>
                     <router-link
                       :to="orgTo('/admin/modules')"
-                      v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canViewTraining')"
+                      v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')"
                       @click="closeAllNavMenus"
                     >Training Modules</router-link>
                     <router-link
                       :to="orgTo('/admin/documents')"
-                      v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canSignDocuments')"
+                      v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')"
                       @click="closeAllNavMenus"
                     >Documents</router-link>
                     <router-link :to="orgTo('/admin/agency-progress')" v-if="hasCapability('canViewTraining')" @click="closeAllNavMenus">Progress</router-link>
@@ -163,7 +163,7 @@
 
                     <div class="nav-dropdown-sep" />
 
-                    <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeAllNavMenus">Settings</router-link>
+                    <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" @click="closeAllNavMenus">Settings</router-link>
                   </div>
                 </div>
 
@@ -299,6 +299,7 @@
           class="welcome-hang-link"
           :to="myDashboardTo"
           aria-label="Go to My Dashboard"
+          @click="onMyDashboardClick"
         >
           <span class="welcome-text">Welcome, {{ welcomeName }}</span>
           <span class="dashboard-text">My Dashboard</span>
@@ -319,7 +320,7 @@
           </div>
           <div class="mobile-nav-links">
             <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
-            <router-link :to="myDashboardTo" @click="closeMobileMenu" class="mobile-nav-link">
+            <router-link :to="myDashboardTo" @click="(e) => { onMyDashboardClick(e); closeMobileMenu(); }" class="mobile-nav-link">
               {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
             </router-link>
             <router-link
@@ -346,13 +347,13 @@
 
               <router-link
                 :to="orgTo('/admin/modules')"
-                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canViewTraining')"
+                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canViewTraining')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Training</router-link>
               <router-link
                 :to="orgTo('/admin/documents')"
-                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user) && hasCapability('canSignDocuments')"
+                v-if="isAdmin && user?.role !== 'clinical_practice_assistant' && hasCapability('canSignDocuments')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
               >Documents</router-link>
@@ -403,7 +404,7 @@
               <router-link :to="orgTo('/admin/expenses')" v-if="canSeePayrollManagement" @click="closeMobileMenu" class="mobile-nav-link">Expense/Reimbursements</router-link>
               <router-link :to="orgTo('/admin/revenue')" v-if="user?.role === 'super_admin'" @click="closeMobileMenu" class="mobile-nav-link">Revenue</router-link>
 
-              <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant' && !isSupervisor(user)" @click="closeMobileMenu" class="mobile-nav-link">Settings</router-link>
+              <router-link :to="orgTo('/admin/settings')" v-if="(canCreateEdit || user?.role === 'support') && user?.role !== 'clinical_practice_assistant'" @click="closeMobileMenu" class="mobile-nav-link">Settings</router-link>
             </template>
             <button
               type="button"
@@ -488,7 +489,6 @@ import { useNotificationStore } from './store/notifications';
 import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
-import { getDashboardRoute } from './utils/router';
 import api from './services/api';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
@@ -974,8 +974,8 @@ const canCreateEdit = computed(() => {
 const canShowSettingsIcon = computed(() => {
   const u = authStore.user;
   if (!u) return false;
-  // Mirror Settings link gating.
-  return (canCreateEdit.value || u?.role === 'support') && u?.role !== 'clinical_practice_assistant' && !isSupervisor(u);
+  // Mirror Settings link: admin/support keep access regardless of supervisor (supervisor is additive).
+  return (canCreateEdit.value || u?.role === 'support') && u?.role !== 'clinical_practice_assistant';
 });
 
 const settingsIconUrl = computed(() => {
@@ -1027,13 +1027,26 @@ const orgTo = (path) => {
   return `/${slug}${path}`;
 };
 
-// For superadmin, "My Dashboard" should always go to platform admin (/admin), not the current org's dashboard.
+// Dashboard URL pattern by role (org slug e.g. "itsco" when user is in that agency's context):
+// - Superadmin: My Dashboard = /dashboard (platform personal), Admin = /admin (nav "Admin Dashboard").
+// - Admin (agency): My Dashboard = /itsco/dashboard, Admin = /itsco/admin (orgTo handles slug).
+// - Staff (agency): My Dashboard = /itsco/dashboard, Agency dashboard = /itsco/agencydashboard (see orgTo('/agencydashboard') for staff nav if that route exists).
 const myDashboardTo = computed(() => {
   if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') {
-    return getDashboardRoute();
+    return '/dashboard';
   }
   return orgTo('/dashboard');
 });
+
+// When already on the target route, router-link does nothing; handle click so the button still does something (e.g. scroll to top).
+const onMyDashboardClick = (e) => {
+  const target = myDashboardTo.value;
+  const current = route.path || '/';
+  if (current === target) {
+    e.preventDefault();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+};
 
 const handleLogout = async () => {
   stopActivityTracking();

@@ -1,5 +1,7 @@
 /**
- * Check if a user is a supervisor (using has_supervisor_privileges as source of truth)
+ * Check if a user is a supervisor (using has_supervisor_privileges as source of truth).
+ * Supervisor is always additive: it only adds the supervision card and supervisee access.
+ * It must never remove permissions from the user's primary role (admin, staff, provider, etc.).
  * @param {Object} user - User object
  * @returns {boolean} True if user is a supervisor
  */
