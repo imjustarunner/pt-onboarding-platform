@@ -161,11 +161,12 @@ onMounted(async () => {
   setupCanvas();
   
   // Check if signature already exists
+  if (!props.moduleId) return;
   try {
     const response = await api.get(`/signatures/${props.moduleId}`);
     signatureData.value = response.data.signature_data;
     signed.value = true;
-    emit('signed');
+    emit('signed', signatureData.value);
   } catch (e) {
     // No signature yet
   }

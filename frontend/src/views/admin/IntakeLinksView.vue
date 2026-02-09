@@ -360,6 +360,11 @@
           </div>
         </div>
       </div>
+
+              <div v-if="safeSteps.length" class="step-actions step-actions-bottom">
+                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('questions')">+ Add Questions</button>
+                <button class="btn btn-secondary btn-sm" type="button" @click="addStep('document')">+ Add Document</button>
+              </div>
     </div>
   </div>
 </template>
@@ -1086,6 +1091,13 @@ onMounted(fetchData);
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.step-actions-bottom {
+  margin-top: 12px;
+  margin-bottom: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 .step-card {

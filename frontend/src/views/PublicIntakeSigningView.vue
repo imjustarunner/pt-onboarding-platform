@@ -464,7 +464,7 @@
             </div>
           </div>
           <SignaturePad @signed="onSigned" />
-          <div class="signature-actions">
+          <div v-if="allowSignatureReuseActions" class="signature-actions">
             <button
               v-if="lastSignatureData && !signatureData"
               class="btn btn-secondary btn-sm"
@@ -474,14 +474,15 @@
               Use saved signature
             </button>
             <button
+              v-if="signatureData"
               class="btn btn-outline btn-sm"
               type="button"
               @click="signatureData = ''"
             >
               Sign again
             </button>
-            <div v-if="signatureData" class="muted">Signature ready for this document.</div>
           </div>
+          <div v-if="signatureData" class="muted" style="margin-top: 6px;">Signature ready for this document.</div>
         </div>
 
         <div class="actions">
@@ -627,6 +628,20 @@ const submitLoading = ref(false);
 const currentDocIndex = ref(0);
 const signatureData = ref('');
 const lastSignatureData = ref('');
+const signatureDocFlowIndexes = computed(() =>
+  flowSteps.value
+    .map((s, idx) => ({ s, idx }))
+    .filter(({ s }) => s?.type === 'document' && s?.template?.document_action_type === 'signature')
+    .map(({ idx }) => idx)
+);
+const firstSignatureFlowIndex = computed(() =>
+  signatureDocFlowIndexes.value.length ? signatureDocFlowIndexes.value[0] : -1
+);
+const allowSignatureReuseActions = computed(() => {
+  const first = firstSignatureFlowIndex.value;
+  if (first < 0) return false;
+  return currentFlowIndex.value > first;
+});
 const pdfUrl = ref(null);
 const pdfPreviewRef = ref(null);
 const reviewPage = ref(1);
