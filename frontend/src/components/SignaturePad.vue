@@ -1,6 +1,7 @@
 <template>
   <div class="signature-pad-container">
     <div v-if="!signed" class="signature-area">
+      <div class="signature-hint">Please sign here with your finger or mouse.</div>
       <canvas
         ref="canvas"
         @mousedown="startDrawing"
@@ -179,11 +180,25 @@ onMounted(async () => {
 }
 
 .signature-area {
+  position: relative;
   border: 2px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
   background: white;
   box-shadow: var(--shadow);
+}
+
+.signature-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 12px;
+  font-size: 14px;
+  color: #8a8f98;
+  pointer-events: none;
 }
 
 .signature-area canvas {

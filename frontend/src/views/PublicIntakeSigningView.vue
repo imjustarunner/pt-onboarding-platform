@@ -453,7 +453,7 @@
           </div>
         </div>
 
-        <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-block">
+        <div v-if="currentFlowStep?.type === 'document' && currentDoc?.document_action_type === 'signature'" class="signature-block" ref="signatureBlockRef">
           <div class="signature-summary">
             <div v-if="guardianDisplayName" class="summary-row">
               <strong>Guardian:</strong>
@@ -473,16 +473,16 @@
             </div>
           </div>
           <SignaturePad @signed="onSigned" />
-          <div v-if="showSignatureReusePrompt && lastSignatureData && !signatureData" class="signature-reuse-prompt">
-            <div class="signature-reuse-text">Use saved signature for this document?</div>
-            <div class="signature-reuse-actions">
-              <button class="btn btn-secondary btn-sm" type="button" @click="useSavedSignatureAndContinue">
-                Use saved signature &amp; continue
-              </button>
-              <button class="btn btn-outline btn-sm" type="button" @click="dismissSignatureReusePrompt">
-                Sign now
-              </button>
-            </div>
+          <div
+            v-if="allowSignatureReuseActions && lastSignatureData && !signatureData"
+            class="signature-actions"
+          >
+            <button class="btn btn-secondary btn-sm" type="button" @click="useSavedSignatureAndContinue">
+              Use saved signature &amp; submit
+            </button>
+            <button class="btn btn-outline btn-sm" type="button" @click="startNewSignature">
+              Sign again
+            </button>
           </div>
           <div v-if="signatureData" class="muted" style="margin-top: 6px;">Signature ready for this document.</div>
         </div>
@@ -648,9 +648,9 @@ const submissionId = ref(null);
 const consentLoading = ref(false);
 const submitLoading = ref(false);
 const currentDocIndex = ref(0);
+const signatureBlockRef = ref(null);
 const signatureData = ref('');
 const lastSignatureData = ref('');
-const showSignatureReusePrompt = ref(false);
 const signatureDocFlowIndexes = computed(() =>
   flowSteps.value
     .map((s, idx) => ({ s, idx }))
@@ -1603,20 +1603,21 @@ const submitConsent = async () => {
 const onSigned = (dataUrl) => {
   signatureData.value = dataUrl;
   lastSignatureData.value = dataUrl;
-  showSignatureReusePrompt.value = false;
-};
-
-const dismissSignatureReusePrompt = () => {
-  showSignatureReusePrompt.value = false;
-  stepError.value = 'Please sign below to continue.';
 };
 
 const useSavedSignatureAndContinue = async () => {
   if (!lastSignatureData.value) return;
   signatureData.value = lastSignatureData.value;
-  showSignatureReusePrompt.value = false;
   await nextTick();
   await completeCurrentDocument();
+};
+
+const startNewSignature = async () => {
+  signatureData.value = '';
+  await nextTick();
+  if (signatureBlockRef.value?.scrollIntoView) {
+    signatureBlockRef.value.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 };
 
 const completeCurrentDocument = async () => {
@@ -1638,11 +1639,11 @@ const completeCurrentDocument = async () => {
     }
     if (currentDoc.value.document_action_type === 'signature' && !signatureData.value) {
       if (allowSignatureReuseActions.value && lastSignatureData.value) {
-        showSignatureReusePrompt.value = true;
+        signatureData.value = lastSignatureData.value;
+      } else {
+        stepError.value = 'Signature is required.';
         return;
       }
-      stepError.value = 'Signature is required.';
-      return;
     }
 
     const missingFields = displayedFieldDefinitions.value.filter((f) => {
@@ -1762,7 +1763,6 @@ const resetIntakeState = () => {
   intakeResponses.submission = {};
   intakeResponses.clients = [{}];
   signatureData.value = '';
-  showSignatureReusePrompt.value = false;
   submissionId.value = null;
   docStatus && Object.keys(docStatus).forEach((k) => delete docStatus[k]);
   error.value = '';
@@ -2106,7 +2106,6 @@ watch(currentDoc, async () => {
   reviewTotalPages.value = 0;
   canProceed.value = currentDoc.value?.template_type !== 'pdf';
   signatureData.value = '';
-  showSignatureReusePrompt.value = false;
   pageNotice.value = '';
   syncClientNamesToResponses();
   initializeFieldValues();
