@@ -103,6 +103,9 @@ jobs:
           if [ -n "${{ secrets.RECAPTCHA_ENTERPRISE_API_KEY }}" ]; then
             ENV_VARS="${ENV_VARS}|RECAPTCHA_ENTERPRISE_API_KEY=${{ secrets.RECAPTCHA_ENTERPRISE_API_KEY }}"
           fi
+          if [ -n "${{ secrets.RECAPTCHA_ENTERPRISE_PROJECT_ID }}" ]; then
+            ENV_VARS="${ENV_VARS}|RECAPTCHA_ENTERPRISE_PROJECT_ID=${{ secrets.RECAPTCHA_ENTERPRISE_PROJECT_ID }}"
+          fi
 
           # Clinical Director Agent (ADK) integration (optional; set secrets to enable).
           if [ -n "${{ secrets.CLINICAL_DIRECTOR_AGENT_URL }}" ]; then
