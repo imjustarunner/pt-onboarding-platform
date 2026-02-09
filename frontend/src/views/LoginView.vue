@@ -11,7 +11,7 @@
         <div v-if="error" class="error" v-html="formatError(error)"></div>
 
         <button
-          v-if="showGoogleButton"
+          v-if="showGoogleButton && showPassword"
           type="button"
           class="btn btn-secondary"
           :disabled="loading || loadingOrgPolicy"
@@ -19,20 +19,33 @@
         >
           {{ loadingOrgPolicy ? 'Loading...' : 'Continue with Google' }}
         </button>
-        
-        <form @submit.prevent="handleLogin" class="login-form">
+
+        <form @submit.prevent="handleSubmit" class="login-form">
           <div class="form-group">
-            <label for="email">Email</label>
+            <label for="username">Username</label>
             <input
-              id="email"
-              v-model="email"
-              type="email"
+              id="username"
+              v-model="username"
+              type="text"
               required
-              placeholder="Enter your email"
+              placeholder="Enter your username"
+              autocomplete="username"
+              :disabled="loading || verifying || loadingOrgPolicy"
+              @blur="maybeVerify"
             />
           </div>
+
+          <div v-if="needsOrgChoice" class="form-group">
+            <label for="orgChoice">Choose your organization</label>
+            <select id="orgChoice" v-model="selectedOrgSlug" :disabled="verifying || loading" required>
+              <option disabled value="">Select an organization</option>
+              <option v-for="o in orgOptions" :key="o.slug || o.portal_url || o.id" :value="(o.slug || o.portal_url || '').toLowerCase()">
+                {{ o.name }}{{ o.organization_type ? ` (${o.organization_type})` : '' }}
+              </option>
+            </select>
+          </div>
           
-          <div class="form-group">
+          <div v-if="showPassword && !needsOrgChoice" class="form-group">
             <label for="password">Password</label>
             <input
               id="password"
@@ -40,11 +53,38 @@
               type="password"
               required
               placeholder="Enter your password"
+              autocomplete="current-password"
+              :disabled="loading"
             />
           </div>
+
+          <div v-if="!isOrgLogin && !needsOrgChoice" class="form-group" style="margin-top: -6px;">
+            <label style="display:flex;gap:10px;align-items:center;font-weight:500;">
+              <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" />
+              Remember my username and brand on this device
+            </label>
+          </div>
           
-          <button type="submit" class="btn btn-primary" :disabled="loading">
+          <button v-if="needsOrgChoice" type="submit" class="btn btn-primary" :disabled="verifying || loading || !selectedOrgSlug">
+            {{ verifying ? 'Verifying…' : 'Continue' }}
+          </button>
+
+          <button v-else-if="!showPassword" type="submit" class="btn btn-primary" :disabled="verifying || loading || !username.trim()">
+            {{ verifying ? 'Verifying…' : 'Verify' }}
+          </button>
+
+          <button v-else type="submit" class="btn btn-primary" :disabled="loading">
             {{ loading ? 'Signing in...' : 'Sign In' }}
+          </button>
+
+          <button
+            v-if="showPassword && !needsOrgChoice"
+            type="button"
+            class="btn btn-secondary"
+            :disabled="loading || verifying"
+            @click="resetToUsernameStep"
+          >
+            Change username
           </button>
         </form>
         
@@ -136,6 +176,7 @@ import PoweredByFooter from '../components/PoweredByFooter.vue';
 import api from '../services/api';
 import { getBackendBaseUrl } from '../utils/uploadsUrl';
 import { getDashboardRoute } from '../utils/router';
+import { getRememberedLogin, setRememberedLogin, clearRememberedLogin } from '../utils/loginRemember';
 
 // Removed hardcoded credentials for security
 const router = useRouter();
@@ -233,6 +274,39 @@ onMounted(async () => {
     // Initialize portal theme if on subdomain/custom domain (separate from slug-based org logins)
     await brandingStore.initializePortalTheme();
   }
+
+  // Restore username across redirects (and optionally auto-verify).
+  try {
+    const fromQuery = String(route.query?.u || '').trim();
+    const pendingUsername = String(sessionStorage.getItem('__pt_login_pending_username__') || '').trim();
+    const restored = fromQuery || pendingUsername;
+    if (restored) username.value = restored;
+
+    const pendingRemember = sessionStorage.getItem('__pt_login_pending_remember__');
+    if (pendingRemember === '1') rememberLogin.value = true;
+
+    const shouldVerify = sessionStorage.getItem('__pt_login_pending_verify__') === '1';
+    if (shouldVerify && restored) {
+      sessionStorage.removeItem('__pt_login_pending_verify__');
+      // Keep pending_username so a route change can rehydrate again if needed.
+      await verifyUsername({ reason: 'pending_route' });
+      return;
+    }
+  } catch {
+    // ignore
+  }
+
+  // Platform login convenience: if they opted-in to remember brand+username, auto-verify to route to the right branded login.
+  if (!isOrgLogin.value) {
+    const remembered = getRememberedLogin();
+    if (remembered?.username && !String(username.value || '').trim()) {
+      username.value = remembered.username;
+      rememberLogin.value = true;
+    }
+    if (remembered?.orgSlug && remembered?.username) {
+      await verifyUsername({ orgSlugOverride: remembered.orgSlug, reason: 'remembered' });
+    }
+  }
 });
 
 // If the slug changes while this view is mounted, refresh the login theme
@@ -253,10 +327,17 @@ watch(loginSlug, async (newSlug, oldSlug) => {
   }
 });
 
-const email = ref('');
+const username = ref('');
 const password = ref('');
 const error = ref('');
 const loading = ref(false);
+const verifying = ref(false);
+const showPassword = ref(false);
+const needsOrgChoice = ref(false);
+const orgOptions = ref([]);
+const selectedOrgSlug = ref('');
+const rememberLogin = ref(false);
+const lastVerifiedUsername = ref('');
 const showForgotPasswordMessage = ref(false);
 const showForgotUsernameMessage = ref(false);
 const lastErrorCode = ref(null);
@@ -282,6 +363,133 @@ const continueWithGoogle = () => {
   if (!loginSlug.value) return;
   const base = getBackendBaseUrl();
   window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(String(loginSlug.value).trim().toLowerCase())}`;
+};
+
+const resetToUsernameStep = () => {
+  showPassword.value = false;
+  needsOrgChoice.value = false;
+  password.value = '';
+  lastErrorCode.value = null;
+};
+
+const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) => {
+  try {
+    const u = String(username.value || '').trim();
+    if (!u) return;
+    if (verifying.value) return;
+
+    verifying.value = true;
+    error.value = '';
+    lastErrorCode.value = null;
+    needsOrgChoice.value = false;
+    orgOptions.value = [];
+
+    const slug =
+      orgSlugOverride ||
+      (isOrgLogin.value && loginSlug.value ? String(loginSlug.value).trim().toLowerCase() : null) ||
+      (selectedOrgSlug.value ? String(selectedOrgSlug.value).trim().toLowerCase() : null) ||
+      (getRememberedLogin()?.orgSlug || null);
+
+    const resp = await api.post(
+      '/auth/identify',
+      {
+        username: u,
+        organizationSlug: slug || undefined
+      },
+      { skipGlobalLoading: true, skipAuthRedirect: true }
+    );
+
+    const data = resp?.data || {};
+    const matched = data?.matched === true;
+    if (!matched) {
+      showPassword.value = false;
+      needsOrgChoice.value = false;
+      error.value = 'Username not found. Please check and try again.';
+      return;
+    }
+
+    lastVerifiedUsername.value = String(data?.normalizedUsername || u).trim().toLowerCase();
+
+    if (data?.needsOrgChoice === true) {
+      const opts = Array.isArray(data?.orgOptions) ? data.orgOptions : [];
+      orgOptions.value = opts;
+      needsOrgChoice.value = true;
+      showPassword.value = false;
+      selectedOrgSlug.value = '';
+      return;
+    }
+
+    const ro = data?.resolvedOrg || null;
+    const resolvedSlug = String(ro?.slug || ro?.portal_url || ro?.portalUrl || '').trim().toLowerCase();
+
+    // If this verification indicates we should be on a different branded login, route there.
+    if (resolvedSlug) {
+      const current = isOrgLogin.value && loginSlug.value ? String(loginSlug.value).trim().toLowerCase() : '';
+      if (!current || current !== resolvedSlug) {
+        try {
+          sessionStorage.setItem('__pt_login_pending_username__', u);
+          sessionStorage.setItem('__pt_login_pending_verify__', '1');
+          sessionStorage.setItem('__pt_login_pending_remember__', rememberLogin.value ? '1' : '0');
+        } catch {
+          // ignore
+        }
+        await router.replace({ path: `/${resolvedSlug}/login`, query: { u } });
+        return;
+      }
+    }
+
+    // Persist preference for future platform logins (opt-in).
+    if (!isOrgLogin.value && rememberLogin.value && resolvedSlug) {
+      setRememberedLogin({ username: u, orgSlug: resolvedSlug });
+    } else if (!isOrgLogin.value && !rememberLogin.value && reason === 'remembered') {
+      // User unchecked remember but we arrived from a remembered redirect; clear it.
+      clearRememberedLogin();
+    }
+
+    // Decide between Google vs password.
+    const method = String(data?.login?.method || 'password').toLowerCase();
+    if (method === 'google') {
+      const path = String(data?.login?.googleStartUrl || '').trim();
+      if (path) {
+        const base = getBackendBaseUrl();
+        window.location.href = `${base}${path.startsWith('/') ? '' : '/'}${path}`;
+        return;
+      }
+      // Fallback: if backend didn't provide URL, use current org loginSlug.
+      continueWithGoogle();
+      return;
+    }
+
+    showPassword.value = true;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || 'Verification failed. Please try again.';
+    showPassword.value = false;
+    needsOrgChoice.value = false;
+  } finally {
+    verifying.value = false;
+  }
+};
+
+const maybeVerify = async () => {
+  const u = String(username.value || '').trim().toLowerCase();
+  if (!u) return;
+  if (showPassword.value || needsOrgChoice.value) return;
+  if (verifying.value) return;
+  if (u === String(lastVerifiedUsername.value || '').trim().toLowerCase()) return;
+  await verifyUsername({ reason: 'blur' });
+};
+
+const handleSubmit = async () => {
+  if (needsOrgChoice.value) {
+    if (!selectedOrgSlug.value) return;
+    await verifyUsername({ orgSlugOverride: selectedOrgSlug.value, reason: 'org_choice' });
+    return;
+  }
+  if (!showPassword.value) {
+    await verifyUsername({ reason: 'submit' });
+    return;
+  }
+  await handleLogin();
 };
 
 const loadOrgPolicy = async () => {
@@ -313,7 +521,7 @@ const handleLogin = async () => {
   lastErrorCode.value = null;
   loading.value = true;
   
-  const result = await authStore.login(email.value, password.value, loginSlug.value);
+  const result = await authStore.login(username.value, password.value, loginSlug.value);
   
   if (result.success) {
     // Fetch user's agencies and set default if not super admin
@@ -345,7 +553,8 @@ const showForgotPassword = () => {
   recoveryError.value = '';
   recoverySuccess.value = '';
   recoveryDebug.value = null;
-  forgotPasswordEmail.value = (email.value || '').trim();
+  const u = String(username.value || '').trim();
+  forgotPasswordEmail.value = u.includes('@') ? u : '';
 };
 
 const showForgotUsername = () => {

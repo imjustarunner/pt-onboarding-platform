@@ -43,15 +43,18 @@ export const useAuthStore = defineStore('auth', () => {
     // Cookie is cleared by backend on logout
   };
 
+  // NOTE: `email` param name kept for backward compatibility with callers.
+  // This method now treats the first argument as a generic login identifier (username or email).
   const login = async (email, password, organizationSlug = null) => {
     try {
-      console.log('Attempting login for:', email);
+      const identifier = String(email || '').trim();
+      console.log('Attempting login for:', identifier);
       let response;
       const orgSlug = organizationSlug ? String(organizationSlug).trim().toLowerCase() : null;
       
       // Try regular login first
       try {
-        response = await api.post('/auth/login', { email, password, organizationSlug: orgSlug || undefined });
+        response = await api.post('/auth/login', { username: identifier, password, organizationSlug: orgSlug || undefined });
       } catch (regularLoginError) {
         // If regular login fails, try approved employee login
         if (regularLoginError.response?.status === 403 && regularLoginError.response?.data?.error?.code === 'SSO_REQUIRED') {
@@ -68,10 +71,11 @@ export const useAuthStore = defineStore('auth', () => {
           // log them in as an approved_employee and then most of the app 403s (no users-table id).
           const msg = String(regularLoginError.response?.data?.error?.message || '').toLowerCase();
           const looksLikeUserNotFound = msg.includes('user not found');
-          if (looksLikeUserNotFound) {
+          const looksLikeEmail = identifier.includes('@');
+          if (looksLikeUserNotFound && looksLikeEmail) {
             console.log('Regular login user not found, trying approved employee login...');
             try {
-              response = await api.post('/auth/approved-employee-login', { email, password });
+              response = await api.post('/auth/approved-employee-login', { email: identifier, password });
             } catch (approvedEmployeeError) {
               // Both failed, return the approved employee error (more specific)
               const errorMessage = approvedEmployeeError.response?.data?.error?.message || approvedEmployeeError.message || 'Login failed. Please check your credentials and try again.';

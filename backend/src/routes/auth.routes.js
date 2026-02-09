@@ -2,6 +2,7 @@ import express from 'express';
 import { body } from 'express-validator';
 import {
   login,
+  identifyLogin,
   register,
   approvedEmployeeLogin,
   logout,
@@ -26,8 +27,24 @@ import { authLimiter, recoveryLimiter } from '../middleware/rateLimiter.middlewa
 const router = express.Router();
 
 const validateLogin = [
-  body('email').isEmail().normalizeEmail(),
+  // Accept either `username` (new) or `email` (legacy). Do NOT require email format.
+  // Username-first UX sends `username`.
+  body('username').custom((value, { req }) => {
+    const u = String(req.body?.username || '').trim();
+    const e = String(req.body?.email || '').trim();
+    if (!u && !e) {
+      throw new Error('Username or email is required');
+    }
+    return true;
+  }),
+  body('username').optional().isString().trim(),
+  body('email').optional().isString().trim(),
   body('password').notEmpty().withMessage('Password is required')
+];
+
+const validateIdentifyLogin = [
+  body('username').isString().trim().notEmpty().withMessage('Username is required'),
+  body('organizationSlug').optional().isString().trim()
 ];
 
 const validateRegister = [
@@ -127,6 +144,7 @@ const validateRegister = [
   body('bypassDuplicateCheck').optional().isBoolean().withMessage('bypassDuplicateCheck must be a boolean')
 ];
 
+router.post('/identify', authLimiter, validateIdentifyLogin, identifyLogin);
 router.post('/login', authLimiter, validateLogin, login);
 router.get('/google/start', googleOAuthStart);
 router.get('/google/callback', googleOAuthCallback);

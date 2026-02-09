@@ -55,6 +55,7 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
+import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -68,6 +69,7 @@ const emit = defineEmits(['close', 'login-success']);
 
 const router = useRouter();
 const authStore = useAuthStore();
+const agencyStore = useAgencyStore();
 
 const email = ref('');
 const password = ref('');
@@ -85,21 +87,21 @@ const handleLogin = async () => {
 
   try {
     const response = await api.post('/auth/login', {
-      email: email.value,
-      password: password.value
+      username: String(email.value || '').trim(),
+      password: password.value,
+      organizationSlug: props.organizationSlug
     });
 
-    // Store auth token
-    if (response.data.token) {
-      authStore.setToken(response.data.token);
+    // Token is in HttpOnly cookie; store user in auth store for UI state.
+    if (response?.data?.user) {
+      authStore.setAuth(null, response.data.user, response.data.sessionId || null);
     }
 
-    // Fetch user data
-    await authStore.fetchUser();
+    // Fetch user's org memberships (source of truth for slug access + routing)
+    const userOrgs = await agencyStore.fetchUserAgencies();
 
     // Verify user is associated with this organization
     const user = authStore.user;
-    const userOrgs = user?.agencies || [];
     const isAssociated = userOrgs.some(org => 
       org.slug === props.organizationSlug || 
       org.portal_url === props.organizationSlug
@@ -107,7 +109,7 @@ const handleLogin = async () => {
 
     if (!isAssociated && user?.role !== 'super_admin') {
       error.value = 'You are not authorized to access this organization';
-      authStore.logout();
+      authStore.clearAuth();
       return;
     }
 

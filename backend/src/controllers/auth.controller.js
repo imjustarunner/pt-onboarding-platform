@@ -196,17 +196,19 @@ export const login = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
     }
 
-    const { email, password } = req.body;
+    const identifierRaw = req.body?.username || req.body?.email || '';
+    const identifier = String(identifierRaw || '').trim().toLowerCase();
+    const { password } = req.body;
     const orgSlugRaw = req.body?.organizationSlug || req.body?.orgSlug || null;
     const orgSlug = orgSlugRaw ? String(orgSlugRaw).trim().toLowerCase() : null;
 
     let user;
     try {
       // Try to find by email first (which also checks username now)
-      user = await User.findByEmail(email);
+      user = await User.findByEmail(identifier);
       // If not found by email, try username field specifically
       if (!user) {
-        user = await User.findByUsername(email);
+        user = await User.findByUsername(identifier);
       }
     } catch (dbError) {
       console.error('Database error during login:', {
@@ -528,6 +530,198 @@ export const login = async (req, res, next) => {
     res.json(responseData);
   } catch (error) {
     next(error);
+  }
+};
+
+/**
+ * Public endpoint: identify a username/email and return the best org context + login method.
+ * This powers a username-first login UX (verify -> branded login -> google or password).
+ */
+export const identifyLogin = async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: { message: 'Validation failed', errors: errors.array() } });
+    }
+
+    const usernameRaw = req.body?.username || req.body?.email || '';
+    const normalizedUsername = String(usernameRaw || '').trim().toLowerCase();
+    const orgSlugRaw = req.body?.organizationSlug || req.body?.orgSlug || null;
+    const requestedOrgSlug = orgSlugRaw ? String(orgSlugRaw).trim().toLowerCase() : null;
+
+    if (!normalizedUsername) {
+      return res.json({
+        matched: false,
+        normalizedUsername,
+        needsOrgChoice: false,
+        resolvedOrg: null,
+        login: { method: 'password' }
+      });
+    }
+
+    let user = null;
+    try {
+      user = await User.findByEmail(normalizedUsername);
+      if (!user) user = await User.findByUsername(normalizedUsername);
+    } catch {
+      user = null;
+    }
+
+    if (!user?.id) {
+      return res.json({
+        matched: false,
+        normalizedUsername,
+        needsOrgChoice: false,
+        resolvedOrg: null,
+        login: { method: 'password' }
+      });
+    }
+
+    const userRole = String(user?.role || '').toLowerCase();
+    if (userRole === 'super_admin') {
+      // Super admins should remain on platform branding by default.
+      return res.json({
+        matched: true,
+        normalizedUsername,
+        needsOrgChoice: false,
+        resolvedOrg: null,
+        login: { method: 'password' }
+      });
+    }
+
+    const parseFeatureFlags = (raw) => {
+      if (!raw) return {};
+      if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw);
+          return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch {
+          return {};
+        }
+      }
+      return raw && typeof raw === 'object' ? raw : {};
+    };
+
+    const pickSlug = (org) => String(org?.slug || org?.portal_url || org?.portalUrl || '').trim().toLowerCase() || null;
+    const pickType = (org) => String(org?.organization_type || org?.organizationType || 'agency').trim().toLowerCase();
+
+    let orgs = [];
+    try {
+      orgs = (await User.getAgencies(user.id)) || [];
+    } catch {
+      orgs = [];
+    }
+
+    const orgOptions = (orgs || []).map((o) => ({
+      id: o?.id ?? null,
+      name: o?.name ?? null,
+      slug: o?.slug ?? null,
+      portal_url: o?.portal_url ?? o?.portalUrl ?? null,
+      organization_type: o?.organization_type ?? o?.organizationType ?? null
+    }));
+
+    // Resolve org context
+    let resolved = null;
+    const requested = requestedOrgSlug ? String(requestedOrgSlug).trim().toLowerCase() : null;
+
+    const hasMembership = (slug) => {
+      if (!slug) return false;
+      const s = String(slug).trim().toLowerCase();
+      return (orgs || []).some((o) => {
+        const os = pickSlug(o);
+        return os && os === s;
+      });
+    };
+
+    if (requested && hasMembership(requested)) {
+      resolved = (orgs || []).find((o) => pickSlug(o) === requested) || null;
+    }
+
+    // Special-case school_staff: prefer exactly-one school (or portal org) even if multiple org memberships exist.
+    if (!resolved && userRole === 'school_staff') {
+      const schools = (orgs || []).filter((o) => pickType(o) === 'school');
+      if (schools.length === 1) resolved = schools[0];
+      if (!resolved) {
+        const portals = (orgs || []).filter((o) => ['school', 'program', 'learning'].includes(pickType(o)));
+        if (portals.length === 1) resolved = portals[0];
+      }
+    }
+
+    // If still unresolved:
+    // - single org => use it
+    // - multi-org => require choice (frontend will pass last-used org slug next time)
+    if (!resolved) {
+      if ((orgs || []).length === 1) {
+        resolved = orgs[0];
+      } else if ((orgs || []).length > 1) {
+        return res.json({
+          matched: true,
+          normalizedUsername,
+          needsOrgChoice: true,
+          orgOptions,
+          resolvedOrg: null,
+          login: { method: 'password' }
+        });
+      }
+    }
+
+    const resolvedSlug = resolved ? pickSlug(resolved) : null;
+
+    // Determine login method (Google vs password) for resolved org
+    let loginMethod = 'password';
+    let googleStartUrl = null;
+
+    if (resolvedSlug) {
+      try {
+        const org = (await Agency.findBySlug(resolvedSlug)) || (await Agency.findByPortalUrl(resolvedSlug));
+        const flags = parseFeatureFlags(org?.feature_flags ?? null);
+        const ssoEnabled = flags?.googleSsoEnabled === true;
+        const requiredRoles = Array.isArray(flags?.googleSsoRequiredRoles)
+          ? flags.googleSsoRequiredRoles.map((r) => String(r || '').toLowerCase()).filter(Boolean)
+          : [];
+
+        const excludedRoles = new Set(['school_staff', 'client_guardian', 'client', 'guardian']);
+        const roleEligible = requiredRoles.length > 0 ? requiredRoles.includes(userRole) : true;
+
+        // Only auto-Google when the typed username matches the user's primary login email/username
+        // (prevents redirect loops when they typed a legacy alias that doesn't match Google email).
+        const sameAsPrimary = (() => {
+          const uEmail = String(user?.email || '').trim().toLowerCase();
+          const uWork = String(user?.work_email || '').trim().toLowerCase();
+          const uUser = String(user?.username || '').trim().toLowerCase();
+          return normalizedUsername && (normalizedUsername === uEmail || normalizedUsername === uWork || normalizedUsername === uUser);
+        })();
+
+        if (ssoEnabled && roleEligible && !excludedRoles.has(userRole) && normalizedUsername.includes('@') && sameAsPrimary) {
+          loginMethod = 'google';
+          googleStartUrl = `/auth/google/start?orgSlug=${encodeURIComponent(resolvedSlug)}`;
+        }
+      } catch {
+        // best-effort
+      }
+    }
+
+    return res.json({
+      matched: true,
+      normalizedUsername,
+      needsOrgChoice: false,
+      orgOptions: undefined,
+      resolvedOrg: resolved
+        ? {
+            id: resolved?.id ?? null,
+            name: resolved?.name ?? null,
+            slug: resolved?.slug ?? null,
+            portal_url: resolved?.portal_url ?? resolved?.portalUrl ?? null,
+            organization_type: resolved?.organization_type ?? resolved?.organizationType ?? null
+          }
+        : null,
+      login:
+        loginMethod === 'google'
+          ? { method: 'google', googleStartUrl }
+          : { method: 'password' }
+    });
+  } catch (e) {
+    next(e);
   }
 };
 
