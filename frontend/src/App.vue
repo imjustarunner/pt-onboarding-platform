@@ -53,7 +53,7 @@
             </div>
             <div class="nav-links-wrapper" :class="{ 'nav-menus-open': navDropdownOpen }">
               <div class="nav-links">
-              <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu">
+              <router-link :to="myDashboardTo" @click="closeMobileMenu">
                 {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
               </router-link>
               <!-- Minimal top-nav for non-admin users with limited access -->
@@ -297,7 +297,7 @@
       <div v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" class="welcome-hang-wrap">
         <router-link
           class="welcome-hang-link"
-          :to="orgTo('/dashboard')"
+          :to="myDashboardTo"
           aria-label="Go to My Dashboard"
         >
           <span class="welcome-text">Welcome, {{ welcomeName }}</span>
@@ -319,7 +319,7 @@
           </div>
           <div class="mobile-nav-links">
             <router-link v-if="showOnDemandLink" :to="orgTo('/on-demand-training')" @click="closeMobileMenu" class="mobile-nav-link">On-Demand Training</router-link>
-            <router-link :to="orgTo('/dashboard')" @click="closeMobileMenu" class="mobile-nav-link">
+            <router-link :to="myDashboardTo" @click="closeMobileMenu" class="mobile-nav-link">
               {{ isPrivilegedPortalUser ? 'My Dashboard' : 'Dashboard' }}
             </router-link>
             <router-link
@@ -488,6 +488,7 @@ import { useNotificationStore } from './store/notifications';
 import { useRouter, useRoute } from 'vue-router';
 import { startActivityTracking, stopActivityTracking } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
+import { getDashboardRoute } from './utils/router';
 import api from './services/api';
 import AgencySelector from './components/AgencySelector.vue';
 import PlatformChatDrawer from './components/PlatformChatDrawer.vue';
@@ -1025,6 +1026,14 @@ const orgTo = (path) => {
   if (!slug) return path;
   return `/${slug}${path}`;
 };
+
+// For superadmin, "My Dashboard" should always go to platform admin (/admin), not the current org's dashboard.
+const myDashboardTo = computed(() => {
+  if (String(authStore.user?.role || '').toLowerCase() === 'super_admin') {
+    return getDashboardRoute();
+  }
+  return orgTo('/dashboard');
+});
 
 const handleLogout = async () => {
   stopActivityTracking();
