@@ -1375,6 +1375,17 @@ class Agency {
       hasIntakeRetentionPolicy = false;
     }
 
+    // Check if session_settings_json column exists (optional)
+    let hasSessionSettings = false;
+    try {
+      const [cols] = await pool.execute(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agencies' AND COLUMN_NAME = 'session_settings_json'"
+      );
+      hasSessionSettings = (cols || []).length > 0;
+    } catch {
+      hasSessionSettings = false;
+    }
+
     if (name !== undefined) {
       updates.push('name = ?');
       values.push(name);

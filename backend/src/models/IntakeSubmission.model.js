@@ -19,15 +19,16 @@ class IntakeSubmission {
       guardianUserId = null,
       combinedPdfPath = null,
       combinedPdfHash = null,
-      retentionExpiresAt = null
+      retentionExpiresAt = null,
+      sessionToken = null
     } = data;
 
     const [result] = await pool.execute(
       `INSERT INTO intake_submissions
        (intake_link_id, status, signer_name, signer_initials, signer_email, signer_phone, intake_data,
         intake_data_hash, consent_given_at, submitted_at, ip_address, user_agent, client_id, guardian_user_id,
-        combined_pdf_path, combined_pdf_hash, retention_expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        combined_pdf_path, combined_pdf_hash, retention_expires_at, session_token)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         intakeLinkId,
         status,
@@ -45,7 +46,8 @@ class IntakeSubmission {
         guardianUserId,
         combinedPdfPath,
         combinedPdfHash,
-        retentionExpiresAt
+        retentionExpiresAt,
+        sessionToken
       ]
     );
     return this.findById(result.insertId);
@@ -57,6 +59,32 @@ class IntakeSubmission {
       [id]
     );
     return rows[0] || null;
+  }
+
+  static async findBySessionToken(sessionToken) {
+    const token = String(sessionToken || '').trim();
+    if (!token) return null;
+    const [rows] = await pool.execute(
+      'SELECT * FROM intake_submissions WHERE session_token = ? LIMIT 1',
+      [token]
+    );
+    return rows[0] || null;
+  }
+
+  static async countStartsByLinkAndIp({ intakeLinkId, ipAddress, since }) {
+    const linkId = Number(intakeLinkId || 0);
+    const ip = String(ipAddress || '').trim();
+    if (!linkId || !ip) return 0;
+    const sinceDate = since instanceof Date ? since : new Date(since || 0);
+    const [rows] = await pool.execute(
+      `SELECT COUNT(*) AS c
+       FROM intake_submissions
+       WHERE intake_link_id = ?
+         AND ip_address = ?
+         AND created_at >= ?`,
+      [linkId, ip, sinceDate]
+    );
+    return Number(rows?.[0]?.c || 0);
   }
 
   static async updateById(id, updates) {

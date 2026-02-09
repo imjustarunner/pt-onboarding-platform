@@ -1117,6 +1117,44 @@ export const getPublicIntakeLink = async (req, res, next) => {
   }
 };
 
+export const createPublicIntakeSession = async (req, res, next) => {
+  try {
+    const publicKey = String(req.params.publicKey || '').trim();
+    const link = await IntakeLink.findByPublicKey(publicKey);
+    if (!link || !link.is_active) {
+      return res.status(404).json({ error: { message: 'Intake link not found' } });
+    }
+    const ipAddress = getClientIpAddress(req);
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const starts = await IntakeSubmission.countStartsByLinkAndIp({
+      intakeLinkId: link.id,
+      ipAddress,
+      since
+    });
+    if (starts >= 5) {
+      return res.status(429).json({ error: { message: 'Daily intake start limit reached. Please try again tomorrow.' } });
+    }
+
+    const templates = await loadAllowedTemplates(link);
+    const ttlMs = BASE_CONSENT_TTL_MS + Math.max(0, Number(templates.length || 0)) * PER_PAGE_TTL_MS;
+    const retentionExpiresAt = new Date(Date.now() + ttlMs);
+    const sessionToken = crypto.randomBytes(18).toString('hex');
+
+    const submission = await IntakeSubmission.create({
+      intakeLinkId: link.id,
+      status: 'started',
+      sessionToken,
+      ipAddress,
+      userAgent: req.get('user-agent'),
+      retentionExpiresAt
+    });
+
+    res.json({ sessionToken, submissionId: submission?.id || null });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const createPublicConsent = async (req, res, next) => {
   try {
     const errors = validationResult(req);
@@ -1169,20 +1207,43 @@ export const createPublicConsent = async (req, res, next) => {
 
     const intakeData = req.body?.intakeData || null;
     const intakeDataHash = hashIntakeData(intakeData);
-    const submission = await IntakeSubmission.create({
-      intakeLinkId: link.id,
-      status: 'consented',
-      signerName: normalizeName(req.body.signerName),
-      signerInitials: normalizeName(req.body.signerInitials),
-      signerEmail: normalizeName(req.body.signerEmail) || null,
-      signerPhone: normalizeName(req.body.signerPhone) || null,
-      intakeData,
-      intakeDataHash,
-      consentGivenAt: now,
-      ipAddress,
-      userAgent,
-      retentionExpiresAt
-    });
+    const sessionToken = String(req.body?.sessionToken || '').trim();
+    let submission = sessionToken ? await IntakeSubmission.findBySessionToken(sessionToken) : null;
+    if (submission) {
+      if (String(submission.status || '').toLowerCase() === 'submitted') {
+        return res.status(409).json({ error: { message: 'This intake session is already completed.' } });
+      }
+      submission = await IntakeSubmission.updateById(submission.id, {
+        status: 'consented',
+        signer_name: normalizeName(req.body.signerName),
+        signer_initials: normalizeName(req.body.signerInitials),
+        signer_email: normalizeName(req.body.signerEmail) || null,
+        signer_phone: normalizeName(req.body.signerPhone) || null,
+        intake_data: intakeData ? JSON.stringify(intakeData) : null,
+        intake_data_hash: intakeDataHash,
+        consent_given_at: now,
+        ip_address: ipAddress,
+        user_agent: userAgent,
+        retention_expires_at: retentionExpiresAt,
+        session_token: sessionToken || null
+      });
+    } else {
+      submission = await IntakeSubmission.create({
+        intakeLinkId: link.id,
+        status: 'consented',
+        signerName: normalizeName(req.body.signerName),
+        signerInitials: normalizeName(req.body.signerInitials),
+        signerEmail: normalizeName(req.body.signerEmail) || null,
+        signerPhone: normalizeName(req.body.signerPhone) || null,
+        sessionToken: sessionToken || null,
+        intakeData,
+        intakeDataHash,
+        consentGivenAt: now,
+        ipAddress,
+        userAgent,
+        retentionExpiresAt
+      });
+    }
 
     res.status(201).json({ submission });
   } catch (error) {
@@ -1508,7 +1569,8 @@ export const finalizePublicIntake = async (req, res, next) => {
       submitted_at: now,
       intake_data: intakeData ? JSON.stringify(intakeData) : null,
       intake_data_hash: intakeDataHash,
-      retention_expires_at: retentionExpiresAt
+      retention_expires_at: retentionExpiresAt,
+      session_token: String(req.body?.sessionToken || '').trim() || null
     });
 
     let createdClients = [];

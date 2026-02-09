@@ -15,7 +15,25 @@
       <h2>{{ link?.title || 'Digital Intake' }}</h2>
       <p v-if="link?.description" class="muted">{{ link.description }}</p>
 
-      <div v-if="step === 0" class="step cover-step">
+      <div v-if="step === -1" class="step cover-step">
+        <div class="cover-card">
+          <div v-for="screen in introScreens" :key="screen.key" class="cover-logo">
+            <img v-if="screen.logoUrl" :src="screen.logoUrl" :alt="screen.altText" />
+            <div class="cover-title">{{ screen.displayName }}</div>
+          </div>
+          <div class="cover-subtitle">
+            Begin to start a secure intake session. This link creates a unique session for each person.
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary" type="button" @click="beginIntakeSession">
+              Begin intake
+            </button>
+          </div>
+          <div v-if="beginError" class="error" style="margin-top: 10px;">{{ beginError }}</div>
+        </div>
+      </div>
+
+      <div v-else-if="step === 0" class="step cover-step">
         <div class="cover-card">
           <div class="cover-logo" v-if="currentIntro?.logoUrl">
             <img :src="currentIntro.logoUrl" :alt="currentIntro.altText" />
@@ -591,7 +609,7 @@
 
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import SignaturePad from '../components/SignaturePad.vue';
 import PDFPreview from '../components/documents/PDFPreview.vue';
@@ -599,6 +617,7 @@ import { toUploadsUrl } from '../utils/uploadsUrl';
 import { useAuthStore } from '../store/auth';
 
 const route = useRoute();
+const router = useRouter();
 const publicKey = route.params.publicKey;
 const authStore = useAuthStore();
 
@@ -607,6 +626,7 @@ const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCa
 const loading = ref(true);
 const error = ref('');
 const stepError = ref('');
+const beginError = ref('');
 const link = ref(null);
 const templates = ref([]);
 const agencyInfo = ref(null);
@@ -683,7 +703,10 @@ const showSkipToSignature = ref(false);
 let pageNoticeTimer = null;
 const docStatus = reactive({});
 const fieldValuesByTemplate = reactive({});
-const submissionStorageKey = `public_intake_submission_${publicKey}`;
+const sessionToken = ref(String(route.query?.session || '').trim());
+const submissionStorageKey = computed(() =>
+  sessionToken.value ? `public_intake_submission_${publicKey}_${sessionToken.value}` : `public_intake_submission_${publicKey}`
+);
 
 const signerInitials = ref('');
 const clients = ref([
@@ -1512,6 +1535,20 @@ const syncClientNamesToResponses = () => {
   });
 };
 
+const ensureSessionToken = async () => {
+  if (sessionToken.value) return sessionToken.value;
+  try {
+    const resp = await api.post(`/public-intake/${publicKey}/session`);
+    const token = String(resp.data?.sessionToken || '').trim();
+    if (!token) return '';
+    sessionToken.value = token;
+    await router.replace({ query: { ...route.query, session: token } });
+    return token;
+  } catch {
+    return '';
+  }
+};
+
 const submitConsent = async () => {
   consentErrors.guardianFirstName = guardianFirstName.value.trim() ? '' : 'Required';
   consentErrors.guardianEmail = guardianEmail.value.trim() ? '' : 'Required';
@@ -1585,6 +1622,7 @@ const submitConsent = async () => {
     syncClientNamesToResponses();
     const clientPayloads = buildClientPayloads();
     const payload = {
+      sessionToken: sessionToken.value || null,
       signerName: `${guardianFirstName.value} ${guardianLastName.value}`.trim(),
       signerInitials: clientPayloads?.[0]?.initials || null,
       signerEmail: guardianEmail.value,
@@ -1749,8 +1787,10 @@ const finalizePacket = async () => {
     submitLoading.value = true;
     error.value = '';
     stepError.value = '';
+    await ensureSessionToken();
     const resp = await api.post(`/public-intake/${publicKey}/${submissionId.value}/finalize`, {
       submissionId: submissionId.value,
+      sessionToken: sessionToken.value || null,
       organizationId: organizationId.value,
       clients: buildClientPayloads(),
       guardian: {
@@ -1776,7 +1816,7 @@ const finalizePacket = async () => {
     downloadUrl.value = resp.data?.downloadUrl || '';
     clientBundleLinks.value = resp.data?.clientBundles || [];
     step.value = 3;
-    localStorage.removeItem(submissionStorageKey);
+    localStorage.removeItem(submissionStorageKey.value);
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to finalize packet';
   } finally {
@@ -1812,21 +1852,21 @@ const cancelIntake = () => {
     'Cancel and delete all entered information? This data will not be saved due to the sensitive nature of the intake.'
   );
   if (!ok) return;
-  localStorage.removeItem(submissionStorageKey);
+  localStorage.removeItem(submissionStorageKey.value);
   resetIntakeState();
 };
 
 const restartIntake = () => {
   const ok = window.confirm('Restart this intake and clear all fields?');
   if (!ok) return;
-  localStorage.removeItem(submissionStorageKey);
+  localStorage.removeItem(submissionStorageKey.value);
   resetIntakeState();
 };
 
 const endSession = () => {
   const ok = window.confirm('End this session and clear this intake from this browser?');
   if (!ok) return;
-  localStorage.removeItem(submissionStorageKey);
+  localStorage.removeItem(submissionStorageKey.value);
   resetIntakeState();
   window.location.reload();
 };
@@ -2149,9 +2189,35 @@ watch(currentDoc, async () => {
   await loadPdfPreview();
 });
 
+const beginIntakeSession = async () => {
+  consentLoading.value = true;
+  try {
+    beginError.value = '';
+    const token = await ensureSessionToken();
+    if (!token) {
+      beginError.value = 'Unable to start a new intake session. Please try again.';
+      return;
+    }
+    localStorage.removeItem(submissionStorageKey.value);
+    if (introScreens.value.length) {
+      step.value = 0;
+      introIndex.value = 0;
+    } else {
+      step.value = 1;
+    }
+    initializeFieldValues();
+    await loadPdfPreview();
+  } finally {
+    consentLoading.value = false;
+  }
+};
+
 onMounted(async () => {
   await loadLink();
-  localStorage.removeItem(submissionStorageKey);
+  if (!sessionToken.value) {
+    step.value = -1;
+    return;
+  }
   if (introScreens.value.length) {
     step.value = 0;
     introIndex.value = 0;

@@ -1,5 +1,6 @@
 import rateLimit from 'express-rate-limit';
 import config from '../config/config.js';
+import { getClientIpAddress } from '../utils/ipAddress.util.js';
 
 // More lenient rate limiting in development
 const isDevelopment = config.nodeEnv === 'development';
@@ -12,6 +13,7 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
   // Use memory store (default) - resets on server restart
   store: undefined, // Default in-memory store
+  keyGenerator: (req) => `auth:${getClientIpAddress(req) || req.ip || 'unknown'}`,
 });
 
 export const apiLimiter = rateLimit({
@@ -42,11 +44,15 @@ export const agentLimiter = rateLimit({
 
 export const publicIntakeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: isDevelopment ? 120 : 30,
+  max: isDevelopment ? 300 : 200,
   message: { error: { message: 'Too many intake requests, please try again later' } },
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `public-intake:${req.ip}`,
+  keyGenerator: (req) => {
+    const key = String(req.params?.publicKey || req.body?.publicKey || '').trim();
+    const ip = getClientIpAddress(req) || 'unknown';
+    return key ? `public-intake:${key}:${ip}` : `public-intake:${ip}`;
+  },
 });
 
 // Password/username recovery endpoints (public-facing, anti-abuse).

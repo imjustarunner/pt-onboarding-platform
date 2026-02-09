@@ -3,6 +3,7 @@ import { body } from 'express-validator';
 import { publicIntakeLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   approvePublicIntake,
+  createPublicIntakeSession,
   createPublicConsent,
   finalizePublicIntake,
   getPublicIntakeLink,
@@ -19,6 +20,7 @@ const router = express.Router();
 router.use(publicIntakeLimiter);
 
 router.get('/school/:organizationId', getSchoolIntakeLink);
+router.post('/:publicKey/session', createPublicIntakeSession);
 router.get('/:publicKey', getPublicIntakeLink);
 router.get('/:publicKey/status/:submissionId', getPublicIntakeStatus);
 router.get('/:publicKey/document/:templateId/preview', previewPublicTemplate);
@@ -31,7 +33,8 @@ router.post(
     body('signerInitials').optional().isString(),
     body('signerEmail').notEmpty().withMessage('signerEmail is required'),
     body('signerPhone').optional().isString(),
-    body('captchaToken').optional().isString()
+    body('captchaToken').optional().isString(),
+    body('sessionToken').optional().isString()
   ],
   createPublicConsent
 );
@@ -57,7 +60,8 @@ router.post(
 router.post(
   '/:publicKey/:submissionId/finalize',
   [
-    body('submissionId').optional().isInt()
+    body('submissionId').optional().isInt(),
+    body('sessionToken').optional().isString()
   ],
   finalizePublicIntake
 );
